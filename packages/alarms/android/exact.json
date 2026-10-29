@@ -1,0 +1,52 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/alarms@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidAlarmStatus": {
+      "canScheduleExactAlarms": "bool",
+      "notifications": "enum<granted|denied|prompt>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "manifest": {
+    "receivers": [
+      {
+        "name": "exact.alarms.AlarmReceiver",
+        "directBootAware": true
+      },
+      {
+        "name": "exact.alarms.AlarmSystemReceiver",
+        "directBootAware": true,
+        "actions": [
+          "android.intent.action.LOCKED_BOOT_COMPLETED",
+          "android.intent.action.BOOT_COMPLETED",
+          "android.intent.action.TIME_SET",
+          "android.intent.action.TIMEZONE_CHANGED",
+          "android.intent.action.MY_PACKAGE_REPLACED",
+          "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"
+        ]
+      }
+    ],
+    "services": [
+      {
+        "name": "exact.alarms.AlarmService",
+        "directBootAware": true,
+        "foregroundServiceType": "systemExempted"
+      }
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.alarms.AlarmsModule"
+}

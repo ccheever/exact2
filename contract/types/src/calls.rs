@@ -4,7 +4,7 @@
 
 use super::{checks, err, infer, routes, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
 use contract_syntax::inline::calls::{shown, MARK};
-use contract_syntax::{one_spelling_edit, Component, Expr, Span, Stmt, TemplatePart};
+use contract_syntax::{one_spelling_edit, Component, Expr, Span, Stmt, TemplatePart, UnOp};
 
 /// The prefix of a lifted action's capture parameters.
 pub(crate) const CAPTURE: &str = "@capture:";
@@ -381,6 +381,40 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
             }
         }
     }
+}
+
+/// `-exact-label` unquoted, which reads as a minus and an unknown name: a
+/// platform token is a string. Not when a name in scope ends at a later
+/// hyphen (`-exact-a-exact-b`): that reads as a subtraction missing its
+/// spaces, which the unknown name's own refusal says. The span runs from
+/// the minus through the name.
+pub(super) fn unquoted_token(
+    op: UnOp,
+    inner: &Expr,
+    scope: &Scope,
+    minus: Span,
+) -> Option<TypeError> {
+    let (UnOp::Neg, Expr::Ident(name, at)) = (op, inner) else {
+        return None;
+    };
+    let subtraction = name
+        .match_indices('-')
+        .any(|(i, _)| i > "exact".len() && scope.lookup(&name[..i]).is_some());
+    if !name.starts_with("exact-") || scope.lookup(name).is_some() || subtraction {
+        return None;
+    }
+    let span = match at.line == minus.line {
+        true => Span {
+            end_col: at.end_col,
+            ..minus
+        },
+        false => *at,
+    };
+    Some(TypeError {
+        id: "type-unknown-name",
+        message: format!("unknown name `{name}`: `-{name}` reads as a minus and a name; if it is a platform token, it is a string: write `\"-{name}\"`"),
+        span,
+    })
 }
 
 // Suggestions change only a refusal's text. Global functions have authored

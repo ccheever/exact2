@@ -187,7 +187,7 @@ impl Parser {
                     let mut args = vec![e];
                     args.extend(self.call_args()?);
                     self.built(below.max(self.last), span)?;
-                    self.methods.push((field.clone(), span));
+                    self.methods.push((field.clone(), span, self.in_block));
                     e = Expr::Call(field, args, span);
                     continue;
                 }
@@ -205,7 +205,7 @@ impl Parser {
             // receiver's type: a record's `length` field is read as one
             // (@ref LLP 1116.015 D2, amended 2026-10-17).
             e = if field == "length" {
-                self.methods.push((field.clone(), span));
+                self.methods.push((field.clone(), span, self.in_block));
                 Expr::Call(field, vec![e], span)
             } else {
                 Expr::Member(Box::new(e), field, span)
@@ -337,7 +337,7 @@ impl Parser {
                         if (crate::idioms::is_method(&w) || w == "length") && !args.is_empty() {
                             let message = crate::idioms::method_form(&w, &args);
                             let edits = self.method_edits(start, &w, args.len());
-                            self.free.push((w.clone(), SyntaxError { id: "syntax-method-form", message, span }, edits));
+                            self.free.push((w.clone(), SyntaxError { id: "syntax-method-form", message, span }, edits, self.in_block));
                         }
                         self.built(self.last, span)?;
                         Ok(Expr::Call(w, args, span))
@@ -470,6 +470,7 @@ impl Parser {
             let mut sub = Parser {
                 depth: self.depth,
                 view_depth: self.view_depth,
+                in_block: self.in_block,
                 ..Parser::new(tokens)
             };
             let e = sub.expr()?;

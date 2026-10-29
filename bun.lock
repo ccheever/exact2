@@ -6,27 +6,52 @@
       "name": "exact2",
       "dependencies": {
         "@exact/actions": "workspace:*",
+        "@exact/age-range": "workspace:*",
+        "@exact/alarms": "workspace:*",
+        "@exact/altimeter": "workspace:*",
+        "@exact/attestation": "workspace:*",
         "@exact/background": "workspace:*",
+        "@exact/barcode-detection": "workspace:*",
         "@exact/browser": "workspace:*",
         "@exact/browser-automation": "workspace:*",
         "@exact/calendar": "workspace:*",
+        "@exact/calls": "workspace:*",
         "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
+        "@exact/compose": "workspace:*",
         "@exact/contacts": "workspace:*",
+        "@exact/device": "workspace:*",
+        "@exact/gamepad": "workspace:*",
+        "@exact/geocoding": "workspace:*",
+        "@exact/geofencing": "workspace:*",
         "@exact/geolocation": "workspace:*",
+        "@exact/health": "workspace:*",
+        "@exact/in-app-browser": "workspace:*",
         "@exact/language-model": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
+        "@exact/local-network": "workspace:*",
+        "@exact/maps": "workspace:*",
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
+        "@exact/nfc": "workspace:*",
+        "@exact/notifications": "workspace:*",
         "@exact/passkeys": "workspace:*",
+        "@exact/payments": "workspace:*",
+        "@exact/pedometer": "workspace:*",
         "@exact/photos": "workspace:*",
+        "@exact/quick-actions": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/recording": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
+        "@exact/search-index": "workspace:*",
+        "@exact/sign-in": "workspace:*",
         "@exact/speech-recognition": "workspace:*",
         "@exact/speech-synthesis": "workspace:*",
+        "@exact/text-detection": "workspace:*",
+        "@exact/tracking-consent": "workspace:*",
+        "@exact/translation": "workspace:*",
       },
       "devDependencies": {
         "@sqlite.org/sqlite-wasm": "3.53.4-build1",
@@ -41,9 +66,39 @@
       "name": "@exact/actions",
       "version": "0.1.0",
     },
+    "packages/age-range": {
+      "name": "@exact/age-range",
+      "version": "1.0.0",
+    },
+    "packages/alarms": {
+      "name": "@exact/alarms",
+      "version": "1.0.0",
+    },
+    "packages/altimeter": {
+      "name": "@exact/altimeter",
+      "version": "1.0.0",
+    },
+    "packages/attestation": {
+      "name": "@exact/attestation",
+      "version": "1.0.0",
+    },
     "packages/background": {
       "name": "@exact/background",
       "version": "1.0.0",
+    },
+    "packages/background-transfer": {
+      "name": "@exact/background-transfer",
+      "version": "1.0.0",
+    },
+    "packages/barcode-detection": {
+      "name": "@exact/barcode-detection",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
     },
     "packages/browser": {
       "name": "@exact/browser",
@@ -55,6 +110,10 @@
     },
     "packages/calendar": {
       "name": "@exact/calendar",
+      "version": "1.0.0",
+    },
+    "packages/calls": {
+      "name": "@exact/calls",
       "version": "1.0.0",
     },
     "packages/camera": {
@@ -71,12 +130,56 @@
       "name": "@exact/cards",
       "version": "0.1.0",
     },
+    "packages/clipboard": {
+      "name": "@exact/clipboard",
+      "version": "1.0.0",
+    },
+    "packages/compose": {
+      "name": "@exact/compose",
+      "version": "1.0.0",
+    },
     "packages/contacts": {
       "name": "@exact/contacts",
       "version": "1.0.0",
     },
+    "packages/device": {
+      "name": "@exact/device",
+      "version": "1.0.0",
+    },
+    "packages/dock": {
+      "name": "@exact/dock",
+      "version": "1.0.0",
+    },
+    "packages/gamepad": {
+      "name": "@exact/gamepad",
+      "version": "1.0.0",
+    },
+    "packages/geocoding": {
+      "name": "@exact/geocoding",
+      "version": "1.0.0",
+    },
+    "packages/geofencing": {
+      "name": "@exact/geofencing",
+      "version": "1.0.0",
+    },
     "packages/geolocation": {
       "name": "@exact/geolocation",
+      "version": "1.0.0",
+    },
+    "packages/global-shortcuts": {
+      "name": "@exact/global-shortcuts",
+      "version": "1.0.0",
+    },
+    "packages/health": {
+      "name": "@exact/health",
+      "version": "1.0.0",
+    },
+    "packages/hid": {
+      "name": "@exact/hid",
+      "version": "1.0.0",
+    },
+    "packages/in-app-browser": {
+      "name": "@exact/in-app-browser",
       "version": "1.0.0",
     },
     "packages/language-model": {
@@ -91,6 +194,18 @@
       "name": "@exact/local-auth",
       "version": "1.0.0",
     },
+    "packages/local-network": {
+      "name": "@exact/local-network",
+      "version": "1.0.0",
+    },
+    "packages/login-item": {
+      "name": "@exact/login-item",
+      "version": "1.0.0",
+    },
+    "packages/maps": {
+      "name": "@exact/maps",
+      "version": "1.0.0",
+    },
     "packages/media-capture": {
       "name": "@exact/media-capture",
       "version": "1.0.0",
@@ -99,12 +214,40 @@
       "name": "@exact/motion",
       "version": "1.0.0",
     },
+    "packages/nfc": {
+      "name": "@exact/nfc",
+      "version": "1.0.0",
+    },
+    "packages/notifications": {
+      "name": "@exact/notifications",
+      "version": "1.0.0",
+    },
+    "packages/oauth": {
+      "name": "@exact/oauth",
+      "version": "0.1.0",
+    },
     "packages/passkeys": {
       "name": "@exact/passkeys",
       "version": "1.0.0",
     },
+    "packages/payments": {
+      "name": "@exact/payments",
+      "version": "1.0.0",
+    },
+    "packages/pedometer": {
+      "name": "@exact/pedometer",
+      "version": "1.0.0",
+    },
     "packages/photos": {
       "name": "@exact/photos",
+      "version": "1.0.0",
+    },
+    "packages/purchases": {
+      "name": "@exact/purchases",
+      "version": "1.0.0",
+    },
+    "packages/quick-actions": {
+      "name": "@exact/quick-actions",
       "version": "1.0.0",
     },
     "packages/reading": {
@@ -129,6 +272,18 @@
       "name": "@exact/scale-fixture-notes",
       "version": "0.1.0",
     },
+    "packages/search-index": {
+      "name": "@exact/search-index",
+      "version": "1.0.0",
+    },
+    "packages/serial": {
+      "name": "@exact/serial",
+      "version": "1.0.0",
+    },
+    "packages/sign-in": {
+      "name": "@exact/sign-in",
+      "version": "1.0.0",
+    },
     "packages/speech-recognition": {
       "name": "@exact/speech-recognition",
       "version": "1.0.0",
@@ -143,11 +298,43 @@
       "name": "@exact/speech-synthesis",
       "version": "1.0.0",
     },
+    "packages/store-review": {
+      "name": "@exact/store-review",
+      "version": "1.0.0",
+    },
+    "packages/text-detection": {
+      "name": "@exact/text-detection",
+      "version": "1.0.0",
+    },
+    "packages/tracking-consent": {
+      "name": "@exact/tracking-consent",
+      "version": "1.0.0",
+    },
+    "packages/translation": {
+      "name": "@exact/translation",
+      "version": "1.0.0",
+    },
+    "packages/usb": {
+      "name": "@exact/usb",
+      "version": "1.0.0",
+    },
   },
   "packages": {
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
 
+    "@exact/age-range": ["@exact/age-range@workspace:packages/age-range"],
+
+    "@exact/alarms": ["@exact/alarms@workspace:packages/alarms"],
+
+    "@exact/altimeter": ["@exact/altimeter@workspace:packages/altimeter"],
+
+    "@exact/attestation": ["@exact/attestation@workspace:packages/attestation"],
+
     "@exact/background": ["@exact/background@workspace:packages/background"],
+
+    "@exact/background-transfer": ["@exact/background-transfer@workspace:packages/background-transfer"],
+
+    "@exact/barcode-detection": ["@exact/barcode-detection@workspace:packages/barcode-detection"],
 
     "@exact/browser": ["@exact/browser@workspace:packages/browser"],
 
@@ -155,13 +342,37 @@
 
     "@exact/calendar": ["@exact/calendar@workspace:packages/calendar"],
 
+    "@exact/calls": ["@exact/calls@workspace:packages/calls"],
+
     "@exact/camera": ["@exact/camera@workspace:packages/camera"],
 
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
 
+    "@exact/clipboard": ["@exact/clipboard@workspace:packages/clipboard"],
+
+    "@exact/compose": ["@exact/compose@workspace:packages/compose"],
+
     "@exact/contacts": ["@exact/contacts@workspace:packages/contacts"],
 
+    "@exact/device": ["@exact/device@workspace:packages/device"],
+
+    "@exact/dock": ["@exact/dock@workspace:packages/dock"],
+
+    "@exact/gamepad": ["@exact/gamepad@workspace:packages/gamepad"],
+
+    "@exact/geocoding": ["@exact/geocoding@workspace:packages/geocoding"],
+
+    "@exact/geofencing": ["@exact/geofencing@workspace:packages/geofencing"],
+
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
+
+    "@exact/global-shortcuts": ["@exact/global-shortcuts@workspace:packages/global-shortcuts"],
+
+    "@exact/health": ["@exact/health@workspace:packages/health"],
+
+    "@exact/hid": ["@exact/hid@workspace:packages/hid"],
+
+    "@exact/in-app-browser": ["@exact/in-app-browser@workspace:packages/in-app-browser"],
 
     "@exact/language-model": ["@exact/language-model@workspace:packages/language-model"],
 
@@ -169,13 +380,33 @@
 
     "@exact/local-auth": ["@exact/local-auth@workspace:packages/local-auth"],
 
+    "@exact/local-network": ["@exact/local-network@workspace:packages/local-network"],
+
+    "@exact/login-item": ["@exact/login-item@workspace:packages/login-item"],
+
+    "@exact/maps": ["@exact/maps@workspace:packages/maps"],
+
     "@exact/media-capture": ["@exact/media-capture@workspace:packages/media-capture"],
 
     "@exact/motion": ["@exact/motion@workspace:packages/motion"],
 
+    "@exact/nfc": ["@exact/nfc@workspace:packages/nfc"],
+
+    "@exact/notifications": ["@exact/notifications@workspace:packages/notifications"],
+
+    "@exact/oauth": ["@exact/oauth@workspace:packages/oauth"],
+
     "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
 
+    "@exact/payments": ["@exact/payments@workspace:packages/payments"],
+
+    "@exact/pedometer": ["@exact/pedometer@workspace:packages/pedometer"],
+
     "@exact/photos": ["@exact/photos@workspace:packages/photos"],
+
+    "@exact/purchases": ["@exact/purchases@workspace:packages/purchases"],
+
+    "@exact/quick-actions": ["@exact/quick-actions@workspace:packages/quick-actions"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 
@@ -185,9 +416,25 @@
 
     "@exact/scale-fixture-notes": ["@exact/scale-fixture-notes@workspace:packages/scale-fixture-notes"],
 
+    "@exact/search-index": ["@exact/search-index@workspace:packages/search-index"],
+
+    "@exact/serial": ["@exact/serial@workspace:packages/serial"],
+
+    "@exact/sign-in": ["@exact/sign-in@workspace:packages/sign-in"],
+
     "@exact/speech-recognition": ["@exact/speech-recognition@workspace:packages/speech-recognition"],
 
     "@exact/speech-synthesis": ["@exact/speech-synthesis@workspace:packages/speech-synthesis"],
+
+    "@exact/store-review": ["@exact/store-review@workspace:packages/store-review"],
+
+    "@exact/text-detection": ["@exact/text-detection@workspace:packages/text-detection"],
+
+    "@exact/tracking-consent": ["@exact/tracking-consent@workspace:packages/tracking-consent"],
+
+    "@exact/translation": ["@exact/translation@workspace:packages/translation"],
+
+    "@exact/usb": ["@exact/usb@workspace:packages/usb"],
 
     "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],
 

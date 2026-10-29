@@ -611,8 +611,9 @@ poll is the transport, and its cost is D8's.
 - **LLP 1027 D1, "Synchronous, on purpose":** superseded by D1a (an
   answer may be a promise). An iterator is the same continuation, resumed
   more than once, with I/O still a request the host runs.
-- **LLP 1027.000 (no timers):** kept. The iterator waits only on host
-  work, never on time. A retry interval stays a Contract `task`.
+- **LLP 1027.000 (no ambient time; since 2026-10-28 an answer may wait on
+  its own timer, D1):** kept. The iterator waits only on host work, never on
+  time. A retry interval stays a Contract `task`.
 - **LLP 1016.000 "Not built: worker-placed TypeScript streams":** kept,
   and D6 refuses it by name.
 - **`rules/RULES.md` "agents add no apparatus":** no check, script,

@@ -103,6 +103,10 @@ describe('request builders', () => {
     expect(JSON.parse(reply.body!).message_reference).toEqual({ message_id: '456', channel_id: '123', guild_id: '99' });
     expect(JSON.parse(sendMessage(ctx, '123', { content: '', nonce: '8', replyTo: { messageId: '7', channelId: '6' } }).body!)
       .message_reference).toEqual({ message_id: '7', channel_id: '6' });
+    // A reply pings its original's author unless told not to, as Discord's @ OFF sends it.
+    expect(JSON.parse(reply.body!)).not.toHaveProperty('allowed_mentions');
+    expect(JSON.parse(sendMessage(ctx, '123', { content: 'quiet', nonce: '9', replyTo: { messageId: '456', mention: false } }).body!)
+      .allowed_mentions).toEqual({ parse: ['users', 'roles', 'everyone'], replied_user: false });
   });
   test('edit, delete, ack, typing, gateway and me have exact methods and bodies', () => {
     const cases: [RestRequest, string, string, unknown][] = [

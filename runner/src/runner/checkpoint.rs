@@ -89,14 +89,17 @@ impl<D: DataSource> Runner<D> {
     /// (LLP 1048.000 D6): every answer of the app's sources, the location,
     /// the clock, and what is still pending. The runner's own facts
     /// (delivery, the viewport, surface records) are the runtime's to
-    /// answer, never a checkpoint's.
+    /// answer, never a checkpoint's, and so are a module's names: a render
+    /// answers them from the web's declaration, never the reader's device
+    /// (a battery, a permission's status), and a seeded answer is not asked
+    /// again, so the device would never be read.
     pub fn document_checkpoint(&self, location: &str) -> Checkpoint {
         let mut pending: Vec<String> = self.pending().into_iter().map(|(name, _)| name).collect();
         let mut answers = Vec::new();
         for (i, (row, state)) in self.plan.resources.iter().zip(&self.resources).enumerate() {
             let name = self.plan.str(row.name);
             let source = self.plan.str(row.source);
-            if exact_plan::runner_owned_source(source) {
+            if self.device_answers(source) {
                 continue;
             }
             if self.stale[i] {
@@ -138,7 +141,7 @@ impl<D: DataSource> Runner<D> {
         for (i, seed) in seeded.iter_mut().enumerate() {
             let row = &self.plan.resources[i];
             let (name, source) = (self.plan.str(row.name), self.plan.str(row.source));
-            if self.resources[i].is_some() || exact_plan::runner_owned_source(source) {
+            if self.resources[i].is_some() || self.device_answers(source) {
                 continue;
             }
             let Some((_, _, args, value)) = checkpoint
@@ -152,6 +155,7 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             self.resources[i] = Some(ResourceState {
+                inspection_generation: 0,
                 args: args.clone(),
                 value: crate::held::Held::new(value.clone()),
                 store_revision: self.store.revision(),
@@ -165,6 +169,12 @@ impl<D: DataSource> Runner<D> {
         let taken = seeded.iter().filter(|s| **s).count();
         let note = super::lines::seeded(taken, checkpoint.answers.len());
         (seeded, note)
+    }
+
+    /// Whether the runtime answers `source`, never a checkpoint: the
+    /// runner's own facts and a module's names.
+    fn device_answers(&self, source: &str) -> bool {
+        exact_plan::runner_owned_source(source) || self.plan.module_named(source).is_some()
     }
 
     /// Whether the store holds the app's own entries, not only the

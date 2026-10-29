@@ -1,0 +1,43 @@
+// AsyncAdvanceTests (LLP 1072.000): rows a timer's commit removes (`a`) or
+// changes (`b`'s price), each with a field and a press, and a short repeat
+// whose observed time and next beat a delayed advance pins.
+component App
+  state armed = false
+  state beating = false
+  state rows = ["a", "b"]
+  state price = 1
+  state log = ""
+  state beats = 0
+  state seen = 0
+  action arm
+    armed = true
+  action startBeats
+    beating = true
+  action tick
+    rows = ["b"]
+    price = price + 1
+  action tap(name: string, p: number)
+    log = `${log}${name}@${p} `
+  action typed(name: string, v: string)
+    log = `${log}${name}:${v} `
+  action touched(name: string)
+    log = `${log}${name}! `
+  action beat
+    beats = beats + 1
+    seen = performanceNow()
+  task ticker when armed
+    after(1, tick)
+  task metronome when beating
+    every(40, beat)
+  view
+    column
+      button press=arm testId="arm"
+        text "Arm"
+      button press=startBeats testId="beat"
+        text "Beat"
+      text log testId="log"
+      for r in rows key=r
+        row
+          button press=tap(r, price) focus=touched(r) contextmenu=touched(r) pointerdown=touched(r) testId=`row-${r}`
+            text `${r} ${price}`
+          input value="" input=typed(r) change=typed(r) aria-label=r testId=`field-${r}`

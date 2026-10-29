@@ -33,6 +33,14 @@ import { packagePictures } from "./pictures.js";
 import { appGrantSet, coversPath } from "./admission.js";
 import { samples, groupOf } from "./samples.js";
 import { wakes, REFUSED } from "./wakes.js";
+import { reach } from "./reach.js";
+import { updates } from "./update.js";
+import { spans, fillAll } from "./spans.js";
+import { arrivals } from "./arrival.js";
+import { devices } from "./devices.js";
+import { setSpaceState } from "../web/address-space.js";
+import { members } from "./members.js";
+import { sheets } from "./sheets.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -42,16 +50,28 @@ import { wakes, REFUSED } from "./wakes.js";
 // name; a wake's budget].
 export function modules(rows, bound = {}, views = {}, events = {}) {
   const byKey = new Map(), preferred = new Map(), permission = new Map(), held = [];
-  for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub, type, request, options, live });
-  const sampled = samples();
+  // A permission declared for other targets is no permission here (`targets`, LLP 1133.026 D19 item 2).
+  const onWeb = p => !Array.isArray(p?.targets) || p.targets.includes("web");
+  const here = sub => {
+    if (!sub || typeof sub !== "object") return sub;
+    const out = { ...sub };
+    if (out.permission && !onWeb(out.permission)) delete out.permission;
+    if (Array.isArray(out.permissionList)) out.permissionList = out.permissionList.filter(onWeb);
+    return out;
+  };
+  for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub: here(sub), type, request, options, live });
+  const sampled = samples(t => now() - clock.now + t);
+  // Another package's members of a ceremony's name (LLP 1133.014 D10 item 1, `members.js`).
+  const mb = members(() => [...byKey.values()], row => valueOf(row), () => data.grants);
   // The origin of the commit running now (LLP 1133.002 D12): the device's while an emitted event's handler runs, and,
   // since data code and an answer's commit cannot say which request they follow, while any request such a handler
   // made is still in flight (`deviceBase`, the in-flight count before it): the least privileged origin.
   let origin = "app", deviceBase = null, wk = null;
-  const originNow = () => deviceBase !== null ? "device" : wk?.active() ? "wake" : origin;
+  // A tool call's (calls.js, LLP 1133.023 D7) stands below the app's.
+  const originNow = () => deviceBase !== null ? "device" : wk?.active() ? "wake" : origin === "app" ? Origin.call?.() ?? origin : origin;
   Origin.now = originNow;
-  // What a commit of a wake's origin may not run (LLP 1133.017 D6): journaled, never run.
-  Origin.refused = (name, from) => from === "wake" && REFUSED.has(name) && (say(`${name}: refused: during a wake`), true);
+  // What a commit of a wake's origin may not run (LLP 1133.017 D6): journaled, never run; a call's, calls.js says.
+  Origin.refused = (name, from) => from === "tool" ? !!Origin.callRefuses?.(name) : from === "wake" && REFUSED.has(name) && (say(`${name}: refused: during a wake`), true);
   After.push(() => { if (deviceBase !== null && inflight.n <= deviceBase) deviceBase = null; });
   const asks = (row, send) => row.request === "always" ? send : row.request === "when-prompt" ? !send : false;
   // A request's own timeout, the option its declaration's `timeout` names: from a Contract call's record, or data code's object.
@@ -73,13 +93,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     : ty.endsWith("[]") ? Array.isArray(v) && v.every(x => wordFits(ty.slice(0, -2), x)) : true;
   const isStatus = row => row.sub.permission?.status === row.key.slice(row.key.indexOf(".") + 1);
   // A permission no platform asks starts as its declaration says (`initial`, LLP 1133.017 D14).
-  const stateOf = name => permission.get(name) ?? [...byKey.values()].flatMap(permissionsOf).find(p => p.name === name)?.initial ?? "prompt";
+  // By target where it differs (`{"android": "prompt", "*": "granted"}`, LLP 1133.037 D17).
+  const initialOf = i => typeof i === "string" ? i : i?.web ?? i?.["*"];
+  const stateOf = name => permission.get(name) ?? initialOf([...byKey.values()].flatMap(permissionsOf).find(p => p.name === name)?.initial) ?? "prompt";
   const now = () => reportTime(clock.now)[0] + clock.now; // the agent clock's date, as `exactTime` reads it
   const filled = (row, v) => {
     if (errorCode(v)) return v;
-    const out = structuredClone(v);
-    for (const [path, filler] of Object.entries(row.sub.fill ?? {})) fill(out, path, filler === "now" ? now() : filler);
-    return out;
+    return fillAll(row.sub, structuredClone(v), now);
   };
   const prefers = row => preferred.has(row.key) ? filled(row, preferred.get(row.key)) : undefined;
   // The web's own facts over a source's (`web`: local authentication's `later` cell, LLP 1133.010 D15). A default has
@@ -92,7 +112,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     const partial = row.sub.partial || (row.sub.implementation && d && typeof d === "object");
     return partial && p && !errorCode(p) ? overlay(structuredClone(d ?? {}), p) : p;
   };
-  const valueOf = row => row.sub.listed ? wk.listed(row.sub.listed) : row.sub.web ? { ...(preferredOver(row) ?? restricted(row) ?? {}), ...row.sub.web } : preferredOver(row) ?? restricted(row);
+  const valueOf = row => row.sub.index === "entries" ? rc.value(row) : row.sub.listed ? wk.listed(row.sub.listed) : row.sub.web ? { ...(preferredOver(row) ?? restricted(row) ?? {}), ...row.sub.web } : preferredOver(row) ?? restricted(row);
   // What the permission decides of a call now: its status's answer, a denial or a ticket; null when it allows it.
   // The permission a call asks: its declared one, or, where the interface declares several and the name's grants
   // are a line per argument (`permissionBy`), the one of the arguments it was given that settles the call now: a
@@ -119,8 +139,14 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (row.sub.unsupported?.includes("web")) return { now: { error: "NotSupportedError" } };
     const p = decidePermission(row, send);
     if (p) return p;
+    const s = sp.decide(row, send, args);
+    if (s) return s;
+    // A tag's arrival decides its own names (LLP 1133.035 §10, `arrival.js`).
+    const arriving = ar.decide(row, send, args);
+    if (arriving) return arriving;
     if (send && row.sub.ceremony) return ceremonies.decide(row, args);
     if (send && row.sub.records) return { now: null }; // a signal the substitute records (LLP 1133.011 §9)
+    if (send && row.sub.shortcuts === "pin") return { now: rc.pin(row, args) };
     if (!send) return { now: valueOf(row) ?? { error: "NotSupportedError" } };
     // A send that answers another source's value, raising it when it matches `raise.when` (D10).
     const answers = sibling(row, row.sub.answers);
@@ -140,17 +166,32 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     return value(json, row.type, row.key);
   };
   const capability = h => h.waits === "permission" ? "permission" : h.waits === "raise" ? h.row.sub.raise.ticket : h.waits === "ceremony" ? h.row.sub.ceremony.ticket
-    : h.waits === "choose" ? h.row.sub.choose.ticket : h.row.sub.ticket;
+    : h.waits === "choose" ? h.row.sub.choose.ticket : h.waits === "device" ? "chooser" : h.row.sub.ticket;
   // `forward`: the implementation's call, made once the ticket allows it.
   // A newer ask of the same reader or mutation supersedes its held one, whatever answers the newer (§6: retired).
   // A forwarded call let go is cancelled at its implementation (LLP 1133.016 D15 item 2).
   const supersede = (row, name) => {
-    for (const h of held.filter(h => h.name === name)) { retire(h); say(`device ${capability(h)} ${h.ticket} retired`); h.reject(new Failed(`${row.key}: superseded`)); }
+    for (const h of held.filter(h => h.name === name)) {
+      // A payment sheet decides for itself what its call let go means (sheets.js).
+      if (paySheets.has(h)) { h.superseded = true; continue; }
+      retire(h); say(`device ${capability(h)} ${h.ticket} retired`); h.reject(new Failed(`${row.key}: superseded`));
+    }
     const pending = forwarded.get(name);
     if (pending) { forwarded.delete(name); say(`cancel ${pending.key} request ${pending.request}: its call was let go`); pending.impl.cancel(pending.request); }
   };
   const forwarded = new Map();
   let requests = 0;
+  // A data-code call is let go with the answer that made it (LLP 1133.035 D16 item 4): once its `kept` reads false
+  // after a commit, a held one answers its `stopped` (else its `cancel`) and a forwarded one is cancelled at its
+  // implementation, as a Contract send's is.
+  const dataCalls = new Set();
+  After.push(() => {
+    for (const h of held.filter(h => h.waits === "value" && h.send && !h.kept())) {
+      say(`device ${capability(h)} ${h.ticket} retired: its call was let go`);
+      release(h, h.row.sub.stopped ?? h.row.sub.cancel ?? { error: "AbortError" });
+    }
+    for (const c of [...dataCalls]) if (!c.kept()) { dataCalls.delete(c); say(`cancel ${c.key} request ${c.request}: its call was let go`); c.impl.cancel(c.request); }
+  });
   // `args` choose the permission the call waits on (`permissionOf`), kept by name.
   // `kept`: whether data code's call is still wanted (`ts-data.js`), which a ceremony's reply reads (D11).
   const hold = (row, waits, name, json = false, timeout = null, forward = null, args = {}, kept = () => true) => {
@@ -158,10 +199,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (waits !== "ceremony") supersede(row, name);
     const queued = waits === "ceremony" && ceremonies.begins(row);
     return new Promise((resolve, reject) => {
-      const h = { ticket: queued ? null : nextTicket(), row, waits, name, send: row.send, resolve, reject, json, timeout, forward, args, kept, queued, permission: permissionOf(row, args)?.name, deadline: waits === "value" && timeout != null ? clock.now + timeout : null };
+      const h = { ticket: queued ? null : nextTicket(), row, waits, name, send: row.send, resolve, reject, json, timeout, forward, args, queued, permission: permissionOf(row, args)?.name, deadline: waits === "value" && timeout != null ? clock.now + timeout : null };
+      h.kept = () => !h.superseded && kept();
       held.push(h);
       if (!queued) say(`device ${capability(h)} ${h.ticket} held (agent)`);
+      ar.claimed(row);
       if (waits === "ceremony") ceremonies.record(h, queued ? "queued" : "held");
+      if (!queued && row.sub.ceremony?.asks) paySheets.opened(h);
     });
   };
   const retire = h => { const i = held.indexOf(h); if (i >= 0) held.splice(i, 1); };
@@ -174,15 +218,19 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // `sheet`: a sheet's answer, which reaches the implementation as the call's `preferred` (`{tap}`, `{typed}`).
   const releaseForward = (h, sheet) => { retire(h); h.forward(sheet).then(json => release(h, json), e => h.reject(e)); };
   // Ceremonies (LLP 1133.011 §9), as the runner's `modules/ceremony.rs`: a grant matched by an argument's value, the
-  // status rules (`unless`), one sheet at a time, the `passkey` ticket's args and answers, the withheld paths, a
+  // status rules (`unless`), one sheet at a time, the `credential` ticket's args and answers, the withheld paths, a
   // dropped registration disposed of (D11), and the list `state.extensions` shows.
   const at = (v, path) => path.split(".").reduce((x, k) => x?.[k], v);
   const listed = [];
   const ceremonies = {
     grants(row, args) {
+      // A computed colour that is none fails the call (LLP 1133.022 D10 item 2).
+      for (const o of row.sub.colorOptions ?? []) if (typeof args?.[o] === "string" && !isColor(args[o])) return { error: "TypeError", message: `${o} is no CSS colour` };
       const lines = (data.grants ?? "").split("\n").map(l => l.trim().split(/\s+/));
       for (const [path, spec] of Object.entries(row.sub.nameGrants ?? {})) {
-        if (!spec?.line) continue;
+        if (!spec?.line || path.includes("[]")) continue; // a list's values, the sheet's (sheets.js `admit`)
+        // A call without the argument the path is in asks nothing of it (a sign-in alone, LLP 1133.014 D3).
+        if (path.includes(".") && args?.[path.split(".")[0]] == null) continue;
         const code = spec.refuse ?? "NotAllowedError";
         // An omitted RP ID is the page's effective domain, which must be granted too (D6).
         const value = at(args, path) ?? (spec.omitted === "page" && typeof location === "object" ? location.hostname : undefined);
@@ -197,23 +245,28 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     },
     decide(row, args) {
       const c = row.sub.ceremony, status = valueOf(sibling(row, c.status)) ?? {};
-      for (const rule of c.unless ?? []) {
+      // The owner's status speaks for its own ceremony alone (LLP 1133.014 D3).
+      for (const rule of mb.ownsCeremony(row, args) ? c.unless ?? [] : []) {
         const applies = !rule.when || Object.entries(rule.when).every(([k, v]) => args?.[k] === v);
         if (applies && status[rule.field] === rule.is) return { now: { error: rule.error, message: `\`${rule.field}\` is ${rule.is} on web` } };
       }
       return { hold: "ceremony" };
     },
     args(h) {
+      if (h.row.sub.ceremony.asks) return paySheets.args(h);
       const c = h.row.sub.ceremony, declared = h.row.key.slice(h.row.key.indexOf(".") + 1);
       const client = c.clientOrigin?.web === "page" && typeof location === "object" ? location.origin : null;
-      return { request: declared, ceremony: declared, mediation: h.args?.mediation ?? "optional", rpId: ceremonies.rpId(h.row, h.args), clientOrigin: client, options: c.options ? h.args?.[c.options] ?? null : null, origin: "app" };
+      const owned = mb.ownsCeremony(h.row, h.args);
+      return { request: declared, ceremony: declared, mediation: h.args?.mediation ?? "optional", rpId: owned ? ceremonies.rpId(h.row, h.args) : null, clientOrigin: owned ? client : null, options: c.options ? h.args?.[c.options] ?? null : null, origin: "app", ...mb.args(h.row, h.args) };
     },
-    // A held conditional ceremony ends with `AbortError` before another is held; `true` while a modal one is held (D9).
+    // A held conditional ceremony or passive sign-in ends with `AbortError` before another is held; `true` while a modal
+    // one is held (D9).
     begins(row) {
       const ext = extensionOf(row), ours = h => h.waits === "ceremony" && !h.queued && extensionOf(h.row) === ext;
-      for (const h of held.filter(h => ours(h) && h.args?.mediation === "conditional")) {
+      // A passive sign-in (LLP 1133.014 D5) ends as a conditional get does.
+      for (const h of held.filter(h => ours(h) && (h.args?.mediation === "conditional" || (h.args?.identity != null && h.args.identity.mode !== "active")))) {
         say(`device ${capability(h)} ${h.ticket} retired`);
-        release(h, { error: "AbortError", message: "a newer ceremony replaced this conditional one" });
+        release(h, { error: "AbortError", message: "a newer ceremony replaced this conditional or passive one" });
       }
       return held.some(ours);
     },
@@ -223,9 +276,10 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (!next) return;
       next.queued = false; next.ticket = nextTicket();
       say(`device ${capability(next)} ${next.ticket} held (agent)`);
+      if (next.row.sub.ceremony?.asks) paySheets.opened(next);
     },
     record(h, outcome) {
-      const entry = { name: h.row.key.slice(h.row.key.indexOf(".") + 1), mediation: h.args?.mediation ?? null, rpId: ceremonies.rpId(h.row, h.args), origin: h.row.sub.ceremony ? ceremonies.args(h).clientOrigin : null, outcome };
+      const entry = paySheets.entry(h, outcome) ?? { name: h.row.key.slice(h.row.key.indexOf(".") + 1), mediation: h.args?.mediation ?? null, rpId: h.row.sub.ceremony ? ceremonies.args(h).rpId : ceremonies.rpId(h.row, h.args), origin: h.row.sub.ceremony ? ceremonies.args(h).clientOrigin : null, outcome, ...(h.row.sub.ceremony ? mb.summary(h.row, h.args) : {}) };
       const i = listed.findIndex(([x]) => x === h);
       if (i >= 0) listed[i][1] = entry; else listed.push([h, entry]);
       if (listed.length > 16) listed.shift();
@@ -248,18 +302,30 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     // A reply its call no longer wants: its registration disposed of, and the call ended with `AbortError`, so its
     // data code, which runs on, never has the response (D11).
     dropped(row, json) {
-      const ids = row.sub.handles && !errorCode(json) ? Object.keys(row.sub.handles).flatMap(path => handlesAt(json, path)) : [];
+      // A member's answer carries the member's handles, its package's to dispose of (LLP 1133.014 D12).
+      const by = (!errorCode(json) && mb.answering(row, json)) || row;
+      const ids = by.sub.handles && !errorCode(json) ? Object.keys(by.sub.handles).flatMap(path => handlesAt(json, path)) : [];
       if (ids.length) {
-        say(`dispose ${extensionOf(row)} ${ids.join(", ")}: its reply was dropped`);
-        implementation(row)?.then(impl => impl?.dispose?.(ids));
+        say(`dispose ${extensionOf(by)} ${ids.join(", ")}: its reply was dropped`);
+        implementation(by)?.then(impl => impl?.dispose?.(ids));
       }
       return row.sub.ceremony ? { error: "AbortError", message: "the call was let go" } : json;
     },
   };
+  const paySheets = sheets({
+    release,
+    // Its reply is dropped (the ticket was let go), but the call must end, or it stays in flight for `clock settle`.
+    retire: h => { retire(h); say(`device ${capability(h)} ${h.ticket} retired`); h.reject(new Failed(`${h.row.key}: closed after its call ended`)); ceremonies.record(h, "closed after its call ended"); ceremonies.promote(); },
+  });
+  Clocked.push(() => paySheets.deadlines());
+  After.push(() => paySheets.letGo());
   const reask = keys => {
     commit(() => { const sources = new Set([...keys].map(k => byKey.get(k).source)); for (const r of Resources) if (sources.has(r.source)) R(r); }, "module");
     for (const key of keys) globalThis.exact?.announceModule?.(key); // data code's readers
   };
+  // Serial ports, HID and USB devices (LLP 1133.037 §11): `devices.js`, its readers polled as a sampled source's are.
+  const dv = devices({ byKey, preferred, say, clock, reask: keys => { if (keys.length) reask(keys); },
+    polled: row => { live.add(row.key); polls.set(row.key, clock.now); } });
   // What answers a name: its implementation as in production (outside the agent), its implementation told it runs
   // under the agent (an interface that is its own substitute), or the substitute.
   const extensionOf = row => row.key.slice(0, row.key.indexOf("."));
@@ -296,6 +362,12 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const entry = table.get(id);
       if (!entry?.owner?.subscribe) throw Object.assign(new Error(`no track ${id}`), { code: "NotFoundError" });
       return entry.owner.subscribe(id, consumer, how);
+    },
+    /** `observer` hears track `id` as a consumer does and takes no lease (LLP 1133.027 D17 item 1); its leave. */
+    observe(id, observer) {
+      const entry = table.get(id);
+      if (!entry?.owner?.observe) throw Object.assign(new Error(`no track ${id}`), { code: "NotFoundError" });
+      return entry.owner.observe(id, observer);
     },
   };
   // An admitted path's file (LLP 1133.009 D10 item 4), in the store `storage.fs` reads: the app's, or the drive's
@@ -351,7 +423,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const instance = extension => {
     if (!bound[extension]) return null;
     if (!loaded.has(extension)) loaded.set(extension, chunk(extension).then(m => {
-      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession,
+      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, config: m.config ?? {}, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession,
+        // The app's grant lines, and the host's auth session for an implementation (LLP 1133.014 D10 item 3).
+        grants: data.grants ?? "", get authSession() { return globalThis.exact?.authSession; },
         revokePicture: source => pictures?.revokePicture(source), pictureChanged: source => pictures?.pictureChanged(source), invoke: invoker(extension),
         // A package's own raising has the device's origin; a person's is the host's to give (LLP 1133.004 D6).
         emit: (name, args) => raise(`${extension}.${name}`, args, "device"),
@@ -364,7 +438,39 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
           if (!e.isTrusted) return say(`${extension}.${name}: an untrusted ${type} raises nothing`);
           try { globalThis.focus?.(); } catch {}
           if (navigate) navigateRoot(locationOf(navigate)); else raise(`${extension}.${name}`, args, "app");
-        }) };
+        }),
+        // An implementation that keeps the declared list (LLP 1133.033 D19: the web's call is the module's own state):
+        // `declared(name, args)` is the substitute's answer, after the admission the call already passed; `listed(state,
+        // seen)` tells `seen` the list's entries (`{ref, fields}`) now and at each change.
+        declared: (name, args) => {
+          const row = byKey.get(`${extension}.${name}`);
+          if (!row) return { error: "NotSupportedError" };
+          return row.send ? applyEffect(row, args ?? {}) : valueOf(row);
+        },
+        listed: (state, seen) => {
+          const tell = () => seen((lists.get(state) ?? []).map(e => ({ ref: e.ref, fields: { ...e.fields } })));
+          watchers.set(state, [...(watchers.get(state) ?? []), tell]);
+          tell();
+        },
+        // A Media Session action (W3C Media Session, `setActionHandler`): the browser calls it only for the person's
+        // press on its own controls, so the handler set here is a person's act. When it fires, `pick()` names the entry
+        // and the declared choice it takes (`[ref, choice]`), applied as `tap @ref <choice>` is. `pick` null clears it.
+        // False where the browser has no such action.
+        mediaAction: (action, pick) => {
+          const ms = typeof navigator === "object" ? navigator.mediaSession : undefined;
+          if (!ms?.setActionHandler) return false;
+          try {
+            ms.setActionHandler(action, pick ? () => {
+              const [ref, choice] = pick() ?? [];
+              const entry = [...lists.values()].flat().find(e => e.ref === ref);
+              if (!entry) return say(`${extension}: media session ${action}: no entry`);
+              const done = up.choose(entry, choice);
+              if (done?.error) say(`${extension}: media session ${action}: ${done.error}`);
+            } : null);
+          } catch { return false; }
+          say(`${extension}: media session ${action} ${pick ? "set" : "cleared"}`);
+          return true;
+        } };
       const impl = m.implementation?.(context) ?? null;
       if (clock.agent) impl?.preferred?.(preferredOf(extension));
       ready.set(extension, impl);
@@ -373,10 +479,17 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     return loaded.get(extension);
   };
   const implementation = row => route(row) === "substitute" ? null : instance(extensionOf(row));
+  // `of`, spans, `played` and `changes` (spans.js).
+  const sp = spans({ sibling, valueOf, route, extensionOf, say, raise: (key, args, from) => raise(key, args, from) });
+  Clocked.push(sp.due);
   // A send made inside the press (`"gesture": true`, LLP 1133.013 D12 item 5): its implementation is loaded once
   // the page is up, so the send's handler runs in the input event's dispatch, where a browser's gesture holds.
   const gestures = new Set([...byKey.values()].filter(r => r.send && r.sub.gesture && route(r) === "real").map(extensionOf));
   if (gestures.size) setTimeout(() => { for (const extension of gestures) instance(extension); });
+  // A list the person acts on from the platform's controls (`tap.choices`, LLP 1133.033 D19): its implementation is
+  // loaded with the page, under the agent too, so the controls follow the list from its first entry.
+  const chosen = new Set([...byKey.values()].filter(r => r.sub.list?.tap?.choices && bound[extensionOf(r)]).map(extensionOf));
+  if (chosen.size) setTimeout(() => { for (const extension of chosen) instance(extension); });
   packageViews(views, chunk, instance);
   // A package's `img` scheme (LLP 1133.019 D11 item 1): admitted as the runner's `modules/pictures.rs` admits it on
   // target `web` — the app declares one of its grant lines, an implementation is bound, and under the agent its
@@ -407,7 +520,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const pictures = Object.keys(schemes).length ? packagePictures(schemes, admitPicture, instance, extension => pictureDecision(imageRows[extension])) : null;
   const tell = () => { sampled.visibility(!shown()); for (const impl of loaded.values()) impl.then(i => i?.foreground?.(shown())); };
   if (typeof addEventListener === "function") addEventListener("visibilitychange", tell);
-  (globalThis.exact ??= {}).foreground = visible => { if (agentShown !== visible) { agentShown = visible; tell(); } };
+  (globalThis.exact ??= {}).foreground = visible => { if (agentShown !== visible) { agentShown = visible; tell(); ar.visibility(!visible); } };
   // The agent's preferred values for an extension's names, by name.
   const preferredOf = extension => Object.fromEntries([...preferred].filter(([k]) => k.startsWith(`${extension}.`)).map(([k, v]) => [k.slice(extension.length + 1), v]));
   // Under the agent, the preferred value laid over the implementation's answer field by field (LLP 1133.009 D10 item 11).
@@ -424,8 +537,16 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // `how`: the call's origin, the reader or mutation that asked (`name`), whose newer call cancels this one, and a held
   // sheet's answer (`sheet`, LLP 1133.018 D13 item 4). The implementation is told the origin and the request's number,
   // which its `cancel(request)` is given, and under the agent the sheet's answer or else the preferred value.
-  const viaImplementation = (row, args, reader, how = {}) => implementation(row)?.then(async impl => {
-    const name = row.key.slice(row.key.indexOf(".") + 1);
+  // A call carrying a member the web cannot put in the owner's request is the member's, whole (LLP 1133.014 D10 item 2).
+  const viaImplementation = (row, args, reader, how = {}) => {
+    const [option, member] = row.sub.takes ? [...byKey.values()].map(r => [r.sub?.member, r]).find(([o, r]) => r.sub?.memberOf === row.key && args?.[o] != null) ?? [] : [];
+    return member ? viaOwn(member, args, reader, how, option) : viaOwn(row, args, reader, how);
+  };
+  const viaOwn = (row, args, reader, how = {}, as = null) => implementation(row)?.then(async impl => {
+    const name = as ?? row.key.slice(row.key.indexOf(".") + 1);
+    // An extension with no web implementation reads its declared default, as the runner answers a target with none
+    // (LLP 1133.028 D17); its sends refuse.
+    if (impl === null && !row.send) return valueOf(row) ?? { error: "NotSupportedError" };
     if (!impl?.[name]) return { error: "NotSupportedError" };
     // A call not the app's that would ask is refused while the platform's state is `prompt` (LLP 1133.002 D12).
     const p = row.sub.permission;
@@ -436,8 +557,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (row.live) live.add(row.key);
     const request = ++requests, asker = how.name ?? reader;
     if (row.send && asker && impl.cancel) forwarded.set(asker, { key: row.key, request, impl });
+    const call = row.send && how.kept && impl.cancel ? { key: row.key, request, impl, kept: how.kept } : null;
+    if (call) dataCalls.add(call);
+    // A pending call's handlers (LLP 1133.034 D5): the ones its handler options name, by `request:<n>` while it runs.
+    const callbacks = (row.sub.handlerOptions ?? []).map(o => args?.[o]).filter(h => typeof h === "string");
+    if (callbacks.length) handlers.set(`request:${request}`, new Set(callbacks));
     const told = { origin: how.origin ?? "app", request, ...(route(row) === "agent" ? { preferred: how.sheet ?? preferred.get(row.key) } : {}) };
-    const answered = Promise.resolve(impl[name](args ?? {}, told)).finally(() => { if (forwarded.get(asker)?.request === request) forwarded.delete(asker); });
+    const answered = Promise.resolve(impl[name](args ?? {}, told)).finally(() => { if (forwarded.get(asker)?.request === request) forwarded.delete(asker); dataCalls.delete(call); handlers.delete(`request:${request}`); });
     if (row.live && row.sub.poll) {
       polls.set(row.key, clock.now);
       asking.add(row.key);
@@ -457,15 +583,24 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   });
   // ---- a send that answers nothing, and its declared substitute (LLP 1133.004 D5, §7)
   const lists = new Map(), setValues = new Map(), effects = [];
+  const up = updates({ lists, rows: () => byKey.values(), say, now, changed: state => listedChanged(state),
+    raise: (row, event, tap, fields) => raise(`${extensionOf(row)}.${event}`, entryArgs(tap, fields), "app") });
+  const rc = reach({ say, announce: keys => reask(keys), preferred: key => preferred.get(key) });
   const listOf = row => [...byKey.values()].filter(r => extensionOf(r) === extensionOf(row) && r.sub.list).map(r => r.sub.list.state);
   const applyEffect = (row, args) => {
+    if (ar.stops(row)) return null;
+    const reached = rc.effect(row, args, [...byKey.values()]);
+    if (reached !== undefined) return reached;
     const name = row.key.split(".")[1], sub = row.sub;
     if (sub.list) {
       // A registration's kind keys it beside its key (LLP 1133.017 §10).
+      const fields = { ...Object.fromEntries(Object.keys(row.options ?? {}).map(k => [k, null])), ...args, ...(sub.list.kind ? { kind: sub.list.kind } : {}) };
+      const refused = up.listing(sub.list, fields);
+      if (refused) { say(`${name}: refused: ${refused}`); return { error: refused }; }
       const entries = lists.get(sub.list.state) ?? [], value = args[sub.list.key] ?? null, ref = nextTicket(), kind = sub.list.kind;
       const same = e => e.fields[sub.list.key] === value && e.fields.kind === kind, replaced = value == null ? null : entries.find(same)?.ref;
       const kept = value == null ? entries : entries.filter(e => !same(e));
-      kept.push({ ref, row, fields: { ...Object.fromEntries(Object.keys(row.options ?? {}).map(k => [k, null])), ...args, ...(kind ? { kind } : {}) } });
+      kept.push({ ref, row, fields });
       lists.set(sub.list.state, kept);
       say(`${name}: listed${typeof value === "string" ? ` (${value})` : ""} @${ref}`);
       if (kind) wk.registered(ref, replaced);
@@ -477,12 +612,28 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       for (const state of listOf(row)) { lists.set(state, (lists.get(state) ?? []).filter(e => e.fields[unlist] !== args[unlist] || (unkind != null && e.fields.kind !== unkind))); listedChanged(state); }
       say(`${name}: unlisted`);
     }
+    if (sub.update) return up.update(name, sub.update, args);
     if (sub.set) {
       const from = sub.set.from, given = from ? args[from] : undefined;
       const value = !from ? (sub.set.value ?? null) : given == null ? (sub.set.absent ?? null) : given === 0 ? (sub.set.zero ?? null) : given;
       setValues.set(`${extensionOf(row)}/${sub.set.state}`, value);
       say(`${name}: ${sub.set.state} ${JSON.stringify(value)}`);
     }
+    return null;
+  };
+  // The declaration's `checks` every route holds a send to, as the runner's (LLP 1133.030 D2): exactly `one` of some
+  // options, options at least a `min`, options `nonEmpty`; each refused with its `error`. An instant option `after`
+  // now is the runner's alone: this clock is not the epoch's.
+  const checked = (row, args) => {
+    const given = o => args?.[o] != null;
+    for (const c of row.sub.checks ?? []) {
+      const fails = Array.isArray(c.one) ? c.one.filter(given).length !== 1
+        : c.min ? Object.entries(c.min).some(([o, m]) => typeof args?.[o] === "number" && args[o] < m)
+        : Array.isArray(c.nonEmpty) ? c.nonEmpty.some(o => typeof args?.[o] !== "string" || args[o] === "")
+        : false;
+      if (fails) return { error: c.error };
+    }
+    return null;
   };
   /** One call: done (`null`), refused (`{error}`), or held on the permission ticket until it is answered. */
   const effect = (row, args, from = originNow()) => {
@@ -498,8 +649,14 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (row.sub.unsupported?.includes("web") && route(row) !== "real") { say(`${name}: refused: NotSupportedError`); return Promise.resolve({ error: "NotSupportedError" }); }
     const why = admit(row, args, from);
     if (why) { say(`${row.key}: refused, ${why}`); return Promise.resolve(why.startsWith("person-required") ? { error: "NotAllowedError", message: "person-required" } : { error: "NotAllowedError" }); }
-    const real = route(row) === "real" ? viaImplementation(row, args, null, { origin: from }) : null;
+    const failed = checked(row, args);
+    if (failed) { say(`${name}: refused: ${failed.error}`); return Promise.resolve(failed); }
+    // An implementation that is its own substitute takes the call under the agent too, told so (LLP 1133.006 D8 item 4).
+    const real = route(row) !== "substitute" ? viaImplementation(row, args, null, { origin: from }) : null;
     if (real) return real.then(r => { if (errorCode(r)) say(`${name}: refused: ${errorCode(r)}`); return errorCode(r) ? r : null; });
+    sp.resolveOf(row, args);
+    const refused = sp.refusal(row, args);
+    if (refused) { say(`${name}: refused: ${refused.error}`); return Promise.resolve(refused); }
     const p = row.sub.permission, state = p && row.sub.admission !== "none" ? stateOf(p.name) : null;
     if (state === "denied") { say(`${name}: refused: ${p.denied}`); return Promise.resolve({ error: p.denied }); }
     if (state === "prompt" && asks(row, true)) {
@@ -507,26 +664,36 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (from !== "app") { say(`${row.key}: refused, person-required (${from} origin)`); return Promise.resolve({ error: p.denied }); }
       return new Promise(resolve => { const h = { ticket: nextTicket(), row, args, resolve }; effects.push(h); say(`device permission ${h.ticket} held (agent)`); });
     }
-    applyEffect(row, args);
-    return Promise.resolve(null);
+    const device = dv.effect(row, args);
+    if (device !== undefined) { if (errorCode(device)) say(`${name}: refused: ${errorCode(device)}`); return Promise.resolve(device); }
+    const done = applyEffect(row, args);
+    if (done === null) sp.effected(row, args, from);
+    return Promise.resolve(done);
   };
   const settleEffects = (name, state) => {
     for (const h of effects.filter(h => h.row.sub.permission?.name === name)) {
       if (state === "prompt") continue;
       effects.splice(effects.indexOf(h), 1);
-      if (state === "granted") { applyEffect(h.row, h.args); h.resolve(null); }
+      if (state === "granted") h.resolve(applyEffect(h.row, h.args));
       else { say(`${h.row.key.split(".")[1]}: refused: ${h.row.sub.permission.denied}`); h.resolve({ error: h.row.sub.permission.denied }); }
     }
   };
   for (const row of byKey.values()) if (row.send && row.sub.effect) Hosts[row.source] = Object.assign((from, record) => { effect(row, object(record, row.options) ?? {}, from); }, { origin: true });
   const delivered = e => { const at = e.row.sub.list.at, t = at ? e.fields[at] : null; return t == null || t <= now(); };
   // A source declared `"listed"` answers from a list: asked again when it changes.
-  const listedChanged = state => { const keys = [...byKey.values()].filter(r => r.sub.listed?.state === state).map(r => r.key); if (keys.length) reask(keys); };
+  const watchers = new Map();
+  const listedChanged = state => {
+    for (const tell of watchers.get(state) ?? []) tell();
+    const keys = [...byKey.values()].filter(r => r.sub.listed?.state === state).map(r => r.key);
+    if (keys.length) reask(keys);
+  };
   wk = wakes({ events, say, value, lists, changed: listedChanged, toEpoch: ms => reportTime(ms)[0] + ms,
     onLine: () => (globalThis.exact?.page?.read?.().online ?? globalThis.navigator?.onLine) !== false,
     run: f => { const before = origin; origin = "wake"; try { f(); } finally { origin = before; } } });
   // ---- events (LLP 1133.004 D6)
   const unheard = [];
+  const ar = arrivals({ rows: () => [...byKey.values()], held, preferred, release: (h, json) => { say(`device ${capability(h)} ${h.ticket} retired`); release(h, json); },
+    raise: (key, args) => raise(key, args, "device"), say, valueOf });
   const raise = (key, args, from) => {
     const declared = events[key];
     if (!declared) return say(`${key}: no handler hears it`);
@@ -552,12 +719,17 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     }
   };
   /** An entry's click (§7): its `navigate` field opened, else its event raised as an activation. */
+  // An entry's tap's event arguments: each a field of the entry, an object of its fields (or literals, where a value
+  // is no field's name), or a literal.
+  const entryArgs = (tap, entry) => (tap.args ?? []).map(a => typeof a === "string" ? entry[a] ?? null
+    : a && typeof a === "object" ? Object.fromEntries(Object.entries(a).map(([k, f]) => [k, typeof f === "string" ? entry[f] ?? null : f])) : a);
   const activate = (row, entry, ref) => {
     const tap = row.sub.list.tap ?? {}, location = tap.navigate ? entry[tap.navigate] : null;
     if (typeof location === "string") { navigateRoot(locationOf(location)); return { ref, navigate: location, delivery: "substituted" }; }
     if (!tap.event) return { ref, delivery: "substituted" };
-    const args = (tap.args ?? []).map(a => typeof a === "string" ? entry[a] ?? null : a && typeof a === "object" ? Object.fromEntries(Object.entries(a).map(([k, f]) => [k, entry[f] ?? null])) : a);
-    raise(`${extensionOf(row)}.${tap.event}`, args, "app");
+    // In every keyed list, an entry posted without its key is tapped with "" for it (the Notifications API's untagged `tag`).
+    const key = row.sub.list.key;
+    raise(`${extensionOf(row)}.${tap.event}`, entryArgs(tap, key && entry[key] == null ? { ...entry, [key]: "" } : entry), "app");
     return { ref, event: tap.event, delivery: "substituted" };
   };
   // The handlers a handle's work may call back (LLP 1133.016 D15 item 1): those its call's `handlers` path lists
@@ -618,7 +790,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     time(); // on the live clock, the wall's time: a page with no timer moves no clock
     const due = [...polls].filter(([key, last]) => {
       const row = byKey.get(key), period = periodOf(row);
-      return period != null && (route(row) !== "substitute" || sampled.sampled(row)) && !asking.has(key) && !failed.has(key) && !pollEnded(row) && live.has(key) && clock.now - last >= period;
+      return period != null && (route(row) !== "substitute" || sampled.sampled(row) || dv.role(row)) && !asking.has(key) && !failed.has(key) && !pollEnded(row) && live.has(key) && clock.now - last >= period;
     }).map(([key]) => key);
     for (const key of due) { polls.set(key, clock.now); say(`poll ${key}`); }
     if (due.length) reask(due);
@@ -637,10 +809,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         if (given(args, arg) && !granted(line)) return `grant-missing (${arg}= needs ${[line].flat().join(" or ")})`;
       }
     }
-    // A path option is the app's own file, within its `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4).
+    // A path option is the app's own file, within its `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4); each
+    // of a list's (LLP 1133.024 D16); a keyed shape's path keys (`keys`), each item's (LLP 1133.006 D8 item 3).
     for (const [option, path] of Object.entries(sub.paths ?? {})) {
-      const given = args?.[option], capability = `fs.${path.access}`;
-      if (typeof given === "string" && !(appPath(given) && coversPath(appGrantSet(), capability, given))) return `grant-missing (${option}=${given} needs ${capability})`;
+      const capability = `fs.${path.access}`, value = args?.[option];
+      for (const given of path.keys ? [value].flat().flatMap(item => path.keys.map(k => item?.[k])) : [value].flat()) {
+        if (typeof given === "string" && !(appPath(given) && coversPath(appGrantSet(), capability, given))) return `grant-missing (${option}=${given} needs ${capability})`;
+      }
     }
     const applies = !sub.when || Object.entries(sub.when).every(([k, v]) => args?.[k] === v);
     // `{whenAny, is: "app"}`: only a call giving one of those options is held to `app` (LLP 1133.012 D12 item 5).
@@ -652,10 +827,14 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // Admitted, then what answers: `{now}`, `{hold}`, or `{forward}` (the implementation).
   const admitted = (row, args, origin, send, timeout) => {
     // A grant matched by the argument's value fails with its own code (`SecurityError` for an RP ID, LLP 1133.011 D6).
-    const byValue = ceremonies.grants(row, args);
-    if (byValue) { say(`${row.key}: refused, ${byValue.message}`); return { now: byValue }; }
+    const byValue = ceremonies.grants(row, args) ?? (row.sub.ceremony?.asks ? paySheets.admit(row, args) : null);
+    if (byValue) { say(`${row.key}: refused, ${byValue.error}: ${byValue.message}`); return { now: byValue }; }
+    // A member is an option of its owner's call, never a call of its own (LLP 1133.014 D10 item 1).
+    if (row.sub.memberOf) return { now: { error: "NotSupportedError", message: `${row.key} is a member of ${row.sub.memberOf}: pass it to that call` } };
     const why = admit(row, args, origin);
     if (why) { say(`${row.key}: refused, ${why}`); return { now: why.startsWith("person-required") ? { error: "NotAllowedError", message: "person-required" } : { error: "NotAllowedError" } }; }
+    const member = mb.refused(row, args);
+    if (member) { say(`${row.key}: refused, ${member.message}`); return { now: member }; }
     const r = route(row);
     if (r === "real") return { forward: true };
     const p = permissionOf(row, args);
@@ -663,7 +842,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     // D13 item 4); else the implementation.
     const agentDecision = () => row.sub.unsupported?.includes("web") ? { now: { error: "NotSupportedError" } }
       : decidePermission(row, send, p) ?? (send && row.sub.choose ? { hold: "choose" } : null) ?? (send && row.sub.raise ? decide(row, send, args) : null) ?? { forward: true };
-    let d = r === "agent" ? agentDecision() : decideTimed(row, send, timeout, args);
+    const deviceDecision = () => row.sub.unsupported?.includes("web") ? { now: { error: "NotSupportedError" } } : decidePermission(row, send, p) ?? dv.decide(row, args);
+    let d = r === "agent" ? agentDecision() : dv.role(row) ? deviceDecision() : decideTimed(row, send, timeout, args);
     // A name whose grants are per argument asks permission only for an argument it was given (LLP 1133.009 D3).
     const g = row.sub.nameGrants, asks = !g || Array.isArray(g) || Object.keys(g).some(a => given(args, a));
     if (d.hold === "permission" && !asks) d = r === "agent" ? { forward: true } : { now: { error: "TypeError" } };
@@ -713,20 +893,38 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     reserved[row.source] = (_, args, name) => {
       supersede(row, name);
       const given = sampled.clamp(row, args?.[0] !== undefined ? object(args[0], row.options) : {}, say);
+      sp.resolveOf(row, given);
       const timeout = row.send ? timeoutOf(row, args) : null, reader = row.send ? null : name;
       const origin = originNow();
       let d = admitted(row, given, origin, row.send, timeout);
+      const spanned = sp.admitted(row, given, origin, d);
+      if (spanned) return spanned.then(json => answer(row, json));
       const n = (asked.get(name) ?? 0) + 1;
       asked.set(name, n);
       if (reader && sampled.sampled(row)) d = sampledAnswer(row, d, given, reader);
       if (d.forward && row.send && row.sub.gesture && ready.has(extensionOf(row))) {
         const impl = ready.get(extensionOf(row)), declared = row.key.slice(row.key.indexOf(".") + 1);
-        if (impl?.[declared]) return Promise.resolve(impl[declared](given, { origin, request: ++requests })).then(json => { handled(row, given, json); return answer(row, json); });
+        if (impl?.[declared]) {
+          // Registered for `cancel` as `viaImplementation` registers, the call staying in the press's dispatch.
+          const request = ++requests, callbacks = (row.sub.handlerOptions ?? []).map(o => given?.[o]).filter(h => typeof h === "string");
+          if (callbacks.length) handlers.set(`request:${request}`, new Set(callbacks));
+          if (impl.cancel) forwarded.set(name, { key: row.key, request, impl });
+          return Promise.resolve(impl[declared](given, { origin, request }))
+            .finally(() => { handlers.delete(`request:${request}`); if (forwarded.get(name)?.request === request) forwarded.delete(name); })
+            .then(json => { handled(row, given, json); return answer(row, json); });
+        }
       }
       if (d.forward) return viaImplementation(row, given, reader, { name, origin }).then(json => { disposeDropped(row, json, name, n); if (reader) sampled.answered(row, reader, json); return answer(row, json); });
-      if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? sheet => viaImplementation(row, given, reader, { name, sheet, origin }) : null, given);
-      // A send refused now fails its mutation, as on native, rather than the action that sent it.
-      return row.send && errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
+      // `call.wanted`: whether the mutation still wants the reply (rt.js `reply`), which a payment sheet reads.
+      if (d.hold) {
+        const call = {};
+        const p = hold(row, d.hold, name, false, timeout, route(row) === "agent" ? sheet => viaImplementation(row, given, reader, { name, sheet, origin }) : null, given, () => call.wanted?.() ?? true);
+        p.call = call;
+        return p;
+      }
+      // A name refused now fails its mutation or resource, as on native, rather than the action that sent it or the
+      // commit that read it: a source absent on the web shows its `else` (LLP 1133.025 D14).
+      return errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
     };
   }
   // `allow` sets the status fields the app's grant line names (its approximate grant reads `approximate`).
@@ -746,6 +944,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const setPermission = (name, state) => {
     permission.set(name, state);
     say(`permission ${name}: ${state}`);
+    // The substitute stands for the browser's permission of each address space (LLP 1133.036 D19).
+    if (name === "local-network" || name === "loopback-network") setSpaceState(name === "local-network" ? "local" : "loopback", state);
     if (state === "granted") allow(name);
     for (const h of [...held]) {
       if (h.permission !== name) continue;
@@ -759,8 +959,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         if (d?.hold) { h.permission = next.name; h.ticket = nextTicket(); say(`device ${capability(h)} ${h.ticket} held (agent)`); continue; }
       }
       if (h.forward) { releaseForward(h); continue; }
-      const d = decideTimed(h.row, h.send, h.timeout);
-      if (d.hold) { h.waits = d.hold; h.ticket = nextTicket(); h.deadline = d.hold === "value" && h.timeout != null ? clock.now + h.timeout : null; say(`device ${capability(h)} ${h.ticket} held (agent)`); } else release(h, d.now);
+      const d = decideTimed(h.row, h.send, h.timeout, h.args);
+      if (d.hold) { h.waits = d.hold; h.ticket = nextTicket(); h.deadline = d.hold === "value" && h.timeout != null ? clock.now + h.timeout : null; say(`device ${capability(h)} ${h.ticket} held (agent)`); ar.claimed(h.row); } else release(h, d.now);
     }
     settleEffects(name, state);
     reask([...byKey.values()].filter(r => permissionNamed(r, name)).map(r => r.key));
@@ -789,6 +989,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   (globalThis.exact ??= {}).extensions = {
     // A polled source's ask in flight: what a jump waits for (agent.js).
     polling: () => asking.size > 0,
+    // Sends answered after a span (spans.js): no request a settle waits on, and when the soonest ends.
+    spans: () => sp.count(),
+    spanDue: () => sp.next(),
     // `state.extensions` (LLP 1133.002 §6), as the runner's `extensions_json` writes it.
     state() {
       const out = {};
@@ -809,9 +1012,15 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         const extension = q.key.split(".")[0], e = out[extension] ??= { bound: false, preferred: {}, readers: {}, held: [] };
         (e.queued ??= []).push({ event: q.key.split(".")[1], args: q.args, origin: q.origin });
       }
+      // An extension of views alone (`@exact/maps`, LLP 1133.021 §12) has an entry once its implementation is loaded.
+      for (const [extension, impl] of ready) if (impl && !out[extension]) out[extension] = { bound: !clock.agent && !!bound[extension], preferred: {}, readers: {}, held: [] };
       // What a loaded implementation discloses of its own (`state()`: a language model's sessions, LLP 1133.016 §9).
       for (const [extension, e] of Object.entries(out)) {
         Object.assign(e, sampled.state(extension));
+        sp.state(extension, e);
+        dv.state(extension, e);
+        rc.state([...byKey.values()].filter(r => extensionOf(r) === extension), e);
+        ar.state(extension, e);
         const own = ready.get(extension)?.state?.();
         if (own) e.implementation = own;
       }
@@ -854,12 +1063,15 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const row = byKey.get(`${body.extension}.${body.source ?? body.send}`);
       if (!row || row.send !== !!body.send) return Promise.resolve({ error: "NotSupportedError" });
       const args = sampled.clamp(row, { ...(body.args ?? {}) }, say);
+      sp.resolveOf(row, args);
       const timeout = row.send ? timeoutOf(row, args) : null, reader = !row.send && sampled.sampled(row) ? `data ${groupOf(args)}` : null;
       const origin = body.origin === "tool" ? "tool" : originNow();
       if (row.sub.effect) return effect(row, args, origin);
       let d = admitted(row, args, origin, row.send, timeout);
+      const spanned = sp.admitted(row, args, origin, d);
+      if (spanned) return spanned.then(json => complete(json, row.type));
       if (reader) d = sampledAnswer(row, d, args, reader);
-      if (d.forward) return viaImplementation(row, args, null, { origin }).then(json => { if (reader) sampled.answered(row, reader, json); return complete(kept() ? json : ceremonies.dropped(row, json), row.type); });
+      if (d.forward) return viaImplementation(row, args, null, { origin, kept }).then(json => { if (reader) sampled.answered(row, reader, json); return complete(kept() ? json : ceremonies.dropped(row, json), row.type); });
       if (d.hold) return hold(row, d.hold, row.key, true, timeout, route(row) === "agent" ? sheet => viaImplementation(row, args, null, { origin, sheet }) : null, args, kept);
       say(`native ${row.key} (${route(row) === "substitute" ? "substituted" : "refused"})`);
       if (row.sub.ceremony || row.sub.records) ceremonies.record({ row, args }, errorCode(d.now) ?? "recorded");
@@ -868,15 +1080,16 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     holds: () => [...held.filter(h => !h.queued).map(h => ({ name: h.name, ticket: h.ticket, device: { capability: capability(h),
       args: h.waits === "permission" ? { capability: h.permission, request: h.row.key.split(".")[1], origin: "app" } : h.waits === "ceremony" ? ceremonies.args(h)
         // A sheet shows what the call asked (the properties, the event).
-        : h.waits === "choose" ? { request: h.row.key.split(".")[1], origin: "app", options: h.args ?? {} } : { request: h.row.key.split(".")[1] } } })),
+        : h.waits === "choose" ? { request: h.row.key.split(".")[1], origin: "app", options: h.args ?? {} } : h.waits === "device" ? dv.ticket(h).args : { request: h.row.key.split(".")[1] } } })),
       ...effects.map(h => ({ name: h.row.key, ticket: h.ticket, device: { capability: "permission", args: { capability: h.row.sub.permission.name, request: h.row.key.split(".")[1], origin: "app" } } }))],
     // `tap @t allow|deny|cancel`, `type @t <value>`, `tap @ref` on a listed entry; undefined for a ticket that is not a module's.
     answer(req) {
       const entry = req.op === "tap" && [...lists.values()].flat().find(e => e.ref === req.ticket);
       if (entry) {
         if (!delivered(entry)) return { error: `@${req.ticket} is not delivered yet: advance the clock past its time` };
-        // A registration's tap is a wake, and leaves it listed.
+        // A registration's tap is a wake, and leaves it listed; a call's takes the person's choice and leaves it listed.
         if (entry.row.sub.list.tap?.as === "wake") return wk.tap(entry);
+        if (req.choice != null || up.chooses(entry)) return req.choice == null ? { error: `@${req.ticket} takes a choice: tap @${req.ticket} <choice>` } : up.choose(entry, req.choice);
         const state = entry.row.sub.list.state;
         lists.set(state, lists.get(state).filter(e => e !== entry));
         say(`${state} @${req.ticket}: tapped`);
@@ -893,18 +1106,21 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const h = held.find(x => x.ticket === req.ticket);
       if (!h) return undefined;
       const cap = capability(h);
+      if (h.waits === "ceremony" && h.row.sub.ceremony.asks) return paySheets.answer(h, req);
       if (h.waits === "ceremony") {
         const c = h.row.sub.ceremony;
         if (req.op === "tap") {
-          const choices = Object.keys(c.choices ?? {});
+          const choices = [...new Set([...Object.keys(c.choices ?? {}), ...mb.choices(h.row)])];
           if (req.choice !== "cancel" && !choices.includes(req.choice)) return { error: `@${h.ticket} (${cap}): tap takes ${["cancel", ...choices].join(" | ")}, not ${req.choice}` };
           say(`device ${cap} ${h.ticket} ${req.choice === "cancel" ? "cancelled" : `answered: ${req.choice}`}`);
-          release(h, (req.choice === "cancel" ? c.cancel : c.choices[req.choice]) ?? { error: "NotAllowedError" });
+          release(h, mb.tapped(h.row, h.args, req.choice) ?? (req.choice === "cancel" ? c.cancel : c.choices?.[req.choice]) ?? { error: "NotAllowedError" });
           return { ticket: req.ticket, capability: cap, answered: req.choice, delivery: "substituted" };
         }
         let v;
         try { v = JSON.parse(req.text); } catch {}
-        if (!v || typeof v !== "object" || Array.isArray(v) || Object.entries(c.answer ?? {}).some(([k, x]) => v[k] !== x)) {
+        const member = mb.typed(h.row, h.args, v);
+        if (member) return { error: `@${h.ticket}: ${member}` };
+        if (member === null && (!v || typeof v !== "object" || Array.isArray(v) || !mb.ownsCeremony(h.row, h.args) || Object.entries(c.answer ?? {}).some(([k, x]) => v[k] !== x))) {
           return { error: `@${h.ticket}: ${h.row.key}: type the response's JSON, an object with ${JSON.stringify(c.answer ?? {})} (packages/passkeys/test/authenticator.mjs makes one from the ticket's args)` };
         }
         say(`device ${cap} ${h.ticket} answered: a value`);
@@ -938,6 +1154,15 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         if (h.forward) releaseForward(h, sheet); else release(h, {});
         return { ticket: req.ticket, capability: cap, answered: sheet.tap ?? "value", delivery: "substituted" };
       }
+      // A device's chooser (LLP 1133.037 D2): `tap @t <id>` or `cancel`.
+      if (h.waits === "device") {
+        const choices = dv.ticket(h).choices;
+        if (req.op !== "tap") return { error: `@${h.ticket} (${cap}): answered by tap, not type` };
+        if (req.choice !== "cancel" && !choices.includes(req.choice)) return { error: `@${h.ticket} (${cap}): tap takes ${["cancel", ...choices].join(" | ")}, not ${req.choice}` };
+        say(`device ${cap} ${h.ticket} ${req.choice === "cancel" ? "cancelled" : `answered: ${req.choice}`}`);
+        release(h, dv.chosen(h, req.choice));
+        return { ticket: req.ticket, capability: cap, answered: req.choice, delivery: "substituted" };
+      }
       if (h.waits === "permission") {
         if (req.op !== "tap") return { error: `@${h.ticket} (permission): answered by tap, not type` };
         if (!["allow", "deny", "cancel"].includes(req.choice)) return { error: `@${h.ticket} (permission): tap takes cancel | allow | deny, not ${req.choice}` };
@@ -959,11 +1184,14 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       }
       const from = sibling(h.row, h.row.sub.from);
       if (req.op === "tap") {
-        if (req.choice !== "cancel") return { error: `@${h.ticket} (${cap}): tap takes cancel, not ${req.choice}` };
-        say(`device ${cap} ${h.ticket} cancelled`);
-        release(h, h.row.sub.cancel ?? { error: "NotSupportedError" });
-        return { ticket: req.ticket, capability: cap, answered: "cancel", delivery: "substituted" };
+        // A further tap the ticket takes (`taps`: a scan's `timeout`).
+        const taps = ar.taps(h.row);
+        if (req.choice !== "cancel" && !taps.includes(req.choice)) return { error: `@${h.ticket} (${cap}): tap takes ${["cancel", ...taps].join(" | ")}, not ${req.choice}` };
+        say(`device ${cap} ${h.ticket} ${req.choice === "cancel" ? "cancelled" : `answered: ${req.choice}`}`);
+        release(h, (req.choice === "cancel" ? h.row.sub.cancel : h.row.sub.taps[req.choice]) ?? { error: "NotSupportedError" });
+        return { ticket: req.ticket, capability: cap, answered: req.choice, delivery: "substituted" };
       }
+      if (!from) return { error: `@${h.ticket} (${cap}): answered by tap, not type` };
       let v;
       try { v = typed(from, req.text); } catch (e) { return { error: `@${h.ticket}: ${e.message}` }; }
       say(`device ${cap} ${h.ticket} answered: a value`);
@@ -981,7 +1209,12 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const group = req.extension ?? {};
       for (const [key, v] of Object.entries(group)) {
         const word = agentWord(key);
-        if (word) { if (v !== "clear" && !wordFits(word, v)) return { error: `prefer extension: \`${key}\` is a ${word}` }; continue; }
+        if (word) {
+          if (v !== "clear" && !wordFits(word, v)) return { error: `prefer extension: \`${key}\` is a ${word}` };
+          const refused = ar.refusal(key, v, group);
+          if (refused) return { error: refused };
+          continue;
+        }
         const row = byKey.get(key);
         const sources = [...byKey.values()].filter(r => !r.send).map(r => r.key);
         if (!row) return { error: `prefer extension: no source \`${key}\` in this app; its module sources are ${sources.join(", ") || "none"}` };
@@ -998,15 +1231,22 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         }
       }
       for (const [name, state] of Object.entries(req.permission ?? {})) setPermission(name, state);
+      const moved = [];
       for (const [key, v] of Object.entries(group)) {
+        const row = byKey.get(key), before = row?.sub.changes ? valueOf(row) : undefined;
+        moved.push([key, preferred.get(key)]);
         if (v === "clear") preferred.delete(key); else preferred.set(key, v);
-        if (byKey.has(key)) sampled.prefer(byKey.get(key), v);
+        if (row) sampled.prefer(row, v);
+        dv.preferred(key);
         say(`prefer extension ${key}`);
+        if (row?.sub.changes) sp.changed(row, before, valueOf(row));
       }
       // An implementation bound under the agent is told its names' preferred values (LLP 1133.008 D8 item 9).
       for (const extension of new Set(Object.keys(group).map(k => byKey.get(k) ?? rowOf(k)).filter(r => r && route(r) === "agent").map(extensionOf))) {
         loaded.get(extension)?.then(impl => impl?.preferred?.(preferredOf(extension)));
       }
+      // A field word's change is an arrival, once every word is set.
+      for (const [key, before] of moved) ar.moved(key, before, preferred.get(key));
       settleValues();
       const keys = Object.keys(group).filter(k => byKey.has(k));
       if (keys.length) reask(keys);
@@ -1014,6 +1254,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     },
   };
 }
+
+/** Whether `c` is a CSS colour: the browser's own parse, else its common forms. */
+const isColor = c => globalThis.CSS?.supports ? CSS.supports("color", c) : /^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|(rgb|hsl)a?\(.*\)|[a-z]+)$/i.test(c.trim());
 
 /** Whether a call gave option `arg`: set and not `false`; the grant key `"*"` is every call's. */
 const given = (args, arg) => arg === "*" || (args?.[arg] != null && args[arg] !== false);

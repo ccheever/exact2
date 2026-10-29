@@ -114,7 +114,17 @@ typedef struct ExactTextRun {
     uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
     float variation_values[8];    /* in the axis's own units */
     uint8_t optical_sizing_none;  /* 1 for CSS font-optical-sizing: none */
+    /* LLP 1011.002: 1 when the run is an image in the paragraph's text, its text U+FFFC
+     * and its box these points wide and tall, raised box_shift from where box_align
+     * (0 baseline, 1 middle, 2 text-top, 3 text-bottom, CSS vertical-align) puts it. */
+    uint8_t inline_box;
+    uint8_t box_align;
+    float box_width, box_height, box_shift;
 } ExactTextRun;
+
+/* Evidence of the host's local-network fact from @exact/local-network
+ * (LLP 1133.036 D8): 0 granted, 2 denied. Returns 1 if the fact moved. */
+uint32_t exact_local_network_report(uint32_t state);
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
  * runs, the one algorithm the measurer applies before each measure callback. `utf8` is
@@ -363,6 +373,11 @@ void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
  * NULL (the default) keeps every paragraph whole in a multi-column flow. */
 typedef size_t (*ExactLinesFn)(void *ctx, const ExactMeasureRequest *request, float *out, size_t cap);
 void exact_set_lines(ExactRuntime rt, ExactLinesFn lines);
+/* LLP 1011.002 D2: where the paragraph a request answers put each inline box (a run with
+ * inline_box set), its top left in content coordinates: x then y, one pair per box in run
+ * order. Writes min(2 * count, cap) floats and returns 2 * count, with exact_set_measure's
+ * context. NULL (the default) leaves each image at the paragraph's content origin. */
+void exact_set_inline_boxes(ExactRuntime rt, ExactLinesFn boxes);
 /* A system symbol's natural size, measured before layout: an Apple symbol name (UTF-8, not
  * NUL-terminated), its point size and CSS weight. Writes width and height to out and returns 1,
  * or 0 when it cannot say; called with exact_set_measure's context, and only beside a text
@@ -477,6 +492,12 @@ void exact_module_invoke(ExactRuntime rt, size_t len, ExactInvokeReply reply, vo
 uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
 /* The runner's own go to the UTF-8 location in exact_in, a batch. */
 uint32_t exact_host_go(ExactRuntime rt, size_t len, double now_ms);
+/* LLP 1133.024 D2-D4: a received share, the JSON in exact_in
+ * ({"root", "target", "share", "inbox"?}), a batch; before the boot its
+ * location and tokens become the launch's, and exact_share_land, after
+ * storage is configured, lands its files (a batch). */
+uint32_t exact_share(ExactRuntime rt, size_t len, double now_ms);
+uint32_t exact_share_land(ExactRuntime rt);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
@@ -539,6 +560,9 @@ uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
    exact_in; returns the ordinary batch. */
 uint32_t exact_into_view(ExactRuntime rt, uint32_t view, size_t len);
+/* What UIKit covers of a virtualized list's port at its start and end, in
+   points: a row the runner aligns (scrollIntoView, a focus) lands clear of it. */
+void exact_list_covered(ExactRuntime rt, uint32_t view, double start, double end);
 /* Property: 0 translate, 1 scale, 2 rotate, 3 opacity. Begin replies with a
  * hold op {token:decimal-string,x,y}. Tokens belong to this runtime incarnation.
  * Check liveness before an authored action; final update, action, then end. */
@@ -833,8 +857,21 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
  * the same record for a scrollport, including at offset zero; kind 6 ignores
  * the offset. Kind 7 forgets either placement. Kind 10 is a cells
  * list's rows' cell margin (LLP 1138: float left, right, then two unused),
- * 11 clears it. */
+ * 11 clears it. Kind 14 shows a split's `navigationSplit="placeholder"` box
+ * and kind 15 hides it again (LLP 1116.006 D2; the floats unused). */
 uint32_t exact_host_covers(ExactRuntime rt, size_t len);
+/* What a block's root would measure in another block (a popover's
+ * position-area option, LLP 1021 D2): each axis a length and a policy as
+ * exact_host_covers' kind 4 takes them (0 size, 1 maximum, 2 fit, 3 a
+ * position-area's region). The border box's width and height, then the
+ * margins (top, right, bottom, left) as the layout resolved them, six LE
+ * floats in the output buffer, and 24; 0 when refused. Not a batch:
+ * nothing is laid out, published or sent. */
+uint32_t exact_measure_block(ExactRuntime rt, uint32_t view, float width, float height, uint32_t width_policy, uint32_t height_policy);
+/* A number that moves whenever exact_measure_block could answer otherwise
+ * (a commit that changed something, a layout, a reset): a host keeps a
+ * measure while it stands. Not a batch. */
+uint64_t exact_layout_stamp(ExactRuntime rt);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
@@ -851,12 +888,15 @@ uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
 uint32_t exact_root_tabs(ExactRuntime rt, uint32_t view);
 /* Whether the stack whose root route is `view` shows that route as a list beside
  * its detail, by the runner's rule (LLP 1115.002 D4), JSON in the output buffer,
- * not a batch: {"list":view|null,"width":number|null,"rows":[[route,row]...]}, the
- * list whose row pushes, the list column's width where `navigationSplit` names one,
- * and each route above the root that is a row's detail with that row; null for a
- * stack that pushes. */
-/* `retained` is a previous list to keep while empty and still eligible, or 0. */
-uint32_t exact_stack_split(ExactRuntime rt, uint32_t view, uint32_t retained);
+ * not a batch: {"list":view|null,"width":number|null,"rows":[[route,row]...],
+ * "locations":[[route,url]...],"pressWrites":bool|null}, the list whose row pushes,
+ * the list column's width where `navigationSplit` names one, each route above the
+ * root that is a row's detail with that row, each route above the root with its
+ * location, and whether the press of `pressed` writes the router; null for a stack
+ * that pushes. */
+/* `retained` is a previous list to keep while empty and still eligible, or 0;
+ * `pressed` is a view being pressed, or 0. */
+uint32_t exact_stack_split(ExactRuntime rt, uint32_t view, uint32_t retained, uint32_t pressed);
 /* A button's face, custom or native (LLP 1069.011.000 D1), JSON in the output
  * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
  * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */
@@ -875,6 +915,12 @@ uint32_t exact_agent(ExactRuntime rt, size_t len);
 /* A host line for the runner's journal (LLP 1012 §3; LLP 1035.001 D6): the
  * input buffer's first len bytes — a refused intent and its reason. Returns 0. */
 uint32_t exact_log(ExactRuntime rt, size_t len);
+
+/* What the presenter applied of the session's orientation lock (LLP 1133.029
+ * §8): JSON in the input buffer's first len bytes, for the agent's
+ * state.orientationlock.applied; conflict nonzero when its resolution of
+ * `natural` or `current` found one. Returns 0. */
+uint32_t exact_orientation_applied(ExactRuntime rt, size_t len, uint8_t conflict);
 
 /* A command that shows system UI, about to run: {"command":"share",
  * "title","text","url","source","agent"} (LLP 1069.003) or {"command":
@@ -906,8 +952,9 @@ uint32_t exact_presence(ExactRuntime rt, size_t len);
  * the runtime's thread, synchronously; answered with done(reply, status,
  * bytes, len) before it returns: status 0 done, 1 not found or not capable,
  * below 0 failed with a message. op 1 add {"service","account","policy"}
- * with the value; 2 delete {"service","account"}; 3 the accounts under
- * {"service"}, a JSON array; 4 delete every item under {"service"}; 5
+ * with the value; 2 delete {"service","account"}; 3 whether the indexed
+ * {"service","account"} exists, without authenticating; 4 delete every item
+ * under {"service"}; 5
  * whether this build keeps locked items. Never shows the person anything. */
 typedef void (*ExactPresenceReplyFn)(void *reply, int32_t status, const uint8_t *bytes, size_t len);
 typedef void (*ExactPresenceKeychainFn)(uint32_t op, const uint8_t *json, size_t len, const uint8_t *value, size_t value_len, void *reply, ExactPresenceReplyFn done);

@@ -253,6 +253,22 @@ pub fn static_tree(
                 (BindingKind::Style, None) => {}
             }
         }
+        // A side its author binds keeps the other of its pair where the sheet
+        // set it, as css.rs keeps both when the author wrote one (`unsaid_side`;
+        // the kernel's `mirror_unsaid` reads the bound row's written bit too).
+        for row in node.bindings.iter().map(|b| plan.binding(b)) {
+            let bound = row.kind == BindingKind::Style
+                && row.written
+                && literal(plan, plan.code(row.expr)).is_none();
+            if let Some(other) = StyleId::from_bit(row.id as u32)
+                .filter(|_| bound)
+                .and_then(other_side)
+            {
+                if patch.mask.has(other) {
+                    patch.written.set(other);
+                }
+            }
+        }
         if styled {
             ops.push(Op::SetStyle {
                 id: view(i),
@@ -1072,7 +1088,7 @@ fn one(name: impl Into<String>, unit: impl Into<String>) -> Vec<Write> {
 /// code reads, and a paused play state under a bound `animation-timeline`.
 /// `timeline` says the node has an `animation-timeline` row, so a dynamic
 /// `animation` (whose shorthand resets the play state) is paused again;
-pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
+pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>, String> {
     let row = StyleId::from_bit(id as u32).ok_or("unknown style row")?;
     let with = |name: &str, map: &'static str| Write {
         name: name.into(),
@@ -1116,7 +1132,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         // @ref LLP 1116 D1 — a native button's title truncates only when the
         // author keeps it to one line (exact_web's button_css.rs `rows`).
         StyleId::WhiteSpace => {
-            let (name, unit) = style_row(id)?;
+            let (name, unit) = style_row(id, written)?;
             let mut writes = one(name, unit);
             writes.push(with("--exact-button-title-min", "v=>v==null?v:/^\\s*(nowrap|pre)\\s*$/i.test(v)?'0px':null"));
             writes
@@ -1221,6 +1237,18 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             &SCHEME_MAP,
         )],
         StyleId::TextWrapStyle => one("text-wrap-style", ""),
+        // @ref LLP 1019 D12 — css.rs writes Firefox's Mac spelling too.
+        StyleId::FontSmoothing => vec![
+            Write {
+                name: "-webkit-font-smoothing".into(),
+                unit: String::new(),
+                map: None,
+            },
+            with(
+                "-moz-osx-font-smoothing",
+                "v=>v==null?v:v==\"antialiased\"?\"grayscale\":\"auto\"",
+            ),
+        ],
         // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
         StyleId::TextBoxEdge => vec![with(
             "text-box-edge",
@@ -1234,13 +1262,13 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         // a literal one does (roles.rs `scheme_color`); a value that unsets
         // the row (StyleValue::text_unsets) authors none.
         StyleId::TextColor if exact_kernel::style::roles::overridden_canvas_text() => {
-            let (name, unit) = style_row(id)?;
+            let (name, unit) = style_row(id, written)?;
             let mut writes = one(name, unit);
             writes.push(with("--exact-scheme-color", r"v=>v==null||/^\s*(unset|inherit|currentcolor)?\s*$/i.test(v)?null:'initial'"));
             writes
         }
         _ => {
-            let (name, unit) = style_row(id)?;
+            let (name, unit) = style_row(id, written)?;
             one(name, unit)
         }
     })
@@ -1253,8 +1281,10 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
 /// grammar is CSS's own: `clip-path`, `shape-outside`, SVG paint, dashes,
 /// filters, transform origins, gradients) are written as the author wrote
 /// them; the browser parses them as the kernel does. Rows that are not one
-/// declaration each are refused, never guessed.
-pub fn style_row(id: u16) -> Result<(String, String), String> {
+/// declaration each are refused, never guessed. `written` is whether the
+/// binding's author wrote the row: a side only the sheet binds is named as
+/// css.rs names it, its logical side.
+pub fn style_row(id: u16, written: bool) -> Result<(String, String), String> {
     let row = StyleId::from_bit(id as u32).ok_or("unknown style row")?;
     // `translate` is one declaration of the author's two lengths (css.rs
     // `lowered`): written as the author wrote them.
@@ -1313,6 +1343,9 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleId::LineClamp
             | StyleId::PressScale
             | StyleId::FontVariantNumeric
+            // One `vertical-align`, a keyword or a length (LLP 1011.002 D3).
+            | StyleId::VerticalAlign
+            | StyleId::BaselineShift
     ) {
         return Err(format!(
             "a dynamic `{}` ({:?}) is not one declaration; not in the JS target",
@@ -1323,6 +1356,13 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
     let sample = |v: exact_kernel::StyleValue| {
         let mut p = exact_kernel::StyleProps::default();
         p.set_dynamic(row, &v).ok()?;
+        // Said as its binding says who wrote it: a side its author wrote
+        // stays that side right to left; one only the sheet binds (a grouped
+        // row's inset beside a conditional symbol) is css.rs's logical one
+        // and mirrors (`unsaid_side`, d19cfb141a).
+        if written {
+            p.written.set(row);
+        }
         let (text, _) = exact_web::css::css_text(&p, &[]);
         // Not the theme's reset an authored colour writes beside itself.
         let declaration = text
@@ -1355,6 +1395,7 @@ pub(crate) fn css_property(id: StyleId) -> String {
         StyleId::SvgMask => return "mask".into(),
         StyleId::TextStrokeWidth => return "-webkit-text-stroke-width".into(),
         StyleId::TextStrokeColor => return "-webkit-text-stroke-color".into(),
+        StyleId::FontSmoothing => return "-webkit-font-smoothing".into(),
         id => id.name(),
     };
     for (prefix, suffix) in [
@@ -1393,6 +1434,17 @@ pub fn font_family_table(plan: &Plan) -> Vec<String> {
 /// A marker row's CSS property (css.rs `property`).
 pub fn style_marker(id: StyleId) -> (String, String) {
     (css_property(id), String::new())
+}
+
+/// The other side of a padding or margin pair (css.rs `unsaid_side`).
+pub(crate) fn other_side(id: StyleId) -> Option<StyleId> {
+    Some(match id {
+        StyleId::PaddingLeft => StyleId::PaddingRight,
+        StyleId::PaddingRight => StyleId::PaddingLeft,
+        StyleId::MarginLeft => StyleId::MarginRight,
+        StyleId::MarginRight => StyleId::MarginLeft,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

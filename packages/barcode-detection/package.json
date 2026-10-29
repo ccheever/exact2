@@ -1,0 +1,20 @@
+{
+  "name": "@exact/barcode-detection",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Barcodes and QR codes in a still image and, live, in a camera track the app shows, by the Shape Detection API's names (LLP 1133.027).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  },
+  "peerDependencies": {
+    "@exact/media-capture": "1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@exact/media-capture": {
+      "optional": true
+    }
+  }
+}

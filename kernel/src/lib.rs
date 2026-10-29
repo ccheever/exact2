@@ -86,13 +86,14 @@ pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use invocation::Invocation;
 pub use kernel::{
-    BlockAxis, HostBlock, HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint,
+    BlockAxis, BlockMeasure, HostBlock, HostCover, Kernel, NodeRef, PresentedHeight,
+    StickyConstraint,
 };
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use node::NodeFacts;
 pub use props::{PropList, PropValue};
-pub use replaced::{apple_symbol_name, symbol_path, Icon, SymbolPath};
+pub use replaced::{apple_symbol_name, symbol_path, symbol_path_in, Icon, SymbolPath, SymbolSet};
 pub use sorted::{SortedMap, SortedSet};
 pub use style::{
     link_segments, uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, EnvRefusal,
@@ -104,6 +105,7 @@ pub use text::case::link as link_text_transform;
 pub use text::case::{
     linked_lowercase, linked_uppercase, lowercase_bounded, uppercase_bounded, CaseMapping,
 };
+pub use text::inline_box::{FontEdges, InlineBox, INLINE_BOX_TEXT};
 pub use text::{
     Markup, MarkupAtoms, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
     TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,

@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Grey Sam bubbles on the left, blue mine on the right, oldest at the top. Day headings appear only when the day changes ('Wed, Jul 1', 'Fri, Jul 3', 'Today'). Opens at the newest message. A message that is only an emoji is drawn large with no bubble, as in iMessage."},
+      {"n": 2, "status": "pass", "note": "Sending appends the bubble, the thread stays at the bottom and the composer clears. Send is disabled when the field is empty or holds only spaces. The composer grows to several lines for long text."},
+      {"n": 3, "status": "pass", "note": "The composer sits right on the keyboard and the newest messages stay visible above it. Dragging the thread dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "A 'Sam is typing…' bubble with dots appears, plus 'typing…' under the title. About 2 s later a canned reply arrives ('Makes sense')."},
+      {"n": 5, "status": "pass", "note": "Long-press opens the system context menu with Copy and a red Delete. Copy puts the text on the pasteboard (Paste is offered in the composer). Delete removes the message and stays removed after relaunch. Once, the first tap on Delete did nothing and a second tap was needed."},
+      {"n": 6, "status": "pass", "note": "Flings all the way to the first message (Jul 1) with no blank rows. A round glass chevron button appears when far up and returns to the newest message, even when tapped mid-fling."},
+      {"n": 7, "status": "pass", "note": "Sent messages and Sam's replies survive relaunch."}
+    ],
+    "bugs": [
+      "Once, the first tap on Delete in the context menu was ignored and the menu stayed open; a second tap worked."
+    ],
+    "tells": [
+      "The long-press preview shows the grey bubble inset inside a thick white rounded platter instead of lifting the bubble's own shape.",
+      "At the largest text size, emoji-only messages in the history stay small while everything else scales, so the sizing is inconsistent."
+    ],
+    "scroll": "Feels like a native list: smooth slow drags, flings that coast and stop naturally, no blank or popping rows, and the glass scroll-edge blur under the nav bar and composer as content passes.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Grey/blue bubbles on the correct sides, oldest at the top, opens at the newest message. Headings include the time ('Jul 3, 2026 at 4:20 PM') and appear at time gaps within the same day too (two 'Jul 3' headings). That is iMessage-like but more than the 'where the day changes' the spec asks for."},
+      {"n": 2, "status": "pass", "note": "Send appends the message, stays at the bottom and clears the composer. Send is disabled for empty or whitespace-only input. The composer grows for multi-line text."},
+      {"n": 3, "status": "pass", "note": "The composer stays on the keyboard and the newest messages stay visible. Dragging the thread dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "A dots bubble with 'Sam is typing…' appears, plus 'typing…' under the title. About 2 s later a reply arrives ('Nice!')."},
+      {"n": 5, "status": "pass", "note": "Long-press opens the system menu with Copy and Delete. Copy works and Delete works and persists."},
+      {"n": 6, "status": "partial", "note": "Scrolls smoothly to the first message. The jump-to-newest button is a faint arrow with an almost invisible background, so it gets lost over bubbles. A tap while the list is still coasting only stops the scroll; it works when the list is still."},
+      {"n": 7, "status": "pass", "note": "Sent messages and replies survive relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size the typing indicator's three dots wrap onto two lines inside the bubble (two dots, then one)."
+    ],
+    "tells": [
+      "The nav bar is flat white with no scroll-edge blur or material; content is cut off sharply under it, unlike iOS 26+ bars.",
+      "The jump-to-newest control is a thin arrow on a nearly transparent pill that disappears over blue bubbles, not a proper floating glass button.",
+      "In the long-press preview the grey Sam bubble turns plain white.",
+      "Date headings repeat within a day with full year and time ('Jul 3, 2026 at 8:07 PM'), which reads denser than Messages ('Today 3:47 PM')."
+    ],
+    "scroll": "Smooth and steady through all 520 messages, with no blank rows or jumps. It is a bit plainer than A because nothing blurs under the bars.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet nearly every requirement with real system context menus, keyboard handling and persistence. A looks and feels more like a native iOS 27 app: glass scroll-edge effects, a clear floating jump button that works mid-fling, iMessage-style large emoji, and clean day-only headings. B has a flat nav bar with no blur, a nearly invisible jump button, and a typing indicator that breaks apart at the largest text size."
+}

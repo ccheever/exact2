@@ -79,6 +79,9 @@ package struct Run: Hashable {
     /// `LineInsets`): where its paragraph's lines start, so a metric.
     package var indent: CGFloat = 0
     package var hang = false
+    /// An image in the paragraph's text (LLP 1011.002): the box this run's
+    /// U+FFFC reserves. A metric.
+    package var box: InlineBox?
 
     package static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
@@ -89,7 +92,7 @@ package struct Run: Hashable {
               lhs.strikeColor == rhs.strikeColor, lhs.href == rhs.href,
               lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.backgroundBox == rhs.backgroundBox,
               lhs.backgroundRadii == rhs.backgroundRadii, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
-              lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
+              lhs.indent == rhs.indent, lhs.hang == rhs.hang, lhs.box == rhs.box else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -126,6 +129,7 @@ package struct Run: Hashable {
         hasher.combine(stroke)
         hasher.combine(indent)
         hasher.combine(hang)
+        hasher.combine(box)
     }
     package init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, lineHeight: CGFloat?, letterSpacing: CGFloat, numeric: Int = 0, stretch: CGFloat = 100, variations: [FontAxis] = [], color: [Double]? = nil, decoration: String = "", href: String = "", background: [Double]? = nil, hidden: Bool = false, fixedInk: Bool = false, shadow: [Double]? = nil, stroke: [Double]? = nil, indent: CGFloat = 0, hang: Bool = false) {
         self.text = text
@@ -203,6 +207,9 @@ package struct Spec: Hashable {
     package var textBoxUnder = 0
     /// CSS `text-wrap-style: balance` (TextBreaks.swift, `balance`).
     package var balance = false
+    /// `-webkit-font-smoothing: antialiased` (LLP 1019 D12): the glyphs
+    /// paint with Core Graphics font smoothing off. Paint only.
+    package var antialiased = false
     package init(runs: [Run], align: Int, lineClamp: Int, color: [Double], overflowWrap: Int = 0, direction: Int = 0, whiteSpace: Int = 0, strut: Run? = nil, ellipsis: Bool = false, source: SourceMap = SourceMap(), textIndent: CGFloat = 0, hyphens: Int = 0, language: String = "", shadow: [Double]? = nil, textBoxTrim: Int = 0, textBoxOver: Int = 0, textBoxUnder: Int = 0, balance: Bool = false) {
         self.runs = runs
         self.align = align
@@ -825,10 +832,11 @@ package final class TextEngine {
         // appending an attributed string for every run.
         let s = NSMutableAttributedString(string: spec.runs.map(\.text).joined())
         var offset = 0
-        for r in spec.runs {
+        for (index, r) in spec.runs.enumerated() {
             var a: [NSAttributedString.Key: Any] = [.font: font(r)]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             presentation?.attributes(r, color: spec.color, attributes: &a)
+            if let box = r.box { TextEngine.boxAttributes(box, font: font(r) as CTFont, index: index, into: &a) }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
@@ -1068,9 +1076,13 @@ package final class TextEngine {
             plan.next(typesetter, source: shape.attributed, text: text, start: start, room: room, offerWidth: width,
                       breakWord: spec.overflowWrap != 0, length: length)
         }
+        // What a line's trailing spaces add to its width that the box's measure leaves out, in its `room`
+        func removed(_ line: CTLine, _ room: CGFloat) -> CGFloat {
+            TextEngine.uncountedTrailingWidth(line, whiteSpace: spec.whiteSpace, source: shape.attributed, room: room)
+        }
         // CSS `text-wrap-style: balance` (TextBreaks.swift): a narrower room until the first forced break.
         let balanced = spec.balance && spec.lineClamp == 0 && !plan.boundaries.isEmpty && width > 0
-            ? plan.balance(limit, length: length, inset: { Double(insets.at($0).width) }, next: next, typesetter: typesetter, source: shape.attributed) : nil
+            ? plan.balance(limit, length: length, inset: { Double(insets.at($0).width) }, removed: removed, next: next, typesetter: typesetter, source: shape.attributed) : nil
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
             var count: Int
@@ -1117,7 +1129,7 @@ package final class TextEngine {
             // fills the box, never sizes it.
             let indent = insets.at(start).width
             let drawn = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-            let w = max(0, (natural ?? drawn) + indent)
+            let w = max(0, (natural ?? (drawn - removed(line, CGFloat(limit) - indent))) + indent)
             if spec.align == 3, !clamps, width.isFinite {
                 line = TextEngine.justified(line, source: shape.attributed, range: range, width: limit - Double(indent))
             }
@@ -1140,7 +1152,10 @@ package final class TextEngine {
                     if offset >= range.location + range.length { break }
                     let authored = spec.runs[index]
                     matched = true
-                    if authored.lineHeight != nil {
+                    if let b = authored.box {
+                        // An image's box, wherever its line breaks (LLP 1011.002).
+                        box.include(b.lineBox(font(authored) as CTFont))
+                    } else if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
                         box.include(authoredExtents(authored))
@@ -1396,7 +1411,12 @@ package final class TextEngine {
         func run(_ run: ExactTextRun) -> Run {
             Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric), stretch: CGFloat(run.font_stretch), variations: FontAxis.of(run))
         }
-        var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
+        var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map { r in
+            var made = run(r)
+            // An image's box draws no ink of its own (LLP 1011.002).
+            if let box = InlineBox(r) { made.box = box; made.hidden = true }
+            return made
+        }
         // Markdown source arrives as one run; the archive expands it the
         // same way the presenter paints it (LLP 1045 D3).
         if request.markup != 0, let source = runs.first {

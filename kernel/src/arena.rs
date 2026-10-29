@@ -15,6 +15,7 @@ pub(crate) mod alert;
 pub(crate) mod button;
 pub(crate) mod control_text;
 pub(crate) mod defaults;
+mod inline_image;
 pub mod text_style;
 
 use taffy::NodeId;
@@ -74,6 +75,11 @@ pub struct NodeArena {
     /// current role and font, under the measurer's revision the kernel last
     /// measured at (`Kernel::measures_symbol`).
     pub(crate) measured_symbols: SlotSet,
+    /// What a host last reported for a mark it sizes alike for every node
+    /// (`control::shared_size`), by kind and font size bits.
+    pub(crate) mark_sizes: Vec<((crate::ControlKind, u32), (f32, f32))>,
+    /// The kind and font size each standing mark report was made under (`Kernel::mark_withdrawn`).
+    pub(crate) mark_reports: IdMap<u32, (crate::ControlKind, u32)>,
     /// Slots that are `position: sticky` (LLP 1083 D3).
     pub(crate) sticky_slots: SlotSet,
     /// Slots in HTML's top layer: popovers, unless their author made them
@@ -181,6 +187,8 @@ impl Clone for NodeArena {
             relative_slots: self.relative_slots.clone(),
             symbols_owed: self.symbols_owed.clone(),
             measured_symbols: self.measured_symbols.clone(),
+            mark_sizes: self.mark_sizes.clone(),
+            mark_reports: self.mark_reports.clone(),
             sticky_slots: self.sticky_slots.clone(),
             top_layer_slots: self.top_layer_slots.clone(),
             timelines: self.timelines.clone(),
@@ -268,6 +276,8 @@ impl NodeArena {
         self.relative_slots.clear();
         self.symbols_owed.clear();
         self.measured_symbols.clear();
+        self.mark_sizes.clear();
+        self.mark_reports.clear();
         self.sticky_slots.clear();
         self.top_layer_slots.clear();
         self.timelines = Default::default();
@@ -561,6 +571,19 @@ impl NodeArena {
         })
     }
 
+    /// A copy for a trial layout that is dropped after it
+    /// (`Kernel::measure_block`): the same text, so each paragraph keeps its
+    /// stamp, and a measurer that holds paragraphs by stamp answers the trial
+    /// from what it holds instead of taking the text for new (a plain clone
+    /// is another kernel's, in a namespace of its own).
+    pub(crate) fn trial_copy(&self) -> Self {
+        let mut copy = self.clone();
+        copy.text_revisions.clone_from(&self.text_revisions);
+        copy.text_domain = self.text_domain.clone();
+        copy.text_serial = self.text_serial;
+        copy
+    }
+
     pub(crate) fn renew_text_namespace(&mut self) {
         self.text_domain = TextDomain::default();
         self.text_serial = 0;
@@ -731,6 +754,7 @@ impl NodeArena {
                 out.push(TextRun {
                     text: text.into(),
                     style,
+                    inline: None,
                 });
                 // A textarea's final Return creates a caret line. Paragraph
                 // shapers can omit a terminal break, so retain that line with
@@ -742,6 +766,7 @@ impl NodeArena {
                     out.push(TextRun {
                         text: "\u{200b}".into(),
                         style,
+                        inline: None,
                     });
                 }
             }
@@ -760,12 +785,31 @@ impl NodeArena {
                     let mut style = rows.style();
                     // Bold Text (LLP 1115.000 D12.3), as `text_style` reads it.
                     self.embolden(slot, &mut style);
-                    out.push(TextRun { text: shown, style });
+                    out.push(TextRun {
+                        text: shown,
+                        style,
+                        inline: None,
+                    });
                 } else {
                     for child in &self.children[s] {
-                        if self.node_types[*child as usize] == NodeType::Text {
-                            let rows = self.run_style_rows(*child, rows);
-                            self.text_runs_after(*child, rows, out, boundary);
+                        match self.node_types[*child as usize] {
+                            NodeType::Text => {
+                                let rows = self.run_style_rows(*child, rows);
+                                self.text_runs_after(*child, rows, out, boundary);
+                            }
+                            // Its alignment reads its parent's font (CSS 2
+                            // §10.8.1), so its run is in the paragraph's style.
+                            NodeType::Image if self.is_run_image(*child) => {
+                                out.push(TextRun {
+                                    text: crate::text::inline_box::INLINE_BOX_TEXT.into(),
+                                    style: rows.style(),
+                                    inline: Some(
+                                        crate::text::inline_box::inline_image(self, *child)
+                                            .reserved,
+                                    ),
+                                });
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -802,14 +846,17 @@ impl NodeArena {
         runs.into_iter().nth(at).map(|run| run.text)
     }
 
-    /// The leaves [`Self::text_runs`] makes a run of, in its order.
-    fn text_leaves(&self, slot: u32, out: &mut Vec<u32>) {
+    /// The leaves [`Self::text_runs`] makes a run of, in its order: its
+    /// texts, and its images (LLP 1011.002).
+    pub fn text_leaves(&self, slot: u32, out: &mut Vec<u32>) {
         if self.props[slot as usize].str(PropId::Text).is_some() {
             return out.push(slot);
         }
         for child in &self.children[slot as usize] {
-            if self.node_types[*child as usize] == NodeType::Text {
-                self.text_leaves(*child, out);
+            match self.node_types[*child as usize] {
+                NodeType::Text => self.text_leaves(*child, out),
+                NodeType::Image if self.is_run_image(*child) => out.push(*child),
+                _ => {}
             }
         }
     }
@@ -876,6 +923,7 @@ impl NodeArena {
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
         self.field_content.remove(&slot);
+        self.mark_reports.remove(&slot);
         self.exclusion_slots.remove(slot);
         self.frag.forget(slot);
         self.relative_slots.remove(slot);
@@ -947,6 +995,11 @@ impl NodeArena {
 
     pub(crate) fn child_index(&self, slot: u32) -> usize {
         self.child_indices[slot as usize]
+    }
+
+    /// The latest publication's number across all roots.
+    pub(crate) fn last_pass(&self) -> u64 {
+        self.last_pass
     }
 
     pub(crate) fn begin_layout_publication(&mut self, root: u32) {
@@ -1325,6 +1378,7 @@ mod tests {
             (StyleId::ColorInterpolationFilters, text("sRGB")),
             (StyleId::TextBoxEdge, text("cap-alphabetic")),
             (StyleId::TextWrapStyle, text("balance")),
+            (StyleId::FontSmoothing, text("antialiased")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

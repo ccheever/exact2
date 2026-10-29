@@ -30,6 +30,7 @@ import { fresh, freshCompiler, webCompiler } from './module.mjs';
 import { INSPECT_EVENTS } from './inspect-dev.js';
 import { galleryLoop } from './dev-gallery.mjs';
 import { inlineWhy as inlineWhyOf } from './dev-inline.mjs';
+import { DEV_STATUS_TYPE, FAILED, PHASE, gist } from '../web/dev-phase.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -43,6 +44,14 @@ const changedSince = (path, since) => { const s = lstatSync(path), now = Date.no
 /** Whether a watcher's event for `path` is an edit since `since`: macOS reports a build's reads of a tree (the assets it
  * copies) as events too, and a path unchanged since then is none. A path that is gone is an edit. */
 const movedSince = (path, since) => { try { return changedSince(path, since); } catch { return true; } };
+/** The inputs that moved while a build ran, as its set-aside line names them (stage 15 D1.5): each by its path under
+ * the app (a package's as it lies), three at most and how many more; "an input" when none was seen by name. */
+const movedWords = (paths, dir) => {
+  const names = [...new Set(paths)].map((p) => (relative(dir, p).startsWith('..') ? p : relative(dir, p)) || '.');
+  if (!names.length) return 'an input';
+  const shown = names.slice(0, 3).join(', ');
+  return names.length > 3 ? `${shown} and ${names.length - 3} more` : shown;
+};
 
 let building = null; // the build in flight, stopped with the server
 /** Stop the build in flight and what it runs (its own process group). */
@@ -318,7 +327,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     });
     return [...crates].map((c) => packages.get(c)).filter(Boolean);
   };
-  let cleaned = false;
+  let cleaned = false, readerHolds = 0;
   const buildTool = () => {
     tool.ready = false;
     stopGroup(tool.child);
@@ -326,8 +335,11 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const child = tool.child = spawn('cargo', ['build', '-q', '--profile', 'host-dev', '-p', 'exact-web-js'], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'], detached: true });
     let err = '';
     child.stderr.on('data', (d) => { err = (err + d).slice(-64000); });
-    child.on('error', (e) => { if (tool.child === child) { tool.child = null; console.log(`the design reader did not build (design edits take the full build): ${e.message}`); } });
-    child.on('exit', (code, signal) => {
+    child.on('error', (e) => { if (tool.child === child) { tool.child = null; console.log(`the design reader did not build (design edits take the full build): ${e.message}`); resumeAfterReader(); } });
+    // EXACT_DEV_READER_HOLD_MS (a test's): the loop's first reader build taken that much later, as a slow one ends
+    // (only the first: one built again because a cold build left its inputs newer is not held twice).
+    const hold = readerHolds++ === 0 ? Number(process.env.EXACT_DEV_READER_HOLD_MS) || 0 : 0;
+    child.on('exit', (code, signal) => setTimeout(() => {
       if (tool.child !== child) return;
       tool.child = null;
       tool.ready = code === 0 && existsSync(tool.path);
@@ -348,13 +360,14 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
           tool.cleaner = null;
           if (stopping) return;
           if (code === 0) buildTool();
-          else console.log(`the design reader did not build (design edits take the full build): cleaning ${stale.join(', ')} failed`);
+          else { console.log(`the design reader did not build (design edits take the full build): cleaning ${stale.join(', ')} failed`); resumeAfterReader(); }
         });
         return;
       }
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
       if (tool.ready) console.log('design reader ready'); // (until then a live proposal is taken as a rebuild, dev-inline.mjs)
-    });
+      resumeAfterReader();
+    }, hold));
   };
   // Ready, and built from the compiler's sources as they are (a compiler
   // edit the loop does not watch, under contract/ or kernel/, rebuilds it).
@@ -432,6 +445,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // Builds set aside in a row past three are said: an input that moves in
   // every build (a build that writes one of its own) is never published.
   let inputs = 0, buildBegan = 0, lastBuildMs = 0, stopped = false, asideRun = 0;
+  // The paths that moved since the full build in flight began: what its set-aside line names (stage 15 D1.5).
+  const movedSinceBuild = new Set();
+  // A value-only edit waiting for the design reader to build again (it does after every other edit): it reads the
+  // edit then, in seconds, where the full build it would otherwise take is minutes on a large app, said nowhere until
+  // it ended (the third hands-on pass: 343 s, the canvas on the old value). A reader that fails gives it the full build.
+  let readerWait = false;
+  const resumeAfterReader = () => { if (!readerWait || stopping) return; readerWait = false; rebuild(); };
   const stopYoungBuild = () => {
     const age = Date.now() - buildBegan;
     if (!building || building.exitCode !== null || building.signalCode !== null || stopped || age >= 2000 || (lastBuildMs && age >= lastBuildMs / 2)) return;
@@ -473,9 +493,17 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // A value-only edit reads its design and sends its batch whatever builds
     // meanwhile (that build is set aside); any other waits for it.
     if (designing || (building && !fast)) { again = true; return; }
+    if (fast && !toolFresh() && (tool.child || tool.cleaner)) {
+      if (!readerWait) console.log('edit → waiting for the design reader, building again, to read it');
+      readerWait = true;
+      return;
+    }
     // Kept until a build lands: a failed one's edits are the next build's too.
     const pendingEdits = [...edited], pendingAppeared = [...appeared];
     edited.clear(); appeared.clear();
+    // Whatever waited for the reader is this pass's now (a build that fails keeps it for the next edit, as any).
+    readerWait = false;
+    let checking = false; // the build below checks a batch the read sent
     if (fast && toolFresh()) {
       designing = true;
       let next;
@@ -497,6 +525,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
         return rebuild();
       }
       if (!next.error && sameShape(design, next)) {
+        checking = true;
         const from = scrubbed ?? design;
         design = next;
         served = { digest: design.digest ?? null, source: designFrom = createHash('sha256').update(text).digest('hex') };
@@ -539,10 +568,12 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     since = t;
     backendSeen = backendOf();
     const hadError = error, began = inputs;
+    movedSinceBuild.clear();
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
     buildBegan = Date.now();
+    console.log(`edit → building${checking ? ' (checking the batch)' : ''}`);
     built = await build(app, dist, keep, compiler, () => inputs !== began);
     if (built.superseded && ++asideRun === 3) console.log('edit → three builds in a row set aside: an input moves during every build (does one write its own input?)');
     if (!built.superseded) { stopped = false; lastBuildMs = Date.now() - buildBegan; asideRun = 0; }
@@ -551,7 +582,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // dist, which a fresh page loads, nor the design or a reload). The
     // edits it took are the next build's, with those since.
     if (built.superseded) {
-      console.log(`edit → a build superseded after ${Date.now() - t} ms, set aside: an input moved while it built`);
+      console.log(`edit → a build superseded after ${Date.now() - t} ms, set aside: ${movedWords([...movedSinceBuild], app.dir)} moved while it built`);
       watchPackages(built.packages);
       for (const p of pendingEdits) edited.add(p);
       for (const p of pendingAppeared) appeared.add(p);
@@ -660,8 +691,12 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (!timer) saved = Date.now();
     const path = resolve(base, String(name ?? ''));
     edited.add(path);
+    // A resident start that failed is tried again at the next request after
+    // an edit: any, once it has exited; one to the app, which it builds
+    // again, while it runs.
+    if (!residentChild || base === app.dir) starting.failure = null;
     // A build in flight read older files: set aside, and stopped while young.
-    inputs++;
+    inputs++; movedSinceBuild.add(path);
     stopYoungBuild();
     // Made since the last build began (a temporary), not an input it had:
     // only such a file gone again edited nothing.
@@ -671,6 +706,11 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // after the build starts builds again (`again`).
     timer = setTimeout(() => { timer = null; rebuild(); }, 5);
   };
+  // The resident loop's start as a native client sees it (dtool2's pass 3
+  // #8): the step it is on (its `phase: ` lines), whether it is up, and the
+  // error a start that failed ended with, until an edit.
+  const starting = { phase: null, ready: false, failure: null, waiting: new Set() };
+  let resident = null, residentChild = null;
   // The app's sources, and the runtime and compiler it builds with.
   const watchers = [watch(app.dir, { recursive: true }, changed(app.dir)), watch(resolve(root, 'host/web-js'), { recursive: true }, changed(resolve(root, 'host/web-js')))];
   for (const f of ['navigation.js', 'index.html', 'neutral.css', 'look.mjs']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
@@ -729,7 +769,7 @@ const inspector=ready().then(()=>import('/__dev/inspect.js')).then(m=>{m.install
 let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>{due=false;const b=facts();if(JSON.stringify(b)!==ch.told){ch.told=JSON.stringify(b);rep(b)}},0)},seen=new MutationObserver(moved);if(cp)ready().then(()=>{globalThis.exact.onAsked=moved});seen.observe(document.documentElement,{attributes:true,attributeFilter:['style','data-x-modes']});seen.observe(document.head,{childList:true,subtree:true,characterData:true});for(const k of['pushState','replaceState']){const w=history[k];history[k]=function(...a){const o=w.apply(this,a);moved();return o}}addEventListener('popstate',moved);addEventListener('hashchange',moved);
 const nav=m=>{liveQ=liveQ.then(async()=>{await ready();const mine=()=>m.stream===ch.nonce;if(!mine())return;const x=globalThis.exact,u=new URL(m.location,location.origin),to=u.pathname+u.search,no=d=>{if(mine())rep({kind:'unsupported',what:'navigate',detail:String(d).slice(0,1024),revision:m.seq})};if(u.origin!==location.origin||u.pathname.startsWith('//'))return no("the location is no path on this page's origin");const there=()=>history.state?.url===to||location.pathname+location.search===to,before=history.state?.url;try{if(!there()){const why=typeof x?.goTo==='function'?x.goTo(to):'this page has no router';if(why)return no(why)}for(let i=0;i<100&&!there()&&history.state?.url===before;i++)await new Promise(ok=>setTimeout(ok,10));if(mine()&&there()&&u.hash!==location.hash)history.replaceState(history.state,'',location.origin+location.pathname+location.search+u.hash)}catch(e){return no(String(e))}moved()}).catch(e=>console.error('exact dev:',e))};
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact,was=x.held;let rm=0;x.held=cp&&p?Object.fromEntries([['scheme',!!p.scheme],['rootFontSize',!!p.rootFontSize],...Object.keys(p.mode??{}).map(a=>['mode:'+a,true])]):null;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+(cp?'!important':'')+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.removeProperty('font-size');if(cp&&p?.rootFontSize)r.setProperty('font-size',p.rootFontSize+'px','important');else r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const last=ch.pin?.mode??{},back=Object.fromEntries(Object.entries(ch.before.mode??{}).filter(([a])=>a in last&&!(a in(p?.mode??{}))&&!(cp&&x.asked?.['mode:'+a]))),mode=Object.entries(p?(cp?{...back,...(p.mode??{})}:{...ch.before.mode,...(p.mode??{})}):back);if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rm=1;rep({kind:'unsupported',what:'pin.mode',detail:why,revision:m.revision});if(!cp)x.modes.set(Object.entries(ch.before.mode));if(x.held){for(const k of Object.keys(x.held))if(k.startsWith('mode:'))delete x.held[k];for(const [k,on]of Object.entries(was??{}))if(on&&k.startsWith('mode:'))x.held[k]=true}}dispatchEvent(new Event('resize'))}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast",revision:m.revision});for(const [f,on]of Object.entries(was??{}))if(on&&!x.held?.[f])x.asked?.[f]?.apply();if(!p)ch.before=null;ch.pin=p?(cp&&rm?{...p,mode:last}:p):null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='navigate'){m.stream=ch.nonce;nav(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){m.stream=ch.nonce;inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>{const id=await bid,got=await post(n,{kind:'register',id,host:'web-js',capabilities:${page ? `['pin','inspect','hold'],page:'${page}'` : "['pin','inspect','hold','navigate']"},plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null}),ok=got.ok;if(!ok)console.warn('exact dev: the dev loop refused the register of this page ('+got.status+'), so no tool sees it');if(ok&&window!==parent)parent.postMessage({type:'exact-build',id},'*');return ok}).catch(e=>{console.warn('exact dev: this page could not register with the dev loop, so no tool sees it: '+e);return false});status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('${base}/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(saved.status===403){console.info('exact dev reload: no checkpoint at this scope; a fresh load');location.reload();return}if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='navigate'){m.stream=ch.nonce;nav(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){m.stream=ch.nonce;inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>{const id=await bid,got=await post(n,{kind:'register',id,host:'web-js',capabilities:${page ? `['pin','inspect','copies','hold'],page:'${page}'` : "['pin','inspect','copies','hold','navigate']"},plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null}),ok=got.ok;if(!ok)console.warn('exact dev: the dev loop refused the register of this page ('+got.status+'), so no tool sees it');if(ok&&window!==parent)parent.postMessage({type:'exact-build',id},'*');return ok}).catch(e=>{console.warn('exact dev: this page could not register with the dev loop, so no tool sees it: '+e);return false});status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('${base}/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(saved.status===403){console.info('exact dev reload: no checkpoint at this scope; a fresh load');location.reload();return}if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
   /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
   const scrubDesign = designOf;
@@ -983,8 +1023,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // `exact run`) reads the envelope, the dev generations and their event
     // stream (LLP 1023), which the resident loop's producers make: forwarded
     // to it (below), started at the first such request.
-    if (url.pathname === '/exact.json' || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')
-      || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'))) { forward(req, res); return; }
+    const discovery = url.pathname === '/exact.json' || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
+    if (discovery || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')) { forward(req, res, discovery); return; }
     // From the build the page booted (host/web/generations.mjs): a document names its generation in its base, and
     // its scripts, chunks and plan are read from that build while the next one is put in place.
     const served = await servedFile(dist, url.pathname, req.headers.accept);
@@ -1015,7 +1055,6 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   // envelope and generations) on a loopback port, into their own dist; a
   // native client's requests are forwarded as they came (Host included, so
   // the pages it serves name this URL). Its wasm build is internal.
-  let resident = null, residentChild = null;
   const residentLoop = () => resident ??= new Promise((ok, fail) => {
     // A named port's next one (an assigned range holds both), else a free one.
     const probe = createServer();
@@ -1026,8 +1065,14 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
         // (one per dist, as the stage: its parent made here, since the publication's lock sits beside it)
         const residentDist = resolve(app.target, 'web-dist-resident', createHash('sha256').update(resolve(dist)).digest('hex').slice(0, 16));
         mkdirSync(dirname(residentDist), { recursive: true });
-        residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
-          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: residentDist, EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'inherit', 'pipe'] });
+        // (EXACT_DEV_RESIDENT_SCRIPT: a test's stand-in resident)
+        residentChild = spawn(process.execPath, [process.env.EXACT_DEV_RESIDENT_SCRIPT || resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
+          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: residentDist, EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
+        // Its errors as before (piped, so a slow terminal holds it back), the
+        // last of them kept: what a start that fails says to the client.
+        let errors = '';
+        residentChild.stderr.pipe(process.stderr, { end: false });
+        residentChild.stderr.on('data', (d) => { errors = (errors + d).slice(-8000); });
         // Its plans and their maps' cards, on the pipe given for that alone.
         let cards = '';
         residentChild.stdio[3].on('data', (d) => {
@@ -1037,23 +1082,59 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
         let buf = '';
         residentChild.stdout.on('data', (d) => {
           buf += d; const lines = buf.split('\n'); buf = lines.pop();
-          for (const l of lines) { console.log(`  [resident] ${l}`); if (/^(?:plan ready|module generation ready|Rust generation \w+ ready)/.test(l)) ok(internal); }
+          for (const l of lines) {
+            console.log(`  [resident] ${l}`);
+            // A step it said failed before its first plan is the start's error;
+            // the resident stays, and builds again at an edit.
+            if (l.startsWith(FAILED)) {
+              if (!starting.ready) { starting.failure = l.slice(FAILED.length); for (const w of starting.waiting) w(); starting.waiting.clear(); }
+            }
+            else if (l.startsWith(PHASE)) starting.phase = l.slice(PHASE.length);
+            if (/^(?:plan ready|module generation ready|Rust generation \w+ ready)/.test(l)) { starting.ready = true; starting.failure = null; ok(internal); }
+          }
         });
-        residentChild.on('exit', (code) => { resident = null; residentChild = null; fail(new Error(`the resident loop exited ${code}`)); });
+        // At `close`, its last lines read: a failed step it said is the error.
+        residentChild.on('close', (code) => {
+          const why = `the resident loop exited ${code}`;
+          if (!starting.ready) starting.failure ??= errors.trim() ? `${why}: ${gist(errors)}` : why;
+          resident = null; residentChild = null; starting.ready = false; starting.phase = null; fail(new Error(why));
+        });
       });
-    }).catch(error => { resident = null; fail(error); });
+    }).catch(error => { resident = null; starting.failure = `the resident loop could not start: ${error.message}`; fail(error); });
   });
-  const forward = (req, res) => {
+  const forward = (req, res, discovery = false) => {
+    // Discovery while the resident starts is answered now with what it is
+    // doing (application/vnd.exact.dev-status+json, llp/1023.001): not held
+    // for the minutes a first build takes; the rest waits for it, as before.
+    // After a start failed every request has its error, and none starts it
+    // again until an edit.
+    if (starting.failure || (discovery && !starting.ready)) {
+      if (!starting.failure) void residentLoop().catch(() => {});
+      const failed = starting.failure != null;
+      const message = failed ? starting.failure : starting.phase ?? 'starting the dev loop\'s native producers (the first run builds them: a few minutes)';
+      res.writeHead(failed ? 500 : 503, { 'content-type': DEV_STATUS_TYPE, 'cache-control': 'no-store', ...(failed ? {} : { 'retry-after': '2' }) });
+      res.end(JSON.stringify({ exact: 1, status: failed ? 'failed' : 'preparing', message }));
+      return;
+    }
+    const failedNow = (res) => {
+      if (res.headersSent || res.destroyed) return;
+      res.writeHead(500, { 'content-type': DEV_STATUS_TYPE, 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ exact: 1, status: 'failed', message: starting.failure ?? 'the resident loop stopped' }));
+    };
     // A device gone ends its forwarded stream too (the resident's relay
     // stops), and one gone while the resident loop starts opens none.
     let out = null, gone = false;
-    res.on('close', () => { gone = true; out?.destroy(); });
+    // A step the resident says failed while this waits answers it (the resident stays).
+    const fail = () => failedNow(res);
+    starting.waiting.add(fail);
+    res.on('close', () => { gone = true; starting.waiting.delete(fail); out?.destroy(); });
     residentLoop().then((internal) => {
-      if (gone || res.destroyed) return;
+      starting.waiting.delete(fail);
+      if (gone || res.destroyed || res.headersSent) return;
       out = request({ host: '127.0.0.1', port: internal, method: req.method, path: req.url, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode, answer.headers); answer.pipe(res); });
       out.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
       req.pipe(out);
-    }, (e) => { if (gone) return; res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
+    }, () => { starting.waiting.delete(fail); if (!gone) failedNow(res); });
   };
   const stop = async () => {
     stopping = true;

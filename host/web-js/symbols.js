@@ -24,15 +24,42 @@ function schedule() {
   });
 }
 // A role, or an icon token (LLP 1121 D10): by name, by `sf/<name>`, or the build's own form,
-// `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file.
+// `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file. An
+// even-odd icon's path starts with the even-odd marker (stage 14 C2). `iconForm` is the page's
+// only reader of an icon form (the module exports `symbols` alone; a source it is handed goes
+// to `draw`, which hands an icon form here and looks a role's name up as written), the reading of a
+// source form, exact_kernel::Icon::parse in JavaScript, held to the same cases
+// (kernel/tests/fixtures/icon-forms.json): the first three bars part sf, viewBox and path, the
+// rest is the svg; a path with no colon is nonzero; the even-odd marker and a path with no other
+// colon is even-odd; any other colon (or too few parts) is no icon, null, which draws nothing.
+const iconForm = name => {
+  const f = []; let rest = name.slice(5);
+  for (let i = 0; i < 3; i++) { const at = rest.indexOf("|"); if (at < 0) return null; f.push(rest.slice(0, at)); rest = rest.slice(at + 1); }
+  const [, box, raw] = f, colon = raw.indexOf(":");
+  let path = raw, evenOdd = 0;
+  if (colon >= 0) {
+    const rule = raw.slice(0, colon), d = raw.slice(colon + 1);
+    if (rule !== "evenodd" || !d.trim() || d.includes(":")) return null;
+    path = d; evenOdd = 1;
+  }
+  return [path, 1, box, path ? "" : rest, evenOdd];
+};
 const draw = (e, name) => {
-  const f = name.startsWith("icon|") ? name.split("|") : null;
-  const [path, filled, box, file] = f ? [f[3], 1, f[2], f[3] ? "" : f[4]] : Table[name] ?? [""];
+  // A form that is no icon draws nothing: no path, viewBox or rule.
+  const form = name.startsWith("icon|") ? iconForm(name) : undefined;
+  const [path, filled, box, file, evenOdd] = form === undefined ? Table[name] ?? [""] : form ?? ["", 0, "", "", 0];
   e.toggleAttribute("data-symbol-file", !!file);
-  if (file) { e.removeAttribute("data-symbol-path"); e.src = `assets/${file}`; return; }
+  // A file shown as written: no path, viewBox, rule or mask of a path drawn before.
+  if (file) {
+    for (const a of ["data-symbol-path", "data-symbol-viewbox", "data-symbol-nonzero", "data-symbol-evenodd"]) e.removeAttribute(a);
+    e.style.removeProperty("--exact-symbol-mask"); e.symbolKey = e.symbolMask = null;
+    e.src = `assets/${file}`; return;
+  }
   e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled);
-  // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`).
-  e.toggleAttribute("data-symbol-nonzero", !!box);
+  // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`), or
+  // even-odd where its SVG says so (the mask's `fill-rule`, `refresh`).
+  e.toggleAttribute("data-symbol-nonzero", !!box && !evenOdd);
+  e.toggleAttribute("data-symbol-evenodd", !!box && !!evenOdd);
   if (box) e.setAttribute("data-symbol-viewbox", box); else e.removeAttribute("data-symbol-viewbox");
 };
 function everyRole() {
@@ -84,7 +111,7 @@ export function symbols(table) {
 }
 function unsymbol(e) {
   if (!e.hasAttribute?.("data-symbol-source") && !e.hasAttribute?.("data-symbol-path")) return;
-  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox", "data-symbol-nonzero", "data-symbol-file"]) e.removeAttribute(a);
+  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox", "data-symbol-nonzero", "data-symbol-evenodd", "data-symbol-file"]) e.removeAttribute(a);
   e.style.removeProperty("--exact-symbol-mask"); e.style.removeProperty("--exact-symbol-fit");
   if (e.getAttribute("src") === e.symbolPlaceholder) e.removeAttribute("src");
   e.symbolKey = e.symbolMask = e.symbolPlaceholder = e.symbolRefusal = null;

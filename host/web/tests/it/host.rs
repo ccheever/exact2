@@ -990,7 +990,7 @@ component App
     )
     .unwrap();
     let batch = host.resize(exact_runner::Viewport::sized(1280.0, 900.0), 200.0);
-    assert!(batch.contains("SlotType"), "{batch}");
+    assert!(batch.contains("NonFiniteValue"), "{batch}");
     assert!(batch.contains("\"text\":\"1280\""), "{batch}");
     assert_eq!(host.runner().viewport().width, 1280.0);
     assert_eq!(host.runner().kernel().epoch(), 2);

@@ -332,11 +332,8 @@
     defineProperty(global.Intl, 'Locale', { value: Locale, writable: true, configurable: true });
   })();
 
-  // Ibex's AbortSignal times out on a timer; a data source has none (time
-  // is an argument, LLP 1027.000), so the one timer-backed member refuses.
-  // Its internal hooks (`__ibex2_abort`) stay for the prelude's `fetch`,
-  // which takes and deletes them before any module runs.
-  if (global.AbortSignal) global.AbortSignal.timeout = function () {
-    throw new Error('AbortSignal.timeout() is unavailable in data sources: there are no timers; pass time as an argument');
-  };
+  // `AbortSignal.timeout` is an answer's timer, on the runner's clock: the
+  // prelude installs it (binary.js `timers`). Ibex's internal hooks
+  // (`__ibex2_abort`) stay for the prelude's `fetch`, which takes and
+  // deletes them before any module runs.
 })(globalThis);

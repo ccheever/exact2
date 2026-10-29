@@ -89,75 +89,139 @@ final class InspectMacTests: XCTestCase {
     }
 }
 
-/// `select {up}` (tamber/1.16) over a real session, as on iOS (InspectIOSTests): the first level with a node
-/// above the selection, the outermost there, by the runner's own tree; an ask for a selection that moved, or
-/// one with nothing of its levels above, is nil, the selection as it is now. (The levels are the node's own
-/// ancestors' sites, standing in for the server's map.)
+/// `select {up}` (tamber/1.17) over a real session, as on iOS (InspectIOSTests) and the web pages: walking out by
+/// the plan's copies, each new copy owning an ancestor a step (a slot's host among them), at step `up` that copy's
+/// outermost node, past the last the root, with `moved`; an ask for a selection that moved, or with no copies for its
+/// plan, is nil, the selection as it is now. The fixture is apps/select-walk-fixture's; its copies come from the
+/// compiler's source map, as the server's would.
 final class InspectSelectUpMacTests: XCTestCase {
-    private func plan(_ source: String) throws -> Data {
+    private func plan(_ source: String) throws -> (plan: Data, copies: [Int]) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
         let compiler = Process()
         compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
-        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
+        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path, "--map"]
         try compiler.run(); compiler.waitUntilExit()
         XCTAssertEqual(compiler.terminationStatus, 0)
-        return try Data(contentsOf: dir.appendingPathComponent("app.plan"))
+        let map = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: dir.appendingPathComponent("app.plan.map.json"))) as? [String: Any])
+        var ids: [String: Int] = [:]
+        let copies = (map["nodes"] as? [[String: Any]] ?? []).map { node -> Int in
+            let key = (node["chain"] as? [[String: Any]] ?? []).map { "\($0["file"] ?? ""):\($0["line"] ?? ""):\($0["col"] ?? "")" }.joined(separator: ">")
+            if let id = ids[key] { return id }
+            ids[key] = ids.count
+            return ids.count - 1
+        }
+        return (try Data(contentsOf: dir.appendingPathComponent("app.plan")), copies)
     }
 
-    func testSelectUpLandsOnTheOutermostAncestorOfTheFirstLevelWithOneAndAStaleAskOnNone() throws {
+    func testSelectUpWalksTheTreeByCopiesSlotHostsIncludedToTheRootAndAStaleAskOnNone() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }
         let source = """
         component App
           view
-            column width="100%" height="100%"
-              Card(label="one")
-              Card(label="two")
+            column testId="root" width="100%" padding=4 padding-top=240
+              Post()
+              Panel()
+                text "panel fill" testId="panel-fill"
+              Outer()
+                Card()
+                  text "wrapped" testId="wrapped"
+
+        component Frame
+          slot
+          view
+            column testId="frame" padding=2
+              children
+
+        component Panel
+          slot
+          view
+            Frame()
+              children
 
         component Card
-          props
-            label: string
+          slot
           view
-            column testId="card"
-              row testId="line"
-                text label testId="leaf"
+            column testId="card" padding=2
+              column testId="card-inner" padding=2
+                children
+
+        component Glyph
+          view
+            text "g" testId="glyph"
+
+        component Controls
+          view
+            Glyph()
+
+        component Outer
+          slot
+          view
+            column testId="outer" padding=2
+              children
+
+        component Post
+          view
+            column testId="post" padding=2
+              Card()
+                text "body" testId="body"
+                Controls()
 
         """
-        XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 400, height: 300)).error)
+        let built = try plan(source)
+        XCTAssertNil(session.boot(plan: built.plan, size: CGSize(width: 400, height: 600)).error)
         Inspect.set(true, seq: 4)
-        defer { Inspect.set(false, seq: 4) }
-        func above(_ id: UInt32) -> [(view: Int, site: Int)] {
-            let o = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"ancestors\",\"id\":\(id)}").utf8))) as? [String: Any]
-            return (o?["ancestors"] as? [[Any]] ?? []).dropFirst().compactMap { p in (p[0] as? Int).flatMap { v in (p[1] as? Int).map { (v, $0) } } }
+        defer { Inspect.set(false, seq: 4); Inspect.copies = nil }
+        func view(_ testId: String) throws -> UInt32 { try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == testId }, testId).id }
+        func picked(_ testId: String) throws -> [String: Any] { try XCTUnwrap(Inspect.select(session, id: view(testId), clicked: true)?["selected"] as? [String: Any]) }
+        func ask(_ selected: [String: Any], _ up: Int, plan: Any? = nil) -> [String: Any] {
+            ["up": up, "plan": plan ?? selected["planDigest"] ?? NSNull(), "from": selected["site"] ?? NSNull(), "instance": selected["instance"] ?? []]
         }
-        let node = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "leaf" })
-        let ancestors = above(node.id)
-        let selected = try XCTUnwrap(Inspect.select(session, id: node.id, clicked: true)?["selected"] as? [String: Any])
-        func ask(_ levels: [[Int]], plan: Any? = nil, instance: Any? = nil) -> [String: Any] {
-            ["up": 1, "levels": levels, "plan": plan ?? selected["planDigest"] ?? NSNull(), "from": selected["site"] ?? NSNull(), "instance": instance ?? selected["instance"] ?? []]
+        func lands(_ from: String, _ up: Int) throws -> (testId: String?, moved: [String: Int]?) {
+            let selected = try picked(from)
+            Inspect.copies = (selected["planDigest"] as? String, built.copies)
+            let body = try XCTUnwrap(Inspect.selectUp(session, ask(selected, up)), from)
+            let sel = body["selected"] as? [String: Any]
+            XCTAssertNil(body["click"], "a move is no press: its outline scrolls the copy into view")
+            return ((sel?["node"] as? Int).flatMap { session.presenter.views[UInt32($0)]?.props["testId"] }, sel?["moved"] as? [String: Int])
         }
-        // The card's row and column: the column is the outermost of the two.
-        let level = [ancestors[0].site, try XCTUnwrap(ancestors.first { $0.site != ancestors[0].site }, "\(ancestors)").site]
-        XCTAssertNil(Inspect.selectUp(session, ask([[-1]])), "nothing of its levels above it")
-        XCTAssertNil(Inspect.selectUp(session, ask([level], plan: "another plan")), "asked of another plan's selection")
-        XCTAssertNil(Inspect.selectUp(session, ask([level], instance: [["key": "elsewhere"]])), "asked of another copy")
-        var moved = ask([level]); moved["from"] = -1
+        // (a) a caller's fill: its slot's host; the like row (Controls holds no view): the host; (b) a host one component
+        // deeper: Frame; (c) the nearer host, then its wrapper; (d) past the last copy, the root, three of nine.
+        for (from, up, at, stepped) in [("body", 1, "card", 1), ("glyph", 1, "card", 1), ("panel-fill", 1, "frame", 1), ("wrapped", 1, "card", 1), ("wrapped", 2, "outer", 2), ("glyph", 9, "root", 3)] {
+            let r = try lands(from, up)
+            XCTAssertEqual(r.testId, at, "\(from) up \(up)")
+            XCTAssertEqual(r.moved, ["up": up, "stepped": stepped], "\(from) up \(up)")
+        }
+        // Stale: another plan's ask, no copies for the plan, another site: nil, the selection left as it is.
+        let selected = try picked("glyph")
+        XCTAssertNil(Inspect.selectUp(session, ask(selected, 1, plan: "another plan")), "asked of another plan's selection")
+        Inspect.copies = ("another plan", built.copies)
+        XCTAssertNil(Inspect.selectUp(session, ask(selected, 1)), "no copies for this plan")
+        Inspect.copies = (selected["planDigest"] as? String, built.copies)
+        var moved = ask(selected, 1); moved["from"] = -1
         XCTAssertNil(Inspect.selectUp(session, moved), "asked of a selection at another site")
-        XCTAssertEqual(Inspect.selected?.id, node.id, "a stale ask leaves the selection")
-        let body = try XCTUnwrap(Inspect.selectUp(session, ask([[-1], level])))
-        let outermost = try XCTUnwrap(ancestors.last { level.contains($0.site) })
-        XCTAssertEqual((body["selected"] as? [String: Any])?["node"] as? Int, outermost.view, "\(ancestors)")
-        XCTAssertEqual(session.presenter.views[UInt32(outermost.view)]?.props["testId"], "card")
-        XCTAssertNil(body["click"], "a move is no press: its outline scrolls the copy into view")
-        XCTAssertEqual(Inspect.selected?.id, UInt32(outermost.view))
-        // A nearer level with a node above wins over a later one that reaches higher.
-        _ = Inspect.select(session, id: node.id, clicked: true)
-        let nearer = try XCTUnwrap(Inspect.selectUp(session, ask([[ancestors[0].site], level])))
-        XCTAssertEqual((nearer["selected"] as? [String: Any])?["node"] as? Int, ancestors.last { $0.site == ancestors[0].site }?.view, "\(ancestors)")
+        XCTAssertEqual(Inspect.selected?.id, try view("glyph"), "a stale ask leaves the selection")
+        // The wire's encoding, as scripts/tamber-inspect.mjs writes it: runs [0, 2], [1, 1].
+        XCTAssertEqual(Inspect.decodeCopies("r1:AAIBAQ=="), [0, 0, 1])
+        // Bounded, as the pages are: a run past 2^20 sites, a varint past 4 bytes, one cut off, half a pair.
+        for bad in ["r1:AICAgIAQ", "r1:gICAgICAgICA", "r1:AIA=", "r1:AA=="] { XCTAssertNil(Inspect.decodeCopies(bad), bad) }
+        XCTAssertNil(Inspect.decodeCopies("r2:AA=="))
+        // An inspect frame's copies are kept for their plan; a bad encoding keeps none.
+        ExactApp.shared.inspectCommand(["kind": "inspect", "on": true, "seq": 4, "copies": ["plan": "p", "data": "r1:AAIBAQ=="]])
+        XCTAssertEqual(Inspect.copies?.plan, "p"); XCTAssertEqual(Inspect.copies?.list, [0, 0, 1])
+        ExactApp.shared.inspectCommand(["kind": "inspect", "on": true, "seq": 4, "copies": ["plan": "p", "data": "nope"]])
+        XCTAssertNil(Inspect.copies)
+        // A plan's copies alone (a status naming a new plan): kept, inspect mode as it was; then off, they stay kept.
+        ExactApp.shared.inspectCommand(["kind": "inspect", "copies": ["plan": "q", "data": "r1:AAIBAQ=="]])
+        XCTAssertTrue(Inspect.on, "copies alone never turn inspect mode off")
+        XCTAssertEqual(Inspect.copies?.plan, "q"); XCTAssertEqual(Inspect.copies?.list, [0, 0, 1])
+        ExactApp.shared.inspectCommand(["kind": "inspect", "on": false, "seq": 5])
+        XCTAssertEqual(Inspect.copies?.plan, "q", "a plan's copies outlast inspect mode off (they come once per plan)")
+        ExactApp.shared.inspectCommand(["kind": "inspect", "on": true, "seq": 6])
         // A `select` that is no object (the web pages take any but null or false) is no move, and leaves inspect on.
         let was = Inspect.selected?.id
         ExactApp.shared.inspectCommand(["kind": "inspect", "select": "up"])

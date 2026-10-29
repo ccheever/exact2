@@ -9,7 +9,11 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rea
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { builtinModules, createRequire } from 'node:module';
-import { resolve, relative, dirname, join, sep, isAbsolute } from 'node:path';
+import { resolve, relative, dirname, basename, join, sep, isAbsolute, toNamespacedPath } from 'node:path';
+// The bake writes the binding's generator beside this file in its stage (js/bake/src/resident.rs `BINDING`).
+import { moduleBinding } from './__exact_binding.mjs';
+
+export { moduleBinding };
 
 function httpOrigin(value, label) {
   let url; try { url=new URL(value); } catch { throw new Error(`${label}: expected an http(s) origin`); }
@@ -18,14 +22,49 @@ function httpOrigin(value, label) {
   return url.origin;
 }
 
-/** Explicit build input, ahead of an ignored app-local development selection. */
+/** Explicit backend, saved development selection, then the checkout's declared fixture default. */
 export function backendOriginSelection(app, env=process.env) {
   const file=resolve(app,'.exact/backend-origin');
   const value=env.EXACT_BACKEND_ORIGIN ?? (existsSync(file) ? readFileSync(file,'utf8').trim() : null);
-  if (value===null) return null;
+  if (value===null) return fixtureBackendSelection(app,env);
   return { origin: httpOrigin(value,'EXACT_BACKEND_ORIGIN'), source: env.EXACT_BACKEND_ORIGIN != null ? 'EXACT_BACKEND_ORIGIN' : '.exact/backend-origin' };
 }
 export const backendOrigin = (app, env=process.env) => backendOriginSelection(app, env)?.origin ?? null;
+
+/** A declared fixture gets a stable development port from its app directory, shared by builds and drives. */
+export function fixtureBackendSelection(app, env=process.env) {
+  if (!developmentTrust(env)) return null;
+  let manifest, code;
+  try { manifest=JSON.parse(readFileSync(resolve(app,'app.json'),'utf8')); code=readFileSync(resolve(app,'app.ts'),'utf8'); } catch { return null; }
+  const argv=manifest.commands?.server;
+  if (!Array.isArray(argv) || !/(^|\/)bun$/.test(argv[0])) return null;
+  const entry=argv.findIndex((a,i)=>i>0 && !a.startsWith('-'));
+  if (entry<0 || !/(^|[/\\])fixtures?[/\\]/.test(argv[entry])) return null;
+  const literal=/\bconst\s+origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1];
+  if (!literal || !loopback(literal)) return null;
+  const args=argv.slice(entry+1), at=args.indexOf('--port'), given=at<0 ? env.PORT : args[at+1];
+  // Rust canonicalizes Windows paths with a namespace prefix; server drives must hash the same spelling.
+  const port=given===undefined ? 4790+parseInt(createHash('sha256').update(toNamespacedPath(realpathSync(app))).digest('hex').slice(0,8),16)%1000 : Number(given);
+  if (!Number.isInteger(port) || port<1 || port>65535) throw new Error(`${at<0 ? 'PORT' : 'commands.server --port'}: a fixture port must be an integer from 1 to 65535`);
+  const origin=new URL(literal); origin.port=String(port);
+  return { origin:httpOrigin(origin.href,'fixture origin'), source:given===undefined ? 'checkout fixture port' : at<0 ? 'PORT' : 'commands.server --port' };
+}
+
+// The bound on a type check that never ends (the design tool's `build.mjs --check` spun 4.7 days, found 2026-10-26):
+// 10 minutes, a bound for "never", not a target (the clone's check takes seconds). A test may shorten it
+// (EXACT_CHECK_BOUND_MS), read only under EXACT_TEST_TIMING=1, as the design server's clocks are
+// (scripts/tamber-timing.mjs); a value not shorter, not a whole number of ms from 50, or set without the switch is
+// ignored. Here, not in a module of its own: the native bake copies this file alone into its stage.
+export const CHECK_BOUND_MS = 10 * 60_000;
+
+export function checkBound(env = process.env) {
+  if (env.EXACT_TEST_TIMING !== '1') return CHECK_BOUND_MS;
+  const said = env.EXACT_CHECK_BOUND_MS, ms = /^\d+$/.test(said ?? '') ? Number(said) : NaN;
+  return ms >= 50 && ms < CHECK_BOUND_MS ? ms : CHECK_BOUND_MS;
+}
+
+/** The bound in words: `10 min`, `1.5 s`. */
+export const boundWords = ms => (ms >= 60_000 ? `${ms / 60_000} min` : `${ms / 1000} s`);
 
 /** Explain when an app-local selection takes precedence over the authored origin. */
 export function backendOriginWarning(code, selection, parse) {
@@ -45,7 +84,7 @@ const socketOrigin = (origin) => origin.replace(/^http/, 'ws');
 // in this form goes through the constant evaluator or the plain form's grant
 // URL rewrite. The entry is the selected origin's own; in a development build
 // only, an origin at a private-network address with no entry takes the entry
-// of the same server at loopback (same scheme and port), its fetch and socket
+// of the server at loopback, its fetch and socket
 // lines moved to that address: a phone reaching the fixture on this Mac's LAN.
 // A production build refuses it as any missing entry.
 function keyedGrants(node, origin, at, development) {
@@ -72,7 +111,9 @@ function keyedGrants(node, origin, at, development) {
   }
   const wanted=new URL(origin).origin;
   if (entries.has(wanted)) return entries.get(wanted);
-  const local=development && privateNetwork(wanted) ? [...entries.keys()].filter(key=>sameServer(key,wanted)) : [];
+  const candidates=development && (privateNetwork(wanted) || loopback(wanted)) ? [...entries.keys()].filter(key=>sameServer(key,wanted)) : [];
+  const local=candidates.filter(key=>new URL(key).port===new URL(wanted).port);
+  if (!local.length) local.push(...candidates);
   if (local.length>1) refuse(node,`origin ${JSON.stringify(wanted)} is the server of more than one loopback key: ${local.map(k=>JSON.stringify(k)).join(', ')}`);
   if (!local.length) refuse(node,`no entry for origin ${JSON.stringify(wanted)}; keys: ${[...entries.keys()].map(k=>JSON.stringify(k)).join(', ') || '(none)'}`);
   return movedLines(entries.get(local[0]),local[0],wanted);
@@ -80,6 +121,13 @@ function keyedGrants(node, origin, at, development) {
 
 /** A build that is not production (`EXACT_UPDATE_TRUST` unset or `development`, as `bake/src/compat.rs` reads it). */
 const developmentTrust = (env) => env.EXACT_UPDATE_TRUST === undefined || env.EXACT_UPDATE_TRUST === 'development';
+
+/** A `net.fetch local-network` or `net.websocket local-network` line, as the native bake's entry matches it too. */
+export const LOCAL_NETWORK_LINE = /^([ \t]*net\.(?:fetch|websocket)[ \t]+local-network)[ \t]*$/gm;
+/** In a development build each such line gains the word that admits loopback as well (LLP 1133.036 D5), so a
+ * drive's fixture on this machine stands in for a device on the LAN. A production build's lines stay as written,
+ * and its bake refuses the word. */
+export const developmentLocalNetwork = (spec, env=process.env) => developmentTrust(env) ? spec.replace(LOCAL_NETWORK_LINE, '$1 development') : spec;
 
 /** Whether an origin's host is a private-network address: RFC 1918 IPv4, link-local IPv4 (RFC 3927),
  * unique-local IPv6 (fc00::/7, RFC 4193) or link-local IPv6 (fe80::/10, RFC 4291). */
@@ -97,10 +145,11 @@ export function privateNetwork(origin) {
   return (bits & 0xfe00)===0xfc00 || (bits & 0xffc0)===0xfe80;
 }
 
-/** Whether key `key` is a loopback origin of the server `origin` names: its scheme and port. */
+const loopback = origin => ['127.0.0.1','localhost','[::1]'].includes(new URL(origin).hostname);
+/** A loopback grant key with the selected origin's scheme; a development fixture may move ports. */
 function sameServer(key, origin) {
   const [k,o]=[new URL(key),new URL(origin)];
-  return ['127.0.0.1','localhost','[::1]'].includes(k.hostname) && k.protocol===o.protocol && k.port===o.port;
+  return loopback(key) && k.protocol===o.protocol;
 }
 
 /** A loopback entry's lines for the same server at `to`: each `net.fetch` and `net.websocket` line at the
@@ -210,6 +259,9 @@ function capturedOrigins(stage) {
   return [...roots.mounts.map(([name,path])=>[resolve(stage,name),path]),[stage,roots.app]];
 }
 const within=(path,root)=>path===root || path.startsWith(root+sep);
+// A path as the disk names it (a symlinked stage's real place); one that isn't there, an importer from outside the stage
+// a bundler names, stays as written, which `within` then leaves alone.
+const physicalId=id=>{ if (!isAbsolute(id)) return id; try { return realpathSync.native(id); } catch { return id; } };
 /** Capture into the stage the declarations of every package the captured
  * TypeScript names, and of the packages those declarations name: each found
  * from where its file was captured, as Node and TypeScript find it (the
@@ -376,14 +428,14 @@ export const lowered={target:'es2016'};
 const ASYNC_HELPER=/@oxc-project\+runtime@[^/]*\/helpers\/esm\/asyncToGenerator\.js$/;
 export const asyncContextHelper=`export default function _asyncToGenerator(fn) {
   return function () {
-    var self = this, args = arguments, context = globalThis.__exact_async_context;
-    var at = context ? context.current() : undefined;
+    var self = this, args = arguments, context = globalThis.__exact_async_context, at = context ? context.current() : undefined;
     return new Promise(function (resolve, reject) {
       var gen = fn.apply(self, args);
       function step(key, arg) {
+        // A live answer's step that a module turn settled runs in that answer's own turn (LLP 1146 D2)
+        if (context && context.route && context.route(at, step, key, arg)) return;
         var before = context ? context.swap(at) : undefined, info;
-        try { info = gen[key](arg); }
-        catch (error) { if (context) context.swap(before); reject(error); return; }
+        try { info = gen[key](arg); } catch (error) { if (context) context.swap(before); reject(error); return; }
         if (context) context.swap(before);
         if (info.done) resolve(info.value);
         else Promise.resolve(info.value).then(function (v) { step("next", v); }, function (e) { step("throw", e); });
@@ -449,13 +501,15 @@ export function capturedSources(stage, refusals=null) {
     name:'captured-sources',
     async resolveId(source, importer, options) {
       if (!importer || importer.startsWith('\0')) return null;
+      importer=physicalId(importer);
       const from=files.get(importer), name=packageName(source), kind=kindOf(options);
       const record=(id)=>edges.set([slash(relative(stage,importer)),source,kind].join('\0'),[slash(relative(stage,importer)),source,kind,id ? slash(relative(stage,id)) : '']);
       // The app's own imports (a relative or absolute path) resolve as they
       // would, and are recorded, so a later bundle replays every one.
       if (!from && !name && !builtin(source)) {
         if (!within(importer,stage)) return null;
-        const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
+        const result=await this.resolve(source, importer, { ...options, skipSelf: true });
+        const resolved=result && !result.external ? {...result,id:physicalId(result.id)} : result;
         if (resolved && !resolved.external && !resolved.id.startsWith('\0')) record(resolved.id);
         return resolved;
       }
@@ -464,7 +518,8 @@ export function capturedSources(stage, refusals=null) {
         // place that differs between the stage and the app's own directory.
         if (source.split(/[\\/]/).some(part => part === '.' || part === '..')) throw new Error('module outside captured app: '+source);
         // A path mapping into the capture.
-        const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
+        const result=await this.resolve(source, importer, { ...options, skipSelf: true });
+        const resolved=result && !result.external ? {...result,id:physicalId(result.id)} : result;
         if (resolved && !resolved.external && within(resolved.id,stage) && !staged(resolved.id)) { record(resolved.id); return resolved; }
       }
       // Where the import leads from the importer's own place.
@@ -478,15 +533,17 @@ export function capturedSources(stage, refusals=null) {
       }
       // A `browser` field's `false`: Rolldown's empty module.
       if (real.id.startsWith('\0')) { record(null); return real; }
-      const id=capture(real.id, who, name && installedAt(name, dirname(place)));
+      const id=capture(physicalId(real.id), who, name && installedAt(name, dirname(place)));
       record(id);
       return { ...real, id };
     },
     load(id) {
+      id=physicalId(id);
       if (!files.has(id) && !id.startsWith('\0rolldown/empty.js')) assertCapturedModule(stage, id);
       return null;
     },
     transform(code, id) {
+      id=physicalId(id);
       const parse=(c,o)=>this.parse(c,o), js=/\.[cm]?js$/.test(id) && within(id,stage);
       // The app's own JavaScript is checked as package code is, and for the clock as the app's TypeScript is.
       report([...(files.has(id) ? [] : ambientRefusals(stage,id,code,parse)), ...(js ? packageRefusals(code,(at)=>label(id,at),parse) : [])]);
@@ -525,6 +582,7 @@ export function replayCaptured(stage, allowed=[]) {
   const edges=new Map(record.edges.map(([importer,source,kind,target])=>[[resolve(stage,importer),source,kind].join('\0'),target && resolve(stage,target)]));
   const host=new Set(allowed);
   const lookup=(source,importer,kind)=>{
+    if (importer) importer=physicalId(importer);
     if (!importer || !within(importer,stage)) return undefined;
     const key=[importer,source,kind].join('\0');
     if (edges.has(key)) return edges.get(key);
@@ -674,14 +732,13 @@ export function packageRefusals(code, label, parse) {
   return found;
 }
 
-// Time and seeds are source arguments (LLP 1027.000): every executor refuses
-// the clock, randomness and timers when they are used, with these words
-// (js/src/prelude.js, host/web-js/ts-fetch.js). A direct use in the app's own
-// code is refused here too, at build, by file and line, so a test that runs
-// the module under Bun, which has no such guard, cannot hide it.
+// Time and seeds are source arguments (LLP 1027.000): every executor refuses the clock, randomness and every
+// timer but an answer's own `setTimeout` (D1) when they are used, with these words (js/src/prelude.js,
+// js/src/binary.js, host/web-js/ts-fetch.js). A direct use in the app's own code is refused here too, at
+// build, by file and line, so a test that runs the module under Bun, which has no such guard, cannot hide it.
 const ambient=(api)=>api+' is unavailable in data sources; pass time or a random seed as an argument';
-const timers=(api)=>api+' is unavailable in data sources: there are no timers; pass time as an argument';
-const TIMERS=['setTimeout','setInterval','requestAnimationFrame','requestIdleCallback'];
+const timers=(api)=>api+' is unavailable in data sources: an answer waits with setTimeout; pass time as an argument';
+const TIMERS=['setInterval','requestAnimationFrame','requestIdleCallback'];
 const GLOBALS=['globalThis','self','window','global'];
 // `x!`, `(x)` and `x?.y` as written, down to the expression they wrap.
 const bare=(node)=>{ while (node && ['TSNonNullExpression','ParenthesizedExpression','ChainExpression','TSAsExpression','TSSatisfiesExpression','TSTypeAssertion'].includes(node.type)) node=node.expression; return node; };
@@ -814,7 +871,7 @@ export const compilerOptions = {
   allowJs: true,
   lib: ['ES2023', 'ES2024.Object', 'ES2024.Collection', 'ES2024.Promise', 'ES2024.String', 'WebWorker'],
   // No package's types are global unless a file names it: an installed
-  // `@types/node` or `@types/bun` would declare timers and `process`, which
+  // `@types/node` or `@types/bun` would declare Node's timers and `process`, which
   // no executor has.
   types: [],
 };
@@ -979,12 +1036,16 @@ export function configure(stage, incremental=false, parse) {
 // runner's admission: the web runtime's `__exact_module`, else a native
 // request (`exact-native:`), whose answer the runner gives as the module's
 // declaration says, an error as `{code, message}` (D1).
+// Members other interfaces declare on `name`'s names, by name, with their interface's shapes (LLP 1133.014 D10 item 1).
+const membersOf=(name, interfaces)=>interfaces.flatMap(i=>Object.entries(i.declaration.members ?? {}).filter(([o])=>o.split('#')[0]===name).flatMap(([o,m])=>Object.entries(m ?? {}).map(([option,spec])=>[o.split('#')[1],{ option, type: spec.type, answers: spec.answers, shapes: i.declaration.shapes ?? {} }]))).reduce((out,[fn,m])=>((out[fn] ??= []).push(m), out),{});
 function moduleBindings(stage, app) {
-  const out=new Map();
-  for (const {name,declaration,implementations} of moduleInterfaces(app)) {
+  // The target the build compiles, as an implementation's `targets` names it, or none (a loop serving several).
+  const mapping=resolve(stage,'__exact_paths.json'), named=existsSync(mapping) ? JSON.parse(readFileSync(mapping,'utf8')).target : null;
+  const target=['web','ios','macos','tvos','android','windows','linux'].includes(named) ? named : null, out=new Map();
+  const interfaces=moduleInterfaces(app); for (const {name,declaration,implementations} of interfaces) {
     const file='__exact_modules/'+name.replace(/^@/,'').replace(/\//g,'__')+'.ts';
     mkdirSync(resolve(stage,'__exact_modules'),{recursive:true});
-    const text=moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names)), at=resolve(stage,file);
+    const text=moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names),membersOf(name,interfaces),target), at=resolve(stage,file);
     if (!existsSync(at) || readFileSync(at,'utf8')!==text) writeFileSync(at,text);
     out.set(name,'./'+file);
   }
@@ -1127,7 +1188,7 @@ export function appleImplementations(app, target) {
     // An interface that declares an authenticator entry (LLP 1133.010 D13): its class serves it in process.
     const authenticator=!!i.declaration?.authenticator?.apple;
     const events=(i.declaration.names ?? []).some(n=>n.event);
-    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator,frameworks:impl.json.frameworks??{}}];
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator,start:i.declaration?.start==='load',frameworks:impl.json.frameworks??{},activity:impl.json.apple?.activity??null}];
   });
 }
 
@@ -1151,8 +1212,36 @@ export function androidImplementations(app) {
   return moduleInterfaces(app).filter(i=>used.has(i.name) || usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
     if (!impl || !dirs?.length || !impl.json.class) return [];
-    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl),maven:Array.isArray(impl.json.maven) ? impl.json.maven : []}];
+    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl),maven:Array.isArray(impl.json.maven) ? impl.json.maven : [],manifest:impl.json.manifest ?? null,start:i.declaration?.start==='load'}];
   });
+}
+
+/** Each used interface's package configuration for `target` (LLP 1133.021 §9 item 7): extension name to the
+ * values `app.json` gives under `packages.<interface>.<target>`, for the keys the interface's `config` declares. A
+ * key typed `env` names a variable (`{"env": "NAME"}`) whose value is read here and never written to the repo. A
+ * required key that is absent throws its declared code; one required only at `release` throws only for a release. */
+export function packageConfig(app, target, { release = false } = {}) {
+  const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
+  let manifest = {};
+  try { manifest = JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8')); } catch { /* a plain Contract directory */ }
+  const out = new Map();
+  for (const i of moduleInterfaces(app).filter(i => used.has(i.name) || usesInterface(i, named))) {
+    const declared = i.declaration?.config?.[target];
+    if (!declared) continue;
+    const given = manifest.packages?.[i.name]?.[target] ?? {}, config = {};
+    for (const [key, d] of Object.entries(declared)) {
+      let value = given[key];
+      if (d.type === 'env' && value !== undefined) value = typeof value?.env === 'string' ? process.env[value.env] : undefined;
+      const required = d.required === true || (d.required === 'release' && release);
+      if ((value === undefined || value === '') && required) {
+        const how = d.type === 'env' ? `{"env": "<VARIABLE>"} naming a variable that is set` : `a ${d.type}`;
+        throw new Error(`${d.missing ?? 'bake-config-missing'}: app.json "packages": {"${i.name}": {"${target}": {"${key}": …}}} needs ${how}`);
+      }
+      if (value !== undefined && value !== '') config[key] = value;
+    }
+    out.set(i.name.split('/').at(-1), config);
+  }
+  return out;
 }
 
 /** Each extension's web implementation, as bound (LLP 1133.001 D4):
@@ -1193,108 +1282,6 @@ function domDeclarations(app, names) {
   return [...found.values()];
 }
 
-/** A declaration's type (`option<number>`, `enum<a|b>`, `T[]`) as TypeScript's. */
-function moduleType(t, inList=false) {
-  // A path option (LLP 1133.009 D10 item 4) is a string; a handle (item 10) is its id.
-  if (t && typeof t==='object' && t.type==='path') t=t.optional ? 'option<string>' : 'string';
-  // An option with bounds or a default (`{"type", "min", "max", "default"}`, LLP 1133.013 D12 item 2) is its `type`.
-  else if (t && typeof t==='object' && typeof t.type==='string') t=t.type;
-  t=String(t).trim();
-  if (/^handle<[^>]*>$/.test(t)) return 'string';
-  // A WebAuthn dictionary passed whole (LLP 1133.011 D10) is the DOM's own type.
-  const json=/^json<([A-Za-z0-9_]+)>$/.exec(t);
-  if (json) return json[1];
-  if (t==='unit') return 'void';
-  if (t.endsWith('[]')) return moduleType(t.slice(0,-2),true)+'[]';
-  let m, union;
-  if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
-  else if ((m=/^enum<(.*)>$/.exec(t))) union=m[1].split('|').map(s=>JSON.stringify(s.trim())).join(' | ');
-  // A `surface` is a canvas's surface name (LLP 1133.013 D12 item 3).
-  // A `shape-name` is a JSON Schema object in data code (LLP 1133.016 D8).
-  else return {number:'number',string:'string',bool:'boolean','strings-key':'string',surface:'string','shape-name':'Record<string, unknown>'}[t] ?? t;
-  return inList ? '('+union+')' : union;
-}
-
-/** The binding of one interface: its shapes, each name's options (a
- * platform's words under its key), and each name as a function. */
-export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
-  const extension=name.split('/').at(-1), lines=[`// Generated by the bake from ${name}'s exact.json (LLP 1133.002 D13). Never edited.`];
-  const shapes={...declaration.shapes};
-  for (const i of implementations) Object.assign(shapes,i.shapes ?? {});
-  for (const [shape,fields] of Object.entries(shapes)) {
-    lines.push(`export interface ${shape} {`, ...Object.entries(fields).map(([f,t])=>`  ${f}: ${moduleType(t)};`), '}');
-  }
-  // The DOM dictionaries the names pass whole (`json<T>`).
-  const dictionaries=new Set((declaration.names ?? []).flatMap(e=>[e.answers,...Object.values(e.options ?? {})])
-    .flatMap(t=>[...String(typeof t==='string' ? t : '').matchAll(/json<([A-Za-z0-9_]+)>/g)].map(m=>m[1])));
-  if (dictionaries.size) lines.push(...dom([...dictionaries]));
-  // A path option is a string; a bounded one (`{"type", "min", …}`) is its `type`.
-  const pathless=(t)=>t && typeof t==='object' ? (t.type==='path' ? (t.optional ? 'option<string>' : 'string') : t.type) : t;
-  const optional=(t)=>{ t=pathless(t); const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
-  for (const entry of declaration.names ?? []) {
-    // An event is the root's to hear, never data code's (LLP 1133.004 §11).
-    if (entry.event) continue;
-    const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
-    const fields=Object.entries(entry.options ?? {}).map(([f,t])=>{ const [q,ts]=optional(t); return `  ${f}${q}: ${ts};`; });
-    for (const i of implementations) {
-      const words=i.options?.[fn];
-      if (words && Object.keys(words).length) fields.push(`  ${i.platform}?: { ${Object.entries(words).map(([w,t])=>`${w}?: ${moduleType(t)}`).join('; ')} };`);
-    }
-    lines.push(`export interface ${type} {`, ...fields, '}');
-    // An answer typed by an argument (LLP 1133.016 D15 item 4) is `else` in data code, whose constraint is a schema.
-    const answers=entry.answers && typeof entry.answers==='object' ? entry.answers.else : entry.answers;
-    const required=Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(pathless(t)).trim()));
-    const verb=entry.source ? 'source' : 'send';
-    // A send that answers nothing resolves `undefined` (LLP 1133.004 D5).
-    const promised=entry.answers===null ? 'void' : moduleType(answers);
-    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${promised}> {`,
-      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options })${entry.answers===null ? '.then(() => undefined)' : ''};`, '}');
-    // The synchronous form (LLP 1133.002 D14): inside an answer, where the host has a synchronous path to the module.
-    if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(answers)} {`,
-      `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
-  }
-  lines.push(
-    'function call(body: { extension: string; source?: string; send?: string; args: unknown }): Promise<any> {',
-    '  const via = (globalThis as any).__exact_module;',
-    '  const answer: Promise<any> = via ? via(body) : fetch("exact-native:", { method: "POST", body: JSON.stringify(body), exactIndependentHttp: { maxResponseBytes: 1048576 } } as any)',
-    '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw failed(t || "the module did not answer", "UnknownError"); }));',
-    '  return answer.then((v: any) => answered(v, `${body.extension}.${body.source ?? body.send}`));',
-    '}',
-    'function callNow(body: { extension: string; sync: string; args: unknown }): any {',
-    '  const now = (globalThis as any).__exact_module_sync;',
-    '  let v: any;',
-    '  try { v = now ? now(body) : { error: "NotSupportedError" }; }',
-    '  catch (e: any) { throw failed(`${body.extension}.${body.sync}: ${e?.message ?? e}`, "NotSupportedError"); }',
-    '  return answered(v, `${body.extension}.${body.sync}`);',
-    '}',
-    // A module's error (LLP 1133.006 D8 item 2): a `DOMException` of its name where the runtime has one, else an
-    // `Error` of that name, with the code as `code` and each platform's own detail (LLP 1133.011 D1).
-    'function answered(v: any, name: string): any {',
-    '  const keys = v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v) : [];',
-    '  if (typeof v?.error === "string" && keys.every(k => ["error", "message", "apple", "android"].includes(k))) {',
-    '    const message = v.message ? `${name}: ${v.error}: ${v.message}` : `${name}: ${v.error}`;',
-    '    const e: any = typeof DOMException === "function" ? new DOMException(message, v.error) : Object.assign(new Error(message), { name: v.error });',
-    '    Object.defineProperty(e, "code", { value: v.error, enumerable: true });',
-    '    if (v.apple) e.apple = v.apple;',
-    '    if (v.android) e.android = v.android;',
-    '    throw e;',
-    '  }',
-    '  return v;',
-    '}',
-    'function failed(message: string, name: string): Error {',
-    '  const D = (globalThis as any).DOMException;',
-    '  return D ? new D(message, name) : Object.assign(new Error(message), { name });',
-    '}', '');
-  // The web's objects (LLP 1133.011 D10 item 3): each group's members, a declared name or a source's field.
-  for (const [group,members] of Object.entries(declaration.groups ?? {})) {
-    const entries=Array.isArray(members) ? members.map(m=>[m,m]) : Object.entries(members);
-    const body=entries.map(([member,of])=>typeof of==='string' ? `  ${member}: ${of},`
-      : `  ${member}: (): Promise<boolean> => ${of.over}().then(v => (v as any)?.${of.field} === true),`);
-    lines.push(`export const ${group} = {`, ...body, '};');
-  }
-  return lines.join('\n');
-}
-
 /** A name that is not a source (`Result<'posted'>`, a mutation's slot) fails
  * as "does not satisfy the constraint 'keyof SourceMap'", which lists none:
  * say which there are (sb4 farm wave 7, E3: 061 and 066, 15 minutes). */
@@ -1318,7 +1305,11 @@ const checkEnv={GOGC:'300',GOMEMLIMIT:'128MiB',GOMAXPROCS:'4',...process.env};
  * configured libraries. An external declaration must not influence an
  * accepted app artifact. */
 export function check(stage, tsc, libraries) {
-  const allowed = path => { path=resolve(path);return path === stage || path.startsWith(stage+sep) || (within(path,libraries) && configuredLibrary(relative(libraries,path))); };
+  // TypeScript expands Windows short paths; compare the same physical names
+  // for the capture, libraries and files, including directory junctions.
+  stage=realpathSync.native(stage);
+  libraries=realpathSync.native(libraries);
+  const allowed = path => within(path,stage) || (within(path,libraries) && configuredLibrary(relative(libraries,path)));
   // A package's JavaScript entry (`typescript/bin/tsc`, an `EXACT_TSC`
   // override) keeps its Node shebang: run it through Bun, as the one-shot
   // producer runs its tools (js/bake/src/lib.rs `run`).
@@ -1327,7 +1318,9 @@ export function check(stage, tsc, libraries) {
   const script=head.startsWith('#!') && head.split(/\s+/).some(word=>['node','bun'].includes(word.split('/').at(-1)));
   const args=['--project',resolve(stage,'__exact_tsconfig.json'),'--pretty','false','--listFiles'];
   return new Promise((done, fail) => execFile(script ? process.execPath : tsc,script ? [tsc,...args] : args,
-    {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024}, (error, stdout, stderr) => {
+    {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024,timeout:checkBound(),killSignal:'SIGKILL'}, (error, stdout, stderr) => {
+      // (A tsc that never returns is stopped at the bound: checkBound above.)
+      if (error?.killed && error.signal === 'SIGKILL') return fail(new Error(`the TypeScript check did not finish in ${boundWords(checkBound())} (tsc stopped)`));
       if (error) {
         const diagnostics=String(stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
         const mutationFailure=/Type '(?:false|boolean)' is not assignable to type 'true'|SnapbackMutationSuccess/.test(diagnostics)
@@ -1336,7 +1329,7 @@ export function check(stage, tsc, libraries) {
         return fail(new Error(diagnostics+sourceNames(stage,diagnostics)+refusal+String(stderr??'') || String(error.message)));
       }
       for(const path of stdout.trim().split(/\r?\n/)) {
-        if(path && !allowed(realpathSync(path)))return fail(new Error('module outside captured app: '+path));
+        if(path && !allowed(realpathSync.native(path)))return fail(new Error('module outside captured app: '+path));
       }
       done();
     }));
@@ -1360,7 +1353,7 @@ export async function ambientDiagnostics(app) {
     return {file:resolve(app,file),line:Number(row),col:Number(col),message};
   });
 }
-if (process.argv[2]==='--ambient' && process.argv[1]?.endsWith('/typescript.mjs')) {
+if (process.argv[2]==='--ambient' && basename(process.argv[1] ?? '')==='typescript.mjs') {
   try { console.log(JSON.stringify(await ambientDiagnostics(resolve(process.argv[3])))); }
   catch(error) { console.error(error.message); process.exitCode=1; }
 }

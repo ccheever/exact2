@@ -1,0 +1,13 @@
+{
+  "name": "@exact/serial",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serial ports by Web Serial's names: a chooser or the attached list, a port's line settings and signals, and every byte in and out (LLP 1133.037).",
+  "exports": {
+    ".": "./exact.json",
+    "./web": "./web/exact.json",
+    "./apple": "./apple/exact.json",
+    "./linux": "./linux/exact.json",
+    "./windows": "./windows/exact.json"
+  }
+}

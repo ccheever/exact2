@@ -212,7 +212,7 @@ and `:focus-visible`'s (LLP 1121 D8, LLP 1122); a conditional class's
 as its base and each folded part in `states`. A row only a state part
 writes, a press row among them, has no base fields. Each source is listed
 with its digest, and a Contract source with its `home`, as its components'
-identities name it (a param's full name is `<home>#<component>.<param>`). Slots, derives and actions retain their declarations,
+identities name it (a param's full name is `<home>#<component>.<param>`). Slots, derives, resources and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside
@@ -831,6 +831,26 @@ none set, `formatLocale` is the locale),
 normalizes POSIX names to BCP 47 (`C`/`POSIX` use `en-US`), and reads the zone from
 `TZ` when it names a zoneinfo entry, otherwise the system's IANA zone (UTC fallback).
 
+### Inspect work and native presentation
+
+`perf <target> during "<operation>"`
+reports the work that operation caused in the named subtree. Development measurements
+include virtual-row construction, rebinding and retirement; Apple also counts kernel
+layout API calls and native host work. Read the reported scope and measurement start:
+process-wide native counts can include other sessions, and a reset makes a delta unavailable.
+Missing coverage is not a zero.
+
+On Apple, `"perf frames live 500"` observes display-link callbacks for 500 ms without
+advancing or changing the current clock. Its reply identifies scheduling, substitutions
+and dropped records. A normal Mac event loop is available through
+`const session = await open({host: 'macos', env: {EXACT_AGENT: 'live'}, storage: 'my-scratch-store'})` in a
+driver script importing `open` from `scripts/agent.mjs`; call
+`await session.perf(null, {live: 500})` and close the session afterward.
+This carrier still substitutes storage and secret presence. `--timing platform` alone
+keeps agent execution substitutions. Neither establishes production-equivalent performance,
+and callback timing does not prove compositor presentation. `layout` distinguishes target
+and presented geometry; an unavailable presentation remains explicit.
+
 ## Generate TypeScript data-source types
 
 The compiler can derive the logic interface from a Contract's source signatures:
@@ -850,10 +870,26 @@ property check misses a spread (`{ ...row, amount }` keeps `row`'s other fields)
 so the refusal is at run time, the same on the web as on a device:
 ``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```,
 which the agent's `state` shows under `failed` while the resource keeps its last value.
+
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
 Generated declarations are build artifacts, not files to commit. A development
 build writes them beside `app.ts` for an editor: the web build and the native
 development bake both do.
+
+Development builds also expose `resourceStatus`: opaque request and displayed-answer
+generations, the last successful generation, pending status, and `displayed`
+(`fallback`, `current`, `retained`). `argumentsEqual` compares full arguments using
+the runtime's equality; `null` means the answer's full arguments are unknown or
+the value is a fallback. `resourcesMeasuredFrom` names the observation's start on
+the runner clock. Identifiers are local to this runtime and observation, and
+unobserved seed requests have null generations. They never govern retention or
+authorization. The driver joins each resource declaration to its file and location
+using that reply’s plan digest; a missing or incompatible map is reported as unavailable.
+`placeholder` identifies a declared stand-in; `keptSeed` is the
+runner's boot admission mark, consumed at activation. The JS target reports
+`keptSeedSupported: false`: its rendered-document checkpoint is separate from a
+persisted boot answer. `failures` counts refused answers since observation began, with
+`first` and `last` on that clock. A success clears `failed`, preserving the count.
 
 ### What a data module can use
 
@@ -873,14 +909,15 @@ on the web and these on Hermes (macOS, iOS, Linux):
 
 | Available on every executor | Notes on Hermes |
 | --- | --- |
-| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host reads it when it sends the request, under `fs.read` as `readFile` is, at most 64 MiB, and the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing; with `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file, a denied path or one over 64 MiB rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; no Content-Type is added (LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. `redirect` is Fetch's: `follow` (the default), `error` (a redirect rejects the fetch), or `manual`, which answers with the 3xx itself; natively its `Location` header is readable (an OAuth step whose redirect names an app scheme), while a browser gives its opaque redirect (status 0, no headers); any other word is a `TypeError`. An older prelude would ignore it and follow, so it moves `typescriptRuntime` to 2: such an app needs a new binary once more, and a cohort on an older binary gets no bundle that relies on it. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host reads it when it sends the request, under `fs.read` as `readFile` is, at most 64 MiB, and the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing; with `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file, a denied path or one over 64 MiB rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; no Content-Type is added (LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. `exactBodyTo: "app:/cache/…"` is the reverse, for a download: the host writes a 2xx reply's body into that app file as it arrives, under `fs.write` as `writeFile` is, and the bytes never enter JavaScript, so a large file costs neither the answer's step nor the engine's 64 MiB heap. The body goes to a staging file beside the target, which replaces the target only once the body is complete; a failure, an abort, the deadline or a body over the bound leaves the target as it was. The bound is `exactIndependentHttp.maxResponseBytes`, which may then be up to 1 GiB, or 1 GiB when none is given. The `Response` resolves once the file is in place, with `status`, `ok` and `headers` as received, an empty body, and `exactBodyTo: {path, bytes}`, the bytes written (absent or `null` on any other response). A reply that is not 2xx is not written: the file is untouched and its body is read as usual, at most 1 MiB, so the server's error is readable. A path that is not a plain `app:/` one, a HEAD, or `exactStream` beside it is a `TypeError`; a denied path or a missing folder rejects the fetch (`FetchError`, kind `Refused`) before anything is sent, and a host with no app files does so with kind `Unsupported`. It may come with a `body` or `exactBodyFrom`. On the web the body becomes a Blob the browser holds, stored in the page's store in one transaction (LLP 1108 D6 R2, 2026-10-26). An older prelude would ignore it and read the body into memory, so it moves `typescriptRuntime` to 4. `redirect` is Fetch's: `follow` (the default), `error` (a redirect rejects the fetch), or `manual`, which answers with the 3xx itself; natively its `Location` header is readable (an OAuth step whose redirect names an app scheme), while a browser gives its opaque redirect (status 0, no headers); any other word is a `TypeError`. An older prelude would ignore it and follow, so it moves `typescriptRuntime` to 2: such an app needs a new binary once more, and a cohort on an older binary gets no bundle that relies on it. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
 | `structuredClone` | No transfer list |
 | `TextEncoder`, `TextDecoder` | `TextEncoder` emits UTF-8. Hermes 0.4's built-in WHATWG decoder keeps the browser-style encoding labels, including UTF-8 and UTF-16LE/BE, plus `fatal`, streaming and `ignoreBOM` behavior |
 | `URL`, `URLSearchParams`, `atob`, `btoa` | |
 | `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle` | Inside an answer; `subtle` digests (SHA-256/384/512) and ECDSA P-256 keys (LLP 1069.005), and refuses the rest by name |
-| `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
+| `AbortController`, `AbortSignal` | `AbortSignal.timeout(ms)` is an answer's timer (below) |
+| `setTimeout`, `clearTimeout` | Inside an answer, on the app's clock (below) |
 | `queueMicrotask`, `Promise` | |
-| `scheduler.yield()` | Ends the answer's turn; it goes on in a new one with a budget of its own (below). Outside an answer's turn it resolves at once; for an answer let go it rejects with an `AbortError`. `scheduler.postTask` refuses: no timers |
+| `scheduler.yield()` | Ends the answer's turn; it goes on in a new one with a budget of its own (below). Outside an answer's turn it resolves at once; for an answer let go it rejects with an `AbortError`. `scheduler.postTask` refuses |
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. Apple's engine rounds a tie to even and ignores `roundingMode` (`$0.82` for 0.825 dollars, Chrome `$0.83`); the prelude rounds the number first, as Chrome does: from its shortest digits, by the formatter's `roundingMode` (half away from zero unless it names another), which `resolvedOptions()` then reports; a compact it prints in full rounds so too, to its style's digits (`$0.83` for a compact 0.825 dollars). A `unit` keeps the engine's rounding, since that engine converts it to the locale's unit (`0.622mi` for 1 kilometer). Apple's engine has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
@@ -937,10 +974,11 @@ out of order can leave it: `fetch(url, { exactIndependentHttp:
 then runs up to six such reads at once, within their own budget of 128
 requests and 64 MiB. A running read counts twice its ceiling, so a ceiling
 above about 32 MiB is refused when the read is made: keep it near the largest
-reply you expect. A browser has no lanes and schedules every fetch itself, so
+reply you expect. A download written to a file (`exactBodyTo`) counts only the
+1 MiB it can hold, whatever its ceiling. A browser has no lanes and schedules every fetch itself, so
 there only the ceiling applies. On every host a reply larger than
-`maxResponseBytes` fails as `refused`. The ceiling is 1 byte to 64 MiB, and
-anything else is a `TypeError`. A `GET` is
+`maxResponseBytes` fails as `refused`. The ceiling is 1 byte to 64 MiB (1 GiB
+with `exactBodyTo`), and anything else is a `TypeError`. A `GET` is
 not independent by default, because a source may depend on its replies
 arriving in order. Leave writes, and any read whose parse depends on an
 earlier reply, in the queue. Storage steps and native continuations cannot
@@ -959,18 +997,50 @@ yields to its own `scheduler.yield` where it has one (Chrome does), else to
 a task posted on a `MessageChannel`. Bun has no `scheduler`: a Bun test of a
 module that yields defines one (`globalThis.scheduler ??= { yield: async () => {} }`).
 
-Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
-`setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
-and `Math.random()`: time and seeds are source arguments. Every executor
-refuses them by name, with the same message, on first use: Hermes, the web's
-module realm, and the web build, whose bundler gives the app's own modules
-guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
-page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
-as it would on a device. The type check cannot see the difference, but every
+An answer may wait on a timer of its own (LLP 1027.000 D1, amended
+2026-10-28): `await new Promise(r => setTimeout(r, 180))`, a retry's back-off,
+`fetch(url, {signal: AbortSignal.timeout(5000)})`. A timer is due on the
+app's clock, the agent's under the driver: `clock +180` or `clock settle`
+fires it, and a jump lands each timer's turn before it goes on, so three
+chained sleeps of 100, 200 and 400 ms all run within `clock +700`. It belongs
+to the answer that armed it: arming one outside an answer (module
+initialization, a stream's mapper, an overlay, background work, or after the
+answer has given its value) throws, and an answer that gives its value, fails
+or is let go clears the rest, whose callbacks never run. At build each timer
+fires at once, so a source that waits still bakes.
+
+Natively, and in the web's wasm target, an answer waits on one thing at a
+time, and a fetch it awaits goes first: a timer raced against that fetch
+(`Promise.race`, or a `setTimeout` that calls `abort()`) runs only after the
+fetch lands, so it cannot cut the fetch short, and the journal says so once
+per answer. On the web JS target, whose answers run in the page, both work.
+For a deadline on every host, give the fetch `exactTimeout`: the host keeps
+it on real time, not the app's clock. `AbortSignal.timeout(ms)` is one too,
+on a different clock by host: natively and in the wasm target the fetch
+carries its time left as the host's real-time deadline; on the web JS target
+it is a timer on the page's clock, so under the agent `clock +N` fires it.
+Either way the signal aborts with `TimeoutError`. An answer waiting both for
+another answer's work (a shared fetch) and for a timer of its own is woken by
+whichever comes first on native hosts, for a source on the main thread, and on
+the web JS target; in the wasm target and in a worker-placed source it wakes
+only when its timer is due.
+
+A poll loop (`for (;;) { await sleep(5000); … }`) belongs in a Contract
+`task`, not in an answer: an answer that always has a timer armed never
+settles, so every `clock settle` stops at its bound and says `settled: false`.
+
+Not in a data module, by design (LLP 1027.000): `setInterval`,
+`requestAnimationFrame`, `performance.now()`, `Date.now()`, `new Date()`
+without a value and `Math.random()`: time and seeds are source arguments.
+Every executor refuses them by name, with the same message, on first use:
+Hermes, the web's module realm, and the web build, whose bundler gives the
+app's own modules guarded `Date`, `Math`, `Intl`, timers and `performance` in
+place of the page's (LLP 1027.000 D3), so an app that reads the clock fails in
+the web loop as it would on a device. The type check cannot see the difference, but every
 build refuses a direct use in a module `app.ts` reaches, by file and line
 (`logic.ts:2:28: Date.now() is unavailable in data sources; …`), so a test that
 runs the module under Bun, which has no such guard, cannot hide it.
-Literal bracket access such as `Date['now']()` and `globalThis['setTimeout']()`
+Literal bracket access such as `Date['now']()` and `globalThis['setInterval']()`
 gets the same diagnostic as dot access, including in the web build's summary.
 Aliases and dynamic property keys still reach the runtime guard. In a running
 session, a refused TypeScript answer fails its resource and keeps its last value
@@ -1133,7 +1203,7 @@ until each held request has had one reply (20 s by default), then `clock data`. 
 the asks that wait (a first ask answered at once need not be); a stream never is
 (`exactStream` stops counting at its first message), and with `exactStream` it
 is refused; an upload (`exactBodyFrom`) is never held either, its file being read
-before it is sent. A Rust source's request takes `Request::held()` (not across the Rust
+before it is sent, nor is a download to a file (`exactBodyTo`). A Rust source's request takes `Request::held()` (not across the Rust
 module seam, which refuses it, as it refuses a deadline). On the web build an
 answer counts as held only while every fetch it has out is held: an ordinary
 fetch beside it is waited on, and so is a held one made in a plain `.then`
@@ -1349,57 +1419,109 @@ are `bigint`: convert them to a Contract-compatible value before returning.
 
 ### Notifications
 
-`showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local
-notification; `closeNotification(tag)` takes one away, shown or still
-waiting. The names are the Notification API's (`showTrigger` is the
-Notification Triggers draft's member, given as the time in epoch
-milliseconds: the date now is `exactTime().epochAtZero + performanceNow()`). A newer notification
-with the same `tag` replaces the older. The app's grants must name
-`device.notifications purpose.notifications` (a strings key, LLP 1069.008;
-iOS shows its own fixed prompt text), or the command is refused. Permission
-is asked the first time; the outcome is a journal line
-(`showNotification: shown`, `scheduled`, `refused: denied`, …).
-`navigate=` is a route location, such as `"/thread/42"`; relative paths and
-custom-scheme URLs are reduced by the router's `location_of` on every host
-(`app://thread/42` becomes `/thread/42`; `app:/thread/42` and
-`app:///thread/42` become `//thread/42`). A plain click on the
-notification delivers one `navigate` event to the navigation root while the
-app runs, or makes that location the launch location when it starts the app.
-Notifications posted before the app last quit still navigate after it reopens.
-An embedded Mac host must receive launch callbacks before sizing or attaching
-its Exact views: either can boot a session. Boot once with the launch location,
-then attach the view.
-Without `navigate=`, a click just brings the app forward. Action buttons,
-replies, and badges are not available.
+`@exact/notifications` (LLP 1133.004) posts local notifications, hears their
+click, sets the app's badge and reads the permission, by the Notification and
+Badging APIs' names:
 
-| host | now | at `showTrigger` |
-| --- | --- | --- |
-| web | `new Notification(title, {body, tag})`; a click navigates and focuses the open page | while the page is open: the web has no trigger that outlives the page |
-| macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed |
-| Linux | refused: `unavailable` | the same |
+```text
+use showNotification, closeNotification, setAppBadge, clearAppBadge, notificationStatus, requestNotificationPermission, notificationclick, NotificationStatus, NotificationEvent from "@exact/notifications"
+
+component App
+  action opened(tag: string, e: NotificationEvent)
+    …
+  action done
+    showNotification(title="Build finished", tag="thread-3", silent=true, data="/thread/3")
+  view
+    column notificationclick=opened
+      …
+```
+
+The app depends on the package (`exact add notifications`, or
+`"@exact/notifications": "file:<exact2>/packages/notifications"`) and grants
+`device.notifications purpose.notifications` (a strings key, LLP 1069.008;
+iOS shows its own fixed prompt text): without the grant a post and the
+request are refused (`notifications.showNotification: refused, grant-missing
+(device.notifications)`).
+
+- `showNotification(title=, body=, tag=, silent=, data=, showTrigger=,
+  navigate=)` and `closeNotification(tag=)` are statements in an action; data
+  code calls them through the package's binding (`await showNotification({
+  title, tag, silent: true })`). A newer notification with the same `tag`
+  replaces the older. `silent=true` posts without the platform's sound.
+  `showTrigger` is the time to show it in epoch milliseconds (the date now is
+  `exactTime().epochAtZero + performanceNow()`). A post while the permission
+  is `prompt` asks first; while `denied` it is refused. A post from a wake or
+  a tool while `prompt` is refused `person-required`: ask from a person's
+  press first (`requestNotificationPermission()`).
+- A plain click with `navigate=` opens that route location: one `navigate`
+  event to the navigation root while the app runs, or the launch location when
+  it starts the app. `navigate=` is reduced by the router's `location_of`
+  (`app://thread/42` becomes `/thread/42`).
+- A click without `navigate=` is `notificationclick` on the root component's
+  outermost node: the tag and the notification's `{tag, data, title, body}`,
+  delivered once, in order, after first pixel; one that starts the app (macOS,
+  iOS) is held until then. A click always brings the app forward.
+- `setAppBadge(contents=)` sets the app icon's badge, best effort: a number, no
+  number for a flag (`•` on the Mac's Dock tile, `1` on iOS), 0 to clear;
+  `clearAppBadge()` clears it. The badge is the app's: an embedded host's
+  sessions share one. It needs no grant. A negative count is refused
+  `TypeError` on every host, under the agent too.
+- `notificationStatus()` reads `{available, state, badge, apple}` (`state`
+  `granted`, `prompt`, `denied` or `unknown`), read again when the app comes
+  back to the front; `requestNotificationPermission()` asks while `prompt` and
+  answers the status.
+
+| host | post | `showTrigger` | click | badge |
+| --- | --- | --- | --- | --- |
+| web | `new Notification` in the page | while the page is open: the web has no trigger that outlives the page | while the page is open | `navigator.setAppBadge` where the browser has it, else `NotSupportedError` |
+| macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed | warm, or the launch | the Dock tile's label; `setBadgeCount` |
+| Linux, terminal, tvOS, Android, Windows | no implementation yet: each call is refused `NotSupportedError`, under the agent too, and the status reads `available: false` | | | |
 
 On macOS, system notifications need an app bundle (`bun host/apple/build.mjs
---bundle`); the bare development executable refuses them because it has no
-notification centre.
+--bundle`); the bare development executable has no notification centre, so
+there `available` is false and every call refuses `NotSupportedError`.
 
-Under the agent nothing reaches the system on any host: `state.notifications`
-lists what the app posted (`{title, body, tag, showTrigger, navigate}`, a tag replacing
-its older one, `closeNotification` removing it), so a drive reads a reminder
-without a permission prompt. A drive can then `type` the listed location into
-the navigation root to check its screen. Scheduling is one time per call: a daily
+Under the agent nothing reaches the system on any host. A post while
+`prompt` waits on a `permission` ticket (`tap @t allow`, or `--permission
+notifications=granted` at launch); `state.notifications` lists what the app
+posted (`{title, body, tag, silent, data, showTrigger, navigate, delivered,
+ref}`, a tag replacing its older one, `closeNotification` removing it, an
+entry for later `delivered: false` until `clock` passes it); `state.badge` is
+the badge (a number, `"flag"` or `null`). `tap @ref` on a delivered entry is
+its click; `--notification '<entry>'` relaunches the app with one, as the
+system hands a closed app its click. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
 
 ### Local network
 
-The grant `device.local-network purpose.<key>` writes the strings key's text
-as `NSLocalNetworkUsageDescription` on macOS, iOS and tvOS (with each table's
-translation in `InfoPlist.strings`). That text is the prompt the platform
-shows before the app first reaches an address on the local network (macOS 15
-and later, iOS 14 and later; Apple TN3179). Exact adds no gate of its own:
-the platform asks and refuses. On iOS the grant's text replaces the
-development client's default prompt from `host.ios.localNetworking`, which
-still adds `NSAllowsLocalNetworking`. The web, Linux, Windows and Android
-get nothing: a browser asks with its own Local Network Access prompt.
+Services on the local network are found by DNS-SD through `@exact/local-network`
+(LLP 1133.036; [recipe](recipes/local-network.md)) and reached with `fetch` or a
+WebSocket. Three kinds of grant line:
+
+- `device.local-network purpose.<key>`: the strings key's text is
+  `NSLocalNetworkUsageDescription` on macOS, iOS and tvOS, the prompt Apple shows
+  before the app first browses or reaches the local network (macOS 15 and later,
+  iOS 14 and later; Apple TN3179).
+- `net.dns-sd <type>`, one per service type the app browses or resolves
+  (`_wled._tcp`; RFC 6335 §5.1), which needs the line above. It derives
+  `NSBonjourServices` on Apple and `CHANGE_WIFI_MULTICAST_STATE` on Android. A
+  browse or resolve of a type no line lists fails `SecurityError`.
+- `net.fetch local-network`, `net.websocket local-network`: any host the URL writes
+  as an RFC 1918, link-local or unique-local address, or a `.local` name, never a
+  name that resolves to one. It derives `NSAllowsLocalNetworking`, so cleartext
+  `http` reaches such a host. `net.fetch local-network development` admits loopback
+  too, in a development build only; a development bake writes the word itself, so
+  a fixture at `127.0.0.1` answers under the agent, and a production bake refuses it.
+
+`localNetworkStatus()` is a fact: `granted`, `prompt`, `denied` or `unknown`, where
+`unknown` means "a reach may ask" (Apple reports no state, so each launch starts
+there on iOS and macOS 15). A tool invocation, a wake or a package's event never
+starts a browse, and its `fetch` or WebSocket to the local network is refused
+before it is sent unless the fact is `granted` (`NotAllowedError`, message
+`person-required` while undecided): on Apple at every hop a redirect leads to, on
+the web at the first, with the redirect not followed. The app's own code and a
+person's input are never refused: their reach is the ask. The web, Linux and
+Windows have no browser (`available` false); a typed address still works there.
 
 ### Apple Health
 
@@ -1589,9 +1711,11 @@ the platform would call (`delivery: "substituted"`).
 `wakelock="screen"` on any element keeps the display from dimming or locking
 for idleness while that element is mounted and displayed: neither it nor an
 ancestor is `display: none` (or laid out so by its host, as an unopened tab
-is), and it is under no tab the navigation leaves unselected and no screen a
-stack keeps under its top, so a screen kept mounted in a hidden tab panel
-holds nothing; the screen a sheet covers is still shown, and holds. An exit
+is), inside no `dialog` or popover its host has not opened, and under no tab
+the navigation leaves unselected and no screen a stack keeps under its top,
+so a screen kept mounted in a hidden tab panel holds nothing; the page a
+sheet covers, and every sheet between it and the top, is still shown, and
+holds. An exit
 animation's ghost holds nothing ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
 D11). Natively an element the host shows as its own control (a header in the
 navigation bar, a confirmation as a native alert, a menu as a native menu)
@@ -1613,6 +1737,57 @@ unset`) and holds nothing. The runner decides which elements hold it
 
 `state.wakelock` is `{held, by}`: whether any element holds it and their view
 ids, on every host's driver.
+
+### Lock the screen orientation
+
+`orientationlock` on any element keeps the window to the orientations it
+names while that element is displayed, by the wake lock's rule above, and
+outside every `dialog` and popover ([LLP 1133.029](../llp/1133.029-screen.rfc.md)).
+The words are the Screen Orientation API's lock types, `portrait`,
+`landscape`, `portrait-primary`, `portrait-secondary`, `landscape-primary`,
+`landscape-secondary`, `natural` and `any`, and `current`, the orientation
+the window has when the lock begins; `"none"`, the default, holds nothing.
+Bind it to what needs it: a game steered by tilting the phone keeps the
+orientation the player holds while tilt is on,
+`orientationlock=(tilt ? "current" : "none")`.
+
+When several displayed elements hold a lock, three rules decide which
+count. The topmost sheet that holds wins over the routes beneath it, so a
+sheet can turn a locked screen and a sheet that holds nothing leaves the
+lock beneath it. A holder with a holder among its descendants is replaced
+by it, as an inherited CSS property is: a portrait app's root says
+`orientationlock="portrait"` and one screen under it says `"landscape"`;
+`"any"` frees a subtree. The holders left intersect, and holders that share
+no orientation hold none: the journal says `orientationlock: conflict: view
+12 "portrait", view 30 "landscape"; none held`.
+
+A type narrows the manifest's `orientation` and never widens it: iOS refuses
+a screen whose orientations fall outside the app's Info.plist. So a literal
+type that shares no orientation with the manifest's (`"landscape"` in a
+`"portrait"` app) is refused at bake (`orientationlock-outside-manifest`):
+widen the manifest and lock the screens that need portrait. A literal or
+computed lock inside a `dialog` or popover is refused too
+(`orientationlock-in-top-layer`): whether a box is open is the host's
+state, and a dialog over a locked screen leaves its lock. A computed word
+outside the table is journaled (`view N: invalid orientationlock value …;
+unset`) and holds nothing.
+
+| host | held through |
+| --- | --- |
+| iOS | the root and every presented controller's `supportedInterfaceOrientations`, turned by `requestGeometryUpdate`; `current` is `prefersInterfaceOrientationLocked` from iOS 26 and the scene's orientation before |
+| iPadOS | `current` alone, in full screen (iPadOS 26 and later): a multitasking app supports every orientation, so iPadOS asks no controller for a type |
+| Android | the activity's `requestedOrientation` (request kind 13): the manifest's mapping for a type, `locked` for `current`; on a screen 600 dp wide or wider Android 16 ignores a type, and `current` holds |
+| web (both targets) | `screen.orientation.lock()`, where the browser locks: in fullscreen, on Android's Chrome and Firefox; asked again on entering fullscreen and on becoming visible. `orientationlock: unavailable: <DOMException name>` is journaled once where it refuses (desktop Chrome, Safari) |
+| Windows | the process's `SetDisplayAutoRotationPreferences`, which a convertible or a tablet follows |
+| macOS, tvOS, Linux, the terminal | none: `orientationlock: this host has no screen orientation`, journaled once |
+
+`state.orientationlock` is `{held, by, words, lock, conflict, applied}`: the
+counted holders' views and words, the lock the host is told, the holders of
+a conflict, whichever side found it, and `applied`, what the host asked the
+platform for and whether it holds (`"unavailable"` where there is none). A
+request is not an effect: a drive judges a lock by the orientation the
+window keeps (`layout`'s `screen.orientation` on iOS), and reads `applied`
+for why.
 
 ### Pick a file of any type
 
@@ -1736,7 +1911,8 @@ for (const name of await storage.fs.readdir(folder)) {
 | `writeFile`, `atomicWriteFile`, `appendFile` | `fs.write doc:/` | Creates a file beneath a chosen folder |
 | `mkdir` | `fs.write doc:/` | Makes the folders above it too |
 | `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
-| `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
+| `copyFile(from, to)`, `from` a `doc:` file, `to` an `app:/` path | `fs.read` covering `from`, `fs.write` covering `to` | The host copies the bytes; they never enter JavaScript, so a file past `readFile`'s 16 MiB result copies too. A regular file only, with `readFile`'s refusals |
+| `rename`, `realpath`, and `copyFile` to a `doc:` path | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
 refused. Native folder handles retain the selected directory even if its
@@ -1744,7 +1920,7 @@ pathname moves. Descendant symlinks and Windows reparse points are refused,
 including in intermediate folders; explicitly choosing a file through a
 symlink still selects its target. A native selection whose filename is not
 valid Unicode is refused rather than addressing a lossy spelling. A document needs no app storage: a drive without `--storage` reaches
-it. On the web the paths are the `FileSystemHandle`s the page's picker
+it, though a `copyFile` into an `app:/` path needs app storage as any app file does. On the web the paths are the `FileSystemHandle`s the page's picker
 returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
 on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
 and iOS they are security-scoped URLs held for the session; Linux opens no
@@ -1780,7 +1956,8 @@ refuses `ENOENT`). The comparison and the write are queued together but are
 not one atomic step; what they close is the time an editor spends editing.
 Read the new file and let the person choose.
 
-**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS). An
+**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS, the
+web, and Linux in a desktop session). An
 app granted `doc.keep` keeps exactly what the person chose — a file or folder
 from a picker, Finder, ⌘O, Open Recent, the command line or a drop; never a
 typed path, a followed link, or a route's folder — and its `doc:/<n>/<name>`
@@ -1802,11 +1979,43 @@ requests (`apps/markdown/data`). A kept item is the object chosen: a move
 or rename is followed and keeps its path (`<name>` is the name it was
 chosen by); a file another program replaced at its name is not the
 document, and the app's own `atomicWriteFile` carries the entry to the file
-it wrote (from Rust; not yet from TypeScript). A path whose entry is gone
+it wrote, from Rust or TypeScript. A path whose entry is gone
 refuses `ENOENT`: ask the person to choose again. Without `doc.keep`
-both calls are refused. Under the agent the kept set is the drive's scratch
-store (`--storage`), never the person's. Linux and iOS keep nothing yet and
-list nothing; the web has neither call yet.
+both calls are refused. Under the agent on a Mac the kept set is the
+drive's scratch store (`--storage`), never the person's.
+
+On Linux the list is the desktop's recent files (`recently-used.xbel`),
+each entry marked with the app's id, and the person clears it there. The
+path is the handle: a kept document moved, or replaced at its path, is
+forgotten rather than followed. Only a desktop session keeps anything; a
+headless run, a drive and the DRM kiosk keep and list nothing. The Linux
+host has no file chooser of its own yet, so today nothing there is chosen
+to keep. iOS keeps nothing.
+
+On the web a kept document is the `FileSystemHandle` the browser gave,
+kept in the page's IndexedDB, at most 20 of them; clearing the site's data
+revokes them. The browser owns the permission: after a reload it may
+withhold it, and a read or write then refuses `EACCES` (an entry no
+longer kept refuses `ENOENT`). Ask again from a press with the command
+`requestPermission(id, path, mode)`, `mode` `"read"` or `"readwrite"`;
+`change` at `id` hears `granted` or `denied`. A native host answers
+`granted` for a document that resolves. A drop keeps a file of a type the
+manifest declares; a paste, a dropped folder and the agent's files are the
+session's only.
+
+```contract
+component Reopen
+  state permission = "unknown"
+  action ask(path: string)
+    requestPermission("permission", path, "read")
+  action answered(value)
+    permission = value
+  view
+    column
+      input id="permission" display="none" change=answered
+      button press=ask("doc:/12/notes.md")
+        text "Allow access"
+```
 
 ### Files dropped or pasted
 
@@ -1868,13 +2077,22 @@ top-level literal `const origin`, after `EXACT_BACKEND_ORIGIN` or
 origin and keys. Before type-checking, it replaces only the captured initializer
 with a string of the selected lines joined by `\n`, so web and native read the
 same grants. Authored source stays unchanged. Keyed grants move to another
-origin in one case: in a development build (`EXACT_UPDATE_TRUST` unset or
-`development`), an origin at a private-network address (RFC 1918 or link-local
-IPv4, `fc00::/7` or `fe80::/10` IPv6) with no entry takes the entry of the same
-server at loopback (`127.0.0.1`, `localhost` or `[::1]` with the same scheme and
-port), its `net.fetch` and `net.websocket` lines moved to that address with their
-paths. This is how a phone reaches a fixture server on the Mac's LAN address. A
+origin in a development build (`EXACT_UPDATE_TRUST` unset or `development`): an
+unlisted loopback or private-network origin (RFC 1918 or link-local IPv4,
+`fc00::/7` or `fe80::/10` IPv6) takes a loopback entry (`127.0.0.1`, `localhost`
+or `[::1]`) of the same scheme. A matching port wins; otherwise exactly one
+candidate is required. Its matching `net.fetch` and `net.websocket` lines move
+to the selected host and port, preserving paths and unrelated grants. A
 production build refuses it, as it refuses any missing entry.
+
+A declared server under `fixture/` or `fixtures/`, with a top-level literal loopback
+`const origin`, gets one stable development port in 4790–5789 per real app directory.
+The bake and driver select it together. `--backend`/`EXACT_BACKEND_ORIGIN`, then
+`.exact/backend-origin`, the server command's `--port`, and `PORT` override the default.
+`bun scripts/agent-launch.mjs --fixture-port --app excord` prints the selected port.
+An agent drive refuses an occupied fixture port unless its launch record and listening
+process belong to this app directory and origin. Choose a free port with `--backend`
+or `PORT` when another checkout holds it. Ordinary app servers keep their authored ports.
 
 The producer captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
@@ -2027,7 +2245,7 @@ the presenter's placement and order for open top-layer content.
 
 | Scope | Swift (`ExactModule`) | Page module (`modules/web/index.js`) |
 |---|---|---|
-| A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)` | `element(e)`, `elementEnded(e)` |
+| A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)`; a frame's `elementConfiguration(_:_:)` | `element(e)`, `elementEnded(e)` |
 | A route, a navigation stack, tabs (iOS; the web's elements) | `route`, `routeEnded`, `navigation`, `tabs`, `tabContainer` | `route`, `routeEnded`, `navigation`, `tabs` |
 | The window toolbar (macOS) | `toolbar(_:)` | none |
 | The app: its facts, by the web's names, and the root node's `data-*` words as `data` (each in `app.json` `data`, which `hatch --app` adds; Swift reads `data-booted` as `app.data[.booted]`) | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
@@ -2040,8 +2258,16 @@ one when the arm replaces it (a new `partition`, a PDF to HTML). The arm owns
 `navigationDelegate`, `uiDelegate`, `pageZoom`, the appearance, the user
 scripts of its content controller and a PDF view's `delegate`, and a
 development build names one the hatch changed (LLP 1020.002 §9); a script
-message handler a hatch adds is not detected. The moment before construction, with the `WKWebViewConfiguration`, is not
-built.
+message handler a hatch adds is not detected. Before each web view is made,
+`elementConfiguration(_:_:)` hands the `WKWebViewConfiguration`. The arm has
+set its data store and content worlds, and the frame has its own new
+`WKPreferences` with the arm's two settings. Set an `applicationNameForUserAgent`, content rule lists, URL scheme
+handlers for the app's own schemes, or the frame's preferences; the data store
+and the content controller must stay the arm's. Change only the configuration
+there: the node may not be in the tree yet. A hatched frame's first web view
+waits for the module to connect, so this call comes before the web view is
+made. The web view then arrives at `built`; if `built` has no `platform` (as
+on macOS or in an iOS list row), the `changed` after this call hands it.
 
 **Linux, Windows and Android paint their own pixels**, so there is no platform
 object to hand over. A hatch there is Rust: one type that implements
@@ -2443,6 +2669,16 @@ window reaches the first or last supplied row. An empty collection fires neither
 event. A plain list lays out all its children and has no collection window;
 the Contract compiler refuses either handler there, on every target.
 
+`reach-margin` on such a list sets how far ahead of an edge they fire: the edge
+row may be up to that far past the port. It is a literal, one or two nonnegative
+px or % lengths (before and after; a percentage is of the list's port along its
+axis), and defaults to one port, `"100%"`. `reach-margin="200%"` asks for the
+next page when the last row is two ports away (LLP 1145 D4). That is the
+distance at rest. While the list scrolls toward an end, the margin on that side
+grows by as much as the list's window leads for the scroll: a quarter second of
+travel, up to two ports. A fling up a transcript at 4,000 px/s in a 320 px port
+asks for older rows once the first row is within 960 px (LLP 1027.004 D3).
+
 For a plain feed or masonry, use `intersect=` on a marker at the end of the
 content, after the columns, inside the same scroller:
 
@@ -2466,7 +2702,7 @@ after resize callbacks and authored scrolling. `intersect-margin="200px 0px"`
 is a literal rootMargin (one to four case-insensitive px/% lengths, default 0px).
 Numbers follow CSS syntax: `.5px` and `1e2px` are valid; `1.px` is refused at compile time.
 Percentages use the corresponding root dimension.
-A native route's scrollport can be the root, including at offset zero.
+On iOS, a `resizes-visual` route's viewport can be the root, including at offset zero.
 `overflow: clip` clips descendants without becoming a root. The margin expands
 only the root; clips between the target and root keep their original bounds.
 Ancestors above an explicit root only map its coordinates.

@@ -12,6 +12,7 @@
 mod bound;
 mod budget;
 mod check;
+mod checked;
 mod color_fn;
 mod component;
 mod css;
@@ -39,7 +40,7 @@ mod syntax;
 mod trace;
 mod typeface;
 
-pub use bound::MAX_REFERENCE_DEPTH;
+pub use bound::{MAX_AXES, MAX_REFERENCE_DEPTH, MAX_WHENS};
 pub use check::{Checked, MAX_TUPLES};
 pub use component::{Component, Param};
 pub use css::{MAX_VALUE_BYTES, MAX_VALUE_DEPTH};
@@ -220,7 +221,19 @@ pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
 
 /// Check and fold a design already parsed, or built by a caller: the
 /// compiler's inline `theme` (LLP 1095 D4) and its synthetic tokens (D3).
-pub fn check_design(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+    check_uncached(design, vocab)
+}
+
+/// [`check_design`], answered from the last few designs checked when this one
+/// is among them unchanged: for a server's reads (`describe`, `resolve`, a
+/// scrub's frame), so a client asking can't make it fold the same design,
+/// dial influence and all, again and again (`checked`).
+pub fn check_design_cached(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+    checked::cached(design, vocab, check_uncached)
+}
+
+fn check_uncached(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
     // The checker's own bounds first: a value past them is refused where it
     // is written, before anything reads it (`bound::preflight`).
     let over = bound::preflight(&design);
@@ -359,9 +372,15 @@ fn contrast(design: &Design, tokens: &[Checked], tuples: usize, vocab: &Vocab) -
         }
     };
     let mut out = Vec::new();
+    // The checked tokens by name, the first of each (linear: round 1 of the
+    // checker sweep).
+    let mut by_name = std::collections::HashMap::new();
+    for u in tokens.iter().rev() {
+        by_name.insert(u.name.as_str(), u);
+    }
     for (t, declared) in tokens.iter().zip(&design.tokens) {
         for pair in &t.pairs {
-            let under = tokens.iter().find(|u| &u.name == pair);
+            let under = by_name.get(pair.as_str()).copied();
             let role = Folded::Host(Host::Role(pair.clone()));
             let mut lowest: Option<(f64, usize, usize, bool)> = None;
             for tuple in 0..tuples {

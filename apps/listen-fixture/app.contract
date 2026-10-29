@@ -1,0 +1,48 @@
+// The local listener's fixture (LLP 1133.005 §10 step 6): it listens on a
+// `unix:` path while "Listen" is on and echoes each line on its own
+// connection. A line `later` is answered by the "Answer later" button, a
+// mutation on the connection's kept handle; `bye` ends the connection.
+// "Take over" listens with `takeover`, so a second instance takes the path.
+shape Line
+  key: string
+  text: string
+shape Echo
+  status: string
+  supported: bool
+  waiting: number
+  lines: Line[]
+shape Sent
+  sent: bool
+
+component App
+  state path = "/tmp/exact-listen-fixture/echo.sock"
+  state on = true
+  state takeover = false
+  resource echo = echo(path, on, takeover) as shape Echo else empty()
+  mutation answered as shape Sent
+  action toggle
+    on = not on
+  action takeOver
+    takeover = not takeover
+  action answer
+    send answered = answerLater()
+  action focusWindow
+    focus()
+  view
+    column padding=16 gap=12
+      text "Listen Fixture" role="heading" aria-level=1
+      text echo.status testId="status"
+      if not echo.supported
+        text "This host cannot listen." testId="unsupported"
+      text path testId="path"
+      row gap=8
+        button press=toggle testId="toggle"
+          text on ? "Stop" : "Listen"
+        button press=takeOver testId="take-over"
+          text takeover ? "Takes over" : "Waits"
+        button press=answer testId="answer"
+          text `Answer later (${echo.waiting})`
+        button press=focusWindow testId="focus"
+          text "Focus"
+      for l in echo.lines key=l.key
+        text l.text testId=`line-${l.key}`

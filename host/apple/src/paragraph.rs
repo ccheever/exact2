@@ -77,6 +77,32 @@ impl<D: DataSource> Host<D> {
         (fill.resolve(false).a() != 0 || fill.resolve(true).a() != 0).then(|| format!("{w}x{h}"))
     }
 
+    /// The paragraph an image in its text belongs to (LLP 1011.002): its
+    /// box is one of that paragraph's runs, so a change to the image is a
+    /// change to its runs.
+    pub(super) fn image_paragraph(&self, id: ViewId) -> Option<ViewId> {
+        let node = self.runner.kernel().node(id)?;
+        if !node.is_inline_image() {
+            return None;
+        }
+        self.paragraph_owner(node.parent?)
+    }
+
+    /// An image in a paragraph's text took a new natural size: its box is a
+    /// run of that paragraph, which paints again with it.
+    pub(super) fn inline_image_resized(&mut self, view: ViewId, batch: &mut Batch) {
+        if let Some(owner) = self.image_paragraph(view) {
+            self.dirty_paragraphs.insert(owner);
+            self.emit_paragraphs(batch);
+        }
+    }
+
+    /// Lay out again after `view` took a new natural size.
+    pub(super) fn layout_resized(&mut self, view: ViewId, batch: &mut Batch) -> Result<(), String> {
+        self.inline_image_resized(view, batch);
+        self.layout(batch)
+    }
+
     pub(super) fn paragraph_owner(&self, id: ViewId) -> Option<ViewId> {
         let kernel = self.runner.kernel();
         let mut node = kernel.node(id)?;
@@ -187,15 +213,46 @@ impl<D: DataSource> Host<D> {
                 let Some(run) = kernel.node(id) else {
                     continue;
                 };
-                // Non-text controls are never absorbed into a paragraph.
-                if !run.is_inline_run() {
+                // Non-text controls are never absorbed into a paragraph; an
+                // image in its text is a run of its box (LLP 1011.002).
+                let inline = run.inline_box();
+                if !run.is_inline_run() && inline.is_none() {
                     continue;
                 }
-                let props = props_for(&run);
+                let mut props = props_for(&run);
+                if let Some(b) = inline {
+                    props.insert(PropId::Text.name(), exact_kernel::INLINE_BOX_TEXT.into());
+                    // Its own `visibility`: its style here is its paragraph's.
+                    if run
+                        .computed_style(exact_kernel::StyleMask::of(
+                            exact_kernel::StyleId::Visibility,
+                        ))
+                        .visibility
+                        == exact_kernel::Visibility::Hidden
+                    {
+                        props.insert("inlineBoxHidden", "true".into());
+                    }
+                    props.insert(
+                        "inlineBox",
+                        format!(
+                            "{} {} {} {}",
+                            style::num(b.width),
+                            style::num(b.height),
+                            b.align as u8,
+                            style::num(b.shift)
+                        ),
+                    );
+                }
                 // A run painting an inherited `color` that moves (LLP 1062 D5).
                 let mut shown = style::Shown::default();
                 shown.set(Property::Color, self.paint.runs.get(&id).copied());
-                let (style, _) = style::style_json_inherited(&run, &kernel.env(), &shown);
+                // An image's box is in its paragraph's font, as the kernel measures it.
+                let styled = inline.and(run.parent).and_then(|p| kernel.node(p));
+                let (style, _) = style::style_json_inherited(
+                    styled.as_ref().unwrap_or(&run),
+                    &kernel.env(),
+                    &shown,
+                );
                 let handlers: Vec<_> = self
                     .inline_runs
                     .get(&id)
@@ -203,7 +260,7 @@ impl<D: DataSource> Host<D> {
                     .flat_map(|(_, events)| events.iter().copied())
                     .filter_map(handler_name)
                     .collect();
-                let paints = active && run.props.str(PropId::Text).is_some();
+                let paints = active && (inline.is_some() || run.props.str(PropId::Text).is_some());
                 if !first {
                     runs.push(',');
                 }
@@ -334,6 +391,9 @@ impl<D: DataSource> Host<D> {
         if self.reconcile_projection(id, batch) {
             return;
         }
+        if let Some(owner) = self.image_paragraph(id) {
+            self.dirty_paragraphs.insert(owner);
+        }
         if let Some(owner) = self.paragraph_owner(id) {
             self.dirty_paragraphs.insert(owner);
             if owner != id {
@@ -355,6 +415,15 @@ impl<D: DataSource> Host<D> {
             self.queue_layout_subtree(id);
         }
         let m = self.mirror.entry(id).or_default();
+        // What layout derives (`emit_layout`) is layout's to set and clear.
+        // Cleared here as unauthored, a growing list's `flexGrows` went and
+        // came back in every batch that touched the list: each row of a
+        // scrolling list of tasks reconfigured its checkbox for it.
+        for key in super::layout::DERIVED_PROPS {
+            if let (Some(value), false) = (m.props.get(key), props.contains_key(key)) {
+                props.insert(key, value.clone());
+            }
+        }
         if props != m.props {
             let set: Vec<(&str, String)> = props
                 .iter()
@@ -384,9 +453,14 @@ impl<D: DataSource> Host<D> {
             self.svg.element(self.runner.kernel(), id);
             return;
         }
-        // A select's options are its menu's, not views (LLP 1069.001 D2).
+        // A select's options are its menu's, not views (LLP 1069.001 D2). A
+        // control this batch creates is configured for its create op; saying
+        // so for it too made every list row with a checkbox a batch that
+        // configures every control and syncs the navigation chrome.
         if node_type == NodeType::Control {
-            batch.controls = true;
+            if !batch.creates(id) {
+                batch.controls = true;
+            }
             return;
         }
         let mut children = self.runner.kernel().node(id).expect("live").children();
@@ -417,8 +491,17 @@ impl<D: DataSource> Host<D> {
         for child in &children {
             self.reconcile_projection(*child, batch);
         }
-        if self.native_protected_id(id) || self.paragraph_owner(id).is_some() {
+        if self.native_protected_id(id) {
             return;
+        }
+        // A paragraph's views are its images' (LLP 1011.002): its runs are its text.
+        if let Some(owner) = self.paragraph_owner(id) {
+            let kernel = self.runner.kernel();
+            children.retain(|c| kernel.node(*c).is_some_and(|n| n.is_inline_image()));
+            let had = self.mirror.get(&id).is_some_and(|m| !m.children.is_empty());
+            if owner != id || children.is_empty() && !had {
+                return;
+            }
         }
         if self.native_mode() {
             children.retain(|child| {
@@ -593,6 +676,10 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<&'static 
         out.insert(PropId::Text.name(), shown);
     }
     style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
+                                             // An image in the text is read in its paragraph's words (LLP 1011.002 D4).
+    if node.is_inline_image() {
+        out.insert(PropId::AccessibilityElementsHidden.name(), "true".into());
+    }
     if let Some(scale) = fit_scale(node) {
         out.insert("fitScale", scale);
     }
@@ -615,9 +702,13 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<&'static 
         {
             out.insert("symbolName", exact_kernel::apple_symbol_name(role).into());
             // @ref LLP 1121 D10 — an svg-only icon's path, which Apple draws (stage 9 A).
-            if let Some((d, view_box)) = crate::icon_path::commands(role) {
+            if let Some((d, view_box, even_odd)) = crate::icon_path::commands(role) {
                 out.insert("symbolPath", d);
                 out.insert("symbolViewBox", view_box.into());
+                // Stage 14 C2: an even-odd icon says so; a nonzero one sends what it did.
+                if even_odd {
+                    out.insert("symbolFillRule", "evenodd".into());
+                }
             }
             // Untinted, it draws in its `color` (LLP 1121 stage 9 B).
             if node.symbol_color_said() {
@@ -658,3 +749,7 @@ impl StyleTexts {
 #[cfg(test)]
 #[path = "popover_surface_tests.rs"]
 mod popover_surface_tests;
+
+#[cfg(test)]
+#[path = "icon_fill_rule_tests.rs"]
+mod icon_fill_rule_tests;

@@ -3,6 +3,8 @@ import Foundation
 import CoreText
 
 extension InlineText {
+    /// What it reads as: its text, or an image's `aria-label` (LLP 1011.002 D4).
+    var spoken: String { lightRun.box == nil ? text : boxShown ? props["accessibilityLabel"] ?? "" : "" }
     /// Whether a colour here is the view's tint (LLP 1095 D8).
     var namesTint: Bool { colorRef?.namesTint == true || backgroundRef?.namesTint == true || paint.namesTint }
     /// The run in its paragraph owner's traits: `contrast` and `elevated`
@@ -187,8 +189,10 @@ extension NodeView {
         }
         return nil
     }
-    func inlineActivationTarget(at point: CGPoint) -> InlineText? {
-        var run = inlineTarget(at: point)
+    func inlineActivationTarget(at point: CGPoint) -> InlineText? { activationTarget(from: inlineTarget(at: point)) }
+    /// The run a press on `run` acts on: it, or the nearest run it stands in, with a press or an `href`
+    func activationTarget(from run: InlineText?) -> InlineText? {
+        var run = run
         while let current = run {
             if current.handlers.contains("press") || !(current.props["href"] ?? "").isEmpty { return current }
             run = presenter?.inlineText(current.parent)

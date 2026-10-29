@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain inset list, newest first, rows show show, title, date with year, length and the word Played/Unplayed. Played state is text only, with no icon or dot, so it is hard to scan."},
+      {"n": 2, "status": "pass", "note": "A filter menu in the toolbar (All Episodes / Unplayed Only, native pull-down menu). The large title changes to 'Unplayed'. The choice survives relaunch."},
+      {"n": 3, "status": "pass", "note": "Shows tab: inset-grouped list of 12 shows with 'N episodes · M unplayed' and chevrons. Tapping one pushes that show's episodes."},
+      {"n": 4, "status": "pass", "note": "Detail card shows show, title, date, length, status and summary. Play changes to Pause, status reads 'Now Playing' and the episode is marked played."},
+      {"n": 5, "status": "pass", "note": "Done through the per-row ⋯ menu (Mark Played/Unplayed, Add to Up Next). There are no swipe actions on episode rows."},
+      {"n": 6, "status": "pass", "note": "Add from the row menu or the detail screen. Up Next rows have drag handles that reorder smoothly, a ⋯ menu (Move Up/Down, Remove) and a trailing swipe to Delete."},
+      {"n": 7, "status": "pass", "note": "Played state, queue contents and order all survived relaunch."}
+    ],
+    "bugs": [
+      "A horizontal swipe on an episode row (Episodes list) opens the episode instead of doing nothing or showing swipe actions: a left drag across a row pushed the detail screen twice.",
+      "On the detail screen the 'Mark Played' row always shows a checkmark, even when the episode is unplayed. 'Add to Up Next' becomes 'Remove from Up Next' with a checkmark too, so both rows look 'on' and the icons don't show state."
+    ],
+    "tells": [
+      "No leading or trailing swipe actions on episode rows (Mark Played and Up Next only through the ⋯ button). Every iOS podcast list has these.",
+      "The Up Next swipe-to-delete button is a red circle with a 'Delete' caption under it. It does not look like a standard full-height UITableView swipe action.",
+      "Up Next has always-visible drag handles and a ⋯ button on each row, not an Edit mode with delete buttons.",
+      "Played state is shown only as the trailing word 'Played'/'Unplayed' in the subtitle, with no unplayed dot or glyph.",
+      "Every show uses the same generic magenta waveform glyph, both in the Shows list and on the episode screen. Rows have no artwork.",
+      "Detail action rows use a checkmark icon for actions ('Mark Played', 'Remove from Up Next'), which reads as a selection state."
+    ],
+    "scroll": "The long list scrolls smoothly at native speed. The large title collapses into an inline title and comes back on pull-down, with no blank rows or popping. Scroll position mostly survives a push and pop, though it shifted by about a row.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first list with 420 count, show name, title, date and length (no year in rows), artwork, and a tappable played/unplayed control on every row."},
+      {"n": 2, "status": "pass", "note": "Segmented control All episodes / Unplayed. The count updates (e.g. 293 episodes)."},
+      {"n": 3, "status": "pass", "note": "Shows tab: 2-column grid of artwork cards with episode and unplayed counts that update live. Tapping opens a show page with its own All/Unplayed filter."},
+      {"n": 4, "status": "pass", "note": "Detail shows artwork, show link, title, full date, length and summary. Play Episode changes to Pause with 'Playing now', marks the episode played and brings up a mini-player above the tab bar."},
+      {"n": 5, "status": "pass", "note": "Inline Played/Unplayed toggle on each row, a full leading swipe to toggle played, and a ⋯ menu. A trailing swipe adds to Up Next."},
+      {"n": 6, "status": "pass", "note": "Up Next has an Edit button with standard delete circles and reorder grips, plus a trailing swipe to Remove. It shows a total (N episodes · M min) and queue position numbers. Queued rows show a small badge in the main list."},
+      {"n": 7, "status": "pass", "note": "Played state, queue contents and reordered order survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Strongly branded custom look (serif large titles, letter-spaced monospaced eyebrow text such as 'YOUR DAILY DISCOVERY' and taglines, cream background, a 'PODCASTS' pill in the nav bar). Deliberate, but not stock iOS.",
+      "Large titles are part of the scrolling content and never collapse into the navigation bar. The nav bar keeps the 'PODCASTS' pill, not the screen title.",
+      "Episode rows are very tall (about 137 pt) for the information they hold, so only about 4 fit on screen.",
+      "The pushed show page is titled 'Show', not the show's name.",
+      "Swipe action buttons are round coloured circles with captions below rather than full-height native action tiles (same style as A's Up Next delete).",
+      "At the largest text size the segmented control and the row ⋯ glyph stay small while the text around them grows very large."
+    ],
+    "scroll": "Smooth native scrolling with artwork in place and no blank rows or pop-in. The fling and fling back were clean, pull past the top bounces normally, and scroll position was kept exactly on return from a detail screen.",
+    "scores": {"features": 10, "platform": 7, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "B does every requirement in the most iPhone-like ways (leading and trailing swipe actions, inline played toggles, Edit mode with delete and reorder for Up Next, live counts, a mini-player) and has no bugs we found. A has the more stock-iOS look but no swipe actions on episodes, a row swipe that opens the episode by mistake, and checkmark icons on the detail screen that look 'on' when they aren't. B's custom branding costs it some platform points, but it is the app I would rather ship."
+}

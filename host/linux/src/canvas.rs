@@ -1054,8 +1054,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
     ) -> Result<CanvasHost<D>, String> {
         let started = std::time::Instant::now();
         let origin_ns = monotonic_ns();
-        // Motion lowering still reads this policy; painter construction is direct.
-        std::env::set_var("EXACT_PAINTER", "canvas");
         // Eleven viewports of decoded pictures: the reader's copy is a GPU
         // buffer (no heap copy, no upload), a picture decoded again costs
         // more than the memory it holds, and pictures are kept at the size
@@ -1088,12 +1086,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
             palette.tell();
         }
         let mut config = crate::app::Config::from_env_static(plan, compat);
-        (config.scale, config.hatches, config.clock_started) = (scale, hatches, Some(started));
-        let (mut p, error) = crate::app::boot_presenter_with_painter::<D>(
-            &mut config,
-            viewport,
-            crate::presenter::PainterBoot::canvas(),
+        let painter = crate::presenter::PainterBoot::canvas(
+            crate::presenter::PainterChoice::from_baked(compat),
         )?;
+        // Motion lowering reads this after the requested painter has been checked.
+        std::env::set_var("EXACT_PAINTER", "canvas");
+        (config.scale, config.hatches, config.clock_started) = (scale, hatches, Some(started));
+        let (mut p, error) =
+            crate::app::boot_presenter_with_painter::<D>(&mut config, viewport, painter)?;
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }
@@ -1218,7 +1218,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if p.needs_animation_frame() {
             p.tick(now);
         }
-        if !quick {
+        if quick {
+            // A picture a timer's source change took from the cache sends its
+            // load now: a turn is owed for it, and no image fd wakes.
+            p.deliver_image_loads();
+        } else {
             p.poll_images();
             // The pump may have drained the wake of a data source that finished loading.
             if p.module_pending() {

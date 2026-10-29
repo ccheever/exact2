@@ -82,6 +82,15 @@ public func packageRoster() -> String {
     #endif
 }
 `);
+    writeFileSync(source, readFileSync(source, 'utf8') + `
+public func developmentPackage() -> Bool {
+    #if EXACT_DEVELOPMENT
+    return true
+    #else
+    return false
+    #endif
+}
+`);
     writeFileSync(probe, 'import RosterPackage\n@main enum Probe { static func main() { print(packageRoster()) } }\n');
     const packages = [{ module: 'RosterPackage', extension: 'recording', sources: [source] }];
     const cache = resolve(dir, 'cache'), directory = resolve(dir, 'packages');
@@ -121,5 +130,21 @@ public func packageRoster() -> String {
     compiled.forEach(m => assert.deepEqual(m.link.slice(2).map(path => readFileSync(path)), m.objects, 'later probes keep earlier package objects intact'));
     const another = packageModules(packages, [[source]], { seam, directory: resolve(dir, 'another-build'), cache });
     targets.forEach(([sdk, target], i) => assert.equal(another(sdk, target).stamp, compiled[i].stamp, 'cache identity omits invocation-private outputs'));
+    const [sdk, target] = targets.at(-1), production = compiled.at(-1);
+    const development = packageModules(packages, [[source]], { seam, directory, cache, development: true })(sdk, target);
+    assert.notEqual(development.stamp, production.stamp);
+    assert.notEqual(development.link[1], production.link[1]);
+    development.place();
+    writeFileSync(probe, 'import RosterPackage\n@main enum Probe { static func main() { print(developmentPackage()) } }\n');
+    for (const [name, modules, expected] of [['development', development, 'true'], ['production', production, 'false']]) {
+      const out = resolve(dir, name);
+      const linked = spawnSync('xcrun', ['--sdk', sdk, 'swiftc', '-parse-as-library', probe, ...modules.link, ...target, '-o', out], { encoding: 'utf8' });
+      assert.equal(linked.status, 0, linked.stderr);
+      const ran = spawnSync(out, [], { encoding: 'utf8' });
+      assert.equal(ran.status, 0, ran.stderr);
+      assert.equal(ran.stdout.trim(), expected);
+    }
+    assert.deepEqual(production.link.slice(2).map(path => readFileSync(path)), production.objects);
+
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60_000);

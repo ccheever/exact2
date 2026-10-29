@@ -1,0 +1,194 @@
+// Which channel is open, and its address (llp/0001 §3.12; theme2's warm-navigation approval, 2026-10-26).
+// One request at a time: every way of asking for a channel (an address change, Back, a link or mention,
+// the launch's restore) counts `intent` up and becomes the one `want`, and every step that might open
+// checks it is still the newest (`wantSeq == intent`) as it runs, so an older request is dropped, never
+// applied late. A direct open (the list, the switcher) and every other user step (a server, signing out)
+// count `intent` up too, so nothing older lands after them.
+// - The address is a source of requests, not of state: the root's `navigate` (`leave`) and Back (`back`)
+//   ask for the channel the new address names, or the list. The runner calls `navigate` for the host's
+//   own changes only (`popstate` in host/web/navigation.js, a same-origin link in input-glue.js, a location
+//   typed into the root in glue.js; the app's own writes go to `history.pushState`/`replaceState`, which
+//   fire nothing, and a traversal the app made is consumed as its echo, navigation.js; UIKit guards its own
+//   transitions, NavigationRules.swift), never for the
+//   app's own writes to `nav`, so no write of ours comes back as a request; and an address
+//   naming the channel already open asks for nothing new (recognised by its value), though it still
+//   cancels anything asked before it and rejoins that channel's live view.
+// - Only `selectWant`, checked, changes `server` for a request; a request cancelled after it did puts the
+//   server back (`wantServerWas`), so a link or address the reader left leaves no other server behind.
+// - A request resolves its channel's server (or the direct messages) from `loadChannel`, whatever the
+//   sidebar showed, and opens once the list holds it. An id the store never knows waits (as on main).
+// - Only an open that resolved is kept (`onScreen`, for the next launch); a request never is.
+// - A route's open writes no history of its own (`openChannel` replaces a channel route), so one Back
+//   undoes one step. Beside the list (`wide`) the address `/` keeps the remembered channel open beside it
+//   (`resume`); narrow, the list closes it.
+use Channel, piece from "./shapes.contract"
+
+members Excord
+  // The screen a picture's viewer (`photo`) is open over: its channel's.
+  derive screen = top(nav).name == "photo" ? "channel" : top(nav).name
+  // The visit whose transcript shows: the top one, or under a picture its channel's.
+  derive shownVisit = top(nav).name == "photo" ? match stack(nav).at(-2) { case some(e) => e.id, case none => top(nav).id } : top(nav).id
+  state onScreen = "" persist
+  state intent = 0
+  state wantSeq = 0
+  state wantId = ""
+  state wantFrom = ""
+  state wantMessage = ""
+  state wantServer = false
+  state wantServerWas = ""
+  state launchRead = false
+  // The newest request (whether or not the account can act on it now); `wanting` is one that may still open.
+  derive owned = wantSeq == intent and wantId != ""
+  derive wanting = owned and not signedOutNow
+  // Each channel opened's title (`# name`, or a conversation's), for a visit beneath another (any server's).
+  state visitNames: string [] = []
+  // `follow` and `resume` read the request through these names.
+  derive pendingOpen = wanting ? wantId : ""
+  derive pendingMessage = wanting ? wantMessage : ""
+  // The one way to ask for a channel ("" for the list): newer than anything asked before.
+  action ask(id: string, from: string, message: string)
+    // A request whose server was already selected, now cancelled: its server goes back.
+    if owned and wantServer
+      server = wantServerWas
+    let next = intent + 1
+    intent = next
+    wantSeq = next
+    wantId = id
+    wantFrom = from
+    wantMessage = message
+    wantServer = false
+    // The list asked for: the next launch starts there too.
+    if id == ""
+      onScreen = ""
+  // A newer step that opens nothing itself (the channel already open): older requests drop, their server back.
+  action supersede
+    if owned and wantServer
+      server = wantServerWas
+    intent = intent + 1
+  // The open channel asked for again (its address, Back to it, a link into it): nothing to open, but nothing
+  // asked before lands either; its address is put back if a request had moved it, and its live view
+  // rejoined. Nothing of it was left: a request for another channel leaves nothing until that one opens
+  // (`openChannel` leaves the channel it replaces), so an unsaved edit, a reply or a place stays.
+  action stayOpen
+    supersede()
+    // Its visit: on top already, nothing moves; just beneath (a request's visit over it), that one is popped;
+    // else its address is gone to (`go` pops to a visit with that address, else pushes one).
+    let below = match stack(nav).at(-2) { case some(e) => (e.name == "channel" ? e.params.channel : ""), case none => "" }
+    if top(nav).name == "channel" and top(nav).params.channel == open
+      nav = nav
+    else if below == open
+      nav = back(nav)
+    else
+      nav = go(nav, path("channel", open))
+    send joined = viewChannel(open)
+  // An address the host navigated to (`navigate`): the channel it names, the open one again, or the list.
+  // `nav` moves there once, here. The list, narrow, leaves the open channel; wide, the list is beside it
+  // already, so it stays open where it is (theme2's Q2), its route and composer kept.
+  action askRoute(url: string)
+    let parts = url.split("?")
+    let path = piece(parts, 0).split("/")
+    let id = piece(path, 1) == "c" ? piece(path, 2) : ""
+    // An address no route of Excord's names (not `/`, not a channel's) is no navigation: nothing changes,
+    // a request already out goes on (and opens under its own address), and the host puts the address back.
+    // A picture opens from its thumbnail only (`show`, viewer.contract), so an address to one (a Forward) is
+    // no navigation either.
+    if (id == "" and piece(path, 1) != "") or url.includes("/photo/")
+      nav = nav
+    else if id == "" and wide and open != ""
+      stayOpen()
+    else
+      // From over a picture the picture closes: an address beneath it (its channel's, the list's) is gone back
+      // to, and a new one takes the picture's visit (`replace` keeps its id, so the web's history rewrites the
+      // picture's entry and Back returns to its channel, not to a picture no visit holds).
+      let under = photoOverChannel ? back(nav) : nav
+      nav = photoOverChannel and stack(under).filter(e => e.url == url).length == 0 ? replace(nav, url) : go(under, url)
+      if id == ""
+        leaving()
+        ask("", "route", "")
+      else if id == open
+        // Already there: older requests drop, and its live view is rejoined.
+        supersede()
+        send joined = viewChannel(open)
+      else
+        ask(id, "route", "")
+  // Back (the root's `navigationBack`, the agent's `back`): the channel beneath, or the list (as an address
+  // to the list: wide, the open channel stays). Over a picture its channel is beneath, so Back closes the
+  // picture alone. `nav` moves once, here.
+  action askBack
+    let below = match stack(nav).at(-2) { case some(e) => (e.name == "channel" ? e.params.channel : ""), case none => "" }
+    if below == "" and wide and open != ""
+      supersede()
+    else
+      nav = back(nav)
+      if below == ""
+        leaving()
+        ask("", "route", "")
+      else if below == open
+        supersede()
+        send joined = viewChannel(open)
+      else
+        ask(below, "route", "")
+  // A link or mention to a channel not open: its address goes on the history (so Back returns here) and
+  // it opens there, its message highlighted. The channel left is left when the new one opens (`openChannel`).
+  action askFollow(id: string, message: string)
+    nav = push(photoOverChannel ? back(nav) : nav, path("channel", id))
+    ask(id, "follow", message)
+  // The launch's restore is the first request, if nothing was asked before it: the address's channel, or
+  // at `/` (a native relaunch) the one kept, unless `wide`, where `resume` opens the remembered channel.
+  task readRestore when not launchRead
+    after(1, readLaunch)
+  action readLaunch
+    launchRead = true
+    let id = screen == "channel" ? top(nav).params.channel : (wide ? "" : onScreen)
+    if intent == 0 and id != ""
+      ask(id, "launch", "")
+  // An address's channel as the router decoded it (`/c/%31…`), for a request read from the raw address. The
+  // visit takes the canonical address, so no spelling of one is ever kept (`go` and `stayOpen` match the
+  // canonical one): for the channel open, `go` returns to its canonical visit if one is on the stack (dropping
+  // a request's visit above it), else this visit is renamed; for another channel, the visit is renamed and the
+  // request names that channel.
+  task routeDecoded when wanting and wantFrom == "route" and top(nav).name == "channel" and top(nav).params.channel != wantId
+    after(1, takeDecoded)
+  action takeDecoded
+    if wanting and wantFrom == "route" and top(nav).name == "channel"
+      let id = top(nav).params.channel
+      let canonical = stack(nav).filter(e => e.name == "channel" and e.params.channel == id and e.url == `/c/${id}`).length > 0
+      if id == open
+        supersede()
+        nav = canonical ? go(nav, path("channel", open)) : replace(nav, path("channel", open))
+        send joined = viewChannel(open)
+      else
+        nav = replace(nav, path("channel", id))
+        wantId = id
+  resource wantChan = loadChannel(wanting ? wantId : "", wanting ? gw.elsewhere : 0) as shape Channel else empty()
+  task wantGuild when wanting and not wantServer and wantChan.id == wantId and (wantChan.name != "" or wantChan.direct)
+    after(1, selectWant)
+  action selectWant
+    if wanting and wantChan.id == wantId
+      wantServerWas = server
+      server = wantChan.guild != "" ? wantChan.guild : "@me"
+      wantServer = true
+  task opening when wanting and wantServer and listed.map(c => c.id).includes(wantId)
+    after(1, openWant)
+  action openWant
+    if wanting and listed.map(c => c.id).includes(wantId)
+      let id = wantId
+      let message = wantMessage
+      wantId = ""
+      // A picture open over the channel left closed as the request's address moved (`askRoute`).
+      openChannel(id)
+      // A message that is not there leaves the reader at the channel's end.
+      if message != ""
+        highlight = message
+        anchor = message
+        target = message
+        targetBlock = "center"
+        jumpFromAnchor = ""
+        jumpFromKey = "end"
+        jumpFromOffset = 0
+  // What is on screen is kept for the next launch: a channel once it opens, nothing once the list shows or
+  // the account signs out (signing in again starts at the list).
+  task keepOnScreen when launchRead and not wanting and (screen == "channel" and not signedOutNow ? open : "") != onScreen and (open != "" or screen == "channel" or signedOutNow) key = `${screen}:${open}:${signedOutNow}`
+    after(1, rememberScreen)
+  action rememberScreen
+    onScreen = screen == "channel" and not signedOutNow ? open : ""

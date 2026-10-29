@@ -1,0 +1,23 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/store-review@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "com.google.android.play:review:2.0.2"
+  ],
+  "artifacts": [],
+  "class": "exact.storereview.StoreReviewModule"
+}

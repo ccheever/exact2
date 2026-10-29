@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- An app, not the benchmark's harness (LLP 1115.001 §3): it does not show over the keyguard, turn the screen on
-         or run before the phone's first unlock. It still signs with the debug key and has no icon. -->
+         or run before the phone's first unlock. Only a package's own receivers and services, which a manifest fragment
+         declares under its allow-list, may run before first unlock, and they read only that package's device-protected
+         records: no session or plan starts (LLP 1133.030 D9). It still signs with the debug key and has no icon. -->
     <!-- The shell packages any app, so it asks for the network for every one: without it a data module's `fetch` and a
          remote picture fail at the name lookup. What an app may reach is still its own grants' to say (`net.fetch`),
          which exact2 enforces; this is only the platform's door. A normal permission: nothing is asked of the person. -->
@@ -19,8 +21,11 @@
         <profileable android:shell="true" />
         <!-- The changes the host takes in place (LLP 1115.001 D15.1), so that none of them makes the activity again:
              a rotation or a resize, night mode, font scale and bold text, the locale and its direction, the display's
-             density, a keyboard attached. Any other still makes it again, and its view then adopts the host that runs. -->
-        <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="${screenOrientation}"
+             density, a keyboard attached. Any other still makes it again, and its view then adopts the host that runs.
+             singleTop: a URL sent to the running app (a shortcut, a link) reaches this activity's onNewIntent rather
+             than stacking a second one over it (LLP 1133.023 D15 item 3). -->
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop"
+            android:screenOrientation="${screenOrientation}"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode|fontScale|fontWeightAdjustment|locale|layoutDirection|density|keyboard|keyboardHidden|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -28,6 +33,12 @@
                 <!-- The TV launcher's entry (D5). -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- The app manifest's `shortcuts` (app/build.gradle.kts writes the list; LLP 1133.023 D3). -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/exact_shortcuts" />
         </activity>
+        <!-- The app's files as content URIs an intent carries under a read grant (LLP 1133.024 D22 item 2): a mail's
+             attachments. Unexported: only a URI the app granted opens. -->
+        <provider android:name="dev.exact.canvas.Files" android:authorities="${applicationId}.exact.files"
+            android:exported="false" android:grantUriPermissions="true" />
     </application>
 </manifest>

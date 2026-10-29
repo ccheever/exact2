@@ -377,3 +377,143 @@ fn a_check_that_fails_or_finds_the_item_gone_moves_nothing_or_reads_absent() {
     let events = drive.pump(&mut backend);
     assert!(done(&events, 4).is_some() && done(&events, 5).is_none() && !asked(&events, 5));
 }
+
+#[derive(Clone)]
+pub(crate) struct UnavailableVault {
+    pub(crate) memory: MemoryVault,
+    pub(crate) failure: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
+}
+
+impl UnavailableVault {
+    fn check(&self, operation: &str) -> Result<(), String> {
+        if self.failure.lock().unwrap().as_ref() == Some(&operation) {
+            Err(format!("{operation} unavailable"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Vault for UnavailableVault {
+    fn plain(&self, name: &str) -> Result<Option<Vec<u8>>, String> {
+        self.check("plain")?;
+        self.memory.plain(name)
+    }
+    fn put_plain(&mut self, name: &str, value: Option<&[u8]>) -> Result<(), String> {
+        self.memory.put_plain(name, value)
+    }
+    fn record(&self, name: &str) -> Result<Option<Vec<u8>>, String> {
+        self.check("record")?;
+        self.memory.record(name)
+    }
+    fn put_record(&mut self, name: &str, record: Option<&[u8]>) -> Result<(), String> {
+        self.memory.put_record(name, record)
+    }
+    fn generations(&self, name: &str) -> Result<Vec<u64>, String> {
+        self.check("generations")?;
+        self.memory.generations(name)
+    }
+    fn add_locked(
+        &mut self,
+        name: &str,
+        generation: u64,
+        presence: &Presence,
+        value: &[u8],
+    ) -> Result<(), String> {
+        self.check("add")?;
+        self.memory.add_locked(name, generation, presence, value)
+    }
+    fn delete_locked(&mut self, name: &str, generation: u64) -> Result<(), String> {
+        self.check("delete")?;
+        self.memory.delete_locked(name, generation)
+    }
+    fn read_locked(&mut self, name: &str, generation: u64) -> Result<Option<Vec<u8>>, String> {
+        self.memory.read_locked(name, generation)
+    }
+}
+
+#[test]
+fn unavailable_boot_reads_defer_the_move_and_keep_queued_unlocks_behind_it() {
+    for operation in ["record", "generations", "plain"] {
+        let memory = MemoryVault::default();
+        memory.clone().put_plain("a", Some(b"token")).unwrap();
+        memory
+            .clone()
+            .put_record("a", Some(b"locked user-presence optional"))
+            .unwrap();
+        memory.0.lock().unwrap().calls.clear();
+        let failure = std::sync::Arc::new(std::sync::Mutex::new(Some(operation)));
+        let vault = UnavailableVault {
+            memory: memory.clone(),
+            failure: failure.clone(),
+        };
+        let mut backend = Backend::new(Box::new(vault), vec![("a".into(), Some(optional()))]);
+        assert_eq!(backend.occupancy("a"), Some(Occupancy::Pending));
+        assert_eq!(backend.plain_value("a"), None);
+        backend.enqueue("a", Op::Unlock, Some(1));
+        let drive = Drive::new();
+        assert!(drive.pump(&mut backend).is_empty());
+        assert!(
+            memory.memory().calls.is_empty(),
+            "{operation}: nothing mutated"
+        );
+        assert_eq!(memory.memory().plain["a"], b"token");
+        *failure.lock().unwrap() = None;
+        // A newly queued call retries now, even before the retry interval.
+        backend.enqueue("a", Op::Unlock, Some(2));
+        let events = drive.pump(&mut backend);
+        assert!(asked(&events, 1) && !asked(&events, 2));
+        assert_eq!(backend.occupancy("a"), Some(Occupancy::Locked));
+        assert!(
+            memory.memory().plain.is_empty(),
+            "the pending move ran first"
+        );
+        backend.checked(1, Checked::Passed);
+        let events = drive.pump(&mut backend);
+        assert_eq!(done(&events, 1), Some(Done::Value(Some(b"token".to_vec()))));
+        assert!(asked(&events, 2));
+        backend.checked(2, Checked::Passed);
+        assert_eq!(
+            done(&drive.pump(&mut backend), 2),
+            Some(Done::Value(Some(b"token".to_vec())))
+        );
+    }
+}
+
+#[test]
+fn deferred_reconciliation_still_forgets_removed_or_changed_policies_unread() {
+    for presence in [None, Some(line("biometry-current-set optional"))] {
+        let memory = MemoryVault::default();
+        memory
+            .clone()
+            .add_locked("a", 1, &optional(), b"token")
+            .unwrap();
+        memory
+            .clone()
+            .put_record("a", Some(b"locked user-presence optional"))
+            .unwrap();
+        memory.0.lock().unwrap().calls.clear();
+        let failure = std::sync::Arc::new(std::sync::Mutex::new(Some("generations")));
+        let vault = UnavailableVault {
+            memory: memory.clone(),
+            failure: failure.clone(),
+        };
+        let mut backend = Backend::new(Box::new(vault), vec![("a".into(), presence.clone())]);
+        let mut drive = Drive::new();
+        assert!(drive.pump(&mut backend).is_empty());
+        assert!(memory.memory().calls.is_empty());
+        *failure.lock().unwrap() = None;
+        drive.now_ms = 1000.0;
+        assert!(
+            drive.pump(&mut backend).is_empty(),
+            "cleanup never authenticates"
+        );
+        assert_eq!(backend.occupancy("a"), presence.map(|_| Occupancy::Absent));
+        assert!(memory.memory().locked.is_empty());
+        assert!(memory.memory().records.is_empty());
+        assert!(
+            drive.pump(&mut backend).is_empty(),
+            "removed names leave no retry"
+        );
+    }
+}

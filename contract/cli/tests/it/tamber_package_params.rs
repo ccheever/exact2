@@ -541,7 +541,7 @@ fn a_package_icon_params_svg_is_a_source() {
         .iter()
         .find(|i| plan.str(i.name).ends_with(".Map.glyph"))
         .unwrap_or_else(|| panic!("{:?}", plan.icons));
-    assert_eq!(plan.str(glyph.path), "M0 0h1v1H0Z");
+    assert_eq!(icon_path(&plan, glyph), "M0 0h1v1H0Z");
     // The app's `params` line is written in the app's design: the app's file.
     std::fs::write(
         dir.join("app.tamber"),
@@ -554,7 +554,7 @@ fn a_package_icon_params_svg_is_a_source() {
         .iter()
         .find(|i| plan.str(i.name).ends_with(".Map.glyph"))
         .unwrap();
-    assert_eq!(plan.str(glyph.path), "M0 0h9");
+    assert_eq!(icon_path(&plan, glyph), "M0 0h9");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -891,4 +891,10 @@ fn a_short_name_writes_a_library_params_line_in_full() {
         "{text}"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A kept icon's path, read through `exact_runner::icon_of` (stage 14 C2:
+/// the one reader of an `icons` row, which strips an even-odd icon's marker).
+fn icon_path<'a>(plan: &'a exact_plan::Plan, row: &exact_plan::IconsRow) -> &'a str {
+    exact_runner::icon_of(plan, row).map_or("", |icon| icon.path)
 }

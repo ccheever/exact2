@@ -10,7 +10,7 @@
 // JS target with its commands (commands.js), so it listens once a page shows.
 addEventListener("keydown", ev => {
   const field = ev.target;
-  if (ev.key !== "Enter" || ev.isComposing || ev.defaultPrevented || ev.$submit || ev.exactSubmit || field?.localName !== "input") return;
+  if (ev.key !== "Enter" || ev.isComposing || ev.keyCode === 229 || ev.defaultPrevented || ev.$submit || ev.exactSubmit || field?.localName !== "input") return;
   const dialog = field.closest('dialog[role="alertdialog"], [popover][role="alertdialog"]');
   if (!dialog) return;
   // Enter's native default commits `change` without blurring. Choose after

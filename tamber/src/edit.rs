@@ -14,7 +14,7 @@
 //! 1122 T5) come later.
 
 use crate::lex::{self, Line};
-use crate::syntax::Design;
+use crate::syntax::{same_conds, Design};
 use crate::{Diagnostic, Vocab};
 
 /// A `when` line an `add-token` writes: its conditions (`axis`, `value`),
@@ -231,14 +231,6 @@ fn step(
         .map(|r| (r.name.clone(), r.system))
         .collect();
     doc.apply(&design, op)?;
-    let (a, b) = (&before.lines, &doc.lines);
-    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
-    let suffix = a[prefix..]
-        .iter()
-        .rev()
-        .zip(b[prefix..].iter().rev())
-        .take_while(|(x, y)| x == y)
-        .count();
     // A rename names, and folds nothing else differently: a word it changed
     // that was no use (a channel, a colour space, a platform selector) would.
     if let Op::RenameToken { .. } = op {
@@ -260,13 +252,26 @@ fn step(
             _ => return Err(refuse("a rename needs a design that checks before and after it")),
         }
     }
-    let undo = Op::Restore {
+    let undo = restore(&before, &doc.lines);
+    Ok((doc.text(), undo))
+}
+
+/// The restore that puts `before`'s lines back where `after` changed them.
+fn restore(before: &Doc, after: &[String]) -> Op {
+    let (a, b) = (&before.lines, after);
+    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let suffix = a[prefix..]
+        .iter()
+        .rev()
+        .zip(b[prefix..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    Op::Restore {
         line: prefix as u32 + 1,
         remove: (b.len() - prefix - suffix) as u32,
         lines: a[prefix..a.len() - suffix].to_vec(),
         newline: before.newline,
-    };
-    Ok((doc.text(), undo))
+    }
 }
 
 /// An operation's fields, each its own kind: a value on one line, names and
@@ -294,7 +299,8 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         }) || words.iter().any(|(_, w)| *w == "in");
         if lex::split_comment(v).1.is_some() || clause || v.trim().is_empty() {
             return Err(refuse(format!(
-                "`{v}`: a value alone, with no comment, metadata or range after it"
+                "`{}`: a value alone, with no comment, metadata or range after it",
+                v.trim()
             )));
         }
         Ok(())
@@ -329,10 +335,8 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         ))),
     };
     let conds = |c: &[(String, String)]| {
-        if c.iter()
-            .enumerate()
-            .any(|(i, (a, _))| c[..i].iter().any(|(b, _)| b == a))
-        {
+        let mut seen = std::collections::HashSet::new();
+        if !c.iter().all(|(a, _)| seen.insert(a)) {
             return Err(refuse("a `when` names each axis once"));
         }
         c.iter()
@@ -443,12 +447,8 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             name: n, values, ..
         } => {
             ident(n)?;
-            if values.is_empty()
-                || values
-                    .iter()
-                    .enumerate()
-                    .any(|(i, v)| values[..i].contains(v))
-            {
+            let mut seen = std::collections::HashSet::new();
+            if values.is_empty() || !values.iter().all(|v| seen.insert(v)) {
                 return Err(refuse(format!("`{n}`: an axis has values, each once")));
             }
             values.iter().try_for_each(|v| ident(v))
@@ -489,13 +489,76 @@ fn run(
     vocab: &Vocab,
     params: &crate::params::Params,
 ) -> Result<Edited, Vec<Diagnostic>> {
-    let mut text = src.to_string();
-    let mut inverse = Vec::new();
-    for op in ops {
-        let (next, undo) = step(&text, op, vocab, params)?;
-        text = next;
-        inverse.insert(0, undo);
-    }
+    // Values and dials alone, with one parse of the design (`batch`), and
+    // one restore that puts back every line they changed; anything else a
+    // parse each (the checker bound's sweep: a parse per operation was K x N).
+    let batched = batch::stepped(src, ops, vocab).map(|text| {
+        let undo = restore(&Doc::new(src), &Doc::new(&text).lines);
+        (text, vec![undo])
+    });
+    let (text, inverse) = match batched {
+        Some(done) => done,
+        None => {
+            let mut text = src.to_string();
+            let mut inverse = Vec::new();
+            let mut k = 0;
+            while k < ops.len() {
+                // A run of new tokens (an import's) with one parse, and one
+                // restore that takes them all out (round 1 of the sweep).
+                // An import's values and new tokens, in its tokens' order:
+                // the new tokens first, then the values, each kind in one
+                // parse (`batch::mixed`), when no value is a new token's.
+                let seg = ops[k..]
+                    .iter()
+                    .take_while(|op| {
+                        matches!(
+                            op,
+                            Op::SetToken { .. }
+                                | Op::SetDial { .. }
+                                | Op::AddToken { before: None, .. }
+                        )
+                    })
+                    .count();
+                if let Some(next) = batch::mixed(&text, &ops[k..k + seg], vocab) {
+                    inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
+                    (text, k) = (next, k + seg);
+                    continue;
+                }
+                if let Some((next, taken)) = batch::added(&text, &ops[k..], vocab) {
+                    inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
+                    (text, k) = (next, k + taken);
+                    continue;
+                }
+                // And a run of values and dials (an import's `set-token`s
+                // beside its new tokens).
+                let run = ops[k..]
+                    .iter()
+                    .take_while(|op| {
+                        matches!(op, Op::SetToken { .. } | Op::SetDial { .. }) && valid(op).is_ok()
+                    })
+                    .count();
+                if run >= 2 {
+                    // Those with a target in one parse, and the first without
+                    // one stepped for its words.
+                    let found = batch::present(&text, &ops[k..k + run], vocab);
+                    let take = found.min(run);
+                    if take >= 2 {
+                        if let Some(next) = batch::stepped(&text, &ops[k..k + take], vocab) {
+                            inverse.push(restore(&Doc::new(&text), &Doc::new(&next).lines));
+                            (text, k) = (next, k + take);
+                            continue;
+                        }
+                    }
+                }
+                let (next, undo) = step(&text, &ops[k], vocab, params)?;
+                text = next;
+                inverse.push(undo);
+                k += 1;
+            }
+            inverse.reverse();
+            (text, inverse)
+        }
+    };
     match params.is_empty() {
         true => drop(crate::check(&text, vocab)?),
         false => drop(crate::check_design(
@@ -599,6 +662,9 @@ struct Doc {
     /// The design's tokens by name and by role, each the first, when one
     /// parse serves many operations (`batch`): what [`token_index`] scans for.
     index: Option<batch::Index>,
+    /// Where the last new token's lines ended (`batch::added` puts the next
+    /// one there).
+    added_at: Option<usize>,
 }
 
 impl Doc {
@@ -610,6 +676,7 @@ impl Doc {
             newline,
             roles: Vec::new(),
             index: None,
+            added_at: None,
         }
     }
 
@@ -622,6 +689,21 @@ impl Doc {
     }
 
     /// The line `n` (1-based) split into its indent, code and comment.
+    /// The indents a new token's lines take: the first token's, and the
+    /// first `when` line's (two deeper with none).
+    pub(crate) fn indents(&self, design: &Design) -> (usize, usize) {
+        let indent = design
+            .tokens
+            .first()
+            .map_or(2, |t| self.parts(t.name.line).0);
+        let when_indent = design
+            .tokens
+            .iter()
+            .find_map(|t| t.whens.first())
+            .map_or(indent + 2, |w| self.parts(w.line).0);
+        (indent, when_indent)
+    }
+
     fn parts(&self, n: u32) -> (usize, String, Option<String>) {
         let raw = self.lines[n as usize - 1].trim_end_matches('\r');
         let (body, comment) = lex::split_comment(raw);
@@ -786,27 +868,8 @@ impl Doc {
                         format!("a token `{name}` is declared already"),
                     ));
                 }
-                let indent = design
-                    .tokens
-                    .first()
-                    .map_or(2, |t| self.parts(t.name.line).0);
-                let when_indent = design
-                    .tokens
-                    .iter()
-                    .find_map(|t| t.whens.first())
-                    .map_or(indent + 2, |w| self.parts(w.line).0);
-                let mut code = match kind {
-                    Some(k) => format!("{name}: {k} = {}", value.trim()),
-                    None => format!("{name} = {}", value.trim()),
-                };
-                if !meta.is_empty() {
-                    code.push_str("  ");
-                    code.push_str(&meta.join(" "));
-                }
-                let mut new = vec![line(indent, &code, comment.as_deref())];
-                for (conds, v, c) in whens {
-                    new.push(line(when_indent, &when_code(conds, v.trim()), c.as_deref()));
-                }
+                let indents = self.indents(design);
+                let new = added_lines(indents, name, kind, value, meta, whens, comment);
                 let at = match before {
                     Some(b) => {
                         let t = &design.tokens[token_index(design, &self.roles, b)?];
@@ -845,10 +908,12 @@ impl Doc {
                         }
                     },
                 };
+                let count = new.len();
                 for (k, l) in new.into_iter().enumerate() {
                     let l = self.ended(l);
                     self.lines.insert(at + k, l);
                 }
+                self.added_at = Some(at + count);
                 Ok(vec![Op::RemoveToken { name: name.clone() }])
             }
             Op::RemoveToken { name } => {
@@ -1154,15 +1219,35 @@ pub(crate) fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
     found.map(|(r, _)| r.clone())
 }
 
+/// A new token's lines (`add-token`'s), at the token and `when` indents.
+pub(crate) fn added_lines(
+    (indent, when_indent): (usize, usize),
+    name: &str,
+    kind: &Option<String>,
+    value: &str,
+    meta: &[String],
+    whens: &[WhenLine],
+    comment: &Option<String>,
+) -> Vec<String> {
+    let mut code = match kind {
+        Some(k) => format!("{name}: {k} = {}", value.trim()),
+        None => format!("{name} = {}", value.trim()),
+    };
+    if !meta.is_empty() {
+        code.push_str("  ");
+        code.push_str(&meta.join(" "));
+    }
+    let mut new = vec![line(indent, &code, comment.as_deref())];
+    for (conds, v, c) in whens {
+        new.push(line(when_indent, &when_code(conds, v.trim()), c.as_deref()));
+    }
+    new
+}
+
 /// `when a=b c=d: value`.
 fn when_code(conds: &[(String, String)], value: &str) -> String {
     let conds: Vec<String> = conds.iter().map(|(a, v)| format!("{a}={v}")).collect();
     format!("when {}: {value}", conds.join(" "))
-}
-
-/// The same conditions, in any order.
-fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
-    a.len() == b.len() && a.iter().all(|c| b.contains(c)) && b.iter().all(|c| a.contains(c))
 }
 
 /// A metadata word as a token line writes it, quoting a value that needs it.

@@ -43,6 +43,7 @@ public final class ExactView: UIView {
     /// What this view adds beside the viewport, for `layout agree` (LLP 1080.001 D3).
     var inspectionOwned: [UIView] { keyboardProbe.map { [$0] } ?? [] }
     private var editingObservers: [NSObjectProtocol] = []
+    private var sceneObserver: NSObjectProtocol?
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
     /// window's business).
@@ -59,6 +60,13 @@ public final class ExactView: UIView {
     /// with the current style when set: call `setNeedsStatusBarAppearanceUpdate`.
     public var statusBarStyle: UIStatusBarStyle { session.presenter.statusBar.style }
     public var onStatusBarStyle: ((UIStatusBarStyle) -> Void)? { didSet { onStatusBarStyle?(statusBarStyle) } }
+    /// The session's orientation lock (LLP 1133.029 D5), for the controller
+    /// that hosts this view to return from `supportedInterfaceOrientations`
+    /// (nil: its own answer) and `prefersInterfaceOrientationLocked`. The
+    /// presenter asks the window's controllers to read them again; a session
+    /// that does not own its window (`hatchesOwnWindow`) asks for none.
+    public var orientationMask: UIInterfaceOrientationMask? { session.presenter.orientationLock.supported }
+    public var orientationLocked: Bool { session.presenter.orientationLock.locked }
     #endif
 
     public init(session: ExactSession) {
@@ -69,6 +77,7 @@ public final class ExactView: UIView {
         backgroundColor = launchScreenColor ?? .platformBackground(in: nil)
         canvas = backgroundColor
         addSubview(session.presenter.viewport)
+        addSubview(session.presenter.documentMount)
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
         session.presenter.onCanvasColor = { [weak self] color in self?.canvas = color; self?.paintUnderKeys(); self?.onCanvasColor?(color) }
@@ -87,6 +96,17 @@ public final class ExactView: UIView {
             }
         }
         #endif
+        // While the scene is in the background UIKit can size the primary
+        // container for the other display (the iPhone Duo's inner one while
+        // its cover shows), and nothing lays it out again on return:
+        // `fitOwner` puts it back. An activation alone already does
+        // (`PageFacts`).
+        sceneObserver = NotificationCenter.default.addObserver(forName: UIScene.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let scene = note.object as? UIScene, scene === self.window?.windowScene else { return }
+                self.session.presenter.navigation.fitOwner()
+            }
+        }
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.session.controlTextChanged() }
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
@@ -120,7 +140,7 @@ public final class ExactView: UIView {
 
     required init?(coder: NSCoder) { nil }
     deinit {
-        editingObservers.forEach(NotificationCenter.default.removeObserver)
+        (editingObservers + [sceneObserver].compactMap { $0 }).forEach(NotificationCenter.default.removeObserver)
     }
 
     /// A zero-size dependent makes UIKit lay this view out as its keyboard
@@ -204,9 +224,13 @@ public final class ExactView: UIView {
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
+        ExactApp.shared.refreshDevPills() // in the window it joined, or another's (DevPill.swift)
         // The window it joined takes the accent; one it left has its own back
         session.presenter.accent.apply()
         if window != nil { reportScheme() }
+        #if os(iOS)
+        if window != nil { session.presenter.resolveOrientationLock() } // a lock told before there was a window
+        #endif
         session.tellPage() // `hasFocus` is this window's scene's (#114)
         session.natives.scopesChanged()
         session.rasters.setPaused(window == nil)
@@ -293,8 +317,12 @@ public final class ExactView: UIView {
         guard session.state != .destroyed else { return }
         let presenter = session.presenter
         // A native callback served for the owner cannot resize the runtime
-        // yet. Keep the latest geometry pending until that callback returns.
-        if Owner.shared.isServingMain {
+        // yet. Keep the latest geometry pending until that callback returns;
+        // nor can a restart's reset (a keyboard it ends). While a restart holds
+        // the runtime (its own reset or another session's), the fit is owed,
+        // the last-told geometry untouched: ResetGate replays it after the batch.
+        if session.runtime.holds("view(_:)") { return }
+        if Owner.shared.isServingMain || presenter.resetting {
             if !fitPending {
                 fitPending = true
                 DispatchQueue.main.async { [weak self] in
@@ -404,6 +432,7 @@ public final class ExactView: UIView {
             // the agent's explicit size, where the insets are zero too
             regions = LayoutRegionsIOS.insets(of: self, viewport: cover ? frame : frame.intersection(bounds.inset(by: safe)))
         }
+        presenter.placeDocumentMount()
         guard size.width > 0, size.height > 0 else { return }
         // The fold (LLP 1078 D5): the container's active division regions,
         // converted into the viewport's space, split it into segments; the

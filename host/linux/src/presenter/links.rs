@@ -7,7 +7,14 @@
 //! shell, which has no browser, logs it instead.
 use super::*;
 
+pub(super) type UrlOpener = Box<dyn Fn(&str) -> Result<(), String>>;
+
 impl<D: DataSource> Presenter<D> {
+    /// Use the window's default browser, mail app or dialer for external links.
+    pub fn set_url_opener(&mut self, open: impl Fn(&str) -> Result<(), String> + 'static) {
+        self.url_opener = Some(Box::new(open));
+    }
+
     /// The target a press at `(x, y)` on `hit` follows: the link run under
     /// the point in a painted paragraph, else the nearest `href` at or above
     /// the hit node.
@@ -34,6 +41,26 @@ impl<D: DataSource> Presenter<D> {
     /// link: a Markdown run's own target, or an inline run's `href` (its
     /// leaf or an inline ancestor below the paragraph).
     pub(super) fn run_link(&self, id: ViewId, x: f32, y: f32) -> Option<String> {
+        let run = self.inline_run_at(id, x, y)?;
+        let kernel = self.host.kernel();
+        let node = kernel.node(id)?;
+        if node.props.str(PropId::Markup) == Some("markdown") {
+            let href = &self.paragraph(id)?.runs().get(run)?.href;
+            return (!href.is_empty()).then(|| href.clone());
+        }
+        let mut at = inline_sources(&node).get(run).copied();
+        while let Some(leaf) = at.filter(|leaf| *leaf != id) {
+            let leaf = kernel.node(leaf)?;
+            if let Some(href) = leaf.props.link() {
+                return Some(href.to_string());
+            }
+            at = leaf.parent;
+        }
+        None
+    }
+
+    fn inline_run_at(&self, id: ViewId, x: f32, y: f32) -> Option<usize> {
+        let _roles = self.host.runner().bind_roles();
         let kernel = self.host.kernel();
         let node = kernel.node(id)?;
         let paragraph = self.paragraph(id)?;
@@ -43,31 +70,112 @@ impl<D: DataSource> Presenter<D> {
         let (px, py) = (x - b.rect.0 - content.0, y - b.rect.1 - content.1 - down);
         // The line whose box the point is in: from a little over the glyphs'
         // ascent above its baseline to their descent below it.
-        let run = paragraph
-            .layout_runs()
-            .zip(paragraph.baselines())
-            .flat_map(|(line, baseline)| line.glyphs.iter().map(move |g| (g, *baseline)))
-            .find(|(g, baseline)| {
-                (g.x..g.x + g.w).contains(&px)
-                    && (baseline - g.font_size * 1.05..baseline + g.font_size * 0.35).contains(&py)
-            })?
-            .0
-            .run();
-        let shown = paragraph.runs().get(run)?;
-        if node.props.str(PropId::Markup) == Some("markdown") {
-            return Some(shown.href.clone()).filter(|h| !h.is_empty());
+        Some(
+            paragraph
+                .layout_runs()
+                .zip(paragraph.baselines())
+                .flat_map(|(line, baseline)| line.glyphs.iter().map(move |g| (g, *baseline)))
+                .find(|(g, baseline)| {
+                    (g.x..g.x + g.w).contains(&px)
+                        && (baseline - g.font_size * 1.05..baseline + g.font_size * 0.35)
+                            .contains(&py)
+                })?
+                .0
+                .run(),
+        )
+    }
+
+    pub(super) fn inline_hit(&self, id: ViewId, x: f32, y: f32) -> Option<ViewId> {
+        let kernel = self.host.kernel();
+        let node = kernel.node(id)?;
+        if node.node_type != NodeType::Text || node.props.str(PropId::Text).is_some() {
+            return None;
         }
-        let mut palette = Vec::new();
-        crate::paint::inline::text_palette(kernel, &node, false, None, &mut palette);
-        let mut at = palette.get(run).map(|p| p.source);
+        let run = self.inline_run_at(id, x, y)?;
+        let mut at = inline_sources(&node).get(run).copied();
         while let Some(leaf) = at.filter(|leaf| *leaf != id) {
             let leaf = kernel.node(leaf)?;
-            if let Some(href) = leaf.props.link() {
-                return Some(href.to_string());
+            if leaf.computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
+                != exact_kernel::PointerEvents::None
+                && crate::paint::paints(kernel, leaf.id, None)
+                && (leaf.props.link().is_some()
+                    || self
+                        .host
+                        .runner()
+                        .handlers_of(leaf.id)
+                        .contains(&EventKind::Press))
+            {
+                return Some(leaf.id);
             }
             at = leaf.parent;
         }
         None
+    }
+
+    /// Inline nodes share their paragraph's paint box. Their own geometry
+    /// comes from the glyphs, including wrapping and the paragraph's scroll.
+    pub(super) fn inline_box(&self, id: ViewId) -> Option<PaintedBox> {
+        let kernel = self.host.kernel();
+        let node = kernel.node(id)?;
+        if node.node_type != NodeType::Text || !crate::paint::paints(kernel, id, None) {
+            return None;
+        }
+        let mut parent = node.parent?;
+        let mut painted = loop {
+            let node = kernel.node(parent)?;
+            if node.node_type != NodeType::Text {
+                return None;
+            }
+            if let Some(b) = self.boxes.iter().find(|b| b.id == parent) {
+                break *b;
+            }
+            parent = node.parent?;
+        };
+        let node = kernel.node(parent)?;
+        let sources = inline_sources(&node);
+        let owns: Vec<bool> = sources
+            .iter()
+            .map(|source| {
+                let mut at = Some(*source);
+                while let Some(leaf) = at.filter(|leaf| *leaf != parent) {
+                    if leaf == id {
+                        return true;
+                    }
+                    at = kernel.node(leaf).and_then(|n| n.parent);
+                }
+                false
+            })
+            .collect();
+        let paragraph = self.paragraph(parent)?;
+        let content = exact_kernel::svg::scene::content_box(kernel, &node);
+        let down = kernel.text_line_offset(&node);
+        let mut bounds: Option<(f32, f32, f32, f32)> = None;
+        for (line, baseline) in paragraph.layout_runs().zip(paragraph.baselines()) {
+            for g in line
+                .glyphs
+                .iter()
+                .filter(|g| owns.get(g.run()) == Some(&true))
+            {
+                let r = (
+                    g.x,
+                    baseline - g.font_size,
+                    g.x + g.w,
+                    baseline + g.font_size * 0.3,
+                );
+                bounds = Some(bounds.map_or(r, |b| {
+                    (b.0.min(r.0), b.1.min(r.1), b.2.max(r.2), b.3.max(r.3))
+                }));
+            }
+        }
+        let (x, y, right, bottom) = bounds?;
+        painted.id = id;
+        painted.rect = (
+            painted.rect.0 + content.0 + x,
+            painted.rect.1 + content.1 + down + y,
+            right - x,
+            bottom - y,
+        );
+        Some(painted)
     }
 
     /// Follow `href` from `from`: a path naming a declared route navigates
@@ -119,6 +227,46 @@ impl<D: DataSource> Presenter<D> {
             "openURL {target}: the Linux host has no browser to open it in"
         ));
     }
+
+    /// A URL arriving from outside while the app runs (LLP 1133.023 D15
+    /// item 3: Android's `onNewIntent`, a shortcut): its location, as a
+    /// link's, goes to the navigation root's `navigate` when the root routes
+    /// it. The refusal, else `None`.
+    pub fn open_location(&mut self, href: &str, now_ms: f64) -> Option<String> {
+        let location = exact_route::location_of(href);
+        if !self.host.runner().route_matches(&location) {
+            return Some(format!("open {location}: no route matches it"));
+        }
+        let root = self.navigation_root().filter(|root| {
+            self.host
+                .runner()
+                .handlers_of(*root)
+                .contains(&EventKind::Navigate)
+        });
+        let Some(root) = root else {
+            return Some(format!(
+                "open {location}: no navigation root takes `navigate`"
+            ));
+        };
+        self.host
+            .dispatch_at(root, Event::Navigate(location), now_ms)
+            .or(self.after_commit())
+    }
+}
+
+fn inline_sources(node: &exact_kernel::NodeRef<'_>) -> Vec<ViewId> {
+    fn collect(node: &exact_kernel::NodeRef<'_>, out: &mut Vec<ViewId>) {
+        if node.props.str(PropId::Text).is_some() {
+            out.push(node.id);
+        } else {
+            for child in node.child_nodes().filter(|n| n.node_type == NodeType::Text) {
+                collect(&child, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    collect(node, &mut out);
+    out
 }
 
 #[cfg(test)]
@@ -204,6 +352,38 @@ component App
         );
     }
 
+    #[test]
+    fn a_url_from_outside_goes_to_the_root_when_it_routes_it() {
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(SRC),
+            (),
+            (400., 300.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        // A scheme's URL as Android's intent data carries it: its location, as a link's.
+        assert_eq!(p.open_location("shelf://note/7", 10.), None);
+        assert!(!p.host.kernel().find_by_test_id("route-note").is_empty());
+        let notes = p.host.kernel().find_by_test_id("route-note").len();
+        assert_eq!(p.open_location("/note/8?from=shortcut", 20.), None);
+        assert_eq!(
+            p.host.kernel().find_by_test_id("route-note").len(),
+            notes + 1
+        );
+        // A path no route matches is refused, and nothing moves.
+        assert_eq!(
+            p.open_location("/elsewhere", 30.).as_deref(),
+            Some("open /elsewhere: no route matches it")
+        );
+        assert_eq!(
+            p.host.kernel().find_by_test_id("route-note").len(),
+            notes + 1
+        );
+    }
+
     impl Presenter<()> {
         fn paragraph_runs_with_href(&mut self, reader: &str) -> Vec<String> {
             self.frame();
@@ -218,5 +398,88 @@ component App
                 .filter(|h| !h.is_empty())
                 .collect()
         }
+    }
+
+    #[test]
+    fn desktop_links_and_open_url_commands_use_the_registered_handler() {
+        use std::{
+            cell::{Cell, RefCell},
+            rc::Rc,
+        };
+        let source = r#"component App
+  action launch
+    openURL("https://example.com/command?x=1&y=2")
+  view
+    column width=400 height=300
+      text "[Open](https://example.com/link)" markup="markdown" testId="reader" font-size=16
+      button press=launch testId="launch" height=40
+        text "Open a URL"
+"#;
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(source),
+            (),
+            (400., 300.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let opened = Rc::new(RefCell::new(Vec::new()));
+        let fail = Rc::new(Cell::new(false));
+        p.set_url_opener({
+            let (opened, fail) = (opened.clone(), fail.clone());
+            move |url| {
+                opened.borrow_mut().push(url.to_owned());
+                if fail.get() {
+                    Err("no registered handler".into())
+                } else {
+                    Ok(())
+                }
+            }
+        });
+        let (x, y) = link(&mut p, "reader", "https://example.com/link");
+        p.press_at(x, y, 10.);
+        let launch = p.host.kernel().find_by_test_id("launch")[0];
+        p.tap(p.host.kernel().node_by_key(launch).unwrap().id)
+            .unwrap();
+        p.run_commands(|| ());
+        assert_eq!(
+            &*opened.borrow(),
+            &[
+                "https://example.com/link",
+                "https://example.com/command?x=1&y=2",
+            ]
+        );
+        for url in [
+            " HTTP://example.com/café ",
+            "mailto:hello@example.com",
+            "tel:+15555550123",
+        ] {
+            assert!(p.leave(url));
+            assert_eq!(opened.borrow().last().unwrap(), url.trim());
+        }
+        let before = opened.borrow().len();
+        for url in [
+            "/route",
+            "//example.com",
+            "file:///test.exe",
+            "javascript:alert(1)",
+            "ftp://example.com",
+            "https://example.com\0ignored",
+        ] {
+            assert!(!p.leave(url), "{url:?}");
+        }
+        p.open_url(&[exact_plan::Value::from("app-settings:")]);
+        assert_eq!(opened.borrow().len(), before);
+        assert!(p.take_requests().is_none());
+        fail.set(true);
+        assert!(p.leave("https://example.com/unavailable"));
+        assert_eq!(opened.borrow().len(), before + 1);
+        assert!(p
+            .host
+            .runner()
+            .journal()
+            .any(|line| line.contains("no registered handler")));
     }
 }

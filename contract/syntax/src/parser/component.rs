@@ -6,10 +6,24 @@
 //! whole: without its view, later passes would refuse the component itself.
 
 use super::*;
+use crate::members::MembersLine;
 
 impl Parser {
     pub(super) fn component(&mut self) -> R<Component> {
-        let span = self.expect_word("component")?;
+        self.component_body("component")
+    }
+
+    /// A members file's `members Name` block (LLP 1091.002 D2): a
+    /// component's body holding members only.
+    pub(super) fn members_block(&mut self) -> R<Component> {
+        self.component_body("members")
+    }
+
+    fn component_body(&mut self, keyword: &'static str) -> R<Component> {
+        let block = keyword == "members";
+        let span = self.expect_word(keyword)?;
+        // Reset with each top-level declaration.
+        self.in_block = block;
         let name = self.named_ident(span)?;
         self.newline()?;
         let mut c = Component {
@@ -26,9 +40,11 @@ impl Parser {
             actions: Vec::new(),
             tasks: Vec::new(),
             sequences: Vec::new(),
+            tools: Vec::new(),
             view: Vec::new(),
             params: Default::default(),
             anatomy: Default::default(),
+            members: Default::default(),
             span,
         };
         if !matches!(self.peek_kind(), TokenKind::Indent) {
@@ -47,10 +63,21 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) => {
-                    if matches!(
+                    let once = matches!(
                         w.as_str(),
                         "props" | "inject" | "provide" | "slot" | "view" | "params" | "parts"
-                    ) {
+                    );
+                    if block && (once || w == "members") {
+                        return self.err(
+                            "syntax-members-section",
+                            format!(
+                                "a `members` block holds `state`, `derive`, `resource`, \
+                                 `mutation`, `action`, `task` and `sequence`; write `{w}` in \
+                                 the component's own body (LLP 1091.002 D3)"
+                            ),
+                        );
+                    }
+                    if once {
                         let section_span = self.peek().span;
                         if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
                             return duplicate("component section", &w, section_span, *first);
@@ -116,6 +143,22 @@ impl Parser {
                             self.newline()?;
                             c.slot = true;
                         }
+                        // @ref LLP 1091.002 D1 — the loader splices the
+                        // file's members in where this line stands.
+                        "members" => {
+                            let span = self.next().span;
+                            let TokenKind::Str(path) = self.peek_kind().clone() else {
+                                return self.err(
+                                    "syntax-expected-path",
+                                    "expected the members file's path in quotes, like \
+                                     `members \"./composer.contract\"`",
+                                );
+                            };
+                            self.next();
+                            self.newline()?;
+                            let at = crate::members::Splice::after(&c);
+                            c.members.lines.push(MembersLine { path, at, span });
+                        }
                         "params" => c.params.list = self.params_section()?,
                         "parts" => c.anatomy.parts = self.parts_section()?,
                         "view" => {
@@ -126,7 +169,7 @@ impl Parser {
                             c.anatomy.marks = crate::anatomy::take_marks(&mut c.view);
                         }
                         "state" | "derive" | "resource" | "mutation" | "action" | "task"
-                        | "sequence" => {
+                        | "sequence" | "tool" => {
                             let start = self.pos;
                             if let Err(e) = self.member(&mut c, &w) {
                                 if !self.recover {
@@ -250,6 +293,7 @@ impl Parser {
             "mutation" => c.mutations.push(self.mutation()?),
             "action" => c.actions.push(self.action()?),
             "task" => c.tasks.push(self.task()?),
+            "tool" => self.tool(c)?,
             _ => c.sequences.push(self.sequence()?),
         }
         Ok(())

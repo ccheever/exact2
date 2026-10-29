@@ -1,4 +1,4 @@
-use AxisChoice, Build, Pinned from "./shapes.contract"
+use AxisChoice, Build, GoneBuild, Pinned from "./shapes.contract"
 
 // The builds (LLP 1122 D4): every running copy, its effective
 // facts from its own report, and pins, which last while the tool
@@ -6,6 +6,11 @@ use AxisChoice, Build, Pinned from "./shapes.contract"
 component Builds
   props
     builds: Build[]
+    // The builds gone and not back, shown reloading while numbered above `reloadSeen` (the root's window), and the
+    // newest number: with no build listed, the newest gone is among them.
+    reloading: GoneBuild[]
+    reloadGen: number
+    reloadSeen: number
     canWrite: bool
     // The pin being composed, and the axes it offers.
     pinBuild: string
@@ -28,7 +33,10 @@ component Builds
   view
     column gap=8 testId="builds"
       text "Builds" role="heading" aria-level=2
-      if builds.length == 0
+      for r in reloading key=r.id
+        if r.gen > reloadSeen
+          text `${r.host} · ${r.id} · reloading` font="-exact-footnote" color="-exact-secondary-label" testId=`build-reloading-${r.id}`
+      if builds.length == 0 and (reloading.length == 0 or reloadGen <= reloadSeen)
         text "No build is connected. The canvas's page is one once a dev loop runs; a device joins launched at the dev URL: bun exact.mjs ios --run --url <dev url>, or the Mac's likewise." color="-exact-secondary-label" testId="no-builds"
       for b in builds key=b.id
         column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`build-${b.id}`

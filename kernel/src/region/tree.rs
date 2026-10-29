@@ -276,19 +276,19 @@ pub(super) fn shell(
     let mut stack = vec![(root, 0., 0., false)];
     while let Some((s, x, y, hidden)) = stack.pop() {
         let hidden = hidden || arena.style(s).display == crate::Display::None;
+        // An inline run or image has no engine node: its paragraph's.
+        if arena.in_paragraph(s) {
+            continue;
+        }
         let n = arena
             .taffy(s)
             .ok_or_else(|| LayoutError::Engine("shell node absent".into()))?;
         let l = tree.layout(n);
-        let frame = if arena.is_inline_run(s) {
-            Frame::default()
-        } else {
-            Frame {
-                x: x + l.location.x,
-                y: y + l.location.y,
-                width: l.size.width,
-                height: l.size.height,
-            }
+        let frame = Frame {
+            x: x + l.location.x,
+            y: y + l.location.y,
+            width: l.size.width,
+            height: l.size.height,
         };
         if ![
             frame.x,

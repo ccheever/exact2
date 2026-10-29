@@ -39,7 +39,7 @@ Tracked every commit. A regression is a P0 with a name on it.
 | Full build, warm cache | 5 min |
 | Dev restart, request to present | 100ms p50 |
 | Cold start to interactive first frame | 100ms p50 |
-| App JS executed before first pixel | none (a wake launch, which presents nothing, is outside it: LLP 1133.017 D7; Charlie, 2026-10-23) |
+| App JS executed before first pixel | none; a launch that presents nothing (a wake, a system tool call) is exempt: LLP 1133.023 |
 
 ## Scope
 

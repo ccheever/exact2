@@ -19,7 +19,7 @@
 //! - `EXACT_SCALE=n` — device pixels per point (1 otherwise): what the frame is
 //!   drawn at and what the kernel is told the display's scale is, so a
 //!   hairline is one of those pixels (LLP 1115.000 D10.3).
-//! - `EXACT_PAINTER=gpu|cpu` — the painter (the GPU when there is one otherwise).
+//! - `EXACT_PAINTER=auto|gpu|ink|cpu` — overrides the app's baked painter choice.
 //! - `EXACT_CACHE=<dir>` — where the GPU's pipeline cache lives (`~/.cache/exact`).
 //! - `EXACT_DRM=<card>` — the KMS device (`/dev/dri/card0` otherwise).
 //! - `EXACT_VNC=1|<addr:port>` — serve the screen over VNC, the client's
@@ -83,7 +83,8 @@ pub struct Config {
     /// Explicit consumer registration before the first layout; ordinary default
     /// is None. This trial never guesses bindings from test IDs.
     pub content_region: Option<crate::content_region::ContentRegionRegistration>,
-    /// The first location-bearing argument, canonicalized by exact-route.
+    /// The first location-bearing argument, else `EXACT_LAUNCH_URL`,
+    /// canonicalized by exact-route.
     pub launch: String,
     /// The plan to boot: the binary's own bytes, borrowed, unless another
     /// plan was selected.
@@ -109,6 +110,8 @@ pub struct Config {
     pub dev_url: Option<String>,
     /// The last accepted URL generation, avoiding redundant payload transfers.
     pub dev_identity: Option<String>,
+    /// A dev loop's status the boot's fetch said, so the poll does not say it again.
+    pub dev_said: Option<String>,
     /// The KMS device.
     pub card: String,
     /// Serve the screen over VNC at this address (`1` is `0.0.0.0:5900`).
@@ -131,6 +134,9 @@ pub struct Config {
     /// The app's hatches (LLP 1075.003.000.001 §5): only their type, until
     /// the presenter makes the value after first pixel.
     pub hatches: Option<crate::hatches::Install>,
+    /// The packages the app's build composed (LLP 1133.022 D10 item 5),
+    /// bound at boot.
+    pub packages: Vec<crate::package::Entry>,
     /// Where the display's live clock reads zero, when one will own time:
     /// a fresh boot starts the runner's clock at its reading then, so a
     /// slow start (a plan fetched from a URL) does not fire the boot's
@@ -139,6 +145,12 @@ pub struct Config {
 }
 
 impl Config {
+    /// The manifest's painter with `EXACT_PAINTER` applied, also used to open the window.
+    pub fn painter(&self) -> crate::presenter::PainterChoice {
+        use crate::presenter::PainterChoice;
+        PainterChoice::from_env(PainterChoice::from_baked(&self.compat))
+    }
+
     /// Read the environment; `baked` is the plan compiled into the binary
     /// and `compat` its `compat.json` (LLP 1030 D3a).
     pub fn from_env(baked: &[u8], compat: &str) -> Config {
@@ -162,6 +174,7 @@ impl Config {
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let exact_plan = env("EXACT_PLAN");
         let exact_dev_plan = env("EXACT_DEV_PLAN");
+        let mut dev_said = None;
         let from_url = [exact_plan.as_deref(), exact_dev_plan.as_deref()]
             .into_iter()
             .flatten()
@@ -174,6 +187,8 @@ impl Config {
                 Ok(None) => None,
                 Err(e) => {
                     eprintln!("exact url: {e}; booting the baked plan");
+                    // A dev loop still starting: said here, and not again by the poll.
+                    dev_said = crate::fetch::is_loop_status(&e).then_some(e);
                     None
                 }
             });
@@ -230,7 +245,9 @@ impl Config {
             .unwrap_or((420.0, 860.0));
         Config {
             content_region: None,
-            launch: launch_location(std::env::args().skip(1)),
+            // An argument, else `EXACT_LAUNCH_URL`: the Android reader's launching intent's data has no
+            // command line to arrive by (LLP 1133.023 D15 item 3).
+            launch: launch_location(std::env::args().skip(1).chain(env("EXACT_LAUNCH_URL"))),
             plan,
             fallback_plan,
             assets: env("EXACT_ASSETS")
@@ -247,6 +264,7 @@ impl Config {
                 .filter(|url| crate::fetch::is_url(url))
                 .cloned(),
             dev_identity,
+            dev_said,
             card: env("EXACT_DRM").unwrap_or_else(|| "/dev/dri/card0".to_string()),
             vnc: env("EXACT_VNC"),
             compat: compat.to_string(),
@@ -262,6 +280,7 @@ impl Config {
                 }),
             updates: None,
             hatches: None,
+            packages: Vec::new(),
             clock_started: None,
         }
     }
@@ -300,7 +319,16 @@ pub fn boot_presenter<D: DataSource + Default>(
     config: &mut Config,
     viewport: (f32, f32),
 ) -> Result<(Presenter<D>, Option<String>), String> {
-    boot_presenter_with_painter(config, viewport, PainterBoot::from_env())
+    let painter =
+        PainterBoot::from_env(crate::presenter::PainterChoice::from_baked(&config.compat));
+    boot_presenter_with_painter(config, viewport, painter)
+}
+
+thread_local! {
+    /// Whether the agent drives the presenter this thread boots: the presenter
+    /// is the agent's from its first commit, so a request its boot makes (a
+    /// sign-in, a share) is held as a later one is (LLP 1146 D4).
+    pub(crate) static AGENT_BOOT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Keep the carrier's constructor through selected-plan refusal and baked fallback.
@@ -310,6 +338,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     painter: PainterBoot,
 ) -> Result<(Presenter<D>, Option<String>), String> {
     exact_runner::delivery::refuse_analysis(&config.compat).map_err(str::to_string)?;
+    AGENT_BOOT.set(config.agent);
     let mut updates = config.updates.take();
     let compat = config.compat.clone();
     let facts = |updates: &Option<Box<dyn Store>>| {
@@ -336,16 +365,22 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             crate::zone::local_offset_minutes(),
         )
     });
+    // @ref LLP 1133.024 D9 — the driver's cold share: its location and tokens.
+    let cold_share = crate::picker::cold_share(place.seed);
+    if let Some((location, _)) = &cold_share {
+        config.launch = location.clone();
+    }
     let launch_facts = exact_runner::time::Launch {
         time: Some(exact_runner::time::WallTime {
             epoch_at_zero,
             utc_offset,
         }),
         place: Some(place.clone()),
-        clock: None,
+        ..cold_share.map_or(exact_runner::time::Launch::NONE, |(_, launch)| launch)
     };
-    let dev_url = config.dev_url.clone();
+    let (dev_url, dev_said) = (config.dev_url.clone(), config.dev_said.clone());
     let hatches = config.hatches;
+    let packages = config.packages.clone();
     let delivered = |mut booted: (Presenter<D>, Option<String>),
                      updates: Option<Box<dyn Store>>,
                      dev_identity: Option<String>| {
@@ -353,6 +388,11 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
         booted.0.set_hatches(hatches);
+        booted.0.serve_packages(packages.clone());
+        #[cfg(windows)]
+        booted.0.serve_overlays();
+        #[cfg(windows)]
+        booted.0.refresh_scrollbar_preferences();
         if let Some(e) = booted.0.set_place(&place) {
             eprintln!("exact: {e}");
         }
@@ -377,6 +417,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             }
         }
         booted.0.set_development(dev_url.clone(), dev_identity);
+        booted.0.said_at_boot(dev_said.clone());
         booted
     };
     // The selected bytes passed verification. Record the attempt before
@@ -482,7 +523,7 @@ pub fn run_empty(baked: &[u8], compat: &str) -> i32 {
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
-    run_registered::<D>(baked, compat, None, None)
+    run_composed::<D>(baked, compat, Composed::default())
 }
 
 /// [`run`] with the app's hatches (LLP 1075.003.000.001 §5): `H` is the one
@@ -494,8 +535,34 @@ pub fn run_with_hatches<D: DataSource + Default, H: crate::hatches::Hatches>(
     compat: &str,
     words: &'static [&'static str],
 ) -> i32 {
-    let hatches = crate::hatches::install::<H>(words);
-    run_registered::<D>(baked, compat, None, Some(hatches))
+    let hatches = Some(crate::hatches::install::<H>(words));
+    run_composed::<D>(
+        baked,
+        compat,
+        Composed {
+            hatches,
+            ..Default::default()
+        },
+    )
+}
+
+/// [`run`] with what the app's build composed: its hatches, if it has
+/// any, and its packages' Linux implementations (`crate::package`).
+pub fn run_composed<D: DataSource + Default>(
+    baked: &[u8],
+    compat: &str,
+    composed: Composed,
+) -> i32 {
+    run_composed_with::<D>(baked, compat, None, composed)
+}
+
+/// What an app's build composes into its host beside the plan.
+#[derive(Default)]
+pub struct Composed {
+    /// The app's hatches (`crate::hatches::install`).
+    pub hatches: Option<crate::hatches::Install>,
+    /// Its packages' implementations for this platform.
+    pub packages: Vec<crate::package::Entry>,
 }
 
 /// Launch an explicitly registered consumer using the ordinary environment,
@@ -505,7 +572,7 @@ pub fn run_with_content_region<D: DataSource + Default>(
     compat: &str,
     region: crate::content_region::ContentRegionRegistration,
 ) -> i32 {
-    run_registered::<D>(baked, compat, Some(region), None)
+    run_composed_with::<D>(baked, compat, Some(region), Composed::default())
 }
 
 static ROW_REUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -523,11 +590,11 @@ pub(crate) fn row_reuse() -> bool {
     ROW_REUSE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-fn run_registered<D: DataSource + Default>(
+fn run_composed_with<D: DataSource + Default>(
     baked: &[u8],
     compat: &str,
     region: Option<crate::content_region::ContentRegionRegistration>,
-    hatches: Option<crate::hatches::Install>,
+    composed: Composed,
 ) -> i32 {
     row_reuse_from_env(false);
     if print_baked_receipt(compat) {
@@ -546,7 +613,8 @@ fn run_registered<D: DataSource + Default>(
     let started = Instant::now();
     let mut config = Config::from_env(baked, compat);
     config.content_region = region;
-    config.hatches = hatches;
+    config.hatches = composed.hatches;
+    config.packages = composed.packages;
     run_config::<D>(&mut config, started)
 }
 
@@ -746,6 +814,9 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
     crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
     0
 }
+
+#[cfg(test)]
+mod boot_hold_tests;
 
 #[cfg(test)]
 mod scale_tests {

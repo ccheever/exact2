@@ -14,6 +14,7 @@ mod base_scale;
 mod base_scale_tests;
 #[cfg(test)]
 mod budget_tests;
+mod calls;
 mod code;
 mod emit;
 #[cfg(test)]
@@ -222,7 +223,12 @@ fn main() -> ExitCode {
         if cmd == "normalize-grants" {
             return match std::fs::read_to_string(file) {
                 Ok(spec) => {
-                    println!("{}", exact_runner::grants::normalized_json(&spec));
+                    // The native bake's refusal too (js/bake/src/lib.rs), so
+                    // the web build fails where a native one would.
+                    match exact_runner::auth::session_grant_refusal(&spec) {
+                        Some(refusal) => println!("{}", serde_json::json!({ "error": refusal })),
+                        None => println!("{}", exact_runner::grants::normalized_json(&spec)),
+                    }
                     ExitCode::SUCCESS
                 }
                 Err(error) => {
@@ -513,11 +519,6 @@ fn main() -> ExitCode {
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
                 }
-                // `showNotification`/`closeNotification` (notify.js).
-                let _ = std::fs::remove_file(dir.join("notify.flag"));
-                if u.has(Capability::Notifications) {
-                    let _ = std::fs::write(dir.join("notify.flag"), "");
-                }
                 // A declared sound or a sound command (sounds.js, LLP 1096
                 // D5): the flag holds the table, `[src, frames, rate]` each.
                 let _ = std::fs::remove_file(dir.join("sounds.flag"));
@@ -548,6 +549,11 @@ fn main() -> ExitCode {
             let _ = std::fs::remove_file(dir.join("wakelock.flag"));
             if exact_runner::wakelock::bound(&plan) {
                 let _ = std::fs::write(dir.join("wakelock.flag"), "");
+            }
+            // `orientationlock` (orientationlock.js, LLP 1133.029 D7).
+            let _ = std::fs::remove_file(dir.join("orientationlock.flag"));
+            if exact_runner::wakelock::bound_prop(&plan, exact_kernel::PropId::Orientationlock) {
+                let _ = std::fs::write(dir.join("orientationlock.flag"), "");
             }
             // Every portable symbol role, which symbols.js loads when a bound
             // source names one the plan's strings don't (ledger diary F10).
@@ -597,10 +603,35 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("{input}: {e}");
+            // A refusal at a plan node is said at its source, as `contract build`
+            // says an error (LLP 1143 D3). A production build compiled no map,
+            // so it compiles one now, on this failing path only.
+            if map.is_none() && !input.ends_with(".plan") {
+                map = contract::compile_path_all_with_warnings(path, true)
+                    .0
+                    .ok()
+                    .and_then(|(_, m)| m);
+            }
+            match map.as_ref().and_then(|m| at_source(&e, m)) {
+                Some(located) => eprintln!("{located}{}", contract::excerpt(&located)),
+                None => eprintln!("{input}: {e}"),
+            }
             ExitCode::from(1)
         }
     }
+}
+
+/// An emit refusal that names its plan node (`node 12: …`), resolved through
+/// the development source map to the declaration and its call sites.
+fn at_source(refusal: &str, map: &contract::SourceMap) -> Option<contract::CompileError> {
+    let (node, message) = refusal.strip_prefix("node ")?.split_once(": ")?;
+    let site = exact_plan::NodesId(node.parse().ok()?);
+    let located = map.bake_error(&contract::BakeError::Lint {
+        id: "web-target",
+        message: message.to_string(),
+        site: Some(site),
+    });
+    located.file.is_some().then_some(located)
 }
 
 fn dump_plan(plan: &exact_plan::Plan) {

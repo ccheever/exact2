@@ -648,10 +648,17 @@ impl Machine {
         if let Some(why) = request.timeout_refusal().or(request.long_poll_refusal()) {
             return refuse(failed(FailureKind::Refused, why));
         }
+        // Writing a body to a file is the workers' (`executor_body_to.rs`) until this core has it.
+        if request.body_to.is_some() {
+            let why = "exactBodyTo: not on the asynchronous executor (EXACT_HTTP_ASYNC) yet";
+            return refuse(failed(FailureKind::Unsupported, why));
+        }
         let Some((transport, fetch)) = &self.transports[lane] else {
             return refuse(failed(FailureKind::Refused, self.unbound.clone()));
         };
-        let (transport, fetch) = (transport.clone(), scoped.unwrap_or_else(|| fetch.clone()));
+        let fetch =
+            super::reach::gate_fetch(scoped.unwrap_or_else(|| fetch.clone()), request.reach);
+        let transport = transport.clone();
         let limit = match request.http {
             HttpScheduling::Ordered => MAX_BODY,
             HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,

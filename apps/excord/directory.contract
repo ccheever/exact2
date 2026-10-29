@@ -1,0 +1,106 @@
+use Gateway, Guild, RailEntry, Channel, Category from "./shapes.contract"
+use ServerButton, FolderButton, ChannelMark from "./servers.contract"
+use Badge from "exact:content"
+
+component DirectoryList
+  props
+    gw: Gateway
+    dmsShown: bool
+    guild: Guild
+    dmUnread: bool
+    dmMentions: number
+    rail: RailEntry[]
+    openFolders: string[]
+    directoryLoaded: bool
+    directoryFailed: bool
+    recentDms: Channel[]
+    dms: Channel[]
+    here: Category[]
+    // The channel open beside the list, which a split marks.
+    current: string
+    channelsFailed: bool
+    pickServer: action
+    toggleFolder: action
+    openChannel: action
+    moreDms: action
+    retryChannels: action
+  view
+    // The rail lies over the list's padding, so the list spans the screen and the rail's
+    // ground reaches under the home indicator as a hand-built sidebar's does.
+    row flex=1 min-height=0 position="relative"
+      scroll id="rail" position="absolute" top=0 bottom=0 left=0 z-index=1 width="4.5rem" background-color="-exact-grouped-background" testId="rail" aria-label="Servers"
+        column padding="8px 0px"
+          ServerButton(id="@me", name="Direct Messages", icon="", acronym="", symbol="symbol:messages", selected=dmsShown, unread=dmUnread, mentions=dmMentions, pick=pickServer)
+          view width=32 height=2 border-radius=1 margin="4px 20px" background-color="-exact-separator" aria-hidden=true
+          for r in rail key=r.id
+            if r.folder
+              FolderButton(id=r.id, name=r.name, color=r.color, icons=r.guilds, open=openFolders.includes(r.id),
+                selected=(not dmsShown and r.guilds.map(g => g.id).includes(guild.id)), unread=r.unread, mentions=r.mentions, toggle=toggleFolder)
+              if openFolders.includes(r.id)
+                // The folder's servers on a band behind their icons, the pills outside it.
+                column position="relative" padding="2px 0px" margin-bottom=4
+                  view position="absolute" top=0 bottom=0 left=8 width="3.5rem" border-radius=16 background-color="-exact-quaternary-fill" aria-hidden=true
+                  for g in r.guilds key=g.id
+                    ServerButton(id=g.id, name=g.name, icon=g.icon, acronym=g.acronym, symbol="", selected=(not dmsShown and g.id == guild.id), unread=g.unread, mentions=g.mentions, pick=pickServer)
+            else
+              for g in r.guilds key=g.id
+                ServerButton(id=g.id, name=g.name, icon=g.icon, acronym=g.acronym, symbol="", selected=(not dmsShown and g.id == guild.id), unread=g.unread, mentions=g.mentions, pick=pickServer)
+      list id="channels" appearance="auto" listStyle="plain" flex=1 min-width=0 padding-left="4.5rem"
+        if gw.state == "stopped"
+          section
+            text `Not connected: ${gw.detail}` color="-exact-system-red" testId="stopped"
+        if not directoryLoaded
+          if directoryFailed
+            section
+              text "Couldn’t load your channels." color="-exact-system-red" testId="directory-error"
+          else if gw.state != "stopped"
+            section
+              row gap=12 align-items="center" padding=24
+                progress aria-label="Loading channels"
+                text (gw.state == "backoff" ? "Reconnecting…" : "Connecting…") color="-exact-secondary-label" testId="directory-loading"
+        else if dmsShown
+          section
+            for c in recentDms key=c.id
+              button press=openChannel(c.id) testId=`dm-${c.id}` aria-current=(c.id == current ? "page" : "false") aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+                row gap=12 align-items="center" flex=1 min-width=0
+                  if c.avatar != ""
+                    image c.avatar width=32 height=32 border-radius=16 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill" aria-hidden=true
+                  else
+                    row width=32 height=32 border-radius=16 flex-shrink=0 align-items="center" justify-content="center" background-color="AccentColor" aria-hidden=true
+                      image "symbol:people" width=18 height=18 color="AccentColorText"
+                  text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
+                  if c.mentions > 0
+                    Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
+            if dms.length > recentDms.length
+              button press=moreDms testId="more-dms"
+                row gap=12 align-items="center" flex=1 min-width=0
+                  text `Show more conversations (${dms.length - recentDms.length})` color="AccentColor" flex=1 min-width=0
+        else
+          if channelsFailed
+            section
+              button press=retryChannels testId="channels-retry"
+                row gap=8 align-items="center" flex=1 min-width=0
+                  image "symbol:alert" color="-exact-system-orange"
+                  text "Couldn't load this server's channels." flex=1 min-width=0
+                  text "Try Again" color="AccentColor"
+          for g in here key=g.id
+            if g.name == ""
+              section
+                for c in g.channels key=c.id
+                  button press=openChannel(c.id) testId=`channel-${c.name}` aria-current=(c.id == current ? "page" : "false") aria-label=`${c.name}${c.private ? ", private channel" : ""}${c.unread > 0 ? ", unread" : ""}`
+                    row gap=8 align-items="center" flex=1 min-width=0
+                      ChannelMark(locked=c.private)
+                      text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
+                      if c.mentions > 0
+                        Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
+            else
+              section
+                header
+                  text g.name
+                for c in g.channels key=c.id
+                  button press=openChannel(c.id) testId=`channel-${c.name}` aria-current=(c.id == current ? "page" : "false") aria-label=`${c.name}${c.private ? ", private channel" : ""}${c.unread > 0 ? ", unread" : ""}`
+                    row gap=8 align-items="center" flex=1 min-width=0
+                      ChannelMark(locked=c.private)
+                      text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
+                      if c.mentions > 0
+                        Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))

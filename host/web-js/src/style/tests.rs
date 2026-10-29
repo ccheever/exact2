@@ -82,7 +82,7 @@ fn a_bound_design_name_and_synthetic_token_write_their_values() {
 
 #[test]
 fn a_bound_accent_role_leaves_the_inherited_accent_unset() {
-    let writes = style_writes(StyleId::AccentColor as u16, false).unwrap();
+    let writes = style_writes(StyleId::AccentColor as u16, false, true).unwrap();
     let values = ["AccentColor", " accentcolor ", "#5856d6", "auto", "inherit"];
     let maps: Vec<_> = writes
         .iter()
@@ -124,7 +124,7 @@ fn mapped_clears_and_invalid_values_keep_declarations_but_none_removes_them() {
         (StyleId::ColorScheme, "orange"),
         (StyleId::CornerShape, "-apple-continuous"),
     ] {
-        let writes = style_writes(id as u16, false).unwrap();
+        let writes = style_writes(id as u16, false, true).unwrap();
         let map = writes[0].map.unwrap();
         let script = format!("globalThis.exact={{journal:[],now:()=>0}};const m={map};console.log(JSON.stringify({{values:[null,'unset',{invalid:?}].map(m),journal:exact.journal}}))");
         let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
@@ -162,7 +162,7 @@ fn grid_refusals_keep_declarations_but_absent_values_remove_them() {
     ]
     .into_iter()
     .map(|(id, valid, refused)| {
-        let writes = style_writes(id as u16, false).unwrap();
+        let writes = style_writes(id as u16, false, true).unwrap();
         (writes[0].map.unwrap(), valid, refused)
     })
     .collect();
@@ -201,18 +201,29 @@ assert.ok(journal.at(-1).includes(JSON.stringify(value)));
 
 #[test]
 fn balanced_wrap_writes_the_same_property_for_bound_values() {
-    let writes = style_writes(StyleId::TextWrapStyle as u16, false).unwrap();
+    let writes = style_writes(StyleId::TextWrapStyle as u16, false, true).unwrap();
     assert_eq!(writes.len(), 1);
     assert_eq!(writes[0].name, "text-wrap-style");
     assert_eq!(writes[0].unit, "");
     assert_eq!(writes[0].map, None);
 }
 
+/// LLP 1019 D12: WebKit's and Chromium's name, bound or not.
+#[test]
+fn bound_font_smoothing_writes_the_prefixed_property() {
+    let writes = style_writes(StyleId::FontSmoothing as u16, false, true).unwrap();
+    assert_eq!(writes.len(), 2);
+    assert_eq!(writes[0].name, "-webkit-font-smoothing");
+    assert_eq!(writes[0].map, None);
+    assert_eq!(writes[1].name, "-moz-osx-font-smoothing");
+    assert!(writes[1].map.unwrap().contains("grayscale"));
+}
+
 /// LLP 1104 D3: a bound `::placeholder` colour writes css.rs's
 /// private property, which index.html's `::placeholder` rule reads.
 #[test]
 fn a_bound_placeholder_colour_writes_the_private_property() {
-    let writes = style_writes(StyleId::PlaceholderColor as u16, false).unwrap();
+    let writes = style_writes(StyleId::PlaceholderColor as u16, false, true).unwrap();
     assert_eq!(writes.len(), 1);
     assert_eq!(writes[0].name, "--exact-placeholder-color");
     let map = writes[0].map.unwrap();
@@ -227,7 +238,7 @@ fn a_bound_placeholder_colour_writes_the_private_property() {
 
 #[test]
 fn a_bound_tint_clear_restores_the_symbol_role() {
-    let writes = style_writes(StyleId::TintColor as u16, false).unwrap();
+    let writes = style_writes(StyleId::TintColor as u16, false, true).unwrap();
     assert_eq!(writes[0].name, "--exact-tint");
     let map = writes[0].map.unwrap();
     assert_eq!(
@@ -300,7 +311,7 @@ fn a_bound_text_style_is_its_rem() {
 /// the literal one, and a clear (`null`) writes nothing.
 #[test]
 fn a_bound_control_size_writes_the_literal_declarations() {
-    let writes = style_writes(StyleId::ControlSize as u16, false).unwrap();
+    let writes = style_writes(StyleId::ControlSize as u16, false, true).unwrap();
     let values = ["mini", "small", "medium", "large", "null"];
     let mapped: Vec<_> = writes
         .iter()
@@ -415,7 +426,7 @@ pub(crate) fn assert_spring_transitions(map: &str) {
 /// bound `normal` (or an invalid value) retains an unset declaration.
 #[test]
 fn a_bound_color_scheme_is_light_dark_or_unset() {
-    let writes = style_writes(StyleId::ColorScheme as u16, false).unwrap();
+    let writes = style_writes(StyleId::ColorScheme as u16, false, true).unwrap();
     assert_eq!(writes.len(), 1);
     assert_eq!(writes[0].name, "color-scheme");
     assert_eq!(
@@ -510,4 +521,32 @@ fn a_bound_platform_color_is_admitted_only_as_a_plan_literal() {
     );
     // A plan without one writes the plain map.
     assert_eq!(color_map(&exact_plan::Plan::default()), *SYSTEM_COLOR_MAP);
+}
+
+/// A bound side is the side its author wrote: `margin-left` stays
+/// `margin-left`, not the logical `margin-inline-start` css.rs writes for a
+/// side only the sheet set, so right to left it stays on the left, as the
+/// kernel and the wasm target keep it (s13c's restyle line read it there);
+/// one only the sheet binds is that logical side still.
+#[test]
+fn a_bound_side_is_written_as_its_author_wrote_it() {
+    use exact_kernel::StyleId;
+    for (row, name, sheets) in [
+        (StyleId::MarginLeft, "margin-left", "margin-inline-start"),
+        (StyleId::MarginRight, "margin-right", "margin-inline-end"),
+        (StyleId::PaddingLeft, "padding-left", "padding-inline-start"),
+        (StyleId::PaddingRight, "padding-right", "padding-inline-end"),
+    ] {
+        assert_eq!(
+            super::style_row(row as u16, true),
+            Ok((name.to_string(), "px".to_string())),
+            "{row:?}"
+        );
+        // One only the sheet binds mirrors, as its static row does.
+        assert_eq!(
+            super::style_row(row as u16, false),
+            Ok((sheets.to_string(), "px".to_string())),
+            "{row:?}"
+        );
+    }
 }

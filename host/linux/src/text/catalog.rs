@@ -868,6 +868,10 @@ fn monospace_family(c: &mut fontique::Collection, configured: &str) -> Option<St
         return Some(configured.to_owned());
     }
     [
+        #[cfg(windows)]
+        "Cascadia Mono",
+        #[cfg(windows)]
+        "Consolas",
         "Noto Sans Mono",
         "DejaVu Sans Mono",
         "Liberation Mono",

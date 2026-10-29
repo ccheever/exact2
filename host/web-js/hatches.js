@@ -18,7 +18,8 @@ import { onEnd, journal, clock, viewId, inflight, painted, time, paint, drive } 
 let Page = null;
 const said = new Set(), warned = new Set();
 const say = line => journal.push(`t=${clock.now} hatch ${line}`);
-const page = () => Page ??= painted().then(() => import("./native.js")).then(m => m.pageTable());
+// (An app with no page module asks for no module artifact: its table is none, build.mjs `pageModule`.)
+const page = () => Page ??= painted().then(() => globalThis.exact?.pageModule === false ? null : import("./native.js").then(m => m.pageTable()));
 // `state.hatches` (the agent), as Apple's: per word, its live nodes, and its
 // calls by moment. A row's calls after the first of each moment are counted,
 // not journaled, so a fling does not flood the journal.
@@ -505,6 +506,8 @@ export function ht(e) {
   page().then(m => {
     // The switch is read here, once the page has started and says what it is.
     if (!h.isLive || off()) return;
+    // (No page module at all: nothing is called, nor counted live, and it is said once.)
+    if (!m) { if (!said.has(word)) { said.add(word); say(`element ${word}: no page module (modules/web/) on this page; its nodes are shown and never called`); } return; }
     module = m;
     publish();
     counted(word).live++;
@@ -625,7 +628,7 @@ const roots = new WeakSet(), lists = new WeakSet(), routes = new Map();
 export function containers() {
   publish();
   return page().then(m => {
-    if (off()) return;
+    if (off() || !m) return;
     const project = root => {
       if (!root) return;
       const live = new Set();

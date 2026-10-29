@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, price and % change since open in a tinted green/red pill with up/down arrow."},
+      {"n": 2, "status": "pass", "note": "About 20 rows change every second, updating in place, including while the list is being dragged or flung; the up/down summary card updates too."},
+      {"n": 3, "status": "pass", "note": "Sort menu offers Symbol A–Z, Price high→low and Change high→low; there's no way to reverse the order. Inline search matches symbol ('zet' → ZET, ZETO) and name ('cedar' → 16). A count reads '0 SYMBOLS' when nothing matches, but the empty state is hidden under the keyboard."},
+      {"n": 4, "status": "pass", "note": "Star on each row and in the detail nav bar toggles membership; segmented control switches All / My List correctly."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, change, open, volume and recent range, plus a 60-sample line chart with area fill. Everything updates live; history fills from the moment the app launched ('Collecting history · 31 of 60')."},
+      {"n": 6, "status": "pass", "note": "Starred tickers and the chosen sort survive a relaunch; the All/My List choice resets to All, which the spec doesn't require."}
+    ],
+    "bugs": [
+      "After coming back from a ticker screen (back button), the large 'Watchlist' title is gone: the top of the main screen is an empty band until the app is relaunched. It also happened after changing the text size.",
+      "With the keyboard up during search, the header card, segmented control and search field stay pinned at the top, so only part of one result row (or none, for the 'no results' state) shows above the keyboard.",
+      "Rows reorder live under Price/Change sort, so a row can move from under the finger just before a tap."
+    ],
+    "tells": [
+      "Custom-styled screen: an off-white green-tinted background, a decorative 'A pulse on every symbol.' hero card with an advance/decline bar, and green brand tint. It reads like a designed web or marketing page more than a stock iOS list.",
+      "The search field is a hand-placed rounded text field in the scroll content rather than a navigation-bar searchable field; the Cancel button is custom.",
+      "The sort control is a small green 'Symbol ⇅' text button in a section header rather than a toolbar item; the menu itself is a native UIMenu.",
+      "Change values are tinted capsules with arrow glyphs instead of plain system green/red text.",
+      "At the largest text size the row star stays tiny while everything else scales, and the large title doesn't grow.",
+      "No swipe actions on rows: a horizontal swipe on a row opens the ticker.",
+      "Rows are tall (84 pt) with inset separators that start after the star."
+    ],
+    "scroll": "Smooth native table scrolling with momentum; no blank or popping rows while prices tick, and the scroll position is kept when coming back from a detail screen. The large title collapses normally while scrolling.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers in compact 52 pt rows: symbol, name, price, and signed % change in system green/red."},
+      {"n": 2, "status": "pass", "note": "Prices tick every second in place, including mid-scroll; no flicker."},
+      {"n": 3, "status": "pass", "note": "Native sort menu (Symbol / Price / Change with a checkmark, plus an ascending/descending 'Reverse' item); the current sort shows in the list header. Search matches symbol and name, with a proper 'No Matching Tickers' empty state and a Clear Search button."},
+      {"n": 4, "status": "pass", "note": "Star on each row (filled when added) and in the detail nav bar; segmented All / My List works."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, change, open, volume, and a line chart of the last 60 samples with low/high labels, updating live."},
+      {"n": 6, "status": "pass", "note": "Starred tickers, the sort (including direction) and even the All/My List choice survive a relaunch."}
+    ],
+    "bugs": [
+      "The search field at the bottom stays behind the keyboard while typing, so you can't see what you're typing or reach the clear button until the keyboard is dismissed.",
+      "Rows reorder live under Price/Change sort, so a tap can land on a row that just slid under the finger (starring a row starred the wrong ticker)."
+    ],
+    "tells": [
+      "The bottom search bar is the iOS 26-style one, but it doesn't rise above the keyboard as the system one does.",
+      "The segmented control is pinned under an inline (not large) title, and rows scroll under it with a hard clip instead of a scroll-edge effect.",
+      "Detail screen has slightly odd section headings: grey 'SIMULATED LIVE PRICES' caption floating above a bold grey 'Price History' heading.",
+      "The 'Order: Ascending · Reverse' menu item wraps onto two lines at default text size.",
+      "No swipe actions on rows: a horizontal swipe opens the ticker."
+    ],
+    "scroll": "Fast, smooth native-feeling scrolling with momentum and a scroll indicator; rows update in place without blanks or pop-in while flinging. Rows clip abruptly under the pinned segmented control.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet every requirement. B looks and behaves more like a stock iOS app: system colours, a native sort menu with a reverse option, a dense list, a real empty state, and it persists the scope too. A is a handsome but custom-branded design, and its large title disappears after navigating back. B's worst flaw, the search field hidden behind the keyboard, is real, but A's search has a similar visibility problem with results pushed under the keyboard."
+}

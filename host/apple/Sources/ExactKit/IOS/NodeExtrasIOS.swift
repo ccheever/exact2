@@ -23,15 +23,22 @@ struct AimedGradient {
 final class TextSpecs {
     var rasterKey: TextRasterKey?
     var rasterSpec: Spec?
-    var cached: Spec?
+    var cached: Spec? { didSet { headroom = nil } }
+    var headroom: Float?
     var raster: CGImage?
     var rasterLayer: CALayer?
-    /// The view whose layer `rasterLayer` is when the ink is one colour.
-    var rasterTint: TintInk?
+    /// The layer at the paragraph's place that holds `rasterLayer` (`NodeView.placeTextRaster`).
+    var rasterBox: CALayer?
+    /// What the shown pixels answer for in the paragraph's box, whether they
+    /// are a band of it, the ink they were painted from (`TextRasterImage.ink`)
+    /// and the room they serve (`TextRasterKey.room`).
+    var rasterCovered = CGRect.null, rasterBand = false, rasterInk = (ink: CGRect.null, shadows: CGRect.null), rasterRoom = CGRect.null
     var rasterFrame = CGRect.zero
     var rasterScale: CGFloat = 1
     var flowShapes: [TextFlowShape] = []
     var layout: (width: CGFloat, paragraph: Paragraph)?
+    /// Which way a tall paragraph's port travels, for its band ahead (`TextRasterizer.key`).
+    var bandTravel = PortTravel()
 }
 
 /// What some nodes set and most do not, apart from the view, so every view
@@ -81,7 +88,8 @@ final class NodeExtras {
     /// How far its scroller's scroll moves a sticky box (LLP 1083, `Sticky.swift`).
     var stickyOffset: CGPoint = .zero
     var keyboardLift: CGFloat = 0
-    var layoutScale = CGPoint(x: 1, y: 1)
+    /// How far its surface's size stands from the laid-out size (LLP 1063).
+    var layoutResize: CGSize = .zero
     /// Its surface at a layout transition's size (`Surface.swift`).
     var surface: SurfaceLayer?
     var layoutPanRecognizer: UIPanGestureRecognizer?
@@ -136,6 +144,7 @@ final class NodeExtras {
     var symbolKey: String?
     var symbolRefusal: String?
     var listSymbol = false
+    var listRow = false
     var scrollCornered = false
     var focusRing: CAShapeLayer?
     var scrollEventQueued: Bool = false
@@ -204,9 +213,10 @@ extension NodeView {
     /// have left behind since (`invalidateText` keeps the old pixels up).
     var textRasterSpec: Spec? { get { specs?.rasterSpec } set { if newValue != nil || specs != nil { textMore.rasterSpec = newValue } } }
     var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
+    var cachedTextHeadroom: Float? { get { specs?.headroom } set { if newValue != nil || specs != nil { textMore.headroom = newValue } } }
     var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
-    var textRasterTint: TintInk? { get { specs?.rasterTint } set { if newValue != nil || specs != nil { textMore.rasterTint = newValue } } }
+    var textBoxLayer: CALayer? { get { specs?.rasterBox } set { if newValue != nil || specs != nil { textMore.rasterBox = newValue } } }
     var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }
     var textRasterScale: CGFloat { get { specs?.rasterScale ?? 1 } set { if newValue != 1 || specs != nil { textMore.rasterScale = newValue } } }
     var flowShapes: [TextFlowShape] { get { specs?.flowShapes ?? [] } set { if !newValue.isEmpty || specs != nil { textMore.flowShapes = newValue } } }
@@ -272,7 +282,7 @@ extension NodeView {
     var stickyOffset: CGPoint { get { extras?.stickyOffset ?? .zero } set { if newValue != .zero || extras != nil { more.stickyOffset = newValue } } }
     /// How far a keyboard toolbar rides up with the keyboard (KeyboardToolbarIOS).
     var keyboardLift: CGFloat { get { extras?.keyboardLift ?? 0 } set { if newValue != 0 || extras != nil { more.keyboardLift = newValue } } }
-    var layoutScale: CGPoint { get { extras?.layoutScale ?? CGPoint(x: 1, y: 1) } set { if newValue != CGPoint(x: 1, y: 1) || extras != nil { more.layoutScale = newValue } } }
+    var layoutResize: CGSize { get { extras?.layoutResize ?? .zero } set { if newValue != .zero || extras != nil { more.layoutResize = newValue } } }
     var surface: SurfaceLayer? { get { extras?.surface } set { if newValue != nil || extras != nil { more.surface = newValue } } }
     var layoutPanRecognizer: UIPanGestureRecognizer? { get { extras?.layoutPanRecognizer } set { if newValue != nil || extras != nil { more.layoutPanRecognizer = newValue } } }
     var layoutPanOrigin: CGPoint { get { extras?.layoutPanOrigin ?? .zero } set { if newValue != .zero || extras != nil { more.layoutPanOrigin = newValue } } }
@@ -328,7 +338,7 @@ extension NodeView {
     package var overlay: PlainView? { get { extras?.overlay } set { if newValue != nil || extras != nil { more.overlay = newValue } } }
     package var needsCapture: Bool { get { extras?.needsCapture ?? false } set { if newValue || extras != nil { more.needsCapture = newValue } } }
     package var paintedThisTurn: Bool { get { extras?.paintedThisTurn ?? false } set { if newValue || extras != nil { more.paintedThisTurn = newValue } } }
-    package var placement: [Double]? { get { extras?.placement } set { if newValue != nil || extras != nil { more.placement = newValue } } }
+    package var placement: [Double]? { get { extras?.placement } set { if newValue != nil || extras != nil { more.placement = newValue }; if newValue != nil { Self.placedViews.add(self) } } }
     var symbolView: UIImageView? { get { extras?.symbolView } set { if newValue != nil || extras != nil { more.symbolView = newValue } } }
     var symbolFound: Bool { get { extras?.symbolFound ?? false } set { if newValue || extras != nil { more.symbolFound = newValue } } }
     var symbolKey: String? { get { extras?.symbolKey } set { if newValue != nil || extras != nil { more.symbolKey = newValue } } }
@@ -336,6 +346,18 @@ extension NodeView {
     /// A grouped list's custom row's leading symbol, drawn as UIKit's list
     /// draws a cell's image (`GroupedCustomRowsIOS.swift`).
     package var listSymbol: Bool { get { extras?.listSymbol ?? false } set { guard newValue != listSymbol else { return }; more.listSymbol = newValue; symbolKey = nil; updateSymbol() } }
+    /// What a grouped list's custom row presses (`GroupedCustomRowsIOS.swift`):
+    /// a list cell, which UIKit gives the button trait whatever it opens, so
+    /// a `link` row is a button to VoiceOver there, as a hand-built cell is.
+    package var listRow: Bool {
+        get { extras?.listRow ?? false }
+        set {
+            guard newValue != listRow else { return }
+            more.listRow = newValue
+            guard actsAsButton, props["accessibilityRole"] == "link" else { return }
+            accessibilityTraits.insert(newValue ? .button : .link); accessibilityTraits.remove(newValue ? .link : .button)
+        }
+    }
     /// Whether its scroll view holds a default surface's corner (`syncDefaultSurfaceScroll`).
     var scrollCornered: Bool { get { extras?.scrollCornered ?? false } set { if newValue || extras != nil { more.scrollCornered = newValue } } }
     var focusRing: CAShapeLayer? { get { extras?.focusRing } set { if newValue != nil || extras != nil { more.focusRing = newValue } } }
@@ -461,11 +483,14 @@ extension NodeView {
     /// A field of the author's own (`appearance="none"`) is their box, and
     /// inherits as text does.
     var fieldInk: UIColor {
-        showsOwnTextColor || !isNativeTextControl ? color("text_color", SystemColor.canvasText) : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
+        guard isNativeTextControl else { return color("text_color", SystemColor.canvasText) }
+        // A native editor's own colour as written, with the tint undimmed: UIKit leaves its text colour as set (TintDimmingIOS.swift)
+        return showsOwnTextColor ? undimmedCGColor("text_color").map { UIColor(cgColor: $0) } ?? SystemColor.canvasText : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
     }
-    /// `ownColor` as this node draws it now, or nil.
+    /// The colour this node's author wrote for row `key`, with the tint undimmed, for UIKit to draw
+    /// with (TintDimmingIOS.swift); nil where the author wrote none
     func ownUIColor(_ key: String) -> UIColor? {
-        ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }
+        ownColor(key) == nil ? nil : undimmedCGColor(key).map { UIColor(cgColor: $0) }
     }
 }
 extension NodeView {

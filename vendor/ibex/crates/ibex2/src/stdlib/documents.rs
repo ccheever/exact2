@@ -266,6 +266,45 @@ pub fn run_document(
     }
 }
 
+/// `copyFile` from a chosen document into the app's own directories (Exact
+/// patch 18). The source is admitted and opened as `readFile` admits and
+/// opens it, after `fs.write` on the destination is admitted; the host copies
+/// the bytes, which never reach the guest, so no result envelope bounds them.
+pub fn copy_document(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    documents: Option<&Documents>,
+    path: &str,
+    destination: &str,
+) -> Result<FsResult, HostError> {
+    boundary::admit(grants, &Operation::FsRead { path: path.into() })?;
+    let parts = components(path).map_err(|e| e.guest(path))?;
+    let directories = directories
+        .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
+    let documents =
+        documents.ok_or_else(|| DocumentError::new(DocumentErrorKind::Unsupported).guest(path))?;
+    directories.copy_in(grants, destination, || {
+        let lease = documents(path, DocumentAccess::Read).map_err(|e| e.guest(path))?;
+        let file = match &lease.target {
+            Target::Root(_) => Err(DocumentError::new(DocumentErrorKind::PermissionDenied)),
+            Target::File {
+                directory,
+                leaf,
+                name,
+            } if parts.len() == 2 && parts[1] == name => {
+                super::app_fs::document_file(directory, leaf).map_err(DocumentError::from)
+            }
+            Target::File { .. } => Err(DocumentError::new(DocumentErrorKind::PermissionDenied)),
+            Target::Directory {
+                directory,
+                relative,
+            } => super::app_fs::document_file(directory, relative).map_err(DocumentError::from),
+        }
+        .map_err(|e| e.guest(path))?;
+        Ok((file, lease))
+    })
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -457,6 +496,113 @@ mod tests {
             None,
         )
         .unwrap();
+    }
+    #[test]
+    fn copy_file_takes_a_document_into_an_app_file_under_both_grants() {
+        use super::super::fs::run_with_documents;
+        let f = Fixture::new();
+        std::fs::create_dir(f.0.join("folder")).unwrap();
+        std::fs::write(f.0.join("folder/inside"), b"inside").unwrap();
+        std::os::unix::fs::symlink("folder/inside", f.0.join("link")).unwrap();
+        let app = f.0.join("app");
+        for root in ["data", "cache", "tmp"] {
+            std::fs::create_dir_all(app.join(root)).unwrap();
+        }
+        let dirs = super::super::app_fs::AppDirectories::new(
+            app.join("data"),
+            app.join("cache"),
+            app.join("tmp"),
+        )
+        .unwrap();
+        let root = Arc::new(File::open(&f.0).unwrap());
+        let touched = Arc::new(AtomicUsize::new(0));
+        let seen = touched.clone();
+        let provider = move |path: &str, access: DocumentAccess| {
+            seen.fetch_add(1, Ordering::Relaxed);
+            assert_eq!(access, DocumentAccess::Read);
+            match path.strip_prefix("doc:/1/") {
+                Some(rest) if rest.starts_with("chosen") => {
+                    DocumentLease::selected_file(root.clone(), "chosen".into(), Arc::new(()))
+                }
+                Some(rest) if rest.starts_with("root") => DocumentLease::directory(
+                    root.clone(),
+                    rest[4..].trim_start_matches('/').into(),
+                    Arc::new(()),
+                ),
+                _ => Err(DocumentError::new(DocumentErrorKind::NotFound)),
+            }
+        };
+        let both = GrantSet::parse("fs.read doc:/1\nfs.write app:/data").unwrap();
+        let copy = |grants: &GrantSet, from: &str, to: &str| {
+            run_with_documents(
+                grants,
+                Some(&dirs),
+                Some(&provider),
+                FsOp::CopyFile,
+                from,
+                Some(to),
+                None,
+            )
+        };
+        std::fs::write(app.join("data/old"), b"a longer earlier file").unwrap();
+        assert_eq!(
+            copy(&both, "doc:/1/chosen", "app:/data/old").unwrap(),
+            FsResult::Done
+        );
+        assert_eq!(std::fs::read(app.join("data/old")).unwrap(), b"old");
+        copy(&both, "doc:/1/root/folder/inside", "app:/data/new").unwrap();
+        assert_eq!(std::fs::read(app.join("data/new")).unwrap(), b"inside");
+        let before = touched.load(Ordering::Relaxed);
+        // Each grant is admitted before the provider is asked.
+        for (grants, to) in [
+            ("fs.read doc:/1\nfs.write app:/cache", "app:/data/x"),
+            ("fs.read app:/data\nfs.write app:/data", "app:/data/x"),
+        ] {
+            let e = copy(&GrantSet::parse(grants).unwrap(), "doc:/1/chosen", to).unwrap_err();
+            assert!(e.to_string().contains("denied"), "{e}");
+        }
+        assert_eq!(touched.load(Ordering::Relaxed), before);
+        // The refusals `readFile` gives the same source.
+        for (from, says) in [
+            ("doc:/1/root/link", "ELOOP"),
+            ("doc:/1/root/folder", "EISDIR"),
+            ("doc:/1/root", "EISDIR"),
+            ("doc:/1/chosen/other", "EACCES"),
+            ("doc:/1/gone", "ENOENT"),
+        ] {
+            let e = copy(&both, from, "app:/data/x").unwrap_err().to_string();
+            assert!(
+                e.starts_with("document ") && !e.contains(f.0.to_str().unwrap()),
+                "{from}: {e}"
+            );
+            if says != "ELOOP" {
+                assert!(e.contains(says), "{from}: {e}");
+            }
+        }
+        assert!(copy(&both, "doc:/1/../chosen", "app:/data/x").is_err());
+        assert!(!app.join("data/x").exists());
+        // Only into an app file: another document, or a disk path, is refused.
+        let doc_write = GrantSet::parse("fs.read doc:/1\nfs.write doc:/1\nfs.write /").unwrap();
+        for (from, to) in [
+            ("doc:/1/chosen", "doc:/1/root/copy"),
+            ("doc:/1/chosen", "/tmp/copy"),
+        ] {
+            assert!(copy(&doc_write, from, to).is_err());
+        }
+        assert!(!f.0.join("copy").exists());
+        for op in [FsOp::Rename, FsOp::Realpath] {
+            assert!(run_with_documents(
+                &both,
+                Some(&dirs),
+                Some(&provider),
+                op,
+                "doc:/1/chosen",
+                (op == FsOp::Rename).then_some("app:/data/moved"),
+                None,
+            )
+            .is_err());
+        }
+        assert!(f.0.join("chosen").exists());
     }
     #[test]
     fn provider_enforces_access_sessions_forgetting_and_guard_lifetime() {

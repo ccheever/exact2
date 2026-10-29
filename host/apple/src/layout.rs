@@ -8,6 +8,9 @@ pub(super) mod closed;
 #[path = "separator.rs"]
 pub(super) mod separator;
 
+/// The props `emit_layout` derives from a node's layout, not its author's.
+pub(super) const DERIVED_PROPS: [&str; 3] = ["fitScale", "flexGrows", "textOffset"];
+
 impl<D: DataSource> Host<D> {
     /// Writes `batch` for the presenter; every batch with ops is written
     /// here. From a failed layout until one settles, whatever turn made the
@@ -23,7 +26,9 @@ impl<D: DataSource> Host<D> {
             batch.withhold(!batch.layout_provisional);
         }
         batch.facts = self.facts_moved();
+        batch.landing = self.runner.data_timer_landing();
         batch.wakelock = self.wakelock_moved();
+        batch.orientationlock = self.orientation_moved();
         // A package view's displayed state, by the same rule, now the
         // presenter's covers are set (LLP 1133.008 D8 item 2).
         self.runner.report_views();
@@ -47,6 +52,8 @@ impl<D: DataSource> Host<D> {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
         batch.seq = self.runner.seq_range();
+        batch.alerts = self.runner.take_alerts();
+        batch.journal = self.runner.take_journal();
         batch.canvas_frames(self.runner.canvas_wants_frame());
         self.canvas_owed_onto(batch);
     }
@@ -137,6 +144,7 @@ impl<D: DataSource> Host<D> {
                 if self.content_region.is_some() {
                     self.region_layout(root, Offer::definite(w, h), batch)?;
                 } else {
+                    self.runner.count_kernel_layout();
                     let receipt = self
                         .runner
                         .kernel_mut()
@@ -337,11 +345,12 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let m = self.mirror.entry(id).or_default();
-            // LLP 1131 D2: a scroller takes what its neighbours leave, which
-            // the iOS host asks before drawing it under them: an item of a
-            // column flex container growing by 1 or more with no
-            // `max-height`, which takes every point of the free space (CSS
-            // Flexbox §9.7; a factor under 1 takes only that share).
+            // LLP 1131 D2: a scroller, or a box holding one, takes what its
+            // neighbours leave, which the iOS host asks before drawing the
+            // scroller under them: an item of a column flex container
+            // growing by 1 or more with no `max-height`, which takes every
+            // point of the free space (CSS Flexbox §9.7; a factor under 1
+            // takes only that share).
             let column = node.parent.and_then(|p| kernel.node(p)).is_some_and(|p| {
                 p.style.display == exact_kernel::Display::Flex
                     && matches!(
@@ -350,8 +359,7 @@ impl<D: DataSource> Host<D> {
                             | exact_kernel::FlexDirection::ColumnReverse
                     )
             });
-            let grows = (scrolls
-                && column
+            let grows = (column
                 && node.style.flex_grow >= 1.0
                 && !node.style.mask.has(exact_kernel::StyleId::MaxHeight))
             .then(|| "true".to_string());
@@ -580,7 +588,8 @@ impl<D: DataSource> Host<D> {
             if !self.layout_withheld && !refit.contains(&id) && last == Some(sig) {
                 continue;
             }
-            let Some(height) = kernel.fit_content_height(key) else {
+            self.runner.count_kernel_layout();
+            let Some(height) = self.runner.kernel_mut().fit_content_height(key) else {
                 continue;
             };
             self.fit_routes[i].1 = Some(sig);
@@ -743,6 +752,40 @@ mod tests {
         .unwrap()
         .0
     }
+    #[test]
+    fn measured_layout_counts_actual_entries_and_stops_when_disabled() {
+        let mut h = fixture();
+        h.runner.measure(true, true);
+        h.runner.measure_kernel_layouts();
+        let read = |h: &Host<NoData>| {
+            let reply = exact_runner::perf::reply(&h.runner, "{}");
+            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["work"]["counts"]
+                ["kernelLayouts"]
+                .as_u64()
+                .unwrap()
+        };
+        let before = read(&h);
+        h.layout(&mut Batch::new()).unwrap();
+        assert_eq!(read(&h), before + h.runner.roots().len() as u64);
+        let before_trial = read(&h);
+        let root = h.runner.roots()[0];
+        let _ = h.measure_block(
+            root,
+            exact_kernel::HostBlock {
+                width: exact_kernel::BlockAxis::Is(300.0),
+                height: exact_kernel::BlockAxis::AtMost(300.0),
+            },
+        );
+        assert_eq!(
+            read(&h),
+            before_trial + 1,
+            "trial layouts also enter the kernel"
+        );
+        h.runner.measure(false, false);
+        h.layout(&mut Batch::new()).unwrap();
+        assert!(exact_runner::perf::reply(&h.runner, "{}").contains("measures no work"));
+    }
+
     fn id(host: &Host<NoData>, name: &str) -> ViewId {
         let k = host.runner.kernel();
         k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
@@ -1059,6 +1102,56 @@ mod tests {
         assert!(
             !rects(&cleared).contains_key(&pct),
             "30 points is the box 10% of 300 made: {cleared}"
+        );
+    }
+
+    /// A list growing in a column has the `flexGrows` its layout gives it,
+    /// and a commit that changes its rows leaves it: emitting the list's
+    /// props kept it, and no batch clears it to set it again.
+    #[test]
+    fn a_rows_change_leaves_a_growing_lists_derived_props() {
+        let plan = contract::compile(
+            r#"component App
+  state n = 2
+  action more
+    n = n + 1
+  view
+    column testId="root" display="flex" flex-direction="column" height=400
+      button testId="more" press=more
+        text "More"
+      list testId="list" flex=1 min-height=0
+        for i in range(n) key=i
+          text `${i}`
+"#,
+        )
+        .unwrap()
+        .encode();
+        let (mut h, boot) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(exact_kernel::MonospaceMeasurer::default()),
+            400.,
+            400.,
+        )
+        .unwrap();
+        let list = id(&h, "list");
+        let grows = |batch: &str| {
+            let v: serde_json::Value = serde_json::from_str(batch).unwrap();
+            (v["ops"].as_array().cloned().unwrap_or_default().into_iter())
+                .filter(|op| op["id"] == list && op["op"] == "props")
+                .map(|op| (op["set"]["flexGrows"].clone(), op["clear"].to_string()))
+                .collect::<Vec<_>>()
+        };
+        assert!(boot.contains("\"flexGrows\":\"true\""), "{boot}");
+        let more = id(&h, "more");
+        let batch = h.dispatch_at(more, exact_runner::Event::Press, h.engine().now() * 1000.);
+        assert!(batch.contains("\"op\":\"children\""), "{batch}");
+        assert!(
+            grows(&batch)
+                .iter()
+                .all(|(set, clear)| set.is_null() && !clear.contains("flexGrows")),
+            "{:?}",
+            grows(&batch)
         );
     }
 }

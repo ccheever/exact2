@@ -401,9 +401,10 @@ final class RegionReaderParagraph {
         RegionReaderTiming.begin()
         defer { RegionReaderTiming.end() }
         let started = CACurrentMediaTime()
-        let post = Presenter.signposts.beginInterval("reader-draw")
+        let post = Presenter.signposts.beginInterval("reader-draw"), phase = HostPhases.shared.begin(.draw)
         defer {
             Presenter.signposts.endInterval("reader-draw", post)
+            HostPhases.shared.end(phase)
             maxDraw = max(maxDraw, CACurrentMediaTime() - started)
         }
         update(node)

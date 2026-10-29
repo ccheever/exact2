@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod container;
 mod counts;
+mod fixed_beside;
 mod launch;
 pub(crate) mod line_height;
 mod miswiring;
@@ -67,8 +68,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     let root = &checked.expanded.root;
     let mut out = Vec::new();
     routeless_header::check(checked, &mut out);
-    // Track the enclosing navigation root (the outermost `navigationKey`) and its
-    // literal `navigationBack`: a keyed element inside that root is a route.
+    // Track the navigation root (the outermost `navigationKey`) and its `navigationBack`.
     crate::menu_rows::notes(&root.view, &mut out);
     crate::symbols::tints(&root.view, &checked.file.styles, lowered, &mut out);
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
@@ -108,12 +108,12 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 }
                 miswiring::navigation_split(tag, attrs, keyed, keyed && !in_root, fresh, &mut out);
                 let route = in_root && keyed && !has(attrs, "navigationBack");
-                // A route that says it has no bar (LLP 1115.000 D5.2) draws
-                // its header as written: nothing of it is the bar's to drop.
+                // A route that says it has no bar (LLP 1115.000 D5.2) draws its header as written.
                 let no_bar = literal(attrs, "navigationBar") == Some("none");
                 if route && !no_bar {
                     route_header(children, &[], &mut out);
                     nested_header::nested_header(children, &mut out);
+                    fixed_beside::fixed_beside((tag, attrs), children, &mut out);
                 }
                 if let (true, Some(name)) = (route, back) {
                     drawn_back(attrs, children, name, &mut out);
@@ -145,7 +145,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     // A `replace` the router refuses on a root route's screen, a `select` after a push.
     out.extend(root_replace::router(checked));
     out.extend(counts::count_plural(checked));
-    // @ref LLP 1116.016 D4 — a row that searches another data list.
+    // @ref LLP 1116.016 D4 — a row that searches another data list; LLP 1142 D6, a key by position.
     out.extend(rows::row_lookup(checked));
     // @ref LLP 1116.020 D1 — a `delete=` no list row holds.
     out.extend(crate::swipe_rows::unplaced(

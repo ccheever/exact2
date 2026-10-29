@@ -76,6 +76,7 @@ final class ContactStore: NSObject {
             DispatchQueue.main.async {
                 self?.say("asked: \(granted ? "granted" : "not granted")")
                 done()
+                self?.changed()
             }
         }
     }

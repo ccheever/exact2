@@ -62,6 +62,7 @@ fn run(text: &str) -> TextRun<'_> {
     TextRun {
         text: text.into(),
         style: exact_kernel::TextStyle::from_style(&StyleProps::default()),
+        inline: None,
     }
 }
 fn request<'a>(

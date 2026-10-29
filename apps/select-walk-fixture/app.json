@@ -1,0 +1,32 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Select walk fixture",
+  "short_name": "Select walk",
+  "id": "com.exact.select-walk-fixture",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "app": {
+    "id": "com.exact.select-walk-fixture",
+    "name": "Select walk fixture"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 402,
+        "height": 700,
+        "minWidth": 320,
+        "minHeight": 420
+      }
+    }
+  }
+}

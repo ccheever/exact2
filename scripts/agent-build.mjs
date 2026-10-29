@@ -27,7 +27,7 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { compilerWarnings, warningLines, CONFIG_JSON, DECLARATIONS, depInfoInputs, moduleGraph, newerThan, notBuildInput, receiptChanges, refuseStale } from './agent-launch.mjs';
-import { bakeOutput, claimLive, developmentBuildEnv, resolveApp, shaderWatchRoots } from './app.mjs';
+import { bakeOutput, claimLive, developmentBuildEnv, linuxBuild, resolveApp, shaderWatchRoots } from './app.mjs';
 import { bakeTool, linkedBakeDir } from './linked-plan.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -48,8 +48,7 @@ export function nativeBuild(host, app, { sample = false, checked = null } = {}) 
   const ios = host === 'ios';
   const built = ios ? appleArtifacts(app, { destination: 'ios-simulator', host: sample }).bundle : appleRunBinary(app, sample);
   if (!existsSync(built)) return { built, missing: true, changed: [] };
-  const receipt = ios ? resolve(built, 'receipt.json')
-    : [resolve(appleArtifacts(app, { host: sample }).products, 'receipt.json'), resolve(appleArtifacts(app, { host: sample }).bundle, 'Contents/Resources/receipt.json')].find(existsSync);
+  const receipt = receiptPath(host, app, { sample });
   const changed = receipt ? receiptChanges(receipt, app, { hashed: !!checked && checked === digestOf(receipt) }) : [];
   if (!ios && !sample && receipt) {
     const bundled = resolve(appleArtifacts(app).bundle, 'Contents/Resources/receipt.json');
@@ -61,6 +60,12 @@ export function nativeBuild(host, app, { sample = false, checked = null } = {}) 
     } catch { changed.push(bundled); }
   }
   return { built, receipt, changed };
+}
+
+/** The receipt of the build a drive of `app` on `host` (`ios`, else macOS) launches, or undefined without one. */
+export function receiptPath(host, app, { sample = false } = {}) {
+  if (host === 'ios') return [resolve(appleArtifacts(app, { destination: 'ios-simulator', host: sample }).bundle, 'receipt.json')].find(existsSync);
+  return [resolve(appleArtifacts(app, { host: sample }).products, 'receipt.json'), resolve(appleArtifacts(app, { host: sample }).bundle, 'Contents/Resources/receipt.json')].find(existsSync);
 }
 
 /** Why a drive must build first, or null when it need not: no build yet, or
@@ -75,14 +80,25 @@ export function buildReason(state, app) {
  * app's own `exact.mjs` verb, else exact2's build. An `exact.mjs` written
  * before test and agent built first is told how to get that. */
 export function rebuildCommand(app, verb) {
-  const own = app.dir && !resolve(app.dir).startsWith(`${ROOT}/`) && existsSync(resolve(app.dir, 'exact.mjs'));
-  if (!own) return `bun host/apple/build.mjs${verb === 'ios' ? ' --ios' : ''} ${app.crate('apple')}`;
-  const command = `(cd '${String(app.dir).replaceAll("'", "'\\''")}' && bun exact.mjs ${verb})`;
+  const command = ownVerb(app, verb);
+  if (!command) return `bun host/apple/build.mjs${verb === 'ios' ? ' --ios' : ''} ${app.crate('apple')}`;
   const runner = readFileSync(resolve(app.dir, 'exact.mjs'), 'utf8');
   // A launcher (LLP 1116.006 D7) runs this checkout's app-cli.mjs, which builds first.
   return runner.includes('agent-build.mjs') || runner.includes('scripts/app-cli.mjs') ? command
     : `${command} (after bun exact.mjs update, test and agent build it themselves)`;
 }
+
+/** `verb` run by an `exact new` app's own `exact.mjs`, in its directory; null for an app in this checkout. */
+export function ownVerb(app, verb) {
+  const own = app.dir && !resolve(app.dir).startsWith(`${ROOT}/`) && existsSync(resolve(app.dir, 'exact.mjs'));
+  const quoted = (path) => `'${String(path).replaceAll("'", "'\\''")}'`;
+  // A target the environment names resolves against the directory the drive ran in, not the app's: pinned whole
+  const target = process.env.CARGO_TARGET_DIR && app.target ? `CARGO_TARGET_DIR=${quoted(app.target)} ` : '';
+  return own ? `(cd ${quoted(app.dir)} && ${target}bun exact.mjs ${verb})` : null;
+}
+
+/** The command that builds `app`'s Linux host for a drive: an `exact new` app's own verb, else exact2's build. */
+export const linuxRebuild = (app) => ownVerb(app, 'linux') ?? linuxBuild(app).join(' ');
 
 /** The driver's refusal (LLP 1012.001.000 D1) on what `nativeBuild` found. */
 export function refuseBuild(host, state, app, { sample = false } = {}) {

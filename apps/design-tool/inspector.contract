@@ -62,12 +62,18 @@ component Inspector
       else
         column gap=4 testId="selection"
           text inspected.source font="-exact-headline" testId="selection-source"
-          // Each a press that selects that ancestor on the build, as a click on it would (tamber/1.16).
-          if changes.noStep.includes(inspected.build) and inspected.chain.length > 0
+          // Each a press that selects that ancestor on the build, as a click on it would (tamber/1.16); none while the
+          // page's selection is not current (the Apple pass's #5, #6: a stale or relaunched build's would be refused).
+          if changes.noStep.includes(inspected.build)
             text "This build can't move its selection up the chain: click the node itself." color="-exact-secondary-label" font="-exact-footnote" testId="selection-up-none"
           for c in inspected.chain key=c.up
-            button press=selectUp(c.up) disabled=(not inspected.inspecting or movingUp or changes.noStep.includes(inspected.build)) aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
+            button press=selectUp(c.up) disabled=(not inspected.inspecting or movingUp or changes.noStep.includes(inspected.build) or inspected.pageStale != "") aria-label=`Select ${c.text}` testId=`selection-up-${c.up}`
               text `in ${c.text}` color="-exact-secondary-label" font="-exact-footnote"
+          // No call site above it (the app's own node, or a slot fill the app wrote): one step still, by the page's own
+          // tree (1.17), to a slot's host that holds it, or, with none, the app's root, as the note then says.
+          if inspected.chain.length == 0
+            button press=selectUp(1) disabled=(not inspected.inspecting or movingUp or changes.noStep.includes(inspected.build) or inspected.pageStale != "") aria-label="Select what holds it" testId="selection-up-1"
+              text "up: what holds it (a slot's host), else the app's root" color="-exact-secondary-label" font="-exact-footnote"
           if upNote != "" and upNoteKey == inspected.visit
             text upNote color="-exact-system-orange" font="-exact-footnote" testId="selection-up-note"
           // (A move refused: the server's or the page's words.)
@@ -81,7 +87,7 @@ component Inspector
           if inspected.libraryIdentity != ""
             column gap=2 testId="selection-library"
               text `Library: ${inspected.libraryIdentity}` font="-exact-footnote" role="heading" aria-level=3 testId="library-identity"
-              text (inspected.libraryPart != "" ? `This node is its part ${inspected.libraryPart}` : "This node is no part of it") color="-exact-secondary-label" font="-exact-footnote" testId="library-part"
+              text (inspected.libraryPart != "" ? `This node is its part ${inspected.libraryPart}` : "Not one of its parts.") color="-exact-secondary-label" font="-exact-footnote" testId="library-part"
               for p in inspected.libraryParts key=p.name
                 text `${p.here ? "▸ " : ""}${p.name}${p.slot ? " · its slot" : ""}` color=(p.here ? "-exact-label" : "-exact-secondary-label") font="-exact-footnote" testId=`library-part-${p.name}`
               text "Its rows are the package's recipe, read only here; a token or param a row reads is set for this app." color="-exact-secondary-label" font="-exact-caption1" testId="library-readonly"

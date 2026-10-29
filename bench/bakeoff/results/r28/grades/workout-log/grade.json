@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History list, newest first, with a '60 workouts' header. Each row shows the name, date, exercise count and total volume (e.g. Legs, Sun Oct 25, 4 exercises, 6,767.5 lb), with SF Symbol icons."},
+      {"n": 2, "status": "pass", "note": "Detail screen has a large title, a Date/Exercises/Sets/Total Volume summary, and one section per exercise listing its sets ('13 reps × 25 lb') with a per-exercise volume footer. Exercise headers push to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Name field, then a multi-select picker sheet with a search field and muscle chips (search and filter both work; there is a proper 'No Results' empty state). The Add Set sheet has a number pad, a Next accessory, −/+ steppers, a live volume figure, and is prefilled from the last set. Tapping a set edits it (with a Delete Set button), swipe-to-delete works, and an ellipsis menu removes an exercise. Finish asks for confirmation, warns about exercises with no sets, and adds the workout to the top of History. An empty name falls back to 'Afternoon Workout'."},
+      {"n": 4, "status": "pass", "note": "Library tab is grouped by muscle with counts ('Arms (20)') and has a pull-down search field."},
+      {"n": 5, "status": "pass", "note": "Exercise screen shows Muscle/Equipment, a Best Set card (heaviest weight, reps, workout and date), and 'Appears in N workouts' rows with their sets. It updated correctly after a new workout was logged (205 lb from Test Day)."},
+      {"n": 6, "status": "pass", "note": "After relaunch, the in-progress workout (name, exercises, sets, volume) was restored intact, and the finished workout stayed in History (61 workouts)."}
+    ],
+    "bugs": [
+      "On the exercise screen, the 'Appears in' row for the workout you came from stays highlighted grey (selected) indefinitely, like a stuck cell selection."
+    ],
+    "tells": [
+      "The muscle filter in the exercise picker is a hand-drawn row of capsule chips that scrolls horizontally, cut off at the edge ('Glut…'), where iOS would use a scope bar, menu or segmented control.",
+      "At the largest text size, the Finish and Discard confirmation dialogs appear as a narrow popover anchored to the tab bar. The text stacks into hyphenated fragments and the popover covers half the screen.",
+      "The History rows' small list and scale icons beside the count and volume give a slightly custom, non-standard row look."
+    ],
+    "scroll": "The 60-row History list and the Library scroll smoothly on slow drags and hard flings, with no blank or popping rows. Scroll position is kept when pushing into a workout and coming back.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History list, newest first. Each row shows name, date and '4 exercises · 6,767.5 lb' on three lines."},
+      {"n": 2, "status": "pass", "note": "Detail screen (inline title) shows a Date/Exercises/Sets/Total Volume summary and one section per exercise with its sets ('13 × 25 lb') and per-exercise volume. Exercise rows push to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Name field; the Add Exercise sheet has a native Muscle pop-up menu and a bottom search field (filter and search work, e.g. Legs + 'squat' → 3 results). It is single-select, so the sheet has to be reopened for each exercise. Add Set uses a number pad with validation ('Weight is from 0 to 2,000 lb'). Later sets are prefilled from the previous one; the first starts empty with no steppers. Tapping a set edits it, swipe deletes sets and exercises, and Discard asks for confirmation in an alert. Finish stays disabled until the workout has a name and at least one set, then opens the saved workout."},
+      {"n": 4, "status": "pass", "note": "Library tab is grouped by muscle (section headers have no counts) and has a pull-down search field."},
+      {"n": 5, "status": "pass", "note": "Exercise screen shows Muscle/Equipment, a Best Set card (weight, reps, workout, date) and a 'Workouts (N)' list with compact sets ('13×25, 7×17.5'). It updated after a new workout was logged."},
+      {"n": 6, "status": "pass", "note": "After relaunch, the in-progress workout (name, exercise, sets) was restored and the finished workout stayed at the top of History."}
+    ],
+    "bugs": [
+      "At the largest text size the Add Set sheet header breaks: the 'Add Set' title wraps onto two lines over the exercise name, and the Add/Save button is clipped off the right edge ('Ad'), so the primary action is barely reachable."
+    ],
+    "tells": [
+      "The Add Set / Edit Set sheet header is hand-built rather than a navigation bar. Cancel is plain blue text, unlike the glass capsule buttons used everywhere else; the title is a regular-weight large font; the Add button is a grey capsule; and there is no sheet grabber. It is inconsistent with the app's other sheets and with iOS 27.",
+      "The exercise picker is single-select and dismisses after each pick, so adding several exercises means reopening the sheet repeatedly.",
+      "The first set's reps and weight fields start empty, with no steppers, and the error text sits in the footer. Workable, but plainer than a typical logging app."
+    ],
+    "scroll": "The 60-row History list and the Library scroll smoothly on slow drags and flings, with no blank rows or stutter. Scroll position is kept when pushing into a workout and returning.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements and look native in light, dark and large text, with equally smooth lists. A's workout logging is the more refined of the two: a multi-select picker, a real navigation-bar Add Set sheet with steppers, a live volume figure and prefilled values, plus confirmation that warns about empty exercises. B's Add Set sheet uses a hand-built header that looks out of place and breaks at the largest text size (Add button clipped), and its picker adds only one exercise at a time."
+}

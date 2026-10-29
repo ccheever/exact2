@@ -461,3 +461,260 @@ test('lists opened at their ends report only their ends while their rows measure
     expect(heard).toEqual(heard.map(() => 0));
   }
 }, 60_000);
+
+test('measured virtual rows count construction and retirement without eager realization', async () => {
+  const result = await evaluate(`(async () => {
+    const perf = await import('/perf.js'), root = document.getElementById('exact-root');
+    perf.install(root);
+    const el = document.createElement('div'); el.dataset.site = '93';
+    el.style.cssText = 'height:320px;width:400px;overflow:auto'; root.append(el);
+    const own = rt.scope(() => list.vl(el, () => Array.from({length:3000}, (_, i) => i), i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+    }, {est:32,pw:[],ph:[320]}));
+    await exact.lists.pending(); await exact.lists.settle();
+    const before = perf.reply(root, {}).sites.find(s => s.site === 93);
+    exact.lists.into(el.$list.view, 500);
+    await exact.lists.settle();
+    const moved = perf.reply(root, {}).sites.find(s => s.site === 93);
+    rt.end(own); el.remove(); rt.settled();
+    const after = perf.reply(root, {}).sites.find(s => s.site === 93);
+    return {before,moved,after};
+  })()`);
+  expect(result.before.rowConstructed).toBeGreaterThan(0);
+  expect(result.before.rowConstructed).toBeLessThan(100);
+  expect(result.moved.rowRetired).toBeGreaterThan(0);
+  expect(result.after.rowRetired).toBe(result.after.rowConstructed);
+}, 60_000);
+
+// @ref LLP 1145 D4 — `reach-margin` sets how far ahead of the last row `reachend` fires, as the runner's reach.rs.
+test('reach-margin moves reachend earlier or later; the default is one port', async () => {
+  const result = await evaluate(`(async () => {
+    const lists = [undefined, '300%', '0PX 960px', '0px'].map(reach => {
+      const el = document.createElement('div');
+      el.style.cssText = 'height:320px;width:400px;overflow:auto';
+      document.getElementById('exact-root').append(el);
+      const l = { el, ends: 0, at: null };
+      l.own = rt.scope(() => list.vl(el, () => Array.from({length:200}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+      }, {est:32, pw:[], ph:[320], end: () => { l.ends++; }, reach}));
+      return l;
+    });
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    // The last row starts at 6368; the port ends 320 past its offset.
+    for (const top of [1000, 5128, 5768, 6080]) {
+      await Promise.all(lists.map(({el}) => new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = top; })));
+      await exact.lists.settle();
+      for (let f = 0; f < 3; f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+      for (const l of lists) if (l.ends && l.at === null) l.at = top;
+    }
+    for (const {el, own} of lists) { rt.end(own); el.remove(); }
+    rt.settled();
+    return lists.map(l => l.at);
+  })()`);
+  expect(result).toEqual([5768, 5128, 5128, 6080]);
+}, 60_000);
+
+// @ref LLP 1027.004 D3 — the edge band leads a fling as the window does (reach.rs `Margin::band`). The
+// agent's reports carry no velocity, so these are made here: one at rest, then one moving at -4,000 px/s.
+test('a fling toward the start fires reachstart as far ahead as the window leads', async () => {
+  const result = await evaluate(`(async () => {
+    const lists = [undefined, '0px', '200%'].map(reach => {
+      const el = document.createElement('div');
+      el.style.cssText = 'height:320px;width:400px;overflow:auto';
+      document.getElementById('exact-root').append(el);
+      const l = { el, starts: 0 };
+      l.own = rt.scope(() => list.vl(el, () => Array.from({length:200}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+      }, {est:32, pw:[], ph:[320], start: () => { l.starts++; }, reach}));
+      l.c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
+      return l;
+    });
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    await Promise.all(lists.map(({el}) => new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = 1000; })));
+    await exact.lists.settle();
+    // Row 0 ends at 32; the band before a port at rest is the margin, and
+    // moving toward the start a quarter second of travel more, up to two ports.
+    const report = (c, offset, velocity) => {
+      const f = { ...c.geometry, revision: c.revision, scroll_sequence: c.geometry.scroll_sequence + 1, offset, measurements: [] };
+      const byView = c.prepare(f);
+      return byView ? c.feedback(f, byView, { velocity, limit: null })[1]?.first ?? null : 'refused';
+    };
+    const out = lists.map(({c}) => [
+      [960, 0], [960, -4000], [991, -4000], [992, -4000], [640, 0], [640, -4000], [671, 0], [1311, -4000], [1312, -4000],
+    ].map(([offset, velocity]) => { const edge = report(c, offset, velocity); if (edge === 0) c.edgeArmed[0] = true; return edge; }));
+    for (const {el, own} of lists) { rt.end(own); el.remove(); }
+    rt.settled();
+    return out;
+  })()`);
+  const N = null;
+  expect(result).toEqual([
+    [N, 0, 0, N, N, 0, N, N, N],
+    [N, N, N, N, N, 0, N, N, N],
+    [N, 0, 0, 0, 0, 0, 0, 0, N],
+  ]);
+}, 60_000);
+
+// reach.rs `geometric_edges`: a page smaller than a fling's band re-arms its edge by the band at rest.
+test('a page that lands within a fling\'s band re-arms reachstart', async () => {
+  const result = await evaluate(`(async () => {
+    const el = document.createElement('div');
+    el.style.cssText = 'height:320px;width:400px;overflow:auto';
+    document.getElementById('exact-root').append(el);
+    let starts = 0;
+    const rows = rt.sig(Array.from({length:200}, (_, i) => i));
+    const own = rt.scope(() => list.vl(el, rows, i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+    }, {est:32, pw:[], ph:[320], start: () => { starts++; }}));
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    await new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = 1000; });
+    await exact.lists.settle();
+    const c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
+    const report = (offset, velocity) => {
+      const f = { ...c.geometry, revision: c.revision, scroll_sequence: c.geometry.scroll_sequence + 1, offset,
+        measurements: c.mounted.map(m => ({ view: m.view, epoch: m.epoch, size: 32 })) };
+      const byView = c.prepare(f);
+      if (!byView) return 'refused';
+      const edge = c.feedback(f, byView, { velocity, limit: null })[1];
+      if (edge?.first === 0) starts++;
+      return edge?.first ?? null;
+    };
+    const out = [report(960, -4000), report(900, -4000)];
+    // A message at the end re-arms nothing: the first row is the one it fired at.
+    rt.commit(() => rt.W(rows, [...rows(), ...Array.from({length:20}, (_, i) => 200 + i)]));
+    rt.settled();
+    out.push(report(900, -4000), report(900, -4000), report(100, -4000));
+    rt.commit(() => rt.W(rows, [...Array.from({length:20}, (_, i) => i - 20), ...rows()]));
+    rt.settled();
+    out.push(c.correction?.offset, report(740, -4000));
+    rt.end(own); el.remove(); rt.settled();
+    return out;
+  })()`);
+  expect(result).toEqual([0, null, null, null, null, 740, 0]);
+}, 60_000);
+
+// @ref LLP 1010 §6.11 — `keep-mounted` keeps its rows mounted wherever the window is, as the runner's keep.rs.
+test('keep-mounted keeps the first, last and playing rows mounted as the window moves', async () => {
+  const result = await evaluate(`(async () => {
+    const el = document.createElement('div');
+    el.style.cssText = 'height:320px;width:400px;overflow:auto';
+    document.getElementById('exact-root').append(el);
+    const rows = rt.sig(Array.from({length:200}, (_, i) => i)), playing = rt.sig(100);
+    const own = rt.scope(() => list.vl(el, rows, i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+    }, {est:32, pw:[], ph:[320], keep: () => [0, rows().length - 1, playing(), null]}));
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    const c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
+    const mounted = () => c.mounted.map(m => m.position).filter(p => p < 20 || p > 60).join(' ');
+    const out = [mounted()];
+    await new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = 6080; });
+    await exact.lists.settle();
+    out.push(mounted());
+    rt.commit(() => rt.W(playing, 150));
+    rt.settled();
+    out.push(mounted());
+    // The kept last key and the data change in one commit: one pass, one revision.
+    const before = c.revision;
+    rt.commit(() => rt.W(rows, [...rows(), ...Array.from({length:20}, (_, i) => 200 + i)]));
+    rt.settled();
+    out.push(c.mounted.some(m => m.position === 219), c.mounted.some(m => m.position === 199) === c.mounted.some(m => m.position === 198), c.revision - before);
+    rt.end(own); el.remove(); rt.settled();
+    return out;
+  })()`);
+  const [start, end, played, ...grown] = result;
+  // At the start, the window's first rows, the playing row and the last row.
+  expect(start.split(' ').map(Number)).toEqual(expect.arrayContaining([0, 100, 199]));
+  // At the end: the first row and the playing one are still there; the window's rows near the start went.
+  expect(end.split(' ').map(Number)).toEqual(expect.arrayContaining([0, 100]));
+  expect(end.split(' ').map(Number)).not.toContain(10);
+  // A new playing row mounts and the old one goes.
+  expect(played.split(' ').map(Number)).toEqual(expect.arrayContaining([0, 150]));
+  expect(played.split(' ').map(Number)).not.toContain(100);
+  // The new last row is kept; 199 is now an ordinary row of the window.
+  expect(grown).toEqual([true, true, 1]);
+}, 60_000);
+
+// @ref LLP 1010 §6.11 — a kept row before a jump's target does not hold the jump open (into_view.rs `settle_target`).
+test('a jump past a kept row settles', async () => {
+  const result = await evaluate(`(async () => {
+    const out = [];
+    for (const keep of [undefined, () => [0]]) {
+      const el = document.createElement('div'); el.id = 'kept-jump';
+      el.style.cssText = 'height:320px;width:400px;overflow:auto';
+      document.getElementById('exact-root').append(el);
+      const own = rt.scope(() => list.vl(el, () => Array.from({length:200}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+      }, {est:32, pw:[], ph:[320], keep}));
+      rt.settled();
+      await exact.lists.pending(); await exact.lists.settle();
+      rt.Hosts.scrollIntoView('kept-jump', 150, 'start', 'nearest', 'instant', null, null);
+      for (let f = 0; f < 4; f++) { await exact.lists.settle(); await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0))); }
+      const c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
+      out.push([exact.lists.intoView().find(e => e.list === c.view)?.status, el.scrollTop]);
+      rt.end(own); el.remove(); rt.settled();
+    }
+    return out;
+  })()`);
+  expect(result).toEqual([['done', 4800], ['done', 4800]]);
+}, 60_000);
+
+
+test('vertical rubber-band travel does not trigger collection scroll corrections', async () => {
+  const result = await evaluate(`(async () => {
+    const results = [];
+    for (const nested of [false, true]) {
+      const port = document.createElement('div');
+      port.style.cssText = 'height:100px;width:200px;overflow:auto';
+      document.getElementById('exact-root').append(port);
+      const el = nested ? document.createElement('div') : port;
+      if (nested) {
+        const before = document.createElement('div'); before.style.height = '50px'; port.append(before, el);
+      }
+      const own = rt.scope(() => list.vl(el, () => Array.from({length:40}, (_, i) => i), i => i(), (wrapper, item) => {
+        const row = document.createElement('div'); row.textContent = String(item()); row.style.height = '20px'; wrapper.append(row);
+      }, {est:20, pw:[], ph:[100]}));
+      rt.settled();
+      await exact.lists.pending(); await exact.lists.settle();
+      const maximum = port.scrollHeight - port.clientHeight;
+      const native = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+      const scrollTo = port.scrollTo.bind(port), writes = [], offsets = [];
+      const rect = el.getBoundingClientRect.bind(el);
+      let bounced;
+      port.scrollTo = options => {
+        writes.push(options.top); bounced = Math.max(0, Math.min(options.top, maximum)); scrollTo(options);
+      };
+      for (const edge of [0, maximum]) {
+        native.set.call(port, edge);
+        await exact.lists.settle();
+        bounced = edge;
+        Object.defineProperty(port, 'scrollTop', { configurable:true, get:() => bounced, set:value => {
+          writes.push(value); bounced = Math.max(0, Math.min(value, maximum)); native.set.call(port, bounced);
+        }});
+        if (nested) el.getBoundingClientRect = () => {
+          const r = rect(), bounce = bounced - Math.max(0, Math.min(bounced, maximum));
+          return new DOMRect(r.x, r.y - bounce, r.width, r.height);
+        };
+        // Model Safari's out-of-range reads during a pull and its return to the edge
+        for (const distance of [10, 30, 60, 40, 20, 5, 0]) {
+          bounced = edge + (edge === 0 ? -distance : distance);
+          port.dispatchEvent(new Event('scroll'));
+          await exact.lists.settle();
+          offsets.push(el.$list.geometry.offset);
+        }
+        delete port.scrollTop;
+        if (nested) delete el.getBoundingClientRect;
+      }
+      rt.end(own); port.remove(); rt.settled();
+      results.push({maximum, writes, offsets});
+    }
+    return results;
+  })()`);
+  expect(result.map(arm => arm.maximum)).toEqual([700, 750]);
+  for (const arm of result) {
+    expect(arm.writes).toEqual([]);
+    expect(arm.offsets).toEqual([...Array(7).fill(0), ...Array(7).fill(700)]);
+  }
+}, 60000);

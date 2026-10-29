@@ -63,6 +63,8 @@ pub fn resolve_clock_timelines_in(
             .chain(c.resources.iter().map(|r| &r.name))
             .chain(c.mutations.iter().map(|m| &m.name))
             .chain(c.actions.iter().map(|a| &a.name))
+            // Members its other files declare (LLP 1091.002 D5).
+            .chain(c.members.outer.iter().map(|(n, _)| n))
             .filter(|n| names.contains_key(*n))
             .cloned()
             .collect();

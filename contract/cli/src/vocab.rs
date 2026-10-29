@@ -261,6 +261,13 @@ fn entry(name: &str) -> Option<Entry> {
     });
     let command = match name {
         "exactMIDI" => Some(MIDI_SOURCE.to_string()),
+        "showNotification"
+        | "closeNotification"
+        | "notificationclick"
+        | "setAppBadge"
+        | "clearAppBadge"
+        | "notificationStatus"
+        | "requestNotificationPermission" => Some(NOTIFICATIONS.to_string()),
         _ => HOST_COMMANDS.contains(&name).then(|| command_text(name)),
     };
     let function = functions::function(name);
@@ -465,6 +472,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if matches!(name, "reachstart" | "reachend") {
             println!("  {}", vocab::collection_edge_refusal(name));
         }
+        if matches!(name, "reachstart" | "reachend") {
+            println!("  {REACH_MARGIN}");
+        }
         if name == "resize" {
             println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
         }
@@ -491,6 +501,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         }
         if name == "wakelock" {
             println!("  on any element (LLP 1125 D11). \"screen\" keeps the display from dimming or locking for idleness while the element is mounted and displayed (no ancestor `display: none`, under no unselected tab and no screen a stack keeps under its top; the one a sheet covers is shown), so a screen kept in a hidden tab panel holds nothing; \"none\", the default, holds nothing. Bind it to state: `wakelock=(playing ? \"screen\" : \"none\")`. A literal other than the two is refused; a computed one is journaled and holds nothing. iOS's idle timer, a macOS display-sleep assertion, the web's Screen Wake Lock (asked again when the page is visible again), Android's `keepScreenOn`; Linux and Windows journal it as unavailable. The agent's `state.wakelock` is `{{held, by}}`; `expect wakelock held` or `expect wakelock released` asserts this holder record (displayed elements requesting the lock), not whether the OS or browser granted it.");
+        }
+        if name == "orientationlock" {
+            println!("  on any element (LLP 1133.029). While the element is mounted and displayed (by `wakelock`'s rule) and outside every `dialog` and popover, the window keeps to the orientations it names: a Screen Orientation API lock type (\"portrait\", \"landscape\", \"portrait-primary\", \"portrait-secondary\", \"landscape-primary\", \"landscape-secondary\", \"natural\", \"any\"), or \"current\", the orientation the window has when the lock begins (a game steered by tilt); \"none\", the default, holds nothing. Bind it to state: `orientationlock=(tilt ? \"current\" : \"none\")`. The topmost sheet that holds wins over what it covers, a descendant's lock replaces its ancestor's (\"any\" there frees a subtree), and unrelated locks intersect; locks that share no orientation hold none and are journaled. A type only narrows the manifest's `orientation`: a literal outside it, or one inside a `dialog` or popover, is refused. iOS and Android (on a tablet only \"current\" holds), the web in fullscreen where the browser locks, Windows' auto-rotation preference; macOS, tvOS and Linux have no screen orientation and journal it once. The agent's `state.orientationlock` is `{{held, by, words, lock, conflict, applied}}`, `applied` the host's readback.");
         }
         if name == "navigationSplit" {
             println!("  on a stack's root route (LLP 1116.004 D1.2). A wide window (900 px and up on the web) shows a stack whose root route is a list whose rows push beside its top, as a split view does, with nothing to write: a row pushes when it draws the disclosure, an `image \"symbol:forward-chevron\"` (the chevron an iOS list draws) in a `link`, or in a `button` or pressable whose action writes the router (`push`, `open`, `go`); a chevron on a row that only selects is decoration, and its route is left unsplit, `navigationSplit=\"none\"` said for you. The list is a 320-wide column, its chevrons hidden and the row whose press pushed the detail marked; the top route is the detail beside it (a detail a row pushed has no Back), a `navigationPresentation=\"modal\"` route stays a sheet, and a phone pushes. The router is unchanged: a push from a row while a detail shows stacks it, so `replace` there to swap the detail. \"none\" keeps the stack pushed; a number is the column's width and splits a list the rule does not find. While nothing is selected the detail pane shows the platform's placeholder (\"No Selection\", centred, in the secondary label's colour); \"placeholder\" on a box in the root route (an `EmptyState`) is your own instead, shown only there and then and laid out nowhere else. A root `tablist` left as the tabs recipe places it is a sidebar on the same window. docs/recipes/navigation-stack.md");
@@ -797,12 +810,16 @@ fn function_text(f: &Function) -> String {
 /// the euxy port expected its notes with no output connected.
 const MIDI_SOURCE: &str = "reserved source, `resource midi = exactMIDI() as shape MIDI`: `state`, `inputs` and `outputs` by Web MIDI's names, and `sent`, the last 128 messages that went out ({output, data, timeStamp}) by the runner's clock. `\"\"` is no output: a track's `output=\"\"` and `sendMIDI(\"\", …)` reach no device and need no access, and `sent` lists them with `output: \"\"`, so an activity log shows what plays with no device connected (filter on `output` for what reached one). A message to a named output that is not connected, or before access is granted, goes nowhere: `sendMIDI` and a sequence's notes drop it, the journal (`logs`) says so, and `sent` never lists it (LLP 1125 D6, D7; apps/metronome)";
 
+/// `@exact/notifications`' names (LLP 1133.004), which a package declares and
+/// no table of the compiler's holds.
+const NOTIFICATIONS: &str = "a name of the standard module `@exact/notifications` (LLP 1133.004): `exact add notifications`, then `use showNotification, notificationclick, NotificationEvent from \"@exact/notifications\"` and the grant `device.notifications purpose.notifications`. A post is a statement in an action, `showNotification(title=\"Build finished\", tag=t, silent=true, data=\"/thread/3\")`; `closeNotification(tag=t)` takes it away. Its click is `notificationclick=opened` on the root component's outermost node (`action opened(tag: string, e: NotificationEvent)`, `e.data`); with `navigate=\"/thread/3\"` the click opens that route. `setAppBadge(contents=3)`, `setAppBadge()` (a flag) and `clearAppBadge()` set the app icon's badge; `notificationStatus()` reads the permission and `requestNotificationPermission()` asks. Data code calls the same names through the package's binding. Under the agent `state.notifications` lists each post, `tap @ref` clicks one, and `state.badge` is the badge (docs/reference.md#notifications)";
+
 /// A host command: an action statement, never a value.
 fn command_text(name: &str) -> String {
     let what = match name {
-        "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
         "requestMIDIAccess" | "sendMIDI" => "; `sendMIDI` to an output that is not connected drops the message; to `\"\"`, no output, it reaches no device and `exactMIDI().sent` lists it, with no access needed (`contract vocab exactMIDI`); MIDI answers only under the grant `device.midi purpose.midi` (a line of app.ts's `export const grants`), whose second word is a strings key: `\"purpose.midi\": \"…\"` in strings/en.json, the text the person is shown when asked (apps/metronome)",
         "setRangeText" =>"; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement, and on web/macOS/iOS the Markdown editor's, over its source; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText); no undo step on a plain field, one undo step each on the Markdown editor (LLP 1045 D1). Markdown on Linux, Windows, Android and terminal are not supported yet (LLP 1069.001)",
+        "startTrace_EXPERIMENTAL" | "stopTrace_EXPERIMENTAL" => "; experimental: `startTrace_EXPERIMENTAL()` records each display-link callback from now, in any build; `stopTrace_EXPERIMENTAL()` ends the recording and puts its trace on the clipboard as JSON: on iOS each drag and glide of an element's scroller, a route's page or the document with an estimate of its hitch time ratio, and each late frame with what the main thread did in it; `stopTrace_EXPERIMENTAL(maxBytes)` copies it cut to that many bytes, the frames late the longest first, for a conversation that limits a message (a budget too small for its totals copies a note naming the size that fits them). Apple hosts (tvOS, with no clipboard, only saves the file); the web and Linux refuse it in the journal",
         "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
         _ => frames::command(name).unwrap_or(""),
@@ -855,6 +872,9 @@ const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username
 const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
 
 /// Round 23's chat drew its transcript as a grouped list, open at the oldest message.
+const REACH_MARGIN: &str = "reach-margin on a `list virtualized=true`: how far ahead of an edge `reachstart` and `reachend` fire, a literal one or two nonnegative px or % lengths (before, after; a % is of the list's port along its axis), default one port, \"100%\". \"200%\" fires `reachend` when the last row is two ports away (LLP 1145 D4). While the list scrolls toward an end, that end's margin grows by the lead the list's window takes for the scroll, a quarter second of travel up to two ports, so a fling's edge fires as the window loads ahead for it";
+/// What VoiceOver needs to move from a transcript's first message to its last.
+const KEEP_MOUNTED: &str = "keep-mounted on a `list virtualized=true`: the keys of rows it keeps mounted wherever its window is, a list of up to 64 keys as the `for`'s `key=` gives them (an `option` of one too, `none` naming no row): `keep-mounted=[first(ids), ids.at(-1)]` keeps a transcript's first and last message in the accessibility tree, so VoiceOver moves from one to the other; a playing row keeps its player. A key the list does not hold is passed over; another value keeps none and says so in the journal (LLP 1010 §6.11)";
 const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`. Any other scroller, a horizontal strip too, opens at the offset its `scrollLeft=` and `scrollTop=` give, and moves when the value changes";
 
 /// What reaches `navigate=`, and which tab a location lands in (LLP 1038 D8):
@@ -989,6 +1009,12 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if matches!(name, "scroll-start" | "scrollFollowEnd") {
         doc["note"] = TRANSCRIPT_END.into();
+    }
+    if name == "reach-margin" {
+        doc["note"] = REACH_MARGIN.into();
+    }
+    if name == "keep-mounted" {
+        doc["note"] = KEEP_MOUNTED.into();
     }
     if name == "accept" {
         doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
@@ -1155,6 +1181,12 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if matches!(name, "scroll-start" | "scrollFollowEnd") {
                 return vec![line, TRANSCRIPT_END.into()];
+            }
+            if name == "reach-margin" {
+                return vec![line, REACH_MARGIN.into()];
+            }
+            if name == "keep-mounted" {
+                return vec![line, KEEP_MOUNTED.into()];
             }
             if name == "accept" {
                 return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];

@@ -100,6 +100,9 @@ pub struct Run {
     /// Bold Text weights this run (`TextStyle::bold_text`, LLP 1115.000
     /// D12.3): a Markdown piece's own weight takes the step too.
     pub bold_text: bool,
+    /// An image in the paragraph (LLP 1011.002): the box reserved in place of
+    /// this run's text, which is shaped as none.
+    pub inline: Option<exact_kernel::InlineBox>,
 }
 
 #[cfg(test)]
@@ -123,6 +126,7 @@ impl Clone for Run {
             mark: self.mark,
             href: self.href.clone(),
             bold_text: self.bold_text,
+            inline: self.inline,
         }
     }
 }
@@ -149,6 +153,15 @@ impl Run {
             mark: 0,
             href: String::new(),
             bold_text: style.bold_text,
+            inline: None,
+        }
+    }
+
+    /// A kernel run, its inline box included.
+    pub fn from_kernel(run: &exact_kernel::TextRun<'_>) -> Self {
+        Self {
+            inline: run.inline,
+            ..Self::from_style(&run.text, run.style)
         }
     }
 }
@@ -192,6 +205,11 @@ impl Spec {
                 run.text = text;
             }
         }
+        // An image's U+FFFC kept the spaces around it apart; shaped, its run
+        // is the box alone, so every source offset is a shaped one.
+        for run in self.runs.iter_mut().filter(|r| r.inline.is_some()) {
+            run.text.clear();
+        }
         self
     }
 
@@ -226,11 +244,7 @@ impl Spec {
         }
         let spec = Spec {
             strut: Run::from_style("", request.paragraph.strut),
-            runs: request
-                .runs
-                .iter()
-                .map(|r| Run::from_style(&r.text, r.style))
-                .collect(),
+            runs: request.runs.iter().map(Run::from_kernel).collect(),
             align: request.paragraph.text_align,
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap,
@@ -246,7 +260,9 @@ impl Spec {
 
     /// Whether there is nothing to shape.
     pub fn is_empty(&self) -> bool {
-        self.runs.iter().all(|r| r.text.is_empty())
+        self.runs
+            .iter()
+            .all(|r| r.text.is_empty() && r.inline.is_none())
     }
 }
 
@@ -908,6 +924,33 @@ impl TextEngine {
         self.measure_for(spec, width, key)
     }
 
+    /// Each inline box's top left in `paragraph`, in run order (LLP
+    /// 1011.002 D2): its line's baseline less its height above it.
+    fn inline_box_origins(&mut self, paragraph: &Paragraph, origins: &mut Vec<(f32, f32)>) {
+        let lines = paragraph.lines();
+        let spec = &paragraph.source.spec;
+        let mut catalog = paragraph.source.catalog.borrow_mut();
+        // One pair per box in run order; a box on no line (a clamp cut it)
+        // is not a number.
+        for (run, _) in spec
+            .runs
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.inline.is_some())
+        {
+            let placed = lines
+                .boxes
+                .iter()
+                .find(|b| b.run as usize == run)
+                .and_then(|b| {
+                    let baseline = *paragraph.baselines.get(b.line as usize)?;
+                    let (above, _) = shaping::box_extent(spec, &mut catalog, run);
+                    Some((b.x, baseline - above))
+                });
+            origins.push(placed.unwrap_or((f32::NAN, f32::NAN)));
+        }
+    }
+
     fn measure_for(&mut self, spec: &Spec, width: AxisOffer, key: (u64, u64)) -> TextMetrics {
         self.measures += 1;
         if spec.is_empty() {
@@ -1057,15 +1100,36 @@ impl TextEngine {
     /// points from the paragraph's top-left, the same numbers the raster
     /// path snaps to pixels.
     pub fn glyph_runs(&mut self, paragraph: &Paragraph, palette: &[RunPaint]) -> Vec<GlyphRun> {
+        self.glyph_runs_mapped(paragraph, palette, |g, baseline| (g.x, baseline + g.y))
+    }
+
+    pub(crate) fn physical_glyph_runs(
+        &mut self,
+        paragraph: &Paragraph,
+        palette: &[RunPaint],
+        origin: (f32, f32),
+        scale: f32,
+    ) -> Vec<GlyphRun> {
+        self.glyph_runs_mapped(paragraph, palette, |g, baseline| {
+            exact_ink::glyph::position(g.x, g.y, baseline, origin, scale)
+        })
+    }
+
+    fn glyph_runs_mapped(
+        &mut self,
+        paragraph: &Paragraph,
+        palette: &[RunPaint],
+        position: impl Fn(&LayoutGlyph, f32) -> (f32, f32),
+    ) -> Vec<GlyphRun> {
         type Key = (u16, u32, usize);
         type Runs = Vec<(Key, Vec<(u32, f32, f32)>)>;
         let mut runs: Runs = Vec::new();
         for (g, baseline, _) in paragraph.paint_glyphs(palette) {
             let key = (g.face, g.font_size.to_bits(), g.run());
-            let y = baseline + g.y;
+            let (x, y) = position(g, baseline);
             match runs.last_mut() {
-                Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id, g.x, y)),
-                _ => runs.push((key, vec![(g.glyph_id, g.x, y)])),
+                Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id, x, y)),
+                _ => runs.push((key, vec![(g.glyph_id, x, y)])),
             }
         }
         let catalog = paragraph.source.catalog.borrow();
@@ -1207,6 +1271,28 @@ impl TextMeasurer for Measurer {
         let (key, spec) = engine.identified_spec(stamp, || Spec::from_request(request));
         if !spec.is_empty() {
             bottoms.extend_from_slice(engine.paragraph_for(&spec, Some(width), key).line_bottoms());
+        }
+    }
+
+    /// @ref LLP 1011.002 D2 — each image's box in the paragraph the
+    /// measure built.
+    fn inline_boxes(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        origins: &mut Vec<(f32, f32)>,
+    ) {
+        let AxisOffer::Definite(width) = request.width else {
+            return;
+        };
+        if !request.exclusions.is_empty() {
+            return;
+        }
+        let mut engine = self.0.borrow_mut();
+        let (key, spec) = engine.identified_spec(stamp, || Spec::from_request(request));
+        if spec.runs.iter().any(|r| r.inline.is_some()) {
+            let paragraph = engine.paragraph_for(&spec, Some(width), key);
+            engine.inline_box_origins(&paragraph, origins);
         }
     }
 

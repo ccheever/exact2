@@ -36,7 +36,7 @@ impl Collection {
     ) -> Result<index::Anchor, InstanceError> {
         let capture = |c: &Self, offset: f64| {
             c.index
-                .capture_anchor(c.anchor_offset(offset), port, c.follows())
+                .capture_anchor(c.anchor_offset(offset, port), port, c.follows())
                 .map_err(index_error)
         };
         let at_end = match &self.geometry {

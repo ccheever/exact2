@@ -175,6 +175,16 @@ extension NodeView {
 
     /// Front to back, stable among equals. The ordinary equal-depth case
     /// needs only one linear check, and no invalidation cache.
+    /// Whether some of `views` stand at another `zPosition` than the first, so paint order is not theirs.
+    static func depthsDiffer(_ views: [PaintView]) -> Bool {
+        guard let first = views.first else { return false }
+        #if os(macOS)
+        let depth = first.layer?.zPosition ?? 0
+        return views.contains { ($0.layer?.zPosition ?? 0) != depth }
+        #else
+        return views.contains { $0.layer.zPosition != first.layer.zPosition }
+        #endif
+    }
     static func hitOrder(_ views: [PaintView]) -> [PaintView] {
         func z(_ view: PaintView) -> CGFloat {
             #if os(macOS)
@@ -244,6 +254,9 @@ extension NSView {
     /// try only branches painting above it, including negative z.
     func raisedHit(_ hit: NSView?, _ point: NSPoint) -> NSView? {
         guard let hit, hit !== self, !isHidden else { return hit }
+        // Siblings at one depth paint in AppKit's order, whose own walk already asked each one above
+        // the hit, topmost first.
+        guard NodeView.depthsDiffer(subviews) else { return hit }
         var branch = hit
         while let parent = branch.superview, parent !== self { branch = parent }
         guard branch.superview === self else { return hit }

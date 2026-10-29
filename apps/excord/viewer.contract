@@ -1,0 +1,139 @@
+// A picture full screen, as Discord's viewer has it: black behind it, a pinch
+// zooms between fit and 4x and a drag pans the zoomed picture; at fit, a drag
+// down far or fast enough closes it, the backdrop fading as the picture leaves
+// (the photo pair of LLP 1057.001, interaction-gallery's viewer).
+//
+// The viewer is a route over its channel (`photo` in app.contract), presented
+// full screen as Discord's and Photos' viewers are: UIKit insets it and makes
+// the transcript under it inert, Escape and the browser's Back close it, and on
+// iOS 18 the picture zooms out of its thumbnail and back into it (the
+// route's `navigationSource` names the thumbnail's `id`, LLP 1035.001). The
+// picture's address and size are kept in state: a relaunch does not reopen it.
+
+fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 and bh > 0 and nw > 0 and nh > 0 ? min(bw / nw, bh / nh) : 0
+fn photoZoom(scale: number): number = min(max(scale, 1), 4)
+fn photoClamp(value: number, natural: number, fit: number, zoom: number, port: number): number = min(max(value, -max(0, (natural * fit * zoom - port) / 2)), max(0, (natural * fit * zoom - port) / 2))
+
+members Excord
+  // The picture shown, named as its route names it (`${message key}-${media id}`).
+  state viewingKey = ""
+  state viewingSrc = ""
+  // The picture the transcript shows (the resized proxy, already loaded): drawn under the full one until it lands.
+  state viewingThumb = ""
+  // The full picture has loaded: the thumbnail under it goes, so a translucent one never shows through to it.
+  state viewingLoaded = false
+  state viewingAlt = ""
+  state viewingWidth = 0
+  state viewingHeight = 0
+  state viewPanX = 0
+  state viewPanY = 0
+  state viewZoom = 1
+  state viewBoxWidth = 0
+  state viewBoxHeight = 0
+  state viewPortWidth = 0
+  state viewPortHeight = 0
+  // The picture is over its channel's route, as `show` puts it.
+  derive photoOverChannel = top(nav).name == "photo" and params(nav, "channel").length == 2
+  // The picture on screen ("" while none is). A picture's route that `show` did not open here (a
+  // web reload at its address, a Forward to it past its channel) shows nothing and goes: from over
+  // its channel, Back; from over the list, its history entry becomes the channel's.
+  derive viewing = photoOverChannel and top(nav).params.photo == viewingKey ? viewingSrc : ""
+  task strayViewer when top(nav).name == "photo" and viewing == ""
+    after(1, dropStrayViewer)
+  action dropStrayViewer
+    if top(nav).name == "photo"
+      nav = photoOverChannel ? back(nav) : replace(nav, path("channel", top(nav).params.channel))
+  // The lock screen is drawn under a presented route, so locking closes the picture.
+  task viewerLocked when top(nav).name == "photo" and locked
+    after(1, closeViewer)
+  action show(key: string, src: string, thumb: string, alt: string, w: number, h: number)
+    if top(nav).name == "channel"
+      viewingKey = key
+      viewingSrc = src
+      viewingThumb = thumb != src ? thumb : ""
+      viewingLoaded = false
+      viewingAlt = alt
+      viewingWidth = w
+      viewingHeight = h
+      viewPanX = 0
+      viewPanY = 0
+      viewZoom = 1
+      nav = push(nav, path("photo", open, key))
+  action viewerLoaded(src: string)
+    if src == viewingSrc
+      viewingLoaded = true
+  action closeViewer
+    if top(nav).name == "photo"
+      nav = back(nav)
+  action viewerGeometry(bw: number, bh: number, pw: number, ph: number)
+    viewBoxWidth = bw
+    viewBoxHeight = bh
+    viewPortWidth = pw
+    viewPortHeight = ph
+  // At fit, a drag down far or fast enough closes the viewer; otherwise the
+  // pinch's scale is kept between fit and 4x and the pan stays inside the picture.
+  action viewerRelease(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
+    // A picture Discord gave no size is taken as filling the box.
+    let w = viewingWidth > 0 ? viewingWidth : viewBoxWidth
+    let h = viewingHeight > 0 ? viewingHeight : viewBoxHeight
+    let fit = photoFit(viewBoxWidth, viewBoxHeight, w, h)
+    if photoZoom(scale) == 1 and (y > 120 or vy > 800)
+      closeViewer()
+    else
+      viewZoom = photoZoom(scale)
+      viewPanX = fit > 0 ? photoClamp(x, w, fit, photoZoom(scale), viewPortWidth) : 0
+      viewPanY = fit > 0 ? photoClamp(y, h, fit, photoZoom(scale), viewPortHeight) : 0
+  action viewerToggleZoom
+    viewZoom = viewZoom > 1 ? 1 : 2
+    viewPanX = 0
+    viewPanY = 0
+
+// The route's own backdrop, black in both schemes as a photo viewer's is: the
+// host paints a full-screen route's background to the screen's edges, where
+// the viewer inside it is kept clear of the status bar and the home indicator
+// (LLP 1123 D3). It fades over the first 300 points of the picture's drag
+// down (`viewerFade`, on the `--dismiss` drag inside) to what the host shows
+// under the route; on iOS that is the presentation's ground, this same black.
+style ViewerRoute
+  color-scheme="dark"
+  background-color="#000"
+  timeline-scope="--dismiss"
+  animation-timeline="--dismiss"
+  animation-range="0px 300px"
+
+keyframes viewerFade
+  from background-color="#000"
+  to background-color="transparent"
+
+// Stateless: the app holds the pan and zoom (`viewerRelease`), so a release
+// that dismisses can close the viewer. `photo` is the thumbnail's `id`, which
+// the picture takes so that iOS's zoom lands on the picture as drawn.
+component ImageViewer
+  props
+    src: string
+    // The transcript's own picture of it, drawn under `src` so the viewer is never black while the full one loads
+    // (or if it never does); "" for none.
+    thumb: string
+    // `src` has loaded (its source passed).
+    loaded: action
+    photo: string
+    alt: string
+    panX: number
+    panY: number
+    zoom: number
+    geometry: action
+    release: action
+    toggleZoom: action
+    close: action
+  view
+    // The status bar's light text over the dark backdrop.
+    column position="absolute" inset=0 overflow="hidden" status-bar-style="light-content" testId="viewer" aria-label=(alt != "" ? alt : "Image")
+      box id="viewer-transform" position="absolute" left=0 top=0 width="100%" height="100%" box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate -exact-spring(300, 30, 1), scale -exact-spring(300, 30, 1)" -exact-drag-timeline="--dismiss y"
+        if thumb != ""
+          image thumb position="absolute" inset=0 width="100%" height="100%" object-fit="contain" aria-hidden=true testId="viewer-thumb"
+        image src id=photo position="absolute" inset=0 width="100%" height="100%" object-fit="contain" aria-label=alt load=loaded(src) testId="viewer-image"
+        box transformDragFor="viewer-transform" transformgeometry=geometry transformrelease=release dblclick=toggleZoom touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-handle"
+      row position="absolute" top=0 left=0 right=0 padding="12px 16px" padding-top="calc(env(safe-area-inset-top) + 8px)" justify-content="flex-end"
+        // The root's `navigationBack` control: every platform's Back presses it.
+        button id="back" press=close buttonStyle="bordered" aria-label="Close" aria-keyshortcuts="Escape" testId="viewer-close"
+          image "symbol:close"

@@ -5,7 +5,7 @@
 // MESSAGE_CREATE replaces them in place, keeping the row's key (§3.9). A send's REST reply can be
 // applied as a MESSAGE_CREATE too; the gateway's copy then updates the same row.
 import { cmpId } from './ids.ts';
-import { guildOrder } from './settings.ts';
+import { guildFolders, type Folder } from './settings.ts';
 
 export type DiscordObject = Record<string, any>;
 export interface User extends DiscordObject { id: string }
@@ -23,6 +23,8 @@ export interface HistoryQuery { before?: string; after?: string; around?: string
 export interface PendingMessage {
   nonce: string;
   content: string;
+  // Files the send carries, shown from their local copies until Discord answers.
+  attachments?: DiscordObject[];
   replyTo?: { messageId: string; channelId?: string; guildId?: string };
   nowMs: number;
 }
@@ -43,10 +45,16 @@ export interface MessageWindow {
 export interface ChannelGroup { category: Channel | null; channels: Channel[] }
 export interface UnreadState { unread: boolean; mentionCount: number; lastReadId: string | null }
 export interface TypingUser { user: User; expiresAtMs: number }
+export interface GuildEmoji { id: string; name: string; animated: boolean; available: boolean }
+/** One row of a member list: a group's header (a hoisted role's id, "online" or "offline") or a member. */
+export type MemberItem = { group: { id: string; count: number } } | { member: DiscordObject };
+// `rows` is the revision at which the list's rows last changed: any op but UPDATE (a presence), a new list, or a
+// role (a group's name, a name's colour).
+export interface MemberList { id: string; items: (MemberItem | undefined)[]; revision: number; rows: number }
 interface ReadState { lastReadId: string | null; mentionCount: number }
 interface Entry {
   row: MessageRow; sortId: string; tie: number; run: Run; unanchored?: boolean;
-  changedAt: number; contentAt: number; reactionsAt: number; verified: boolean;
+  changedAt: number; contentAt: number; reactionsAt: number; pollAt: number; verified: boolean;
 }
 interface Run {
   entries: Entry[];
@@ -87,7 +95,19 @@ export interface Store {
   versions: Map<string, number>;
   // The server list's order from the account's settings (`settings.ts`).
   guildOrder: string[];
+  // The same list as the account's folders (`settings.ts`), each guild in exactly one.
+  folders: Folder[];
+  // Each guild's custom emoji, for the composer's suggestions.
+  emojis: Map<string, GuildEmoji[]>;
+  // Each guild's member list as GUILD_MEMBER_LIST_UPDATE builds it for the channel op 37 subscribed: its
+  // list id and its items, groups and members by index (the subscribed range, 0–99).
+  memberLists: Map<string, MemberList>;
+  // The last revision any member list took: each change takes the next, so no list, whether another
+  // guild's or one a new list id started over, repeats a revision a reader saw.
+  memberRevision: number;
   sidebarRevision: number;
+  // Moves when a known user's name, picture or kind changes, which the DM list shows.
+  identityRevision: number;
   sequence: number;
 }
 interface Changes { channels: Set<string>; sidebar: boolean }
@@ -96,7 +116,7 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], sidebarRevision: 0, sequence: 0,
+    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), memberLists: new Map(), memberRevision: 0, sidebarRevision: 0, identityRevision: 0, sequence: 0,
   };
 }
 
@@ -104,8 +124,9 @@ export function createStore(opts: { meId?: string } = {}): Store {
  * answer asked after it can match one asked before. */
 export function forgetAccount(s: Store): void {
   s.meId = null;
-  for (const map of [s.users, s.guildMap, s.channelMap, s.histories, s.readStates, s.roles]) map.clear();
+  for (const map of [s.users, s.guildMap, s.channelMap, s.histories, s.readStates, s.roles, s.emojis, s.memberLists]) map.clear();
   s.guildOrder = [];
+  s.folders = [];
   s.removals++;
   for (const [id, version] of s.versions) s.versions.set(id, version + 1);
   s.sidebarRevision++;
@@ -248,13 +269,37 @@ function joinPage(h: History, page: Run, linked = new Set<Run>()): void {
   if (page.reachesNewest) h.live = page;
 }
 
+// What the app draws of a user: a copy that changes none of these keeps the object the store has, so a
+// rendered row keyed on it stays drawn (`render.ts`).
+const SHOWN = ['username', 'global_name', 'avatar', 'discriminator', 'bot'];
 function rememberUser(s: Store, user: DiscordObject | undefined): void {
-  if (user?.id) s.users.set(user.id, { ...s.users.get(user.id), ...user } as User);
+  if (!user?.id) return;
+  const known = s.users.get(user.id);
+  if (known && SHOWN.every(key => !(key in user) || known[key] === user[key])) return;
+  if (known) {
+    s.identityRevision++;
+    // A DM is drawn under its recipient's name and picture (`channel`), so its own version moves too.
+    for (const [id, channel] of s.channelMap) {
+      if (channel.recipient_ids?.includes(user.id)) s.versions.set(id, (s.versions.get(id) ?? 0) + 1);
+    }
+  }
+  s.users.set(user.id, { ...known, ...user } as User);
 }
 
 function messageUsers(s: Store, data: DiscordObject): void {
   rememberUser(s, data.author);
   for (const user of data.mentions ?? []) rememberUser(s, user);
+  // A forward names the users its forwarded message mentions in that message's own list, and a reply
+  // carries the message it answers, which may be a forward the cache does not hold.
+  for (const message of [data, data.referenced_message]) {
+    for (const snapshot of Array.isArray(message?.message_snapshots) ? message.message_snapshots : []) {
+      for (const user of snapshot?.message?.mentions ?? []) rememberUser(s, user);
+    }
+  }
+  for (const user of data.referenced_message?.mentions ?? []) rememberUser(s, user);
+  // An app's answer to a command carries whoever used it.
+  rememberUser(s, data.interaction_metadata?.user);
+  rememberUser(s, data.interaction?.user);
 }
 
 function olderEdit(incoming: string | null | undefined, previous: string): boolean {
@@ -280,9 +325,14 @@ function mergeMessage(entry: Entry, data: DiscordObject, page?: { since?: number
   if (older || (!newer && page?.since !== undefined && entry.contentAt > page.since)) {
     for (const field of contentFields) if (old[field] !== undefined) next[field] = old[field];
   }
+  // Reactions and poll votes arrive as their own events, which a page fetched before them must not undo.
   if (page?.since !== undefined && entry.reactionsAt > page.since && old.reactions !== undefined) {
     next.reactions = old.reactions;
   }
+  if (page?.since !== undefined && entry.pollAt > page.since && old.poll !== undefined) next.poll = old.poll;
+  // A poll without `results` is one whose counts Discord did not send (Discord: Poll Results Object), not one
+  // without votes.
+  else if (next.poll && !next.poll.results && old.poll?.results) next.poll = { ...next.poll, results: old.poll.results };
   return { ...next, id: data.id, channel_id: old.channel_id, key: old.key, status: 'sent' } as MessageRow;
 }
 
@@ -290,6 +340,7 @@ function updateMessage(s: Store, entry: Entry, data: DiscordObject): void {
   const next = mergeMessage(entry, data);
   if (contentFields.some(field => next[field] !== entry.row[field])) entry.contentAt = s.sequence;
   if (next.reactions !== entry.row.reactions) entry.reactionsAt = s.sequence;
+  if (next.poll?.results !== entry.row.poll?.results) entry.pollAt = s.sequence;
   entry.row = next;
   entry.changedAt = s.sequence;
 }
@@ -314,7 +365,8 @@ function storedMessage(s: Store, h: History, channelId: string, data: DiscordObj
   } else {
     entry = { row: { ...data, id, channel_id: channelId, key: id, status: 'sent' }, sortId: id, tie: 0,
       run: newRun(), changedAt: page ? 0 : s.sequence, contentAt: page ? 0 : s.sequence,
-      reactionsAt: !page && data.reactions !== undefined ? s.sequence : 0, verified: true };
+      reactionsAt: !page && data.reactions !== undefined ? s.sequence : 0, pollAt: !page && data.poll?.results !== undefined ? s.sequence : 0,
+      verified: true };
   }
   h.messages.set(id, entry);
   return entry;
@@ -369,13 +421,52 @@ function setGuild(s: Store, data: DiscordObject, c: Changes): void {
   // What the app never shows is not kept: a large account's READY is mostly these.
   const { properties, channels, threads, members, emojis, stickers, guild_scheduled_events, stage_instances,
     voice_states, embedded_activities, activity_instances, presences, soundboard_sounds, ...rest } = data;
-  const guild = { ...properties, ...rest };
+  const { emojis: listed, ...metadata } = properties ?? {};
+  const guild = { ...metadata, ...rest };
   if (!sameFields(s.guildMap.get(data.id), guild)) {
     s.guildMap.set(data.id, { ...s.guildMap.get(data.id), ...guild } as Guild);
     c.sidebar = true;
   }
+  if (Array.isArray(emojis ?? listed)) setEmojis(s, data.id, emojis ?? listed);
   for (const channel of [...(channels ?? []), ...(threads ?? [])]) setChannel(s, { ...channel, guild_id: data.id }, c);
   for (const member of members ?? []) rememberMember(s, data.id, member, c);
+}
+
+function setEmojis(s: Store, guildId: string, emojis: DiscordObject[]): void {
+  s.emojis.set(guildId, emojis.filter(e => e.id && e.name).map(e => ({ id: String(e.id), name: String(e.name),
+    animated: e.animated === true, available: e.available !== false })));
+}
+
+// The list's operations, as Discord sends them: SYNC replaces a range (what it leaves out of the range is
+// gone), INVALIDATE forgets one, INSERT and
+// DELETE shift what follows, UPDATE replaces one item. A new list id (another channel's permissions)
+// starts the list over. Members met here join the user directory.
+function updateMemberList(s: Store, d: DiscordObject): void {
+  const id = String(d.id ?? '');
+  let list = s.memberLists.get(d.guild_id);
+  const fresh = !list || list.id !== id;
+  if (!list || fresh) { list = { id, items: [], revision: 0, rows: 0 }; s.memberLists.set(d.guild_id, list); }
+  const items = list.items.slice();
+  const take = (item: any): MemberItem | undefined => {
+    if (item?.member) { rememberUser(s, item.member.user); return { member: item.member }; }
+    return item?.group ? { group: { id: String(item.group.id), count: Number(item.group.count ?? 0) } } : undefined;
+  };
+  let moved = fresh;
+  for (const op of Array.isArray(d.ops) ? d.ops : []) {
+    if (op.op !== 'UPDATE') moved = true;
+    const [from, to] = Array.isArray(op.range) ? op.range.map(Number) : [0, -1];
+    if (op.op === 'SYNC') {
+      const given = Array.isArray(op.items) ? op.items : [];
+      for (let i = from; i <= to && i < 200 && (i - from < given.length || i < items.length); i++) items[i] = take(given[i - from]);
+    }
+    else if (op.op === 'INVALIDATE') for (let i = from; i <= to && i < items.length; i++) items[i] = undefined;
+    else if (op.op === 'INSERT' && Number.isInteger(op.index)) items.splice(op.index, 0, take(op.item));
+    else if (op.op === 'DELETE' && Number.isInteger(op.index)) items.splice(op.index, 1);
+    else if (op.op === 'UPDATE' && Number.isInteger(op.index)) items[op.index] = take(op.item);
+  }
+  // Its own revision, not the lists': a presence moving in a large server would otherwise redraw them.
+  const revision = ++s.memberRevision;
+  s.memberLists.set(d.guild_id, { id, items: items.slice(0, 200), revision, rows: moved ? revision : list.rows });
 }
 
 function rememberMember(s: Store, guildId: string, member: DiscordObject, c: Changes): void {
@@ -394,6 +485,9 @@ function setRole(s: Store, guildId: string, role: DiscordObject | null, roleId: 
   const roles = ((guild.roles ?? []) as DiscordObject[]).filter(r => r.id !== roleId);
   s.guildMap.set(guildId, { ...guild, roles: role ? [...roles, role] : roles } as Guild);
   c.sidebar = true;
+  // The member list names its groups and colours its names by these roles, so its rows change too.
+  const list = s.memberLists.get(guildId);
+  if (list) { const revision = ++s.memberRevision; s.memberLists.set(guildId, { ...list, revision, rows: revision }); }
 }
 
 function unreadSignature(s: Store, id: string): string {
@@ -401,10 +495,12 @@ function unreadSignature(s: Store, id: string): string {
   return `${state.unread}:${state.mentionCount}`;
 }
 
-function setRead(s: Store, id: string, lastReadId: string | null | undefined, mentionCount: number | undefined, c: Changes): void {
+function setRead(s: Store, id: string, lastReadId: string | number | null | undefined, mentionCount: number | undefined, c: Changes): void {
   const before = unreadSignature(s, id);
   const previous = s.readStates.get(id);
-  const next = { lastReadId: lastReadId === undefined ? previous?.lastReadId ?? null : lastReadId,
+  // An id, which a read state may give as the number 0 (nothing read): kept as a string, as every id is.
+  const read = lastReadId === undefined || lastReadId === null ? lastReadId : String(lastReadId);
+  const next = { lastReadId: read === undefined ? previous?.lastReadId ?? null : read,
     mentionCount: mentionCount ?? previous?.mentionCount ?? 0 };
   if (previous?.lastReadId === next.lastReadId && previous.mentionCount === next.mentionCount) return;
   s.readStates.set(id, next);
@@ -438,10 +534,11 @@ function ingestReady(s: Store, data: DiscordObject, c: Changes): void {
 
 // Settings that cannot be read leave the order as it was.
 function setOrder(s: Store, proto: string, c: Changes): void {
-  let order: string[] | null;
-  try { order = guildOrder(proto); } catch { return; }
-  if (!order || (order.length === s.guildOrder.length && order.every((id, i) => id === s.guildOrder[i]))) return;
-  s.guildOrder = order;
+  let folders: Folder[] | null;
+  try { folders = guildFolders(proto); } catch { return; }
+  if (!folders || JSON.stringify(folders) === JSON.stringify(s.folders)) return;
+  s.folders = folders;
+  s.guildOrder = folders.flatMap(f => f.guildIds);
   c.sidebar = true;
 }
 
@@ -534,6 +631,32 @@ function reaction(s: Store, t: string, data: DiscordObject, c: Changes): void {
   c.channels.add(data.channel_id);
 }
 
+// A vote on a poll: Discord sends one event an answer a voter adds or takes back.
+function pollVote(s: Store, t: string, data: DiscordObject, c: Changes): void {
+  const entry = s.histories.get(data.channel_id)?.messages.get(data.message_id);
+  const poll = entry?.row.poll;
+  const mine = data.user_id === s.meId, add = t === 'MESSAGE_POLL_VOTE_ADD';
+  // Counts Discord did not send stay unknown until a page or an update brings them (`partial`); only the
+  // reader's own choice is kept meanwhile.
+  const partial = !poll?.results || poll.results.partial === true;
+  if (!entry || !poll || (partial && !mine)) return;
+  const counts = (poll.results?.answer_counts ?? []) as DiscordObject[];
+  const index = counts.findIndex(a => String(a.id) === String(data.answer_id));
+  const previous = counts[index];
+  // A vote applied on the REST reply comes back from the gateway as a repeat.
+  if ((!add && !previous) || (mine && add && previous?.me_voted) || (mine && !add && !previous?.me_voted)) return;
+  const updated = { ...previous, id: previous?.id ?? Number(data.answer_id), count: Math.max(0, (previous?.count ?? 0) + (add ? 1 : -1)),
+    me_voted: mine ? add : previous?.me_voted ?? false };
+  const next = [...counts];
+  if (index < 0) next.push(updated);
+  else next[index] = updated;
+  // Partial results are no news about the counts, so a page asked before them still brings its own.
+  entry.changedAt = s.sequence;
+  if (!partial) entry.pollAt = s.sequence;
+  entry.row = { ...entry.row, poll: { ...poll, results: { ...(poll.results ?? { is_finalized: false, partial: true }), answer_counts: next } } };
+  c.channels.add(data.channel_id);
+}
+
 function deleteMessages(s: Store, channelId: string, ids: string[], c: Changes): void {
   const h = historyFor(s, channelId);
   const channel = s.channelMap.get(channelId);
@@ -588,8 +711,9 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
   switch (t) {
     case 'READY':
       for (const id of new Set([...s.channelMap.keys(), ...s.readStates.keys()])) c.channels.add(id);
-      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear(); s.roles.clear();
+      s.users.clear(); s.guildMap.clear(); s.channelMap.clear(); s.readStates.clear(); s.roles.clear(); s.emojis.clear(); s.memberLists.clear();
       s.guildOrder = [];
+      s.folders = [];
       s.removals++;
       ingestReady(s, d, c);
       for (const [id, h] of s.histories) {
@@ -618,10 +742,13 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
       if (d.unavailable) setGuild(s, d, c);
       else {
         c.sidebar = s.guildMap.delete(d.id);
+        s.emojis.delete(d.id);
         for (const channel of s.channelMap.values()) if (channel.guild_id === d.id) removeChannel(s, channel.id, c);
       }
       break;
     case 'GUILD_MEMBER_UPDATE': rememberMember(s, d.guild_id, d, c); break;
+    case 'GUILD_MEMBER_LIST_UPDATE': if (d.guild_id) updateMemberList(s, d); break;
+    case 'GUILD_EMOJIS_UPDATE': if (d.guild_id && Array.isArray(d.emojis)) setEmojis(s, d.guild_id, d.emojis); break;
     case 'GUILD_ROLE_CREATE':
     case 'GUILD_ROLE_UPDATE': if (d.role?.id) setRole(s, d.guild_id, d.role, d.role.id, c); break;
     case 'GUILD_ROLE_DELETE': setRole(s, d.guild_id, null, d.role_id, c); break;
@@ -644,6 +771,8 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
     case 'MESSAGE_REACTION_REMOVE':
     case 'MESSAGE_REACTION_REMOVE_ALL':
     case 'MESSAGE_REACTION_REMOVE_EMOJI': reaction(s, t, d, c); break;
+    case 'MESSAGE_POLL_VOTE_ADD':
+    case 'MESSAGE_POLL_VOTE_REMOVE': pollVote(s, t, d, c); break;
     case 'MESSAGE_REACTION_ADD_MANY':
       for (const r of d.reactions ?? []) for (const user_id of r.users ?? []) {
         reaction(s, 'MESSAGE_REACTION_ADD', { ...d, emoji: r.emoji, user_id }, c);
@@ -777,13 +906,14 @@ export function addPending(s: Store, channelId: string, message: PendingMessage)
   const reply = message.replyTo;
   const entry: Entry = {
     row: { id: null, channel_id: channelId, key: message.nonce, nonce: message.nonce, content: message.content,
+      ...(message.attachments?.length ? { attachments: message.attachments } : {}),
       author: s.users.get(s.meId ?? '') ?? { id: s.meId }, createdAtMs: message.nowMs, status: 'pending',
       ...(reply ? { message_reference: { message_id: reply.messageId, channel_id: reply.channelId ?? channelId,
         ...(reply.guildId ? { guild_id: reply.guildId } : {}) } } : {}) },
     // Freeze display order on confirmation: another user's message may have arrived after this slot.
     sortId: last?.sortId ?? lastId ?? '0', tie: ++h.nextTie, run,
     unanchored: last?.unanchored ?? (!last && !lastId),
-    changedAt: 0, contentAt: 0, reactionsAt: 0, verified: true,
+    changedAt: 0, contentAt: 0, reactionsAt: 0, pollAt: 0, verified: true,
   };
   insert(run, entry);
   h.pending.set(message.nonce, entry);
@@ -817,13 +947,14 @@ export function removePending(s: Store, channelId: string, nonce: string): Chang
   return finish(s, { channels: new Set([channelId]), sidebar: false });
 }
 
-/** Expire typing on the caller's clock and invalidate just the affected channels. */
-export function expireTyping(s: Store, nowMs: number): Changed {
-  const c = changes();
-  for (const [id, h] of s.histories) for (const [userId, expiry] of h.typing) {
-    if (expiry <= nowMs) { h.typing.delete(userId); c.channels.add(id); }
+/** Forget typing that has ended on the caller's clock. The typing line reads `typingUsers` at its own time, so
+ * no version moves; the count is of entries dropped. */
+export function expireTyping(s: Store, nowMs: number): number {
+  let dropped = 0;
+  for (const h of s.histories.values()) for (const [userId, expiry] of h.typing) {
+    if (expiry <= nowMs) { h.typing.delete(userId); dropped++; }
   }
-  return finish(s, c);
+  return dropped;
 }
 
 /** Read the version used by a channel's message, typing and read-state resources. */
@@ -832,9 +963,12 @@ export function channelVersion(s: Store, channelId: string): number { return s.v
 /** Read the version used by guild, channel, DM and unread sidebar resources. */
 export function sidebarVersion(s: Store): number { return s.sidebarRevision; }
 
+/** A window's most rows: 200, raised by two pages for a fling's lead (F1), so a page that lands while the reader
+ * is within the lead's 100 rows of the top is never shed from the window it lands in. */
+export const WINDOW_CAP = 300;
 function windowLimit(limit: number): number {
   if (!Number.isFinite(limit) || limit < 1) throw new RangeError('Window limit must be positive');
-  return Math.min(200, Math.floor(limit));
+  return Math.min(WINDOW_CAP, Math.floor(limit));
 }
 
 function sliceWindow(run: Run | undefined, start: number, end: number): MessageWindow {
@@ -867,13 +1001,32 @@ function locate(s: Store, channelId: string, id: string): { run: Run; index: num
   return null;
 }
 
-/** Return up to 200 rows at the live tail; an unloaded tail stays empty and fetchable. */
+/** Return up to WINDOW_CAP rows at the live tail; an unloaded tail stays empty and fetchable. */
 export function latestWindow(s: Store, channelId: string, limit = 50): MessageWindow {
   const count = windowLimit(limit);
   const run = s.histories.get(channelId)?.live;
   const window = sliceWindow(run, Math.max(0, (run?.entries.length ?? 0) - count), run?.entries.length ?? 0);
   if (!run) window.fetchLatest = true;
   return window;
+}
+
+/** Find the newest editable own message without crossing an unconfirmed history gap.
+ * A caller may fetch the missing page and ask again; pending sends are never edit targets. */
+export function latestEditable(s: Store, channelId: string): { row: MessageRow | null; need: string; cursor: string } {
+  const run = s.histories.get(channelId)?.live;
+  const missing = (cursor: string) => ({ row: null, need: cursor ? 'before' : 'latest', cursor });
+  if (!run?.reachesNewest) return missing('');
+  let cursor = '';
+  for (let i = run.entries.length - 1; i >= 0; i--) {
+    const { row, verified } = run.entries[i];
+    if (row.status !== 'sent' || row.id === null) continue;
+    if (!verified) return missing(cursor);
+    if (row.author?.id === s.meId && !row.webhook_id && !row.message_snapshots?.length && (row.type === undefined || row.type === 0 || row.type === 19)) {
+      return { row, need: '', cursor: '' };
+    }
+    cursor = row.id;
+  }
+  return run.reachesStart ? { row: null, need: '', cursor: '' } : missing(cursor);
 }
 
 /** Return one bounded run centered on an id, without crossing an unfetched history gap. */
@@ -1008,6 +1161,19 @@ export function canView(s: Store, channel: Channel): boolean {
   return visible;
 }
 
+/** Whether @everyone may see a guild channel: Discord marks one it may not as private (a lock on its
+ * mark), whoever is reading. */
+export function everyoneSees(s: Store, channel: Channel): boolean {
+  const guild = channel.guild_id ? s.guildMap.get(channel.guild_id) : undefined;
+  if (!guild) return true;
+  const everyone = ((guild.roles ?? []) as DiscordObject[]).find(role => role.id === guild.id);
+  let permissions = bits(everyone?.permissions);
+  if (permissions & ADMINISTRATOR) return true;
+  const o = ((channel.permission_overwrites ?? []) as DiscordObject[]).find(x => x.id === guild.id);
+  if (o) permissions = (permissions & ~bits(o.deny)) | bits(o.allow);
+  return (permissions & VIEW_CHANNEL) !== 0n;
+}
+
 function withRecipients(s: Store, value: Channel): Channel {
   return value.recipient_ids ? { ...value, recipients: value.recipient_ids.map((id: string) => s.users.get(id) ?? { id }) } : value;
 }
@@ -1017,6 +1183,12 @@ export function dms(s: Store): Channel[] {
   return [...s.channelMap.values()].filter(channel => channel.type === 1 || channel.type === 3)
     .sort((a, b) => cmpId(b.last_message_id ?? '0', a.last_message_id ?? '0') || cmpId(a.id, b.id))
     .map(value => withRecipients(s, value));
+}
+
+/** Whether a channel is a DM or a group DM. */
+export function isDirect(s: Store, channelId: string): boolean {
+  const type = s.channelMap.get(channelId)?.type;
+  return type === 1 || type === 3;
 }
 
 /** Read one normalized channel, including resolved DM recipients when present. */

@@ -32,6 +32,8 @@ mod package;
 pub use package::Ask as PackageAsk;
 #[path = "image/png.rs"]
 mod png_decode;
+#[path = "image/remote.rs"]
+mod remote;
 #[path = "image/svg.rs"]
 mod svg_picture;
 #[cfg(test)]
@@ -60,7 +62,11 @@ struct View {
     requested_for: (f32, f32),
     lease: Option<RasterLease>,
     desired: (f32, f32),
+    /// Asked for: in the viewport, or mounted where a host asks pictures at
+    /// mount (`EXACT_PICTURES_AT_MOUNT`).
     visible: bool,
+    /// In the viewport itself: what a retry and a download's urgency go by.
+    on_screen: bool,
     refusal: Option<Refusal>,
     symbol_size: Option<f32>,
     /// How the box fits the picture, where it clips the picture to itself
@@ -75,7 +81,112 @@ struct View {
     resized: bool,
     /// The request is for a part of the picture.
     part: bool,
+    /// How many times this showing has asked again for a URL whose download
+    /// failed in a way asking again may mend, and when it next does
+    /// ([`RETRY_AFTER`]): from nothing whenever it leaves the screen or its
+    /// source changes.
+    retries: usize,
+    retry_at: Option<Instant>,
+    /// Its source's `load` or `error` has been sent: once a source assignment
+    /// (LLP 1011 §4). `errored`: an `error`, after which it is not asked again.
+    settled: bool,
+    errored: bool,
+    /// Counts its source's assignments: an event waiting is for one of them.
+    assignment: u64,
+    /// The over-long source it was last given (its hash: the cap is what
+    /// keeps the string out), whose `error` has gone.
+    rejected: Option<u64>,
 }
+impl View {
+    /// This assignment's `load` (no `error`) or `error`, if neither has gone.
+    fn settle(&mut self, id: ViewId, error: Option<String>) -> Option<LoadEvent> {
+        if std::mem::replace(&mut self.settled, true) {
+            return None;
+        }
+        if error.is_some() {
+            (self.errored, self.retry_at) = (true, None);
+        }
+        Some(LoadEvent {
+            id,
+            key: self.key.view,
+            source: self.source.clone(),
+            assignment: self.assignment,
+            error,
+        })
+    }
+}
+
+/// An over-long source's identity, which is kept instead of the string.
+fn source_hash(source: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The core's refusal as an image's `error` says it (Apple's names).
+fn refusal_text(refusal: Refusal) -> &'static str {
+    match refusal {
+        Refusal::Overflow => "overflow",
+        Refusal::InvalidDimensions => "invalid dimensions",
+        Refusal::EncodedLimit => "encoded limit",
+        Refusal::HeaderLimit => "header limit",
+        Refusal::SourcePixels => "source pixels",
+        Refusal::TooLarge => "too large",
+        Refusal::Budget => "budget",
+        Refusal::QueueFull => "queue full",
+        Refusal::SubscriberLimit => "subscriber limit",
+        Refusal::ConflictingMetadata => "conflicting metadata",
+        Refusal::Paused => "paused",
+        Refusal::Shutdown => "shutdown",
+        Refusal::Stale => "stale",
+        Refusal::ActualExceedsReservation => "actual exceeds reservation",
+        Refusal::DecodeFailed => "decode failed",
+    }
+}
+/// A refusal that asking again in a later pass may get past: no `error`.
+fn passing(refusal: Refusal) -> bool {
+    matches!(
+        refusal,
+        Refusal::Budget | Refusal::QueueFull | Refusal::Paused | Refusal::Stale
+    )
+}
+
+/// A source's first picture has landed, or it failed for good: its view's
+/// `load`, or its `error` with the reason, waiting for the presenter, which
+/// sends it if the view is still that node (`key`, packed) with that source,
+/// assigned that time.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LoadEvent {
+    pub id: ViewId,
+    pub key: u64,
+    pub source: String,
+    pub assignment: u64,
+    pub error: Option<String>,
+}
+
+/// When a picture on screen whose download failed (the network, a timeout, a
+/// 5xx) is asked for again, after each failure: six times a showing, about a
+/// minute in all, then not until it shows again (a dead URL never polls).
+#[cfg(not(test))]
+pub(crate) const RETRY_AFTER: [Duration; 6] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(16),
+    Duration::from_secs(30),
+];
+/// (The same steps in milliseconds, for the tests.)
+#[cfg(test)]
+pub(crate) const RETRY_AFTER: [Duration; 6] = [
+    Duration::from_millis(10),
+    Duration::from_millis(20),
+    Duration::from_millis(40),
+    Duration::from_millis(80),
+    Duration::from_millis(160),
+    Duration::from_millis(300),
+];
 
 /// One generation's bounded live demand, sharing its budget with replacements.
 pub struct Images {
@@ -87,6 +198,10 @@ pub struct Images {
     pub bitmaps: BTreeMap<ViewId, Arc<Bitmap>>,
     /// Current loaded views and NATURAL pixel sizes; never traversal history.
     pub loaded: Vec<(String, (u32, u32))>,
+    /// The views whose source's first picture has landed since the presenter
+    /// last took them, with the node (its key, packed) and the source they
+    /// landed for: each hears its `load` (LLP 1011 §4) if it is still that.
+    pub(crate) load_events: Vec<LoadEvent>,
     decode_enabled: bool,
     deferred: usize,
     /// The last [`Images::sync_visible`] met a picture (an image that is not
@@ -111,6 +226,9 @@ pub struct Images {
     pub(crate) box_index: Option<(u64, u64, std::collections::HashMap<ViewId, usize>)>,
     /// Pictures of a package's scheme, which no file holds (`package.rs`).
     package: package::Pictures,
+    /// The screen in device pixels, as the presenter last said: a picture
+    /// that fills it is downloaded first.
+    pub(crate) screen: (f32, f32),
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -132,6 +250,7 @@ impl Images {
             views: BTreeMap::new(),
             bitmaps: BTreeMap::new(),
             loaded: Vec::new(),
+            load_events: Vec::new(),
             decode_enabled: true,
             deferred: 0,
             pictures: false,
@@ -141,6 +260,7 @@ impl Images {
             order: None,
             box_index: None,
             package: package::Pictures::default(),
+            screen: (0., 0.),
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
@@ -207,6 +327,20 @@ impl Images {
         scale: f32,
         visible: impl Fn(ViewId) -> bool,
     ) -> Vec<Report> {
+        self.sync_shown(kernel, live, scale, &visible, &visible)
+    }
+
+    /// [`Images::sync_visible`], with what is asked for (`visible`) apart
+    /// from what is in the viewport (`on_screen`): a host that asks every
+    /// mounted picture still retries and hurries only those on screen.
+    pub(crate) fn sync_shown(
+        &mut self,
+        kernel: &Kernel,
+        live: &[ViewId],
+        scale: f32,
+        visible: &dyn Fn(ViewId) -> bool,
+        on_screen: &dyn Fn(ViewId) -> bool,
+    ) -> Vec<Report> {
         let mut reports = Vec::new();
         let mut seen = std::collections::HashSet::with_capacity(live.len().min(SUBSCRIPTIONS));
         self.deferred = 0;
@@ -245,12 +379,19 @@ impl Images {
                 lease: None,
                 desired: (0., 0.),
                 visible: true,
+                on_screen: true,
                 refusal: None,
                 symbol_size: None,
                 fit: None,
                 object_fit: node.style.object_fit,
                 resized: false,
                 part: false,
+                retries: 0,
+                retry_at: None,
+                settled: false,
+                errored: false,
+                rejected: None,
+                assignment: 0,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
             view.fit = plain_box(node.style).then_some(node.style.object_fit);
@@ -262,6 +403,8 @@ impl Images {
                 if let Some((request, _)) = view.request.take() {
                     self.backend.cancel(request);
                 }
+                (view.retries, view.retry_at) = (0, None);
+                view.rejected = None;
                 view.source_id = None;
                 view.accepted = None;
                 view.lease = None;
@@ -280,6 +423,10 @@ impl Images {
             // Only a picture loads by whether it shows: a symbol's never asked.
             self.pictures = true;
             view.visible = visible(*id);
+            view.on_screen = view.visible && on_screen(*id);
+            if !view.on_screen {
+                (view.retries, view.retry_at) = (0, None);
+            }
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
             }
@@ -291,6 +438,8 @@ impl Images {
                     self.backend.cancel(request);
                 }
                 (view.source_id, view.lease, view.refusal) = (None, None, None);
+                (view.retries, view.retry_at) = (0, None);
+                view.rejected = None;
                 self.package
                     .want(*id, source, view.desired, view.object_fit, view.visible);
                 view.source = source.to_owned();
@@ -303,11 +452,13 @@ impl Images {
                 // is decoded would otherwise throw the work away, and the
                 // next row showing that picture decode it again.
                 if let Some((request, _)) = view.request {
-                    let decoding = matches!(
-                        self.backend.session.status(request),
-                        Some(RequestStatus::Decoding)
-                    );
-                    if !decoding {
+                    let status = self.backend.session.status(request);
+                    // (A decode that failed for good is its `error`, out of view too.)
+                    if status == Some(RequestStatus::Failed(Refusal::DecodeFailed)) {
+                        let message = refusal_text(Refusal::DecodeFailed).into();
+                        self.load_events.extend(view.settle(*id, Some(message)));
+                    }
+                    if status != Some(RequestStatus::Decoding) {
                         self.backend.cancel(request);
                         view.request = None;
                     }
@@ -319,12 +470,29 @@ impl Images {
                 if let Some((request, _)) = view.request.take() {
                     self.backend.cancel(request);
                 }
+                (view.retries, view.retry_at) = (0, None);
                 view.source.clear();
                 view.source_id = None;
                 view.refusal = Some(Refusal::DecodeFailed);
                 self.deferred += 1;
+                // A new assignment, refused: its `error` once (the old picture stays).
+                let digest = source_hash(source);
+                if view.rejected != Some(digest) {
+                    view.rejected = Some(digest);
+                    view.assignment += 1;
+                    (view.settled, view.errored) = (true, true);
+                    self.load_events.retain(|e| e.id != *id);
+                    self.load_events.push(LoadEvent {
+                        id: *id,
+                        key: view.key.view,
+                        source: source.to_owned(),
+                        assignment: view.assignment,
+                        error: Some("a source over 4096 bytes".into()),
+                    });
+                }
                 continue; // Deliberately keep only the previously accepted picture.
             }
+            view.rejected = None;
             if view.source != source {
                 if let Some((request, _)) = view.request.take() {
                     self.backend.cancel(request);
@@ -332,6 +500,10 @@ impl Images {
                 view.source = source.to_owned();
                 view.source_id = None;
                 view.refusal = None;
+                (view.retries, view.retry_at) = (0, None);
+                (view.settled, view.errored) = (false, false);
+                view.assignment += 1;
+                self.load_events.retain(|e| e.id != *id);
                 // The old lease, bitmap and natural size stay until acceptance.
                 if source.is_empty() {
                     view.lease = None;
@@ -367,7 +539,11 @@ impl Images {
                 .node(*id)
                 .and_then(|n| n.props.str(PropId::ImageSource).map(str::to_owned))
                 .unwrap_or_default();
-            if view.symbol_size.is_some() || view.source == source {
+            // (An over-long source is kept as its hash, not the string.)
+            let rejected = view.source.is_empty()
+                && view.rejected.is_some()
+                && view.rejected == Some(source_hash(&source));
+            if view.symbol_size.is_some() || view.source == source || rejected {
                 continue;
             }
             self.remove(*id);
@@ -384,6 +560,7 @@ impl Images {
         }
         self.bitmaps.remove(&id);
         self.package.forget(id);
+        self.load_events.retain(|e| e.id != id);
     }
     /// Consume bounded completions and retry metadata/decode admission once.
     pub fn poll(&mut self) -> Vec<Report> {
@@ -394,16 +571,46 @@ impl Images {
         let mut reports = Vec::new();
         let scale = self.scale;
         for (id, view) in &mut self.views {
+            // (An `error` ends its source assignment: nothing more is asked.)
             if view.source.is_empty()
                 || view.symbol_size.is_some()
                 || self.package.serves(&view.source)
+                || view.errored
             {
                 continue;
+            }
+            if let Some(source) = view.source_id.as_ref().map(|s| s.id) {
+                let prepared = self.backend.prepared(source);
+                if prepared.is_none() {
+                    // Another view of the same URL asked again: this one joins
+                    // that download, with no retry of its own counted or due.
+                    view.source_id = None;
+                    view.retry_at = None;
+                } else if view.retry_at.is_some_and(|at| Instant::now() >= at) {
+                    view.retry_at = None;
+                    // Its download failed and its time to ask again has come:
+                    // the failed source is let go of, and asked for anew
+                    // below. (One that is no longer failed is left be.)
+                    if matches!(prepared, Some(Prepared::Failed(_))) {
+                        self.backend.evict(source);
+                        view.source_id = None;
+                        view.retries += 1;
+                    }
+                }
+            }
+            // A picture on screen that fills it (a viewer's) is downloaded first.
+            let urgent = view.on_screen
+                && self.screen.0 > 0.
+                && view.desired.0 >= self.screen.0 * 0.9
+                && view.desired.1 >= self.screen.1 * 0.5;
+            if let Some(source) = view.source_id.as_ref().filter(|_| urgent) {
+                // (One already asked for, grown to fill it: its waiting download moves up.)
+                self.backend.promote(source);
             }
             if view.source_id.is_none() {
                 match self
                     .backend
-                    .source(self.generation, &view.source, &self.assets)
+                    .source(self.generation, &view.source, &self.assets, urgent)
                 {
                     Ok(source) => {
                         view.source_id = Some(source);
@@ -411,6 +618,10 @@ impl Images {
                     }
                     Err(e) => {
                         view.refusal = Some(e);
+                        if !passing(e) {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
                         continue;
                     }
                 }
@@ -420,18 +631,53 @@ impl Images {
                 Some(Prepared::Ready(header)) => header,
                 Some(Prepared::Failed(e)) => {
                     view.refusal = Some(e);
+                    // Still on screen, and asking again may mend it: asked
+                    // again after the next of RETRY_AFTER, and never before
+                    // the server's Retry-After (not in this showing, if that
+                    // is further off than a picture waits).
+                    if let Some(after) = (view.on_screen
+                        && view.retry_at.is_none()
+                        && view.retries < RETRY_AFTER.len()
+                        && remote::is_remote(&view.source))
+                    .then(|| self.backend.transient(source))
+                    .flatten()
+                    {
+                        let now = Instant::now();
+                        if after > now + remote::MOST_RETRY_AFTER {
+                            // Further off than a picture waits: no more in this showing.
+                            view.retries = RETRY_AFTER.len();
+                        } else {
+                            view.retry_at = Some(after.max(now + RETRY_AFTER[view.retries]));
+                        }
+                    }
+                    // Its `error`, once its failure is final: at once if asking
+                    // again cannot mend it; else once a showing's retries are
+                    // spent on screen (off screen it waits until it has shown).
+                    let transient =
+                        remote::is_remote(&view.source) && self.backend.transient(source).is_some();
+                    let spent = view.on_screen
+                        && view.retry_at.is_none()
+                        && view.retries >= RETRY_AFTER.len();
+                    if !transient || spent {
+                        let message = self.backend.message(source);
+                        let message = message.unwrap_or_else(|| refusal_text(e).into());
+                        self.load_events.extend(view.settle(*id, Some(message)));
+                    }
                     continue;
                 }
                 _ => continue,
             };
             if !view.visible {
                 // Its decode has finished since it went out of view: kept
-                // cold, its delivery cell free for the pictures that show.
+                // cold, its delivery cell free for the pictures that show (one
+                // that failed for good is its `error`, out of view too).
                 if let Some((request, _)) = view.request {
-                    if !matches!(
-                        self.backend.session.status(request),
-                        Some(RequestStatus::Decoding)
-                    ) {
+                    let status = self.backend.session.status(request);
+                    if status == Some(RequestStatus::Failed(Refusal::DecodeFailed)) {
+                        let message = refusal_text(Refusal::DecodeFailed).into();
+                        self.load_events.extend(view.settle(*id, Some(message)));
+                    }
+                    if status != Some(RequestStatus::Decoding) {
                         self.backend.cancel(request);
                         view.request = None;
                     }
@@ -458,6 +704,7 @@ impl Images {
                                 view.lease = Some(lease);
                                 view.accepted = Some(request);
                                 view.displayed_source = view.source.clone();
+                                self.load_events.extend(view.settle(*id, None));
                             }
                         }
                     }
@@ -465,6 +712,11 @@ impl Images {
                         view.refusal = Some(e);
                         self.backend.cancel(request);
                         view.request = None;
+                        // A decode that fails for good (others are asked again below).
+                        if e == Refusal::DecodeFailed {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
                         continue;
                     }
                     Some(RequestStatus::WaitingBudget) => {
@@ -502,6 +754,10 @@ impl Images {
                     Ok(plan) => plan,
                     Err(e) => {
                         view.refusal = Some(e);
+                        if !passing(e) {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
                         continue;
                     }
                 };
@@ -573,11 +829,19 @@ impl Images {
                                     view.lease = Some(lease);
                                     view.accepted = Some(request);
                                     view.displayed_source = view.source.clone();
+                                    self.load_events.extend(view.settle(*id, None));
                                 }
                             }
                         }
                     }
-                    Err(e) => view.refusal = Some(e),
+                    Err(e) => {
+                        view.refusal = Some(e);
+                        // One asking again cannot get past: its `error`.
+                        if !passing(e) {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
+                    }
                 }
             }
         }
@@ -591,6 +855,10 @@ impl Images {
             })
             .collect();
         reports
+    }
+    /// Which assignment of its source view `id` shows ([`LoadEvent`]).
+    pub(crate) fn assignment(&self, id: ViewId) -> Option<u64> {
+        self.views.get(&id).map(|view| view.assignment)
     }
     /// Pending work, including capacity waits; this is not an animation request.
     pub fn pending(&self) -> bool {
@@ -628,6 +896,17 @@ impl Images {
                 }
         })
     }
+    /// How long until a picture on screen asks again for a download that
+    /// failed: a turn is owed then (`turn_due_ms`, `wake_due_ms`).
+    pub fn retry_due_in(&self) -> Option<Duration> {
+        let now = Instant::now();
+        (self.views.values())
+            .filter(|v| v.on_screen && v.source_id.is_some() && remote::is_remote(&v.source))
+            .filter_map(|v| v.retry_at)
+            .min()
+            .map(|at| at.saturating_duration_since(now))
+    }
+
     /// Wait only for metadata/integrity; decode capacity never rejects activation.
     pub(crate) fn prepare_metadata(
         &mut self,
@@ -641,9 +920,12 @@ impl Images {
         loop {
             let seen = self.revision();
             self.poll();
+            // A URL is not an asset an update vouches for: its download
+            // holds nothing back.
             if self.views.values().all(|v| {
                 v.source.is_empty()
                     || self.package.serves(&v.source)
+                    || remote::is_remote(&v.source)
                     || matches!(
                         v.source_id
                             .as_ref()
@@ -707,6 +989,7 @@ impl Images {
         self.package = std::mem::take(&mut self.package).reset();
         self.bitmaps.clear();
         self.loaded.clear();
+        self.load_events.clear();
         self.generation = self.backend.generation();
         self.settled = None;
     }
@@ -736,6 +1019,8 @@ impl Images {
             "peakBytes":s.peak_bytes,"running":s.running,"processRunning":g.running,
             "ready":s.ready,"deliveryCells":s.delivery_cells,"pendingJobs":s.pending_jobs,
             "subscribers":s.subscribers,"coldEntries":s.cold_entries,"sourceEntries":self.backend.sources(),
+            "remoteFetches":self.backend.downloads.fetches.load(std::sync::atomic::Ordering::Relaxed),
+            "remoteCacheBytes":self.backend.downloads.cached_bytes(),
             "liveDiagnostics":self.loaded.len(),"deferred":self.deferred,
             "budgetWaits":waiting,"refusalReasons":reasons,
             "refused":self.views.values().filter(|v| v.refusal.is_some()).count()})

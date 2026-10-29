@@ -66,9 +66,18 @@ fn table() -> std::sync::MutexGuard<'static, Table> {
 /// The selected folder (or a selected file's parent), opened and retained,
 /// so replacing its pathname cannot redirect later document work; `None`
 /// when it is not a directory.
-fn retain(root: &Path) -> Option<File> {
+fn retain(root: &Path, selected_folder: bool) -> Option<File> {
     let mut options = OpenOptions::new();
     options.read(true);
+    #[cfg(target_vendor = "apple")]
+    if !selected_folder {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A security-scoped file grants access to that file, not permission
+        // to enumerate its parent. Retain the parent only for relative lookup.
+        options.custom_flags(libc::O_SEARCH);
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    let _ = selected_folder;
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
@@ -100,7 +109,7 @@ pub(crate) fn mint_as(real: &Path, owner: u64, reuse: bool) -> Option<String> {
     }
     // Open before deduplication: a pathname may now name a replacement folder.
     let folder = std::fs::metadata(real).is_ok_and(|m| m.is_dir());
-    let directory = retain(if folder { real } else { real.parent()? })?;
+    let directory = retain(if folder { real } else { real.parent()? }, folder)?;
     let selected = same_file::Handle::from_file(directory.try_clone().ok()?).ok()?;
     let leaf = (!folder).then(|| name.clone());
     let mut t = table();
@@ -211,7 +220,7 @@ pub(crate) fn adopt(
     let Some(root) = (if folder { Some(real) } else { real.parent() }) else {
         return false;
     };
-    let Some(directory) = retain(root) else {
+    let Some(directory) = retain(root, folder) else {
         return false;
     };
     let found = match &leaf {
@@ -262,7 +271,7 @@ pub(crate) fn app_of(owner: u64) -> Option<Arc<str>> {
 }
 
 /// What a relaunch leaves of `app`: nothing in this process.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn relaunch(app: &str) {
     kept::drop_store(app);
     let mut t = table();
@@ -443,6 +452,48 @@ pub fn covers(watch: &Watched, changed: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_vendor = "apple")]
+    fn a_selected_file_does_not_require_listing_its_parent() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::io::AsRawFd;
+        let root =
+            std::env::temp_dir().join(format!("exact-docs-file-scope-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("selected.md"), "selected").unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o111)).unwrap();
+        let doc = mint(&root.join("selected.md"), 7203);
+        let listed = std::fs::read_dir(&root);
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(
+            listed.is_err(),
+            "the parent must not be readable in this test"
+        );
+        let doc = doc.expect("the selected file needs only parent lookup access");
+        let Resolved::Real {
+            directory, path, ..
+        } = resolve(&doc, 7203).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(path, "selected.md");
+        let fd = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                c"selected.md".as_ptr(),
+                libc::O_RDONLY,
+            )
+        };
+        assert!(
+            fd >= 0,
+            "the retained directory must permit opening the selected file"
+        );
+        unsafe { libc::close(fd) };
+        assert!(resolve(&format!("{doc}/other.md"), 7203).is_err());
+        forget(7203);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn a_watch_covers_its_file_its_folders_entries_or_its_subtree() {

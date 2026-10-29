@@ -104,13 +104,13 @@ package enum PageFacts {
         // whole screen) shows through, so a lifecycle test under the agent
         // sees what a person's launch would.
         #if os(macOS)
-        if substituted { return agent.hidden }
+        if substituted { return agent.hidden || !unshown.allObjects.isEmpty }
         #else
         if substituted { return agent.hidden || AppBackground.now }
         #endif
         #if os(macOS)
         if NSApp.isHidden { return true }
-        let windows = NSApp.windows.filter { $0.isVisible || $0.isMiniaturized || closeHid.contains($0) }
+        let windows = NSApp.windows.filter { $0.isVisible || $0.isMiniaturized || closeHid.contains($0) || unshown.contains($0) }
         return !windows.isEmpty && windows.allSatisfy { !$0.isVisible || $0.isMiniaturized || !$0.occlusionState.contains(.visible) }
         #else
         return AppBackground.now
@@ -150,8 +150,30 @@ package enum PageFacts {
         }
         changed()
     }
+    /// The windows a launch with no window made and has not shown (LLP
+    /// 1133.025 D6): each reads `hidden` until it first shows, which is no
+    /// restore.
+    nonisolated(unsafe) private static var unshown = NSHashTable<NSWindow>.weakObjects()
+    /// `window` was made and not shown, for a launch with no window.
+    package static func launchedUnshown(_ window: NSWindow) {
+        unshown.add(window)
+        let id = ObjectIdentifier(window)
+        showWatch[id] = window.observe(\.isVisible) { window, _ in
+            DispatchQueue.main.async {
+                guard window.isVisible, unshown.contains(window) else { return }
+                unshown.remove(window)
+                showWatch.removeValue(forKey: ObjectIdentifier(window))?.invalidate()
+                changed()
+            }
+        }
+        changed()
+    }
+    /// Whether `window` was made by a launch with no window and has not shown.
+    package static func isUnshown(_ window: NSWindow) -> Bool { unshown.contains(window) }
+
     /// `window` closed for good: it counts for nothing again.
     package static func closed(_ window: NSWindow) {
+        unshown.remove(window)
         forgetHidden(window)
         restoreCounts.removeValue(forKey: ObjectIdentifier(window))
     }
@@ -302,12 +324,27 @@ package enum PageFacts {
     /// bit 2 a share sheet, bit 3 the document pickers, bit 4 without focus,
     /// bit 7 about to be suspended, bits 8 and 9 a share takes files and
     /// pictures, bit 10 put away, bits 11–12 the GPU tier, bit 13 an
-    /// iframe's `partition` honoured, bits 16–31 the restores. A session whose
-    /// plan does not read `onLine` starts no monitor for it.
+    /// iframe's `partition` honoured, bit 14 the background told apart from
+    /// visibility and bit 15 its value (macOS), bits 16–31 the restores. A
+    /// session whose plan does not read `onLine` starts no monitor for it.
     static func bits(_ window: FocusWindow?, page: FocusWindow? = nil, readsOnLine: Bool = true) -> UInt32 {
         let online = readsOnLine ? onLine : lastOnLine
         let transitions = (persisted(page) ? 1024 : 0) | UInt32(restores(page) & 0xFFFF) << 16
-        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | (tier & 3) << 11 | (iframePartition ? 8192 : 0) | transitions
+        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | (tier & 3) << 11 | (iframePartition ? 8192 : 0) | backgroundBits | transitions
+    }
+
+    /// The background, apart from visibility (LLP 1133.025 D11 item 7). A
+    /// Mac app whose windows are not showing is still in front of the
+    /// person (a menu-bar app, a window closed to the Dock): only a drive's
+    /// `prefer visibility-state hidden`, which stands for the app leaving,
+    /// puts it in the background; a wake is the runner's. iOS tells nothing
+    /// apart, so the runner reads `hidden`.
+    static var backgroundBits: UInt32 {
+        #if os(macOS)
+        return 1 << 14 | (substituted && agent.hidden ? 1 << 15 : 0)
+        #else
+        return 0
+        #endif
     }
 
     /// Calls `changed` on the main queue when any reading may have changed;

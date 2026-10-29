@@ -1,0 +1,194 @@
+{
+  "kind": "interface",
+  "name": "@exact/purchases",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "start": "load",
+  "agent": {
+    "storeEvent": "StoreEvent",
+    "fault": "string"
+  },
+  "shapes": {
+    "PaymentCurrencyAmount": {
+      "currency": "string",
+      "value": "string"
+    },
+    "ItemDetails": {
+      "itemId": "string",
+      "title": "string",
+      "price": "PaymentCurrencyAmount",
+      "type": "enum<product|subscription>",
+      "description": "string",
+      "iconURLs": "string[]",
+      "subscriptionPeriod": "option<string>",
+      "freeTrialPeriod": "option<string>",
+      "introductoryPricePeriod": "option<string>",
+      "introductoryPrice": "option<PaymentCurrencyAmount>",
+      "introductoryPriceCycles": "option<number>",
+      "displayPrice": "string",
+      "familyShareable": "bool",
+      "apple": "option<AppleItemDetails>",
+      "android": "option<AndroidItemDetails>"
+    },
+    "PurchaseDetails": {
+      "itemId": "string",
+      "purchaseToken": "string",
+      "purchaseState": "enum<purchased|pending>",
+      "purchaseTime": "number",
+      "acknowledged": "bool",
+      "willAutoRenew": "option<bool>",
+      "quantity": "number",
+      "expirationTime": "option<number>",
+      "apple": "option<ApplePurchaseDetails>",
+      "android": "option<AndroidPurchaseDetails>"
+    },
+    "PurchasesStatus": {
+      "available": "bool",
+      "store": "enum<app-store|google-play|none>",
+      "canMakePayments": "bool",
+      "storefront": "option<string>",
+      "apple": "option<ApplePurchasesStatus>",
+      "android": "option<AndroidPurchasesStatus>"
+    },
+    "StoreEvent": {
+      "op": "enum<approve|renew|revoke|purchase>",
+      "purchaseToken": "option<string>",
+      "itemId": "option<string>"
+    }
+  },
+  "names": [
+    {
+      "source": "getDetails",
+      "live": true,
+      "options": {
+        "itemIds": "string[]"
+      },
+      "answers": "ItemDetails[]",
+      "substitute": {
+        "default": []
+      }
+    },
+    {
+      "source": "listPurchases",
+      "live": true,
+      "kept": true,
+      "answers": "PurchaseDetails[]",
+      "substitute": {
+        "default": []
+      }
+    },
+    {
+      "source": "unfinishedPurchases",
+      "live": true,
+      "answers": "PurchaseDetails[]",
+      "substitute": {
+        "default": []
+      }
+    },
+    {
+      "source": "purchasesStatus",
+      "live": true,
+      "answers": "PurchasesStatus",
+      "sync": {
+        "name": "purchasesStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": false,
+          "store": "none",
+          "canMakePayments": false,
+          "storefront": null,
+          "apple": null,
+          "android": null
+        }
+      }
+    },
+    {
+      "send": "purchase",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "itemId": "string",
+        "quantity": "option<number>",
+        "accountToken": "option<string>"
+      },
+      "answers": "PurchaseDetails",
+      "substitute": {
+        "choose": {
+          "ticket": "purchase",
+          "typed": false,
+          "choices": [
+            "buy",
+            "pending",
+            "unavailable",
+            "fail"
+          ]
+        },
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "send": "restorePurchases",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "answers": "PurchaseDetails[]",
+      "substitute": {
+        "choose": {
+          "ticket": "restore",
+          "typed": false,
+          "choices": [
+            "allow"
+          ],
+          "targets": [
+            "ios",
+            "macos"
+          ]
+        },
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "send": "acknowledge",
+      "options": {
+        "purchaseToken": "string"
+      },
+      "answers": null,
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "send": "consume",
+      "options": {
+        "purchaseToken": "string"
+      },
+      "answers": null,
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    }
+  ]
+}

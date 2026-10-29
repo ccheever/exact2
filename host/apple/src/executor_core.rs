@@ -172,8 +172,8 @@ struct Shared {
     /// Where the app's files are, as the host names them; unset on a host or
     /// drive that has none.
     root_paths: std::sync::OnceLock<[std::path::PathBuf; 3]>,
-    /// Their directory handles, for a body read from one
-    /// (`Request::body_from`): opened at the first such request and pinned
+    /// Their directory handles, for a body read from or written to one
+    /// (`Request::body_from`, `body_to`): opened at the first such request and pinned
     /// from then on, as storage's are, or why they would not open. Not at
     /// boot: opening makes the directories, and a cold boot opens no app
     /// storage (fieldnotes' `apple_module_replacement_…` test).
@@ -187,10 +187,10 @@ struct Shared {
 
 impl Shared {
     /// The app's directories for `request`: opened by the first request,
-    /// worker's or stream's, whose body is an app file; `None` for any other
+    /// worker's or stream's, whose body is or goes to an app file; `None` for any other
     /// request, which leaves them unopened, or when the host named none.
     pub(super) fn roots_for(&self, request: &Request) -> body::Roots<'_> {
-        request.body_from.as_ref()?;
+        request.body_from.as_ref().or(request.body_to.as_ref())?;
         let paths = self.root_paths.get()?;
         Some(self.roots.get_or_init(|| body::open(paths)))
     }
@@ -458,6 +458,7 @@ impl Core {
             .long_poll_refusal()
             .or(r.request.timeout_refusal())
             .or(r.request.body_from_refusal())
+            .or(r.request.body_to_refusal())
             .map_or_else(|| reservation(&r.request), Err)
             .and_then(|charge| state.book.reserve_inline_copy(&r.request, charge));
         let lane = checked.as_ref().map_or(0, |(lane, _, _)| *lane);
@@ -1121,11 +1122,17 @@ fn reservation(request: &Request) -> Result<(usize, usize, usize), &'static str>
             if request.storage.is_some() || request.continuation.is_some() {
                 return Err("only HTTP may opt into independent transport");
             }
-            if max_response_bytes == 0 || max_response_bytes as usize > MAX_BODY {
-                return Err("independent HTTP response limit must be 1..=64 MiB");
+            // 1..=64 MiB, or 1 GiB for a body written to a file.
+            if let Some(why) = request.ceiling_refusal() {
+                return Err(why);
             }
             (1, max_response_bytes as usize)
         }
+    };
+    // A body written to a file holds no more than a reply that is not 2xx.
+    let body = match request.body_to {
+        Some(_) => body.min(exact_runner::BODY_TO_HELD_BYTES as usize),
+        None => body,
     };
     let mut bytes = std::mem::size_of::<Job>();
     // Capacity, not length: a caller cannot hide an oversized retained buffer.
@@ -1135,6 +1142,7 @@ fn reservation(request: &Request) -> Result<(usize, usize, usize), &'static str>
         request.body.capacity(),
         request.grants.as_ref().map_or(0, String::capacity),
         request.body_from.as_ref().map_or(0, String::capacity),
+        request.body_to.as_ref().map_or(0, String::capacity),
         request.storage.as_ref().map_or(0, Vec::capacity),
         request
             .headers
@@ -1333,11 +1341,9 @@ fn execute(
     if let Some(why) = request.timeout_refusal().or(request.long_poll_refusal()) {
         return failed(FailureKind::Refused, why);
     }
-    let limit = match request.http {
-        HttpScheduling::Ordered => MAX_BODY,
-        HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
-    };
+    let limit = body_to::limit(&request);
     let timeout = request.timeout_ms;
+    let fetch = reach::gate_fetch(b.fetch.clone(), request.reach);
     // The whole exchange, headers and body, ends by the deadline: the
     // platform's idle timeout alone would let a server that trickles bytes
     // hold the ordered lane for as long as it likes. It is armed before a
@@ -1365,6 +1371,11 @@ fn execute(
     if let Err(outcome) = body::resolve(files.roots, files.grants, &mut request, &ended) {
         return outcome;
     }
+    // The file a 2xx body goes to (LLP 1108 D6 R2): staged before sending.
+    let staged = match body_to::stage(files.roots, files.grants, &request) {
+        Ok(staged) => staged,
+        Err(outcome) => return outcome,
+    };
     if let Some(outcome) = ended() {
         return outcome;
     }
@@ -1375,11 +1386,10 @@ fn execute(
     // deadline does (so the reply says Timeout, not a network error), and a
     // deadline over 60 s is not cut short by it.
     req.timeout = timeout.map(|ms| std::time::Duration::from_millis(u64::from(ms) + 1_000));
-    let result = b
-        .fetch
+    let result = fetch
         .stream(req, &abort.signal())
         .and_then(check_headers)
-        .and_then(|r| r.collect());
+        .and_then(|r| body_to::receive(r, staged, limit));
     match result {
         Ok(r) => Outcome::Response(Response {
             status: r.status,
@@ -1438,44 +1448,8 @@ impl Deadline {
     }
 }
 
-/// The transport's request for a runner's.
-fn fetch_request(request: Request, forced: bool) -> ibex2::stdlib::fetch::Request {
-    let mut req = ibex2::stdlib::fetch::Request::get(&request.url);
-    req.method = request.method;
-    req.redirect = match request.redirect {
-        exact_runner::Redirect::Follow => ibex2::stdlib::fetch::RedirectMode::Follow,
-        exact_runner::Redirect::Manual => ibex2::stdlib::fetch::RedirectMode::Manual,
-        exact_runner::Redirect::Error => ibex2::stdlib::fetch::RedirectMode::Error,
-    };
-    for (k, v) in &request.headers {
-        req.headers.append(k, v);
-    }
-    if forced {
-        req.headers.set("cache-control", "no-cache");
-    }
-    if !request.body.is_empty() {
-        req.body = Some(request.body);
-    }
-    req
-}
-
-fn check_headers(
-    r: ibex2::stdlib::fetch::StreamingResponse,
-) -> Result<ibex2::stdlib::fetch::StreamingResponse, ibex2::boundary::HostError> {
-    let headers = r.headers.entries();
-    let bytes = headers.iter().try_fold(0usize, |n, (k, v)| {
-        n.checked_add(k.len())?.checked_add(v.len())
-    });
-    if bytes.is_none_or(|n| n > MAX_HEADERS) || headers.len() > 1024 {
-        return Err(ibex2::boundary::HostError::Failed(
-            "HTTP headers exceed limit".into(),
-        ));
-    }
-    Ok(r)
-}
-
 #[path = "executor_stream.rs"]
-mod stream;
+pub(crate) mod stream;
 
 #[cfg(test)]
 #[path = "executor_async_tests.rs"]
@@ -1485,10 +1459,17 @@ mod asynch;
 #[path = "executor_outcome.rs"]
 mod outcome;
 use asynch::{asynch_lanes, asynchronous, drained};
-use outcome::{bounded_outcome, build_number, fetch_failure, retained};
+use outcome::{
+    bounded_outcome, build_number, check_headers, fetch_failure, fetch_request, retained,
+};
+
+#[path = "executor_reach.rs"]
+mod reach;
 
 #[path = "executor_body.rs"]
 mod body;
+#[path = "executor_body_to.rs"]
+mod body_to;
 
 #[cfg(test)]
 #[path = "executor_idle_tests.rs"]

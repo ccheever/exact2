@@ -2,7 +2,7 @@
 import { resolve } from 'node:path';
 import { MalformedOperation } from './agent-keys.mjs';
 
-const VALUES = new Set(['--app', '--storage', '--sim', '--session', '--open', '--world', '--plan', '--backend', '--browser', '--size', '--scale', '--test', '--url', '--seed', '--locale', '--format-locale', '--time-zone', '--epoch', '--timing', '--touch', '--chrome', '--phone', '--port', '--fail-fetch', '--family', '--mode', '--scheme', '--props', '--placement', '--state', '--permission', '--bind', '--notification', '--wake']);
+const VALUES = new Set(['--app', '--storage', '--sim', '--session', '--open', '--world', '--plan', '--backend', '--browser', '--size', '--scale', '--test', '--url', '--seed', '--locale', '--format-locale', '--time-zone', '--epoch', '--timing', '--touch', '--chrome', '--phone', '--port', '--fail-fetch', '--family', '--mode', '--scheme', '--props', '--placement', '--state', '--permission', '--bind', '--notification', '--wake', '--call']);
 const supported = 'widget: tree, state, "screenshot <png>" or "clock <ms|+ms|settle|data>"; screenshot film, window and compare options are unavailable';
 
 export function widgetArguments(input) {

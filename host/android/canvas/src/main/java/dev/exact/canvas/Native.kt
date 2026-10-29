@@ -172,6 +172,10 @@ object Native {
      * false when there is nowhere to go back to, and the activity finishes. The reader takes Back only while the
      * host says it has somewhere to go (a request, [requests]). */
     @JvmStatic external fun back(): Boolean
+    /** A URL given to the running app: its location goes to the navigation root's `navigate` (LLP 1133.023 D15 item 3). */
+    @JvmStatic external fun open(href: String)
+    /** A share given to the running app, `{"target", "share"}` as [Shares.request] writes it (LLP 1133.024 D5). */
+    @JvmStatic external fun share(request: String)
     /** What exact2 asks of the platform since this last returned any (LLP 1115.001 D5), or null when it asks
      * nothing: the one channel out, which [Requests] reads and acts on, on the main thread. exact2 queues a request
      * and makes the first of [fds] readable, so the reader comes for it whether or not a frame follows. The words:
@@ -195,6 +199,12 @@ object Native {
     @JvmStatic external fun pictureChanged(source: String, revoked: Boolean)
     /** The activity stopped (true) or started (false): the page's `visibilityState`. On the host's thread. */
     @JvmStatic external fun hidden(hidden: Boolean)
+    /** Waits up to [ms] for the store's writes, which exact2 makes on a thread of its own: whether every commit handed
+     * over was written (a write that failed is tried once more; failing again, it stays pending). Any thread. */
+    @JvmStatic external fun storeDrain(ms: Int): Boolean
+    /** What [Orientation] asked of the activity for the session's orientation lock (LLP 1133.029 §8), JSON, whether
+     * its resolution found a conflict, and a line for the journal or null. On the host's thread. */
+    @JvmStatic external fun orientationApplied(applied: String, conflict: Boolean, line: String?)
     /** The session's clock, ms, as of the host's last turn and moved on by the wall's outside the agent
      * ([ExtensionContext.now]). Any thread. */
     @JvmStatic external fun now(): Double
@@ -203,6 +213,11 @@ object Native {
     @JvmStatic external fun appFile(path: String): String?
     /** Whether extension [name] is told it runs under the agent ([ExtensionContext.agent]). Any thread. */
     @JvmStatic external fun underAgent(name: String): Boolean
+    /** A package's call of the app's handler, `{"extension", "handle", "handler", "args"}` (LLP 1133.016 D15 item 1):
+     *  its number, or -1 with no session; [invoked] reads its answer. */
+    @JvmStatic external fun invoke(body: String): Int
+    /** Call [id]'s answer as JSON, once; null while it has none. */
+    @JvmStatic external fun invoked(id: Int): String?
     /** Whether the page places a canvas of surface [name], as of the host's last turn ([ExtensionSurfaces]). Any
      * thread. */
     @JvmStatic external fun surfaceHas(name: String): Boolean

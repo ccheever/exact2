@@ -12,6 +12,7 @@ final class HeavyLeavesMacTests: XCTestCase {
     override func tearDown() { window?.close(); window = nil }
 
     func testARowsVideoWaitsUntilItsRowIsNearAndSettleMakesEveryOne() throws {
+        try caltrainArchive()
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

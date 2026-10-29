@@ -1,0 +1,24 @@
+component App
+  state armed = false
+  state fired = 0
+  state stamp = -1
+  action arm
+    armed = true
+  action tick
+    fired = fired + 1
+    stamp = performanceNow()
+  task next when armed
+    after(1, tick)
+  view
+    button "arm" press=arm testId="arm"
+
+test "settle reads the task armed by the input"
+  clock settle
+  expect state fired == 0
+  clock +40
+  tap "arm"
+  clock data
+  expect state fired == 0
+  clock settle
+  expect state fired == 1
+  expect state stamp == 41

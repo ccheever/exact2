@@ -2,7 +2,8 @@
 //! `state.extensions`, and `prefer extension` and `prefer permission`.
 
 use super::super::{CommitReceipt, DataSource, Runner};
-use super::{error_code, Json, ModulesRow, Route};
+use super::values::fill_with;
+use super::{error_code, Json, ModulesRow, Route, Waits};
 use serde_json::{json, Map};
 
 impl<D: DataSource> Runner<D> {
@@ -30,6 +31,7 @@ impl<D: DataSource> Runner<D> {
             if self.route(row) == Route::Agent {
                 entry["agent"] = json!(true);
             }
+            self.devices_json(&extension, entry);
             // Each permission by name; `permission` too where it has one.
             let sub = self.substitute(row);
             let by = sub["permissionBy"].as_object().into_iter().flatten();
@@ -38,8 +40,22 @@ impl<D: DataSource> Runner<D> {
                 .chain(by.map(|(_, p)| p))
                 .chain(list)
             {
-                if let Some(name) = p["name"].as_str() {
-                    entry["permissions"][name] = json!(self.permission_state(name));
+                // A `<prefix>.*` permission is shown as each one set under it.
+                match p["name"].as_str().map(|n| (n, n.strip_suffix('*'))) {
+                    Some((_, Some(pre))) => {
+                        for name in self
+                            .extensions
+                            .permission
+                            .keys()
+                            .filter(|k| k.starts_with(pre))
+                        {
+                            entry["permissions"][name] = json!(self.permission_state(name));
+                        }
+                    }
+                    Some((name, None)) => {
+                        entry["permissions"][name] = json!(self.permission_state(name));
+                    }
+                    None => {}
                 }
             }
             if let Some(v) = self.extensions.preferred.get(&key) {
@@ -56,6 +72,9 @@ impl<D: DataSource> Runner<D> {
                     .collect();
                 entry["readers"][&declared] = json!(readers);
             }
+            if let Some(facts) = self.facts_of(&extension) {
+                entry["facts"] = facts;
+            }
             let ceremonies = self.ceremonies_of(&extension);
             if !ceremonies.is_empty() {
                 entry["ceremonies"] = json!(ceremonies);
@@ -64,7 +83,10 @@ impl<D: DataSource> Runner<D> {
                 h.source == self.plan.str(self.plan.sources[row.source.0 as usize].name)
                     && !h.queued
             }) {
-                if let Some(held) = entry["held"].as_array_mut() {
+                if let Some(held) = entry["held"]
+                    .as_array_mut()
+                    .filter(|_| h.waits != Waits::Span)
+                {
                     held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": h.waits.word() }));
                 }
             }
@@ -79,10 +101,18 @@ impl<D: DataSource> Runner<D> {
             if let Some(pictures) = self.pictures_json(extension) {
                 entry["pictures"] = pictures;
             }
+            for (state, calls) in self.played_json(extension).into_iter().flatten() {
+                entry[&state] = calls;
+            }
+            if let Some(claims) = self.services_json(extension) {
+                entry["foregroundService"] = claims;
+            }
             // The canvases its inputs feed, and their leases (D6).
             if let Some(surfaces) = self.fed_json(extension) {
                 entry["surfaces"] = surfaces;
             }
+            self.reach_json(extension, entry);
+            self.arrival_json(extension, entry);
             let one = (entry["permissions"].as_object())
                 .filter(|p| p.len() == 1)
                 .and_then(|p| p.values().next().cloned());
@@ -99,6 +129,14 @@ impl<D: DataSource> Runner<D> {
                 Some(queued) => queued.push(event),
                 None => entry["queued"] = json!([event]),
             }
+        }
+        // What each bound implementation disclosed of its own (D8 item 9).
+        for extension in self.disclosed_extensions() {
+            let bound = self.extensions.bound.contains(&extension);
+            let entry = out.entry(extension.clone()).or_insert_with(
+                || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            entry["implementation"] = self.disclosed_json(&extension).unwrap_or_default();
         }
         // Each package view, and who made it displayed (LLP 1133.008 D8 item 2).
         for row in &self.plan.views {
@@ -133,23 +171,16 @@ impl<D: DataSource> Runner<D> {
                     "prefer permission: an object of `<name>`: granted|denied|prompt".into(),
                 );
             };
-            for (name, state) in group {
-                let known = (self.plan.modules.iter()).any(|m| self.asks_permission(m, name));
-                let state = state
-                    .as_str()
-                    .filter(|s| matches!(*s, "granted" | "denied" | "prompt"));
-                match (known, state) {
-                    (false, _) => {
-                        return refuse(format!(
-                            "prefer permission: no module here asks for `{name}`"
-                        ))
-                    }
-                    (_, None) => {
-                        return refuse(format!(
-                            "prefer permission.{name}: granted, denied or prompt"
-                        ))
-                    }
-                    (true, Some(state)) => self.set_permission(name, state),
+            for (name, value) in group {
+                // A state, or a fact of one the platform hides (`keyed.rs`);
+                // a name may stand for each permission under it (`health`).
+                let Some(value) = value.as_str() else {
+                    return refuse(format!(
+                        "prefer permission.{name}: granted, denied or prompt"
+                    ));
+                };
+                if let Err(e) = self.prefer_permission(name, value) {
+                    return refuse(e);
                 }
             }
             if v.get("extension").is_none() {
@@ -168,6 +199,9 @@ impl<D: DataSource> Runner<D> {
             if let Some(ty) = self.agent_word(key) {
                 if value != "clear" && !word_fits(&ty, value) {
                     return refuse(format!("prefer extension: `{key}` is a {ty}"));
+                }
+                if let Some(e) = self.arrival_refusal(key, value, group) {
+                    return refuse(e);
                 }
                 continue;
             }
@@ -191,7 +225,10 @@ impl<D: DataSource> Runner<D> {
                     }
                 ));
             };
-            if row.send {
+            // A send answered from its own preferred value (`from` itself,
+            // LLP 1133.021 §12's geocoder) takes one; any other is answered.
+            let own = self.substitute(&row)["from"] == self.plan.str(row.declared);
+            if row.send && !own {
                 return refuse(format!(
                     "prefer extension: `{key}` is a send, which the module answers"
                 ));
@@ -228,7 +265,9 @@ impl<D: DataSource> Runner<D> {
                 // overlay (LLP 1133.009 D10 item 11), as a `partial` source
                 // does over its default; a declared one, a value. A sampled
                 // source's takes a reading or a track of steps (§9).
-                let checked = if sub["track"] == true {
+                let checked = if sub["network"] == "browse" {
+                    self.network_checked(value)
+                } else if sub["track"] == true {
                     self.track_checked(&row, &checked)
                 } else if sub["implementation"] == true || sub["partial"] == true {
                     self.partial(&row, &checked)
@@ -241,15 +280,32 @@ impl<D: DataSource> Runner<D> {
             }
         }
         let mut told = std::collections::BTreeSet::new();
+        let mut moved = Vec::new();
         for (key, value) in group {
+            moved.push((key, self.extensions.preferred.get(key).cloned()));
+            // A list whose changes are the device's events (`spans.rs`).
+            let listed = (self.plan.modules.iter())
+                .find(|m| self.key(m) == *key)
+                .cloned();
+            let before = listed.as_ref().and_then(|r| self.changes_value(r));
             if value == "clear" {
                 self.extensions.preferred.remove(key);
             } else {
                 self.extensions.preferred.insert(key.clone(), value.clone());
             }
+            if let Some(row) = listed {
+                let after = self.changes_value(&row);
+                if before != after {
+                    self.preferred_changed(&row, before, after);
+                }
+            }
             self.note_track(key, value);
+            self.devices_preferred(key);
             self.log(format!("prefer extension {key}"));
             self.announce(key);
+            for dependent in self.network_dependents(key) {
+                self.announce(&dependent);
+            }
             // An agent word is its extension's: any of its names stands for it.
             let extension = key.split_once('.').map_or("", |(e, _)| e);
             let row = (self.plan.modules.iter()).find(|m| {
@@ -262,6 +318,11 @@ impl<D: DataSource> Runner<D> {
         }
         for extension in told {
             self.tell_preferred(&extension);
+        }
+        // A field word's change is an arrival, once every word is set.
+        for (key, before) in moved {
+            let after = self.extensions.preferred.get(key).cloned();
+            self.arrival_field(key, before, after);
         }
         self.settle_values();
         let (receipts, error) = self.apply_announced();
@@ -325,5 +386,41 @@ fn partial(at: &str, value: &Json, shape: &exact_js_value::Shape) -> Result<(), 
         (value, shape) => exact_js_value::from_json(value, shape)
             .map(|_| ())
             .map_err(|e| format!("{at}: {e}")),
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// `row`'s declared `fill`, where `value` leaves a path out. A filler
+    /// `"now"` is the agent clock's date; `{"table", "by"}` is the entry of
+    /// the declaration's `tables.<table>` that the filled object's field
+    /// `by` names, filled after the plain fillers so `by` can be one. A
+    /// table filler with `"on"`, a list of targets, fills only there: a
+    /// platform's record (a gamepad's `apple`) on that platform's hosts.
+    pub(super) fn fill_all(&self, row: &ModulesRow, value: &mut Json) {
+        let sub = self.substitute(row);
+        let now = json!(self.time.epoch_at_zero + self.now_ms);
+        let target = self.host_target();
+        let here = |f: &Json| {
+            f["on"]
+                .as_array()
+                .is_none_or(|on| on.iter().any(|t| t == target))
+        };
+        let fills = sub["fill"].as_object().cloned().unwrap_or_default();
+        for tabled in [false, true] {
+            for (path, filler) in fills
+                .iter()
+                .filter(|(_, f)| f["table"].is_string() == tabled && here(f))
+            {
+                let made = |object: &Map<String, Json>| match filler {
+                    f if f == "now" => Some(now.clone()),
+                    f if tabled => {
+                        let by = object.get(f["by"].as_str()?)?.as_str()?;
+                        sub["tables"][f["table"].as_str()?].get(by).cloned()
+                    }
+                    f => Some(f.clone()),
+                };
+                fill_with(value, path, &made);
+            }
+        }
     }
 }

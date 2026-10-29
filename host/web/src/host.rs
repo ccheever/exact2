@@ -81,11 +81,18 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
         7 => Outcome::Surface(SurfaceOutcome::Restored),
         0 => Outcome::Response(Response {
             status: status as u16,
+            // A line that starts with a colon is a pseudo-header the page
+            // names (`:exact-body-to`, exactBodyTo's size): no browser header
+            // name has a colon, so it keeps its leading one.
             headers: headers
                 .lines()
                 .filter_map(|l| {
-                    l.split_once(':')
-                        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                    let (pseudo, l) = l.strip_prefix(':').map_or((false, l), |l| (true, l));
+                    l.split_once(':').map(|(k, v)| {
+                        let k = k.trim();
+                        let k = if pseudo { format!(":{k}") } else { k.into() };
+                        (k, v.trim().to_string())
+                    })
                 })
                 .collect(),
             body,
@@ -643,12 +650,21 @@ impl<D: DataSource> Host<D> {
 
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last spring
-    /// in flight ends, milliseconds, `null` when none — from the engine here.
+    /// in flight ends, milliseconds, `null` when none — from the engine here,
+    /// and a resource's re-ask.
     /// CSS transitions are the browser's; the glue folds their end times in.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
-            return match self.springs.settle_time() {
-                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
+            // A re-ask after a turn over its budget: no I/O to wait on, so the
+            // clock goes to it (exact-runner's `overrun.rs`).
+            return match (self.springs.settle_time().map(|t| t * 1000.0))
+                .into_iter()
+                .chain(self.runner.reask_due_ms())
+                // An answer waiting on its own timer (`data_timers.rs`): the clock goes to it too.
+                .chain(self.runner.data_timer_due_ms())
+                .reduce(f64::max)
+            {
+                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),
                 None => "{\"settle\":null}".to_string(),
             };
         }
@@ -1043,6 +1059,8 @@ impl<D: DataSource> Host<D> {
     pub(crate) fn finish(&self, batch: Batch, error: Option<&str>) -> String {
         let due = self.runner.timer_due_ms();
         let batch = batch.seq(self.runner.seq_range());
+        let batch = batch.alerts(self.runner.take_alerts());
+        let batch = batch.landing(self.runner.data_timer_landing());
         batch.finish(due, self.runner.wants_frames(), self.runner.now_ms(), error)
     }
 

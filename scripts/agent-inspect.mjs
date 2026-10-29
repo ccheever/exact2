@@ -1,7 +1,7 @@
 import { MalformedOperation, inputJSON } from './agent-keys.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { renderAx } from './agent-ax.mjs';
 import { decodePng, encodePng, shrink } from './png.mjs';
@@ -25,6 +25,10 @@ export function scaledScreenshot(r, scale, host) {
   if (drawn - scale <= 1e-3) return { image: png, shrunk: false };
   return { image: shrink(png, Math.max(1, Math.round(png.width * scale / drawn)), Math.max(1, Math.round(png.height * scale / drawn))), shrunk: true };
 }
+
+const sourceLocation = value => value && typeof value.file === 'string' && value.file.length > 0
+  && ['line', 'col', 'end_col'].every(key => Number.isSafeInteger(value[key]) && value[key] > 0)
+  && value.end_col >= value.col && typeof value.component === 'string';
 
 /** @ref LLP 1035.005 D3 / 1035.002 D6 — only the driver reads source maps.
  * The locator discovers candidates; the node's same-reply digest decides whether
@@ -53,11 +57,10 @@ export function sourceMapReader(locator) {
     } finally { await reader.cancel(); }
     return Buffer.concat(parts, length);
   }
-  const location = value => value && typeof value.file === 'string' && value.file.length > 0
-    && ['line', 'col', 'end_col'].every(key => Number.isSafeInteger(value[key]) && value[key] > 0)
-    && value.end_col >= value.col && typeof value.component === 'string';
   const at = value => ({file: value.file, line: value.line, col: value.col, end_col: value.end_col, component: value.component});
   return {
+    /** The map read for a plan digest, if any (LLP 1142 D2: `trace --out` writes it). */
+    get(digest) { return maps.get(digest); },
     /** A map a trace carries (LLP 1079 D5): found by its own digest, as a refreshed one is. */
     add(map) { if (digest(map?.digest) && Array.isArray(map.nodes)) maps.set(map.digest, map); },
     async refresh() {
@@ -100,7 +103,7 @@ export function sourceMapReader(locator) {
       for (const style of Object.values(node.style ?? {})) { delete style.origin; delete style.state; delete style.at; }
       const map = digest(node.planDigest) ? maps.get(node.planDigest) : null;
       const entry = Number.isSafeInteger(node.site) && node.site >= 0 ? map?.nodes[node.site] : null;
-      if (!entry || !location(entry) || !Array.isArray(entry.chain) || !entry.chain.every(location)
+      if (!entry || !sourceLocation(entry) || !Array.isArray(entry.chain) || !entry.chain.every(sourceLocation)
         || !Array.isArray(entry.bindings) || !entry.bindings.every(b => b && typeof b.row === 'string'
           // A base origin, absent where only a state part writes the row; each part's own (theme2's 03:18).
           && (b.origin === undefined || origin(b.origin)) && (b.states === undefined || Array.isArray(b.states) && b.states.every(p => p && typeof p.state === 'string' && origin(p.origin))))) {
@@ -132,9 +135,23 @@ export function sourceMapReaders(locators) {
   const readers = locators.length ? locators.map(sourceMapReader) : [sourceMapReader(null)];
   return {
     add(map) { readers[0].add(map); },
+    get(digest) { for (const r of readers) { const map = r.get(digest); if (map) return map; } return null; },
     async refresh() { return (await Promise.all(readers.map(r => r.refresh()))).some(Boolean); },
     attach(node) { for (const r of readers) { r.attach(node); if (node.sourceMap?.status === 'compatible') return; } },
   };
+}
+
+/** Resource declarations are joined only to the digest in this same state reply. */
+export function identifyResources(reply, maps) {
+  const digest = reply.planDigest, map = maps?.get(digest);
+  for (const [name, row] of Object.entries(reply.resourceStatus ?? {})) {
+    const at = map?.resources?.[name];
+    const valid = sourceLocation(at);
+    row.declaration = valid
+      ? {status:'compatible', digest, file:at.file, line:at.line, col:at.col, end_col:at.end_col, component:at.component}
+      : {status:'unavailable', reason:map ? 'no resource declaration in this map' : 'no compatible development source map'};
+  }
+  return reply;
 }
 
 /** LLP 1104 D2 / 1035.002 D3: list reasons only when geometry and tree
@@ -413,7 +430,7 @@ function renderNode(n) {
 }
 
 /** The counters a `perf` site row may carry, in the order they print (LLP 1079 D1). */
-const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved'];
+const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved', 'rowConstructed', 'rowRebound', 'rowRetired'];
 
 /** `perf [<target>] [during "<op>" …]` and `perf frames [live <ms>] [late <n>]`
  * (LLP 1079 D2, D4). `during` reads, drives each quoted op through `step`, reads
@@ -496,7 +513,30 @@ export function perfDelta(a, b) {
     }
     return d;
   });
-  return { ...b, sites, from: { seq: a.seq, clock: a.clock } };
+  // Handlers by site and event (LLP 1142 D6); one that ran only between the reads is all new.
+  const ran = new Map((a.handlers ?? []).map(h => [`${h.site} ${h.event}`, h]));
+  const handlers = (b.handlers ?? []).map(h => {
+    const was = ran.get(`${h.site} ${h.event}`);
+    return { ...h, dispatched: h.dispatched - (was?.dispatched ?? 0), committed: h.committed - (was?.committed ?? 0) };
+  }).filter(h => h.dispatched > 0);
+  const counted = {};
+  for (const key of ['work', 'hostWork']) {
+    if (!b[key]) continue;
+    const before = a[key], after = b[key];
+    if (!before || before.since !== after.since || before.scope !== after.scope || before.timebase !== after.timebase)
+      throw Error(`perf: ${key} measurement coverage changed between reads; no difference is defined`);
+    const counts = {};
+    for (const [name, value] of Object.entries(after.counts ?? {})) {
+      if (typeof before.counts?.[name] !== 'number') throw Error(`perf: ${key}.${name} was not measured in the first read`);
+      counts[name] = value - before.counts[name];
+      if (counts[name] < 0) throw Error(`perf: ${key}.${name} went backwards; counters restarted`);
+    }
+    counted[key] = {...after, counts};
+  }
+  // Each resource's asks between the reads (LLP 1146 D3); a host that counts none has no `resources`.
+  const asked = new Map((a.resources ?? []).map(r => [r.name, r.asked]));
+  const resources = b.resources?.map(r => ({ ...r, asked: r.asked - (asked.get(r.name) ?? 0) })).filter(r => r.asked > 0);
+  return { ...b, ...counted, sites, handlers, ...(resources ? { resources } : {}), from: { seq: a.seq, clock: a.clock } };
 }
 
 function renderHatchPerf(r) {
@@ -535,24 +575,32 @@ function renderStreamTiming(t) {
   const ms = x => `p50 ${x.p50} p95 ${x.p95} p99 ${x.p99} max ${x.max} (${x.n})`;
   return [`stream timing over ${t.seconds} s`, ...t.streams.map(x => `  ${x.name ?? `ticket ${x.ticket}`}: ${x.messages} messages (${x.messageRate}/s) · ${x.commits} commits (${x.commitRate}/s) · ${x.decodes} decodes (${x.decodeRate}/s, ${x.decodedBytes} bytes)${x.frames != null ? ` · ${x.frames} frames out, ${x.decodeErrors} errors` : ''}${x.refused ? ` · ${x.refused} refused` : ''} · busy ${(x.busy * 100).toFixed(2)}%\n    receipt to entry ${ms(x.toEntry)}\n    receipt to decode ${ms(x.toDecode)}\n    receipt to commit ${ms(x.toCommit)}`)].join('\n');
 }
+/** Events a gesture sends on every frame, and how many make a fling's worth to judge (LLP 1144 D3). */
+const CONTINUOUS = new Set(['scroll', 'pointermove', 'wheel', 'drag']), CONTINUOUS_FROM = 20;
+
 function renderPerf(r) {
   if (r.spans) return [`${r.target} · tick ${r.from ? r.from.tick + '..' : ''}${r.tick} · exclusive ms${r.tickMs ? ` · tick p50 ${r.tickMs.p50} p95 ${r.tickMs.p95} mean ${r.tickMs.mean}` : ''}`,
     ...r.spans.map(s => `  ${s.name} at ${s.at}: p50 ${s.p50} p95 ${s.p95} max ${s.max} perTick ${s.perTick} (${s.count} ticks)`)].join('\n');
   if (r.calls && r.hatches) return renderHatchPerf(r);
   if (r.streamTiming) return renderStreamTiming(r.streamTiming);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
-  if (r.unavailable) return 'this host observes no presented frames';
+  if (r.unavailable) return `this host observes no presented frames${r.reason ? `: ${r.reason}` : ''}`;
   if (r.unmeasured) return `frames not measured: ${r.unmeasured}`;
   if (r.lifetime) {
     const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
     const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed}${r.lifetime.overruns != null ? ` · overruns ${r.lifetime.overruns}` : ''} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
       `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
-    if (r.live) out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to}`);
+    if (r.live) {
+      const o = r.live.observation;
+      out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to} · ${r.live.clockMode ?? 'unspecified'} clock · execution ${r.live.execution ?? 'unspecified'}${r.live.performanceClaim === false ? ' · does not qualify ordinary app performance' : ''}`);
+      if (o) out.push(`observation: ${o.samples} callbacks, ${o.dropped} dropped · ${o.proxy}`);
+      if (r.live.substitutions?.length) out.push(`execution substitutions: ${r.live.substitutions.join('; ')}`);
+    }
     for (const w of r.world ?? []) {
       const g = n => n == null ? '—' : `${Math.round(n * 100) / 100} ms`, ms = x => x ? `p50 ${g(x.p50)} p95 ${g(x.p95)} p99 ${g(x.p99)} mean ${g(x.mean)}` : '—';
       out.push(`  world ${w.canvas}: frame ${ms(w.perf.frameMs)} · tick ${ms(w.perf.tickMs)} · feed ${ms(w.perf.feedMs)} · encode ${ms(w.perf.encodeMs)}`);
     }
-    for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms)${l.overrun ? ` · main ${l.overrun} ms past the target` : ''} · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}`);
+    for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms)${l.overrun ? ` · main ${l.overrun} ms past the target` : ''} · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}${l.phases ? ` · ${[...l.phases].sort((a, b) => b.ms - a.ms).map(p => `${p.phase} ${p.ms}`).join(' ')} unattributed ${l.unattributed}` : ''}`);
     return out.join('\n');
   }
   const round = x => typeof x === 'number' ? Math.round(x * 100) / 100 : x;
@@ -564,20 +612,102 @@ function renderPerf(r) {
   const head = ['component', 'site', ...cols], width = head.map((h, i) => Math.max(h.length, ...rows.map(row => row[i].length)));
   const pad = row => '  ' + row.map((c, i) => c.padEnd(width[i])).join('  ').trimEnd();
   const unmapped = r.sites.find(x => x.source?.status !== 'compatible');
+  // Each handler's dispatches and the ones that changed the tree (LLP 1142 D6): counts, no judgement.
+  const handlers = (r.handlers ?? []).filter(h => h.dispatched > 0).sort((x, y) => y.dispatched - x.dispatched)
+    .map(h => `  ${h.event} at ${where(h)}${h.source?.status === 'compatible' ? ` (${h.source.component})` : ''}: ${h.dispatched} dispatched, ${h.committed} changed the tree`
+      // A scroll's every event a commit (LLP 1144 D3): said once, since that is what a fling multiplies.
+      + (CONTINUOUS.has(h.event) && h.dispatched >= CONTINUOUS_FROM && h.committed * 10 >= h.dispatched * 9
+        ? `\n    each ${h.event} event changed the tree, and each was a runner turn the main thread waited on`
+        : ''));
   return [`${r.target ?? 'every root'} — seq ${span(r.from?.seq, r.seq)} · clock ${span(r.from?.clock, r.clock)} ms · incarnation ${r.incarnation}${r.truncated ? ` · partial: ${r.walked} walked` : ''}${unmapped ? ` · source unavailable: ${unmapped.source?.reason ?? 'no development source map'}` : ''}`,
-    pad(head), ...rows.map(pad)].join('\n');
+    pad(head), ...rows.map(pad), ...(handlers.length ? ['handlers', ...handlers] : []), ...(r.resources?.length ? ['resources asked', ...r.resources.map(x => `  ${x.name}: ${x.asked}`)] : []), ...['work', 'hostWork'].filter(k => r[k]).map(k => `${k} (${r[k].scope}, since ${r[k].since ?? 'unmeasured'} ${r[k].timebase}): ${Object.entries(r[k].counts ?? {}).map(([n,v]) => `${n}=${v}`).join(' ')}`)].join('\n');
 }
 
 /** `bun scripts/agent.mjs trace <file>` (LLP 1079 D5): a person's session
- * read back with no app running. The trace's own source map joins its sites;
- * without one, `locators` are tried as the live driver tries them. */
-export async function readTrace(file, locate = () => []) {
+ * read back with no app running. Its sites are joined to source by plan
+ * digest: a map `plan` names first (`--plan`, LLP 1142 D2), then the one the
+ * trace carries, then `locate`'s, which the live driver tries. The map that
+ * answered is the result's `joinedMap` (not enumerable: `--json` leaves it out). */
+export async function readTrace(file, locate = () => [], plan = null) {
   const t = JSON.parse(readFileSync(file, 'utf8'));
-  const maps = sourceMapReaders(t.map ? [] : locate(t.identity?.app));
-  if (t.map) maps.add(t.map); else await maps.refresh();
+  const maps = sourceMapReaders([...(plan ? planLocators(plan) : []), ...(t.map ? [] : locate(t.identity?.app))]);
+  if (t.map) maps.add(t.map);
+  await maps.refresh();
   const perf = t.perf && !t.perf.error ? { target: 'every root', ...t.perf } : null;
-  for (const site of perf?.sites ?? []) { const n = { planDigest: perf.plan ?? t.plan, site: site.site }; maps.attach(n); site.source = n.sourceMap; }
-  return { ...t, perf };
+  const digest = perf?.plan ?? t.plan;
+  for (const site of [...(perf?.sites ?? []), ...(perf?.handlers ?? [])]) { const n = { planDigest: digest, site: site.site }; maps.attach(n); site.source = n.sourceMap; }
+  const out = { ...t, perf };
+  Object.defineProperty(out, 'joinedMap', { value: maps.get(digest) ?? null });
+  return out;
+}
+
+/** `--plan <path>` (LLP 1142 D2): a plan, its `.map.json`, or a directory
+ * searched four levels deep for plans with a map beside them (a bake's
+ * output, a web build, another checkout's `target/`), as locators. */
+export function planLocators(path) {
+  if (path.endsWith('.map.json')) return [path.slice(0, -'.map.json'.length)];
+  if (!statSync(path).isDirectory()) return [path];
+  const out = [];
+  const walk = (dir, depth) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const f = resolve(dir, e.name);
+      if (e.isDirectory()) { if (depth < 4) walk(f, depth + 1); }
+      else if (e.name.endsWith('.plan.map.json')) out.push(f.slice(0, -'.map.json'.length));
+    }
+  };
+  walk(path, 0);
+  if (!out.length) throw new Error(`--plan ${path}: no plan with a map beside it (\`<name>.plan.map.json\`) in it`);
+  return out;
+}
+
+/** `trace --out <file>`, and `trace --pid`'s copy (LLP 1142 D2): the trace
+ * with the map that matched its plan joined in by the driver, so it reads on
+ * a machine with no build of it. No host reads or carries a map. */
+export function writeTrace(t, file) {
+  writeFileSync(file, JSON.stringify(t.joinedMap ? { ...t, map: t.joinedMap } : t));
+  console.error(`trace written to ${file}${t.joinedMap ? ' with its source map' : ' (no source map matched its plan)'}`);
+}
+
+/** `trace --pid <pid>` (LLP 1142 D5): a running development app on this Mac,
+ * or in a simulator, asked for its trace by `SIGUSR1` (`TraceSignal`), with
+ * no person at its menu. The process's temporary directory holds the marker
+ * it wrote when it installed the handler, and the trace it writes; a process
+ * with no marker newer than its start is not signalled, since an unhandled
+ * `SIGUSR1` would end it. The trace is copied into `dest(app)`. */
+export async function pidTrace(pid, dest, run = spawnSync, timeout = 10000) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('trace --pid <pid>: name a process id');
+  const ps = (field) => run('ps', ['-o', `${field}=`, '-p', String(pid)], { encoding: 'utf8' }).stdout?.trim() ?? '';
+  const exe = ps('comm');
+  if (!exe) throw new Error(`trace --pid ${pid}: no such process`);
+  const sim = exe.match(/\/CoreSimulator\/Devices\/([0-9A-Fa-f-]+)\/data\/Containers\/Bundle\/Application\/[^/]+\/([^/]+\.app)\//);
+  let dir;
+  if (sim) {
+    const app = exe.slice(0, exe.indexOf(sim[2]) + sim[2].length);
+    const id = run('plutil', ['-extract', 'CFBundleIdentifier', 'raw', resolve(app, 'Info.plist')], { encoding: 'utf8' }).stdout?.trim();
+    const container = run('xcrun', ['simctl', 'get_app_container', sim[1], id, 'data'], { encoding: 'utf8' });
+    if (container.status !== 0) throw new Error(`trace --pid ${pid}: ${container.stderr.trim() || 'simctl get_app_container failed'}`);
+    dir = resolve(container.stdout.trim(), 'tmp');
+  } else {
+    // A Mac app here is unsandboxed: its temporary directory is this user's.
+    dir = run('getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8' }).stdout?.trim();
+  }
+  const ready = resolve(dir, `exact-trace-${pid}.ready`), started = Date.parse(ps('lstart'));
+  if (!existsSync(ready) || (Number.isFinite(started) && statSync(ready).mtimeMs < started - 1000)) {
+    throw new Error(`trace --pid ${pid}: ${exe.split('/').pop()} does not save a trace on SIGUSR1 (no ${ready}): a production bake, an older build, or not an Exact app`);
+  }
+  const saved = resolve(dir, `trace-pid-${pid}.json`), asked = Date.now();
+  process.kill(pid, 'SIGUSR1');
+  for (const until = asked + timeout; ;) {
+    if (existsSync(saved) && statSync(saved).mtimeMs >= asked - 5) break;
+    if (Date.now() > until) throw new Error(`trace --pid ${pid}: no trace in ${timeout / 1000} s at ${saved}`);
+    await new Promise(r => setTimeout(r, 50));
+  }
+  const t = JSON.parse(readFileSync(saved, 'utf8'));
+  const target = dest(t.identity?.app);
+  mkdirSync(target, { recursive: true });
+  const file = resolve(target, `trace-${t.identity?.app ?? 'app'}-${pid}-${new Date(asked).toISOString().replace(/[:.]/g, '-')}.json`);
+  copyFileSync(saved, file);
+  return file;
 }
 
 /** The trace a phone's dev menu saved last (`ExactSession.latestTrace`,
@@ -611,7 +741,16 @@ export function phoneTrace(ph, a, run = spawnSync) {
  * transactions it carried (D4: juxtaposition, never a cause), the sites. */
 export function renderTrace(t) {
   const id = t.identity ?? {};
-  const out = [`trace · ${[id.host, id.target].filter(Boolean).join('/')} · ${id.app ?? 'app ?'} · ${id.trust ?? 'trust ?'} · commit ${id.commit?.slice(0, 12) ?? '?'}${id.working_tree ? ' (dirty)' : ''} · ${[id.platform, id.arch, id.cpu, id.os, id.device].filter(Boolean).join(' ')}`];
+  // A web trace names the checkout's commit at export; a native one its host binary's build (LLP 1142 D2).
+  const hb = id.hostBuild ?? {};
+  const build = hb.commit ? ` · host built from ${hb.commit.slice(0, 12)}${hb.dirty === true ? ' (dirty)' : ''}${hb.machine ? ` on ${hb.machine}` : ''}` : '';
+  const out = [`trace · ${[id.host, id.target].filter(Boolean).join('/')} · ${id.app ?? 'app ?'} · ${id.trust ?? 'trust ?'}${id.commit || !hb.commit ? ` · commit ${id.commit?.slice(0, 12) ?? '?'}${id.working_tree ? ' (dirty)' : ''}` : ''}${build}${id.pid ? ` · pid ${id.pid}` : ''}${id.session ? ` session ${id.session}` : ''} · ${[id.platform, id.arch, id.cpu, id.os, id.device].filter(Boolean).join(' ')}`];
+  // No map fitted its plan: what would (LLP 1142 D2). The host's build is a
+  // lead, not the plan's source: a development host can run another plan.
+  const digest = t.perf?.plan ?? t.plan;
+  if (t.perf?.sites?.some(x => x.source?.status !== 'compatible') && typeof digest === 'string') {
+    out.push(`source · no map here fits plan ${digest.slice(0, 12)}: pass --plan a build of it (a plan, its map, or a directory such as that checkout's target/)${hb.commit ? `; the host was built from ${hb.commit.slice(0, 12)}${hb.machine ? ` on ${hb.machine}` : ''}` : ''}`);
+  }
   if (t.proxies) out.push(`proxies · ${Object.entries(t.proxies).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · ')}`);
   if (t.frames?.lifetime) {
     out.push('', renderPerf({ ...t.frames, late: [] }));
@@ -620,13 +759,17 @@ export function renderTrace(t) {
     // journal's `t=` is the runner's logical clock, which need not be the
     // frame's (a page adopted from a checkpoint keeps the render's).
     const lines = t.journal?.lines ?? [];
+    if (t.frames.late?.some(r => r.phases)) out.push('  (phases: the main thread\'s host work inside each late interval, each charged only what nothing inside it took; unattributed: idle time, the platform\'s own work, Core Animation putting new pictures on screen, anything not wrapped — LLP 1142 D1, 1144 D2)');
     for (const r of t.frames.late ?? []) {
       const at = lines.findIndex(l => l.includes(` frame late at ${r.t}:`));
       let from = at;
       while (from > 0 && at - from < 5 && !lines[from - 1].includes(' frame late at ')) from--;
       const near = at < 0 ? [] : lines.slice(from, at);
       const n = r.seq ? r.seq[1] - r.seq[0] + 1 : 0;
-      out.push(`  late at ${r.t}: ${r.missed} missed (${r.interval} ms)${r.overrun ? ` · main ${r.overrun} ms past the target` : ''} · ${n} transaction${n === 1 ? '' : 's'}${r.seq ? ` (seq ${r.seq.join('..')})` : ''}${r.apply ? ` · apply ${r.apply}` : ''}${r.layout != null ? ` · layout ${r.layout}` : ''}${r.paint != null ? ` · paint ${r.paint}` : ''}${r.loaf ? ` · loaf script ${r.loaf.script}${r.loaf.styleLayout != null ? ` style+layout ${r.loaf.styleLayout}` : ''}` : ''}${at < 0 ? ' · its journal line is gone (the ring turned over)' : ` · ${near.length} journal line${near.length === 1 ? '' : 's'} before it`}`);
+      out.push(`  late at ${r.t}: ${r.missed} missed (${r.interval} ms)${r.overrun ? ` · main ${r.overrun} ms past the target` : ''} · ${r.seq ? `${n} transaction${n === 1 ? '' : 's'} (seq ${r.seq.join('..')})` : 'no transaction range'}${r.batches ? ` · ${r.batches} batch${r.batches === 1 ? '' : 'es'}` : ''}${r.apply ? ` · apply ${r.apply}` : ''}${r.layout != null ? ` · layout ${r.layout}` : ''}${r.paint != null ? ` · paint ${r.paint}` : ''}${r.loaf ? ` · loaf script ${r.loaf.script}${r.loaf.styleLayout != null ? ` style+layout ${r.loaf.styleLayout}` : ''}` : ''}${at < 0 ? ' · its journal line is gone (the ring turned over)' : ` · ${near.length} journal line${near.length === 1 ? '' : 's'} before it`}`);
+      // The main thread's host phases inside the interval, innermost charged (LLP 1142 D1), and the hatch calls that overlapped it.
+      if (r.phases) out.push(`    of its ${r.interval} ms: ${[...[...r.phases].sort((a, b) => b.ms - a.ms).map(p => `${p.phase} ${p.ms}${p.segments > 1 ? ` (${p.segments})` : ''}`), `unattributed ${r.unattributed}`].join(' · ')}${r.phasesCoverage ? ' · recording does not reach its start' : ''}`);
+      if (r.hatches?.length) out.push(`    hatches: ${r.hatches.map(h => `${h.hatch} ${h.ms} ms (${h.calls})`).join(' · ')}${r.coverage ? ' · partial' : ''}`);
       for (const l of near) out.push(`    ${l}`);
     }
   } else if (t.frames) out.push('', renderPerf(t.frames));
@@ -708,6 +851,8 @@ export async function stateOp(s, args) {
   const page = { ...look, ...(args[1] === 'events' ? {world:true, events:true, ...(args[2] ? {event_type:args[2]} : {})} : {}), ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
+  // `state intents.entities <kind> [<text>]` (LLP 1133.023 §10): what the content index's query answers a system's.
+  if (args[0] === 'intents.entities') return s.op({ op: 'entities', kind: args[1], ...(args.length > 2 ? { matching: args.slice(2).join(' ') } : {}) });
   // `state <canvas> input` (LLP 1127.003 D8): the world's controls, the devices and pads held, contexts, bindings, and
   // what fired at the last tick.
   if (args[1] === 'input') {

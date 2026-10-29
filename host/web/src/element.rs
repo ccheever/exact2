@@ -6,6 +6,8 @@
 
 #[path = "button_css.rs"]
 mod button_css;
+#[path = "element_symbol.rs"]
+mod symbol;
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
@@ -928,7 +930,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         };
         let name = match id {
             // macOS menu hints have no DOM representation.
-            PropId::MenuPlacement | PropId::MenuRemove => continue,
+            PropId::MenuPlacement | PropId::MenuRemove | PropId::MenuKeys => continue,
             PropId::Text => "text",
             PropId::Markup => "markup",
             PropId::Decorations => "data-decorations",
@@ -1002,6 +1004,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::StatusBarStyle | PropId::StatusBarAnimation => continue,
             // Read by wakelock-glue.js (LLP 1125 D11).
             PropId::Wakelock => "data-exact-wakelock",
+            // Read by orientationlock-glue.js (LLP 1133.029 D7).
+            PropId::Orientationlock => "data-exact-orientationlock",
             // Read by the JS target's midi.js (LLP 1125 D8): the inputs, newline-joined.
             PropId::MidiInputs => "data-exact-midiinputs",
             PropId::SwipeIndicator => "swipeIndicator",
@@ -1355,15 +1359,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
                     );
                 }
             }
-            // A filled path is a silhouette, drawn filled, not stroked: a
-            // role's even-odd, an icon's paths each nonzero (`d`s joined by `;`).
-            if symbol.is_some_and(|s| s.filled) {
-                out.insert("data-symbol-fill".into(), String::new());
-            }
-            if let Some(s) = symbol.filter(|s| s.filled && !s.even_odd) {
-                out.insert("data-symbol-nonzero".into(), String::new());
-                out.insert("data-symbol-viewbox".into(), s.view_box.into());
-            }
+            // How it is filled, and by which rule (element_symbol.rs).
+            symbol::fill_marks(&mut out, role, symbol);
             // Its author's `color` it draws in, untinted (LLP 1121 stage 9 B; glue.js).
             if node.symbol_color {
                 out.insert("data-symbol-color".into(), String::new());

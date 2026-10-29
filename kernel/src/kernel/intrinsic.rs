@@ -24,6 +24,18 @@ impl Kernel {
             .slot_of(view)
             .ok_or(LayoutError::UnknownView(view))?;
         if self.arena.intrinsic(slot) == size {
+            // The same size again, perhaps now as another kind: withdrawn from
+            // the kind it was reported as, and reported as the kind it is now.
+            if let Some(size) = size {
+                let now = crate::control::mark_key(&self.arena, slot);
+                if self.arena.mark_reports.get(&slot).copied() != now {
+                    self.mark_withdrawn(slot);
+                    self.note_mark_report(slot, Some(size));
+                    if now.is_some() {
+                        self.mark_reported(slot, size);
+                    }
+                }
+            }
             return Ok(());
         }
         let tablist = matches!(
@@ -50,7 +62,99 @@ impl Kernel {
         if self.measures_symbol(slot) {
             return Ok(());
         }
+        if size.is_none() {
+            self.mark_withdrawn(slot);
+        }
+        self.note_mark_report(slot, size);
+        if size.is_some_and(|size| self.mark_reported(slot, size)) {
+            self.arena.set_intrinsic(slot, size);
+            return Ok(());
+        }
         self.arena.set_intrinsic(slot, size);
+        self.intrinsic_changed(slot);
+        Ok(())
+    }
+
+    /// A host reported `size` for `slot`. A mark with no size of its own yet
+    /// that already shows its kind's last report keeps its layout. Otherwise
+    /// the report is its kind's, and every mark still showing the kind's
+    /// last one is laid out again with it. Whether `slot`'s layout stands.
+    pub(crate) fn mark_reported(&mut self, slot: u32, size: (f32, f32)) -> bool {
+        let Some(key) = crate::control::mark_key(&self.arena, slot) else {
+            return false;
+        };
+        let shown = crate::control::shared_size(&self.arena, slot);
+        if self.arena.intrinsic(slot).is_none() && shown == Some(size) {
+            return true;
+        }
+        if shown == Some(size) {
+            return false;
+        }
+        self.arena.mark_sizes.retain(|(k, _)| *k != key);
+        self.arena.mark_sizes.push((key, size));
+        let reading: Vec<u32> = (self.arena.iter_live())
+            .filter(|&s| {
+                s != slot
+                    && self.arena.intrinsic(s).is_none()
+                    && crate::control::mark_key(&self.arena, s) == Some(key)
+            })
+            .collect();
+        for s in reading {
+            self.intrinsic_changed(s);
+        }
+        false
+    }
+
+    /// The key a mark's report is made under, kept while it stands; none for
+    /// a withdrawn report or one of a node that is no mark.
+    fn note_mark_report(&mut self, slot: u32, size: Option<(f32, f32)>) {
+        // (the key only for a report: a host's repeated withdrawals resolve no font size)
+        match size.and_then(|_| crate::control::mark_key(&self.arena, slot)) {
+            Some(key) => self.arena.mark_reports.insert(slot, key),
+            None => self.arena.mark_reports.remove(&slot),
+        };
+    }
+
+    /// A host withdrew `slot`'s report. When that report is the size its kind's
+    /// marks share and no other mark of the kind still reports it, the host
+    /// sizes them no more (Linux's Material and neutral looks leave a checkbox
+    /// to the kernel, after a report it took back): the shared size goes with
+    /// it, and the marks still reading it are laid out again at the kind's own.
+    fn mark_withdrawn(&mut self, slot: u32) {
+        // Judged by the key its report was made under (a switch that became a
+        // checkbox withdraws a switch's report), not by what the node is now.
+        let Some(&key) = self.arena.mark_reports.get(&slot) else {
+            return;
+        };
+        let own = self.arena.intrinsic(slot);
+        let shared = (self.arena.mark_sizes.iter())
+            .find(|(k, _)| *k == key)
+            .map(|&(_, size)| size);
+        if own.is_none() || shared != own {
+            return;
+        }
+        // Another mark's report under that key, of that size, still holds it
+        // for the marks with none (two equal reports).
+        let held = (self.arena.mark_reports.iter())
+            .any(|(&s, &k)| s != slot && k == key && self.arena.intrinsic(s) == own);
+        if held {
+            return;
+        }
+        self.arena.mark_sizes.retain(|(k, _)| *k != key);
+        let reading: Vec<u32> = (self.arena.iter_live())
+            .filter(|&s| {
+                s != slot
+                    && self.arena.intrinsic(s).is_none()
+                    && crate::control::mark_key(&self.arena, s) == Some(key)
+            })
+            .collect();
+        for s in reading {
+            self.intrinsic_changed(s);
+        }
+    }
+
+    /// `slot`'s natural size changed: lay it out again.
+    pub(crate) fn intrinsic_changed(&mut self, slot: u32) {
         // A native face's image has no layout node; its button owns measurement.
         let button = self
             .arena
@@ -67,7 +171,24 @@ impl Kernel {
             layout.restyle(&self.arena, slot, node);
             layout.mark_dirty(node);
         }
-        Ok(())
+        self.inline_image_resized(slot);
+    }
+
+    /// An image in a paragraph's text took a new natural size, or a size
+    /// the environment resolves: its box is the paragraph's measurement
+    /// (LLP 1011.002).
+    pub(super) fn inline_image_resized(&mut self, slot: u32) {
+        if !self.arena.is_inline_image(slot) {
+            return;
+        }
+        let owner = self.arena.measure_owner(slot);
+        self.arena.revise_text(owner, true);
+        self.arena
+            .flags_mut(owner)
+            .insert(crate::NodeFlags::TEXT_DIRTY);
+        if let (Some(node), Some(layout)) = (self.arena.taffy(owner), self.layout.as_deref_mut()) {
+            layout.mark_dirty(node);
+        }
     }
 
     /// Whether a symbol's natural size is the one the kernel measured: for
@@ -76,6 +197,14 @@ impl Kernel {
     fn measures_symbol(&self, slot: u32) -> bool {
         self.arena.measured_symbols.contains(slot)
             && self.symbol_revision == Some(self.measurer.measure_revision())
+    }
+
+    /// Whether the next layout would size a symbol first (`measure_symbols`
+    /// with `laid_out_only`): a new measurer or traits, or one owed outside
+    /// a box covered whole.
+    pub(crate) fn symbols_pending(&self) -> bool {
+        Some(self.measurer.measure_revision()) != self.symbol_revision
+            || (self.arena.symbols_owed.iter()).any(|slot| !covered_whole(&self.arena, slot))
     }
 
     /// Measure the symbols owed a measurement. A system symbol's natural size
@@ -139,6 +268,7 @@ impl Kernel {
                 layout.restyle(&self.arena, slot, node);
                 layout.mark_dirty(node);
             }
+            self.inline_image_resized(slot);
         }
     }
 }

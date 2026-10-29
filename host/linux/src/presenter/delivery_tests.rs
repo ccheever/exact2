@@ -130,3 +130,80 @@ fn a_woken_host_is_told_the_development_polls_turn_and_woken_by_its_answer() {
         "the poll's answer wakes the host"
     );
 }
+
+/// A loop that answers every request with its producers' status, and how
+/// many it has answered.
+fn starting_loop() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let served = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = served.clone();
+    std::thread::spawn(move || {
+        let body = r#"{"exact":1,"status":"preparing","message":"building the module producer"}"#;
+        while let Ok((mut stream, _)) = listener.accept() {
+            let mut head = [0u8; 4096];
+            let _ = stream.read(&mut head);
+            let _ = stream.write_all(format!("HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/vnd.exact.dev-status+json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+    (url, served)
+}
+
+/// The presenter's poll against `url` until it has `answers` answers in.
+fn poll_until(p: &mut Presenter<Held>, served: &std::sync::atomic::AtomicUsize, answers: usize) {
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while served.load(std::sync::atomic::Ordering::SeqCst) < answers
+        && std::time::Instant::now() < end
+    {
+        p.tick_development();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    p.tick_development();
+    assert!(served.load(std::sync::atomic::Ordering::SeqCst) >= answers);
+}
+
+/// A dev loop whose producers are starting (dtool2's pass 3 #8; theme2's
+/// condition c): the presenter's poll, which the Linux display and the
+/// Android reader's canvas host both turn, says its status once however
+/// many answers come; and not at all when the boot's fetch said it already.
+#[test]
+fn a_starting_loops_status_is_said_once_by_the_poll() {
+    let plan = crate::test_plan(APP);
+    let (url, served) = starting_loop();
+    let (mut p, _) = Presenter::boot_with(
+        &plan,
+        Held,
+        (200., 200.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    p.painted = true;
+    p.set_development(Some(url.clone()), None);
+    poll_until(&mut p, &served, 4);
+    assert_eq!(p.dev.as_ref().unwrap().lines_said, 1);
+
+    let (url, served) = starting_loop();
+    let (mut p, _) = Presenter::boot_with(
+        &plan,
+        Held,
+        (200., 200.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    p.painted = true;
+    p.set_development(Some(url), None);
+    p.said_at_boot(Some("dev loop: building the module producer".into()));
+    poll_until(&mut p, &served, 3);
+    assert_eq!(
+        p.dev.as_ref().unwrap().lines_said,
+        0,
+        "said at boot, not again"
+    );
+}

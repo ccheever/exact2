@@ -56,6 +56,11 @@ pub trait Routing {
     fn take_change(&mut self) -> Option<RouterChange>;
     /// Whether `location` names a declared route pattern (LLP 1038 §7).
     fn matches_pattern(&self, location: &str) -> bool;
+    /// Set what `sharedFiles` answers for a share's token (LLP 1133.024 D3);
+    /// false when it already answers that.
+    fn share(&self, token: &str, files: Value) -> bool;
+    /// This launch's claims (D3), drawn from `seed` the first time.
+    fn claims(&self, seed: f64) -> std::cell::RefMut<'_, crate::share_in::Claims>;
 }
 
 /// The plan's router, if it declares one (LLP 1038 D2): what a host that
@@ -79,6 +84,10 @@ pub struct RouterContext {
     /// the reads made of it: a binding that calls `stack(nav)` or `top(nav)`
     /// on an unchanged router gets the same object back, not a rebuilt one.
     reads: RefCell<Option<Reads>>,
+    /// Each share token set this launch and its `SharedFiles` record.
+    shared: RefCell<std::collections::BTreeMap<String, Value>>,
+    /// The counters this launch's shares draw tokens and names from.
+    claims: RefCell<Option<crate::share_in::Claims>>,
 }
 
 /// One router value, validated, and what has been read of it.
@@ -147,6 +156,14 @@ impl RouterContext {
             pending: None,
             refusals: RefCell::new(Vec::new()),
             reads: RefCell::new(None),
+            // A cold share's tokens arrive with the boot's other facts.
+            shared: RefCell::new(
+                crate::time::launch_shared()
+                    .into_iter()
+                    .map(|(token, files)| (token, files.value()))
+                    .collect(),
+            ),
+            claims: RefCell::new(crate::time::launch_claims()),
         }))
     }
 
@@ -293,6 +310,25 @@ impl RouterContext {
                 args.get(1)?.as_str()?,
             )));
         }
+        if f == Stdlib::SharedFiles {
+            if !first.conforms(plan, self.entry_ty) {
+                return None;
+            }
+            let name = args.get(1)?.as_str()?;
+            let token = exact_route::search_param(&self.entry(first)?, name);
+            return Some(match self.shared.borrow().get(&token) {
+                Some(files) => files.clone(),
+                None => {
+                    if !token.is_empty() {
+                        self.refuse_once(
+                            "sharedFiles",
+                            &format!("no share under `{name}` this launch"),
+                        );
+                    }
+                    crate::share_in::SharedFiles::default().value()
+                }
+            });
+        }
         let mut reads = self.reads.borrow_mut();
         let reads = match &mut *reads {
             Some(reads) if crate::compare::same(&reads.value, first) => reads,
@@ -420,6 +456,16 @@ fn integer(v: &Value) -> Option<u64> {
 impl Routing for RouterContext {
     fn slot(&self) -> SlotsId {
         self.slot
+    }
+
+    fn share(&self, token: &str, files: Value) -> bool {
+        self.shared.borrow_mut().insert(token.into(), files.clone()) != Some(files)
+    }
+
+    fn claims(&self, seed: f64) -> std::cell::RefMut<'_, crate::share_in::Claims> {
+        std::cell::RefMut::map(self.claims.borrow_mut(), |c| {
+            c.get_or_insert_with(|| crate::share_in::Claims::new(seed))
+        })
     }
 
     fn call(&self, plan: &Plan, f: Stdlib, args: &[Value]) -> Option<Value> {
@@ -637,7 +683,7 @@ impl<D: DataSource> Runner<D> {
             None => self.eval(row.init, &[], &[])?,
         };
         if !v.conforms(&self.plan, row.ty) {
-            return Err(RunnerError::SlotType { slot: name.into() });
+            return Err(RunnerError::slot_type(&self.plan, &v, row.ty, name));
         }
         // A persisted slot takes the store's value over its initializer's
         // (LLP 1116 D5); a carried value is this session's and wins.

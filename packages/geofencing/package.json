@@ -1,0 +1,12 @@
+{
+  "name": "@exact/geofencing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Circular regions the platform watches while the app is closed, raising geofenceenter and geofenceleave as wakes (LLP 1133.021 Part III).",
+  "exports": {
+    ".": "./exact.json",
+    "./android": "./android/exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

@@ -19,14 +19,14 @@ extension NodeView {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         updateRoleAccessibility()
         let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
-        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)"
+        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)" + (props["symbolFillRule"].map { ":\($0)" } ?? "")
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
             // An icon with no SF Symbol draws its own path (D10, stage 9 A).
             image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, SymbolMeasure.configuration(points: points, weight: weight))
             symbolFound = image != nil; if points <= 0 { image = nil }
-            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(RasterRetry.withoutQuery(source)) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
             let clip = symbolClip ?? SymbolClip()
             if symbolClip == nil { clip.wantsLayer = true; clip.layer?.masksToBounds = true; symbolClip = clip; addSubview(clip) }
@@ -37,7 +37,7 @@ extension NodeView {
                 symbolView?.removeFromSuperview(); symbolView = nil
                 let leaf = symbolShape ?? IconShapeView()
                 if symbolShape == nil { symbolShape = leaf; clip.addSubview(leaf) }
-                leaf.show(image == nil ? [] : IconPath.paths(commands)); leaf.setAccessibilityElement(false)
+                leaf.show(image == nil ? [] : IconPath.paths(commands), rule: IconPath.rule(props["symbolFillRule"])); leaf.setAccessibilityElement(false)
             } else {
                 symbolShape?.removeFromSuperview(); symbolShape = nil
                 let leaf = symbolView ?? NSImageView()
@@ -45,12 +45,7 @@ extension NodeView {
                 showSymbol(image, on: leaf); leaf.setAccessibilityElement(false)
             }
             // The symbol's size when the kernel's measurer could not say
-            let size = SymbolMeasure.size(name, points: points, weight: weight)
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.loadGeneration == generation, let presenter = self.presenter,
-                      presenter.views[self.id] === self else { return }
-                presenter.intrinsic(self.id, size)
-            }
+            presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
         symbolView?.contentTintColor = symbolInk
         symbolView?.symbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))

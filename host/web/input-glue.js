@@ -125,8 +125,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
+    touched = true; // any key, Tab included: a route's focus shows the ring to a keyboard's user (`arrive`, below)
     if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
-    if (event.isComposing || !ready() || event.defaultPrevented) return;
+    if (event.isComposing || event.keyCode === 229 || event.key === "Process" || !ready() || event.defaultPrevented) return; // an input method's key, WebKit's committing Enter included (rt.js `onKey`)
     if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
     // A commit may restore the authored runs: refresh their Tab stops and press origin above.
     // Shortcuts already heard the source event.
@@ -175,13 +176,12 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // move the focus.
   document.addEventListener("keydown", (event) => {
     const el = event.target;
-    if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
     if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
-    // when the browser clicks it. A press it declares shows meanwhile, as under
-    // a pointer: a native button's highlight, a `-exact-press-scale`, a pressed paint. (The
-    // unsaid dim needs nothing here: it is the browser's own `:active`.)
-    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || declaresPress(el))) return keyed(el);
+    // when the browser clicks it. Its press shows meanwhile, as under a pointer:
+    // the unsaid dim, a native button's highlight, a `-exact-press-scale`, a pressed paint.
+    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el)) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
     if (el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a disabled box takes no press by key either (LLP 1121 D8)
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
@@ -189,36 +189,24 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     el.click();
     if (event.key === " " && !surface(el)) keyed(el);
   });
-  // @ref LLP 1115.000 D6 — the unsaid dim (index.html) is CSS's while the
-  // press holds; on release it holds at least 0.1 s from the press and fades
-  // back over 0.2 s, ease-out, as the iOS host's does (PressFeedback.swift
-  // `dimHold`, `dimFade`), so a quick tap still flashes. The innermost
-  // pressable showing the dim's 65% is the one dimmed: a finger's
-  // `data-pressed` still holds at the release, read in capture; a mouse's
-  // `:active` has gone by then (Chrome sets it before `pointerdown`'s
-  // listeners and clears it before `pointerup`'s), so it is read at the press.
-  // The agent's clock skips it.
+  // Hold the default dim for at least 0.1 s after it appears, then fade over 0.2 s (LLP 1115.000 D6;
+  // PressFeedback.swift `dimHold`, `dimFade`). Only animate a node that showed the dim; immediate cancellation
+  // and the agent's clock skip the fade.
   const DIM = { opacity: "0.65", hold: 100, fade: 200 };
-  const dimStarts = new WeakMap(), dimFades = new WeakMap(), dimmedAtPress = new WeakSet();
-  const pressable = at => at?.closest?.('button, a[data-view][href], [data-exact-on~="press"]');
-  const fadeDim = el => {
-    if (agentMode || !el || !root.contains(el)) return;
-    if (getComputedStyle(el).opacity !== DIM.opacity && !dimmedAtPress.has(el)) return;
-    dimmedAtPress.delete(el);
-    const hold = Math.max(0, (dimStarts.get(el) ?? 0) + DIM.hold - performance.now());
-    dimFades.get(el)?.cancel();
-    // No closing keyframe: the fade ends at whatever lies beneath the dim.
-    dimFades.set(el, el.animate([{ opacity: DIM.opacity }, { opacity: DIM.opacity, offset: hold / (hold + DIM.fade), easing: "ease-out" }], { duration: hold + DIM.fade }));
+  const dimStarts = new WeakMap(), dimFades = new WeakMap();
+  const markPressed = (el, down, now = false) => {
+    if (down !== el.hasAttribute("data-pressed")) {
+      if (down) {
+        dimFades.get(el)?.cancel();
+        dimStarts.set(el, performance.now());
+      } else if (!now && !agentMode && el.isConnected && getComputedStyle(el).opacity === DIM.opacity) {
+        const hold = Math.max(0, (dimStarts.get(el) ?? 0) + DIM.hold - performance.now());
+        // No closing keyframe: the fade ends at whatever lies beneath the dim.
+        dimFades.set(el, el.animate([{ opacity: DIM.opacity }, { opacity: DIM.opacity, offset: hold / (hold + DIM.fade), easing: "ease-out" }], { duration: hold + DIM.fade }));
+      }
+    }
+    el.toggleAttribute("data-pressed", down);
   };
-  root.addEventListener("pointerdown", e => {
-    const el = pressable(e.target);
-    if (!el) return;
-    dimFades.get(el)?.cancel();
-    dimStarts.set(el, performance.now());
-    if (e.pointerType === "mouse" && getComputedStyle(el).opacity === DIM.opacity) dimmedAtPress.add(el);
-    else dimmedAtPress.delete(el);
-  }, true);
-  for (const type of ["pointerup", "pointercancel"]) addEventListener(type, e => fadeDim(pressable(e.target)), true);
   // @ref LLP 1115.000 D6 — a pressable covering the window is a surface (a
   // scrim that closes a sheet, a viewer that toggles its bars) and shows no
   // press, as on iOS (PressFeedback.swift `platformPressDims`). CSS cannot
@@ -230,22 +218,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const r = el.getBoundingClientRect(), page = document.documentElement;
     return el.toggleAttribute("data-exact-surface", r.width >= page.clientWidth && r.height >= page.clientHeight * .9);
   };
-  // Space held on a pressable this piece presses by key shows its press (its
-  // `-exact-press-scale` and pressed paint, else the shell's dim) until the key comes up or the
-  // focus leaves, as the browser holds a `<button>` `:active` under Space; so
-  // does a `<button>` whose press is declared.
-  // The press a key holds, which leaving the window or the page ends too.
+  // Hold keyboard feedback until Space lifts, focus leaves, or the window or page loses the press
   let keyHold = null;
   const keyed = el => {
     const up = (e, now = false) => {
       if (e?.type === "keyup" && e.key !== " ") return;
-      if (!now) fadeDim(el);
       showPress(el, false, now);
       removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
       if (keyHold === up) keyHold = null;
     };
     keyHold?.(null, true);
-    dimStarts.set(el, performance.now());
     showPress(el, true);
     up.el = el;
     keyHold = up;
@@ -272,7 +254,6 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
   // LLP 1121 D8), eased from what shows at the press, a hover look's included.
   const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
-  const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
   const paints = new Map();
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
   // Start the ease toward `state.to` from where it shows, over `duration`,
@@ -338,7 +319,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const native = el.matches("button[data-button-style]");
     const eased = native && !down && !now && !agentMode && el.hasAttribute("data-pressed");
     const running = eased ? new Set(el.getAnimations({ subtree: true })) : null;
-    el.toggleAttribute("data-pressed", down);
+    markPressed(el, down, now);
     if (native && down) {
       // Flush the pressed style so a tap released before the next frame still shows its highlight (LLP 1061 D2)
       el.removeAttribute("data-exact-released");
@@ -574,39 +555,117 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return true;
   };
   addEventListener("keydown", () => { if (focusLook(deepFocus()) && !keyTurned()) requestAnimationFrame(keyTurned); }, true);
-  const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
+  // Delay touch and pen feedback only where a scroll can move the target. A quick tap flashes on release;
+  // a scroll cancels it before it shows (UIKit's `delaysContentTouches`, LLP 1061 D2).
+  const TOUCH_DELAY = 150;
+  const scrolled = new WeakMap();
+  const touchScroll = el => {
+    const since = performance.now() - TOUCH_DELAY;
+    let delay = false, moving = false;
+    for (let node = el; node; node = node.parentNode ?? node.host) {
+      if (!(node instanceof Element)) {
+        continue;
+      }
+      const style = getComputedStyle(node);
+      delay ||= /auto|scroll|overlay/.test(style.overflowY) && node.scrollHeight > node.clientHeight
+        || /auto|scroll|overlay/.test(style.overflowX) && node.scrollWidth > node.clientWidth;
+      moving ||= scrolled.get(node) > since;
+      // Stop at a bar that stays in place while an outer scroller moves
+      if (style.position === 'fixed' || style.position === 'sticky') {
+        return { delay, moving };
+      }
+    }
+    const page = document.scrollingElement;
+    delay ||= page.scrollHeight > page.clientHeight || page.scrollWidth > page.clientWidth;
+    moving ||= scrolled.get(document) > since;
+    return { delay, moving };
+  };
+  document.addEventListener("scroll", e => {
+    scrolled.set(e.target, performance.now());
+    if (press?.touch && touchScroll(press.el).moving) {
+      release();
+    }
+  }, { capture: true, passive: true });
+  const inside = (p, e) => { const [l, t, r, b] = p.box; return e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b; };
+  // Only mark a mouse-held link without a `press` handler: it dims unless it declares feedback, in which case
+  // it shows nothing (LLP 1121's `lower-state-dead` lint). Buttons and touch presses show authored feedback.
+  const showHeld = (p, down, now = false) => p.dimOnly ? markPressed(p.el, down, now) : showPress(p.el, down, now);
+  // Play the haptic when feedback appears, where `navigator.vibrate` is available (LLP 1077 D14)
+  const begin = p => {
+    // Discard delayed feedback if the target became unavailable before its timer fired
+    if (!p.el.isConnected || p.el.closest(DISABLED) || inertAncestor(p.el)) {
+      if (press === p) {
+        press = null;
+      }
+      return false;
+    }
+    showHeld(p, true);
+    if (p.haptic) {
+      navigator.vibrate?.(p.haptic);
+    }
+    return true;
+  };
+  // Keep a quick tap's feedback through its ease-in without releasing a later press on the same node
+  const lifts = new Map();
+  const unlift = (el, now = false) => {
+    const p = lifts.get(el);
+    lifts.delete(el);
+    clearTimeout(p.lift);
+    if (press?.el !== el || press.delay) showHeld(p, false, now);
+  };
+  // `lifted`: the pointer came up inside the box, so a tap still waiting out the delay shows its press now.
+  const release = (now = false, lifted = false) => {
+    const p = press;
+    press = null;
+    if (!p) return;
+    if (!p.delay) return showHeld(p, false, now);
+    clearTimeout(p.delay);
+    if (!lifted) return;
+    if (!begin(p)) {
+      if (lifts.has(p.el)) {
+        unlift(p.el);
+      }
+      return;
+    }
+    clearTimeout(lifts.get(p.el)?.lift);
+    p.lift = setTimeout(() => unlift(p.el), EASE.duration);
+    lifts.set(p.el, p);
+  };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
     surface(e.target);
-    // A finger holds the unsaid dim too (index.html): a touch's `:active` is the engine's choice, which Safari makes
-    // only for an element with a touch listener ("Safari Web Content Guide", Handling Events) and Chrome only after a
-    // tap gesture a synthesized touch never makes.
-    const touch = e.pointerType === "touch";
-    const el = e.target.closest?.(touch ? "[data-exact-on~=press],button,a[data-view][href]" : "[data-exact-on~=press],button[data-button-style]");
-    if (!el || !root.contains(el) || el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a box says `disabled` (LLP 1121 D8)
-    // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
-    // `navigator.vibrate` where the browser has it (not desktop, not iOS
-    // Safari), with `haptic()`'s two lengths (workout F4).
+    // The innermost pressable takes the press under every pointer; the shell's dim reads this mark, not `:active`
+    // (index.html). A field, or a link that is no view's, in a pressable takes it from it.
+    const el = e.target.closest?.("[data-exact-on~=press],button,a[href],input,select,textarea");
+    if (!el?.matches("[data-exact-on~=press],button,a[data-view][href]") || !root.contains(el) || el.closest(DISABLED)) return; // a box says `disabled` (LLP 1121 D8)
+    const touch = e.pointerType === "touch" || e.pointerType === "pen";
+    const scroll = touch && !agentMode ? touchScroll(el) : {};
+    if (scroll.moving) return;
     const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
-    if (haptic && haptic !== "none") navigator.vibrate?.(haptic === "selection" ? 5 : 12);
-    if (!(declaresPress(el) || el.matches("button[data-button-style]") || touch)) return;
     const r = unpressedBox(el);
-    press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
-    showPress(el, true);
+    const p = press = {
+      el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom], touch,
+      haptic: haptic && haptic !== "none" ? (haptic === "selection" ? 5 : 12) : 0,
+      dimOnly: !touch && el.matches('a:not([data-exact-on~=press])'),
+    };
+    if (scroll.delay) p.delay = setTimeout(() => { if (press !== p) return; p.delay = 0; begin(p); }, TOUCH_DELAY);
+    else begin(p);
   }, true);
   document.addEventListener("pointermove", e => {
     if (e.pointerId !== press?.id) return;
     // The button came up where this document did not hear it (outside the window).
     if (e.buttons === 0) return release();
-    const [l, t, r, b] = press.box;
-    showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
+    // Inside the delay the browser decides: a scroll cancels the touch, a tap lifts it.
+    if (press.delay) return;
+    showHeld(press, inside(press, e));
   }, true);
-  for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
+  document.addEventListener("pointerup", e => { if (e.pointerId === press?.id) release(false, inside(press, e)); }, true);
+  document.addEventListener("pointercancel", e => { if (e.pointerId === press?.id) release(); }, true);
   // Leaving the page, the window or the tab may take the release with it, as the pointer dispatch below assumes: the
   // press, a key's too, ends at once. A gesture that claims the contact (motion-glue's swipe) ends the press as it
   // claims it, as a pan cancels a touch.
-  const leave = () => { release(true); keyHold?.(null, true); };
+  const leave = () => { release(true); for (const el of lifts.keys()) unlift(el, true); keyHold?.(null, true); };
   addEventListener("blur", e => { if (e.target === window) leave(); });
   addEventListener("pagehide", leave);
   document.addEventListener("visibilitychange", () => { if (document.hidden) leave(); });
@@ -619,15 +678,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // (so a route that arrives with no press never takes the focus from where a person put it), but for one still in a
   // leaving element (`[data-exiting]`: a sheet sliding away or a presence view leaving), which is no one's. Another
   // tab's stack is no arrival (the focus stays on its tab), nor is the first sight of a page. Nothing scrolls, and the
-  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's (`focusVisible` says
-  // which, where the engine takes it). The stack is read from the attributes navigation.js projects from.
-  let shown = null, pressed = null;
+  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's, and none before the
+  // person has pressed a key or the pointer, as for a page's first route (`focusVisible` says which, where the engine
+  // takes it). The stack is read from the attributes navigation.js projects from.
+  let shown = null, pressed = null, touched = false;
   const origins = new WeakMap();
   // The press is noted as it begins (the pointer going down; Enter or Space, in the keys' listener above), before the
   // click any listener navigates by: a link to a route is followed from the document's capture phase (above, and the
   // JS target's router.js), so its commit arrives before a listener here would hear that click. A click with neither
   // before it (a script's, the agent's) is noted as it is heard.
-  const note = (e, key) => { if (root.contains(e.target)) pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
+  const note = (e, key) => { if (!root.contains(e.target)) return; touched = true; pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
   document.addEventListener("pointerdown", e => note(e, false), true);
   document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
   const lands = el => !!el?.isConnected && !inertAncestor(el) && el.getClientRects().length > 0 && !el.matches(":disabled");
@@ -660,7 +720,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
     const to = lands(origin) ? origin : titleOf(top) ?? top;
     if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
-    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
+    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : touched ? {} : { focusVisible: false }) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
   };
   return {
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
@@ -948,9 +1008,58 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
-  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
+  if (["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
+  if (!seen) {
+    (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+    return { revealed: id, scrolled: true, from: [x, y], to: clear(el, middle) ?? middle() };
+  }
+  const to = clear(el, middle);
+  return to ? { revealed: id, scrolled: true, from: [x, y], to } : { revealed: id, scrolled: false };
+}
+
+// A target whose middle a sticky or fixed box covers (the design tool's edit dock), as the tap's own hit-test finds it:
+// its scroller (or the page) scrolled so the middle lands in the band of its port the box leaves, as a person scrolls a
+// row out from under a docked bar. Only a box in the target's own scroller, or the page's fixed one, and never one in
+// the top layer (a popover, a modal), which no scroll takes away: the tap still refuses there. The middle it moved to,
+// or null when nothing covered it or nothing could move.
+function clear(el, middle) {
+  const [x, y] = middle(), root = el.getRootNode() ?? document, hit = root.elementFromPoint(x, y);
+  if (!hit || el === hit || el.contains(hit)) return null;
+  // (Anything of the top layer over it, a popover or a modal, is no scroll's to clear, whatever holds it.)
+  const above = a => a.closest(":popover-open, dialog[open], :modal");
+  if (above(hit)) return null;
+  const pinned = a => { const p = getComputedStyle(a).position; return p === "sticky" || p === "fixed"; };
+  // The sticky or fixed box a hit at a point is in, or null.
+  const coverAt = (h) => { let c = h; while (c && c.id !== "exact-root" && !pinned(c)) c = c.parentElement; return !c || c.id === "exact-root" || c.contains(el) || above(c) ? null : c; };
+  const cover = coverAt(hit);
+  if (!cover) return null;
+  // A sticky box's scroll container, as CSS finds it (the nearest ancestor whose overflow isn't visible on either axis),
+  // which must hold the target; for a fixed one, the target's nearest scroller with travel down, else the page.
+  const sticky = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) { const cs = getComputedStyle(s); if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY)) return s; } return document.scrollingElement; };
+  const travel = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) if (/(auto|scroll)/.test(getComputedStyle(s).overflowY) && s.scrollHeight > s.clientHeight) return s; return document.scrollingElement; };
+  const fixed = getComputedStyle(cover).position === "fixed", port = fixed ? travel(el) : sticky(cover);
+  if (port !== document.scrollingElement && !port.contains(el)) return null;
+  // Vertical only: a scroller with no travel down (a horizontal one, its sticky column) is no band's to clear.
+  if (port.scrollHeight <= port.clientHeight) return null;
+  const page = port === document.scrollingElement, box = page ? { top: 0, bottom: innerHeight, height: innerHeight } : port.getBoundingClientRect();
+  // What of the port the viewport shows, less each cover: the band above one whose middle is in the lower half, below
+  // one in the upper. Its middle hit-tested again: a second box there (a header across from a dock) narrows it too.
+  let [top, bottom] = [Math.max(box.top, 0), Math.min(box.bottom, innerHeight)];
+  const mid = (top + bottom) / 2;
+  for (let c = cover, n = 0; c && n < 4 && bottom > top; n++) {
+    const r = c.getBoundingClientRect();
+    if ((r.top + r.bottom) / 2 > mid) bottom = Math.min(bottom, r.top); else top = Math.max(top, r.bottom);
+    const next = bottom > top ? root.elementFromPoint(x, (top + bottom) / 2) : null;
+    // (Only a box of the same port, or a fixed one: a sticky of another scroller doesn't stay where this one moves.)
+    c = next && !(next === el || el.contains(next)) ? coverAt(next) : null;
+    if (c && getComputedStyle(c).position !== "fixed" && sticky(c) !== port) c = null;
+  }
+  if (bottom <= top) return null;
+  // (A scaled port scrolls by its own pixels: the viewport's distance over its scale.)
+  const scale = page || !port.clientHeight ? 1 : box.height / port.offsetHeight || 1;
+  const before = port.scrollTop;
+  port.scrollBy({ top: (y - (top + bottom) / 2) / scale, behavior: "instant" });
+  return port.scrollTop === before ? null : middle();
 }
 
 // A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
@@ -1079,5 +1188,40 @@ export function typeControl(el, request, inertAncestor, settleValue) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
-export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
+// A scroller moving on its own after an input (a fling's glide, a smooth scroll, a page that scrolls it every frame):
+// its `scroll` events go on. `clock settle` waits until two whole frames pass with none, 4 s at most, as a native
+// host waits for a scroll view a finger left moving (agent.mjs reason `scroll`). Two frames: a scroll written in a
+// frame's callbacks has its event at the next frame's rendering step. (Not `scrollend`: a page's instant step each
+// frame ends each time.) Watched from the agent's first operation on: never in an app's own run.
+let scrolls = 0, glides = false;
+export function watchGlides() {
+  if (glides) return;
+  glides = true;
+  addEventListener('scroll', () => { scrolls += 1; }, { capture: true, passive: true });
+}
+/** The `scroll` events seen so far: a settle round compares it before and after its work. */
+export const scrollsSeen = () => scrolls;
+/** Waits until two frames pass with no `scroll` event: whether they did before scrolling outlasted `budget.ms`, which
+ * the wait spends (one budget for a whole `clock settle`, so only time spent waiting on scrolls counts against its
+ * 4 s; a round that comes after it is spent still answers true when nothing scrolls). A frame that doesn't come
+ * (a throttled page) answers false. */
+export async function glidesSettled(budget) {
+  const started = performance.now(), deadline = started + budget.ms;
+  // (a frame gets at least 250 ms, past the budget too: a page drawing frames, however slowly, shows two quiet ones)
+  const frame = () => new Promise(r => {
+    const timer = setTimeout(() => r(false), Math.max(250, deadline - performance.now()));
+    requestAnimationFrame(() => { clearTimeout(timer); r(true); });
+  });
+  try {
+    for (;;) {
+      const before = scrolls;
+      if (!(await frame()) || !(await frame())) return false;
+      if (scrolls === before) return true;
+      if (performance.now() >= deadline) return false;
+    }
+  } finally {
+    budget.ms = Math.max(0, budget.ms - (performance.now() - started));
+  }
+}
+export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, watchGlides, glidesSettled, scrollsSeen };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

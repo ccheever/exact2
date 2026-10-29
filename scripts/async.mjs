@@ -20,7 +20,9 @@
  * moves with the load). A failure that the previous commit did not have is filed with
  * `issue.mjs`, naming the commit that introduced it. A check past 2 h is
  * killed and filed as hung; the worktree's debug target is kept under 80 GiB.
- * Logs and timings (with the load average) stay in <worktree>/target/async/.
+ * Logs and timings (with the load average) stay in <worktree>/target/async/. What each commit's
+ * checks found is also its git note, `refs/notes/async` (tier 2: `async2`), pushed to origin for
+ * `scripts/known.mjs` (LLP 1146 D1).
  *
  *   bun scripts/async.mjs                 watch: check new commits every 300 s
  *   bun scripts/async.mjs --once          check what is pending, then exit
@@ -53,6 +55,7 @@ import { availableParallelism, loadavg } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { INPUTS, Inputs, Store, checkEnv, decide, outcomeOf } from './async-inputs.mjs';
 import { main as issue } from './issue.mjs';
+import { noteOf, publish } from './known.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const option = (name, fallback) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback;
@@ -128,7 +131,7 @@ export function glueTests(root) {
   const files = ['host/web', 'host/web-js'].flatMap(dir => [...new Bun.Glob(`${dir}/**/*.test.{mjs,js}`).scanSync({ cwd: root, onlyFiles: true })])
     .filter(file => !LEFT_OUT.test(file)).sort().map(file => `./${file}`);
   // The glue lane is macOS: link.test reads Mach-O load commands with Apple tools.
-  return [...files, './host/apple/link.test.mjs', './host/apple/cloak.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-keychain', 'app-manifest', 'exact', 'push', 'agent', 'agent-launch', 'agent-drag', 'tamber-server', 'tamber-events-get', 'tamber-edit-held', 'test-children', 'scale-check', 'tool-drive', 'help-parity', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool-levels', 'tamber-tool-answers', 'design-tool', 'design-tool-ops', 'design-tool-library', 'design-tool-canvas', 'design-tool-scrub', 'design-tool-kinds', 'design-tool-inspect', 'design-tool-commit', 'design-tool-fields', 'design-tool-poll', 'design-tool-scale', 'library-gate', 'stage12-gate', 'position-reads', 'wasm-check', 'tamber-body-limit', 'tamber-upstream', 'harmony-seed', 'design-tool-harness', 'tamber-timing', 'agent-clock-until', 'agent-held'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
+  return [...files, './host/apple/link.test.mjs', './host/apple/cloak.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-keychain', 'app-manifest', 'exact', 'check-watchdog', 'push', 'agent', 'agent-launch', 'agent-drag', 'tamber-server', 'tamber-watch', 'tamber-events-get', 'tamber-edit-held', 'test-children', 'scale-check', 'tool-drive', 'help-parity', 'tamber-builds', 'tamber-inspect', 'tamber-select-walk', 'tamber-scrub', 'tamber-dtcg', 'design-tool-levels', 'tamber-tool-answers', 'design-tool', 'design-tool-ops', 'design-tool-library', 'design-tool-canvas', 'design-tool-scrub', 'design-tool-kinds', 'design-tool-inspect', 'design-tool-noaxes', 'design-tool-commit', 'design-tool-fields', 'design-tool-dock', 'design-tool-edit-dock', 'design-tool-poll', 'design-tool-scale', 'library-gate', 'stage12-gate', 'position-reads', 'wasm-check', 'tamber-body-limit', 'tamber-upstream', 'tamber-request', 'tamber-tool-via', 'harmony-seed', 'design-tool-harness', 'tamber-timing', 'agent-clock-until', 'agent-held', 'android-manifest'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
@@ -416,6 +419,9 @@ async function once(state) {
     const fresh = result.failures.filter(f => !before.has(f));
     console.log(`${sha.slice(0, 8)} ${result.subject}: ${result.failures.length} failure(s), ${baseline ? 'baseline' : `${fresh.length} new`}`);
     if (fresh.length && !baseline) file(result, fresh, since);
+    // What it found, on the commit as a git note other checkouts read (LLP 1146 D1, `known.mjs`).
+    const unpublished = publish(noteOf(result, TIER));
+    if (unpublished) console.log(`${sha.slice(0, 8)}: the note was not published: ${unpublished}`);
     Object.assign(state, { last: sha, failures: result.failures });
     writeFileSync(STATE, JSON.stringify(state, null, 2));
   }

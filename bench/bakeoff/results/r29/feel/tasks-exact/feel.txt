@@ -1,0 +1,27 @@
+dev.bakeoff.tasks.bc0c4b9: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 24.22 s of motion
+  tell  hitch ratio (ms/s)                     6.1
+  tell  longest frame (ms)                     61.3
+  ok    main thread p95 (ms/frame)             6.9
+  ok    tracking ratio                         0.999
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       503
+  ok    momentum hand-off (content/asked)      1.04
+  tell  flings that drop a frame at the lift   1/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.8
+  n/a   rubber band (overscroll/finger)        –
+  ok    rubber band settle (s)                 0.57
+  ok    status-bar scroll to top (s)           0.98
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  ok    scrub: hitch ratio (ms/s)              0
+  ok    scrub: longest frame (ms)              16.7
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  16 ok, 3 tell, 0 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 6.1):
+    slow-drag: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 16 ms (in UIKit 16); in display links and ports 16 ms
+    fling-for-tap: 2 late frames (0 on a timer's tick), 33 ms late; Exact host 50 ms (in UIKit 19) · Exact runtime (main waits on exact.owner) 8 ms; in the main queue 30 ms, display links and ports 19 ms, events 9 ms
+    scrub-top: 1 late frame (0 on a timer's tick), 45 ms late; Exact host 54 ms (in UIKit 20) · Exact runtime (main waits on exact.owner) 10 ms · Exact host (main waits on exact.owner) 5 ms; in events 44 ms, the main queue 24 ms
+    scrub-reveal: 3 late frames (0 on a timer's tick), 53 ms late; Exact host 42 ms (in UIKit 28) · Exact runtime (main waits on exact.owner) 3 ms · Exact host (main waits on exact.owner) 3 ms; in display links and ports 34 ms, the main queue 14 ms, events 3 ms

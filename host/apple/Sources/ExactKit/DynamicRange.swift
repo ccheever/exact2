@@ -174,6 +174,16 @@ extension CALayer {
 }
 
 extension NodeView {
+    /// UIKit puts fitted bitmaps inside a clipping layer; flights and AppKit
+    /// use the image layer itself.
+    var imageContentLayer: CALayer? {
+        #if os(iOS) || os(tvOS)
+        return imageLayer?.contents != nil ? imageLayer : imageLayer?.sublayers?.first
+        #else
+        return imageLayer
+        #endif
+    }
+
     /// A changed `dynamic-range-limit` re-asks this node's layers and re-plans
     /// its HDR picture if the decode no longer matches.
     func syncDynamicRange(from old: NodeStyle) {
@@ -182,7 +192,7 @@ extension NodeView {
         guard kind == "image" else { return }
         presenter?.session?.rasters.rangeChanged(self)
         if let bitmap = raster?.image {
-            imageLayer?.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
+            imageContentLayer?.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
         }
     }
 
@@ -217,6 +227,15 @@ extension NodeView {
         for l in own?.sublayers ?? [] where l.name == SvgHost.rootName { l.applyColorRange(limit: limit, deep: true) }
     }
 
+    func paragraphHeadroom(drawing: Bool) -> Float {
+        if let h = cachedTextHeadroom { return h }
+        // Outside a draw only an already-made spec counts, so a paragraph's spec stays lazy.
+        guard let spec = drawing ? paragraphSpec() : cachedTextSpec else { return 0 }
+        let h = spec.headroom
+        cachedTextHeadroom = h
+        return h
+    }
+
     /// The peak of what this view draws itself (a drawn box, a paragraph
     /// drawn rather than rastered), or 0.
     func drawnHeadroom(drawing: Bool) -> Float {
@@ -234,8 +253,7 @@ extension NodeView {
                 h = max(h, ColorRange.headroom(cgColor(key)))
             }
         }
-        // Outside a draw only an already-made spec counts, so a paragraph's spec stays lazy.
-        if text, let spec = drawing ? paragraphSpec() : cachedTextSpec { h = max(h, spec.headroom) }
+        if text { h = max(h, paragraphHeadroom(drawing: drawing)) }
         return h
     }
 

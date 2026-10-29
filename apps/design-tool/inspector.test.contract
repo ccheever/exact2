@@ -26,10 +26,20 @@ test "an inherited row names the node it comes from by its source; the chain's a
   clock +1
   clock data
   expect text "selection-source" == "app.contract:12 · App"
-  expect tree missing "selection-up-1"
+  // No call site above it: one step still, by the page's own tree, to what holds it (a slot's host) or the root.
+  expect text "selection-up-1" == "up: what holds it (a slot's host), else the app's root"
+  expect tree missing "selection-up-2"
+  // Pressed (here, a slot fill the app wrote): the page steps to the slot's host that holds it, said (the Apple pass's
+  // #1: where a step landed, always).
+  tap "selection-up-1"
+  clock data
+  clock +1
+  clock data
+  expect text "selection-source" == "card.contract:2 · Card"
+  expect text "selection-up-note" == "It landed on Card, which holds this fill (written in App) in its slot: card.contract:2 · Card."
   request POST "/__stub/restart" {} as ada
 
-test "a move up the chain that lands higher than asked (the page's tree had fewer above) says where it landed"
+test "a move up that reached the app's root before the steps asked says so, from the page's moved"
   type "name" "Ada"
   tap "save-name"
   clock data
@@ -44,13 +54,13 @@ test "a move up the chain that lands higher than asked (the page's tree had fewe
   clock +1
   clock data
   expect tree missing "selection-up-note"
-  // One up should land in Row's copy (one call above); the page, rebuilt, has none there and lands at the root.
+  // One up: the page finds no other copy above it, lands at the root, and says it stepped none.
   request POST "/__stub/shallow-select" {} as ada
   tap "selection-up-1"
   clock data
   clock +1
   clock data
-  expect text "selection-up-note" == "The page's tree had fewer above it: it selected app.contract:12 · App."
+  expect text "selection-up-note" == "It reached the app's root after 0 of 1 steps: no other copy above holds this one, so it selected app.contract:12 · App."
   // Another selection after it (a click): the note was the move's alone.
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 9, "site": 5, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
   clock +1
@@ -59,6 +69,15 @@ test "a move up the chain that lands higher than asked (the page's tree had fewe
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 11, "site": 6, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
   clock +1
   clock data
+  // A move from what is the root already (App only renders this component): the page reports the same node again,
+  // having stepped none, and the note says it stays there.
+  request POST "/__stub/staying-select" {} as ada
+  tap "selection-up-1"
+  clock data
+  clock +1
+  clock data
+  expect text "selection-up-note" == "It is at the app's root already: no other copy above holds this one, so it stays on card.contract:4 · Card."
+  expect state upExpect == -1
   // A move the server refuses says why, beside the chain.
   request POST "/__stub/refuse-select" {} as ada
   tap "selection-up-1"
@@ -94,6 +113,175 @@ test "a move up the chain that lands higher than asked (the page's tree had fewe
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 11, "site": 6, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
   clock +1
   clock data
+  request POST "/__stub/restart" {} as ada
+
+test "Up is offered while the page still holds the selection (a pin moved) and not once its page was loaded again (the Apple pass's #5, #6)"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "plan": "generation-1", "planDigest": "1111111111111111111111111111111111111111111111111111111111111111"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect tree missing "selection-up-note"
+  expect enabled "selection-up-1"
+  // A pin moved: the page still holds it, so Up stays offered.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": {"scheme": "dark"}, "pinRevision": 1, "plan": "generation-1", "planDigest": "1111111111111111111111111111111111111111111111111111111111111111"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect enabled "selection-up-1"
+  // A dev generation that keeps the plan (its digest the same, an asset one): still held.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "plan": "generation-2", "planDigest": "1111111111111111111111111111111111111111111111111111111111111111"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect enabled "selection-up-1"
+  // Rebuilt (another plan digest): not current, no Up.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "plan": "generation-3", "planDigest": "2222222222222222222222222222222222222222222222222222222222222222"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect disabled "selection-up-1"
+  // Selected again: current, Up offered.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect enabled "selection-up-1"
+  // Changes missed (an exit from inspect mode may be among them): not current until selected again, though Inspect
+  // is turned on once more.
+  request POST "/__stub/miss" {} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  expect disabled "selection-up-1"
+  // Selected again: current, Up offered.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect enabled "selection-up-1"
+  // Its page loaded again (registered again, no status): not current, no Up, and said.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": null, "pin": null, "pinRevision": 0, "plan": "generation-3", "planDigest": "2222222222222222222222222222222222222222222222222222222222222222"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect disabled "selection-up-1"
+  expect tree has "selection-stale"
+  request POST "/__stub/restart" {} as ada
+
+test "a move's landing said even when a refresh of the node comes in the same answer (round 1, Astra)"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect tree missing "selection-up-note"
+  request POST "/__stub/quiet-select" {} as ada
+  tap "selection-up-1"
+  // (The press taken and its request answered first: the page's answer comes after it.)
+  clock data
+  // The page's answer, reported in one batch (one answer to the tool's poll).
+  request POST "/__stub/event" {"events": [{"event": "selection", "build": "web-1", "node": 107, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/postcard.contract", "line": 3, "col": 3, "end_col": 11, "component": "PostCard", "chain": [{"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}], "moved": {"up": 1, "stepped": 1}}, {"event": "selection", "build": "web-1", "node": 107, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/postcard.contract", "line": 3, "col": 3, "end_col": 11, "component": "PostCard", "chain": [{"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]}]} as ada
+  // The landing (with its move) and, before the tool reads it, a refresh of that node (none): one answer.
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "selection-up-note" == "It landed on PostCard, which holds Row in its slot: postcard.contract:3 · PostCard."
+  request POST "/__stub/restart" {} as ada
+
+test "a move's report is never carried past its build moving: a later selection of the same node is no landing (round 2, Astra)"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect tree missing "selection-up-note"
+  request POST "/__stub/quiet-select" {} as ada
+  tap "selection-up-1"
+  // (The press taken and its request answered first: the page's answer comes after it.)
+  clock data
+  // The page's answer, reported in one batch (one answer to the tool's poll).
+  request POST "/__stub/event" {"events": [{"event": "selection", "build": "web-1", "node": 107, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/postcard.contract", "line": 3, "col": 3, "end_col": 11, "component": "PostCard", "chain": [{"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}], "moved": {"up": 1, "stepped": 1}}, {"event": "build-status", "build": {"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 1}, "pin": null, "pinRevision": 0}}, {"event": "selection", "build": "web-1", "node": 107, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/postcard.contract", "line": 3, "col": 3, "end_col": 11, "component": "PostCard", "chain": [{"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]}]} as ada
+  // The landing (with its move) and, before the tool reads it, a refresh of that node (none): one answer.
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree missing "selection-up-note"
+  request POST "/__stub/restart" {} as ada
+
+test "a step that lands on a copy other than the one the press named says so: the one holding it in its slot (the Apple pass's #1)"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect tree missing "selection-up-note"
+  // The page steps to a slot's host the call-site chain doesn't list: said, by name, against the line pressed.
+  request POST "/__stub/slot-select" {} as ada
+  tap "selection-up-1"
+  clock data
+  clock +1
+  clock data
+  expect text "selection-source" == "postcard.contract:3 · PostCard"
+  expect text "selection-up-note" == "It landed on PostCard, which holds Row in its slot: postcard.contract:3 · PostCard."
+  request POST "/__stub/restart" {} as ada
+
+test "a step that lands on another of the selection's callers, not a slot's host, says so plainly (theme2's 08:51 condition)"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect tree missing "selection-up-note"
+  // The page lands a copy further out than the line pressed, on App, which also calls it: no slot is claimed.
+  request POST "/__stub/further-select" {} as ada
+  tap "selection-up-1"
+  clock data
+  clock +1
+  clock data
+  expect text "selection-source" == "app.contract:12 · App"
+  expect text "selection-up-note" == "It landed on App, the nearest copy with a node of its own here: app.contract:12 · App."
   request POST "/__stub/restart" {} as ada
 
 test "a move whose page finds its selection gone ends there and leaves Up working; a page that can't step greys it until it registers again"
@@ -280,9 +468,20 @@ test "the param rung: a row that reads a component param opens the param on the 
   expect state editTarget == "app.tamber#MapCard.zoom"
   expect state editValue == "13"
   expect tree missing "draft-stale"
+  // A grid cell pressed, then, before its branch is read, a token opened from the Inspector: no cell to give the focus
+  // back to, and the press's focus is not moved into the Inspector's token's editor (the edit dock's).
+  tap "cell-surface.card-0-light"
+  expect state returnTo == "cell-surface.card-0-light"
+  expect state pressed == 1
   tap "selrow-token-background-color"
+  // (Marked moved by the selection itself, before any branch is read: no press's focus left to move.)
+  expect state focusedPress == 1
+  clock data
+  clock +1
   clock data
   expect state selToken == "accent.fill"
+  expect state returnTo == ""
+  expect state focusedPress == 1
   request POST "/__stub/restart" {} as ada
 
 test "Only this mode on a param with no line: its line is written first, in the one reviewed transaction, which has no scrub"
@@ -851,7 +1050,7 @@ test "a library component's node: the part outline, its identity and part, its p
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 8, "site": 4, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/node_modules/@acme/cards/card.contract", "line": 11, "col": 7, "end_col": 11, "component": "Card", "chain": [], "library": {"identity": "@acme/cards/card.contract#Card", "part": null}}, "rows": []} as ada
   clock +1
   clock data
-  expect text "library-part" == "This node is no part of it"
+  expect text "library-part" == "Not one of its parts."
   expect text "library-part-header" == "header"
   // Another design file open: the app's describe still gives the parts, and the outline follows it (a part gone).
   type "file" "brand.tamber"
@@ -911,30 +1110,37 @@ test "the inspector folds the rows nothing sets behind one control, opened per s
   clock data
   clock +1
   clock data
-  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "tint_color", "value": "currentcolor", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a value the map gives no place for: the source's to edit"}}, {"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
   clock +1
   clock data
   expect tree has "selrow-color"
   expect tree missing "selrow-stroke-linecap"
   expect tree missing "selrow-padding"
-  expect text "selrow-initial" == "3 more rows nothing sets (initial values)"
+  // (Lowering's own tint at its default, with no source place, folds with them: stage 15 D4 batch 1 #5.)
+  expect tree missing "selrow--exact-tint-color"
+  expect text "selrow-initial" == "4 more rows nothing sets (initial values)"
   tap "selrow-initial"
   expect tree has "selrow-stroke-linecap"
   expect tree has "selrow-marker-end"
+  expect tree has "selrow--exact-tint-color"
   expect tree missing "selrow-initial"
   // Its edit begun, the padding row is in play: another view selected (the same style row on it), the rest fold
   // again and it stays.
   tap "selrow-row-padding"
-  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 8, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 8, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "tint_color", "value": "currentcolor", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a package's style (Glyph): read-only here"}}, {"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
   clock +1
   clock data
   expect tree has "selrow-padding"
+  // (The same value written in a package, which has a place: shown, never folded as lowering's own.)
+  expect tree has "selrow--exact-tint-color"
   expect tree missing "selrow-stroke-linecap"
   expect text "selrow-initial" == "2 more rows nothing sets (initial values)"
   // A round trip folds again: shown on one view, another selected, then the first again.
-  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "tint_color", "value": "currentcolor", "source": "authored", "origin": "class:Glyph", "editable": {"rung": null, "reason": "a style's row (Glyph) the map gives no place for: the source's to edit"}}, {"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
   clock +1
   clock data
+  // (A class's colour lowered to the tint, with no place either: folded too.)
+  expect tree missing "selrow--exact-tint-color"
   tap "selrow-initial"
   expect tree has "selrow-stroke-linecap"
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 8, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
@@ -1037,3 +1243,99 @@ test "a refused inspect is said in the inspector, three at most, and goes when i
   clock data
   expect text "inspect-toggle" == "Stop inspecting"
   expect tree missing "inspect-refused-web-2"
+
+test "a design that declares no mode axes is read, not 'not read yet': its copy sits on its light column and its rows offer their edits (stage 15 D4 batch 1 #1)"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/no-axes" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  expect text "inspect-toggle" == "Stop inspecting"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-build" == "web-1 · Light"
+  expect tree missing "selection-stale"
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  // Another run of the server: what the last one's describe said is not this one's, so until this run's is read
+  // (refused here) a selection is not placed on the old axes.
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/event" {"refuseDescribe": "describe refused (a test)", "events": [{"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: the app's design is not read yet. Select it again to edit from here."
+  request POST "/__stub/restart" {} as ada
+
+test "a selection made before another run's describe is read is placed once it is, not against the last run's axes (no-axes round 2)"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  // (This run's design has two axes, read.) Another run, whose design has none, its describe refused for now.
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/no-axes" {} as ada
+  request POST "/__stub/event" {"refuseDescribe": "describe refused (a test)", "events": [{"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: the app's design is not read yet. Select it again to edit from here."
+  // Its describe answered (a file's change reads the design again): the same selection is placed, and edits.
+  request POST "/__stub/event" {"refuseDescribe": "", "events": [{"client": "agent:codex", "edited": ["app.tamber"], "changed": []}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree missing "selection-stale"
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  request POST "/__stub/restart" {} as ada
+
+test "a slot's host is its own chain line, named by its call, and a press of it lands there with no note (stage 15 D3, tamber/1.18)"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/app.contract", "line": 5, "col": 7, "end_col": 11, "component": "Card", "slot": true}, {"file": "/stub/app.contract", "line": 12, "col": 7, "end_col": 11, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "fromAt": {"file": "/stub/app.contract", "line": 12, "component": "App"}, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-up-1" == "in Card's slot (app.contract:5)"
+  expect text "selection-up-2" == "in /stub/app.contract:12 · App"
+  tap "selection-up-1"
+  clock data
+  clock +1
+  clock data
+  expect text "selection-source" == "app.contract:5 · Card"
+  expect tree missing "selection-up-note"
+  request POST "/__stub/restart" {} as ada

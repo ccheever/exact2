@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, newest first, one section per day headed 'Sun, Oct 25, 2026 · $222.02'. The day total sits in the header text rather than right-aligned, but it is there."},
+      {"n": 2, "status": "pass", "note": "Summary card at the top: 'October 2026', $5,269.70, '86 expenses this month'. It updates on add, edit and delete."},
+      {"n": 3, "status": "pass", "note": "Sheet form with amount (decimal pad), merchant, category menu of the 7 categories, date defaulting to today (Oct 27) and an optional note. Save is disabled for empty, 0, -5 and 'abc', with the message 'Enter an amount greater than zero.' A new expense appears under a 'Tue, Oct 27, 2026' header."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens a pre-filled Edit Expense sheet, and saving $40.00 updated the row, day total and month total. A native trailing swipe reveals Delete, which removes the row and updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories (bar-chart toolbar button) lists the month by category, largest first, with '29% of total · 16 expenses' and a progress bar. Tapping Bills pushes a day-grouped list of only Bills."},
+      {"n": 6, "status": "pass", "note": "Amounts are formatted as $1,544.59. The edit and the delete were still there after relaunch."}
+    ],
+    "bugs": [
+      "A swiped-open Delete action stays open after you push to Categories and come back.",
+      "The row being swiped shows a stuck grey highlight while its Delete action is revealed."
+    ],
+    "tells": [
+      "The 'Enter an amount greater than zero.' error shows on a fresh, empty New Expense form before the user has typed anything.",
+      "The summary card is inset more than the list sections beneath it, so their left and right edges don't line up.",
+      "The Categories button is a generic bar-chart glyph in a shared toolbar capsule; its meaning is not obvious next to +.",
+      "In the category detail list the subtitle shows the note ('work lunch') in place of the category, so it is inconsistent with the main list ('Bills · work lunch')."
+    ],
+    "scroll": "A smooth system list: slow drags track the finger, flings decelerate naturally, and there are no blank or popping rows over 240 items. The large title collapses into a blurred inline bar and comes back correctly at the top.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Day-grouped card list, newest first. Headers read 'Sunday, Oct 25' with the day total right-aligned, and today's group is headed 'Today'."},
+      {"n": 2, "status": "pass", "note": "Dark green hero card: 'THIS MONTH / OCTOBER 2026', $5,269.70, 86 expenses, a category colour strip and a 'View category breakdown' link. It updates live."},
+      {"n": 3, "status": "pass", "note": "Sheet with a large amount field (decimal pad with a Next/Done toolbar), merchant, a menu of the 7 categories, date defaulting to Oct 27 and an optional note. Save is disabled for empty, 0 and -5, with an inline hint ('greater than $0, with up to two decimal places')."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens a pre-filled Edit expense sheet, and saving $40.00 updated the row and totals. Swiping a row reveals a native Delete action, which removes the row and updates the totals."},
+      {"n": 5, "status": "pass", "note": "A Categories tab shows the breakdown largest first, with '29.3% of spending', a coloured bar and a chevron per row. Tapping Bills pushes that month's Bills transactions, grouped by day."},
+      {"n": 6, "status": "pass", "note": "US currency throughout. The edit and the delete were still there after relaunch."}
+    ],
+    "bugs": [
+      "The 'Expenses' large title disappears from the screen after scrolling down and back to the top, and after swiping a row. The nav bar still reports it, but the area above the card is blank until relaunch."
+    ],
+    "tells": [
+      "A heavily custom-branded look: cream background, a dark green hero card, rust-orange tint and Save button, and tinted icon tiles. It reads as designed rather than system-stock, though it is consistent.",
+      "Scrolled content is cut off by a hard opaque edge under the inline nav bar, with no soft scroll-edge or blur effect.",
+      "Rows don't show the transaction's note anywhere in the list.",
+      "The list and the Categories screen each repeat the month total card, so the Categories tab largely duplicates the Activity header."
+    ],
+    "scroll": "Smooth and native over 240 rows, with no blank or popping rows and a natural fling and rubber-band. However, after returning to the top the large title is gone, leaving an empty band above the card.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and persist correctly. A looks and behaves like a stock SwiftUI iOS app, and its only flaws are minor swipe-state glitches. B is more striking and has nicer touches (a 'Today' header, a Next/Done keyboard toolbar, one-decimal shares), but its large title visibly vanishes after scrolling, its custom styling and hard-clipped nav bar edge give it away as not system-built, and its list hides notes."
+}

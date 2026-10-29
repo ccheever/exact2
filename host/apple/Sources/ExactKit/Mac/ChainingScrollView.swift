@@ -104,8 +104,20 @@ package final class ChainingScrollView: NSScrollView {
     /// and animates a notch; and a gesture the agent hands over whole from
     /// one call is not tracked as the event queue's is: measured on macOS
     /// 27.0, AppKit applies one event of it). For a person a `scroll` node
-    /// is scrolled by AppKit (LLP 1115.000 D8.2), as the page is.
+    /// is scrolled by AppKit (LLP 1115.000 D8.2), as the page is, and so it
+    /// is while a drive holds the frames for a person's own flings (`perf
+    /// frames hold` under platform timing, LLP 1144 D1): momentum and rubber
+    /// band included.
     static var appliesAtOnce = ExactEnv.agentMode
+    /// The driver's trackpad gesture (`tap … wheel … fling|hold|release`,
+    /// LLP 1142 D3) comes through the window server, whose gesture AppKit
+    /// tracks as a person's, marked with this in `kCGEventSourceUserData`.
+    /// It is AppKit's to run under the agent too.
+    static let driverMark: Int64 = 0x4558_4143_5444
+    /// The driver's events a scroller handed to AppKit, and the last such
+    /// scroller: what the driver reads back to confirm delivery.
+    static var driverWheels = 0
+    static weak var driverOwner: ChainingScrollView?
     /// Which axes scroll (the node's effective `overflow_x`/`overflow_y`).
     var collectionWillScroll: (() -> Void)?
     var scrollsX = true
@@ -161,10 +173,11 @@ package final class ChainingScrollView: NSScrollView {
 
     /// Where `dx`/`dy` goes. `phased` is whether the event carries a gesture
     /// phase — a lift or a momentum end, which have no delta at all.
-    func routing(dx: CGFloat, dy: CGFloat, phased: Bool, in extent: Extent) -> Routing {
+    func routing(dx: CGFloat, dy: CGFloat, phased: Bool, in extent: Extent, driver: Bool = false) -> Routing {
         // What this view takes is AppKit's to scroll; the agent's wheel is
-        // applied here (`appliesAtOnce`).
-        let taken: Routing = Self.appliesAtOnce ? .here : .appKit
+        // applied here (`appliesAtOnce`), unless the driver posted it
+        // through the window server (`driverMark`).
+        let taken: Routing = Self.appliesAtOnce && !driver ? .here : .appKit
         // A gesture's phase transitions carry no delta — the lift that ends a
         // trackpad scroll is a zero-delta `.ended`, and momentum ends the
         // same way — and AppKit's elastic state machine needs them: without
@@ -207,6 +220,11 @@ package final class ChainingScrollView: NSScrollView {
                     scrolls: vertical ? scrollsY : scrollsX,
                     limit: vertical ? extent.maxY : extent.maxX,
                     at: vertical ? extent.origin.y : extent.origin.x) ? taken : .chain
+    }
+
+    private static func handedDriverWheel(_ view: ChainingScrollView) {
+        driverWheels += 1
+        driverOwner = view
     }
 
     private func take(_ delta: CGFloat, scrolls: Bool, limit: CGFloat, at origin: CGFloat) -> Bool {
@@ -268,7 +286,8 @@ package final class ChainingScrollView: NSScrollView {
         var dy = precise ? event.scrollingDeltaY : event.deltaY * verticalLineScroll
         let phased = !(event.phase.isEmpty && event.momentumPhase.isEmpty)
         let extent = self.extent
-        var route = routing(dx: dx, dy: dy, phased: phased, in: extent)
+        let driver = event.cgEvent?.getIntegerValueField(.eventSourceUserData) == Self.driverMark
+        var route = routing(dx: dx, dy: dy, phased: phased, in: extent, driver: driver)
         if phased {
             let began = event.phase.contains(.began) && event.momentumPhase.isEmpty
             let over = event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled)
@@ -285,6 +304,7 @@ package final class ChainingScrollView: NSScrollView {
             if route == .appKit, !owned, Self.latch.chosen, let first = Self.unsentBegan, first !== event {
                 Self.unsentBegan = nil
                 collectionWillScroll?()
+                if driver { Self.handedDriverWheel(self) }
                 NSApp.postEvent(event, atStart: true)
                 super.scrollWheel(with: first)
                 return
@@ -296,6 +316,7 @@ package final class ChainingScrollView: NSScrollView {
             return
         case .appKit:
             collectionWillScroll?()
+            if driver { Self.handedDriverWheel(self) }
             super.scrollWheel(with: event)
         case .chain:
             nextResponder?.scrollWheel(with: event)

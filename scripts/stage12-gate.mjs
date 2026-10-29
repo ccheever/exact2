@@ -4,7 +4,7 @@
 // with its evidence. A line whose parts aren't built yet says WAITS-ON; none
 // is passed over.
 //
-//   bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <clone copy>] [--before <its tag's worktree>] [--baseline <dir>] [--host <h> …] [--app <android reader app>] [--release <release identity JSON>]
+//   bun scripts/stage12-gate.mjs [--only <line> …] [--screen <name> …] [--out <file>] [--copy <clone copy>] [--before <its tag's worktree>] [--baseline <dir>] [--host <h> …] [--app <android reader app>] [--release <release identity JSON>]
 //   bun scripts/stage12-gate.mjs baseline --copy <clone copy> --out <dir> [--host <h> …]
 //
 // `baseline` takes the consumer's "before" (LLP 1139 §5: baselines taken
@@ -17,14 +17,16 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, release } from 'node:os';
+import { homedir, release, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
 import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from './scale-check.mjs';
 import { webDist } from './app.mjs';
 import { jsTargetBuild } from '../host/web/serve.mjs';
 import { placements } from './library-gate.mjs';
-import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, readsOf } from './s13c-restyle.mjs';
+import { KEYBOARD_UP, keyboardRedrive } from './stage12-keyboard.mjs';
+export { KEYBOARD_UP, keyboardInset, keyboardRedrive } from './stage12-keyboard.mjs';
+import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, EMPTY, readsOf } from './s13c-restyle.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 /** The consumer's own targets among the required hosts (LLP 1139 §5): the
@@ -81,6 +83,9 @@ export function allowOf(screen, out) {
   // The layout's viewport ends where the keyboard begins (iOS: 546 of 874).
   return kb > 0 && view ? [caret, { rect: [0, Math.round(view.h), Math.round(view.w), Math.round(kb)], reason: 'the system keyboard: the OS draws its material, a few levels apart between runs, over no library component' }] : [caret];
 }
+
+/** The screens a `--screen` rerun shoots, said in its evidence (empty in a full run). */
+const RERUN_SCREENS = [];
 
 /** What the fixture says in the app's log for a request it refuses: a shot
  * whose drive logged it fails (nothing may reach the network). */
@@ -186,11 +191,14 @@ function driveScreens(copy, host, dir, env) {
         retried = r.out.trim().split('\n').filter(l => /rror/.test(l)).slice(0, 1).join('').slice(0, 160) || 'no layout';
         r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
       }
+      // iOS's keyboard, where the shot needs it up: driven again while it is down.
+      const kb = host === 'ios' && KEYBOARD_UP.includes(screen) ? keyboardRedrive(ALLOW[screen].target, REFUSED, r, () => runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) })) : { r, down: false, keyboard: '' };
+      r = kb.r;
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], ...(retried ? { retried } : {}), said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !kb.down, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(kb.keyboard ? { keyboard: kb.keyboard } : {}), said: kb.down ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
@@ -199,11 +207,13 @@ function driveScreens(copy, host, dir, env) {
 /** The library components a drive's whole layout shows, by the source map
  * each shown node carries (its declaring file and component): one a
  * package's file declares, as `@exact/<package>/<file>#<Component>`. */
-export function renderedComponents(out) {
+export function renderedComponents(out, app = false) {
   const line = out.split('\n').filter(l => l.startsWith('{') && l.includes('"nodes"') && l.includes('"viewport"')).at(-1);
   if (!line) return [];
   const layout = JSON.parse(line);
-  const ids = layout.nodes.filter(n => shown(n, layout.viewport)).map(n => {
+  // `app`: only those the copy's own files instantiate (the innermost call site, chain[0], in no package's file).
+  const own = n => n.sourceMap?.chain?.[0]?.file && !/\/(?:packages|node_modules\/@exact)\//.test(n.sourceMap.chain[0].file);
+  const ids = layout.nodes.filter(n => shown(n, layout.viewport) && (!app || own(n))).map(n => {
     // A package's file, in the checkout's packages/ or a copy's node_modules/@exact/.
     const m = /\/(?:packages|node_modules\/@exact)\/([\w-]+)\/([\w-]+)\.contract$/.exec(n.sourceMap?.file ?? '');
     return m && n.sourceMap.component ? `@exact/${m[1]}/${m[2]}.contract#${String(n.sourceMap.component).replace(new RegExp(`__${m[2].replace(/\W/g, '_')}$`), '')}` : null;
@@ -306,6 +316,29 @@ function edgeAt(img, x, y, edge) {
 
 /** The tag the baseline was taken at, in the copy. */
 export let BASELINE_TAG = 's12e-baseline';
+/** The copy's own duplicates a stage retires (stage 15 B), each a declaration's start: before declares each, after none. */
+export const RETIRED = [];
+/** The exports a stage's adoption instantiates from the copy's own files (stage 15 B's Avatar and VerifiedBadge, which
+ * the packages placed inside PostCard and ProfileHeader already): after's files place each, before's none. */
+export const APP_PLACED = [];
+
+/** The library components a source map's view nodes instantiate from a file no package's: the innermost call site
+ * (`chain[0]`, the instantiation's span) in the copy's own sources, not inside another package component. */
+export function appPlaced(map) {
+  const home = new Map((map.sources ?? []).map(s => [s.file, s.home ?? '']));
+  return [...new Set((map.nodes ?? []).filter(n => n.library && n.chain?.[0] && !(home.get(n.chain[0].file) ?? '').startsWith('@')).map(n => n.library))];
+}
+
+/** Whether the copy's tracked contracts declare `line` (a declaration's start, so a trailing comment still counts);
+ * an error when git grep fails rather than answering. */
+export function declares(copy, line) {
+  const [keyword, name] = line.split(/\s+/), esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Any run of blanks between the keyword and the name; the name ends where a Contract identifier can't go on.
+  const pattern = `^${esc(keyword)}[[:blank:]]+${esc(name)}([^A-Za-z0-9_-]|$)`;
+  const r = spawnSync('git', ['grep', '-q', '-E', '-e', pattern, '--', '*.contract'], { cwd: copy, encoding: 'utf8' });
+  if (r.status === 0 || r.status === 1) return { hit: r.status === 0 };
+  return { error: `git grep in ${copy} exited ${r.status}: ${(r.stderr ?? '').trim().split('\n').at(-1)}` };
+}
 
 /** The files `before` differs from the baseline's tag by: only the lock a
  * newer SDK needs (`exact.mjs lock`) may differ. */
@@ -467,6 +500,17 @@ export function consumerPixels(opts) {
   // component places) count with the component, not on their own.
   const early = uses.before.filter(id => !BEFORE_USES.includes(id) && !/\/common\.contract#/.test(id));
   if (early.length) return fail(`--before already uses library components (${early.join(', ')}): not the baseline`);
+  // A component the packages already placed inside another (stage 15 B's Avatar and VerifiedBadge, inside PostCard)
+  // is no proof of the adoption: the copy's own files instantiating it is, and its own copies going.
+  const maps = Object.fromEntries(['before', 'after'].map(side => [side, JSON.parse(readFileSync(join(ROOT, 'target', 'stage12-gate', `${side}-map`, 'app.plan.map.json'), 'utf8'))]));
+  const unplaced = APP_PLACED.filter(id => !appPlaced(maps.after).includes(id)), placedBefore = APP_PLACED.filter(id => appPlaced(maps.before).includes(id));
+  if (unplaced.length) return fail(`--copy's own files don't place ${unplaced.join(', ')}: not the adoption`);
+  if (placedBefore.length) return fail(`--before's own files place ${placedBefore.join(', ')} already: not the baseline`);
+  const said = RETIRED.flatMap(line => [['after', opts.copy], ['before', opts.before]].map(([side, copy]) => ({ line, side, ...declares(copy, line) })));
+  const broken = said.filter(x => x.error), kept = said.filter(x => x.side === 'after' && x.hit), unborn = said.filter(x => x.side === 'before' && x.hit === false);
+  if (broken.length) return fail(broken.map(x => x.error).join('; '));
+  if (kept.length) return fail(`--copy still declares ${kept.map(x => x.line).join(', ')}: not the adoption`);
+  if (unborn.length) return fail(`--before never declared ${unborn.map(x => x.line).join(', ')}: not the baseline`);
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
   // failure the baseline doesn't have.
@@ -496,17 +540,22 @@ export function consumerPixels(opts) {
   const byComponent = ADOPTED.map(id => ({ id, name: id.split('#')[1], per: Object.fromEntries(hosts.map(h => [h, onScreens('after', h, id)])) }));
   const notShown = byComponent.flatMap(c => hosts.filter(h => !c.per[h].length).map(h => `${c.name} on ${h}`));
   const shownBefore = ADOPTED.filter(id => !BEFORE_USES.includes(id)).filter(id => hosts.some(h => onScreens('before', h, id).length)).map(id => id.split('#')[1]);
+  // An export the packages also place inside another counts only where the copy's own files instantiate it, shown.
+  const appOn = (host, id) => shots.after.shots.some(x => x.host === host && (x.appComponents ?? []).includes(id));
+  const appNotShown = APP_PLACED.flatMap(id => hosts.filter(h => !appOn(h, id)).map(h => `${id.split('#')[1]} on ${h}`));
   const p = shots.after.provenance;
-  const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
+  const evidence = [...(RERUN_SCREENS.length ? [`a rerun of the screens ${RERUN_SCREENS.join(', ')} only (--screen): the counts and lists below are theirs, not the stage's`] : []), `before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
     ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.retried).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: driven again after a drive that failed before any layout (${x.retried})`)),
+    ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.keyboard).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: ${x.keyboard}`)),
     'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
     `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before ${BEFORE_USES.length ? `only the earlier stage's (${BEFORE_USES.map(i => i.split('#')[1]).join(', ')})` : 'none'}`,
     ...(TITLES['consumer-pixels'] && !unseen.length && !own.length && !shownEarly.length ? [] : [`rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${shownEarly.length ? `; before already shows ${shownEarly.join(', ')}` : ''}`]),
     `shown on the screens shot, by each node's source map, every host: ${byComponent.length - new Set(notShown.map(x => x.split(' on ')[0])).size} of ${byComponent.length}${notShown.length ? `; NOT shown: ${notShown.join(', ')}` : ''}${shownBefore.length ? `; before already shows ${shownBefore.join(', ')}` : ''}`,
+    ...(APP_PLACED.length ? [`shown where the copy's own files instantiate them, every host: ${APP_PLACED.map(id => id.split('#')[1]).join(', ')}${appNotShown.length ? `; NOT shown: ${appNotShown.join(', ')}` : ''}`] : []),
     ...byComponent.map(c => { const all = [...new Set(Object.values(c.per).flat())]; const same = hosts.every(h => c.per[h].length === all.length); return `  ${c.name}: ${same ? all.join(', ') : hosts.map(h => `${h} ${c.per[h].join(', ') || 'none'}`).join('; ')}`; }),
     ...conformEvidence(conform)];
-  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length ? fail(...evidence) : pass(...evidence);
+  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The library lines' required hosts (LLP 1139 §5): the web's JS target
@@ -567,7 +616,7 @@ const compiled = (r, plan) => {
 
 /** The library's components with a slot (library-gate.test.mjs checks each
  * of their cells holds its marker). */
-export const SLOTTED = ['PostCard', 'ProfileHeader', 'ComposeFrame', 'BarItem'];
+export const SLOTTED = ['PostCard', 'ProfileHeader', 'ComposeFrame', 'BarItem', 'PersonRow', 'MenuGroup'];
 /** The ids of library-gate's slotted cells (each a marker). */
 export const markerIds = () => placements(readFileSync(join(LIBRARY_GATE, 'app.contract'), 'utf8'), SLOTTED).map(p => p.id);
 
@@ -966,6 +1015,13 @@ export function readExact(host, exact, plans, app, drive = (plan, ids) => driveP
   const out = [];
   let tree;
   try { tree = drive(plans.base, []).tree; } catch (e) { return [{ host, ok: false, why: whyOf(e) }]; }
+  // With the exports' case, VerifiedBadge's "" cell: its box, and nothing in it.
+  if (exact.some(c => c.batch === 'Avatar and VerifiedBadge')) {
+    for (const inst of EMPTY) {
+      const box = locate(tree, inst, '.'), n = box?.children?.length ?? 0;
+      out.push({ host, empty: true, inst, ok: !!box && n === 0, why: box ? `${n} node${n === 1 ? '' : 's'} in it` : 'not in the tree' });
+    }
+  }
   const reads = exact.map(c => ({ c, reads: caseReads(c).flatMap(r => r.ids.map(inst => ({ ...r, inst, root: COMPONENTS[r.component].root(inst) }))) }));
   for (const { reads: list } of reads) for (const r of list) r.id = locate(tree, r.root, r.path)?.id ?? null;
   const ids = list => [...new Set(list.map(r => r.id).filter(id => id != null))];
@@ -1053,7 +1109,7 @@ export function exactEvidence(exact, rows) {
   const keys = [...new Set(exact.flatMap(c => caseReads(c).map(r => r.key)))];
   const n = x => (typeof x === 'number' ? Math.round(x * 100) / 100 : JSON.stringify(x));
   return [
-    `stage 13 C's cases, every read kind 1 (exact: the row's computed value on its node, layout <id>), checked against its own token's or param's value; ${keys.length} tokens and params read:`,
+    `stage 13 C's cases and stage 15 B's exports' case, every read kind 1 (exact: the row's computed value on its node, layout <id>), checked against its own token's or param's value; ${keys.length} tokens and params read:`,
     ...keys.map(k => `  ${k}: ${readsOf(k).map(r => `${r.path} ${r.rows.join(',')} (${r.ids.length})`).join('; ')}`),
     ...[...new Set(rows.filter(r => r.case).map(r => `${r.host}\u0000${r.case}`))].flatMap(key => {
       const group = rows.filter(r => `${r.host}\u0000${r.case}` === key), failed = group.filter(r => !r.ok), [first] = group;
@@ -1061,7 +1117,8 @@ export function exactEvidence(exact, rows) {
         ...failed.slice(0, 40).map(r => `      ${r.key} ${r.inst} ${r.path} ${r.row}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)}: ${r.why}`),
         ...(failed.length > 40 ? [`      … and ${failed.length - 40} more`] : [])];
     }),
-    ...rows.filter(r => !r.case).map(r => `FAIL ${r.host} stage 13 C's cases: ${r.why}`),
+    ...rows.filter(r => r.empty).map(r => `${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.inst}: VerifiedBadge "none" draws nothing, its box empty${r.ok ? '' : ` (${r.why})`}`),
+    ...rows.filter(r => !r.case && !r.empty).map(r => `FAIL ${r.host} stage 13 C's cases: ${r.why}`),
   ];
 }
 
@@ -1256,6 +1313,22 @@ function slotCheckTime() {
 const SIGN_IN = ['tap bottomBarSignInBtn', 'type loginPasswordInput fixture-password', 'type loginUsernameInput me.fixture.invalid', 'tap loginNextButton'];
 const SETTINGS = ['tap open-drawer', 'tap drawer-settings'];
 
+/** Stage 13 C's adoption, screens and package testIds, which stage 15 B keeps. */
+const S13C_ADOPTED = [...ADOPTED, '@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow', '@exact/cards/profile-header.contract#ProfileHeader',
+  '@exact/actions/compose-frame.contract#ComposeFrame', '@exact/actions/bar-item.contract#BarItem', '@exact/actions/header-button.contract#HeaderButton'];
+const S13C_SCREENS = [
+  ...SCREENS.map(([n, t]) => [n, [...t]]),
+  ['settings', [...SETTINGS]],
+  ['settings-account', [...SETTINGS, 'tap settings-account']],
+  ['settings-content', [...SETTINGS, 'tap settings-content']],
+  ['settings-notifications', [...SETTINGS, 'tap settings-notifications']],
+  // Signed in through the fixture form, so the bottom bar's tabs (BarItem) show.
+  ['home-signed-in', [...SIGN_IN, 'clock +1500 real']],
+];
+const S13C_RENDERED = [...RENDERED, ['ProfileHeader', id => id.startsWith('profile-header-'), 'profile-header-'], ['ComposeFrame', id => id === 'compose-bar', '"compose-bar"']];
+/** Stage 15 B batch 1's exports, which the packages placed inside PostCard and ProfileHeader already. */
+const S15B_EXPORTS = ['@exact/cards/common.contract#Avatar', '@exact/cards/common.contract#VerifiedBadge'];
+
 /** Each stage's gate (LLP 1139 §5): its baseline's tag on the copy, the
  * components its adoption adds (an earlier stage's the baseline may use
  * already), the screens shot, the package testIds that say a component
@@ -1265,21 +1338,12 @@ export const STAGES = {
   s12: { name: 'Stage 12', tag: 's12e-baseline', out: 'stage12-gate-run.txt', adopted: [...ADOPTED], before: [], screens: SCREENS.map(([n, t]) => [n, [...t]]), rendered: [...RENDERED], restyle: [...RESTYLE] },
   s13c: {
     name: 'Stage 13 C', tag: 's13c-baseline', out: 's13c-gate-run.txt',
-    adopted: [...ADOPTED, '@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow', '@exact/cards/profile-header.contract#ProfileHeader',
-      '@exact/actions/compose-frame.contract#ComposeFrame', '@exact/actions/bar-item.contract#BarItem', '@exact/actions/header-button.contract#HeaderButton'],
+    adopted: [...S13C_ADOPTED],
     before: [...ADOPTED],
-    screens: [
-      ...SCREENS.map(([n, t]) => [n, [...t]]),
-      ['settings', [...SETTINGS]],
-      ['settings-account', [...SETTINGS, 'tap settings-account']],
-      ['settings-content', [...SETTINGS, 'tap settings-content']],
-      ['settings-notifications', [...SETTINGS, 'tap settings-notifications']],
-      // Signed in through the fixture form, so the bottom bar's tabs (BarItem) show.
-      ['home-signed-in', [...SIGN_IN, 'clock +1500 real']],
-    ],
+    screens: S13C_SCREENS.map(([n, t]) => [n, [...t]]),
     // ListRow, SwitchRow, BarItem and HeaderButton write only the app's own
     // testIds; the build's source map says they're placed.
-    rendered: [...RENDERED, ['ProfileHeader', id => id.startsWith('profile-header-'), 'profile-header-'], ['ComposeFrame', id => id === 'compose-bar', '"compose-bar"']],
+    rendered: [...S13C_RENDERED],
     restyle: [...RESTYLE],
     // Stage 13 C's tokens and params, a batch a component (s13c-restyle.mjs).
     exact: true,
@@ -1287,7 +1351,34 @@ export const STAGES = {
       'consumer-pixels': 'The clone\'s settings rows, profile header, composer frame, bottom bar items and header buttons come from @exact/lists, @exact/cards and @exact/actions (ListRow, SwitchRow, ProfileHeader, ComposeFrame, BarItem, HeaderButton; stage 12\'s four kept) with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)',
     },
     // Release identity over the four pieces as they landed on main.
-    release: { label: 'stage 13 C', runs: [['21a1a836b3', '21a1a836b3'], ['b821a5f4d0', '9aa14743f2'], ['f926a60524', '304de7b893'], ['ba2d017788', '4f29a65443']] },
+    release: { label: 'stage 13 C', runs: [['21a1a836b3', '21a1a836b3'], ['4841b08acf', '42c2b03a35'], ['0091eae8d0', 'a3c7cd25cd'], ['d9feffb3c0', 'ba581775cb']] },
+  },
+  s15b: {
+    name: 'Stage 15 B batch 1', tag: 's15b-baseline', out: 's15b-gate-run.txt',
+    // The copy's own Avatar and VerifiedBadge calls become the exports, which were shown before too (inside PostCard
+    // and ProfileHeader), so `retired` proves the adoption: the copy's own copies, header styles and settings wrappers go.
+    adopted: [...S13C_ADOPTED, ...S15B_EXPORTS],
+    before: [...S13C_ADOPTED, ...S15B_EXPORTS],
+    appPlaced: [...S15B_EXPORTS],
+    retired: ['component Avatar', 'component VerifiedBadge', 'style ChatHeaderButton', 'style HeaderSlot',
+      'component NavRow', 'component ActRow', 'component ValueRow', 'component SwitchRow', 'component CheckRow'],
+    screens: [
+      ...S13C_SCREENS.map(([n, t]) => [n, [...t]]),
+      // Signed in: the chat list (its header buttons, its avatars) and the notifications (avatars and badges).
+      ['chat', [...SIGN_IN, 'clock +1500 real', 'tap bottomBarMessagesBtn', 'clock +1500 real']],
+      ['notifications', [...SIGN_IN, 'clock +1500 real', 'tap bottomBarNotificationsBtn', 'clock +1500 real']],
+      // A thread anchored on Bo's reply (Bo is verified): the anchor's header is the copy's own (screens.contract),
+      // so its badge is a VerifiedBadge the copy instantiates, which no other screen shows (theme2's s15b ruling (b)).
+      ['thread-bo', ['tap post-1:at://did:plc:fixture1/app.bsky.feed.post/fx4']],
+    ],
+    rendered: [...S13C_RENDERED],
+    restyle: [...RESTYLE],
+    exact: true,
+    // The package side as it landed on main (the copy's adoption is the copy's, not main's).
+    release: { label: 'stage 15 B batch 1', runs: [['17c3169cef', '44e0294c88']] },
+    titles: {
+      'consumer-pixels': 'The clone\'s avatars and verification badges come from @exact/cards (Avatar, VerifiedBadge), its chat header buttons from @exact/actions HeaderButton and its settings rows from @exact/lists directly, the duplicates gone, with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)',
+    },
   },
 };
 
@@ -1298,7 +1389,7 @@ export function useStage(stage) {
   EXACT = !!p.exact;
   RELEASE = p.release ?? null;
   TITLES = p.titles ?? {};
-  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle]]) list.splice(0, list.length, ...items);
+  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle], [RETIRED, p.retired ?? []], [APP_PLACED, p.appPlaced ?? []]]) list.splice(0, list.length, ...items);
   return p;
 }
 
@@ -1340,31 +1431,47 @@ export function lines(opts) {
 const withTitles = list => list.map(([name, title, fn]) => [name, TITLES[name] ?? title, fn]);
 
 export function parse(argv) {
-  const opts = { mode: 'gate', stage: 's12', only: [], hosts: [], app: 'unsaid', out: null, copy: null, before: null, baseline: null, release: null, conformBase: null };
+  const opts = { mode: 'gate', stage: 's12', only: [], hosts: [], screens: [], app: 'unsaid', out: null, copy: null, before: null, baseline: null, release: null, conformBase: null };
   const args = [...argv];
   if (args[0] === 'baseline') { opts.mode = 'baseline'; opts.out = null; args.shift(); }
   for (let i = 0; i < args.length; i += 2) {
     const [flag, v] = [args[i], args[i + 1]];
-    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app', '--release', '--conform-base', '--stage'].includes(flag)) return `unknown argument ${flag}`;
+    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--screen', '--app', '--release', '--conform-base', '--stage'].includes(flag)) return `unknown argument ${flag}`;
     if (v === undefined || v.startsWith('--')) return `${flag} needs a value`;
-    if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else if (flag === '--conform-base') opts.conformBase = v; else opts[flag.slice(2)] = v;
+    if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else if (flag === '--screen') opts.screens.push(v); else if (flag === '--conform-base') opts.conformBase = v; else opts[flag.slice(2)] = v;
   }
   if (!STAGES[opts.stage]) return `--stage ${opts.stage}: one of ${Object.keys(STAGES).join(', ')}`;
   if (opts.mode === 'baseline' && (!opts.copy || !opts.out)) return 'baseline needs --copy and --out';
-  if (opts.mode === 'gate' && !opts.out) opts.out = join(homedir(), 'x2theme', STAGES[opts.stage].out);
+  // Only a full run writes the profile's gate record (~/x2theme/<out>): a run of some lines (`--only`) is no
+  // record, and writing it there lost one (s13c-gate-run.txt, 2026-10-26). It goes to a scratch file named
+  // for its stage, lines and process, unless `--out` names a path.
+  if (opts.mode === 'gate' && !opts.out) {
+    // Its name from the lines asked for, each once and checked below to be a line's id (letters and dashes).
+    opts.out = opts.only.length
+      ? join(tmpdir(), `stage12-gate-${opts.stage}-${[...new Set(opts.only)].join('+')}-${process.pid}.txt`)
+      : join(homedir(), 'x2theme', STAGES[opts.stage].out);
+  }
   const allowed = opts.mode === 'baseline' ? CLONE_HOSTS : SLOT_HOSTS;
   const unknownHost = opts.hosts.find(h => !allowed.includes(h));
   if (unknownHost) return `--host ${unknownHost}: one of ${allowed.join(', ')}`;
+  // `--screen`: a rerun of some of the stage's screens (a re-shot pair, a screen added), never a full record.
+  if (opts.screens.length && (opts.mode === 'baseline' || !opts.only.length)) return '--screen reshoots some screens of a gate run: name its lines with --only (never a baseline)';
+  const names = STAGES[opts.stage].screens?.map(([n]) => n) ?? SCREENS.map(([n]) => n);
+  const unknownScreen = opts.screens.find(n => !names.includes(n));
+  if (unknownScreen !== undefined) return `--screen ${unknownScreen}: one of ${names.join(', ')}`;
   const ids = lines(opts).map(([id]) => id);
+  // Every `--only` a line's id, the empty string too: a scratch name is built from them.
   const missing = opts.only.find(o => !ids.includes(o));
-  if (missing) return `--only ${missing}: one of ${ids.join(', ')}`;
+  if (missing !== undefined) return `--only ${missing}: one of ${ids.join(', ')}`;
   return opts;
 }
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c] [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c|s15b] [--only <line> …] [--screen <name> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c|s15b] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
   const stage = useStage(opts.stage);
+  if (opts.screens.length) SCREENS.splice(0, SCREENS.length, ...SCREENS.filter(([n]) => opts.screens.includes(n)));
+  RERUN_SCREENS.push(...opts.screens);
   if (opts.mode === 'baseline') {
     const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS);
     const bad = r.shots.filter(s => !s.ok);
@@ -1373,7 +1480,7 @@ if (import.meta.main) {
     process.exit(bad.length || !r.plan.sha ? 1 : 0);
   }
   const head = run('git', ['rev-parse', '--short', 'HEAD']).out.trim();
-  const text = [`# ${stage.name} gate run (LLP 1139 §5), ${new Date().toISOString()}, ${head}; ${opts.only.length ? `lines ${opts.only.join(', ')}` : 'every line'}`, ''];
+  const text = [`# ${stage.name} gate run (LLP 1139 §5), ${new Date().toISOString()}, ${head}; ${opts.only.length ? `lines ${opts.only.join(', ')}` : 'every line'}${opts.screens.length ? `, screens ${opts.screens.join(', ')} only` : ''}`, ''];
   for (const [id, title, check] of lines(opts)) {
     let r;
     try { r = !opts.only.length || opts.only.includes(id) ? await check() : notRun('not selected'); } catch (e) { r = fail(`the line stopped: ${String(e?.stack ?? e).split('\n').slice(0, 3).join(' / ').slice(0, 400)}`); }
@@ -1381,5 +1488,5 @@ if (import.meta.main) {
     console.log(`${r.status}  ${id}`);
   }
   writeFileSync(opts.out, `${text.join('\n')}\n`);
-  console.log(`written to ${opts.out}`);
+  console.log(`written to ${opts.out}${opts.only.length ? ' (a run of some lines: no gate record)' : ''}`);
 }

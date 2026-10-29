@@ -1,0 +1,18 @@
+dev.bakeoff.settings.b56bfa9: ExactGroupedLists.GroupedCollectionView (decelerationRate 0.998, bounces true, scrollsToTop false), 60 Hz, 9.55 s of motion
+  ok    hitch ratio (ms/s)                     0
+  ok    longest frame (ms)                     16.7
+  ok    main thread p95 (ms/frame)             4.41
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       500
+  ok    momentum hand-off (content/asked)      1.06
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  n/a   edge bounce settle (s)                 –
+  n/a   rubber band (overscroll/finger)        –
+  ok    rubber band settle (s)                 0.56
+  ok    status-bar scroll to top (s)           0.79
+  n/a   tap while decelerating: travel (pt)    activated
+  ok    blank samples (share)                  0
+  13 ok, 0 tell, 0 bad

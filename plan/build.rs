@@ -138,6 +138,25 @@ fn rust_type(c: &Codec) -> String {
     }
 }
 
+/// The one field whose Rust type is not its codec's (LLP 1121 stage 14 C2,
+/// round 2): the `icons` row's `path`, a `str` on the wire like any other
+/// (format.json, its bytes and FORMAT_DIGEST unchanged), typed
+/// `IconPathId` in Rust so that nothing reads it as a string. An even-odd
+/// icon's path carries its rule's `evenodd:` marker, which only
+/// `exact_kernel::Icon` strips; `IconPathId`'s one method is the way out,
+/// which `exact_runner::icon_of` alone calls (a guard test holds that).
+fn icon_path(table: &str, field: &str) -> bool {
+    table == "icons" && field == "path"
+}
+
+/// A row field's Rust type: its codec's, but [`icon_path`]'s.
+fn field_type(table: &str, field: &Field) -> String {
+    if icon_path(table, &field.name) {
+        return "IconPathId".into();
+    }
+    rust_type(&parse_codec(&field.codec))
+}
+
 fn codec_width(codec: &Codec) -> usize {
     match codec {
         Codec::U8 | Codec::Bool | Codec::Enum(_) => 1,
@@ -454,6 +473,7 @@ fn validate(schema: &Schema) {
                             | "Router"
                             | "Entry"
                             | "Geometry"
+                            | "SharedFiles"
                             | "list<Router>"
                             | "list<Entry>"
                             | "list<string>"
@@ -510,7 +530,7 @@ fn main() {
     let _ = writeln!(w, "use crate::bytes::{{Reader, Writer}};");
     let _ = writeln!(
         w,
-        "use crate::{{Bytes, Code, CodeError, PlanError, StrId}};"
+        "use crate::{{Bytes, Code, CodeError, IconPathId, PlanError, StrId}};"
     );
     let _ = writeln!(w);
     let _ = writeln!(w, "/// Domain-separated SHA-256 (first 8 bytes, little-endian) of the canonical format table.");
@@ -757,12 +777,7 @@ fn main() {
         let _ = writeln!(w, "pub struct {p}Row {{");
         for f in &t.fields {
             let _ = writeln!(w, "    /// `{}`", f.name);
-            let _ = writeln!(
-                w,
-                "    pub {}: {},",
-                f.name,
-                rust_type(&parse_codec(&f.codec))
-            );
+            let _ = writeln!(w, "    pub {}: {},", f.name, field_type(&t.name, f));
         }
         let _ = writeln!(w, "}}");
         if LENT_TABLES.contains(&t.name.as_str()) {
@@ -775,7 +790,11 @@ fn main() {
             let mut offset = 0;
             for f in &t.fields {
                 let codec = parse_codec(&f.codec);
-                let _ = writeln!(w, "        {}: {},", f.name, read_at(&codec, offset));
+                let read = match icon_path(&t.name, &f.name) {
+                    true => read_at(&codec, offset).replacen("StrId(", "IconPathId(", 1),
+                    false => read_at(&codec, offset),
+                };
+                let _ = writeln!(w, "        {}: {read},", f.name);
                 offset += codec_width(&codec);
             }
             let _ = writeln!(w, "    }} }} }}");
@@ -1175,6 +1194,7 @@ fn main() {
                 // 0 or 1, nothing else: a corrupted byte is not a `true`
                 // (a binding's `written` is a claim about its author).
                 Codec::Bool => format!("{{ let v = s.u8(); match v {{ 0 => false, 1 => true, _ => s.fail(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }}, false) }} }}", t.name, f.name),
+                Codec::Str if icon_path(&t.name, &f.name) => "IconPathId(s.u32())".to_string(),
                 Codec::Str => "StrId(s.u32())".to_string(),
                 Codec::Enum(e) => format!("{{ let v = s.u8(); match {e}::from_wire(v) {{ Some(e) => e, None => s.fail(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }}, {e}::ALL[0]) }} }}", t.name, f.name),
                 Codec::Idx(tt) => format!("{}Id(s.u32())", pascal(&tt)),

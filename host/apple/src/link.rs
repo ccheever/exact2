@@ -238,11 +238,6 @@ impl<D: DataSource> Links<D> {
                 } else {
                     None
                 },
-                notifications: if uses.has(Capability::Notifications) {
-                    DeviceLinks::<D>::ALL.notifications
-                } else {
-                    None
-                },
             },
             activities: false,
             grammars: Grammars::of(uses),

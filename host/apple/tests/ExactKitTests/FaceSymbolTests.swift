@@ -49,6 +49,22 @@ final class FaceSymbolTests: XCTestCase {
         XCTAssertEqual(json(["button": true, "symbol": "", "symbolPath": Self.square, "symbolIcon": "icon.reply"]).symbolIcon, "icon.reply")
     }
 
+    /// Stage 14 C2: an even-odd icon's token says its rule and draws it; a
+    /// nonzero icon's token is as it was, so its equality and caches hold.
+    func testAnEvenOddFacesTokenCarriesItsRule() throws {
+        XCTAssertEqual(FaceSymbol.token(path: Self.square, viewBox: "0 0 24 24", rule: nil), Self.token, "nonzero: today's token")
+        XCTAssertEqual(FaceSymbol.token(path: Self.square, viewBox: "0 0 24 24", rule: "nonzero"), Self.token)
+        let face = ButtonFace(json: try JSONSerialization.data(withJSONObject: ["button": true, "symbol": "", "symbolPath": IconPathTests.frame,
+                                                                                 "symbolViewBox": "0 0 24 24", "symbolFillRule": "evenodd"]))
+        let token = try XCTUnwrap(face.symbol)
+        XCTAssertEqual(token, "icon-path:evenodd|0 0 24 24|" + IconPathTests.frame)
+        XCTAssertTrue(FaceSymbol.isPath(token))
+        XCTAssertEqual(FaceSymbol.observed(token, icon: "icon.gallery"), "icon.gallery")
+        XCTAssertEqual(try IconPathTests.inked(try XCTUnwrap(FaceSymbol.pathImage(token, points: 24)), at: [4, 12]), [true, false], "the hole clear")
+        let plain = try XCTUnwrap(FaceSymbol.token(path: IconPathTests.frame, viewBox: "0 0 24 24"))
+        XCTAssertEqual(try IconPathTests.inked(try XCTUnwrap(FaceSymbol.pathImage(plain, points: 24)), at: [4, 12]), [true, true], "nonzero fills it")
+    }
+
     #if os(macOS)
     private var window: NSWindow?
     private var session: ExactSession?
@@ -77,7 +93,9 @@ final class FaceSymbolTests: XCTestCase {
     }
 
     /// The image's colour at its middle, drawn 24 points square, unpremultiplied RGBA 0...1.
-    private func middle(_ image: NSImage?) throws -> [CGFloat] {
+    private func middle(_ image: NSImage?) throws -> [CGFloat] { try colour(image, x: 12, y: 12) }
+    /// The image's colour at (`x`, `y`) of it drawn 24 points square (y from the top).
+    private func colour(_ image: NSImage?, x: Int, y: Int) throws -> [CGFloat] {
         let image = try XCTUnwrap(image)
         let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 24, pixelsHigh: 24, bitsPerSample: 8, samplesPerPixel: 4,
                                                  hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
@@ -85,7 +103,7 @@ final class FaceSymbolTests: XCTestCase {
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         image.draw(in: NSRect(x: 0, y: 0, width: 24, height: 24))
         NSGraphicsContext.restoreGraphicsState()
-        let c = try XCTUnwrap(rep.colorAt(x: 12, y: 12)?.usingColorSpace(.deviceRGB))
+        let c = try XCTUnwrap(rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
         return [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent]
     }
 
@@ -103,6 +121,26 @@ final class FaceSymbolTests: XCTestCase {
         XCTAssertEqual(reply.image?.size.width, FaceSymbol.toolbarPoints)
         XCTAssertEqual(try middle(reply.image)[3], 1, accuracy: 0.01, "the path inked")
         XCTAssertNotNil(add.image, "an SF Symbol as before")
+    }
+
+    /// Stage 14 C2, mounted: a toolbar button's even-odd icon (its image
+    /// node's `symbolFillRule`) is installed with its hole clear and its band
+    /// inked; the rule cleared through the batch, the item's image is filled
+    /// again. (AppKit draws the item through SwiftUI, which no in-process
+    /// capture reaches, so its placement on the screen is not sampled here.)
+    @MainActor func testAToolbarItemsEvenOddPathKeepsItsHole() throws {
+        var even = Self.svgProps
+        even["symbolPath"] = IconPathTests.frame; even["symbolFillRule"] = "evenodd"
+        let p = presenter(view(1, "view", ["accessibilityRole": "toolbar", "toolbarPlacement": "window"], w: 300)
+                          + view(2, "button", ["accessibilityLabel": "Gallery"], handlers: ["press"]) + view(3, "image", even)
+                          + [["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let w = try XCTUnwrap(window)
+        defer { p.toolbar.detach() }
+        XCTAssertTrue(p.toolbar.attach(to: w))
+        XCTAssertEqual(try middle(try XCTUnwrap(p.toolbar.items[2]).image)[3], 0, accuracy: 0.01, "the hole clear")
+        XCTAssertEqual(try colour(try XCTUnwrap(p.toolbar.items[2]).image, x: 12, y: 4)[3], 1, accuracy: 0.01, "the band inked")
+        p.apply(wireBatch([["op": "props", "id": 3, "clear": ["symbolFillRule"]]]))
+        XCTAssertEqual(try middle(try XCTUnwrap(p.toolbar.items[2]).image)[3], 1, accuracy: 0.01, "nonzero: filled")
     }
 
     /// The inked box (dark pixels: a glyph in the label colour on a light ground) of a bitmap, in points.

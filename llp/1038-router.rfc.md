@@ -458,7 +458,7 @@ from the stamped router URL and from `navigate` payloads.
 | on a `router` op | history |
 |---|---|
 | `written[cursor].id == top` | `replaceState` if the url changed, else nothing |
-| `written[cursor-k].id == top` for the smallest `k ≥ 1`, and every id in the `k` entries above it is in `gone` | `history.go(-k)`, its `popstate` consumed as an echo; `cursor -= k` |
+| `written[cursor-k].id == top` for the smallest `k ≥ 1`, and every id in the `k` entries above it is in `gone` | `history.go(-k)`, its `popstate` consumed as an echo; `cursor -= k`; then `replaceState` if the url changed (`replace(back(r), u)`) |
 | otherwise (`push`, `select`, `open`, a `go` that pushed) | `pushState` at `cursor+1`, `written` truncated and appended |
 
 A tab switch therefore pushes even when the tab's top was written earlier
@@ -473,7 +473,14 @@ the way Twitter's web app behaves.
 | anything else (Forward, a multi-step Back, a tab switch undone, an entry this page did not write) | the root's `navigate` handler with `written[j].url` (or `location.pathname + search`). If the commit's `router` op lands on that url, `written[j].id` takes the new top's id; otherwise use the refusal/redirect rule below |
 
 A commit with no router change is a refusal: `history.go(cursor-j)` restores
-the entry, consumes the echo and journals once. If the router changed but
+the entry, consumes the echo and journals once. (*Amended 2026-10-27*: an
+entry delivered to `navigate` at the URL already shown, which this page did
+not write or whose id is the top's, is accepted though nothing changed, and
+takes the top's id. After a reload, a `replace` can give the one entry the
+page wrote the URL of the entry beneath it, and refusing that entry would
+hold Back there. An earlier visit at that URL is still refused, since
+accepting it would leave the visits after it on the stack, and a completed
+pop still needs its key selected.) If the router changed but
 did not accept the requested key/URL, restore the History entry first, then
 mirror that op through the ordinary commit table from the restored cursor
 (e.g. a handler pushing `/other` writes a new entry with `pushState`).

@@ -1,0 +1,45 @@
+// The member list beside a channel, as Discord's desktop app shows it: each
+// group under its name and count, each member's picture with their status, and
+// their name in their role's colour; one offline is dimmed. A member opens their card.
+
+use MemberRow, Profile from "./shapes.contract"
+use Badge from "exact:content"
+
+fn statusColor(status: string): string = status == "online" ? "-exact-system-green" : status == "idle" ? "-exact-system-yellow" : status == "dnd" ? "-exact-system-red" : "-exact-system-gray"
+
+component MemberList
+  props
+    rows: MemberRow[]
+    open: action
+  view
+    column padding="8px 8px 16px"
+      for r in rows key=r.id
+        if r.group
+          text `${r.label} — ${r.count}` font="-exact-caption1" font-weight=600 color="-exact-secondary-label" text-transform="uppercase" padding="16px 8px 4px" role="heading" aria-level=3
+        else
+          button appearance="none" press=open(r.user, "") testId=`member-${r.user}` aria-label=`${r.label}, ${r.status}` padding="5px 8px" border-radius=6 text-align="start" opacity=(r.status == "offline" ? 0.5 : 1)
+            row gap=10 align-items="center" min-width=0
+              view position="relative" width=32 height=32 flex-shrink=0
+                image r.avatar width=32 height=32 border-radius=16 object-fit="cover" background-color="-exact-tertiary-fill" aria-hidden=true
+                view position="absolute" right=-2 bottom=-2 width=14 height=14 box-sizing="border-box" border-radius=7 border="2px solid -exact-background" background-color=statusColor(r.status) aria-hidden=true
+              text r.label color=(r.color != "" ? r.color : "-exact-label") font-weight=500 flex=1 min-width=0 line-clamp=1
+
+// A member's card: their picture, name in their role's colour, handle and roles.
+component ProfileCard
+  props
+    profile: Profile
+  view
+    column gap=10 align-items="flex-start" align-self="stretch"
+      image profile.avatar width=80 height=80 border-radius=40 object-fit="cover" background-color="-exact-tertiary-fill" aria-hidden=true
+      row gap=8 align-items="center" flex-wrap="wrap"
+        text profile.name font="-exact-title2" font-weight=700 color=(profile.color != "" ? profile.color : "-exact-label") testId="profile-name"
+        if profile.bot
+          Badge(label="APP", tint=some("AccentColor"))
+      text `@${profile.handle}` color="-exact-secondary-label" testId="profile-handle"
+      if profile.roles.length > 0
+        text "Roles" font="-exact-footnote" font-weight=600 color="-exact-secondary-label" padding-top=6
+        row gap=6 flex-wrap="wrap"
+          for r in profile.roles key=r.id
+            row gap=6 align-items="center" padding="3px 8px" border-radius=6 background-color="-exact-quaternary-fill"
+              view width=10 height=10 border-radius=5 background-color=(r.swatch != "" ? r.swatch : "-exact-tertiary-label") aria-hidden=true
+              text r.name font="-exact-footnote"

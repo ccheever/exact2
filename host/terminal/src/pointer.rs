@@ -157,6 +157,12 @@ impl<D: DataSource> Host<D> {
         self.advance_for_input();
         let Some(local) = self.local(y) else { return };
         let hit = self.hit(x, y);
+        self.press_point = Some((x, local));
+        self.click_at(x, local, hit);
+        self.press_point = None;
+    }
+
+    fn click_at(&mut self, x: i32, local: i32, hit: Option<ViewId>) {
         if let Some((top, ..)) = self.layers.last().copied() {
             let inside = self.presented.layer.is_some_and(|r| r.contains(x, local));
             if !inside {

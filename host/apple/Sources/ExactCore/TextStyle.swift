@@ -54,6 +54,7 @@ package enum TextStyle {
         spec.textBoxOver = edge.hasPrefix("cap") ? 1 : edge.hasPrefix("ex") ? 2 : 0
         spec.textBoxUnder = edge.hasSuffix("alphabetic") ? 1 : 0
         spec.balance = style["text_wrap_style"]?.string == "balance"
+        spec.antialiased = style["font_smoothing"]?.string == "antialiased"
         // The kernel's measurer hyphenates by the same document language.
         if spec.automaticHyphens { spec.language = language }
         // The flow walker has no emergency-hyphen priority; keep manual opportunities there.

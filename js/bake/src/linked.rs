@@ -24,6 +24,17 @@ impl From<ExactLinkedBytecode> for ::exact_js::Bytecode {
 }
 "#;
 
+/// The entry's plan and compatibility document, embedded from OUT_DIR.
+pub(crate) const EMBEDDED: &str = r#"#[allow(dead_code)]
+fn exact_plan() -> &'static [u8] {
+    include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"))
+}
+#[allow(dead_code)]
+fn exact_compat() -> &'static str {
+    include_str!(concat!(env!("OUT_DIR"), "/compat.json"))
+}
+"#;
+
 /// The entry's plan and compatibility document, from the sections the link added.
 pub(crate) const LINKED: &str = r#"#[allow(dead_code)]
 fn exact_plan() -> &'static [u8] {

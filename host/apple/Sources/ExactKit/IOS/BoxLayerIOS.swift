@@ -7,8 +7,8 @@
 // cannot say still draws, through `draw(_:)` as before: borders that differ
 // by side, a paragraph without a raster, a
 // capture's picture. (The macOS host's `wantsUpdateLayer` split.) An image's
-// pixels are a sublayer's contents where its clip is one radius over the
-// part of the content box it covers: no bitmap of the view's size is painted
+// pixels are a sublayer's contents where its clip is no radius, or one radius
+// over a content box that is the whole box: no bitmap of the view's size is painted
 // on the main thread, and the decoded pixels are the only copy; an image
 // clipped otherwise draws as before.
 #if os(iOS) || os(tvOS)
@@ -35,8 +35,11 @@ final class NodeLayer: CALayer {
     }
 }
 
-/// Image geometry uses the same animation context as its owning UIView.
-private final class NodeImageLayer: CALayer {
+/// A layer for part of a node's box (an image's fitted rectangle, a
+/// paragraph's text): its place changes in the animation context of the view
+/// it is in, as a subview's frame would, by that view's own
+/// `action(for:forKey:)`; nothing else of it animates.
+class BoxPartLayer: CALayer {
     override func action(forKey event: String) -> CAAction? {
         guard ["bounds", "position"].contains(event) else { return NSNull() }
         var ancestor = superlayer
@@ -47,6 +50,8 @@ private final class NodeImageLayer: CALayer {
         return NSNull()
     }
 }
+
+private final class NodeImageLayer: BoxPartLayer {}
 
 extension NodeView {
     /// Paint only `draw(_:)` makes: a box Core Animation cannot say, an
@@ -83,6 +88,7 @@ extension NodeView {
             l.contentsGravity = .resize
             let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
             if (l.contents as AnyObject?) !== frame { l.contents = frame }
+            l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
             l.cornerRadius = 0
             l.masksToBounds = false
             return
@@ -98,7 +104,17 @@ extension NodeView {
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
         // A shape the layer's radius cannot say draws (LLP 1077 D1).
         let shape = CornerShape(style["corner_shape"])
-        let fits = radius == 0 || (oneRadius && content == bounds && shown == content && (shape == nil || shape?.isAppleContinuous == true))
+        // The content box is the whole box: no border or padding. Laid out,
+        // not drawn: the drawn bounds are on the pixel grid, and an image
+        // whose `aspect-ratio` sizes it off the grid (most do) is still whole.
+        let layout = layoutBounds
+        let entire = [content.minX - layout.minX, content.minY - layout.minY, content.maxX - layout.maxX, content.maxY - layout.maxY].allSatisfy { abs($0) < 0.01 }
+        let fits = radius == 0 || (oneRadius && entire && (shape == nil || shape?.isAppleContinuous == true))
+        // Rounded, the clip is the whole drawn box, whose corners round the
+        // fitted image wherever it reaches them: a `contain` image a hair
+        // narrower than its box (an author's ratio, a decoded bitmap's whole
+        // pixels) is clipped as a `cover` one is, not drawn on the main thread.
+        let clip = radius > 0 ? bounds : shown
         guard fits, !shown.isNull, !shown.isEmpty, rect.width > 0, rect.height > 0 else {
             imageLayer?.removeFromSuperlayer(); imageLayer = nil
             return
@@ -116,16 +132,17 @@ extension NodeView {
             imageLayer = l
             insertBoxSublayer(l)
         }
-        if l.frame != shown { l.frame = shown }
+        if l.frame != clip { l.frame = clip }
         let whole = l.sublayers?.first as? NodeImageLayer ?? NodeImageLayer()
         if whole.superlayer !== l {
             l.addSublayer(whole)
             CATransaction.setDisableActions(true)
         }
-        let fitted = rect.offsetBy(dx: -shown.minX, dy: -shown.minY)
+        let fitted = rect.offsetBy(dx: -clip.minX, dy: -clip.minY)
         if whole.frame != fitted { whole.frame = fitted }
         CATransaction.setDisableActions(true)
         l.contents = nil
+        l.applyDynamicRange(hdr: false, headroom: 0, limit: nil)
         l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
         whole.contentsGravity = .resize
         if (whole.contents as AnyObject?) !== pixels { whole.contents = pixels }
@@ -350,7 +367,7 @@ extension NodeView {
     /// shadow, gradient, inset shadow, image, border, text — whichever of
     /// them joins first (as `Mac/BoxLayerMac.swift`).
     func insertBoxSublayer(_ l: CALayer) {
-        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, insetCaster, imageLayer, boxBorder, textRasterLayer]
+        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, insetCaster, imageLayer, boxBorder, textBoxLayer]
         guard let rank = order.firstIndex(where: { $0 === l }) else { return }
         if let below = order[..<rank].reversed().compactMap({ $0 }).first(where: { $0.superlayer === layer }) {
             layer.insertSublayer(l, above: below)

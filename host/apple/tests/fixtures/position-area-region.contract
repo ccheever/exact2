@@ -1,0 +1,268 @@
+// LLP 1021 D2: the rows of host/web/tests/position-area-region.test.mjs's table,
+// each an invoker where Chrome's anchor is and its popover of 50x18 boxes in a
+// wrapping row (PositionAreaRegionIOSTests, PositionAreaRegionMacTests). Generated with the table.
+component Proof
+  view
+    column testId="page" width="100%" height="100%" position="relative"
+      button testId="a0" popovertarget="p0" aria-label="Open 0" appearance="none" position="absolute" left=0 top=100 width=40 height=20 padding=0
+      row id="p0" testId="p0" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a1" popovertarget="p1" aria-label="Open 1" appearance="none" position="absolute" left=150 top=100 width=40 height=20 padding=0
+      row id="p1" testId="p1" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a2" popovertarget="p2" aria-label="Open 2" appearance="none" position="absolute" left=150 top=100 width=40 height=20 padding=0
+      row id="p2" testId="p2" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="flip-inline"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a3" popovertarget="p3" aria-label="Open 3" appearance="none" position="absolute" left=300 top=100 width=40 height=20 padding=0
+      row id="p3" testId="p3" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a4" popovertarget="p4" aria-label="Open 4" appearance="none" position="absolute" left=300 top=100 width=40 height=20 padding=0
+      row id="p4" testId="p4" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="flip-inline"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a5" popovertarget="p5" aria-label="Open 5" appearance="none" position="absolute" left=380 top=100 width=40 height=20 padding=0
+      row id="p5" testId="p5" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a6" popovertarget="p6" aria-label="Open 6" appearance="none" position="absolute" left=380 top=100 width=40 height=20 padding=0
+      row id="p6" testId="p6" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="flip-inline"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a7" popovertarget="p7" aria-label="Open 7" appearance="none" position="absolute" left=150 top=100 width=40 height=20 padding=0
+      row id="p7" testId="p7" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a8" popovertarget="p8" aria-label="Open 8" appearance="none" position="absolute" left=150 top=100 width=40 height=20 padding=0
+      row id="p8" testId="p8" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="center" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a9" popovertarget="p9" aria-label="Open 9" appearance="none" position="absolute" left=10 top=100 width=40 height=20 padding=0
+      row id="p9" testId="p9" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="center" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a10" popovertarget="p10" aria-label="Open 10" appearance="none" position="absolute" left=150 top=550 width=40 height=20 padding=0
+      row id="p10" testId="p10" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="flip-block"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a11" popovertarget="p11" aria-label="Open 11" appearance="none" position="absolute" left=150 top=100 width=40 height=20 padding=0
+      row id="p11" testId="p11" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="right" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a12" popovertarget="p12" aria-label="Open 12" appearance="none" position="absolute" left=150 top=100 width=40 height=20 padding=0
+      row id="p12" testId="p12" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="left" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a13" popovertarget="p13" aria-label="Open 13" appearance="none" position="absolute" left=150 top=100 width=40 height=20 padding=0
+      row id="p13" testId="p13" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="top span-left" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a14" popovertarget="p14" aria-label="Open 14" appearance="none" position="absolute" left=300 top=100 width=40 height=20 padding=0
+      row id="p14" testId="p14" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-left" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a15" popovertarget="p15" aria-label="Open 15" appearance="none" position="absolute" left=20 top=100 width=40 height=20 padding=0
+      row id="p15" testId="p15" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-left" position-try-fallbacks="flip-inline"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a16" popovertarget="p16" aria-label="Open 16" appearance="none" position="absolute" left=150 top=550 width=40 height=20 padding=0
+      row id="p16" testId="p16" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="none"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a17" popovertarget="p17" aria-label="Open 17" appearance="none" position="absolute" left=300 top=100 width=40 height=20 padding=0
+      row id="p17" testId="p17" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="flip-inline"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a18" popovertarget="p18" aria-label="Open 18" appearance="none" position="absolute" left=300 top=560 width=40 height=20 padding=0
+      row id="p18" testId="p18" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-right" position-try-fallbacks="flip-block"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+      button testId="a19" popovertarget="p19" aria-label="Open 19" appearance="none" position="absolute" left=60 top=100 width=40 height=20 padding=0
+      row id="p19" testId="p19" popover="auto" flex-wrap="wrap" margin=0 padding=0 border-width=0 position-area="bottom span-left" position-try-fallbacks="flip-inline"
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0
+        box width=50 height=18 flex-shrink=0

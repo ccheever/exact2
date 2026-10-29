@@ -7,10 +7,111 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { disabledExpectation, refusalExpectation, refuseDisabled, runTests, serverRequest, textExpectation, treeExpectation } from './agent-test.mjs';
+import { churnLines, disabledExpectation, NO_FAILURES, perfExpectation, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
+
+test('always predicates preserve JSON types, option kinds and the previous state', () => {
+  const state = { slots: { n: 2, flag: false, absent: null, answer: { ok: true }, empty: [], text: '2' }, derives: { doubled: 4 } };
+  const check = (name, test, rest = {}, previous) => propertyHolds({ name, test, ...rest }, state, previous);
+  expect(check('n', 'whole')).toBe(true);
+  expect(check('text', 'whole')).toBe(false);
+  expect(check('doubled', 'at-least', { number: 4 })).toBe(true);
+  expect(check('doubled', 'at-most', { number: 3 })).toBe(false);
+  expect(check('text', 'at-least', { number: 1 })).toBe(false);
+  expect(check('n', 'in', { values: [{ kind: 'number', value: 2 }] })).toBe(true);
+  expect(check('text', 'in', { values: [{ kind: 'number', value: 2 }] })).toBe(false);
+  expect(check('absent', 'in', { values: [{ kind: 'none' }] })).toBe(true);
+  expect(check('answer', 'in', { values: [{ kind: 'some' }] })).toBe(true);
+  expect(check('absent', 'in', { values: [{ kind: 'some' }] })).toBe(false);
+  expect(check('empty', 'equal', { value: { kind: 'empty-list' } })).toBe(true);
+  expect(check('missing', 'in', { values: [{ kind: 'some' }] })).toBe(false);
+  expect(check('flag', 'stays', { value: { kind: 'bool', value: true } }, { slots: { flag: true } })).toBe(false);
+  expect(check('flag', 'stays', { value: { kind: 'bool', value: true } }, { slots: { flag: false } })).toBe(true);
+  expect(check('flag', 'stays', { value: { kind: 'bool', value: true } })).toBe(true);
+});
+
+test('device properties see boot, typing and clock changes, and reset stays between tests', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-properties-')), contract = join(dir, 'app.contract'), file = join(dir, 'app.test.contract');
+  const plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
+  writeFileSync(contract, `component App
+  state ready = true
+  state sessionReady = false
+  action enable
+    sessionReady = true
+  state textValue = ""
+  state n = 0
+  derive doubled = n * 2
+  task tick mount
+    every(100, step)
+  action step
+    n = n + 1
+  action toggle
+    ready = not ready
+  action edit(v: string)
+    textValue = v
+  view
+    column
+      button testId="toggle" press=toggle
+        text "Toggle"
+      input testId="field" value=textValue input=edit
+      button "Enable" testId="enable" press=enable
+`);
+  writeFileSync(file, `always "ready stays"
+  expect state ready stays true
+always "session readiness survives reload"
+  expect state sessionReady stays true
+always "short input"
+  expect state textValue in "" "ok"
+always "small derive"
+  expect state doubled <= 1
+after "toggle" "unchecked"
+  writes none
+  command focus "field"
+never refuses "toggle"
+test "the three observations"
+  tap "toggle"
+  type "field" "bad"
+  clock +100
+test "a fresh history"
+  type "field" "ok"
+test "reload is observed"
+  tap "enable"
+  reload
+`);
+  const root = new URL('..', import.meta.url).pathname;
+  const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
+  const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+  expect(compile.status, compile.stderr).toBe(0);
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, encoding: 'utf8' });
+  expect(build.status, build.stderr).toBe(0);
+  const server = createServer((req, res) => serveBuildTree(dist, req, res));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+    expect([r.passed, r.failed]).toEqual([1, 2]);
+    const failures = r.results[0].failures.join('\n');
+    expect(failures).toContain('PROPERTY "ready stays" is false on web');
+    expect(failures).toContain('at step 1: tap "toggle"');
+    expect(failures).toContain('before web: slot ready true');
+    expect(failures).toContain('PROPERTY "short input" is false on web');
+    expect(failures).toContain('at step 3: clock +100');
+    expect(failures).toContain('web: derive doubled 2');
+    expect(failures).not.toContain('PROPERTY "unchecked"');
+    expect(r.results[1].failures).toEqual([]);
+    expect(r.results[2].failures.join('\n')).toContain('at step 2: reload');
+    expect(r.results[2].failures.join('\n')).toContain('PROPERTY "session readiness survives reload" is false on web');
+    writeFileSync(file, `always "false at boot"
+  expect state n == 1
+test "boot only"
+  expect state n == 0
+`);
+    const boot = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+    expect(boot.failed).toBe(1);
+    expect(boot.results[0].failures.join('\n')).toContain('at step 0: boot');
+  } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
+}, 180_000);
 
 test('a presented popover belongs to its AppKit modal for outside-modal findings', () => {
   const elements = [
@@ -422,3 +523,129 @@ test "nothing holds after toggling off"
     } finally { server.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 180_000);
+
+// docs/recipes/navigation-stack.md, "A screen open twice" (issues/closed/20261021-repeated-routes-share-root-state.md):
+// a route drawn by its own component has `state` per stack entry (LLP 1017.000 P4c), so two entries of one route keep
+// separate state, and the entry a pop removed takes its state with it: the next one opens fresh. The two entries have
+// different URLs, since a push of the location already on top is no new visit (route/src/router.rs `push`).
+test('a screen open twice keeps state per entry, and a popped entry\'s is gone', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-test-twice-'));
+  const contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Twice', app: { id: 'test.exact.twice', name: 'Twice' }, host: {}, deploy: {} }));
+  writeFileSync(contract, `routes nav
+  home "/"
+    finder "/finder/:from"
+
+component App
+  action open(from: string)
+    nav = push(nav, path("finder", from))
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "home"
+          column navigationKey=\`\${e.id}\` position="absolute" inset=0
+            button press=open("home") testId="open"
+              text "Find a shoe"
+        if e.name == "finder"
+          Finder(entry=e, open=open)
+
+component Finder
+  props
+    entry: Entry
+    open: action
+  state pick = ""
+  action choose(v: string)
+    pick = v
+  view
+    column navigationKey=\`\${entry.id}\` position="absolute" inset=0
+      header
+        text "Finder" role="heading" aria-level=2
+      text pick testId=\`pick-\${entry.id}\`
+      button press=choose("trail") testId=\`trail-\${entry.id}\`
+        text "Trail"
+      button press=open(\`\${entry.id}\`) testId=\`again-\${entry.id}\`
+        text "Another"
+`);
+  writeFileSync(file, `test "two entries keep their own state; a popped one's goes with it"
+  tap "open"
+  clock settle
+  tap "trail-1"
+  expect text "pick-1" == "trail"
+  tap "again-1"
+  clock settle
+  expect text "pick-2" == ""
+  tap "trail-2"
+  expect text "pick-2" == "trail"
+  back
+  clock settle
+  expect tree missing "pick-2"
+  expect text "pick-1" == "trail"
+  tap "again-1"
+  clock settle
+  expect text "pick-3" == ""
+`);
+  const root = new URL('..', import.meta.url).pathname;
+  const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
+  try {
+    const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+    expect(compile.status, compile.stderr).toBe(0);
+    const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'twice', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8' });
+    expect(build.status, build.stderr).toBe(0);
+    const server = createServer((request, response) => serveBuildTree(dist, request, response));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+      expect(r.results.map(t => t.failures)).toEqual([[]]);
+    } finally { server.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 180_000);
+
+// LLP 1146 D4: what failed that the test did not arrange.
+test('a failure is unarranged unless a fetch fault fired or an expect refusal names it', () => {
+  const now = { ...NO_FAILURES, failures: { gateway: 2 }, failed: { gateway: 'turn 868 ms over 100 ms' }, mutations: { vote: { code: 'refused', message: 'no' }, send: { code: 'network', message: 'down' } } };
+  expect(unarranged(NO_FAILURES, now, { refusals: ['vote'] })).toEqual(['resource gateway was refused 2 times (turn 868 ms over 100 ms)', 'send send failed (network: down)']);
+  expect(unarranged(now, { ...now, failures: { gateway: 3 } }, { refusals: ['vote', 'send'] })).toEqual(['resource gateway was refused once (turn 868 ms over 100 ms)']);
+  expect(unarranged(NO_FAILURES, { ...now, faults: { '/api': 1 } }, { refusals: ['vote', 'send'] })).toEqual([]);
+  expect(unarranged(NO_FAILURES, { ...NO_FAILURES, failed: { list: 'shape' } })).toEqual(['resource list failed (shape)']);
+  const churn = churnLines(['t=12 query r: src', 't=13 `r` was asked 50 times in a second, its arguments new each time (argument 1 last): …']);
+  expect(churn).toEqual(['`r` was asked 50 times in a second, its arguments new each time (argument 1 last): …']);
+  expect(unarranged(NO_FAILURES, NO_FAILURES, { churn })).toEqual(churn);
+});
+
+// LLP 1146 D3: an `expect perf` line against a block's counts.
+test('expect perf reads a resource\'s asks and a component\'s or a view\'s work', () => {
+  const site = (component, created, evaluated, line) => ({ site: line, created, rowConstructed: 0, evaluated, source: { status: 'compatible', component, file: '/a/app.contract', line } });
+  const measured = { line: 3, components: new Set(['MemberRow', 'Rail', 'Sheet']), whole: { resources: [{ name: 'channelList', asked: 1 }], sites: [site('Rail', 2, 9, 10), site('Rail', 1, 4, 12)] }, under: new Map([['member-sheet', { sites: [site('Sheet', 5, 0, 40)] }]]) };
+  const at = (subject, target, compare, value) => perfExpectation(measured, { subject, target, compare, value }, ['channelList', 'serverList']);
+  expect(at('query', 'channelList', '<=', 1)).toBeNull();
+  expect(at('query', 'serverList', '==', 0)).toBeNull();
+  expect(at('query', 'nope', '==', 0)).toContain('no resource is named nope');
+  expect(at('built', 'Rail', '==', 3)).toBeNull();
+  expect(at('evaluated', 'Rail', '<=', 12)).toBe('evaluated "Rail" counted 13 in the `perf` block at line 3, expected <= 12 (app.contract:10 9, app.contract:12 4)');
+  expect(at('built', 'MemberRow', '==', 0)).toBeNull(); // declared, never built
+  expect(at('built', 'member-sheet', '==', 5)).toBeNull(); // a view by testId
+  expect(at('built', 'Ghost', '==', 0)).toContain('names no component');
+  expect(perfExpectation(null, { subject: 'query', target: 'a', compare: '==', value: 0 })).toContain('no `perf` block');
+  expect(perfExpectation({ ...measured, whole: { sites: [] } }, { subject: 'query', target: 'a', compare: '==', value: 0 })).toContain('counts no resource asks');
+});
+
+test('a test scoped on macos runs under the mac alias and the sample host too', () => {
+  expect(testScope('mac')).toBe('macos');
+  expect(testScope('macos')).toBe('macos');
+  expect(testScope('host')).toBe('macos');
+  expect(testScope('host-ios')).toBe('ios');
+  expect(testScope('web')).toBe('web');
+});
+
+test('always observes each mutation-clock configuration, including the sixteenth', async () => {
+  let requests = 1, ticks = 0;
+  const seen = [], clock = testMutationClock();
+  const session = {
+    state: async () => ({ mutationRequests: requests, slots: { ticks } }),
+    clock: async () => { ticks++; if (ticks < 16) requests++; },
+  };
+  expect(await clock.advance(session, async state => { seen.push(state.slots.ticks); })).toBe(16);
+  expect(seen).toEqual(Array.from({ length: 17 }, (_, i) => i));
+});

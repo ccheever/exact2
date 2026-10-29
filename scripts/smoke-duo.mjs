@@ -26,7 +26,7 @@
 // `--only insets,keyboard-bar,lab,navigation,navigation-gestures,host-navigation,host,rotate,resize,web` runs the named legs; the keyboard checks
 // run only when a probe shows a software keyboard on this simulator.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { appleArtifacts } from '../host/apple/build.mjs';
@@ -48,6 +48,8 @@ const near = (a, b, eps = 0.01) => typeof a === 'number' && Math.abs(a - b) < ep
 // A box at a segment's edge, which lies on a half point (455.5, 495.5): iOS draws every box on the device's pixel
 // grid, so the edge lands on the nearest third of a point at 3x.
 const onGrid = (a, b) => near(a, b, 1 / 3 + 0.01);
+/** Whether box `b` lies within segment `seg` (`[x, y, w, h]`) from left to right. */
+const within = (b, seg) => !!b && b.x >= seg[0] - 0.01 && b.x + b.w <= seg[0] + seg[2] + 0.01;
 
 // The matrix, and the Duo's geometry under iOS 27.1 (LLP 1008 §9): the
 // cover panel 466×678, the inner panel 951×669, the division (455.5, 0, 40, 669)
@@ -325,18 +327,25 @@ async function suite({ open: openSession, check: record }, reset) {
     where = `${name}-reopened`;
     await pose(s, 180); // closed to open in a live session, checked
   };
-  /** Where duo-lab's routes end in layout `l` of session `s`, its chrome checked. The note screen hides the tablist on
-   * either chrome, so there they end at the viewport's bottom; iOS's
-   * layout lists only views in the window, so its sheet is listed only while it shows. Under UIKit's bars the authored
+  /** Where duo-lab's routes end in layout `l` of session `s`, its chrome checked. `native` is the session's keyboard
+   * state read with `l`, read here when absent. The note screen hides the tablist on either chrome. Under UIKit's bars
+   * its route starts at the viewport's top and ends at the keyboard's top while one shows, else at the viewport's bottom;
+   * under the agent's chrome it ends at the viewport's bottom. iOS's layout lists only views in the window, so its sheet
+   * is listed only while it shows. Under UIKit's bars the authored
    * tablist has no box. Beside UIKit's tab bar along the bottom a tab's route ends below the bar's top by the home
    * indicator's inset (34 points on the whole panel), which the panes' padding takes; beside its rail, at the viewport's
    * bottom. Under the agent's own chrome (the web leg) the tablist is laid out below the routes, as the web does,
    * ending at the viewport's bottom, and they end at its top. */
-  const routesEnd = async (s, l, tag) => {
+  const routesEnd = async (s, l, tag, native) => {
     const bar = box(l, 'tab-bar'), laid = bar?.w > 0 && bar?.h > 0, uikit = s.chrome !== 'agent';
     if (box(l, 'note-sheet')) {
       check(!laid && (!uikit || (await nativeTabBar(s))?.visible === false), `${tag}: the note screen hides the tablist: ${JSON.stringify(bar)}`);
-      return l.viewport.h;
+      if (!uikit) return l.viewport.h;
+      const route = box(l, 'screen-note'), end = route ? route.y + route.h : NaN;
+      native ??= (await s.state()).keyboard;
+      const expectedEnd = native?.visible ? native.top : l.viewport.h;
+      check(typeof native?.visible === 'boolean' && near(route?.y, 0) && near(end, expectedEnd), `${tag}: the note route starts at the viewport's top and ends at ${native?.visible ? 'the keyboard' : 'the viewport'}: route ${JSON.stringify(route)}, keyboard ${JSON.stringify(native)}, viewport ${JSON.stringify(l.viewport)}`);
+      return end;
     }
     if (uikit) {
       check(!laid, `${tag}: under UIKit's bars the authored tablist has no box: ${JSON.stringify(bar)}`);
@@ -425,15 +434,43 @@ async function suite({ open: openSession, check: record }, reset) {
     });
     check(on.length === 0, `${tag}: no control on the band ${JSON.stringify(band)}: ${JSON.stringify(on.map((m) => ({ id: m.testId ?? m.id, x: m.x, y: m.y, w: m.w, h: m.h })))}`);
   };
-  /** With the keyboard up where one is expected (layout `l`), the note sheet rides on it: it ends with the routes in the
-   * shortened viewport, below the note's header, with its Dismiss button and its textarea above that end. Given `top`,
+  /** Combinations and the note screen are each one pane that does not scroll, which a fold moves
+   * (docs/recipes/foldables.md): in layout `l` at hinge `deg`, box `id` keeps to the trailing segment on a book fold,
+   * and fully open it is centred. */
+  const paneMoves = (l, id, tag, deg) => {
+    const b = box(l, id), trailing = l.env['viewport-segments']?.[1];
+    if (!check(b, `${tag}: ${id} is laid out`)) return;
+    if (l.env['horizontal-viewport-segments'] === 2) check(within(b, trailing), `${tag}: ${id} keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(b)}`);
+    else if (deg === 180) check(b.w < l.viewport.w && near(b.x + b.w / 2, l.viewport.w / 2, 0.5), `${tag}: ${id} is centred: ${JSON.stringify(b)} in ${JSON.stringify(l.viewport)}`);
+  };
+  /** With the keyboard up where one is expected (layout `l`), the note sheet ends where its route does (`routesEnd`),
+   * below the note's header, with Dismiss and the textarea above that end. Under UIKit's bars it first reads the layout
+   * again until its keyboard inset equals the native state's `overlap`. It returns the layout it checked. Given `top`,
    * the lower segment's before the keyboard, the fold keeps its two segments, the lower one's top there and ending where
    * the viewport does, never below zero (LLP 1078, the keyboard). */
   const onKeyboard = async (s, l, tag, top) => {
+    const uikit = s.chrome !== 'agent';
+    let native;
+    if (uikit) {
+      // UIKit can move the keyboard between the layout and state reads: read both again, settled, for up to 2 s
+      const deadline = Date.now() + 2000;
+      for (;;) {
+        native = (await s.state()).keyboard;
+        if (l.env['keyboard-inset-height'] === native?.overlap || Date.now() >= deadline) break;
+        await sleep(50);
+        await settle(s);
+        l = await s.layout();
+      }
+      check(l.env['keyboard-inset-height'] === native?.overlap, `${tag}: layout and native state observe the same keyboard inset: layout ${l.env['keyboard-inset-height']}, native ${JSON.stringify(native)}`);
+    }
     const [, lower] = l.env['vertical-viewport-segments'] === 2 ? l.env['viewport-segments'] : [];
     if (lower || top !== undefined) check(lower && (top === undefined || near(lower[1], top)) && near(lower[3], Math.max(0, l.viewport.h - lower[1]), 0.02), `${tag}: the keyboard leaves the lower segment's top ${top} and ends it with the viewport ${l.viewport.h}: ${JSON.stringify(lower)}`);
-    const sheet = box(l, 'note-sheet'), back = box(l, 'note-back'), dismiss = box(l, 'note-dismiss'), area = box(l, 'note-textarea'), end = await routesEnd(s, l, tag), kb = l.env['keyboard-inset-height'];
-    check(sheet && back && dismiss && area && near(sheet.y + sheet.h, end) && sheet.y >= back.y + back.h && dismiss.y + dismiss.h <= end && area.y + area.h <= end + 0.01 && (!(await expected(s, kb)) || kb > 0), `${tag}: the sheet sits on the keyboard-shortened viewport, ending with the routes at ${end}, below the note's header, Dismiss and the textarea above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}, Dismiss ${JSON.stringify(dismiss)}, textarea ${JSON.stringify(area)}`);
+    const sheet = box(l, 'note-sheet'), back = box(l, 'note-back'), dismiss = box(l, 'note-dismiss'), area = box(l, 'note-textarea'), kb = l.env['keyboard-inset-height'];
+    const needsKeyboard = await expected(s, kb);
+    const end = await routesEnd(s, l, tag, native);
+    if (needsKeyboard && uikit) check(native?.visible === true, `${tag}: the expected native keyboard is visible: ${JSON.stringify(native)}`);
+    check(sheet && back && dismiss && area && near(sheet.y + sheet.h, end) && sheet.y >= back.y + back.h && dismiss.y + dismiss.h <= end && area.y + area.h <= end + 0.01 && (!needsKeyboard || kb > 0), `${tag}: the sheet ends with its route at ${end}, below the note's header, Dismiss and the textarea above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}, Dismiss ${JSON.stringify(dismiss)}, textarea ${JSON.stringify(area)}`);
+    return l;
   };
   // The insets fixture serves its leg and the keyboard probe, which the legs that type need
   const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate') || leg('web') || leg('navigation') || leg('navigation-gestures') || leg('secondary-navigation');
@@ -454,8 +491,11 @@ async function suite({ open: openSession, check: record }, reset) {
   if (leg('rotate') || leg('web')) {
     const source = readFileSync(resolve(lab.dir, 'app.contract'), 'utf8'), tall = source.replace('state sheetPx = 400', 'state sheetPx = 600');
     if (check(tall !== source, 'duo-lab no longer declares `state sheetPx = 400`, which the rotate and web legs raise to 600')) {
-      writeFileSync(resolve(out, 'duo-lab-tall.contract'), tall);
-      compile('duo-lab-tall', resolve(out, 'duo-lab-tall.contract'));
+      // The copy compiles beside duo-lab's `app.json`, which declares the `data` names and hatches it uses
+      const fixture = mkdtempSync(resolve(out, 'duo-lab-tall-'));
+      copyFileSync(resolve(lab.dir, 'app.json'), resolve(fixture, 'app.json'));
+      writeFileSync(resolve(fixture, 'app.contract'), tall);
+      compile('duo-lab-tall', resolve(fixture, 'app.contract'));
     }
   }
   const labBundle = appleArtifacts(lab, { destination: 'ios-simulator' }).bundle;
@@ -689,10 +729,13 @@ async function suite({ open: openSession, check: record }, reset) {
       check(byTestId(await s.tree(), 'screen-combos') != null, 'the Combinations tab opened');
       await eachPose(s, 'combos', async ({ l: l0 }, tag, deg) => {
         if (folded(deg)) await offBand(s, l0, tag);
+        paneMoves(l0, 'combos-title', tag, deg);
         await s.tap('open-note'); await settle(s);
         let t = await s.tree();
         check(byTestId(t, 'screen-note') != null && byTestId(t, 'note-sheet') != null, `${tag}: the note screen pushed with its sheet`);
-        if (folded(deg)) await offBand(s, await s.layout(), `${tag} note`);
+        const pushed = await s.layout();
+        if (folded(deg)) await offBand(s, pushed, `${tag} note`);
+        paneMoves(pushed, 'note-sheet', tag, deg);
         // The title field raises the keyboard (a textarea under the driver's `type` takes
         // text and focus but no keyboard, 2026-10-02); the textarea takes the draft.
         // Each pose writes its own, so a value left from the last cannot pass.
@@ -706,7 +749,7 @@ async function suite({ open: openSession, check: record }, reset) {
         // The sheet's height springs to the shortened viewport: read it settled, in the same layout as the viewport
         await settle(s);
         l = await s.layout();
-        await onKeyboard(s, l, tag);
+        l = await onKeyboard(s, l, tag);
         if (folded(deg)) await offBand(s, l, `${tag} editing`);
         for (const [from, next, fold] of folds(tag, deg)) {
           const before = await editing(s, 'noteFocused', 'note-textarea');
@@ -719,7 +762,7 @@ async function suite({ open: openSession, check: record }, reset) {
           check(byTestId(t, 'screen-note') != null && byTestId(t, 'note-sheet') != null, `${fold}: the pushed screen and its sheet survived the fold`);
           check(st.slots.title === title && st.slots.draft === draft && back && st.slots.noteFocused === true && st.focus.editor === before.node && st.focus.native === before.native && clean(st, before), `${fold}: the title, the draft and the focus survived ${JSON.stringify({ title: st.slots.title, draft: st.slots.draft, noteFocused: st.slots.noteFocused })}`);
           if (await rose(s, kbF, fold)) check(kbF > 0, `${fold}: the keyboard is up under the sheet (${kbF})`);
-          check(near((box(l, 'note-sheet')?.y ?? 0) + (box(l, 'note-sheet')?.h ?? 0), l.viewport.h), `${fold}: the sheet still ends at the viewport ${JSON.stringify(box(l, 'note-sheet'))} in ${JSON.stringify(l.viewport)}`);
+          l = await onKeyboard(s, l, fold);
           if (folded(next)) await offBand(s, l, `${fold} editing`);
         }
         // Back across the reverse fold with the pushed screen and its sheet up
@@ -750,15 +793,15 @@ async function suite({ open: openSession, check: record }, reset) {
           const layout = await s.layout();
           if (overflow) {
             check(box(layout, 'app')?.h > layout.viewport.h, `${name}: the document has page overflow`);
+            // No scroll view holds native navigation that fills the screen (LLP 1123 D1), so the page does not scroll under it.
             await s.tap('app', { wheel: [0, 100] }); await settle(s);
-            check((await s.layout('app')).node.scroll.some((scroll) => scroll.viewport && scroll.sy > 0), `${name}: the outer page scrolls`);
+            check(!(await s.layout('app')).node.scroll.some((scroll) => scroll.viewport && scroll.sy > 0), `${name}: the page stays still under native navigation`);
           }
           check((await s.state()).navigation.url === '/edit', `${name}: the editing route is on top`);
           await s.back({ native: true }); await settle(s);
           const state = await s.state();
           check(state.navigation.url === '/' && state.slots.query === draft,
             `${name}: tapping UIKit's Back returns to the root and preserves the edit`);
-          if (overflow) { await s.tap('app', { wheel: [0, -100000] }); await settle(s); }
         }
       });
     } catch (e) { check(false, `native-back: ${e.message}`); } finally { await s.close(); }
@@ -1007,7 +1050,7 @@ async function suite({ open: openSession, check: record }, reset) {
     await s.type('note-title-input', title);
     ({ l } = await keyboard(s, true));
     if (await rose(s, l.env['keyboard-inset-height'], tag)) {
-      await onKeyboard(s, l, tag, lower[1]);
+      l = await onKeyboard(s, l, tag, lower[1]);
       await offBand(s, l, `${tag} editing`);
     }
     const before = await editing(s, 'noteFocused', 'note-title-input');
@@ -1017,7 +1060,7 @@ async function suite({ open: openSession, check: record }, reset) {
     ({ l } = await keyboard(s, true));
     const st = await s.state();
     check(back && st.slots.title === title && st.slots.noteFocused === true && st.focus.editor === before.node && st.focus.native === before.native && clean(st, before), `${tag}→90°: the title and its focus survived ${JSON.stringify({ title: st.slots.title, noteFocused: st.slots.noteFocused })}`);
-    if (await rose(s, l.env['keyboard-inset-height'], `${tag}→90°`)) await onKeyboard(s, l, `${tag}→90°`, lower[1]);
+    if (await rose(s, l.env['keyboard-inset-height'], `${tag}→90°`)) l = await onKeyboard(s, l, `${tag}→90°`, lower[1]);
     await offBand(s, l, `${tag}→90° editing`);
     await pose(s, 130);
     await s.tap('note-dismiss'); await down(s, tag);
@@ -1187,7 +1230,7 @@ async function suite({ open: openSession, check: record }, reset) {
       await foldScreen(s, l, where, 130, chosen);
       await offBand(s, l, where);
       const drawn = await tabBarFrame(s), trailing = l.env['viewport-segments'][1];
-      check(drawn && drawn.x >= trailing[0] - 0.01 && drawn.x + drawn.w <= trailing[0] + trailing[2] + 0.01, `${where}: the tab bar keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(drawn)}`);
+      check(within(drawn, trailing), `${where}: the tab bar keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(drawn)}`);
       where = 'web-130-landscape-right';
       await orient('landscape-right', s);
       for (let i = 0; i < 50 && l.env['vertical-viewport-segments'] !== 2; i++) { await sleep(100); l = await s.layout(); }

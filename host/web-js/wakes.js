@@ -16,7 +16,7 @@ import { Counting, heldTickets } from "./held.js";
 
 const BACKOFF = 5 * 60_000, LONGEST = 60 * 60_000, ATTEMPTS = 3;
 /** The host commands a commit of a wake's origin may not run: each opens system UI, asks a person, or plays sound. */
-export const REFUSED = new Set(["copyText", "openURL", "playSound", "playSounds", "requestFullscreen", "requestMIDIAccess", "saveFile", "share",
+export const REFUSED = new Set(["copyText", "openURL", "playSound", "playSounds", "requestFullscreen", "requestMIDIAccess", "requestPermission", "saveFile", "share",
   "showDirectoryPicker", "showOpenFilePicker", "showPicker", "showSaveFilePicker"]);
 
 /** `events`: extension.event → [action, raised, hold, types, name, budget]; `value(json, type, key)` checks an argument;

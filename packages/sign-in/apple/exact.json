@@ -1,0 +1,26 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/sign-in@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [
+    "exact-sign-in-button"
+  ],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "SignIn.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "SignInModule",
+  "frameworks": {
+    "AuthenticationServices": { "ios": "17.0", "macos": "14.0" }
+  }
+}

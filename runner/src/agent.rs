@@ -281,6 +281,10 @@ pub fn answer<D: DataSource>(
     if let Some(reply) = runner.listed_op(&op, request) {
         return Some((reply.unwrap_or_else(|e| error(&e)), None));
     }
+    // A system's call of a tool, and the content index's query (LLP 1133.023 §10).
+    if let Some(reply) = runner.call_agent(&op, request) {
+        return Some((reply.unwrap_or_else(|e| error(&e)), None));
+    }
     if !matches!(op.as_str(), "tap" | "type") || after_key(request, "ticket").is_none() {
         return None;
     }
@@ -499,8 +503,8 @@ pub(super) fn token_fields(
 /// `style` or `heading` that gives it (LLP 1115.000 D12.2), or `initial`
 /// ([`source::write`]) — its props, the plan site it was instantiated from with the
 /// instance path to it (D6), and the kernel's frames: `frame` relative to
-/// the parent, `absolute` in the root's space, or in its host block's for a
-/// node inside one (LLP 1115.002 D8.2), `content` when it scrolls.
+/// the parent, `absolute` in the root's space or the viewport when the host
+/// places its block (as `frame()` reports it), `content` when it scrolls.
 /// Observations of the runner's memory, tagged with the epoch and
 /// incarnation; a host adds the spaces and what it mounted. An id that is
 /// not a live node in this incarnation is refused by name.
@@ -602,6 +606,7 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
     s.push_str(",\"props\":{");
     props_json(&node, &mut s);
     let f = node.frame;
+    let absolute = runner.top_layer_open().agent_frame(kernel, node.id, f);
     let (px, py) = node
         .parent
         .and_then(|p| kernel.node(p))
@@ -613,10 +618,10 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         num((f.y - py) as f64),
         num(f.width as f64),
         num(f.height as f64),
-        num(f.x as f64),
-        num(f.y as f64),
-        num(f.width as f64),
-        num(f.height as f64)
+        num(absolute.x),
+        num(absolute.y),
+        num(absolute.width),
+        num(absolute.height)
     );
     // @ref LLP 1043.000 §3 D4, §8 — leaf-local geometry, or why auto height refused it.
     if !node.flow_shapes().is_empty() {
@@ -786,8 +791,10 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     quote(page.navigation_type(), &mut s);
     let _ = write!(
         s,
-        ",\"persisted\":{},\"restores\":{}",
-        page.persisted, page.restores
+        ",\"persisted\":{},\"restores\":{},\"background\":{}",
+        page.persisted,
+        page.restores,
+        page.in_background()
     );
     s.push_str(",\"gpuTier\":");
     quote(page.gpu_tier(), &mut s);
@@ -858,6 +865,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push('}');
     }
+    crate::perf::failures(runner, &mut s);
+    runner.resource_inspection(&mut s);
     s.push(',');
     pending::state(runner, &mut s);
     s.push(',');
@@ -899,7 +908,6 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     schedule::tasks(runner, &mut s);
     schedule::queued(runner, &mut s);
-    crate::notify::state(runner, &mut s);
     // What a module's declared substitute keeps (LLP 1133.004 §7).
     runner.declared_state_json(&mut s);
     // The wake running, else the last (LLP 1133.017 §10).
@@ -908,7 +916,9 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         s.push_str(&wake.to_string());
     }
     sound::state(runner, request, &mut s);
-    crate::wakelock::state(runner.kernel(), &mut s);
+    crate::wakelock::state(runner, &mut s);
+    crate::orientation::state(runner, &mut s);
+    crate::desktop::state(runner, &mut s);
     transport::state(runner, request, &mut s);
     // The store's names, never its values (LLP 1018 D5).
     s.push_str(",\"store\":[");

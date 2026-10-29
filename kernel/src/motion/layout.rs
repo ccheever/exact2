@@ -195,21 +195,17 @@ fn observe_box(engine: &mut Engine, key: NodeKey, value: Value) {
     debug_assert!(observed.is_ok(), "layout is finite");
 }
 
-/// A presented box's offset from its laid-out origin and scale of its
-/// surface size. Content retains its laid-out geometry.
+/// A presented box as `[dx, dy, dw, dh]`: its offset from the laid-out
+/// origin, and how far its surface's size, never below zero (a spring can
+/// overshoot it), stands from the laid-out size. Identity is all zeros.
+/// Content retains its laid-out geometry. A difference rather than a ratio,
+/// so a box laid out at zero size still shows the size it closes from.
 pub fn layout_presented(engine: &Engine, node: u64, shown: Value) -> [f64; 4] {
     let at = engine.target(node, Property::Layout).unwrap_or(shown);
-    let scale = |shown: f64, laid: f64| {
-        if laid > 0.0 {
-            shown.max(0.0) / laid
-        } else {
-            1.0
-        }
-    };
     [
         shown.x - at.x,
         shown.y - at.y,
-        scale(shown.z, at.z),
-        scale(shown.w, at.w),
+        shown.z.max(0.0) - at.z,
+        shown.w.max(0.0) - at.w,
     ]
 }

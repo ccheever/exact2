@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "3-column grid of rounded HSL squares with centred emoji, newest first, filling the width with 16pt margins; 600 tiles counted."},
+      {"n": 2, "status": "pass", "note": "System pull-down menu ('All boards' + 10 boards, checkmark on current); count updates (e.g. Coast 64 tiles). Same filter on Liked screen."},
+      {"n": 3, "status": "pass", "note": "Tap opens a large rounded tile with serif title, board chip and date; horizontally paging collection swipes to neighbours (title shows '2 of 600'); also prev/next chevrons in nav bar."},
+      {"n": 4, "status": "pass", "note": "Large 'Like this tile' / 'Liked' button; Liked tab shows liked tiles in the same grid with heart badges; unlike removes it from Liked."},
+      {"n": 5, "status": "pass", "note": "Select → tap tiles shows check circles, '3 selected', Select All; bottom bar with Like and Delete; delete asks for confirmation; both work and exit select mode."},
+      {"n": 6, "status": "pass", "note": "Like, unlike, batch like and batch delete (600→597) all survived relaunch."}
+    ],
+    "bugs": [
+      "Delete confirmation popover is anchored to the board-filter area at the top of the screen instead of the Delete button it came from."
+    ],
+    "tells": [
+      "Marketing-style hero header ('YOUR CREATIVE LIBRARY / Find your mood. / Little sparks. Endless possibilities.') in a custom serif font above the grid reads like a web landing page, not an iOS photo grid; no large navigation title.",
+      "Custom warm beige background and rust accent replace system backgrounds/tint throughout.",
+      "Hand-drawn full-width pill buttons (Like this tile, Like/Delete batch bar) instead of a system toolbar; the Like button looks nearly identical in Liked and not-liked states (both filled rust).",
+      "Unselected 'Liked' tab icon is a solid black filled heart instead of the grey unselected tab tint.",
+      "Decorative leading nav-bar icon (stacked squares) that does nothing.",
+      "Detail title 'N of 600' instead of the tile name."
+    ],
+    "scroll": "Smooth and Photos-like: slow drags, flings and returns to the top showed no blank or popping tiles, and the scroll position was kept after opening a tile and going back.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Edge-to-edge 3-column grid of HSL squares with 2pt gutters (Photos style), emoji centred, newest first, liked tiles carry a heart badge."},
+      {"n": 2, "status": "pass", "note": "Filter button in nav bar opens a system menu (All + 10 boards, checkmark); nav subtitle updates ('Coast · 64 tiles'). Liked screen has its own filter. Filter persists across relaunch."},
+      {"n": 3, "status": "pass", "note": "Tap opens a full-width tile with title, board and 'Added October 26, 2026'; swiping left/right moves to neighbours within the current filter ('2 of 64'); also prev/next buttons."},
+      {"n": 4, "status": "pass", "note": "Heart button in nav bar plus a Like/Liked button; Liked tab shows the same grid with heart badges; unliking updates the Liked count immediately."},
+      {"n": 5, "status": "pass", "note": "Select → check circles, select-all button, bottom panel with Like, Unlike and Delete icons; delete uses a centred system alert with Cancel/Delete; both work."},
+      {"n": 6, "status": "pass", "note": "Likes, unlikes, batch like and deletion (600→597) all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Selection action area is a hand-built opaque grey panel with a '3 selected' label and three small unlabeled icon buttons crammed to the left, rather than a system bottom toolbar.",
+      "Tiles are exposed to accessibility as Switches (\"Garden 85, Garden\", value 0) rather than buttons/images.",
+      "Inline small title plus subtitle instead of a large title on the main and Liked screens.",
+      "Detail view repeats the title (nav bar and body) and adds hand-placed prev/next chevrons with a 'Swipe the tile to explore' hint; at the largest text size the next chevron wraps onto its own line."
+    ],
+    "scroll": "Smooth and Photos-like: no blank or popping tiles on slow drags or flings, the grid scrolls under the glass nav bar, and the position was kept after opening a tile and returning.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet all six requirements and persist state correctly. B looks more like a native iPhone photo browser: an edge-to-edge Photos-style grid, system tint and backgrounds, a system delete alert, and a correctly anchored nav-bar heart. A puts a web-style serif hero banner above the grid and uses custom pill buttons whose liked and unliked states look almost the same. B's hand-built selection panel and its Switch-typed tiles are real tells, but they are smaller than A's."
+}

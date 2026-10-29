@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day; each header reads like 'Oct 25, 2026 · $222.02', with the date and the day's total in one grey string."},
+      {"n": 2, "status": "pass", "note": "A summary card at the top shows October 2026 at $5,269.70 across 86 expenses, and it updates after an add or delete."},
+      {"n": 3, "status": "pass", "note": "The form has amount (decimal pad), merchant, a category pop-up menu with all 7 categories, a date that defaults to today, and a note. Save stays disabled for an empty or -5 amount. The error 'Enter an amount greater than zero.' shows before anything is typed, under the merchant field."},
+      {"n": 4, "status": "partial", "note": "Tapping a row opens an Edit Expense sheet and edits save. Swipe left shows a Delete action, and deleting updates the day and month totals. But a just-added expense cannot be tapped to edit until the app is relaunched (seen twice)."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists this month's categories largest first, e.g. 'Bills 29.5% of total · 16 expenses $1,544.59'. Tapping one pushes that category's transactions grouped by day."},
+      {"n": 6, "status": "pass", "note": "Amounts are US currency throughout. An add, an edit and a delete all survived relaunch."}
+    ],
+    "bugs": [
+      "After adding an expense, its new row does not respond to taps and is missing from the accessibility tree until relaunch. Right after the first add, a tap on an older row (Climbing Gym) also did nothing.",
+      "The add form shows the validation error 'Enter an amount greater than zero.' before the user has typed anything."
+    ],
+    "tells": [
+      "Transaction rows are 109–128 pt tall for two or three short lines, so lots of empty padding and only about 4 rows per screen. A UIKit/SwiftUI list row would be about 60 pt.",
+      "Day header puts the date and total in one string ('Oct 25, 2026 · $222.02') instead of a date on the left and the total right-aligned.",
+      "Amounts in rows are secondary grey rather than primary text, which makes the key figure recede.",
+      "The amount validation footer sits under the Merchant field, not under Amount.",
+      "Rows have no category icon or colour; it looks fine as plain iOS but is sparse."
+    ],
+    "scroll": "Scrolling is smooth, with no blank or popping rows. Flinging back to the top and pulling past it behaves natively, and the position is kept after opening and cancelling an edit. The oversized rows make a 240-item list feel long.",
+    "scores": {"features": 7, "platform": 8, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day. Headers read like 'Sunday, Oct 25' and 'Today', with the day total right-aligned. Rows show a category icon tile, merchant, category and a bold amount."},
+      {"n": 2, "status": "pass", "note": "A dark-green summary card shows 'October 2026 spending' $5,269.70 and 86 expenses, and it updates on add and delete."},
+      {"n": 3, "status": "pass", "note": "Large $ amount field with a decimal pad, merchant, a pushed category list (7 categories with icons and a checkmark), a date that defaults to today, and an optional note. Save with an empty or -5 amount shows an inline red error and does not save; 12.5 saves as $12.50."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens an Edit expense sheet with a Delete expense row, and edits save. Swipe left reveals Delete, and deleting updates the totals."},
+      {"n": 5, "status": "pass", "note": "The Categories tab shows a stacked share bar in the card, then rows largest first with '29.5% of spending · 16 expenses' and a progress bar. Tapping a category pushes its transactions with a This month / All time segmented control."},
+      {"n": 6, "status": "pass", "note": "Amounts are US currency. An add, an edit and a delete all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The root screens use small inline titles ('Expenses', 'Categories') rather than large titles.",
+      "A heavily branded dark-green hero card and beige background; more custom-designed than stock iOS.",
+      "The keyboard 'Done' is a floating green capsule that covers part of the Date row while the keypad is up.",
+      "During a swipe-to-delete the row's icon tile disappears and the separator shifts oddly.",
+      "At the largest text size the section header 'Amount · USD' wraps after 'Amount' even with room on the line.",
+      "Save is always enabled and validates only on tap; acceptable, but iOS forms usually disable it."
+    ],
+    "scroll": "Flinging and dragging through 240 rows is smooth with no blank or popping rows, the position is kept after opening and cancelling an edit, and fling-back-to-top is native. Rows are compact (about 77 pt), so the list reads well.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet the spec, but A has a real bug: a newly added expense can't be opened for editing until relaunch. A also wastes space with oversized rows and packs the date and day total into one header string. B is more custom-styled (inline titles, branded card) but more polished and informative, with category icons, share bars, a month/all-time filter and clear validation, and it worked without problems."
+}

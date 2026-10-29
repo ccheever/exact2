@@ -32,6 +32,8 @@ enum Job {
         source: String,
         args: Vec<Vec<u8>>,
         snapshot: Vec<(String, Vec<u8>)>,
+        /// The runner's clock at dispatch (`Store::clock_ms`).
+        clock: f64,
         reply: Reply,
     },
     Resume {
@@ -40,6 +42,7 @@ enum Job {
         args: Vec<Vec<u8>>,
         outcome: Outcome,
         snapshot: Vec<(String, Vec<u8>)>,
+        clock: f64,
         reply: Reply,
     },
     /// What is still in flight, after a commit that let requests go: the
@@ -298,6 +301,24 @@ impl<D: DataSource + 'static> Placed<D> {
         match stage {
             Some(Stage::Turn) => {
                 let answer = envelope::apply(outcome, store, &mut self.logs);
+                // A wait for the answer's own timer: its next turn, recorded
+                // now, under a token the runner keeps back until it is due.
+                if let Ok(Answer::Later(Request {
+                    due_ms: Some(due), ..
+                })) = &answer
+                {
+                    let resume = Recorded::Resume {
+                        target,
+                        source: source.to_string(),
+                        args: args.to_vec(),
+                        outcome: Dispatch::again_outcome(),
+                    };
+                    let due = *due;
+                    return self.record(k, resume).map(|answer| match answer {
+                        Answer::Later(request) => Answer::Later(request.due(due)),
+                        answer => answer,
+                    });
+                }
                 if let Ok(Answer::Later(_)) = &answer {
                     self.stages.entry(k).or_default().push_back(Stage::Yielded);
                 }
@@ -329,7 +350,7 @@ impl<D: DataSource + 'static> Placed<D> {
             .spawn(move || {
                 let mut source = obtain();
                 for job in rx {
-                    let (target, name, args, outcome, snapshot, reply) = match job {
+                    let (target, name, args, outcome, snapshot, clock, reply) = match job {
                         Job::Forgotten(slot) => {
                             let retirement = slot.lock().unwrap().take();
                             if let (Ok(source), Some((in_flight, snapshot))) =
@@ -344,18 +365,21 @@ impl<D: DataSource + 'static> Placed<D> {
                             source,
                             args,
                             snapshot,
+                            clock,
                             reply,
-                        } => (target, source, args, None, snapshot, reply),
+                        } => (target, source, args, None, snapshot, clock, reply),
                         Job::Resume {
                             target,
                             source,
                             args,
                             outcome,
                             snapshot,
+                            clock,
                             reply,
-                        } => (target, source, args, Some(outcome), snapshot, reply),
+                        } => (target, source, args, Some(outcome), snapshot, clock, reply),
                     };
                     let mut local = Store::new(&grants, snapshot);
+                    local.set_clock_ms(clock);
                     let result = match &mut source {
                         Err(e) => Err(e.clone()),
                         Ok(source) => decode_args(&args).and_then(|args| {
@@ -429,7 +453,11 @@ fn turn<D: DataSource>(
                 }
                 return Err(unavailable(request.long_poll_refusal().unwrap_or_default()));
             }
-            Ok(Answer::Later(request)) if request.continuation.is_some() => {
+            // A wait for the answer's own timer is the runner's to keep
+            // until due (LLP 1027.000 D1): it yields, as a fetch does.
+            Ok(Answer::Later(request))
+                if request.continuation.is_some() && request.due_ms.is_none() =>
+            {
                 let token = request.continuation.expect("checked");
                 let Some(work) = source.continuation(token) else {
                     return Err(unavailable(format!(
@@ -756,6 +784,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                 outcome,
             } => (target, source, encode_args(&args), Some(outcome)),
         };
+        let clock = store.clock_ms();
         Dispatch::Run(Work::Later(Box::new(move |reply| {
             let job = match outcome {
                 None => Job::Answer {
@@ -763,6 +792,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                     source,
                     args,
                     snapshot,
+                    clock,
                     reply,
                 },
                 Some(outcome) => Job::Resume {
@@ -771,6 +801,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                     args,
                     outcome,
                     snapshot,
+                    clock,
                     reply,
                 },
             };
@@ -830,6 +861,32 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         match self.inner.as_mut() {
             Some(inner) if self.owner.is_none() => inner.background_landed(store, outcome),
             _ => Ok(None),
+        }
+    }
+
+    /// Work that outlives its answer is the inline module's alone (LLP 1146
+    /// D2): a worker's let-go requests are cancelled, as before.
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.keep_sent(store, let_go, refused),
+            _ => vec![None; let_go.len()],
+        }
+    }
+
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.module_landed(store, token, outcome),
+            _ => Ok(()),
         }
     }
 

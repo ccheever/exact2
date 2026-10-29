@@ -28,8 +28,8 @@ pub enum Occupancy {
     Absent,
     /// Kept in the plain store: an `optional` name the person left unlocked.
     Plain,
-    /// A plain copy that must be locked and has not been moved yet (D4): it
-    /// is kept out of the runner as a locked value is.
+    /// Awaiting reconciliation or a plain copy's move to locked (D4): its
+    /// bytes are kept out of the runner as a locked value's are.
     Pending,
     /// Kept under the name's policy.
     Locked,
@@ -107,7 +107,8 @@ pub trait Vault: Send {
     /// Keep or delete the record of `name`.
     fn put_record(&mut self, name: &str, record: Option<&[u8]>) -> Result<(), String>;
     /// The generations of `name`'s locked items, read without asking anyone
-    /// (on Apple an attributes-only query under `interactionNotAllowed`).
+    /// (on Apple indexed candidates, probed without permitting authentication).
+    /// An incomplete probe returns an error, never an unconfirmed generation.
     fn generations(&self, name: &str) -> Result<Vec<u64>, String>;
     /// Add a locked item for `name` at `generation`, under `presence`. It
     /// asks no one: adding an item with access control, or encrypting to a
@@ -121,6 +122,14 @@ pub trait Vault: Send {
     ) -> Result<(), String>;
     /// Delete one locked item, unread.
     fn delete_locked(&mut self, name: &str, generation: u64) -> Result<(), String>;
+    /// Intentionally forget every locked item, including unconfirmed
+    /// candidates. Unlike reconciliation, this does not select a replacement.
+    fn delete_all_locked(&mut self, name: &str) -> Result<(), String> {
+        for generation in self.generations(name)? {
+            self.delete_locked(name, generation)?;
+        }
+        Ok(())
+    }
     /// Read a locked item after the person's check passed; `None` when the
     /// platform has dropped it (the passcode removed, enrolment changed).
     fn read_locked(&mut self, name: &str, generation: u64) -> Result<Option<Vec<u8>>, String>;
@@ -230,6 +239,8 @@ struct Job {
     step: u8,
     /// The check's outcome, once it came; `Some(None)` while asked.
     checked: Option<Option<Checked>>,
+    /// A failed durable deletion waits before trying the same queued job.
+    retry_at: Option<f64>,
 }
 
 struct Entry {
@@ -243,6 +254,24 @@ struct Entry {
     /// A driver fault stopped a move: the name takes nothing until a relaunch
     /// reconciles it, as after a crash.
     stopped: bool,
+    /// A failed boot probe leaves the name pending until reconciliation
+    /// succeeds. Retry on the pump's clock, or immediately for a new request.
+    reconcile_at: Option<f64>,
+}
+
+impl Entry {
+    fn write_retry_due(&self) -> Option<f64> {
+        // A check owns its generation until its read finishes; a retry
+        // cannot replace that item while the platform is authenticating it.
+        if self
+            .queue
+            .front()
+            .is_some_and(|j| j.step > 0 || j.checked.is_some())
+        {
+            return None;
+        }
+        self.retry.as_ref().map(|(_, at)| *at)
+    }
 }
 
 /// The backend's logic over a host's [`Vault`].
@@ -263,7 +292,21 @@ impl Backend {
             log: Vec::new(),
         };
         for (name, presence) in lines {
-            backend.reconcile(name, presence);
+            backend.names.insert(
+                name.clone(),
+                Entry {
+                    presence,
+                    occupancy: Occupancy::Pending,
+                    generation: 0,
+                    queue: VecDeque::new(),
+                    retry: None,
+                    stopped: false,
+                    reconcile_at: Some(0.0),
+                },
+            );
+            if let Err(e) = backend.reconcile(&name) {
+                backend.say(format!("presence {name}: reconciliation waits: {e}"));
+            }
         }
         backend
     }
@@ -272,14 +315,12 @@ impl Backend {
         self.log.push(line);
     }
 
-    fn reconcile(&mut self, name: String, presence: Option<Presence>) {
+    fn reconcile(&mut self, name: &str) -> Result<(), String> {
+        let presence = self.names[name].presence.clone();
         let say = |e: String| format!("presence {name}: {e}");
-        let record = self
-            .vault
-            .record(&name)
-            .unwrap_or_default()
-            .and_then(|r| Intent::decode(&r));
-        let mut generations = self.vault.generations(&name).unwrap_or_default();
+        let record = self.vault.record(name)?.and_then(|r| Intent::decode(&r));
+        let mut generations = self.vault.generations(name)?;
+        let plain = self.vault.plain(name)?.is_some();
         generations.sort_unstable();
         let words = presence.as_ref().map(Presence::line_words);
         // A line that lost its policy, or changed it: the old items are
@@ -291,25 +332,25 @@ impl Backend {
         };
         if changed {
             for g in std::mem::take(&mut generations) {
-                if let Err(e) = self.vault.delete_locked(&name, g) {
+                if let Err(e) = self.vault.delete_locked(name, g) {
                     self.log.push(say(format!("an old locked item stays: {e}")));
                 }
             }
-            let _ = self.vault.put_record(&name, None);
+            let _ = self.vault.put_record(name, None);
             self.log.push(say(
                 "its policy changed: the locked value is forgotten".into()
             ));
         }
         let Some(presence) = presence else {
-            return;
+            self.names.remove(name);
+            return Ok(());
         };
         // The newest generation wins; a crash between a write's add and its
         // delete leaves the older one (D6).
         let newest = generations.last().copied();
         for &g in generations.iter().filter(|&&g| Some(g) != newest) {
-            let _ = self.vault.delete_locked(&name, g);
+            let _ = self.vault.delete_locked(name, g);
         }
-        let plain = self.vault.plain(&name).ok().flatten().is_some();
         let record = if changed { None } else { record };
         let mut entry = Entry {
             presence: Some(presence.clone()),
@@ -318,12 +359,13 @@ impl Backend {
             queue: VecDeque::new(),
             retry: None,
             stopped: false,
+            reconcile_at: None,
         };
         if newest.is_some() {
             // A plain copy never outlives a locked one, whatever the record
             // says; an interrupted `unprotect` leaves the lock on.
             if plain {
-                if let Err(e) = self.vault.put_plain(&name, None) {
+                if let Err(e) = self.vault.put_plain(name, None) {
                     self.log.push(say(format!(
                         "the plain copy beside the locked one stays: {e}"
                     )));
@@ -332,7 +374,7 @@ impl Backend {
             if !matches!(record, Some(Intent::Locked(_))) {
                 let _ = self
                     .vault
-                    .put_record(&name, Some(&Intent::Locked(presence.line_words()).encode()));
+                    .put_record(name, Some(&Intent::Locked(presence.line_words()).encode()));
             }
             entry.occupancy = Occupancy::Locked;
         } else if plain {
@@ -343,14 +385,18 @@ impl Backend {
                     op: Op::Move,
                     step: 0,
                     checked: None,
+                    retry_at: None,
                 });
             } else {
                 entry.occupancy = Occupancy::Plain;
             }
         } else if record.is_some() {
-            let _ = self.vault.put_record(&name, None);
+            let _ = self.vault.put_record(name, None);
         }
-        self.names.insert(name, entry);
+        // Boot's pending move precedes operations queued while probes failed.
+        entry.queue.append(&mut self.entry(name).queue);
+        self.names.insert(name.to_owned(), entry);
+        Ok(())
     }
 
     /// The occupancy of `name`, or `None` when it carries no policy.
@@ -410,11 +456,15 @@ impl Backend {
         if matches!(op, Op::Write(_)) {
             entry.retry = None;
         }
+        if entry.reconcile_at.is_some() {
+            entry.reconcile_at = Some(0.0);
+        }
         entry.queue.push_back(Job {
             id,
             op,
             step: 0,
             checked: None,
+            retry_at: None,
         });
         true
     }
@@ -459,11 +509,39 @@ impl Backend {
         std::mem::take(&mut self.log)
     }
 
+    /// The next retry the host must wake for. A check or a partly finished
+    /// move suspends a refused write's retry until it releases the name.
+    pub(crate) fn retry_due_ms(&self) -> Option<f64> {
+        self.names
+            .values()
+            .filter(|e| !e.stopped)
+            .filter_map(|e| {
+                e.reconcile_at.or_else(|| {
+                    e.queue
+                        .front()
+                        .and_then(|j| j.retry_at)
+                        .into_iter()
+                        .chain(e.write_retry_due())
+                        .reduce(f64::min)
+                })
+            })
+            .reduce(f64::min)
+    }
+
     /// Run what can run now, in each name's order.
     pub fn pump(&mut self, env: &Env) -> Vec<Event> {
         let mut events = Vec::new();
         let names: Vec<String> = self.names.keys().cloned().collect();
         for name in names {
+            if let Some(at) = self.names[&name].reconcile_at {
+                if env.now_ms < at {
+                    continue;
+                }
+                if self.reconcile(&name).is_err() {
+                    self.entry(&name).reconcile_at = Some(env.now_ms + RETRY_MS);
+                    continue;
+                }
+            }
             self.retry(&name, env);
             while self.step(&name, env, &mut events) {}
         }
@@ -476,18 +554,19 @@ impl Backend {
         let Some(entry) = self.names.get_mut(name) else {
             return;
         };
-        let Some((value, at)) = entry.retry.clone() else {
+        let Some(at) = entry.write_retry_due() else {
             return;
         };
-        if env.now_ms < at || entry.queue.front().is_some_and(|j| j.step > 0) {
+        if env.now_ms < at {
             return;
         }
-        entry.retry = None;
+        let (value, _) = entry.retry.take().expect("a due retry");
         entry.queue.push_front(Job {
             id: None,
             op: Op::Write(Some(value)),
             step: 0,
             checked: None,
+            retry_at: None,
         });
         self.say(format!("presence {name}: the refused write is tried again"));
     }
@@ -514,7 +593,11 @@ impl Backend {
             }
             return true;
         }
+        if job.retry_at.is_some_and(|at| env.now_ms < at) {
+            return false;
+        }
         let op = job.op.clone();
+        self.head(name).retry_at = None;
         let outcome = match op {
             Op::Write(value) => self.write(name, &presence, value, env),
             Op::Protect => self.protect(name, &presence, env),
@@ -575,12 +658,16 @@ impl Backend {
         env: &Env,
     ) -> Option<Option<Done>> {
         let Some(value) = value else {
-            let _ = self.vault.put_plain(name, None);
-            let generations = self.vault.generations(name).unwrap_or_default();
-            for g in generations {
-                let _ = self.vault.delete_locked(name, g);
+            if let Err(e) = self
+                .vault
+                .delete_all_locked(name)
+                .and_then(|()| self.vault.put_plain(name, None))
+                .and_then(|()| self.vault.put_record(name, None))
+            {
+                self.say(format!("presence {name}: forgetting waits: {e}"));
+                self.head(name).retry_at = Some(env.now_ms + RETRY_MS);
+                return None;
             }
-            let _ = self.vault.put_record(name, None);
             let entry = self.entry(name);
             entry.generation = 0;
             entry.occupancy = Occupancy::Absent;
@@ -742,18 +829,16 @@ impl Backend {
 
     /// The platform dropped the item: it is forgotten, and the name reads
     /// absent (D6).
-    fn invalidated(&mut self, name: &str) {
-        let generations = self.vault.generations(name).unwrap_or_default();
-        for g in generations {
-            let _ = self.vault.delete_locked(name, g);
-        }
-        let _ = self.vault.put_record(name, None);
+    fn invalidated(&mut self, name: &str) -> Result<(), String> {
+        self.vault.delete_all_locked(name)?;
+        self.vault.put_record(name, None)?;
         let entry = self.entry(name);
         entry.generation = 0;
         entry.occupancy = Occupancy::Absent;
         self.say(format!(
             "presence {name}: the platform dropped the locked value"
         ));
+        Ok(())
     }
 
     fn read(&mut self, name: &str, checked: Checked) -> Result<Option<Vec<u8>>, Done> {
@@ -788,10 +873,10 @@ impl Backend {
         let checked = self.check(name, presence, "unlock", events)?;
         Some(Some(match self.read(name, checked) {
             Ok(Some(value)) => Done::Value(Some(value)),
-            Ok(None) => {
-                self.invalidated(name);
-                Done::Value(None)
-            }
+            Ok(None) => match self.invalidated(name) {
+                Ok(()) => Done::Value(None),
+                Err(e) => Done::Failed("UnknownError".into(), e),
+            },
             Err(done) => done,
         }))
     }
@@ -817,8 +902,10 @@ impl Backend {
             let value = match self.read(name, checked) {
                 Ok(Some(value)) => value,
                 Ok(None) => {
-                    self.invalidated(name);
-                    return Some(Some(Done::Ok));
+                    return Some(Some(match self.invalidated(name) {
+                        Ok(()) => Done::Ok,
+                        Err(e) => Done::Failed("UnknownError".into(), e),
+                    }));
                 }
                 Err(done) => return Some(Some(done)),
             };
@@ -1001,4 +1088,4 @@ impl Vault for MemoryVault {
 
 #[cfg(test)]
 #[path = "presence_tests.rs"]
-mod tests;
+pub(crate) mod tests;

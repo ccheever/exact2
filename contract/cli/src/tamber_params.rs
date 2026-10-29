@@ -39,6 +39,31 @@ pub struct AppParams {
     /// Each package root its load resolved (LLP 1121 D11), real: direct,
     /// hoisted or vendored, what the server never writes into.
     pub package_roots: Vec<std::path::PathBuf>,
+    /// `tokens`' names in full, indexed on first use (`shown`).
+    pub shown_index: ShownIndex,
+}
+
+/// [`AppParams::shown`]'s index, made from `tokens` on first use: what it
+/// derives, never what it is (its `Debug` says nothing, so a kept load
+/// prints as a cold one, the walk's check of the params kept).
+#[derive(Clone, Default)]
+pub struct ShownIndex(std::sync::OnceLock<params::Shown>);
+
+impl std::fmt::Debug for ShownIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ShownIndex")
+    }
+}
+
+impl AppParams {
+    /// `message` with each param's token name written as its full name
+    /// ([`params::shown`]), the index built once for the app's params.
+    pub fn shown(&self, message: &str) -> String {
+        self.shown_index
+            .0
+            .get_or_init(|| params::Shown::new(&self.tokens))
+            .text(message)
+    }
 }
 
 /// The app's params, loaded from `app_contract`; none when it has no
@@ -102,6 +127,7 @@ pub fn params_of(app_contract: &Path) -> AppParams {
                 .collect(),
             paths: sources.paths().to_vec(),
             failed: false,
+            shown_index: Default::default(),
         },
         // Its packages' roots as far as it loaded (a source past them can't be read): still the server's
         // never to write into (LLP 1121 D11).
@@ -122,7 +148,7 @@ pub fn params_of(app_contract: &Path) -> AppParams {
 /// default, in its declaring file (its path, by the default's source),
 /// which is returned; every name in full.
 pub fn relocate(d: &mut exact_tamber::Diagnostic, app: &AppParams) -> Option<String> {
-    d.message = contract_lower::package_unband(&params::shown(&d.message, &app.tokens));
+    d.message = contract_lower::package_unband(&app.shown(&d.message));
     // A package token's (D11): at its line in its package's design.
     if let Some((band, line)) = contract_lower::package_line(d.line) {
         let source = app.packages.get(band)?;
@@ -180,7 +206,10 @@ pub fn fold_with(
     if !refused.is_empty() {
         return Err(refused.into_iter().map(|e| packaged(e, app)).collect());
     }
-    let folding = exact_tamber::check_design(laid(&design, app), vocab)?;
+    // (an unchanged design answered from the last few checked: a client
+    // asking again can't make the server fold it, dial influence and all,
+    // each time; theme2's condition on the counts)
+    let folding = exact_tamber::check_design_cached(laid(&design, app), vocab)?;
     let wrong =
         contract_lower::package_references(&folding, &app.packages, &app.tokens, &app.identities);
     if !wrong.is_empty() {
@@ -244,49 +273,87 @@ fn words(text: &str) -> impl Iterator<Item = &str> {
 /// The names `text` reads that are tokens or icons of `folding`, and every
 /// one those read in turn: a token's names, and an icon's alias as the
 /// design writes it (`design`, before aliases are resolved), a param's by
-/// its value (the design's `params` line, else its default).
-fn reads(
-    text: &str,
-    folding: Option<&exact_tamber::Folding>,
-    design: &exact_tamber::Design,
-    app: &AppParams,
-) -> Vec<String> {
-    let Some(f) = folding else {
+/// its value (the design's `params` line, else its default). The lookups
+/// made once ([`Reach`]; the checker's work in param counts).
+fn reads(text: &str, reach: &Reach) -> Vec<String> {
+    let Some(f) = reach.folding else {
         return Vec::new();
     };
-    let known =
-        |w: &str| f.tokens.iter().any(|t| t.name == w) || f.icons.iter().any(|i| i.name == w);
+    let known = |w: &str| reach.tokens.contains_key(w) || reach.icons.contains(w);
+    let mut seen = std::collections::HashSet::new();
     let mut out: Vec<String> = words(text)
-        .filter(|w| known(w))
+        .filter(|w| known(w) && seen.insert(w.to_string()))
         .map(str::to_string)
         .collect();
+    let _ = f;
     let mut i = 0;
     while i < out.len() {
         let name = out[i].clone();
-        let mut next: Vec<String> = f
+        let mut next: Vec<String> = reach
             .tokens
-            .iter()
-            .find(|t| t.name == name)
-            .map_or(Vec::new(), |t| t.names.clone());
-        if let Some(icon) = design.icons.iter().find(|t| t.name.value == name) {
-            next.extend(words(&icon.value.value).map(str::to_string));
+            .get(name.as_str())
+            .map_or(Vec::new(), |names| names.to_vec());
+        if let Some(value) = reach.aliases.get(name.as_str()) {
+            next.extend(words(value).map(str::to_string));
         }
-        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
-            let set = design.params.iter().find(|e| {
-                params::resolve(&app.tokens, &app.identities, &e.name.value)
-                    .is_ok_and(|r| r.token == p.token)
-            });
-            let value = set.map_or(p.param.default.clone(), |e| e.value.value.clone());
-            next.extend(words(&value).map(str::to_string));
+        if let Some(value) = reach.params.get(name.as_str()) {
+            next.extend(words(value).map(str::to_string));
         }
         for n in next {
-            if known(&n) && !out.contains(&n) {
+            if known(&n) && seen.insert(n.clone()) {
                 out.push(n);
             }
         }
         i += 1;
     }
     out
+}
+
+/// What [`reads`] looks up, by name, made once: the folding's tokens (their
+/// names) and icons, the design's icons' values, and each param's value
+/// (its `params` line's, else its default).
+struct Reach<'a> {
+    folding: Option<&'a exact_tamber::Folding>,
+    tokens: std::collections::HashMap<&'a str, &'a [String]>,
+    icons: std::collections::HashSet<&'a str>,
+    aliases: std::collections::HashMap<&'a str, &'a str>,
+    params: std::collections::HashMap<&'a str, &'a str>,
+}
+
+impl<'a> Reach<'a> {
+    fn new(
+        folding: Option<&'a exact_tamber::Folding>,
+        design: &'a exact_tamber::Design,
+        app: &'a AppParams,
+        lines: &std::collections::HashMap<&'a str, &'a exact_tamber::Token>,
+    ) -> Self {
+        let mut tokens = std::collections::HashMap::new();
+        let mut icons = std::collections::HashSet::new();
+        for t in folding.iter().flat_map(|f| f.tokens.iter().rev()) {
+            tokens.insert(t.name.as_str(), t.names.as_slice());
+        }
+        for i in folding.iter().flat_map(|f| f.icons.iter()) {
+            icons.insert(i.name.as_str());
+        }
+        let mut aliases = std::collections::HashMap::new();
+        for t in design.icons.iter().rev() {
+            aliases.insert(t.name.value.as_str(), t.value.value.as_str());
+        }
+        let mut params = std::collections::HashMap::new();
+        for p in app.tokens.iter().rev() {
+            let value = lines
+                .get(p.token.as_str())
+                .map_or(p.param.default.as_str(), |e| e.value.value.as_str());
+            params.insert(p.token.as_str(), value);
+        }
+        Reach {
+            folding,
+            tokens,
+            icons,
+            aliases,
+            params,
+        }
+    }
 }
 
 /// The IR's tokens with every param's left out: a tool reads params by
@@ -307,18 +374,31 @@ pub fn hide(ir: &mut Value) {
 /// that name is in the app (`identities`, with params or none, and every
 /// param's own: a design's and a package design's components, which
 /// `resolve` reads too; stage 12 B1 round 1), else none.
-fn short(p: &ParamToken, identities: &[String], all: &[ParamToken]) -> Option<String> {
-    let component = |identity: &str| {
-        identity
-            .rsplit_once('#')
-            .map_or(identity.to_string(), |(_, c)| c.to_string())
-    };
+fn short(p: &ParamToken, sharing: &std::collections::HashMap<String, usize>) -> Option<String> {
     let name = component(&p.identity);
-    let ambiguous = identities
+    (sharing.get(&name) == Some(&1)).then(|| format!("{name}.{}", p.param.name))
+}
+
+/// A component's name in its identity.
+fn component(identity: &str) -> String {
+    identity
+        .rsplit_once('#')
+        .map_or(identity.to_string(), |(_, c)| c.to_string())
+}
+
+/// How many distinct identities (the app's components', and the params')
+/// have each component name, counted once ([`short`]).
+fn sharing(identities: &[String], all: &[ParamToken]) -> std::collections::HashMap<String, usize> {
+    let distinct: std::collections::BTreeSet<&str> = identities
         .iter()
-        .chain(all.iter().map(|q| &q.identity))
-        .any(|o| *o != p.identity && component(o) == name);
-    (!ambiguous).then(|| format!("{name}.{}", p.param.name))
+        .map(String::as_str)
+        .chain(all.iter().map(|q| q.identity.as_str()))
+        .collect();
+    let mut out = std::collections::HashMap::new();
+    for identity in distinct {
+        *out.entry(component(identity)).or_insert(0) += 1;
+    }
+    out
 }
 
 /// The IR's `library` block (LLP 1139 D5): each component that names parts,
@@ -328,7 +408,7 @@ pub fn library(app: &AppParams, design: Option<&exact_tamber::Design>) -> Value 
     // design and its packages' (what the server re-checks on a write).
     let folding =
         contract_lower::with_package_designs(design.cloned(), &app.packages).and_then(|d| {
-            exact_tamber::check_design(laid(&d, app), &contract_lower::tamber_vocab()).ok()
+            exact_tamber::check_design_cached(laid(&d, app), &contract_lower::tamber_vocab()).ok()
         });
     let reaches = |value: &str| -> Vec<String> {
         let value = value.trim();
@@ -406,28 +486,44 @@ pub fn components(
 ) -> Value {
     let all = app.tokens.as_slice();
     let design = design.cloned().unwrap_or_default();
-    let folding = exact_tamber::check_design(laid(&design, app), vocab).ok();
+    let folding = exact_tamber::check_design_cached(laid(&design, app), vocab).ok();
     // What each param's default reaches (stage 12 B2-levels, *1.15*).
     let designs = crate::tamber_levels::Designs::parsed("", Some(design.clone()), app, vocab);
     let mut out: Vec<Value> = Vec::new();
-    let mut seen: Vec<&str> = Vec::new();
-    for p in all {
-        if seen.contains(&p.identity.as_str()) {
-            continue;
-        }
-        seen.push(&p.identity);
-        let list: Vec<Value> = all
+    // Each component's params, in first-seen order; the params' lines, the
+    // folded tokens and icons and what reads reach, each found by name once
+    // (the checker's work in param counts).
+    let mut groups: Vec<(&str, Vec<&ParamToken>)> = Vec::new();
+    let mut group_of: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for q in all {
+        let g = *group_of.entry(q.identity.as_str()).or_insert_with(|| {
+            groups.push((q.identity.as_str(), Vec::new()));
+            groups.len() - 1
+        });
+        groups[g].1.push(q);
+    }
+    let resolver = params::Resolver::new(all, &app.identities);
+    let lines = resolver.lines(&design);
+    let reach = Reach::new(folding.as_ref(), &design, app, &lines);
+    let mut folded_tokens = std::collections::HashMap::new();
+    let mut folded_icons = std::collections::HashMap::new();
+    for t in folding.iter().flat_map(|f| f.tokens.iter().rev()) {
+        folded_tokens.insert(t.name.as_str(), t);
+    }
+    for i in folding.iter().flat_map(|f| f.icons.iter().rev()) {
+        folded_icons.insert(i.name.as_str(), i);
+    }
+    let sharing = sharing(&app.identities, all);
+    for (identity, members) in &groups {
+        let list: Vec<Value> = members
             .iter()
-            .filter(|q| q.identity == p.identity)
+            .copied()
             .map(|q| {
                 let attr = |name: &str| q.param.attr(name).map(ParamValue::text);
                 // The app's value, its `params` line; a literal there in
                 // place of a default that names tokens no longer follows them
                 // (D15, marked as D14 marks a pinned dial override).
-                let set = design.params.iter().find(|e| {
-                    params::resolve(all, &app.identities, &e.name.value)
-                        .is_ok_and(|r| r.token == q.token)
-                });
+                let set = lines.get(q.token.as_str()).copied();
                 // Each token or icon the default names that the set value
                 // and its `when` values no longer read, directly or through
                 // another token.
@@ -436,21 +532,21 @@ pub fn components(
                 // directly or through another: D14's mark, per branch.
                 let pinned: Vec<String> = match set {
                     Some(e) => {
-                        let direct: Vec<String> = reads(&q.param.default, folding.as_ref(), &design, app)
+                        let direct: Vec<String> = reads(&q.param.default, &reach)
                             .into_iter()
                             .filter(|w| words(&q.param.default).any(|d| d == w))
                             .collect();
                         let branches = std::iter::once(&e.value.value).chain(e.whens.iter().map(|w| &w.value.value));
                         let mut lost: Vec<String> = Vec::new();
                         for b in branches {
-                            let kept = reads(b, folding.as_ref(), &design, app);
+                            let kept = reads(b, &reach);
                             for w in direct.iter().filter(|w| !kept.contains(w)) {
                                 if !lost.contains(w) {
                                     lost.push(w.clone());
                                 }
                             }
                         }
-                        lost.iter().map(|w| params::shown(w, all)).collect()
+                        lost.iter().map(|w| app.shown(w)).collect()
                     }
                     None => Vec::new(),
                 };
@@ -458,29 +554,29 @@ pub fn components(
                 // An icon's sources, the same in every tuple.
                 let values: Option<Value> = folding.as_ref().and_then(|f| match q.param.kind.as_str() {
                     "icon" => {
-                        let i = f.icons.iter().find(|i| i.name == q.token)?;
+                        let i = folded_icons.get(q.token.as_str())?;
                         let one = json!({"sf": i.sf, "material": i.material, "svg": i.svg});
                         Some(json!(vec![one; f.tuples]))
                     }
                     _ => {
-                        let t = f.tokens.iter().find(|t| t.name == q.token)?;
+                        let t = folded_tokens.get(q.token.as_str())?;
                         Some(json!(t.values.iter().map(|v| v.css()).collect::<Vec<_>>()))
                     }
                 });
                 let mut row = json!({
                     "name": q.full,
-                    "short": short(q, &app.identities, &app.tokens),
+                    "short": short(q, &sharing),
                     "param": q.param.name,
                     "token": q.token,
                     "kind": q.param.kind,
-                    "default": params::shown(&q.param.default, all),
+                    "default": app.shown(&q.param.default),
                     "values": values,
-                    "set": set.map(|e| json!({"value": params::shown(&e.value.value, all), "line": e.name.line, "whens": e.whens.len()})),
+                    "set": set.map(|e| json!({"value": app.shown(&e.value.value), "line": e.name.line, "whens": e.whens.len()})),
                     "pinned": pinned,
                     "range": params::range(&q.param).and_then(Result::ok).map(|(lo, hi)| json!([lo, hi])),
                     "step": num("step"),
                     "control": attr("control").unwrap_or_else(|| "token".into()),
-                    "options": attr("options").map(|o| params::shown(&o, all).split('|').map(|s| s.trim().to_string()).collect::<Vec<_>>()),
+                    "options": attr("options").map(|o| app.shown(&o).split('|').map(|s| s.trim().to_string()).collect::<Vec<_>>()),
                     "label": attr("label"),
                     "help": attr("help"),
                     "group": attr("group"),
@@ -492,11 +588,8 @@ pub fn components(
                 row
             })
             .collect();
-        let name = p
-            .identity
-            .rsplit_once('#')
-            .map_or(p.identity.as_str(), |(_, c)| c);
-        out.push(json!({"identity": p.identity, "name": name, "params": list}));
+        let name = identity.rsplit_once('#').map_or(*identity, |(_, c)| c);
+        out.push(json!({"identity": identity, "name": name, "params": list}));
     }
     // An exported library component's parts and variant props (LLP 1139 D5,
     // stage 12 D3, *1.15*), from C's IR, with params or without (one with

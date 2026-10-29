@@ -97,7 +97,8 @@ function serverForTest(sockets: boolean, options: FixtureOptions = {}) {
     expect(reply.dispatches.every((frame: any) => active.some(peer => peer.sessionId === frame.session_id))).toBe(true);
     return reply.dispatches as any[];
   };
-  return { fixture, request, control, state, connect, inject, barrier,
+  const raw = (request: Request): Promise<Response> => sockets ? fetch(request) : handle(request, {});
+  return { fixture, request, raw, control, state, connect, inject, barrier,
     async close() { await Promise.all(peers.map(peer => peer.close())); await fixture.close(); },
   };
 }
@@ -134,6 +135,27 @@ for (const sockets of [false, true]) describe(sockets ? 'with sockets' : 'withou
     expect(fixture.world.messages[fixture.world.generalChannelId]).toHaveLength(10000);
     expect(await r.state()).toMatchObject({ now_ms: WORLD_NOW, sessions: 0, connections: 0, clock_offset_ms: 0 });
     expect(await (await r.request(path, { content: 'first' })).json()).toEqual(first);
+  });
+
+  test('--history-delay holds only an older page, which still lands whole', async () => {
+    const r = start({ historyDelayMs: 2000 }), { fixture } = r;
+    const path = `/api/v9/channels/${fixture.world.generalChannelId}/messages`;
+    const order: string[] = [];
+    const timed = async (name: string, query: string) => {
+      const t0 = performance.now(), response = await r.request(`${path}?${query}`), rows = await response.json();
+      order.push(name);
+      return { ms: performance.now() - t0, rows };
+    };
+    const newest = await timed('newest', 'limit=50');
+    // The older page is held; the newest and an around page asked after it are not, so they answer first.
+    const older = timed('older', `limit=50&before=${newest.rows.at(-1).id}`);
+    await timed('newest again', 'limit=50');
+    await timed('around', `limit=50&around=${newest.rows[10].id}`);
+    const held = await older;
+    expect(order).toEqual(['newest', 'newest again', 'around', 'older']);
+    expect(held.ms).toBeGreaterThanOrEqual(1990);
+    expect(held.rows).toHaveLength(50);
+    expect(compareIds(held.rows[0].id, newest.rows.at(-1).id)).toBeLessThan(0);
   });
 
   test('wall clock can override transcript default and fixed clock also works for the default world', async () => {
@@ -315,5 +337,25 @@ for (const sockets of [false, true]) describe(sockets ? 'with sockets' : 'withou
       expect((await r.request(path)).status).toBe(404);
     }
     expect((await r.request('/media/harbor.png', {}, 'POST')).status).toBe(404);
+  });
+
+  test('a file goes up as Discord takes it: a slot, a PUT without credentials, then the message names it', async () => {
+    const r = start(), channel = r.fixture.world.generalChannelId;
+    const png = new Uint8Array(await Bun.file(`${import.meta.dir}/../assets/media/cafe.png`).arrayBuffer());
+    const slots = await (await r.request(`/api/v9/channels/${channel}/attachments`,
+      { files: [{ id: '0', filename: 'cafe.png', file_size: png.length, is_clip: false }] })).json();
+    const [slot] = slots.attachments;
+    expect(slot).toMatchObject({ id: '0', upload_filename: '00000001/cafe.png' });
+    const put = (headers: Record<string, string>) => r.raw(new Request(slot.upload_url, { method: 'PUT', headers, body: png }));
+    expect((await put({ Authorization: r.fixture.world.token })).status).toBe(400);
+    expect((await r.request(`/api/v9/channels/${channel}/messages`, { content: '', nonce: '9',
+      attachments: [{ id: '0', filename: 'cafe.png', uploaded_filename: slot.upload_filename }] })).status).toBe(400);
+    expect((await put({})).status).toBe(200);
+    const sent = await (await r.request(`/api/v9/channels/${channel}/messages`, { content: '', nonce: '10',
+      attachments: [{ id: '0', filename: 'cafe.png', uploaded_filename: slot.upload_filename }] })).json();
+    expect(sent.attachments[0]).toMatchObject({ filename: 'cafe.png', size: png.length, content_type: 'image/png', width: 640, height: 640 });
+    const served = await r.request(new URL(sent.attachments[0].url).pathname);
+    expect(new Uint8Array(await served.arrayBuffer())).toEqual(png);
+    expect((await r.request(`/api/v9/channels/${channel}/messages`, { content: ' ', nonce: '11' })).status).toBe(400);
   });
 });

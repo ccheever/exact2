@@ -28,6 +28,14 @@
 //   as app gestures: fixed portrait screen points on the named display.
 //   A swipe also needs `screenTo`; `velocity` (points/s, default 1000) and
 //   `hold` (seconds, default 0) control its move and hold before lifting.
+//   {"op":"tree","max":n?}       the app's accessibility hierarchy from one snapshot, in document order
+//                                → {"elements":[{depth,type,identifier?,label?,title?,placeholder?,value?,
+//                                   frame:[x,y,w,h],enabled,selected,hasFocus},…],"truncated":bool,"frame":[…]}
+//                                at most `max` (default 1,500) elements; frames in the app's points
+//   {"op":"type","text":s}       key presses to whatever has keyboard focus (`Synthesizer.type`),
+//                                at most 500 characters → {"done":true}
+//   {"op":"screen"}              → {"displays":[[short,long],…],"orientation":O}, each display's
+//                                size as a gesture's `display` names it
 //   {"op":"quit"}                ends the test
 // `tap {back:true}` locates UIKit's Back button through XCTest and taps it.
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
@@ -152,6 +160,33 @@ final class ExactTouches: XCTestCase {
                 guard let to = (req["to"] as? String).flatMap({ names[$0] }) else { session.send(["error": "orientation: one of \(names.keys.sorted())"]); continue }
                 XCUIDevice.shared.orientation = to
                 session.send(["device": names.first { $0.value == XCUIDevice.shared.orientation }?.key ?? "other"])
+            case "tree":
+                guard target.state == .runningForeground else { session.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
+                do {
+                    let root = try target.snapshot()
+                    let cap = max(1, min((req["max"] as? Int) ?? 1500, 5000))
+                    var elements: [[String: Any]] = []
+                    Tree.walk(root, depth: 0, window: root.frame, cap: cap, into: &elements)
+                    session.send(["elements": elements, "truncated": elements.count >= cap, "frame": Tree.rect(root.frame)])
+                } catch { session.send(["error": "the app's accessibility snapshot failed: \(error)"]) }
+            case "type":
+                guard let text = req["text"] as? String else { session.send(["error": "type needs text"]); continue }
+                guard target.state == .runningForeground else { session.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
+                guard text.count <= 500 else { session.send(["error": "type takes at most 500 characters at a time"]); continue }
+                switch Synthesizer.type(text) {
+                case .injected: session.send(["done": true])
+                case .unfinished: session.send(["error": "XCTest's event synthesizer did not finish typing in time; part of the text may have been typed"])
+                case .refused: session.send(["error": "XCTest's event synthesizer refused the keystrokes"])
+                case .missing:
+                    // XCUIElement.typeText instead, which needs an element its snapshot shows focused and ends the test without one.
+                    guard target.descendants(matching: .any).matching(NSPredicate(format: "hasKeyboardFocus == true")).count > 0 else {
+                        session.send(["error": "no element has keyboard focus; tap a text field first"]); continue
+                    }
+                    target.typeText(text)
+                    session.send(["done": true])
+                }
+            case "screen":
+                session.send(["displays": Displays.sizes, "orientation": Self.orientation(XCUIDevice.shared.orientation)])
             case "quit":
                 session.send(["done": true]); session.close(); return
             default:
@@ -166,6 +201,18 @@ final class ExactTouches: XCTestCase {
         case .runningBackground: return "runningBackground"
         case .runningBackgroundSuspended: return "runningBackgroundSuspended"
         case .notRunning: return "notRunning"
+        default: return "unknown"
+        }
+    }
+
+    static func orientation(_ o: UIDeviceOrientation) -> String {
+        switch o {
+        case .portrait: return "portrait"
+        case .portraitUpsideDown: return "portraitUpsideDown"
+        case .landscapeLeft: return "landscapeLeft"
+        case .landscapeRight: return "landscapeRight"
+        case .faceUp: return "faceUp"
+        case .faceDown: return "faceDown"
         default: return "unknown"
         }
     }
@@ -320,6 +367,30 @@ enum Synthesizer {
         return touch(from, moves: moves, lift: offset, display: display, within: 5 + offset)
     }
 
+    /// `text` as key presses to whatever has keyboard focus, 60 characters a second, as XCUIElement.typeText
+    /// sends them but without its check, against its own snapshot, that an element has focus: a view that
+    /// takes text without exposing itself focused still gets it, and with nothing focused the keys go nowhere.
+    static func type(_ text: String) -> Outcome {
+        typealias InitText = @convention(c) (AnyObject, Selector) -> AnyObject
+        typealias TypeText = @convention(c) (AnyObject, Selector, NSString, Double, UInt, Bool) -> Void
+        let pathClass: AnyClass? = NSClassFromString("XCPointerEventPath"), recordClass: AnyClass? = NSClassFromString("XCSynthesizedEventRecord")
+        guard let alloc = imp(pathClass, "alloc", Alloc.self, classMethod: true), let recordAlloc = imp(recordClass, "alloc", Alloc.self, classMethod: true),
+              let initText = imp(pathClass, "initForTextInput", InitText.self), let typeText = imp(pathClass, "typeText:atOffset:typingSpeed:shouldRedact:", TypeText.self),
+              let initRecord = imp(recordClass, "initWithName:interfaceOrientation:", InitRecord.self), let add = imp(recordClass, "addPointerEventPath:", Add.self),
+              let synthesizer = imp(XCUIDevice.self, "eventSynthesizer", Get.self), let device = synthesizer.1(XCUIDevice.shared, synthesizer.0) else { return .missing }
+        let syn = NSSelectorFromString("synthesizeEvent:completion:")
+        guard let method = class_getInstanceMethod(object_getClass(device), syn) else { return .missing }
+        let path = initText.1(alloc.1(pathClass!, alloc.0), initText.0)
+        typeText.1(path, typeText.0, text as NSString, 0, 60, false)
+        let record = initRecord.1(recordAlloc.1(recordClass!, recordAlloc.0), initRecord.0, "exact-type" as NSString, UIInterfaceOrientation.portrait.rawValue)
+        add.1(record, add.0, path)
+        var result: Bool?
+        unsafeBitCast(method_getImplementation(method), to: Synthesize.self)(device, syn, record) { ok, _ in DispatchQueue.main.async { result = ok } }
+        let deadline = Date().addingTimeInterval(3 + Double(text.count) / 60)
+        while result == nil, Date() < deadline { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
+        return result.map { $0 ? .injected : .refused } ?? .unfinished
+    }
+
     /// One touch: down at `at`, moved to each point at its offset in seconds,
     /// and lifted at `lift`. `injected` or `refused` by the completion,
     /// `unfinished` when none came `within` seconds (it may still land),
@@ -455,6 +526,51 @@ enum Displays {
         return (CGPoint(x: point[0], y: point[1]), id)
     }
 
+    /// Each display's short and long sides in points, as `display` in a request names it.
+    static var sizes: [[Double]] { displays.map { [Double($0.sides.0), Double($0.sides.1)] } }
+
     /// A size's short and long sides, the same whichever way the display is turned
     private static func sides(_ size: CGSize) -> (CGFloat, CGFloat) { (min(size.width, size.height), max(size.width, size.height)) }
+}
+
+/// The app's accessibility hierarchy for `tree`, flattened in document order
+/// with each element's depth. An element with no area or wholly outside the
+/// app's window is left out, but its children are still walked, at its depth.
+enum Tree {
+    // XCUIElement.ElementType by raw value (XCUIElementTypes.h); Swift cannot name an imported enum's case.
+    static let types = ["Any", "Other", "Application", "Group", "Window", "Sheet", "Drawer", "Alert", "Dialog", "Button", "RadioButton",
+        "RadioGroup", "CheckBox", "DisclosureTriangle", "PopUpButton", "ComboBox", "MenuButton", "ToolbarButton", "Popover", "Keyboard", "Key",
+        "NavigationBar", "TabBar", "TabGroup", "Toolbar", "StatusBar", "Table", "TableRow", "TableColumn", "Outline", "OutlineRow", "Browser",
+        "CollectionView", "Slider", "PageIndicator", "ProgressIndicator", "ActivityIndicator", "SegmentedControl", "Picker", "PickerWheel",
+        "Switch", "Toggle", "Link", "Image", "Icon", "SearchField", "ScrollView", "ScrollBar", "StaticText", "TextField", "SecureTextField",
+        "DatePicker", "TextView", "Menu", "MenuItem", "MenuBar", "MenuBarItem", "Map", "WebView", "IncrementArrow", "DecrementArrow",
+        "Timeline", "RatingIndicator", "ValueIndicator", "SplitGroup", "Splitter", "RelevanceIndicator", "ColorWell", "HelpTag", "Matte",
+        "DockItem", "Ruler", "RulerMarker", "Grid", "LevelIndicator", "Cell", "LayoutArea", "LayoutItem", "Handle", "Stepper", "Tab",
+        "TouchBar", "StatusItem"]
+
+    static func rect(_ r: CGRect) -> [Double] { [r.minX, r.minY, r.width, r.height].map { (Double($0) * 10).rounded() / 10 } }
+
+    /// A string attribute, cut to 300 characters (a text view's value can be a whole document).
+    private static func text(_ s: String?) -> String? {
+        guard let s, !s.isEmpty else { return nil }
+        return s.count > 300 ? String(s.prefix(300)) + "…" : s
+    }
+
+    static func walk(_ node: any XCUIElementSnapshot, depth: Int, window: CGRect, cap: Int, into out: inout [[String: Any]]) {
+        guard out.count < cap else { return }
+        let frame = node.frame
+        let visible = frame.width > 0 && frame.height > 0 && frame.intersects(window)
+        if visible {
+            let raw = Int(node.elementType.rawValue)
+            var e: [String: Any] = ["depth": depth, "type": raw < types.count ? types[raw] : "Type\(raw)", "frame": rect(frame),
+                                    "enabled": node.isEnabled, "selected": node.isSelected, "hasFocus": node.hasFocus]
+            if let v = text(node.identifier) { e["identifier"] = v }
+            if let v = text(node.label) { e["label"] = v }
+            if let v = text(node.title) { e["title"] = v }
+            if let v = text(node.placeholderValue) { e["placeholder"] = v }
+            if let v = node.value.flatMap({ text("\($0)") }) { e["value"] = v }
+            out.append(e)
+        }
+        for child in node.children { walk(child, depth: visible ? depth + 1 : depth, window: window, cap: cap, into: &out) }
+    }
 }

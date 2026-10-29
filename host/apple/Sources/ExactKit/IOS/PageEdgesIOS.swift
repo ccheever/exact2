@@ -71,7 +71,8 @@ extension Presenter {
                     // even though its scroll view draws the band outside that box.
                     if !route.ridingBars.isEmpty { own.top += min(found.band.top, route.view.safeAreaInsets.top) }
                     var r = routes[ObjectIdentifier(route)] ?? (nil, nil)
-                    if !found.top.isEmpty, navigation.contentScroller(of: route) === v { r.top = sv }
+                    // The bar follows the route's scroller drawn under it, as UIKit's follows a list that is the controller's own.
+                    if !found.top.isEmpty || found.band.top > 0.5, navigation.contentScroller(of: route) === v { r.top = sv }
                     if !found.bottom.isEmpty { r.bottom = sv }
                     routes[ObjectIdentifier(route)] = r
                 } else { found = pageBands(of: v, sv, margins: m, area: area, edgeEffect ? judge : nil); own = found.band }
@@ -121,27 +122,40 @@ extension Presenter {
         return Bands(band: band, top: top, bottom: bottom)
     }
 
-    /// A route's scroller (LLP 1131 D2): when control bars are between it and
-    /// the route's edge on one side, and that side's other edge is banded or
-    /// open, both reach the route's edges, the covers included; an edge the
-    /// bar's collapse or the bottom edge already took is there already. None
-    /// under a large title unless the eligible top bars ride its safe area.
+    /// A route's scroller (LLP 1131 D2): with its top banded or open, an edge
+    /// with control bars between it and the route's edge, or an open one,
+    /// reaches the route's edge, the covers included, when either edge has
+    /// bars or the open top is under the bar (`controlBands`); an edge the
+    /// bar's collapse or the bottom edge already took is there already, so
+    /// the collapse scroller is judged as its title's riders are. None under
+    /// a large title unless the eligible top bars ride its safe area.
     private func routeBands(of v: NodeView, _ sv: UIScrollView, in c: RouteController, _ judge: ControlBars) -> Bands {
         #if os(iOS)
         if let nav = c.navigationController, navigation.routeShowsBar(c, in: nav), c.navigationItem.largeTitleDisplayMode == .always, c.ridingBars.isEmpty { return Bands() }
         #endif
         if !c.ridingBars.isEmpty, case .edges(let edges)? = navigation.covers[c.node.id], edges.top > 0.5 { return Bands() }
-        return controlBands(of: v, in: c.node, judge)
+        return controlBands(of: v, in: c.node, judge, apart: c.collapseScroll !== v)
     }
 
-    /// Collapse adoption and banding must agree about both edges and paint order.
-    func controlBands(of v: NodeView, in route: NodeView, _ judge: ControlBars) -> Bands {
+    /// Collapse adoption and banding must agree about both edges and paint
+    /// order: a large title's riders (`apart` false) need every edge banded
+    /// or open. Otherwise a bottom edge with more than bars under the scroller
+    /// (a filled composer) keeps its place and does not keep the top from its
+    /// bars or the bar, as a hand-built table runs under its navigation bar
+    /// whatever is pinned under it; an open top under the route's cover (the
+    /// bar) is reached with no bars at all, as a thread in a box with its
+    /// floating button is. A top with more than bars over the scroller keeps
+    /// both edges where they are (a footer under it keeps the bottom cover).
+    func controlBands(of v: NodeView, in route: NodeView, _ judge: ControlBars, apart: Bool = false) -> Bands {
         guard let sv = v.scrollView else { return Bands() }
         let r = v.convert(v.bounds, to: route)
-        guard let top = judge.bars(of: v, in: route, top: true), let bottom = judge.bars(of: v, in: route, top: false),
-              !top.isEmpty || !bottom.isEmpty, Self.over(top, v), Self.over(bottom, v) else { return Bands() }
-        let band = UIEdgeInsets(top: max(0, r.minY), left: 0, bottom: max(0, route.bounds.height - r.maxY), right: 0)
-        return Self.drawn(band, v, sv) ? Bands(band: band, top: top, bottom: bottom) : Bands()
+        let top = judge.bars(of: v, in: route, top: true), bottom = judge.bars(of: v, in: route, top: false)
+        guard let top, apart || bottom != nil else { return Bands() }
+        let underBar = apart && top.isEmpty && r.minY > 0.5
+        guard !top.isEmpty || bottom?.isEmpty == false || underBar,
+              Self.over(top, v), Self.over(bottom ?? [], v) else { return Bands() }
+        let band = UIEdgeInsets(top: max(0, r.minY), left: 0, bottom: bottom == nil ? 0 : max(0, route.bounds.height - r.maxY), right: 0)
+        return Self.drawn(band, v, sv) ? Bands(band: band, top: top, bottom: bottom ?? []) : Bands()
     }
 
     /// A bar the author ranks under the scroller (a `z-index`) cannot be over it (D3).

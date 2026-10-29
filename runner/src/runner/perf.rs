@@ -1,7 +1,7 @@
 //! The runner's half of `perf` (LLP 1079 D1): the switch a host turns once,
 //! the transaction sequence, and the receipt tally.
 use super::*;
-use crate::perf::SiteWork;
+use crate::perf::{Failures, Handler, SiteWork};
 
 impl<D: DataSource> Runner<D> {
     /// Measure each plan site's work from here on (LLP 1079 D1): what a host
@@ -30,8 +30,10 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             self.ids.work.sites = sites;
+            self.ids.work.since = self.now_ms();
         }
         self.ids.work.moves = moves;
+        self.begin_resource_inspection();
     }
 
     /// [`Runner::measure`] as a host holding its baked `compat.json` decides
@@ -72,6 +74,22 @@ impl<D: DataSource> Runner<D> {
             if let Some(site) = self.ids.site(view) {
                 self.ids.work.sites[site.0 as usize].moved += 1;
             }
+        }
+    }
+
+    /// Declare that this host reports every kernel layout entry while measuring.
+    pub fn measure_kernel_layouts(&mut self) {
+        if !self.ids.work.sites.is_empty() {
+            self.ids.work.kernel_layouts.get_or_insert(0);
+        }
+    }
+
+    /// Record entry into a kernel layout operation, including failed attempts.
+    /// Hosts call at the operation, never infer it from a receipt or moved nodes.
+    pub fn count_kernel_layout(&mut self) {
+        if !self.ids.work.sites.is_empty() {
+            let count = self.ids.work.kernel_layouts.get_or_insert(0);
+            *count = count.saturating_add(1);
         }
     }
 
@@ -123,5 +141,85 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+    }
+
+    /// A failure line (LLP 1142 D4): in the journal, as [`Runner::log`]
+    /// writes it, and while measuring also queued for the host, which writes
+    /// it to its platform's log (the unified log, stderr, the console).
+    pub fn alert(&mut self, line: impl Into<String>) {
+        let line = line.into();
+        if !self.ids.work.sites.is_empty() {
+            crate::perf::queue(&self.ids.work.alerts, line.clone());
+        }
+        self.journal_only(line);
+    }
+
+    /// The alert lines queued since the last call, oldest first, each once:
+    /// a batch carries them (`alerts`). Lines dropped past the bound are
+    /// counted in a first line of their own.
+    pub fn take_alerts(&self) -> Vec<String> {
+        crate::perf::take(&self.ids.work.alerts, "alert")
+    }
+
+    /// The other journal lines queued since the last call, as
+    /// [`take_alerts`](Self::take_alerts) gives alerts: a batch carries them
+    /// (`journal`, LLP 1143 open question 1).
+    pub fn take_journal(&self) -> Vec<String> {
+        crate::perf::take(&self.ids.work.journal, "journal")
+    }
+
+    /// Resource `i`'s answer was refused (D4): counted while measuring.
+    pub(super) fn count_failure(&mut self, i: usize) {
+        if self.ids.work.sites.is_empty() {
+            return;
+        }
+        let (n, now) = (self.plan.resources.len(), self.now_ms);
+        let failures = &mut self.ids.work.failures;
+        if failures.len() < n {
+            failures.resize(n, Failures::default());
+        }
+        let f = &mut failures[i];
+        if f.count == 0 {
+            f.first = now;
+        }
+        f.count += 1;
+        f.last = now;
+    }
+
+    /// Resource `i`'s data source was asked (LLP 1146 D3): counted while measuring.
+    pub(super) fn count_ask(&mut self, i: usize) {
+        if self.ids.work.sites.is_empty() {
+            return;
+        }
+        let asked = &mut self.ids.work.asked;
+        if asked.len() <= i {
+            asked.resize(self.plan.resources.len().max(i + 1), 0);
+        }
+        asked[i] += 1;
+    }
+
+    /// Each resource refused since measuring began, by name: `state.failures`.
+    pub fn failure_counts(&self) -> Vec<(&str, Failures)> {
+        let work = &self.ids.work;
+        work.failures
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.count > 0)
+            .map(|(i, f)| (self.plan.str(self.plan.resources[i].name), *f))
+            .collect()
+    }
+
+    /// A dispatch to `view` (D6): counted by its plan site and `event`,
+    /// and as committed when its receipt changed the tree.
+    pub(super) fn count_dispatch(&mut self, view: ViewId, event: &'static str, committed: bool) {
+        if self.ids.work.sites.is_empty() {
+            return;
+        }
+        let Some(site) = self.ids.site(view) else {
+            return;
+        };
+        let h: &mut Handler = self.ids.work.handlers.entry((site.0, event)).or_default();
+        h.dispatched += 1;
+        h.committed += u64::from(committed);
     }
 }

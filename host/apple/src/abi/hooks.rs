@@ -11,6 +11,9 @@ pub struct Hooks {
     pub ctx: *mut c_void,
     /// A paragraph's line boxes (LLP 1093 D6); `None` keeps paragraphs whole.
     pub lines: Option<crate::measure::LinesFn>,
+    /// Each inline box's origin (LLP 1011.002 D2); `None` leaves images at
+    /// their paragraph's content origin.
+    pub inline_boxes: Option<crate::measure::LinesFn>,
     /// Called on the executor's thread when a reply is queued; `None`: replies wait for `exact_pump`.
     pub wake: Option<crate::executor::WakeFn>,
     /// Passed back to `wake`.
@@ -29,6 +32,7 @@ impl Hooks {
             measure: None,
             ctx: std::ptr::null_mut(),
             lines: None,
+            inline_boxes: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,

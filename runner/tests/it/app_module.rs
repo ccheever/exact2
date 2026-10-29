@@ -124,7 +124,7 @@ fn a_rust_source_reaches_the_app_module_the_host_installed() {
 
 /// Each native request the runner handed out, run by the module now and
 /// its reply kept for the test to deliver: a call that takes a while.
-fn start_native(r: &mut Runner<Source>) -> Vec<(u64, Outcome)> {
+fn start_native<D: DataSource>(r: &mut Runner<D>) -> Vec<(u64, Outcome)> {
     let mut out = Vec::new();
     for req in r.take_requests() {
         let Dispatch::Run(Work::Later(work)) = r.native_work(&req.request) else {
@@ -248,4 +248,122 @@ fn a_failed_reply_after_an_announcement_is_asked_again() {
     r.fulfill(next, reply).unwrap();
     assert_eq!(r.resource("status"), status(2.0).as_ref());
     assert!(r.in_flight().is_empty());
+}
+
+const STORED: &str = r##"shape Status
+  n: number
+shape Done
+  ok: bool
+component App
+  resource status = status() as shape Status
+  mutation wrote as shape Done
+  action write
+    send wrote = write()
+  view
+    text `status ${status.n}`
+"##;
+
+/// `status` reads the store and watches a topic; `write` writes the store.
+struct Stored;
+
+impl DataSource for Stored {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        _: &[Value],
+    ) -> Result<Answer, DataError> {
+        match source {
+            "status" => {
+                let _ = store.get("who");
+                store.observe_topic("status");
+                Ok(Answer::Later(Request::native(
+                    br#"{"op":"status"}"#.to_vec(),
+                )))
+            }
+            "write" => {
+                store
+                    .set("who", "someone else")
+                    .map_err(|e| DataError::Unavailable(format!("{e:?}")))?;
+                Ok(Answer::Now(Value::record(vec![Value::Bool(true)])))
+            }
+            _ => Err(DataError::UnknownSource(source.into())),
+        }
+    }
+
+    fn grants(&self) -> &str {
+        "secret.keep who"
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let Outcome::Response(Response { body, .. }) = outcome else {
+            return Err(DataError::Unavailable(format!("{outcome:?}")));
+        };
+        let n: f64 = String::from_utf8(body)
+            .unwrap()
+            .trim_start_matches("{\"n\":")
+            .trim_end_matches('}')
+            .parse()
+            .unwrap();
+        Ok(Answer::Now(Value::record(vec![Value::Number(n)])))
+    }
+}
+
+/// A store write asks a store reader again at once, though a topic it
+/// watches changed while its request was in flight: only module work's
+/// write waits for the reply (LLP 1146 §2.4).
+#[test]
+fn a_store_write_asks_a_store_reader_again_though_its_topic_waits_for_a_reply() {
+    let plan = contract::compile(STORED).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Stored,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let count = asked.clone();
+    r.native_slot()
+        .host(Some(Arc::new(move |_: Vec<u8>, reply: Reply| {
+            let n = count.fetch_add(1, Ordering::SeqCst) + 1;
+            reply.send(Outcome::Response(Response {
+                status: 200,
+                headers: Vec::new(),
+                body: format!("{{\"n\":{n}}}").into_bytes(),
+            }));
+        })));
+    r.listen(Arc::new(|| {}));
+    r.data_ready().unwrap();
+    let mut started = start_native(&mut r);
+    assert_eq!(started.len(), 1);
+    let (first, _) = started.remove(0);
+    r.native_slot().changed("status");
+    r.apply_announced();
+    assert!(
+        r.take_requests().is_empty(),
+        "the topic waits for the reply"
+    );
+    r.act("write", vec![]).unwrap();
+    let again: Vec<_> = r
+        .take_requests()
+        .into_iter()
+        .filter(|req| req.request.is_native())
+        .collect();
+    assert_eq!(again.len(), 1, "the store write asks `status` again now");
+    assert!(
+        !r.holds(first),
+        "the answer from before the write is let go"
+    );
 }

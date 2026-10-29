@@ -1,0 +1,14 @@
+{
+  "name": "@exact/gamepad",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Which game pads are connected, their buttons' labels, rumble and light, over the host's one pad registry, with the web's names (LLP 1133.022).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json",
+    "./linux": "./linux/exact.json",
+    "./windows": "./windows/exact.json"
+  }
+}

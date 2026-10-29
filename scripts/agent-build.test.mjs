@@ -1,7 +1,8 @@
 // A native drive's build first (agent-build.mjs, LLP 1116.002 D4): the decision an app's exact.mjs makes before
 // `test ios|macos` and `agent ios|macos`, on the driver's own record, with no simulator and no build run.
-import { test } from 'bun:test';
+import { afterEach, beforeEach, test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,8 +10,9 @@ import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { listAssets } from '../host/web/serve.mjs';
 import { moduleGraph, notBuildInput } from './agent-launch.mjs';
-import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, nativeBuild, overrideDir, planOverride, planSource, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
-import { resolveApp, verifyBakeFiles } from './app.mjs';
+import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, linuxRebuild, nativeBuild, overrideDir, planOverride, planSource, ownVerb, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
+import { openStdio } from './agent-stdio.mjs';
+import { linuxBinary, resolveApp, verifyBakeFiles } from './app.mjs';
 
 test('Mac drives use the assembled app bundle even without catalogs or widgets', () => {
   const { dir } = scratchApp('ats-drive');
@@ -40,6 +42,12 @@ test('a metrics build summary does not claim that a drive was planned', () => {
 });
 
 /** An outside app, as `exact new` lays one out, with only what the decision reads. */
+// Each case starts with no target of the environment's: a command a case expects names one only when it is set
+// (`ownVerb`), and the cases that set one say so.
+const inheritedTarget = process.env.CARGO_TARGET_DIR;
+beforeEach(() => { delete process.env.CARGO_TARGET_DIR; });
+afterEach(() => { if (inheritedTarget === undefined) delete process.env.CARGO_TARGET_DIR; else process.env.CARGO_TARGET_DIR = inheritedTarget; });
+
 function scratchApp(name) {
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-agent-build-')));
   const write = (path, text = '') => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), text); };
@@ -102,6 +110,70 @@ test('a release published after a development build must be rebuilt before an ag
   } finally {
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Both of a Linux drive's refusals (no build, a stale one) name this command (agent-stdio.mjs).
+test('a Linux drive is told the build that writes where it reads', () => {
+  const previous = { app: process.env.EXACT_APP_DIR, target: process.env.CARGO_TARGET_DIR };
+  const { dir } = scratchApp('field-log');
+  // An app directory inside this checkout, under the target/ a build makes and git ignores
+  mkdirSync(resolve(import.meta.dir, '../target'), { recursive: true });
+  const inside = mkdtempSync(resolve(import.meta.dir, '../target/agent-build-inside-'));
+  const target = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-agent-target-')));
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    delete process.env.CARGO_TARGET_DIR;
+    assert.equal(linuxRebuild(resolveApp('field-log')), `(cd '${dir}' && bun exact.mjs linux)`);
+    // A target the environment names is resolved where the drive ran; the command runs in the app, so it names it whole.
+    process.env.CARGO_TARGET_DIR = relative(process.cwd(), target);
+    const app = resolveApp('field-log');
+    assert.equal(app.target, target);
+    assert.equal(linuxRebuild(app), `(cd '${dir}' && CARGO_TARGET_DIR='${target}' bun exact.mjs linux)`);
+    // An Apple host's command names it too.
+    assert.equal(rebuildCommand(app, 'ios'), `(cd '${dir}' && CARGO_TARGET_DIR='${target}' bun exact.mjs ios)`);
+    // An app inside this checkout has no verb of its own, an exact.mjs or not.
+    writeFileSync(resolve(inside, 'exact.mjs'), '');
+    assert.equal(ownVerb({ dir: inside }, 'linux'), null);
+  } finally {
+    for (const [name, value] of [['EXACT_APP_DIR', previous.app], ['CARGO_TARGET_DIR', previous.target]]) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+    for (const made of [dir, inside, target]) rmSync(made, { recursive: true, force: true });
+  }
+});
+
+// Each refusal reached through the driver, and its command run as written, by an exact.mjs that says where it ran and
+// which target it was given: the one the drive reads.
+test('a Linux drive refused for want of a current build names a command that builds where it reads', async () => {
+  const previous = { app: process.env.EXACT_APP_DIR, target: process.env.CARGO_TARGET_DIR, bin: process.env.EXACT_LINUX_BIN };
+  const { dir, write } = scratchApp('field-log');
+  const target = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-agent-target-')));
+  try {
+    Object.assign(process.env, { EXACT_APP_DIR: dir, CARGO_TARGET_DIR: target });
+    delete process.env.EXACT_LINUX_BIN;
+    const app = resolveApp('field-log'), bin = linuxBinary(app), command = linuxRebuild(app);
+    await assert.rejects(openStdio({ host: 'linux', app: 'field-log' }), { message: `run ${command} first` });
+    // A build a minute older than a source its dep-info names
+    mkdirSync(dirname(bin), { recursive: true });
+    writeFileSync(bin, '');
+    writeFileSync(`${bin}.d`, `${bin}: ${resolve(dir, 'app.contract')}\n`);
+    const now = new Date(), past = new Date(now.getTime() - 60_000);
+    utimesSync(resolve(dir, 'app.contract'), now, now);
+    utimesSync(bin, past, past);
+    await assert.rejects(openStdio({ host: 'linux', app: 'field-log' }), (e) => e.message.includes('linux build is stale') && e.message.includes(`; run ${command}`));
+    const ran = resolve(dir, 'ran.json');
+    write('exact.mjs', `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(ran)}, JSON.stringify({ cwd: process.cwd(), target: process.env.CARGO_TARGET_DIR, verb: process.argv[2] }));\n`);
+    // From a shell whose target is relative, as the drive's was before it resolved it
+    execFileSync('sh', ['-c', command], { env: { ...process.env, CARGO_TARGET_DIR: relative(process.cwd(), target) } });
+    assert.deepEqual(JSON.parse(readFileSync(ran, 'utf8')), { cwd: dir, target, verb: 'linux' });
+    assert.ok(bin.startsWith(`${target}/`), bin);
+  } finally {
+    for (const [name, value] of [['EXACT_APP_DIR', previous.app], ['CARGO_TARGET_DIR', previous.target], ['EXACT_LINUX_BIN', previous.bin]]) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(target, { recursive: true, force: true });
   }
 });
 

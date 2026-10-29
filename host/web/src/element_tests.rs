@@ -370,6 +370,7 @@ fn menu_hints_write_no_dom_attributes() {
     for (kind, prop, value) in [
         (NodeType::Pressable, PropId::MenuPlacement, "help"),
         (NodeType::View, PropId::MenuRemove, "close-all"),
+        (NodeType::View, PropId::MenuKeys, "close-window=none"),
     ] {
         let out = written(kind, prop, PropValue::Str(value.into()));
         assert!(out.get("data-menuplacement").is_none());

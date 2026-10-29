@@ -31,6 +31,27 @@ enum Inspect {
     /// by build id), so nothing is left to replay, and no seq a restarted
     /// server reuses is mistaken for it.
     nonisolated(unsafe) static var left: Int?
+    /// Each plan site's copy (tamber/1.17 `inspect`'s `copies`), for the plan it came with: sent with inspect mode on,
+    /// once per plan; a `select` walks by it.
+    nonisolated(unsafe) static var copies: (plan: String?, list: [Int])?
+    /// `copies`' encoding (`r1:`, base64 of LEB128 varints, `[copy, run length]` pairs in site order) back to one copy
+    /// per site, as scripts/tamber-inspect.mjs `copiesOf` writes it; nil for an encoding it does not know.
+    static func decodeCopies(_ text: String) -> [Int]? {
+        guard text.hasPrefix("r1:"), let bytes = Data(base64Encoded: String(text.dropFirst(3))) else { return nil }
+        // (Bounded: a varint of at most 4 bytes, 2^20 sites in all, whole pairs; anything else is no copies.)
+        var values: [Int] = [], v = 0, scale = 1
+        for b in bytes {
+            v += Int(b & 127) * scale
+            if b & 128 == 0 { values.append(v); v = 0; scale = 1 } else { scale *= 128; if scale > 128 * 128 * 128 { return nil } }
+        }
+        guard scale == 1, values.count % 2 == 0 else { return nil }
+        var sites = 0
+        for i in stride(from: 1, to: values.count, by: 2) { sites += values[i]; if sites > 1 << 20 { return nil } }
+        var out: [Int] = []
+        out.reserveCapacity(sites)
+        for i in stride(from: 0, to: values.count, by: 2) { out.append(contentsOf: repeatElement(values[i], count: values[i + 1])) }
+        return out
+    }
     /// An instance path as compared across generations: its JSON with sorted keys.
     static func canonical(_ instance: Any?) -> String {
         (try? JSONSerialization.data(withJSONObject: instance ?? [], options: [.sortedKeys])).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -43,7 +64,7 @@ enum Inspect {
 
     /// A `selected` report for node `id` of `s`: the runner's `node` op
     /// with its plan digest, trimmed to 64 KiB, or an `unsupported` one.
-    static func report(_ s: ExactSession, id: UInt32, click: String?) -> [String: Any] {
+    static func report(_ s: ExactSession, id: UInt32, click: String?, moved: [String: Int]? = nil) -> [String: Any] {
         guard let data = s.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":true}").data(using: .utf8),
               let node = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return ["kind": "unsupported", "what": "inspect", "detail": "node #\(id): unreadable"] }
         if let error = node["error"] as? String { return ["kind": "unsupported", "what": "inspect", "detail": error] }
@@ -52,6 +73,7 @@ enum Inspect {
         var selected: [String: Any] = ["node": Int(id), "type": node["type"] ?? NSNull(), "testId": (node["props"] as? [String: Any])?["testId"] ?? NSNull(),
                                        "site": node["site"] ?? NSNull(), "instance": node["instance"] ?? [], "planDigest": node["planDigest"] ?? NSNull(),
                                        "tuple": node["modes"] ?? NSNull(), "rows": rows, "held": NSNull(), "trimmed": false]
+        if let moved { selected["moved"] = moved } // (a `select`'s move: the up asked and the steps taken, 1.17)
         MainActor.assumeIsolated { if let held = HeldState.rows(for: id, in: s.presenter) { selected["held"] = held } } // what is held on it (LLP 1122 D8)
         func envelope() -> [String: Any] {
             var body: [String: Any] = ["kind": "selected", "selected": selected, "design": BuildChannel.design ?? NSNull(), "revision": BuildChannel.revision.map { $0 as Any } ?? NSNull()]
@@ -71,7 +93,7 @@ enum Inspect {
 
     /// A click's selection: its token minted, the node remembered, the
     /// report made. Nil when inspect mode is off.
-    static func select(_ s: ExactSession, id: UInt32, clicked: Bool, click: String? = nil) -> [String: Any]? {
+    static func select(_ s: ExactSession, id: UInt32, clicked: Bool, click: String? = nil, moved: [String: Int]? = nil) -> [String: Any]? {
         guard on else { return nil }
         var click = click
         if clicked {
@@ -79,24 +101,26 @@ enum Inspect {
             clicks += 1
             click = "\(session!).\(clicks)"
         }
-        let body = report(s, id: id, click: click)
+        let body = report(s, id: id, click: click, moved: moved)
         if let sel = body["selected"] as? [String: Any] {
             selected = (ObjectIdentifier(s), s.generation, id, click, sel["site"] as? Int, sel["planDigest"] as? String, canonical(sel["instance"]))
         }
         return body
     }
 
-    /// `{select: {up, levels, plan, from, instance}}` (tamber/1.16), as the web pages' (host/web/dev.js
-    /// `selectUp`): the selection moves up its call sites, reported as the node it lands on, with no click token
-    /// (the move is no press: its outline scrolls the copy into view, as the web pages' does).
-    /// It lands in the first of `levels` (each enclosing copy's plan sites, nearest first, by the server's map
-    /// for the selection at `from`, instance path `instance`, under `plan`) with a node above the selection,
-    /// on the outermost there. A selection that moved since (another generation, plan, site or instance), or
-    /// none above it of that copy, is staleness, not inability: nil, for the selection as it is now.
+    /// `{select: {up, plan, from, instance}}` (tamber/1.16; 1.17 by this app's own tree), as the web pages' (host/web/dev.js
+    /// `selectUp`): the selection moves up `up` copies, reported as the node it lands on, with no click token (the move
+    /// is no press: its outline scrolls the copy into view) and with `moved: {up, stepped}`. Walking out from the
+    /// selection, its own copy seen, each ancestor of a copy not yet seen is one step (a slot's host among them); at
+    /// step `up` it lands on that copy's outermost ancestor, with fewer on the root. Each site's copy is the plan's
+    /// `copies` (sent with inspect mode on, once per plan). A selection that moved since (another generation, plan, site
+    /// or instance), or no copies for `plan`, is staleness, not inability: nil, for the selection as it is now.
     static func selectUp(_ s: ExactSession, _ select: [String: Any]) -> [String: Any]? {
-        guard on, let was = selected, ObjectIdentifier(s) == was.session, let levels = select["levels"] as? [[Any]] else { return nil }
+        guard on, let was = selected, ObjectIdentifier(s) == was.session, let up = (select["up"] as? NSNumber)?.intValue else { return nil }
         let plan = select["plan"] as? String, from = (select["from"] as? NSNumber)?.intValue
         guard s.generation == was.generation, plan == was.plan, from == was.site, canonical(select["instance"]) == was.instance else { return nil }
+        guard let held = copies, held.plan == plan else { return nil }
+        let copyOf = { (site: Int?) -> Int? in site.flatMap { $0 >= 0 && $0 < held.list.count ? held.list[$0] : nil } }
         // Its ancestors and their sites, innermost first, in one read with no node's rows (the runner's
         // `ancestors`), the selection itself left out.
         guard let data = s.agent("{\"op\":\"ancestors\",\"id\":\(was.id)}").data(using: .utf8),
@@ -105,12 +129,18 @@ enum Inspect {
             guard pair.count == 2, let view = (pair[0] as? NSNumber)?.uint32Value else { return nil }
             return (view, (pair[1] as? NSNumber)?.intValue)
         }
-        for level in levels {
-            let want = Set(level.compactMap { ($0 as? NSNumber)?.intValue })
-            // The outermost of the level: the last met, walking out.
-            if let found = above.last(where: { $0.site.map(want.contains) ?? false }) { return Inspect.select(s, id: found.view, clicked: false) }
+        // (A site past these copies: they are not this tree's, so stale; a node with no site is passed over.)
+        guard let own = copyOf(was.site) else { return nil }
+        var seen: Set<Int> = [own]
+        var stepped = 0, target: Int?, landing: UInt32?, root: UInt32?
+        for (view, site) in above {
+            guard let site else { continue }
+            guard let copy = copyOf(site) else { return nil }
+            root = view
+            if target == nil, !seen.contains(copy) { seen.insert(copy); stepped += 1; if stepped == up { target = copy } }
+            if let target, copy == target { landing = view }
         }
-        return nil
+        return Inspect.select(s, id: landing ?? root ?? was.id, clicked: false, moved: ["up": up, "stepped": stepped])
     }
 
     /// A JSON value as JavaScript's `if` reads it.
@@ -121,6 +151,22 @@ enum Inspect {
         case let n as NSNumber: n.doubleValue != 0 && !n.doubleValue.isNaN
         default: true
         }
+    }
+
+    /// The copy an outline of `sites` in `plan` brings into view, of
+    /// `copies` (each outlined copy: its session, node and view, and whether
+    /// it shows), the sessions running `plan` given with their generations.
+    /// A session holding the selection (that plan and generation, its site
+    /// among `sites`) brings its own copy in, and nothing when that copy
+    /// does not show (a recycled row, a collapsed one): never another copy
+    /// of it (Apple pass #2: a move scrolled the feed to a copy five rows
+    /// away). Otherwise (the tool's Outline, a session holding no selection
+    /// there) the first copy that shows.
+    static func revealing<V>(_ copies: [(session: ObjectIdentifier, id: UInt32, view: V, shown: Bool)], sites: Set<Int>, plan: String, sessions: [ObjectIdentifier: Int]) -> V? {
+        if let was = selected, was.plan == plan, let site = was.site, sites.contains(site), sessions[was.session] == was.generation {
+            return copies.first { $0.session == was.session && $0.id == was.id && $0.shown }?.view
+        }
+        return copies.first { $0.shown }?.view
     }
 
     /// Whether an outline answers a click of this inspect session: then it
@@ -159,6 +205,10 @@ extension ExactApp {
     /// channel (BuildChannel.swift).
     func inspectCommand(_ frame: [String: Any]) {
         if frame["kind"] as? String == "outline" { InspectHost.outline(self, frame); return }
+        // (The plan's copies, with inspect mode on: once per plan, kept for a `select` to walk by, 1.17.)
+        if let c = frame["copies"] as? [String: Any] { Inspect.copies = (c["data"] as? String).flatMap(Inspect.decodeCopies).map { (c["plan"] as? String, $0) } }
+        // (Copies alone, a plan known after registering: kept, inspect mode as it is.)
+        if frame["copies"] != nil, frame["on"] == nil, frame["select"] == nil, frame["refresh"] == nil { return }
         // `select: {up, levels, plan, from, instance}` (tamber/1.16): the selection moves up its call sites. Any
         // other `select` the web pages take too (JavaScript's truthy: not null, false, 0 or "") is no move: the
         // selection said as it is, inspect mode left on, never read as `on` missing.

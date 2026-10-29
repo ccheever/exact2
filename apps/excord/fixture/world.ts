@@ -42,6 +42,7 @@ export interface Channel {
   recipient_ids?: string[];
   owner_id?: string;
   icon?: string | null;
+  nsfw?: boolean;
   permission_overwrites: unknown[];
 }
 
@@ -123,6 +124,7 @@ export interface Message {
   nonce?: string | number;
   message_reference?: { message_id: string; channel_id: string; guild_id?: string };
   referenced_message?: Message | null;
+  member?: { roles: string[] };
 }
 
 export interface World {

@@ -74,6 +74,10 @@ final class HatchClock {
     /// An agent command begins: its caps start at nothing.
     func beginCommand() { fires = 0; acts = 0 }
 
+    /// The next `after` due, which a reply in flight can wait on: a bound
+    /// package's effect answers at its span's end (LLP 1133.022 §21).
+    var nextAfter: Double? { afters.map(\.due).min() }
+
     /// The next hatch instant, for a seek to stop at.
     var nextInstant: Double? {
         let after = afters.map(\.due).min()

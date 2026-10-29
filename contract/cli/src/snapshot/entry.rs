@@ -194,6 +194,7 @@ fn viewport_shape(shape: &TypeExpr, file: &File, at: Span) -> Result<(), Vec<Com
 /// Compile a source-text fixture's entry under the same profile as the bake.
 pub fn compile(src: &str, widget: &Widget) -> Result<Plan, Vec<CompileError>> {
     let file = contract_syntax::parse(src).map_err(CompileError::from)?;
+    crate::sources::standalone_members(&file)?;
     compile_widget(file, widget, None)
 }
 

@@ -318,11 +318,16 @@ private final class BoundedFetch: NSObject, URLSessionDataDelegate, URLSessionTa
 
 final class PlanURL: NSObject, URLSessionDataDelegate {
     static let envelopeType = "application/vnd.exact.envelope+json"
+    /// A dev loop's answer while its producers start, or after their start
+    /// failed (llp/1023.001; host/web/dev-phase.mjs): a status, not a failure.
+    static let devStatusType = "application/vnd.exact.dev-status+json"
     static let pageLimit = 64 * 1024
     static let envelopeLimit = 64 * 1024
     static let planLimit = 64 * 1024 * 1024
     static let assetLimit = 64 * 1024 * 1024
-    static let eventLimit = 64 * 1024
+    /// One event frame: 1 MiB, the design server's own line limit, since a large plan's copies (tamber/1.17 `inspect`)
+    /// pass 64 KiB (a generated 20,000-copy map: 85 KB).
+    static let eventLimit = 1024 * 1024
     static let generationLimit = 256 * 1024 * 1024
 
     struct Generation {
@@ -394,6 +399,14 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private let requestsHeld: () -> Bool
     private let acceptProgram: (String?) -> Bool
     var terminal: String?
+    /// What the dev loop said it is doing before it had a plan to give:
+    /// preparing (its producers' first build), or its start's error.
+    enum DevStatus: Equatable { case preparing(String), failed(String) }
+    private(set) var devStatus: DevStatus?
+    /// Told each change of `devStatus` (the window's dev pill); nil when a plan came.
+    var onDevStatus: ((DevStatus?) -> Void)?
+    /// Where a status line goes (stderr; a test's own).
+    var log: (String) -> Void = { fputs("exact url: \($0)\n", stderr) }
     /// The program of the last generation this host took (or the app ran
     /// when this connection opened): the only one it takes again.
     private var adopted: String?
@@ -442,6 +455,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     }
 
     func close() {
+        loopDone() // its status leaves the windows with it
         closed = true
         beginResolution()
         stream?.cancel()
@@ -468,6 +482,13 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         fetch(request, limit: PlanURL.pageLimit, generation: generation) { [weak self] result in
             guard let self else { return }
+            if case let .success((data, http)) = result, http.statusCode != 200,
+               (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().contains(PlanURL.devStatusType),
+               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let message = body["message"] as? String {
+                self.loopSaid(body["status"] as? String == "failed" ? .failed(message) : .preparing(message),
+                              retry: http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init), generation: generation)
+                return
+            }
             guard case let .success((data, http)) = result, http.statusCode == 200 else {
                 self.failed("cannot reach \(self.page)", generation: generation)
                 return
@@ -586,6 +607,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     }
 
     private func takeEnvelope(_ data: Data, base: URL, subscribe shouldSubscribe: Bool, generation: UInt64, expected: Revision?) {
+        loopDone()
         guard data.count <= PlanURL.envelopeLimit, PlanURL.sameOrigin(base, page),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], PlanURL.count(json["exact"]) == 1,
               let planRow = json["plan"] as? [String: Any], let plan = card(planRow, name: "", base: base),
@@ -867,7 +889,36 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         if resync { syncDesign() }
     }
 
+    /// The dev loop's status, said once a change, and asked again after its
+    /// `Retry-After` (1 to 10 s; 2 s preparing, 5 s failed when it names
+    /// none), with no backing off: the loop answers at once.
+    private func loopSaid(_ said: DevStatus, retry: Double?, generation: UInt64) {
+        if devStatus != said {
+            devStatus = said
+            switch said {
+            case .preparing(let message): status("dev loop: \(message)")
+            case .failed(let message): status("dev loop failed to start: \(message)")
+            }
+            onDevStatus?(said)
+        }
+        pending = nil
+        retrySeconds = 1
+        let fallback: Double = if case .failed = said { 5 } else { 2 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + min(max(retry ?? fallback, 1), 10)) { [weak self] in
+            guard let self, !self.closed, self.resolution == generation else { return }
+            self.resolveAndBoot()
+        }
+    }
+
+    /// The dev loop's status over: a plan came, or the loop no longer answers.
+    private func loopDone() {
+        guard devStatus != nil else { return }
+        devStatus = nil
+        onDevStatus?(nil)
+    }
+
     private func failed(_ message: String, generation: UInt64) {
+        loopDone()
         status(message)
         pending = nil
         let delay = retrySeconds
@@ -1033,5 +1084,5 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         fetch.start(request)
     }
 
-    private func status(_ message: String) { fputs("exact url: \(message)\n", stderr) }
+    private func status(_ message: String) { log(message) }
 }

@@ -1,7 +1,10 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
 use crate::anatomy::{Anatomy, Mark, PartDecl};
+use crate::members::{Deferred, Members, MembersLine};
 use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
+use crate::parser::SyntaxError;
+use crate::tool::{Consequence, Tool};
 use crate::{ast::*, sequence::Sequence, ModuleDecl, ModuleKind, PlatformWords, Span};
 
 /// Visit every source range, without changing the AST's non-location fields.
@@ -70,8 +73,24 @@ macro_rules! leaves {
     )* };
 }
 leaves!(
-    String, bool, f64, u16, [u16; 2], u32, usize, BinOp, UnOp, TaskKind, TapForm, ParamValue,
-    ModuleKind
+    String,
+    bool,
+    f64,
+    u16,
+    [u16; 2],
+    u32,
+    usize,
+    BinOp,
+    UnOp,
+    TaskKind,
+    TapForm,
+    PropertyKind,
+    PropertyForm,
+    ParamValue,
+    ModuleKind,
+    Consequence,
+    crate::members::Splice,
+    &'static str
 );
 
 macro_rules! structs {
@@ -86,7 +105,7 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, properties, launch, components, members, deferred }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
@@ -98,7 +117,9 @@ structs! {
     FontDecl { name, faces, span }
     SoundDecl { source, span }
     FontFaceDecl { weight, italic, source, span }
-    TestDecl { name, steps, span }
+    TestDecl { name, hosts, steps, span }
+    PropertyDecl { span, kind, name, lines }
+    PropertyLine { span, form }
     FnDecl { name, params, ret, body, span }
     ModuleDecl { name, declared, package, extension, kind, options, words, answers, args, raised, hold, budget, handler, live, request, sync, data_only, substitute, span }
     PlatformWords { platform, package, words }
@@ -108,7 +129,13 @@ structs! {
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
-        mutations, actions, tasks, sequences, view, params, anatomy, span }
+        mutations, actions, tools, tasks, sequences, view, params, anatomy, members, span }
+    Tool { name, consequence, additive, idempotent, closed, description, action, returns, fails,
+        available, span }
+    Members { lines, props, outer }
+    Deferred { name, if_action, in_block, error }
+    SyntaxError { id, message, span }
+    MembersLine { path, at, span }
     Anatomy { parts, marks }
     PartDecl { name, groups, span }
     Mark { part, span, node, own }
@@ -143,12 +170,13 @@ record_variants! {
         Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
         Locale { tag, span }, Prefer { name, value, span }, Seed { seed, span }, Fresh { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
-        Pick { target, paths, span }, Clipboard { target, edit, text, span },
+        Pick { target, paths, span }, Authorize { cancel, span }, Clipboard { target, edit, text, span },
         Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectRefusal { target, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
         Midi { step, span }, ExpectWakelock { held, span },
+        Perf { steps, span }, ExpectPerf { subject, target, at_most, value, span }, ExpectNoFailures { span },
     }
 }
 // MIDI's test steps carry no spans of their own.
@@ -279,6 +307,7 @@ impl Step {
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }
+            | Step::Authorize { span, .. }
             | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
@@ -295,7 +324,10 @@ impl Step {
             | Step::ExpectSound { span, .. }
             | Step::Midi { span, .. }
             | Step::ExpectMediaSession { span, .. }
-            | Step::ExpectMediaSessionAction { span, .. } => *span,
+            | Step::ExpectMediaSessionAction { span, .. }
+            | Step::Perf { span, .. }
+            | Step::ExpectPerf { span, .. }
+            | Step::ExpectNoFailures { span } => *span,
         }
     }
 }

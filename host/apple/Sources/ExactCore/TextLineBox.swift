@@ -15,6 +15,11 @@ package struct TextLineBox: Sendable {
 
     package init() {}
 
+    /// A box of these extents: an image in the text (LLP 1011.002).
+    package init(above: CGFloat, below: CGFloat) {
+        self.above = max(0, above); self.below = max(0, below); baseline = self.above
+    }
+
     package init(_ font: CTFont, height: CGFloat?) {
         (above, below) = CSSLineBox.extents(font, height: height)
         aboveExplicit = height != nil; belowExplicit = aboveExplicit

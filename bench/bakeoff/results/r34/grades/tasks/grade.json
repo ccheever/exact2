@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen with Today and All smart rows plus six coloured lists, each with its open count. Counts update after changes (Home 25→24, All 135→134)."},
+      {"n": 2, "status": "pass", "note": "Open tasks come first, then a 'Completed (n)' section header with a chevron that collapses and expands; the collapsed state survives relaunch. The round checkbox completes a task (green check) and reopens it, and the counts update."},
+      {"n": 3, "status": "pass", "note": "The New Task sheet has an auto-focused title, notes, a Due Date switch with an inline graphical calendar, a Priority menu (None/Low/Medium/High) and a List picker. Tapping a row opens the same Details sheet; editing the title and priority saved correctly."},
+      {"n": 4, "status": "pass", "note": "Overdue dates show a red '! Overdue · Wed, Oct 21' with an exclamation icon. High priority shows a red !!!; low and medium show grey ! and !!."},
+      {"n": 5, "status": "pass", "note": "Native trailing swipe shows a full-height red Delete action, and deleting works. Long-press drag reorders, and the new order persisted across relaunch."},
+      {"n": 6, "status": "pass", "note": "+ opens a New List alert with a text field. Swiping a list row offers Rename and Delete, and the ••• menu in a list has Rename List and Delete List. Deleting a list with tasks asks for confirmation."},
+      {"n": 7, "status": "pass", "note": "After relaunch the completion, edit, new task, deletion, reorder, list changes and collapsed state were all still there."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Reordering has no visible affordance (no grip and no Edit mode on the task list); you have to discover the long-press drag.",
+      "At the largest text size the floating Add List '+' button sits over the list rows.",
+      "Lists are created and renamed in a text-field alert rather than a sheet (acceptable, but Reminders uses a sheet)."
+    ],
+    "scroll": "A real UITableView/List feel: smooth slow drags and flings, no blank or popping rows, the large title collapses into the inline title correctly, and pulling past the top rubber-bands.",
+    "scores": {"features": 9, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen with Today, All and My Lists rows showing open counts; the counts update correctly. Every list icon is the same orange glyph."},
+      {"n": 2, "status": "pass", "note": "Open tasks come first, then a 'Completed · n' row with a blue Show/Hide text button (collapsed by default, and the state persists). The checkbox completes and reopens tasks immediately, and the '25 open' subtitle updates."},
+      {"n": 3, "status": "pass", "note": "The New Task form has a title, a Due Date switch with a compact date picker, a Priority menu, a List menu and Notes, and Save is disabled until there is a title. Tapping a task opens Details for editing; the edit saved."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are shown in red as 'Oct 21, 2026 · Overdue'. High priority shows a red !!!; low and medium are not marked."},
+      {"n": 5, "status": "pass", "note": "Swiping a task reveals a Delete button, and deleting works. Dragging the always-visible grip handle reorders, and the order persisted across relaunch."},
+      {"n": 6, "status": "pass", "note": "+ opens a New List sheet. Rename List and Delete List are in the ••• menu, with a confirmation alert. Swiping a list row offers Delete."},
+      {"n": 7, "status": "pass", "note": "After relaunch the edits, new task, deletion, reorder and completion state were all still there."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The task list is a custom scroll view, not a table: swiping a row reveals a small hand-drawn red pill with 'Delete' written underneath, instead of iOS's full-height swipe action.",
+      "Grip (≡) handles show on every row all the time, which no stock iOS list does outside edit mode, and they take width from the titles.",
+      "A populated list opens with a small centred title and an 'N open' subtitle, while an empty list or a pulled-down All screen shows a large title, so the title style is inconsistent.",
+      "The Completed section header is a grey label with a blue 'Show/Hide' text button rather than a native disclosure section header.",
+      "Every user list gets the same orange ≡ glyph, with no colour or icon per list.",
+      "At the largest text size the edit sheet's title is a single-line field that truncates ('Read the tax…'), the list's navigation title does not scale, and the task text wraps into a narrow column beside the grip.",
+      "The Due Date switch has no accessibility label (id only).",
+      "Dates always include the year ('Nov 16, 2026') instead of the relative or short formatting iOS apps use."
+    ],
+    "scroll": "Scrolls smoothly with no blank rows or jumps, and fling and rubber-banding feel native, though the task list is a plain white scroll view, not a grouped table.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps do everything the spec asks and keep it across relaunch, but A reads as a genuine Reminders-style UIKit/SwiftUI app: native swipe actions, a large title that collapses, a disclosure-style Completed section, per-list colours, an inline calendar and text that wraps properly at the largest size. B's task screen is visibly hand-built: a drawn swipe pill, always-on grip handles, an inconsistent title style, a Show/Hide text toggle, and a title field that truncates at large text."
+}

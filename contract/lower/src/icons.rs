@@ -22,6 +22,9 @@ pub(crate) struct Resolved {
     pub sf: String,
     pub view_box: String,
     /// Empty when the SVG is no template, which the web draws as the file.
+    /// An even-odd icon's starts `evenodd:` (stage 14 C2), in the plan's row
+    /// and the source form alike; a nonzero one's is the `d`s alone, as
+    /// before. Every reader strips it through `exact_kernel::Icon`.
     pub path: String,
     pub svg: String,
 }
@@ -60,7 +63,7 @@ pub(crate) fn is_refused(name: &str) -> bool {
 }
 
 /// The SVG every host but the web draws ([`crate::icon_svg`]'s template).
-pub(crate) const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, with no stroke, transform, opacity or other element";
+pub(crate) const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, all by one `fill-rule` (nonzero or evenodd), with no stroke, transform, opacity or other element";
 
 /// An icon's SVG's most bytes.
 const MAX_SVG: usize = 64 * 1024;
@@ -376,7 +379,12 @@ pub(crate) fn declare<'a>(
             name: icon.name.clone(),
             sf: icon.sf.clone().unwrap_or_default(),
             view_box: svg.as_ref().map(|s| s.view_box.clone()).unwrap_or_default(),
-            path: template.map(|s| s.path.clone()).unwrap_or_default(),
+            path: template
+                .map(|s| match s.even_odd {
+                    true => format!("{}{}", exact_kernel::Icon::EVEN_ODD, s.path),
+                    false => s.path.clone(),
+                })
+                .unwrap_or_default(),
             svg: icon.svg.clone().unwrap_or_default(),
         });
     }

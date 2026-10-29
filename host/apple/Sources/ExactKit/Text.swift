@@ -46,7 +46,7 @@ final class PresentedText: TextPresentation {
         #endif
     }
     func markdown(_ engine: TextEngine, source: Run, atoms: String, faces: String) -> [Run]? {
-        MarkdownLink.installed?.expand(source.text, base: source, color: nil, boldText: engine.boldTextSteps(source.family), atoms: MarkdownAtoms(kinds: atoms, faces: faces))
+        MarkdownLink.installed?.expand(source.text, base: source, color: nil, linkColor: nil, atomColor: nil, boldText: engine.boldTextSteps(source.family), atoms: MarkdownAtoms(kinds: atoms, faces: faces))
     }
     func attributes(_ r: Run, color: [Double], attributes a: inout [NSAttributedString.Key: Any]) {
         a[.foregroundColor] = r.color.map(TextEngine.color) ?? TextEngine.color(color)
@@ -137,6 +137,10 @@ extension TextEngine {
     /// UIView's): one CTLineDraw per line, on device-pixel baselines on UIKit
     /// and whole-point baselines on macOS, flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
+        // Font smoothing is graphics state (LLP 1019 D12).
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        if spec.antialiased { ctx.setShouldSmoothFonts(false) }
         // CSS `text-shadow`: under every glyph of the paragraph at once, so
         // one line's shadow never covers another's text (LLP 1077 D3). Core
         // Graphics' blur is CSS's radius; its offset is base space, y up.

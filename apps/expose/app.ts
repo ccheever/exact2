@@ -3,8 +3,8 @@
 // answers through OpenRouter, the two authored human threads, the Reader's
 // articles, a live Palo Alto forecast from Open-Meteo, and the clock's
 // strings. The OpenRouter key comes from Settings → Intelligence (kept under
-// `secret.keep`) or, failing that, from `local.ts`, which build.rs writes from
-// EXPOSE_OPENROUTER_KEY and git never sees.
+// `secret.keep`) or, failing that, from `./local`: the `local.ts` build.rs writes
+// from EXPOSE_OPENROUTER_KEY, which git never sees, else `local/index.ts`, none.
 import type { Answer, Sources, Result, Store } from './app.contract.d.ts';
 import { bakedKey } from './local';
 

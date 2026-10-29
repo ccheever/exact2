@@ -1,6 +1,6 @@
 // LLP 1133.011 §10's acceptance drives 1–6 under the agent, with the auth
 // fixture against its server's relying party (apps/auth-fixture/fixture.mjs).
-// Each ceremony holds a `passkey` ticket; "answer" runs `authenticator.mjs` on
+// Each ceremony holds a `credential` ticket; "answer" runs `authenticator.mjs` on
 // the ticket's args and types its response, so the server verifies a real
 // signature over its own challenge. Drive 7's origin rule is the runner's
 // test (contract/cli/tests/it/passkeys.rs) until a tool door produces one.
@@ -39,7 +39,7 @@ const keys = join(mkdtempSync(join(tmpdir(), 'passkeys-drive-')), 'keys.json');
 
 const text = async (s, id) => (await s.find(id, false).catch(() => null))?.props?.text ?? null;
 const shown = async (s, id) => (await s.find(id, false).catch(() => null)) != null;
-const tickets = async (s) => ((await s.state()).pending ?? []).filter((p) => p.device?.capability === 'passkey');
+const tickets = async (s) => ((await s.state()).pending ?? []).filter((p) => p.device?.capability === 'credential' && p.device.args.options);
 // The fixture server answers over real I/O, which `clock settle` does not wait for on every host: poll a while.
 const until = async (s, read, ms = 5000) => {
   for (const end = Date.now() + ms; ; await sleep(50)) {

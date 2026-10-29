@@ -1,5 +1,13 @@
 # Vendored Ibex split crates — Exact integration ledger
 
+## Windows WebSocket readiness
+
+`crates/ibex2/src/transport/websocket.rs` subscribes to writable readiness only
+while output is pending. Windows rearms readiness after a blocked read; keeping
+writable interest on an empty output queue makes an outstanding receive spin.
+The idle-receive regression in `websocket_tests.rs` checks that the pump stays
+parked and still wakes on cancellation.
+
 ## Mac widget Keychain (LLP 1126.001 WP16)
 
 `crates/ibex2/src/secrets/darwin_keychain.mm` selects the restricted
@@ -312,6 +320,57 @@ releases its stack pages below its frame (`MADV_FREE_REUSABLE`). The two
 workers kept through a quiet spell otherwise keep every page a job reached
 dirty for the process's life: 80 KB in euxy on iOS after its launch's reads.
 Replay on a refresh.
+
+## Local patch 18, `copyFile` from a chosen document into an app file
+
+`stdlib/documents.rs` adds `copy_document`, which `fs::run_with_documents`
+runs for `copyFile` from a `doc:` path to an `app:` path (exact2 LLP 1069.010
+D1, ruled 2026-10-26); every other two-path document operation is still
+refused. It admits `fs.read` on the document, then
+`AppDirectories::copy_in` admits `fs.write` on the destination, and only then
+is the provider asked. The source opens as `readFile` opens it
+(`app_fs::document_file`, Unix and Windows) and the host copies its bytes, so
+no result envelope bounds them. Replay on a refresh.
+
+## Local patch 19, an app file staged in pieces and published whole
+
+`stdlib/app_fs_unix.rs` and `app_fs_windows.rs` add `AppDirectories::stage(grants,
+path)` and `Staged` (`write_all`, `publish`), for `fetch(url, {exactBodyTo})` (exact2
+LLP 1108 D6 R2, ruled 2026-10-26): the host writes a reply's body into an app file as it
+arrives. `stage` admits `fs.write` on the path, refuses a missing parent or a target that
+is not a regular file, and creates `.exact-<hex>.partial` beside the target through the
+pinned parent. `publish` syncs it and renames it over the target; a `Staged` dropped
+unpublished removes it. The stub for other platforms refuses. Replay on a refresh.
+
+## Local patch 20, the `local-network` grant source
+
+`grant.rs` adds `fetch.local-network` and `websocket.local-network` (exact2 LLP
+1133.036 D5, ruled 2026-10-26), written `net.fetch local-network` and
+`net.websocket local-network`, with the word `development` for loopback too. It
+admits a host the URL writes as an RFC 1918, link-local or unique-local
+address (an IPv4-mapped IPv6 address by its IPv4), a link-local IPv6 address,
+or a `.local` name; never a name that merely resolves to one. exact2's
+`grants` crate holds the same test. Replay on a refresh.
+
+## Local patch 21, a host's check at every fetch hop and WebSocket open
+
+`boundary.rs` adds `HopGate` and `HostError::NotAllowed { reason }` (shown
+`NotAllowedError: <reason>`); `host.rs` gives `Fetch` and `WebSocket` an
+optional gate (`with_gate`); `stdlib/fetch.rs` (`fetch_stream_gated`,
+`admit_hop`), `fetch_async.rs` (`start_gated`) and `websocket.rs`
+(`open_gated`) ask it after the grants admit each hop, a redirect's included,
+and before anything is sent (exact2 LLP 1133.036 D6): exact2's Apple executor
+refuses a tool's, a wake's or a package event's reach to the local network
+while the person has not decided. Without a gate nothing changes. Replay on a
+refresh.
+
+## Local patch 22, a composed signal's sources
+
+`bindings/abort.js`'s view of a signal (`inspect`, the hooks' `own`) names the
+signals `AbortSignal.any` composed it of (`sources`, a copy; null for one not
+composed), so exact2's data runtime gives a fetch carrying a composed signal
+the earliest `AbortSignal.timeout` among them as its deadline (exact2 LLP 1146
+§2.1). Nothing else reads it. Replay on a refresh.
 
 ## Qualification boundaries
 

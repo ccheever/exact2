@@ -229,7 +229,22 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
     // MARK: the selection
 
     /// The selected text as it is copied.
-    var selectedText: String { selected.length > 0 ? text.substring(with: selected) : "" }
+    var selectedText: String {
+        guard selected.length > 0 else { return "" }
+        let chosen = text.substring(with: selected)
+        guard let document else { return node?.copiedText(chosen, from: selected.location) ?? chosen }
+        // Each paragraph's slice as it copies (an image as its label, LLP 1011.002 D4).
+        var out = "", cursor = selected.location
+        let end = NSMaxRange(selected)
+        for part in document.parts {
+            let lo = max(part.start, cursor), hi = min(part.start + part.length, end)
+            guard hi > lo else { continue }
+            out += text.substring(with: NSRange(location: cursor, length: lo - cursor))
+            out += part.node.copiedText(text.substring(with: NSRange(location: lo, length: hi - lo)), from: lo - part.start)
+            cursor = hi
+        }
+        return out + text.substring(with: NSRange(location: cursor, length: end - cursor))
+    }
     /// The selection in the node's source text, as `selectionchange` has it.
     var reportable: (text: String, range: NSRange)? {
         guard let node, selected.length > 0 else { return nil }

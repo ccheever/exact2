@@ -209,29 +209,72 @@ fn portable_role(name: &str) -> &str {
 
 /// An icon token's source form, as the build writes it after `symbol:`
 /// (LLP 1121 D10): `icon|<sf>|<view_box>|<path>|<svg>`, each empty for none.
+///
+/// The `<path>` of an icon whose SVG fills even-odd starts `evenodd:` (stage
+/// 14 C2): `evenodd:M…;M…`, every `;` path by that one rule; a nonzero
+/// icon's is its `d`s alone. The plan's `icons` row carries its path the
+/// same way (plan/tables/format.json's `icons` comment, "each filled
+/// nonzero", predates the marker and is corrected at the next format move).
+/// This type is the ONE reader of either: [`Icon::parse`] for a source,
+/// [`Icon::of_row`] for a row's fields; nothing else slices them (a guard
+/// test scans the hosts and tools for it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Icon<'a> {
     /// The SF Symbol Apple draws.
     pub sf: &'a str,
     /// The SVG's viewBox, `min-x min-y width height`.
     pub view_box: &'a str,
-    /// Its paths' `d`, drawn as a template (filled); empty for an SVG the
-    /// web draws as the file.
+    /// Its paths' `d`, drawn as a template (filled), its rule's marker
+    /// stripped; empty for an SVG the web draws as the file.
     pub path: &'a str,
     /// The SVG's path under `assets/`.
     pub svg: &'a str,
+    /// Its paths are filled even-odd (the `evenodd:` marker), else nonzero.
+    pub even_odd: bool,
 }
 
 impl<'a> Icon<'a> {
+    /// The marker an even-odd icon's path starts with (stage 14 C2).
+    pub const EVEN_ODD: &'static str = "evenodd:";
+
     /// The icon a name after `symbol:` is, when it is one.
     pub fn parse(name: &'a str) -> Option<Icon<'a>> {
         let mut parts = name.strip_prefix("icon|")?.splitn(4, '|');
+        let (sf, view_box, path, svg) =
+            (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+        Icon::of_row(sf, view_box, path, svg)
+    }
+
+    /// The icon a plan `icons` row is, from its fields as stored (its path
+    /// with its rule's marker, as in the source form): what every reader of
+    /// the table builds. `None` for a rule it doesn't know (the build never
+    /// writes one: drawing nothing beats drawing wrong), a marker with no
+    /// path (or only whitespace), or a second `:` after the marker
+    /// (`evenodd:evenodd:M…`, C2 round 1). Path data holds no `:`, so a `:`
+    /// is a rule's, and one rule is all a path has.
+    pub fn of_row(sf: &'a str, view_box: &'a str, path: &'a str, svg: &'a str) -> Option<Icon<'a>> {
+        let (path, even_odd) = match path.split_once(':') {
+            None => (path, false),
+            Some(("evenodd", d)) if !d.trim().is_empty() && !d.contains(':') => (d, true),
+            Some(_) => return None,
+        };
         Some(Icon {
-            sf: parts.next()?,
-            view_box: parts.next()?,
-            path: parts.next()?,
-            svg: parts.next()?,
+            sf,
+            view_box,
+            path,
+            svg,
+            even_odd,
         })
+    }
+
+    /// The source form a host reads, after `symbol:` (as the build writes a
+    /// literal, and the runner a computed source from a row).
+    pub fn form(&self) -> String {
+        let rule = if self.even_odd { Self::EVEN_ODD } else { "" };
+        format!(
+            "icon|{}|{}|{rule}{}|{}",
+            self.sf, self.view_box, self.path, self.svg
+        )
     }
 }
 
@@ -244,20 +287,44 @@ pub struct SymbolPath<'a> {
     pub d: &'a str,
     /// Filled, else stroked (a role's outline).
     pub filled: bool,
-    /// Filled even-odd (a `-fill` role's silhouette), else nonzero (an icon).
+    /// Filled even-odd (a `-fill` role's silhouette, or an icon whose SVG
+    /// says so, stage 14 C2), else nonzero.
     pub even_odd: bool,
     /// Its viewBox, `min-x min-y width height`: a role's is `0 0 24 24`.
     pub view_box: &'a str,
 }
 
+/// Whose shapes a host that draws paths gives the roles (LLP 1115.001 D14):
+/// the schema's `symbolGlyphs`, where a platform's own symbols draw a role
+/// differently from the table's path.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SymbolSet {
+    /// The table's own paths: the web's, and the Linux desktop's neutral
+    /// look (LLP 1115.000 D17).
+    #[default]
+    Web,
+    /// Windows: Segoe Fluent Icons' shapes.
+    Fluent,
+    /// Android: Material Symbols' shapes.
+    Material,
+}
+
 /// The path a name after `symbol:` draws: a role, an icon token's form, or
 /// `sf/<name>` that is a role's Apple name; `None` for a name no path draws.
 pub fn symbol_path(name: &str) -> Option<SymbolPath<'_>> {
+    symbol_path_in(name, SymbolSet::Web)
+}
+
+/// [`symbol_path`] for a host that draws `set`'s shapes: a role that set
+/// draws as its own takes that shape, by any of its spellings, as the
+/// lowering reads a literal (`sf/chevron.backward` is `back`). An icon
+/// token is the author's own image and draws as written.
+pub fn symbol_path_in(name: &str, set: SymbolSet) -> Option<SymbolPath<'_>> {
     if let Some(icon) = Icon::parse(name) {
         return (!icon.path.is_empty()).then_some(SymbolPath {
             d: icon.path,
             filled: true,
-            even_odd: false,
+            even_odd: icon.even_odd,
             view_box: icon.view_box,
         });
     }
@@ -268,7 +335,16 @@ pub fn symbol_path(name: &str) -> Option<SymbolPath<'_>> {
             .find(|r| crate::generated::symbol(r).is_some_and(|s| s.0 == sf))?,
         None => portable_role(name),
     };
-    crate::generated::symbol(role).map(|(_, d, filled)| SymbolPath {
+    let platform = match set {
+        SymbolSet::Web => None,
+        SymbolSet::Fluent => Some("fluent"),
+        SymbolSet::Material => Some("material"),
+    };
+    let (d, filled) = match platform.and_then(|p| crate::generated::symbol_glyph(role, p)) {
+        Some(glyph) => glyph,
+        None => crate::generated::symbol(role).map(|(_, d, filled)| (d, filled))?,
+    };
+    Some(SymbolPath {
         d,
         filled,
         even_odd: filled,
@@ -301,6 +377,98 @@ mod tests {
         assert_eq!(symbol_path(&format!("sf/{}", back.0)), Some(role));
         assert_eq!(symbol_path("sf/flag.checkered"), None);
         assert_eq!(apple_symbol_name("sf/flag.checkered"), "flag.checkered");
+    }
+
+    /// Stage 14 C2: an even-odd icon's path starts `evenodd:`, which
+    /// `Icon` strips into its rule, from a source and from a row alike; a
+    /// nonzero icon is as before; an unknown rule, or a marker with no path,
+    /// is no icon; `form` writes the marker back.
+    #[test]
+    fn an_even_odd_icons_marker_is_its_rule() {
+        use super::Icon;
+        let source = "icon||0 0 24 24|evenodd:M0 0h4v4H0Z;M1 1h2v2H1Z|icons/ring.svg";
+        let icon = Icon::parse(source).unwrap();
+        assert_eq!(
+            (icon.path, icon.even_odd, icon.view_box, icon.svg),
+            (
+                "M0 0h4v4H0Z;M1 1h2v2H1Z",
+                true,
+                "0 0 24 24",
+                "icons/ring.svg"
+            )
+        );
+        assert_eq!(icon.form(), source);
+        let path = symbol_path(source).unwrap();
+        assert_eq!(
+            (path.d, path.filled, path.even_odd),
+            ("M0 0h4v4H0Z;M1 1h2v2H1Z", true, true)
+        );
+        let plain = "icon|heart|0 0 24 24|M0 0h1Z|icons/h.svg";
+        let nonzero = Icon::parse(plain).unwrap();
+        assert_eq!((nonzero.path, nonzero.even_odd), ("M0 0h1Z", false));
+        assert_eq!(
+            nonzero.form(),
+            plain,
+            "a nonzero icon's form is byte-identical"
+        );
+        assert!(!symbol_path(plain).unwrap().even_odd);
+        assert_eq!(
+            Icon::of_row("", "0 0 24 24", "evenodd:M0 0h1Z", ""),
+            Icon::parse("icon||0 0 24 24|evenodd:M0 0h1Z|")
+        );
+        for bad in [
+            "icon||0 0 24 24|nonzero:M0 0h1Z|x.svg",
+            "icon||0 0 24 24|winding:M0 0h1Z|x.svg",
+            "icon||0 0 24 24|evenodd:|x.svg",
+            "icon||0 0 24 24|evenodd:   |x.svg",
+            "icon||0 0 24 24|evenodd:evenodd:M0 0h1Z|x.svg",
+            "icon||0 0 24 24|:M0 0h1Z|x.svg",
+            "icon||0 0 24 24|EvenOdd:M0 0h1Z|x.svg",
+        ] {
+            assert_eq!(Icon::parse(bad), None, "{bad}");
+            assert_eq!(symbol_path(bad), None, "{bad}");
+        }
+        // The marker belongs to an icon's form: on a role's name, nothing.
+        assert_eq!(symbol_path("evenodd:back"), None);
+        assert_eq!(
+            apple_symbol_name("icon|heart|0 0 24 24|evenodd:M0 0h1Z|x.svg"),
+            "heart"
+        );
+    }
+
+    /// LLP 1115.001 D14: Windows and Android draw `back` as an arrow and
+    /// `more` as bare dots, Android `share` as its own mark; the web keeps
+    /// the table's chevron and circled ellipsis. A role spelled another way
+    /// (Apple's name, `sf/` it) is the role; an icon is kept.
+    #[test]
+    fn a_platform_draws_its_own_back_and_more() {
+        use super::{symbol_path_in, SymbolSet};
+        let web = |name| symbol_path(name).unwrap();
+        for name in ["back", "more", "share", "close"] {
+            assert_eq!(symbol_path_in(name, SymbolSet::Web), Some(web(name)));
+        }
+        let fluent = |name| symbol_path_in(name, SymbolSet::Fluent).unwrap();
+        let material = |name| symbol_path_in(name, SymbolSet::Material).unwrap();
+        // Fluent's arrow is stroked as the table's roles are; Material's is
+        // its published silhouette. Both platforms' dots are filled.
+        assert!(!fluent("back").filled && fluent("back").d != web("back").d);
+        assert!(material("back").filled && material("back").d != web("back").d);
+        for more in [fluent("more"), material("more")] {
+            assert!(more.filled && more.even_odd && more.d != web("more").d);
+        }
+        assert_ne!(fluent("more"), material("more"), "a row, and a column");
+        assert_ne!(material("share"), web("share"));
+        assert_eq!(
+            fluent("share"),
+            web("share"),
+            "Windows keeps the table's share"
+        );
+        assert_eq!(fluent("close"), web("close"));
+        assert_eq!(fluent("chevron-backward"), fluent("back"));
+        let sf = format!("sf/{}", crate::generated::symbol("back").unwrap().0);
+        assert_eq!(symbol_path_in(&sf, SymbolSet::Fluent), Some(fluent("back")));
+        let icon = "icon|chevron.backward|0 0 24 24|M0 0h1Z|icons/back.svg";
+        assert_eq!(symbol_path_in(icon, SymbolSet::Material), symbol_path(icon));
     }
 
     /// A computed source spells a role as a literal may: by Apple's name or

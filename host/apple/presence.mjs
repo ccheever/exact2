@@ -57,6 +57,38 @@ export function associatedDomains(auth, debuggable) {
   return (auth?.associatedDomains ?? []).map((d) => debuggable && passkeys.has(d) ? `${d}?mode=developer` : d);
 }
 
+/** Sign in with Apple's entitlement, which follows the signing, not the grant (LLP 1133.014 D7): a simulator takes it;
+ * a device's profile must authorize it, and reading that from the profile is not built, so a device build signs none. */
+export function signInEntitlement(auth, simulator) {
+  return (auth?.signIn?.apple ?? []).length && simulator ? { 'com.apple.developer.applesignin': ['Default'] } : {};
+}
+
+/** A grant's entitlement's value (`reach.entitlements`): `true`, or the string the build chooses (LLP 1133.028 D15
+ * item 1). App Attest's environment is `development` for a debuggable build and `production` for a release; Apple
+ * uses production for TestFlight and App Store builds whatever it says. */
+export function entitlementValue(name, debuggable) {
+  if (name === 'com.apple.developer.devicecheck.appattest-environment') return debuggable ? 'development' : 'production';
+  return true;
+}
+
+/** The device rows whose entitlement a Mac takes only with a provisioning profile (LLP 1133.028 D17): App Attest's
+ * environment and the Declared Age Range. */
+const MAC_PROFILE_ROWS = { attestation: 'attestationStatus().available is false and attest fails NotSupportedError',
+  'age-range': 'ageRangeStatus().available is false and requestAgeRange fails NotSupportedError' };
+
+/** What a macOS build of `app` says of those rows, or refuses: a development build signs neither entitlement, and a
+ * release build granting either is refused (`grant-needs-profile`), as a passkey line is. */
+export function macProfileRows(app, ceiling, { release = false, log = console.log } = {}) {
+  const rows = String(ceiling).split('\n').map((line) => line.trim().split(/\s+/)[0])
+    .filter((w) => w?.startsWith('device.') && MAC_PROFILE_ROWS[w.slice(7)]).map((w) => w.slice(7));
+  if (!rows.length) return;
+  const lines = rows.map((r) => `device.${r}`).join(', ');
+  const one = rows.length === 1;
+  const why = `${one ? 'its entitlement needs' : 'their entitlements need'} a macOS provisioning profile for ${app.id}, and signing a Mac build with one is not built yet (LLP 1133.010 D7)`;
+  if (release) throw new Error(`grant-needs-profile: ${lines}: ${why}.`);
+  log(`${lines}: this build signs ${one ? 'no entitlement for it' : 'neither entitlement'}, since ${why}: ${rows.map((r) => MAC_PROFILE_ROWS[r]).join('; ')} outside the agent.`);
+}
+
 /** What a macOS build of `app` says of its passkey lines, or refuses (LLP 1133.011 D6): `webcredentials:` is a
  * restricted entitlement on macOS, which only a provisioning profile authorizes (TN3125), and signing a Mac build
  * with one is not built. So the build signs no associated domain, its ceremonies fail `NotSupportedError`, and a
@@ -68,4 +100,13 @@ export function macPasskeys(app, ceiling, { release = false, log = console.log }
   const why = `the Associated Domains entitlement needs a macOS provisioning profile for ${app.id}, and signing a Mac build with one is not built yet (LLP 1133.010 D7)`;
   if (release) throw new Error(`grant-needs-profile: ${lines}: ${why}.`);
   log(`Passkeys: this build signs no associated domain, since ${why}: getClientCapabilities().available is false and create and get fail NotSupportedError.`);
+}
+
+/** @ref LLP 1133.034 D13 — the `payment.apple-pay` grants' merchant IDs, where they can be signed: on a simulator, or
+ * with a profile whose entitlements (`allows`) include Apple Pay's. Elsewhere (an ad hoc Mac build) Apple Pay is
+ * unavailable, and a profile without it would refuse the build. */
+export function merchantEntitlement(reach, { simulator = false, team = null, allows = [] } = {}) {
+  const merchants = reach?.payments?.merchantIds ?? [];
+  const signable = (simulator && !team) || allows.includes('com.apple.developer.in-app-payments');
+  return merchants.length && signable ? { 'com.apple.developer.in-app-payments': merchants } : {};
 }

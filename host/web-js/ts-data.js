@@ -8,12 +8,14 @@
 import * as source from '__APP_TS__';
 import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { answering, files as bodyFiles, SOCKET_AND_FETCH } from './ts-fetch.js';
+import { answering, dropTimers, files as bodyFiles, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
-import { checkpoint, clock, commit, inflight, journal, painted, R, Resources } from './rt.js';
+import { checkpoint, clock, commit, drive, inflight, journal, Origin, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';
 // Work an answer awaits that is no held fetch, counted on its answer (ts-fetch.js `answering.ordinary`, LLP 1016.000 D9).
 const ordinary = start => (answering.ordinary ?? (f => f()))(start);
+// What an answer's timers run on (ts-fetch.js `arm`).
+answering.page = { clock, journal, drive };
 __AUTH_IMPORT__
 // Values cross by the plan's types (`named` into the module's objects,
 // `arrays` back into the runtime's arrays), with each type's converters made
@@ -261,8 +263,14 @@ function storageOf(grants) {
   // handle, not app storage: no store key, so a drive without a scratch
   // store reaches it too, as a Rust source's storage request does.
   let docs;
-  const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.files(grants));
+  // What the app keeps across launches is read back first (LLP 1069.010.000 D4).
+  const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.keeping(source.appId, grants)).then(() => globalThis.exact.documents.files(grants));
+  // In the storage queue, as every storage call is (an overlay refuses it).
+  const keptDocuments = (what, f) => ordinary(() => queued(what, () => documents().then(() => f(globalThis.exact.documents))).catch(refused));
+  let listWatched = false;
   const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
+  // A document copied into an app file needs both (documents-glue.js `copyFile`).
+  const copiesIn = (m, args) => m === 'copyFile' && typeof args[0] === 'string' && args[0].startsWith('doc:/') && typeof args[1] === 'string' && args[1].startsWith('app:/');
   const denied = (op, document = false) => (document ? Promise.resolve() : key()).then(() => {
     throw Object.assign(new Error(`denied: ${op}`), { kind: 'Unavailable', code: 'denied' });
   });
@@ -323,19 +331,23 @@ function storageOf(grants) {
     if (typeof path !== 'string' || !path.startsWith('doc:/')) throw new TypeError(`${api}: path must be a doc:/ path`);
     const recursive = !!options?.recursive, topic = `${recursive ? 'doc-watch-recursive:' : 'doc-watch:'}${path}`;
     watch(topic);
+    // `doc:/` itself is the kept list (LLP 1069.010.000 D5).
+    if (path === 'doc:/') return void (listWatched || documents().then(() => { if (!listWatched) globalThis.exact.documents.onList(() => announce(topic, 'changed')); listWatched = true; }).catch(() => {}));
     documents().then(() => globalThis.exact.documents.observe(path, recursive, grants, () => announce(topic, 'changed'))).catch(() => {});
   };
   const expecting = (m, args) => ['writeFile', 'atomicWriteFile', 'appendFile'].includes(m) && args[2]?.expect;
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
       compressImage: (...a) => ordinary(() => compressImage(...a)), watch: watchDocument,
+      recentDocuments: () => keptDocuments('fs.recentDocuments', d => d.recent(grants)), forgetDocument: path => keptDocuments(`fs.forgetDocument ${path}`, d => d.forget(path, grants)),
       transformImage: (from, to, options) => ordinary(() => image('transformImage', from, to, options, {})),
       ...Object.fromEntries(methods.map(m => [m, (...args) => ordinary(() => {
         // A write's `expect` (LLP 1069.010.000 D2a) is the glue's, documents only.
         if (expecting(m, args) && !isDocument(args)) return Promise.reject(new TypeError(`storage.fs.${m}(): expect is for doc:/ paths`));
         const captured = structuredClone(args);
-        const run = () => isDocument(captured) ? documents().then(f => f[m](...captured)) : files().then(f => f[m](...captured), orEmpty(m, captured[0]));
-        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(refused);
+        const run = () => copiesIn(m, captured) ? documents().then(files).then(f => globalThis.exact.documents.copyFile(captured[0], captured[1], grants, f))
+          : isDocument(captured) ? documents().then(f => f[m](...captured)) : files().then(f => f[m](...captured), orEmpty(m, captured[0]));
+        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured) && !copiesIn(m, captured))).catch(refused);
       })])) }),
     sqlite: Object.freeze({ open: path => ordinary(() => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(refused); }) }),
     work: promise => Promise.resolve(promise),
@@ -362,7 +374,7 @@ export function install(data, mixed = false, modules = null) {
   // paint (rt.js `painted`), whether or not anything asks `later`.
   load = modules && (() => painted().then(modules));
   if (modules && typeof requestAnimationFrame === 'function') pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`));
-  let keys = null, asking = '', thrown = null;
+  let keys = null, asking = '', thrown = null, threwRead = false;
   // The answer an async function was called under, put back around each of
   // its steps by the bundle's async helper (js/bake/src/typescript.mjs
   // `asyncContextHelper`, LLP 1133.002 D14), as Hermes's prelude does with
@@ -396,11 +408,18 @@ export function install(data, mixed = false, modules = null) {
     const types = sourceTypes[name], [params, result] = types ?? [[], 'u'];
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
+    // A call that read the store and then threw read it too: its resource is a store reader (LLP 1146 §2.3).
+    threwRead = false;
+    try { return answerWith(name, args, target, mutation, types, params, result, seen); } catch (e) { threwRead = !!seen.read; throw e; }
+  };
+  const answerWith = (name, args, target, mutation, types, params, result, seen) => {
     // A kept key's work is counted on its answer as an ordinary fetch is (LLP 1016.000 D9).
     for (const name of ['key', 'keepKey']) { const op = seen[name]; seen[name] = (...a) => ordinary(() => op(...a)); }
     asking = target ?? name; watching = name;
     for (const sources of moduleWatched.values()) sources.delete(name);
-    const call = answering.call = { stream: null, mutation, name: target ?? name, turn: true }, target_ = target ?? name;
+    // The origin of the commit that asked it (LLP 1133.002 D12), which a fetch it makes carries (LLP 1133.036 D6).
+    const call = answering.call = { stream: null, mutation, name: target ?? name, turn: true, origin: Origin.now() }, target_ = target ?? name;
+    if (call.origin !== 'app') answering.untraced.add(call);
     // What the source sent goes once the commit that asked it stands: an answer in flight's (a resource's, or a mutation's that
     // answers with a promise) whatever it then answers, a refused commit saying so (LLP 1016.000 D7, amended 2026-10-18).
     const effectsOf = answer => {
@@ -422,10 +441,13 @@ export function install(data, mixed = false, modules = null) {
     if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read, effects }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
-      const settle = () => { call.settled = true; pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
+      call.seen = seen; // a read after an `await` makes a store reader too: rt.js looks when the answer lands (LLP 1146 §2.3)
+      // Once: an answer let go while its timers were armed never settles, and ends here (ts-fetch.js `dropTimers`).
+      const settle = () => { if (call.settled) return; call.settled = true; dropTimers(call); answering.untraced.delete(call); pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
+      call.abandon = settle;
       return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read, effects, call };
     }
-    call.settled = true;
+    call.settled = true; dropTimers(call); answering.untraced.delete(call);
     return { v: conv(shaped(r), result, target_), store: seen.read, effects };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not
@@ -457,9 +479,10 @@ export function install(data, mixed = false, modules = null) {
     let r;
     try { r = handler(args, createSecretFacade(store, tsGrantSet, kept), storage); }
     finally { call.turn = false; asking = ''; answering.call = null; }
-    return Promise.resolve(r).finally(() => { call.settled = true; });
+    return Promise.resolve(r).finally(() => { call.settled = true; dropTimers(call); });
   };
   // A resource's source that sent and then threw: what it sent, which rt.js `ask` queues with the commit.
   data.thrown = () => { const t = thrown ?? []; thrown = null; return t; };
+  data.threwRead = () => { const read = threwRead; threwRead = false; return read; };
   for (const f of data.q.splice(0)) f();
 }

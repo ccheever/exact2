@@ -126,14 +126,19 @@ component DuoLab
   derive current = top(nav)
   derive twoAcross = viewport.horizontalViewportSegments == 2
   derive twoDown = viewport.verticalViewportSegments == 2
-  // Partially folded like a book (two segments across), Combinations and the note
-  // screen, one pane each, take the trailing segment, off the hinge: the default
-  // docs/recipes/foldables.md chooses, as Apple's talk moves an alert there, under the
-  // outer display as the device closes. Segment 0 keeps a pane on the leading side.
+  // Combinations and the note screen are each a pane that does not scroll, so a fold
+  // moves it (docs/recipes/foldables.md). On a book fold (two segments across) it takes
+  // the trailing segment, as Apple's talk moves an alert there, near the outer display as
+  // the device closes. On one segment it is a column at most 480 points wide, about one
+  // panel, so a fold hardly resizes it; it is centred on the display, as UIKit centres a
+  // form sheet there. Its padding keeps only the part of an inset that its margin does
+  // not clear.
   // The tablist's tabs, where it is a bar along the bottom, keep to the trailing segment too.
-  derive paneLeft = twoAcross ? "env(viewport-segment-left 1 0)" : "0px"
-  derive paneWidth = twoAcross ? "env(viewport-segment-width 1 0)" : "100%"
-  derive paneInset = twoAcross ? "0px" : "env(-exact-safe-area-corners-inset-left)"
+  derive gutter = "max(0px, calc((100% - 480px) / 2))"
+  derive paneLeft = twoAcross ? "env(viewport-segment-left 1 0)" : gutter
+  derive paneRight = twoAcross ? "0px" : gutter
+  derive panePadLeft = `max(0px, calc(env(-exact-readable-content-corners-inset-left) - 16px - ${paneLeft}))`
+  derive panePadRight = twoAcross ? "env(-exact-safe-area-corners-inset-right)" : `max(0px, calc(env(-exact-readable-content-corners-inset-right) - 16px - ${gutter}))`
   action choose(id: number)
     selected = id
   action selectTab(name: string)
@@ -197,7 +202,7 @@ component DuoLab
               if t.name == "keyboard"
                 column navigationKey=`${entry.id}` navigationScroll=`keyboard-scroll-${entry.id}` id=`keyboard-route-${entry.id}` hatch="keyboard-route" data-keyboard-screen=entry.name data-focus-on-show=(entry.name == "keyboard-editor" ? "keyboard-editor" : entry.name == "keyboard" and returnFocus ? "keyboard-return" : "") class=Screen background-color=((entry.name == "keyboard" or entry.name == "keyboard-form") ? "-exact-grouped-background" : "Canvas") testId=`screen-${entry.name}`
                   header class=Head display="flex" align-items="center" gap=8
-                    text (entry.name == "keyboard" ? "Keyboard Check" : entry.name == "keyboard-form" ? "Far focus" : entry.name == "keyboard-search" ? "Search" : "Editor") role="heading" aria-level=2
+                    text (entry.name == "keyboard" ? "Keyboard Check" : entry.name == "keyboard-form" ? "Far Focus" : entry.name == "keyboard-search" ? "Search" : "Editor") role="heading" aria-level=2
                     if entry.name == "keyboard-form"
                       button press=checkFocusFirst retainFocus=true testId="keyboard-focus-first"
                         text "First"
@@ -332,7 +337,7 @@ component DuoLab
                         column testId="pane-detail" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
                           Detail(items=items, selected=selected)
                   if entry.name == "combos"
-                    column flex=1 min-height=0 margin-left=paneLeft width=paneWidth class=Safe padding-left=(twoAcross ? paneInset : "max(0px, calc(env(-exact-readable-content-corners-inset-left) - 16px))") padding-right=(twoAcross ? "env(-exact-safe-area-corners-inset-right)" : "max(0px, calc(env(-exact-readable-content-corners-inset-right) - 16px))")
+                    column flex=1 min-height=0 margin-left=paneLeft margin-right=paneRight class=Safe padding-left=panePadLeft padding-right=panePadRight
                       text "Combinations" class=Title testId="combos-title"
                       text "Push a screen, open its sheet, raise the keyboard, then fold." class=Note
                       column padding=16 gap=12
@@ -340,7 +345,7 @@ component DuoLab
                           text "Push the note screen" font-size=16 font-weight=600 color="AccentColorText"
                         text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="-exact-secondary-label"
                   if entry.name == "note"
-                    column flex=1 min-height=0 margin-left=paneLeft width=paneWidth class=Safe padding-left=(twoAcross ? paneInset : "max(0px, calc(env(-exact-readable-content-corners-inset-left) - 16px))") padding-right=(twoAcross ? "env(-exact-safe-area-corners-inset-right)" : "max(0px, calc(env(-exact-readable-content-corners-inset-right) - 16px))")
+                    column flex=1 min-height=0 margin-left=paneLeft margin-right=paneRight class=Safe padding-left=panePadLeft padding-right=panePadRight
                       row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12
                         button press=back testId="note-back" padding=8 border-radius=8 background-color="-exact-tertiary-fill"
                           text "Back" font-size=14 font-weight=600 color="AccentColor"
@@ -354,7 +359,7 @@ component DuoLab
                     // at most zero while the route reaches the segment and past any cap once it ends
                     // a point or more above it, then lifts the segment's cap, and the sheet riding
                     // the keyboard takes the room below the header.
-                    column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=0 height=sheetPx max-height=(twoDown ? "min(calc(100% - env(-exact-safe-area-corners-inset-top) - 72px), max(calc(100% - env(viewport-segment-top 0 1)), calc((env(viewport-segment-top 0 1) - 100%) * 1000)))" : "calc(100% - 72px)") box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
+                    column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=paneRight height=sheetPx max-height=(twoDown ? "min(calc(100% - env(-exact-safe-area-corners-inset-top) - 72px), max(calc(100% - env(viewport-segment-top 0 1)), calc((env(viewport-segment-top 0 1) - 100%) * 1000)))" : "calc(100% - 72px)") box-sizing="border-box" padding=16 padding-right=`calc(max(0px, env(-exact-safe-area-corners-inset-right) - ${paneRight}) + 16px)` padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=`calc(max(0px, env(-exact-safe-area-corners-inset-left) - ${paneLeft}) + 16px)` gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
                       column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
                         text "Note" font-size=18 font-weight=600
                         text "Drag to resize" font-size=11 color="-exact-secondary-label"

@@ -231,6 +231,24 @@ test('stdio preserves malformed replies and leaves state refusals unlabelled', a
   readable.destroy(); writable.destroy();
 });
 
+// LLP 1143 D1: a suspended app answers nothing, so its pushed "background" fails what waits at once, and later ops
+// until it is back; the reply owed to the failed op is dropped when it comes, never taken as the next op's.
+test('an app that leaves the foreground fails the pending op and later ones until it is back', async () => {
+  const readable = new PassThrough(), writable = new PassThrough(), host = [];
+  const lines = jsonLines(readable, writable, host);
+  const pending = lines.ask({ op: 'clock', settle: true });
+  readable.write('{"pushed":"background"}\n');
+  await assert.rejects(pending, /left the foreground/);
+  await assert.rejects(lines.ask({ op: 'tree' }), /left the foreground/);
+  readable.write('{"pushed":"foreground"}\n');
+  const next = lines.ask({ op: 'tree' });
+  readable.write(JSON.stringify({ clock: 20 }) + '\n'); // the clock's reply, owed to the failed op
+  readable.write(JSON.stringify({ nodes: [] }) + '\n');
+  assert.deepEqual(await next, { nodes: [] });
+  assert.ok(host.includes('app: left the foreground') && host.includes('app: back in the foreground'), host.join('\n'));
+  readable.destroy(); writable.destroy();
+});
+
 test('the driver grammar names an unquoted mediasession action beside pinch', () => {
   const source = readFileSync(new URL('./agent.mjs', import.meta.url), 'utf8');
   const header = source.split('\n').slice(0, 16).join('\n');
@@ -856,4 +874,26 @@ test('main parses drag after a quoted target and across tab separators', async (
   assert.deepEqual(calls.map(([target, drag]) => [target, drag.dx, drag.dy]), [['Please drag me', 0, 120], ['grip', 0, 120], ['Please drag me', 0, 120]]);
   assert.equal(calls[2][1].during.length, 1);
   assert.deepEqual(calls[2][1].path, [{ dx: 0, dy: -120 }]);
+});
+
+
+test('native live observation preserves virtual metadata without seeking or settling', async () => {
+  const calls = [];
+  const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) { calls.push(req); return { live: { to: 777, clockMode: 'virtual', clockChanged: false, performanceClaim: false }, virtual: true }; } };
+  const s = await open({ reuse: carrier });
+  const result = await s.perf(null, { live: 50 });
+  assert.equal(result.live.clockMode, 'virtual');
+  assert.equal(result.live.performanceClaim, false);
+  assert.deepEqual(calls, [{ op: 'perf', frames: true, live: 50 }]);
+  assert.equal(s.now, 777);
+});
+
+test('state marks a resource declaration unavailable when no compatible map exists', async () => {
+  const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask() { return { planDigest: 'absent', resourceStatus: { rows: {} } }; } };
+  const s = await open({ reuse: carrier });
+  const reply = await s.state();
+  assert.deepEqual(reply.resourceStatus.rows.declaration,
+    { status: 'unavailable', reason: 'no compatible development source map' });
 });

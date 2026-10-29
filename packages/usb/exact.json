@@ -1,0 +1,277 @@
+{
+  "kind": "interface",
+  "name": "@exact/usb",
+  "version": "1.0.0",
+  "grants": ["device.usb"],
+  "permission": {
+    "name": "usb",
+    "grants": ["device.usb"],
+    "status": "usbStatus",
+    "field": "state",
+    "denied": "SecurityError",
+    "initial": { "android": "prompt", "*": "granted" }
+  },
+  "agent": {
+    "devices": "USBDeviceFixture[]"
+  },
+  "devices": {
+    "word": "devices",
+    "kind": "usb",
+    "connection": ["configuration", "claimed"],
+    "record": ["id", "usbVersionMajor", "usbVersionMinor", "usbVersionSubminor", "deviceClass", "deviceSubclass", "deviceProtocol", "vendorId", "productId", "deviceVersionMajor", "deviceVersionMinor", "deviceVersionSubminor", "manufacturerName", "productName", "serialNumber", "configuration", "configurations", "connected", "granted"],
+    "fill": {
+      "usbVersionMajor": 2, "usbVersionMinor": 0, "usbVersionSubminor": 0,
+      "deviceClass": 0, "deviceSubclass": 0, "deviceProtocol": 0,
+      "deviceVersionMajor": 1, "deviceVersionMinor": 0, "deviceVersionSubminor": 0,
+      "vendorId": 0, "productId": 0, "manufacturerName": "", "productName": "", "configurations": [],
+      "connected": true, "granted": true
+    },
+    "absent": ["ios", "tvos", "terminal"]
+  },
+  "shapes": {
+    "USBStatus": {
+      "available": "bool",
+      "attachedList": "bool",
+      "state": "enum<granted|prompt|denied>"
+    },
+    "USBEndpoint": {
+      "endpointNumber": "number",
+      "direction": "enum<in|out>",
+      "type": "enum<bulk|interrupt|isochronous>",
+      "packetSize": "number"
+    },
+    "USBAlternateInterface": {
+      "alternateSetting": "number",
+      "interfaceClass": "number",
+      "interfaceSubclass": "number",
+      "interfaceProtocol": "number",
+      "interfaceName": "option<string>",
+      "endpoints": "USBEndpoint[]"
+    },
+    "USBInterface": {
+      "interfaceNumber": "number",
+      "alternates": "USBAlternateInterface[]"
+    },
+    "USBConfiguration": {
+      "configurationValue": "number",
+      "configurationName": "option<string>",
+      "interfaces": "USBInterface[]"
+    },
+    "USBDeviceRecord": {
+      "id": "string",
+      "usbVersionMajor": "number",
+      "usbVersionMinor": "number",
+      "usbVersionSubminor": "number",
+      "deviceClass": "number",
+      "deviceSubclass": "number",
+      "deviceProtocol": "number",
+      "vendorId": "number",
+      "productId": "number",
+      "deviceVersionMajor": "number",
+      "deviceVersionMinor": "number",
+      "deviceVersionSubminor": "number",
+      "manufacturerName": "string",
+      "productName": "string",
+      "serialNumber": "option<string>",
+      "configuration": "option<number>",
+      "configurations": "USBConfiguration[]",
+      "connected": "bool",
+      "granted": "bool"
+    },
+    "USBDeviceFilter": {
+      "vendorId": "option<number>",
+      "productId": "option<number>",
+      "classCode": "option<number>",
+      "subclassCode": "option<number>",
+      "protocolCode": "option<number>",
+      "serialNumber": "option<string>"
+    },
+    "USBOpened": {
+      "connection": "handle<usb>",
+      "device": "USBDeviceRecord"
+    },
+    "USBConnection": {
+      "open": "bool",
+      "connected": "bool",
+      "configuration": "option<number>",
+      "claimed": "number[]"
+    },
+    "USBControlTransferParameters": {
+      "requestType": "enum<standard|class|vendor>",
+      "recipient": "enum<device|interface|endpoint|other>",
+      "request": "number",
+      "value": "number",
+      "index": "number"
+    },
+    "USBInTransferResult": {
+      "status": "enum<ok|stall|babble>",
+      "data": "string"
+    },
+    "USBOutTransferResult": {
+      "status": "enum<ok|stall|babble>",
+      "bytesWritten": "number"
+    },
+    "USBDeviceFixture": {
+      "id": "string",
+      "vendorId": "number",
+      "productId": "number",
+      "productName": "option<string>",
+      "deviceClass": "option<number>",
+      "configurations": "option<USBConfiguration[]>",
+      "connected": "option<bool>",
+      "granted": "option<bool>"
+    }
+  },
+  "names": [
+    {
+      "source": "usbStatus",
+      "live": true,
+      "answers": "USBStatus",
+      "sync": { "name": "usbStatusSync", "from": "read" },
+      "substitute": {
+        "default": { "available": true, "attachedList": true, "state": "granted" },
+        "targets": {
+          "web": { "attachedList": false },
+          "ios": { "available": false, "attachedList": false, "state": "denied" },
+          "tvos": { "available": false, "attachedList": false, "state": "denied" },
+          "terminal": { "available": false, "attachedList": false, "state": "denied" }
+        }
+      }
+    },
+    {
+      "send": "requestDevice",
+      "origin": "app",
+      "foreground": true,
+      "gesture": true,
+      "options": {
+        "filters": "USBDeviceFilter[]",
+        "exclusionFilters": "option<USBDeviceFilter[]>"
+      },
+      "answers": "USBDeviceRecord",
+      "substitute": { "device": { "role": "request", "cancel": { "error": "NotFoundError" } }, "unsupported": ["linux"] }
+    },
+    {
+      "source": "getDevices",
+      "live": true,
+      "answers": "USBDeviceRecord[]",
+      "substitute": { "device": { "role": "remembered" } }
+    },
+    {
+      "source": "attachedDevices",
+      "live": true,
+      "options": { "filters": "USBDeviceFilter[]" },
+      "answers": "USBDeviceRecord[]",
+      "substitute": { "device": { "role": "attached" }, "unsupported": ["web"] }
+    },
+    {
+      "send": "open",
+      "origin": "app",
+      "foreground": true,
+      "options": { "device": "string" },
+      "answers": "USBOpened",
+      "handles": { "connection": "usb" },
+      "substitute": { "device": { "role": "open", "by": "device" } }
+    },
+    {
+      "source": "usbConnection",
+      "live": true,
+      "options": { "connection": "handle<usb>" },
+      "answers": "USBConnection",
+      "substitute": { "device": { "role": "connection" } }
+    },
+    {
+      "send": "selectConfiguration",
+      "origin": "app",
+      "options": { "connection": "handle<usb>", "configurationValue": "number" },
+      "answers": null,
+      "substitute": { "device": { "role": "write", "sets": "configuration" } }
+    },
+    {
+      "send": "claimInterface",
+      "origin": "app",
+      "options": { "connection": "handle<usb>", "interfaceNumber": "number" },
+      "answers": null,
+      "substitute": { "device": { "role": "write", "claims": true } }
+    },
+    {
+      "send": "releaseInterface",
+      "origin": "app",
+      "options": { "connection": "handle<usb>", "interfaceNumber": "number" },
+      "answers": null,
+      "substitute": { "device": { "role": "write", "claims": false } }
+    },
+    {
+      "send": "selectAlternateInterface",
+      "origin": "app",
+      "options": { "connection": "handle<usb>", "interfaceNumber": "number", "alternateSetting": "number" },
+      "answers": null,
+      "substitute": { "device": { "role": "write", "claimed": "interfaceNumber" } }
+    },
+    {
+      "send": "controlTransferIn",
+      "origin": "app",
+      "contract": false,
+      "options": { "connection": "handle<usb>", "setup": "USBControlTransferParameters", "length": "number" },
+      "answers": "USBInTransferResult",
+      "substitute": {
+        "device": {
+          "role": "keyed",
+          "at": "control.in {setup.requestType} {setup.recipient} {setup.request} {setup.value} {setup.index}",
+          "missing": { "status": "stall", "data": "" },
+          "recipient": "setup"
+        }
+      }
+    },
+    {
+      "send": "controlTransferOut",
+      "origin": "app",
+      "contract": false,
+      "options": { "connection": "handle<usb>", "setup": "USBControlTransferParameters", "data": "option<string>" },
+      "answers": "USBOutTransferResult",
+      "substitute": { "device": { "role": "write", "answer": "written", "recipient": "setup" } }
+    },
+    {
+      "send": "transferIn",
+      "origin": "app",
+      "contract": false,
+      "options": { "connection": "handle<usb>", "endpointNumber": "number", "length": "number" },
+      "answers": "USBInTransferResult",
+      "substitute": { "device": { "role": "keyed", "at": "endpoints.{endpointNumber}.in", "missing": { "status": "stall", "data": "" } } }
+    },
+    {
+      "send": "transferOut",
+      "origin": "app",
+      "contract": false,
+      "options": { "connection": "handle<usb>", "endpointNumber": "number", "data": "string" },
+      "answers": "USBOutTransferResult",
+      "substitute": { "device": { "role": "write", "answer": "written" } }
+    },
+    {
+      "send": "clearHalt",
+      "origin": "app",
+      "options": { "connection": "handle<usb>", "direction": "enum<in|out>", "endpointNumber": "number" },
+      "answers": null,
+      "substitute": { "device": { "role": "write" } }
+    },
+    {
+      "send": "reset",
+      "origin": "app",
+      "options": { "connection": "handle<usb>" },
+      "answers": null,
+      "substitute": { "device": { "role": "write" } }
+    },
+    {
+      "send": "close",
+      "options": { "connection": "handle<usb>" },
+      "answers": null,
+      "substitute": { "device": { "role": "close" } }
+    },
+    {
+      "send": "forget",
+      "origin": "app",
+      "options": { "device": "string" },
+      "answers": null,
+      "substitute": { "device": { "role": "forget" } }
+    }
+  ]
+}

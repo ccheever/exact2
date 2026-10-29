@@ -8,6 +8,10 @@
 
 use exact_runner::{CallOrigin, Dispatch, Outcome, Reply, Response, Runner, Work};
 use serde_json::{json, Value as Json};
+#[cfg(unix)]
+use std::os::unix::fs::symlink as symlink_dir;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_dir;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -59,7 +63,7 @@ impl App {
         std::fs::create_dir_all(path.join("node_modules/@exact")).unwrap();
         for package in ["contacts", "calendar"] {
             let to = packages.join(package).canonicalize().unwrap();
-            std::os::unix::fs::symlink(to, path.join("node_modules/@exact").join(package)).unwrap();
+            symlink_dir(to, path.join("node_modules/@exact").join(package)).unwrap();
         }
         std::fs::write(path.join("app.contract"), source.replace("EVENT", EVENT)).unwrap();
         Self(path.canonicalize().unwrap())

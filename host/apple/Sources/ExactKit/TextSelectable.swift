@@ -45,8 +45,7 @@ extension NodeView {
             default: break
             }
             let role = node.props["accessibilityRole"] ?? ""
-            if node.pressable || node.isButton || node.isSurfaceControl || node.kind == "control"
-                || Self.controlRoles.contains(role) { return false }
+            if node.isControl { return false }
             let tag = node.props["semanticTag"] ?? ""
             if tag == "article" || role == "article" || role == "document" { document = true }
             if ["header", "nav", "footer"].contains(tag) || Self.chromeRoles.contains(role) { chrome = true }
@@ -69,8 +68,12 @@ extension NodeView {
         return found
     }
     private static let controlRoles: Set<String> = ["button", "link", "tab", "menuitem", "menuitemcheckbox", "menuitemradio",
-                                                    "option", "checkbox", "radio", "switch", "treeitem"]
+                                                    "option", "checkbox", "radio", "switch", "treeitem", "slider", "spinbutton"]
     private static let chromeRoles: Set<String> = ["toolbar", "tablist", "menubar", "menu", "listbox", "tree"]
+    /// A control: a node a press acts on, a button, or one in a control's role
+    var isControl: Bool {
+        pressable || isButton || isSurfaceControl || kind == "control" || Self.controlRoles.contains(props["accessibilityRole"] ?? "")
+    }
     #if !os(macOS)
     /// Whether a press here does something: its own action, its link, or
     /// the popover or command a button names (the Mac's `pressable`).

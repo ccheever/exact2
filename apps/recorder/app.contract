@@ -27,6 +27,7 @@ shape Kept
 component Recorder
   state trackId = ""
   state recorderId = ""
+  state takeName = ""
   state recognitionId = ""
   // The take a file recognition is transcribing, while it runs.
   state transcribing = ""
@@ -50,15 +51,18 @@ component Recorder
   mutation fileStarted as shape SpeechRecognitionInfo then fileBegun
   mutation fileDone as shape SpeechRecognitionInfo then fileNoted
   mutation transcriptKept as shape Kept refreshes library
-  mutation installed as shape SpeechRecognitionInstall
+  mutation installed as shape SpeechRecognitionInstall refreshes language, speech
   derive recording = recorderId != ""
+  derive visibleTakes = library.takes.filter(t => t.name != takeName)
   derive busy = pending(opened) or pending(started) or pending(saved)
   derive denied = mic.state == "denied"
+  derive cannotRecord = busy or (not recording and (denied or not mic.available))
   derive speechOff = speech.state == "denied"
   // A live transcript where the recognizer shares the take's track; Transcribe where it reads a file; neither
   // where it must own the microphone (D8).
-  derive live = speech.available and speech.local and not speechOff and speech.inputs.includes("track")
-  derive fromFile = speech.available and speech.local and not speechOff and speech.inputs.includes("file")
+  derive speechReady = speech.available and speech.local and not speechOff and language.availability == "available"
+  derive live = speechReady and speech.inputs.includes("track")
+  derive fromFile = speechReady and speech.inputs.includes("file")
   derive lastHeard = heard.results.slice(-2).map(r => r.alternatives.slice(0, 1).map(a => a.transcript).join("")).join(" ")
   derive interimHeard = match heard.interim { case some(i) => i.alternatives.slice(0, 1).map(a => a.transcript).join(""), case none => "" }
   action toggle
@@ -78,7 +82,9 @@ component Recorder
     match opened
       case some(s)
         trackId = match s.tracks.at(0) { case some(t) => t.id, case none => "" }
-        send started = startMediaRecorder(stream=s.id, path=`app:/data/takes/take-${library.next}`)
+        let name = `take-${library.next}`
+        takeName = name
+        send started = startMediaRecorder(stream=s.id, path=`app:/data/takes/${name}`)
       case none
         trackId = ""
   action begun
@@ -86,9 +92,10 @@ component Recorder
       case some(r)
         recorderId = r.id
         if live
-          send listening = startSpeechRecognition(track=trackId, continuous=true, interimResults=true, processLocally=true, transcript=`app:/data/takes/take-${library.next}.transcript`)
+          send listening = startSpeechRecognition(track=trackId, continuous=true, interimResults=true, processLocally=true, transcript=`app:/data/takes/${takeName}.transcript`)
       case none
         recorderId = ""
+        takeName = ""
   action listened
     match listening
       case some(r)
@@ -107,6 +114,7 @@ component Recorder
         send stopped = stopTrack(track=trackId)
         trackId = ""
         recorderId = ""
+        takeName = ""
       case none
         recorderId = recorderId
   // The live transcript is complete when it ended by this stop, not aborted or by an error.
@@ -146,7 +154,7 @@ component Recorder
         text (lastHeard + (interimHeard == "" ? "" : " " + interimHeard)) testId="live-transcript" font-size=14 color="-exact-secondary-label"
       row gap=12 align-items="center"
         // System red and AccentColorText do not guarantee 4.5:1 on every host.
-        button press=toggle disabled=(busy or denied or not mic.available) testId="toggle" padding=12 border-radius=24 background-color=(recording ? "light-dark(#b91c1c, #ff4245)" : "AccentColor")
+        button press=toggle disabled=cannotRecord opacity=(cannotRecord ? 0.4 : 1) testId="toggle" padding=12 border-radius=24 background-color=(recording ? "light-dark(#b91c1c, #ff4245)" : "AccentColor")
           text (recording ? "Stop" : "Record") color="light-dark(#ffffff, #000000)" font-weight=600
         if recording
           button press=pause testId="pause" padding=12 border-radius=24 background-color="-exact-secondary-background"
@@ -165,19 +173,27 @@ component Recorder
         text "Speech recognition is off for Recorder, so takes record without transcripts." testId="speech-denied" font-size=13 color="-exact-secondary-label"
         button press=openSettings testId="speech-settings"
           text "Open Settings"
-      if speech.available and not speech.local and not speechOff
+      if speech.available and not speechOff and language.availability != "available"
         text "Transcripts need an on-device language." testId="speech-local" font-size=13 color="-exact-secondary-label"
         if language.availability == "downloadable"
-          button press=install testId="speech-install"
-            text "Download"
+          button press=install disabled=pending(installed) testId="speech-install"
+            text (pending(installed) ? "Downloading…" : "Download")
+        if language.availability == "downloading"
+          text "Downloading language…" testId="speech-downloading"
+        match installed
+          case some(result)
+            if not result.installed
+              text "The language could not be installed. Try again." testId="speech-install-failed"
+          case none
+            text ""
       match kept
         case some(k)
           text k.message testId="saved-message" font-size=13 color="light-dark(#166534, #7ee2a8)"
         case none
           text "" font-size=13
-      text (library.takes.length == 0 ? "No takes yet." : "Takes") font-size=16 font-weight=600 testId="takes-heading"
+      text (visibleTakes.length == 0 ? "No takes yet." : "Takes") font-size=16 font-weight=600 testId="takes-heading"
       column gap=6 testId="takes"
-        for take in library.takes key=take.name
+        for take in visibleTakes key=take.name
           column gap=6 padding=10 border-radius=8 background-color="-exact-secondary-background" testId=("take-" + take.name)
             text take.label font-size=14
             audio src=take.path controls=true preload="metadata" width="100%" testId=("play-" + take.name)

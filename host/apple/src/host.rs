@@ -2,13 +2,12 @@
 //!
 //! @ref LLP 1008 §1
 //!
-//! After every commit the host walks the receipt (destroy, create, props,
-//! style, children — the web host's rule: the view tree mirrors the kernel
-//! tree), feeds the motion engine the commit (LLP 1003 §4), and seeks it to
-//! the app's clock before laying out the roots under the viewport. Layout
-//! projects the explicitly registered Height, then emits changed frames and
-//! scroll content sizes; other presentation values follow. The kernel is the single source of
-//! truth; the mirror is a memo of what the presenter has been told.
+//! After every commit the host walks the receipt (destroy, create, props, style, children — the
+//! web host's rule: the view tree mirrors the kernel tree), feeds the motion engine the commit
+//! (LLP 1003 §4), and seeks it to the app's clock before laying out the roots under the viewport.
+//! Layout projects the explicitly registered Height, then emits changed frames and scroll content
+//! sizes; other presentation values follow. The kernel is the single source of truth; the mirror
+//! is a memo of what the presenter has been told.
 
 use crate::{batch::Batch, style};
 use exact_kernel::motion::{motion_node, node_key, targets, MotionSync};
@@ -98,6 +97,8 @@ use layout::{content_size, published_content_box};
 mod resize;
 #[path = "scale.rs"]
 mod scale;
+#[path = "share_in.rs"]
+mod share_in;
 #[path = "snapshot.rs"]
 pub(crate) mod snapshot;
 pub(crate) use scale::LaunchLayout;
@@ -257,8 +258,8 @@ pub struct Host<D: DataSource> {
     colors_seen: Option<u64>,
     /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
     facts_told: Option<(f64, Vec<(String, String)>)>,
-    /// Whether the wake lock was held as a batch last said it (`Host::wakelock_moved`).
-    wakelock_told: Option<bool>,
+    /// The wake lock and the orientation lock as a batch last said them (`Host::wakelock_moved`, `Host::orientation_moved`).
+    holds_told: (Option<bool>, Option<String>),
     /// The top-layer boxes covered while closed (`closed.rs`).
     closed: layout::closed::Closed,
 }
@@ -577,7 +578,7 @@ impl<D: DataSource> Host<D> {
             delivery,
             colors_seen: None,
             facts_told: None,
-            wakelock_told: None,
+            holds_told: (None, None),
             closed: Default::default(),
         };
         let mut batch = Batch::new();
@@ -774,6 +775,7 @@ impl<D: DataSource> Host<D> {
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
         self.runner.set_retry_reader(io.retry_reader());
+        self.runner.set_listen_reader(io.listen_reader());
     }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {
@@ -995,13 +997,6 @@ impl<D: DataSource> Host<D> {
         self.advance_in_layout_steps(now_ms)
     }
 
-    /// The `then`s an agent's input settled, the clock unmoved
-    /// ([`exact_runner::Runner::land_then`]).
-    pub fn land_then(&mut self) -> String {
-        let a = self.runner.land_then();
-        self.advanced(a)
-    }
-
     /// Whether this host's display drives frame tasks (LLP 1073 D4): off when
     /// the agent's clock takes over, so its advances fire virtual frames.
     pub fn present_frames(&mut self, on: bool) {
@@ -1039,7 +1034,7 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         batch.controls = self.option_part(view);
         let error = match self.runner.kernel_mut().set_intrinsic_size(view, size) {
-            Ok(()) => self.layout(&mut batch).err(),
+            Ok(()) => self.layout_resized(view, &mut batch).err(),
             Err(e) => Some(format!("intrinsic: {e:?}")),
         };
         self.finish(batch, error)
@@ -1057,6 +1052,7 @@ impl<D: DataSource> Host<D> {
             if let Err(e) = self.runner.kernel_mut().set_intrinsic_size(view, size) {
                 error.get_or_insert(format!("intrinsic: {e:?}"));
             }
+            self.inline_image_resized(view, &mut batch);
         }
         if let Err(e) = self.layout(&mut batch) {
             error.get_or_insert(e);

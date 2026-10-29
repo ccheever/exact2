@@ -1,0 +1,24 @@
+dev.bakeoff.expenses.ba282f1: UITableView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 23.72 s of motion
+  ok    hitch ratio (ms/s)                     0
+  ok    longest frame (ms)                     16.7
+  ok    main thread p95 (ms/frame)             4.12
+  ok    tracking ratio                         1.005
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       502
+  ok    momentum hand-off (content/asked)      1.05
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.77
+  ok    rubber band (overscroll/finger)        0.48
+  ok    rubber band settle (s)                 0.54
+  ok    status-bar scroll to top (s)           0.97
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              49
+  tell  scrub: longest frame (ms)              45.8
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  18 ok, 1 tell, 1 bad
+  where the scrub's late frames' main-thread time went:
+    scrub: 8 late frames (0 on a timer's tick), 163 ms late; app code 195 ms (in UIKit 129); in display links and ports 156 ms, events 21 ms, the main queue 18 ms

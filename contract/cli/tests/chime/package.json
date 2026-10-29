@@ -1,0 +1,9 @@
+{
+  "name": "@fixture/chime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A module outside exact2's tree that proves the seam LLP 1133.030 stage 0 adds: a permission that requires another on one target, an app's list with a due time, the person's choices and in-place updates, and the declared checks.",
+  "exports": {
+    ".": "./exact.json"
+  }
+}

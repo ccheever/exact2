@@ -36,6 +36,66 @@ pub struct Carried {
     pub modes: Vec<(String, String)>,
 }
 
+impl<D: super::DataSource> super::Runner<D> {
+    /// Everything a reload keeps.
+    pub fn carry(&self) -> Carried {
+        Carried {
+            router: self.carry_router(),
+            data_revision: self.data.revision().map(str::to_owned),
+            keeps_answers: self.keeping.on,
+            slots: self
+                .plan
+                .slots
+                .iter()
+                .zip(&self.slots)
+                .filter(|(s, _)| s.owner.is_none())
+                .map(|(s, v)| (self.plan.str(s.name).to_string(), v.clone()))
+                .collect(),
+            panels: self.carry_panels(),
+            resources: self
+                .plan
+                .resources
+                .iter()
+                .zip(&self.resources)
+                .enumerate()
+                // A request in flight or a placeholder shown until the
+                // source is ready is not an answer to carry, nor one a
+                // write affects: the replacement runner asks it.
+                .filter(|(i, _)| !self.pending_res[*i] && !self.stale[*i] && !self.written(*i))
+                .filter(|(_, (_, s))| s.as_ref().is_none_or(|s| !s.placeholder))
+                .filter_map(|(_, (r, s))| {
+                    s.as_ref().map(|s| {
+                        (
+                            self.plan.str(r.name).to_string(),
+                            self.plan.str(r.source).to_string(),
+                            s.args.clone(),
+                            s.value.get(&self.plan).clone(),
+                        )
+                    })
+                })
+                .collect(),
+            store_readers: self
+                .plan
+                .resources
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| self.store_readers[*i])
+                .map(|(_, resource)| {
+                    (
+                        self.plan.str(resource.name).to_string(),
+                        self.plan.str(resource.source).to_string(),
+                    )
+                })
+                .collect(),
+            now_ms: self.now_ms,
+            store: self.store.snapshot(),
+            forgot_waiting: self.queued(),
+            faults: (!self.faults.is_empty()).then(|| self.faults.spec()),
+            modes: self.modes(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

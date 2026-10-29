@@ -4,6 +4,89 @@ import XCTest
 @testable import ExactKit
 @testable import ExactGroupedLists
 
+final class GroupedPaddingIOSTests: GroupedListFixture {
+    func testHorizontalPaddingInsetsSectionsAndIsNotReportedAsACardMargin() throws {
+        for appearance in ["plain", "grouped", "inset-grouped"] {
+            for direction in ["ltr", "rtl"] {
+                let p = presenter(style: ["direction": direction]) { self.model(appearance, custom: true) }
+                // Without a scene the list layout's environment stays left to
+                // right whatever the list's direction.
+                guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+                    throw missing("scene", "a right-to-left list lays out right to left only in a scene's window")
+                }
+                window.isHidden = true
+                window = UIWindow(windowScene: scene)
+                window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+                window.addSubview(p.viewport)
+                window.makeKeyAndVisible()
+                defer { window.isHidden = true }
+                let l = try list(p), collection = l.collection
+                p.apply(wireBatch([contentOp(1, 402, 874, padding: [12, 0, 23, 0])]))
+                func frames() throws -> [CGRect] {
+                    collection.layoutIfNeeded()
+                    return try [IndexPath(item: 0, section: 0), IndexPath(item: 1, section: 1)].map {
+                        try XCTUnwrap(collection.layoutAttributesForItem(at: $0)).frame
+                    } + [UICollectionView.elementKindSectionHeader, UICollectionView.elementKindSectionFooter].map {
+                        try XCTUnwrap(collection.layoutAttributesForSupplementaryElement(ofKind: $0, at: IndexPath(item: 0, section: 0))).frame
+                    }
+                }
+                let original = try frames(), margins = try XCTUnwrap(l.margins())
+                let port = collection.frame
+                // Other owners can add room for refresh and keyboard avoidance.
+                collection.contentInset.top += 31
+                collection.contentInset.bottom += 47
+                let insets = collection.contentInset
+                for (left, right) in [(230.0 / 3, 0.0), (31.0, 17.0), (0.0, 0.0)] {
+                    // A resolved padding can change without a style or frame change.
+                    p.apply(wireBatch([contentOp(1, 402, 874, padding: [12, right, 23, left])]))
+                    let note = "\(appearance), \(direction), padding \(left)/\(right)"
+                    let padded = try frames()
+                    for (before, after) in zip(original, padded) {
+                        XCTAssertEqual(after.minX, before.minX + left, accuracy: 0.5, note)
+                        XCTAssertEqual(after.maxX, before.maxX - right, accuracy: 0.5, note)
+                    }
+                    let reported = try XCTUnwrap(l.margins())
+                    for (before, after) in zip(margins, reported) {
+                        XCTAssertEqual(after, before, accuracy: 0.5, "CSS padding is not a native margin: \(note)")
+                    }
+                    XCTAssertEqual(collection.frame, port, "padding leaves the scroll port intact")
+                    XCTAssertEqual(collection.contentInset, insets, "horizontal padding preserves the other inset owners")
+                    p.apply(wireBatch([]))
+                    XCTAssertEqual(try frames(), padded, "a remount keeps the section geometry")
+                }
+            }
+        }
+    }
+
+    /// A plain list's header is measured at the width it is drawn at, its padding taken off.
+    func testAPlainHeaderWrappedByThePaddingIsAsTallAsItsText() throws {
+        let heading = "Announcements, events and plans for the season ahead"
+        let p = presenter { GroupedListModel(style: "plain", sections: [.init(view: 2, header: heading, footer: nil, rows: [Row(view: 10, title: "Profile", pressable: true)])]) }
+        defer { window.isHidden = true }
+        let collection = try list(p).collection, path = IndexPath(item: 0, section: 0)
+        func header() throws -> (frame: CGRect, needs: CGFloat) {
+            collection.layoutIfNeeded()
+            let view = try XCTUnwrap(collection.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: path))
+            let needs = view.systemLayoutSizeFitting(CGSize(width: view.bounds.width, height: 0), withHorizontalFittingPriority: .required,
+                                                     verticalFittingPriority: .fittingSizeLevel).height
+            func labels(_ v: UIView) -> [UILabel] { (v as? UILabel).map { [$0] } ?? v.subviews.flatMap(labels) }
+            let label = labels(view).first
+            XCTAssertGreaterThan(label?.bounds.width ?? 0, view.bounds.width / 2, "the heading's text takes the header's width")
+            return (view.frame, needs)
+        }
+        p.apply(wireBatch([contentOp(1, 402, 874, padding: [0, 0, 0, 0])]))
+        let full = try header()
+        p.apply(wireBatch([contentOp(1, 402, 874, padding: [0, 0, 0, 200])]))
+        let padded = try header()
+        XCTAssertEqual(padded.frame.minX, 200, accuracy: 0.5)
+        XCTAssertEqual(padded.frame.minY, full.frame.minY, accuracy: 0.5, "the padding moves the heading sideways only")
+        XCTAssertGreaterThan(padded.frame.height, full.frame.height + 1, "the heading wraps to more lines in the padded width")
+        XCTAssertGreaterThanOrEqual(padded.frame.height + 0.5, padded.needs, "and its frame holds them")
+        let row = try XCTUnwrap(collection.layoutAttributesForItem(at: path)).frame
+        XCTAssertGreaterThanOrEqual(row.minY + 0.5, padded.frame.maxY, "the row starts under the heading")
+    }
+}
+
 /// A grouped list's custom row starts where a standard row's text does: at
 /// its cell's layout margin, which UIKit widens from 16 to 20 points on a
 /// wide screen (the iPhone Duo's inner panel, an iPhone in landscape); on

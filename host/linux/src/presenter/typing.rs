@@ -304,7 +304,10 @@ impl<D: DataSource> Presenter<D> {
         repeat: bool,
     ) -> Result<String, String> {
         if down && !self.alert_allows(id) {
-            return Err(format!("view {id} is inert under the alert"));
+            return Err(format!("view {id} is inert under the open surface"));
+        }
+        if down {
+            self.key_shows_ring(key);
         }
         self.restore_controls();
         // A release's `keyup` handlers at the focus first (#140), whatever
@@ -489,7 +492,7 @@ impl<D: DataSource> Presenter<D> {
         self.focus_refusal(id).is_none()
             && explicit.is_none_or(|i| i >= 0)
             && self.focusable(id)
-            && boxed.contains(&id)
+            && (boxed.contains(&id) || self.inline_box(id).is_some())
     }
 
     /// Tab's default action, HTML's sequential focus navigation (LLP 1088
@@ -507,10 +510,23 @@ impl<D: DataSource> Presenter<D> {
         now_ms: f64,
         include: impl Fn(&Self, ViewId) -> bool,
     ) -> Option<String> {
-        let boxed = self.shown_boxes();
+        let boxed = self
+            .shown_boxes()
+            .into_iter()
+            .filter(|id| include(self, *id))
+            .collect();
+        self.move_focus_in(backward, now_ms, &boxed)
+    }
+
+    pub(super) fn move_focus_in(
+        &mut self,
+        backward: bool,
+        now_ms: f64,
+        boxed: &BTreeSet<ViewId>,
+    ) -> Option<String> {
         let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
         for (at, id) in self.host.preorder().into_iter().enumerate() {
-            if self.tabbable(id, &boxed) && include(self, id) {
+            if self.tabbable(id, boxed) {
                 let index = self
                     .host
                     .kernel()
@@ -566,6 +582,27 @@ impl<D: DataSource> Presenter<D> {
         self.key_down_with(name, "", false, now_ms);
     }
 
+    /// A key shows the ring a press left off, as Chrome's `:focus-visible`
+    /// starts to match on a keydown that holds none of Ctrl, Alt or Meta
+    /// (Shift alone counts), before any handler or shortcut hears it. On
+    /// Windows any key counts (`winui_focus`): WinUI's keyboard processor
+    /// marks the keyboard as the last input for a modifier too, as Windows
+    /// has shown hidden focus rectangles when Alt is pressed
+    /// (`WM_UPDATEUISTATE`).
+    pub(crate) fn key_shows_ring(&mut self, name: &str) {
+        let held = self.modifiers();
+        let winui = self.brush.winui_focus;
+        if winui
+            || (!(held.ctrl || held.alt || held.meta)
+                && !matches!(name, "Control" | "Alt" | "Meta" | "AltGraph"))
+        {
+            self.brush.keyless = false;
+            if self.brush.ringless.take().is_some() {
+                self.dirty = true;
+            }
+        }
+    }
+
     /// [`Self::key_down`] with the key's physical position (`code`) and
     /// whether it is an auto-repeat, which its `KeyboardEvent` carries.
     pub(crate) fn key_down_with(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
@@ -574,6 +611,7 @@ impl<D: DataSource> Presenter<D> {
         let mark = self.hatch_key_mark();
         // A key on a held node (the focus there) lets its hold go (LLP 1122 D8).
         self.hold_input(self.focus);
+        self.key_shows_ring(name);
         self.key_pressed(name, code, repeat, now_ms);
         self.hatch_key(mark, name, code, true, repeat);
     }
@@ -585,7 +623,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         // An open surface of the top layer takes every key (`top.rs`).
-        if self.surface_key(name, now_ms) {
+        if self.alert_key(name, code, repeat, now_ms) || self.surface_key(name, now_ms) {
             return;
         }
         // The page's shortcuts first, focus or none (`shortcuts.rs`); a
@@ -609,13 +647,7 @@ impl<D: DataSource> Presenter<D> {
             if prevented || self.focus.is_some() {
                 return;
             }
-            if name == "Tab" {
-                if let Some(e) = self.move_focus(self.modifiers().shift, now_ms) {
-                    eprintln!("exact: {e}");
-                }
-            } else if let Some(d) = remote::Direction::of(name).filter(|_| self.remote()) {
-                self.move_focus_toward(d, now_ms);
-            }
+            self.key_default(name, code, repeat, now_ms);
             return;
         };
         // A bar's target is no box of the page's: the remote's keys there are
@@ -648,6 +680,11 @@ impl<D: DataSource> Presenter<D> {
         if prevented || self.focus != Some(id) {
             return;
         }
+        self.key_default(name, code, repeat, now_ms);
+    }
+
+    /// Default keyboard behavior shared by the page and authored top-layer boxes.
+    pub(super) fn key_default(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
         // Tab's default action moves the focus, from a canvas or a field too,
         // as the browser's does (LLP 1088 D7.3).
         if name == "Tab" {
@@ -656,6 +693,14 @@ impl<D: DataSource> Presenter<D> {
             }
             return;
         }
+        let Some(id) = self.focus else {
+            if let Some(d) = remote::Direction::of(name).filter(|_| self.remote()) {
+                self.move_focus_toward(d, now_ms);
+            } else {
+                self.desktop_scroll_key(name);
+            }
+            return;
+        };
         // A remote's Select and arrows (LLP 1115.001.003 D3).
         if self.remote_key(id, (name, code, repeat), now_ms) {
             return;
@@ -687,6 +732,9 @@ impl<D: DataSource> Presenter<D> {
         if self.radio_key(id, name, now_ms) {
             return;
         }
+        if self.desktop_scroll_key(name) {
+            return;
+        }
         // The field's own keys: the caret and selection, editing the text it
         // shows (typed text kept against its bound value; LLP 1069.001 D4).
         self.field_key(id, name, now_ms);
@@ -696,7 +744,7 @@ impl<D: DataSource> Presenter<D> {
     /// on blur or Enter (LLP 1069.001 D4). `None` when nothing was
     /// dispatched; else the dispatch's error, if any.
     pub(crate) fn commit_text(&mut self, id: ViewId, now_ms: f64) -> Option<Option<String>> {
-        if self.edited != Some(id) {
+        if self.edited != Some(id) || self.ime_owns(id) {
             return None;
         }
         self.edited = None;
@@ -740,6 +788,9 @@ impl<D: DataSource> Presenter<D> {
     /// What a field shows and commits: its typed text while its bound
     /// value is the one it had then (`keep_typed`), else that value.
     pub(crate) fn field_text(&self, id: ViewId) -> String {
+        if let Some(value) = self.ime_value(id) {
+            return value.to_owned();
+        }
         let Some(node) = self.host.kernel().node(id) else {
             return String::new();
         };

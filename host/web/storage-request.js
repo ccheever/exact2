@@ -1,6 +1,6 @@
 // Portable Rust storage operations use the same filesystem and SQLite services
 // as TS. Handles never cross this boundary. @ref LLP 1027.001 D2.
-import { createFileSystem, requestBody } from './storage-fs.js';
+import { bodyTarget, createFileSystem, requestBody } from './storage-fs.js';
 import { createSqlite } from './storage-sqlite.js';
 import { agentStorageRefusal, storageKey } from './storage-environment.js';
 import { grantError } from './grant-admission.js';
@@ -35,6 +35,8 @@ const edit = args => Object.fromEntries(['rotate','flip','crop'].filter(k=>args[
 function base64(bytes) { let text='';for (let i=0;i<bytes.length;i+=16384)text+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(text); }
 export function createStorageRequests(appId, admitted) {
   const services = new Map(), key = storageKey(appId); let disposed = false;
+  // What the app keeps across launches is read back before a request reaches it (LLP 1069.010.000 D4).
+  const kept = globalThis.exact.documents.keeping(appId, admitted);
   // Each database's requests take turns. The worker opens a database under
   // its file's exclusive lock, in one queue per page: a second open waiting
   // for the lock there holds back the first's queries and close, and both
@@ -58,10 +60,18 @@ export function createStorageRequests(appId, admitted) {
         const request=JSON.parse(payload), {op,args}=request;
         scope ??= admitted;
         const invalid=grantError(scope);if(invalid)throw new Error(invalid);
+        // `fs.recentDocuments` and `fs.forgetDocument` (LLP 1069.010.000 D5): the page's kept handles.
+        if (op==='fs.recentDocuments'||op==='fs.forgetDocument') {
+          await kept;
+          const value=op==='fs.recentDocuments'?await globalThis.exact.documents.recent(scope):await globalThis.exact.documents.forget(args?.path,scope);
+          return encoder.encode(JSON.stringify(value??null));
+        }
         // Two app files, never a document (LLP 1069.002 A1.1): refused before the document branch.
         if ((op==='fs.compressImage'||op==='fs.transformImage') && ![args?.path,args?.destination].every(p=>typeof p==='string'&&p.startsWith('app:/'))) throw new Error(op.slice(3)+': needs app:/ paths');
         // A document the person chose is not app storage (LLP 1069.010 D1).
-        if (request.version===1 && typeof args?.path==='string' && args.path.startsWith('doc:/')) {
+        // A document copied into an app file needs app storage too (documents-glue.js `copyFile`).
+        const copiesIn=op==='fs.copyFile'&&typeof args?.path==='string'&&args.path.startsWith('doc:/')&&typeof args.destination==='string'&&args.destination.startsWith('app:/');
+        if (request.version===1 && typeof args?.path==='string' && args.path.startsWith('doc:/') && !copiesIn) {
           const data=['fs.writeFile','fs.atomicWriteFile','fs.appendFile'].includes(op)?bytes(args):null;
           const encoded=encoder.encode(JSON.stringify(await globalThis.exact.documents.run(op,args,data,scope)??null));
           if(encoded.length>maxBytes)throw new Error('storage result exceeds its byte limit');
@@ -72,7 +82,7 @@ export function createStorageRequests(appId, admitted) {
           if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
           throw new Error(agentStorageRefusal);
         }
-        if (request.version!==1 || !args || typeof args.path!=='string' || !args.path.startsWith('app:/')) throw new Error('invalid portable storage request');
+        if (request.version!==1 || !args || typeof args.path!=='string' || !(args.path.startsWith('app:/') || copiesIn)) throw new Error('invalid portable storage request');
         const scopeKey=scope.seal;
         if (!services.has(scopeKey)) services.set(scopeKey,{fs:createFileSystem(key,scope),sqlite:createSqlite(key,scope)});
         const {fs,sqlite}=services.get(scopeKey); let value;
@@ -100,7 +110,10 @@ export function createStorageRequests(appId, admitted) {
           switch(op) {
             case 'fs.readFile':value={base64:base64(new Uint8Array(await fs.readFile(args.path)))};break;
             case 'fs.writeFile':case 'fs.atomicWriteFile':case 'fs.appendFile':value=await fs[op.slice(3)](args.path,bytes(args));break;
-            case 'fs.rename':case 'fs.copyFile':
+            case 'fs.copyFile':
+              if(copiesIn){value=await globalThis.exact.documents.copyFile(args.path,args.destination,scope,fs);break;}
+            // falls through
+            case 'fs.rename':
               if(typeof args.destination!=='string'||!args.destination.startsWith('app:/'))throw new Error('portable storage needs an app:/ destination');
               value=await fs[op.slice(3)](args.path,args.destination);break;
             case 'fs.compressImage':
@@ -124,4 +137,4 @@ export function createStorageRequests(appId, admitted) {
   };
 }
 
-if(globalThis.exact){globalThis.exact.createStorageRequests=createStorageRequests;globalThis.exact.requestBody=requestBody;}
+if(globalThis.exact){globalThis.exact.createStorageRequests=createStorageRequests;globalThis.exact.requestBody=requestBody;globalThis.exact.bodyTarget=bodyTarget;}

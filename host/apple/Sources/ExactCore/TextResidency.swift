@@ -19,11 +19,14 @@ package enum TextMetricKey {
         // Only an expanded Markdown run has these; a plain run hashes as
         // its request's does (LLP 1045 D4).
         if r.indent != 0 || r.hang { h.combine(r.indent); h.combine(r.hang) }
+        // An image's box (LLP 1011.002), as its request's hashes.
+        if let b = r.box { h.combine(b) }
     }
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
                r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing),
                Int(r.font_variant_numeric), CGFloat(r.font_stretch), FontAxis.of(r), &h)
+        if let b = InlineBox(r) { h.combine(b) }
     }
     package static func hash(_ spec: Spec) -> Int {
         var h = Hasher()
@@ -79,6 +82,7 @@ package enum TextMetricKey {
             && Int(raw.font_variant_numeric) == owned.numeric
             && CGFloat(raw.font_stretch) == owned.stretch
             && FontAxis.of(raw) == owned.variations
+            && InlineBox(raw) == owned.box
     }
     package static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;
@@ -143,6 +147,7 @@ extension Spec {
         var value = self
         value.color = [0, 0, 0, 255]
         value.ellipsis = false
+        value.antialiased = false
         value.source = SourceMap()
         for i in value.runs.indices {
             value.runs[i].hidden = false
@@ -200,9 +205,11 @@ package struct TextPaint: Hashable {
     package let runs: [Inline]
     private let clamp: Inline?
     package let ellipsis: Bool
+    package let antialiased: Bool
     package init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
+        antialiased = spec.antialiased
         runs = spec.runs.map(Inline.init)
         if spec.lineClamp > 0, var block = spec.strut ?? spec.runs.first {
             if block.shadow == spec.shadow { block.shadow = nil }
@@ -213,6 +220,7 @@ package struct TextPaint: Hashable {
         var spec = identity.geometry
         spec.color = color
         spec.ellipsis = ellipsis
+        spec.antialiased = antialiased
         for i in spec.runs.indices { runs[i].apply(to: &spec.runs[i]) }
         if var block = spec.strut, let clamp {
             clamp.apply(to: &block)

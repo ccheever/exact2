@@ -32,15 +32,19 @@
 // 1116.020 D4, `largestText`); the web also runs the tests again at that size and reads screens they only pass through
 // (`largeTour`).
 //
-//   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
+//   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]
 import { LAUNCH_MEDIA } from './agent-prefer.mjs';
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { availableParallelism, loadavg, networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { findings as feelFindings, summary as feelSummary } from '../host/apple/feel/analyze.mjs';
 import { compilerWarnings } from './app-cli.mjs';
 import { guardFlags } from './help.mjs';
 import { holderOf, takePort } from './port-lock.mjs';
+import { backendOriginSelection, privateNetwork } from '../js/bake/src/typescript.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The web's two widths: a phone's, and a desktop window's. */
@@ -73,6 +77,13 @@ function importsOf(dir, path) {
   return found;
 }
 
+/** Whether `origin` is served from this machine: a loopback address, or a private-network one that names
+ *  one of this machine's interfaces (a phone's development build reaches the checkout's fixture there). */
+export function onThisMachine(origin) {
+  return /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin)
+    || privateNetwork(origin) && Object.values(networkInterfaces()).flat().some(n => n?.address === new URL(origin).hostname.replace(/^\[|\]$/g, ''));
+}
+
 /** The server URL the data module calls: the first local one (`http://127.0.0.1:8787`, or localhost) in app.ts, else in
  * a module of the app's own that it imports (`import { API } from './api'`); null when it calls none. */
 export function serverUrl(dir) {
@@ -98,22 +109,27 @@ function readsDB(dir, entry) {
  * `args`. null without a server; else `why` says what keeps it
  * from being run when the app calls no local URL (null when nothing does), `refusal` (LLP 1116.008 D1) the one line for an
  * entry that needs a database but does not read `DB`, which `test` and `verify` stop on. */
-export function appServer(dir) {
-  let named = null, args = [], manifest = {};
+export function appServer(dir, env = process.env) {
+  let named = null, serverArgs = [], manifest = {};
   try { manifest = JSON.parse(readIn(dir, 'app.json') ?? '{}') ?? {}; } catch {}
   const argv = manifest.commands?.server, database = manifest.server?.database !== false;
   if (Array.isArray(argv) && /(^|\/)bun$/.test(argv[0])) {
     const index = argv.findIndex((a, i) => i > 0 && !a.startsWith('-'));
-    if (index >= 0) { named = argv[index]; args = argv.slice(index + 1); }
+    if (index >= 0) { named = argv[index]; serverArgs = argv.slice(index + 1); }
   }
   const entry = [named, 'server.ts', 'server/index.ts', 'server/server.ts'].find((p) => p && readIn(dir, p) != null);
   if (!entry) return null;
-  const url = serverUrl(dir);
+  const fixture = /(^|[/\\])fixtures?[/\\]/.test(entry);
+  const selected = fixture ? backendOriginSelection(dir, env) : null;
+  const local = selected && onThisMachine(selected.origin);
+  const url = selected ? local ? selected.origin : null : serverUrl(dir);
   const why = !url ? `${entry} is left alone: app.ts calls no local URL (http://127.0.0.1:<port>), so where the app reaches it is unknown` : null;
   const refusal = url && database && !readsDB(dir, entry)
     ? `${entry}${entry === named ? ' (app.json\'s commands.server)' : ''} does not read its database's path from DB, so it cannot be run on an empty one: write new Database(process.env.DB ?? 'data.db') in it or a module it imports, or name the entry that does in app.json: "commands": { "server": ["bun", "server/index.ts"] }`
     : null;
-  return { entry, args: entry === named ? args : [], database, url, port: url ? Number(new URL(url).port) : null, why, refusal };
+  const port = url ? Number(new URL(url).port || (new URL(url).protocol === 'https:' ? 443 : 80)) : null;
+  if (selected && local) { const at = serverArgs.indexOf('--port'); if (at >= 0) serverArgs[at + 1] = String(port); }
+  return { entry, args: entry === named ? serverArgs : [], database, url, port, why, refusal, ...(fixture ? { fixture: true } : {}) };
 }
 
 function serverEnv(server, db) {
@@ -134,6 +150,38 @@ export function heldLine(server) {
   const pid = spawnSync('lsof', ['-nP', `-iTCP:${server.port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' }).stdout?.match(/^p(\d+)/m)?.[1];
   const command = pid ? commandLine(pid).slice(0, 60) : '';
   return `${server.url} already answers${pid ? ` (pid ${pid}${command ? `: ${command}` : ''})` : ''}, and the tests would ${server.database ? "write into that server's database" : 'change that server\'s state'}: stop it (${pid ? `kill ${pid}` : 'Ctrl-C where it runs'}) and run this again, which starts ${server.entry} itself${server.database ? ' on an empty one' : ''}`;
+}
+
+/** Keep the URL appServer accepted, including its path and explicit default port, for exact record comparisons. */
+export function recordedServerAddress(value) {
+  if (typeof value !== 'string') return null;
+  let url; try { url = new URL(value); } catch { return null; }
+  const authority = /^[a-z]+:\/\/([^/]*)/i.exec(value)?.[1];
+  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || !authority || authority.includes('@') || value.includes('?') || value.includes('#')) return null;
+  return { url: value, port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)) };
+}
+
+/** A managed server needs this directory's launch record and the recorded process still listening. */
+function ownsServer(dir, server, expectedPid, child = null) {
+  const listeners = process.platform === 'win32'
+    ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-NetTCPConnection -State Listen -LocalPort ${server.port} -ErrorAction SilentlyContinue).OwningProcess`], { encoding: 'utf8' }).stdout?.match(/\d+/g) ?? []
+    : [...(spawnSync('lsof', ['-nP', `-iTCP:${server.port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' }).stdout?.matchAll(/^p(\d+)/gm) ?? [])].map(m => m[1]);
+  const root = realpathSync(dir), lease = resolve(dir, '.exact/agent-server');
+  for (const pid of listeners) {
+    if (expectedPid !== undefined && Number(pid) !== expectedPid) continue;
+    let record; try { record = JSON.parse(readFileSync(resolve(lease, `server-${pid}`), 'utf8')); } catch { continue; }
+    if (!record || record.directory !== root || record.origin !== server.url || !alive(Number(pid))) continue;
+    const command = commandLine(pid);
+    if (!command.includes(server.entry)) continue;
+    // CIM exposes no cwd. A copied record cannot vouch for one; only this invocation's child can.
+    if (process.platform === 'win32') {
+      if (child?.pid === Number(pid) && child.exitCode == null) return true;
+      continue;
+    }
+    const cwd = spawnSync('lsof', ['-a', '-p', pid, '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout?.match(/^n(.+)$/m)?.[1];
+    try { if (cwd && realpathSync(cwd) === root) return true; } catch { /* The process or its directory disappeared. */ }
+  }
+  return false;
 }
 
 /** Runs `kill` when this process ends however it does (a signal ends it with the shell's code too); the function returned
@@ -215,17 +263,29 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
   const lease = resolve(dir, '.exact/agent-server'), mine = resolve(lease, `drive-${process.pid}`), starting = resolve(lease, 'starting');
   const db = !server.database ? null : storage ? resolve(dir, '.exact/agent', storage.replace(/[^\w.-]+/g, '-'), 'db.sqlite') : resolve(lease, 'db.sqlite');
   const files = (kind) => { try { return readdirSync(lease).filter((f) => f.startsWith(`${kind}-`)).map((f) => [resolve(lease, f), Number(f.slice(kind.length + 1))]); } catch { return []; } };
+  let spawned = null;
   mkdirSync(lease, { recursive: true });
   writeFileSync(mine, '');
-  // This drive is out: the servers to end when it was the last one, their files removed.
+  // A refused drive may have found a copied record. Ending it must not lend that record authority to stop a process.
   const leave = () => {
     rmSync(mine, { force: true });
     for (const [file, pid] of files('drive')) if (!alive(pid)) rmSync(file, { force: true });
     if (files('drive').length) return null;
-    return files('server').map(([file, pid]) => { rmSync(file, { force: true }); return pid; })
-      .filter((pid) => alive(pid) && commandLine(pid).includes(server.entry));
+    return files('server').flatMap(([file, pid]) => {
+      // Overlapping drives may choose different ports; each record names the listener to validate.
+      let recordedServer = null;
+      try {
+        const address = recordedServerAddress(JSON.parse(readIn(lease, file))?.origin);
+        if (address) recordedServer = { ...server, ...address };
+      } catch { /* An unknown record grants no authority to stop a process. */ }
+      const ours = spawned?.pid === pid && spawned.exitCode == null || recordedServer && ownsServer(dir, recordedServer, pid);
+      if (!ours && alive(pid)) return [];
+      rmSync(file, { force: true });
+      return ours ? [pid] : [];
+    });
   };
   const clean = () => {
+    if (files('server').length) return;
     if (db) rmSync(lease, { recursive: true, force: true });
     else { rmSync(resolve(lease, 'log'), { force: true }); try { rmdirSync(lease); } catch {} }
   };
@@ -255,7 +315,11 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
       throw new Error(`agent: --storage ${storage} is to start empty, but ${others.length ? `another drive (pid ${others.join(', ')}) is using` : 'something already answers at'} ${server.url}, the app server${db ? ', on its database' : ''}: let it end, or name another store`);
     }
     if (await answering(server.url)) {
-      const other = db && files('server').map(([file]) => readIn(lease, file)).find((was) => was && was !== db);
+      if (server.fixture && !ownsServer(dir, server)) {
+        await stop();
+        throw new Error(`agent: ${server.url} answers, but its fixture does not belong to ${realpathSync(dir)}; use --backend http://127.0.0.1:<free-port> or PORT=<free-port> for this checkout`);
+      }
+      const other = db && files('server').map(([file]) => { try { return JSON.parse(readIn(lease, file)).db; } catch { return null; } }).find((was) => was && was !== db);
       if (other) say(`agent: ${server.entry} at ${server.url} is another drive's, on its database (${relative(dir, other)}); this drive uses it`);
       return { stop };
     }
@@ -263,10 +327,15 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
     if (db && (!storage || fresh)) for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true });
     const log = openSync(resolve(lease, 'log'), 'a');
     const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db), stdin: 'ignore', stdout: 'ignore', stderr: log });
+    spawned = child;
     closeSync(log);
-    writeFileSync(resolve(lease, `server-${child.pid}`), db ?? '');
+    writeFileSync(resolve(lease, `server-${child.pid}`), JSON.stringify({ directory: realpathSync(dir), origin: server.url, db }));
     const why = await untilAnswers(server, child, () => lastError(readIn(lease, 'log') ?? ''));
     if (why) { await stop(); throw new Error(`agent: ${why}`); }
+    if (server.fixture && !ownsServer(dir, server, child.pid, child)) {
+      await stop();
+      throw new Error(`agent: ${server.url} answered before this checkout's fixture owned its port; choose another port with --backend or PORT`);
+    }
     say(`agent: started ${server.entry} at ${server.url} for this drive (${!db ? 'no database' : storage ? `database ${relative(dir, db)}, kept for --storage ${storage}` : 'an empty database'}); stopped after`);
     return { stop };
   } finally { if (locked) rmSync(starting, { force: true }); }
@@ -722,7 +791,8 @@ async function tests(host, app, shots) {
     try {
       const r = await runTests({ host, file, app: app.name, atEnd: (s, t) => atEnd(s, { ...t, index: first + t.index }), ...(i ? { storage: `test${i}` } : {}), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
       out.passed += r.passed; out.failed += r.failed;
-      out.results.push(...r.results.map(({ name, failures, end, store, shots }) => ({ name, file: basename(file), failures, ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })));
+      // A failure the test did not arrange is a finding (LLP 1146 D4): `runTests` says it in a note.
+      out.results.push(...r.results.map(({ name, failures, notes = [], end, store, shots }) => ({ name, file: basename(file), failures, unarranged: notes.filter((n) => n.startsWith('unarranged: ')).map((n) => n.slice(12)), ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })));
     } catch (e) { errors.push(files.length > 1 ? `${basename(file)}: ${e.message}` : e.message); }
   }
   return errors.length ? { ...out, error: errors.join('\n') } : out;
@@ -784,11 +854,106 @@ async function checkAt(host, app, size, store, shots) {
     if (facts) Object.defineProperty(runs, 'seen', { value: facts });
     Object.defineProperty(runs, 'refusals', { value: await refusalsIn(s) });
     if (host === 'ios' || size === WEB_SIZES[0]) Object.defineProperty(runs, 'large', { value: await largestText(s, FIRST) });
+    if (host === 'ios') Object.defineProperties(runs, { tall: { value: await tallContent(s) }, udid: { value: s.carrier?.udid ?? null } });
     return runs;
   } finally {
     await s.close();
     if (host === 'web') await removeBrowserProfile(driveStore(app, store).profile).catch(() => {});
   }
+}
+
+/** Whether the screen `s` shows lays content out well beyond its height, below it or above (a chat opens at its
+ * end): the feel probe's own test (`pickList`, 1.5 × the list's height + 100 pt) made on the screen's height, so a
+ * screen that cannot hold a long list costs no probe. */
+async function tallContent(s) {
+  const l = await s.layout().catch(() => null), h = l?.viewport?.h ?? l?.screen?.h;
+  if (!h) return true;
+  const boxes = (l.nodes ?? []).filter((n) => Number.isFinite(n.y + n.h) && n.h > 0);
+  return boxes.length > 0 && Math.max(...boxes.map((n) => n.y + n.h)) - Math.min(...boxes.map((n) => n.y)) > h * 1.5 + 100;
+}
+
+/** Whether a probe's timing can be judged: the 1-minute load average, at its start or end, no higher than the
+ * cores. Above them, other work (builds) takes the simulator's frames, so a hitch says nothing about the app. */
+const timingJudged = (load) => !load || load.avg <= load.cores;
+/** `--json`'s `scrolling`: the verdict, the metrics found a tell or a bad with UIKit's values, remedies and owner
+ * (`exact`, `app`, `either`: host/apple/feel/analyze.mjs `ownerOf`), the load it ran under, where feel.json
+ * (every number) is, and when it was measured if this run reused it (`reused`). */
+const scrollingOut = (sc) => sc.error ? { error: sc.error, ms: sc.ms }
+  : { ms: sc.ms, verdict: sc.result.verdict, list: sc.result.list ?? null, summary: feelSummary(sc.result),
+    findings: feelFindings(sc.result, null, { timing: timingJudged(sc.load) }), ...(sc.load ? { load: { ...sc.load, timingJudged: timingJudged(sc.load) } } : {}), feel: resolve(sc.out, 'feel.json'),
+    ...(sc.reused ? { reused: new Date(sc.reused).toISOString() } : {}) };
+
+const digest = (value) => createHash('sha256').update(value).digest('hex');
+const fileDigest = (path) => { try { return digest(readFileSync(path)); } catch { return null; } };
+/** What the probe is: its recorder, gestures and analysis, and the touch runner that plays them. */
+const PROBE = ['host/apple/feel/feel.m', 'host/apple/feel/probe.mjs', 'host/apple/feel/analyze.mjs', 'host/apple/touches.mjs'];
+
+/** What can change how the first screen's list scrolls, as one digest, or null when it cannot be told (no build, or
+ * one stale in more than its plan): the build the drive launches (its receipt) and the bake of a plan-only edit it
+ * runs on it (agent-build.mjs `planOverride`), the app's own server and the modules of its own that it imports, the
+ * simulator, and the probe. Any edit to the plan's sources makes another bake or build, so it measures again. */
+export async function scrollKey(app, { udid, server = null } = {}) {
+  const [{ nativeBuild, planOverride, planSource }, { appleArtifacts }] = await Promise.all([import('./agent-build.mjs'), import('../host/apple/build.mjs')]);
+  const receipt = resolve(appleArtifacts(app, { destination: 'ios-simulator' }).bundle, 'receipt.json'), built = fileDigest(receipt);
+  if (!built || !udid) return null;
+  const state = nativeBuild('ios', app, { checked: built });
+  if (state.missing || state.changed.some((path) => !planSource(path, app))) return null;
+  const override = state.changed.length ? planOverride('ios', app, state) : null;
+  if (state.changed.length && !override) return null;
+  const served = server ? [...serverModules(app.dir, server.entry)].sort().map((p) => [p, fileDigest(resolve(app.dir, p))]) : null;
+  return digest(JSON.stringify({ built, plan: override && fileDigest(resolve(override.dir, 'override.json')), served, udid,
+    probe: PROBE.map((p) => fileDigest(resolve(ROOT, p))) }));
+}
+
+/** A server's entry and the modules of the app's own it imports, transitively (at most 40). */
+function serverModules(dir, entry) {
+  const seen = new Set([entry]);
+  for (const path of seen) for (const next of importsOf(dir, path)) if (seen.size < 40) seen.add(next);
+  return seen;
+}
+
+/** Whether the measurement `last` (`{ key, load }`) stands for this run, whose key is `key` and whose load is `now`:
+ * the same key, and timing judged then or not judgeable now either. */
+export const reusable = (last, key, now) => !!key && last?.key === key && (timingJudged(last.load) || !timingJudged(now));
+
+/** How long ago `at` was, in a few words. */
+export const ago = (at, now = Date.now()) => {
+  const min = (now - at) / 60_000;
+  return min < 1 ? 'under a minute ago' : min < 90 ? `${Math.round(min)} min ago` : `${Math.round(min / 60)} h ago`;
+};
+
+/** How the first screen's list scrolls against UIKit's (host/apple/feel): the app launched again on a fresh scratch
+ * store, on real time (`timing: 'platform'`, no `clock`), with the recorder inserted, and the probe's short script of
+ * real touches played on its largest list. `{ ms, out, result, load }` (`result.verdict` is `no-scrollable-list` when
+ * no shown list is long; `load`: the higher 1-minute load average of its start and end, and the cores), or
+ * `{ error }`. A measurement is kept with its `key` (`scrollKey`) and taken again only when the key changed, `force`
+ * (`--rescroll`) asks, or it could not judge timing and the machine now can: a reused one has `reused`, when it was
+ * measured. */
+async function scrolling(app, shots, { key = null, force = false } = {}) {
+  const started = Date.now(), out = resolve(shots, 'ios-feel'), tracePath = resolve(out, 'trace.jsonl'), kept = resolve(out, 'measured.json');
+  const load0 = loadavg()[0];
+  if (!force) {
+    try {
+      const last = JSON.parse(readFileSync(kept, 'utf8'));
+      if (reusable(last, key, { avg: load0, cores: availableParallelism() })) return { ms: last.ms, out, result: JSON.parse(readFileSync(resolve(out, 'feel.json'), 'utf8')), load: last.load, reused: last.at };
+    } catch {}
+  }
+  try {
+    const [{ open }, feel] = await Promise.all([import('./agent.mjs'), import('../host/apple/feel/probe.mjs')]);
+    rmSync(out, { recursive: true, force: true });
+    mkdirSync(out, { recursive: true });
+    writeFileSync(tracePath, '');
+    const s = await open({ host: 'ios', app: app.name, storage: 'verify', env: { EXACT_AGENT_STORAGE_FRESH: '1', ...feel.recorderEnv(tracePath) }, chrome: 'platform', timing: 'platform', touch: 'drag' });
+    let played;
+    try {
+      await Bun.sleep(2500); // its first loads, on real time; the accessibility runtime the touch runner turns on
+      played = await feel.play({ touches: s.carrier.touches, tracePath, script: 'short' });
+    } finally { await s.close(); }
+    const load = { avg: Math.round(Math.max(load0, loadavg()[0]) * 10) / 10, cores: availableParallelism() };
+    const result = feel.finish(out, app.id, played, s.carrier.udid), ms = Date.now() - started;
+    if (key) writeFileSync(kept, JSON.stringify({ key, at: Date.now(), ms, load }) + '\n');
+    return { ms, out, result, load };
+  } catch (e) { return { ms: Date.now() - started, error: e.message }; }
 }
 
 const quoted = (text, n = 40) => JSON.stringify(text.length > n ? `${text.slice(0, n - 1)}…` : text);
@@ -926,6 +1091,7 @@ export function distinctFindings(runs) {
 }
 
 const PLACES = 4; // where a rule's findings are, named after its first in full
+const KINDS_FROM = 10; // findings from which the closing line says their kinds
 
 /** A finding line's rule: a compiler warning's id, else its first word after any `(… only)` tag (`contrast`). */
 export function ruleOf(line) {
@@ -955,10 +1121,13 @@ export function byRule(lines) {
 
 /** The report's lines and its problem count, from what each stage gave; `full`, every finding of each group, one a line,
  *  which verify writes to `listed` (a path the report names when the groups leave any line out). */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, scrolled = null, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null }) {
   const out = [], full = [];
   const all = listed ? `${listed} lists them all` : 'verify --json lists them all';
   let failedTests = 0, findings = 0, broken = 0;
+  // Each counted finding's kind, for the closing line (LLP 1143 D5).
+  const kinds = new Map(), counted = (kind, n = 1) => { if (n > 0) kinds.set(kind, (kinds.get(kind) ?? 0) + n); };
+  const acceptable = new Set(); // the kinds `verify.accept` can take: check's, and fixed type
   // What the host refused while the app ran (LLP 1116.010 D5): first, since each is a call or a wiring the app got wrong.
   if (refused.length) {
     const shownAt = (where) => where.length > 2 ? `${where.slice(0, 2).join(', ')} and ${where.length - 2} more` : where.join(', ');
@@ -966,7 +1135,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(head, ...refused.slice(0, SHOWN).map((r) => `  ${r.line.length > 260 ? `${r.line.slice(0, 259)}…` : r.line} (${shownAt(r.where)})`));
     if (refused.length > SHOWN) out.push(`  … and ${refused.length - SHOWN} more (${all})`);
     full.push(head, ...refused.map((r) => `  ${r.line} (${r.where.join(', ')})`));
-    findings += refused.length;
+    findings += refused.length; counted('refused at run time', refused.length);
   }
   // The app's own server (LLP 1116.006 D3): run on an empty database, or why not; one that died mid-run is a failure.
   if (server?.died) { broken++; out.push(`server: ${server.died}`); }
@@ -976,14 +1145,14 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(`${said} (${secs(built.ms)}${built.warnings.length ? `, ${plural(built.warnings.length, 'warning')}` : ''})`);
     for (const w of built.warnings.slice(0, WARNINGS)) out.push(`  ${w}`);
     if (built.warnings.length > WARNINGS) out.push(`  … and ${built.warnings.length - WARNINGS} more (bun exact.mjs web-build prints them all)`);
-    findings += built.warnings.length;
+    findings += built.warnings.length; counted('build warning', built.warnings.length);
   }
   // The compiler's warnings, each as `contract build` says it (LLP 1116.004 D7): findings, never a failure.
   if (compiler.length) {
     const lines = compiler.map((w) => `  ${w}`);
     out.push(`compiler: ${plural(compiler.length, 'warning')}`, ...byRule(lines));
     full.push(`compiler: ${plural(compiler.length, 'warning')} (bun exact.mjs contract build app.contract quotes each line)`, ...lines);
-    findings += compiler.length;
+    findings += compiler.length; for (const w of compiler) counted(ruleOf(w));
   }
   if (tested?.none) out.push('tests: none (no *.test.contract)');
   if (tested?.error) {
@@ -994,6 +1163,12 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     failedTests = tested.failed;
     out.push(`tests: ${tested.passed} passed, ${tested.failed} failed`);
     for (const t of tested.results) for (const f of t.failures) out.push(`  FAIL "${t.name}": ${firstLine(f).replace(`${t.name}: `, '')}`);
+    const unarranged = tested.results.flatMap((t) => (t.unarranged ?? []).map((u) => `  "${t.name}": ${u}`));
+    if (unarranged.length) {
+      out.push(`failed and not arranged: ${plural(unarranged.length, 'finding')}`, ...unarranged);
+      full.push(`failed and not arranged: ${plural(unarranged.length, 'finding')}`, ...unarranged);
+      findings += unarranged.length; counted('failed and not arranged', unarranged.length);
+    }
   }
   // Every screen, launch and scheme in one group: each finding once, said where unless it was everywhere.
   for (const e of checks.filter((c) => c.error)) { broken++; out.push(`check ${e.label}: could not drive: ${firstLine(e.error)}`); }
@@ -1008,7 +1183,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     if (count > shown.length) out.push(`  … and ${count - shown.length} more (verify --json lists them all)`);
     if (shown.length) full.push(head, ...shown);
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
-    findings += count;
+    findings += count; for (const l of shown) { counted(ruleOf(l)); acceptable.add(ruleOf(l)); } counted('check (not listed)', count - shown.length);
   }
   // Font and symbol sizes the app's Contract fixes and words it breaks (LLP 1116.020 D4, LLP 1116.021 D6): findings, as
   // check's are.
@@ -1017,7 +1192,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
       : `${plural(fixed.lines.length, 'finding')}: a size the reader's text size does not move, or a word broken inside`;
     out.push(`fixed type: ${said}`, ...byRule(fixed.lines));
     full.push(`fixed type: ${said}`, ...fixed.lines);
-    findings += fixed.lines.length;
+    findings += fixed.lines.length; for (const l of fixed.lines) { counted(ruleOf(l)); acceptable.add(ruleOf(l)); }
   }
   // What app.json's `verify.accept` names as the app's design: said once each, not counted; an entry that took nothing is named.
   const accepted = [...distinctFindings(runs.map((r) => ({ ...r, lines: (r.accepted ?? []).map((f) => f.line) }))), ...fixed.accepted.map((f) => f.line)];
@@ -1044,7 +1219,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(`reload ${plural(ran.length, 'test end')}: ${lines.length ? plural(lines.length, 'finding') : notes.length ? 'no findings' : 'the same screen after each'}`, ...lines.slice(0, SHOWN));
     if (lines.length > SHOWN) out.push(`  … and ${lines.length - SHOWN} more (${all})`);
     if (lines.length) full.push(`reload ${plural(ran.length, 'test end')}: ${plural(lines.length, 'finding')}`, ...lines);
-    findings += lines.length;
+    findings += lines.length; counted('reload', lines.length);
     if (notes.length) {
       out.push(`reload note: ${plural(notes.length, 'screen')} ${notes.length === 1 ? 'reloads' : 'reload'} into another state (not counted)`, ...notes.slice(0, SHOWN));
       if (notes.length > SHOWN) out.push(`  … and ${notes.length - SHOWN} more (${all})`);
@@ -1060,15 +1235,37 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     const root = [...new Set(read.map((l) => l.rootFontSize).filter(Boolean))].join(', ');
     const size = host === 'ios' ? `${LARGEST}${root ? `, body ${root} pt` : ''}` : `root font size ${root || LARGEST_PX} px at ${WEB_SIZES[0].join('x')}, iOS's body at its largest`;
     out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (the app's own layout: give the text room; a smaller or fixed font is the tell)` : 'nothing spills'}`, ...byRule(shown));
-    largeCount = shown.length;
+    largeCount = shown.length; for (const l of shown) counted(`${ruleOf(l)} at the largest text size`);
     if (shown.length) full.push(`largest text size (${size}): ${plural(shown.length, 'finding')}`, ...shown);
     for (const l of large.filter((l) => l.error)) out.push(`  could not read ${screenName(l.screen)}: ${firstLine(l.error)}`);
+  }
+  // How the first screen's list scrolls against UIKit's (host/apple/feel): each metric a tell or a bad the app can
+  // fix (owner `app` or `either`) is a finding, with UIKit's value and what causes it; those only Exact can fix are
+  // one line, not counted; on a busy machine the timing metrics are left out. A list like UIKit's is one line; no
+  // long list, nothing; a probe that could not run is said, not counted, since it is the tool's.
+  if (scrolled?.error) out.push(`scrolling: could not measure: ${firstLine(scrolled.error)}`);
+  else if (scrolled?.result?.verdict === 'probed') {
+    const r = scrolled.result, place = relative(cwd, scrolled.out), timing = timingJudged(scrolled.load);
+    const all = feelFindings(r, null, { timing }), found = all.filter((f) => !f.unsure && f.owner !== 'exact'), own = all.filter((f) => !f.unsure && f.owner === 'exact');
+    const said = `${secs(scrolled.ms)} of real touches on the first screen's list, ${r.list?.cls?.split('.').at(-1) ?? 'a scroll view'}${scrolled.reused ? `, measured ${ago(scrolled.reused)} on this build (--rescroll measures again)` : ''}`;
+    const value = (f) => { const u = f.unit ? ` ${f.unit}` : ''; return `${f.metric} ${f.value}${u} (${f.verdict}; UIKit ${f.uikit}${u})`; };
+    const line = (f) => `scrolling ${value(f)}: ${f.remedy}`;
+    const notes = all.filter((f) => f.unsure).map((f) => `  note, not counted (the probe also reads plain regions as blank): ${line(f)}`);
+    const busy = timing ? [] : [`  the machine is busy (load ${scrolled.load.avg} on ${scrolled.load.cores} cores): timing not judged; physics only`];
+    const exacts = own.length ? [`  Exact's own (not yours to fix; nothing in your app changes them): ${own.map(value).join('; ')}; report with ${place}/feel.json`] : [];
+    if (!found.length) out.push(`scrolling: ${own.length ? 'nothing for the app to fix' : 'like UIKit'} (${feelSummary(r)}; ${said})`, ...busy, ...exacts, ...notes);
+    else {
+      const lines = found.map((f) => `  ${line(f)}`), head = `scrolling: ${plural(found.length, 'finding')} against UIKit (${said}); each says whose it is`;
+      out.push(head, ...busy, ...lines, ...exacts, ...notes, `  the numbers: ${place}/feel.txt`);
+      full.push(head, ...lines);
+      findings += found.length; counted('scrolling', found.length);
+    }
   }
   // The relaunch on a test's store (LLP 1116.005 D7): what came back, or each problem, counted as findings.
   if (relaunched?.error) { broken++; out.push(`relaunch: could not drive: ${firstLine(relaunched.error)}`); }
   else if (relaunched) {
     out.push(`relaunch on ${quoted(relaunched.test)}'s store (${secs(relaunched.ms)} of real time): ${relaunched.problems.length ? plural(relaunched.problems.length, 'problem') : relaunched.said}`, ...relaunched.problems, ...(relaunched.notes ?? []));
-    findings += relaunched.problems.length;
+    findings += relaunched.problems.length; counted('relaunch', relaunched.problems.length);
   }
   if (shots.length) {
     const place = (p) => { const r = relative(cwd, p); return r.startsWith('..') ? p : r || '.'; }, name = (p) => relative(resolve(p, '..'), p);
@@ -1083,19 +1280,27 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   const grouped = full.length && out.some((l) => /^ {4}also |^ {2}… and \d+ more/.test(l));
   if (grouped && listed) out.push(`every finding, one a line: ${listed}`);
   const problems = failedTests + findings + largeCount + broken;
-  const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive', findings && plural(findings, 'finding'), largeCount && `${largeCount} at the largest text size`].filter(Boolean);
+  // Many findings are said by kind, the commonest first, so the line an agent copies says what they are; a kind that is
+  // most of them is named with the way to accept those the app's design means (LLP 1143 D5).
+  const byKind = [...kinds].sort((a, b) => b[1] - a[1]), many = findings + largeCount >= KINDS_FROM;
+  const shownKinds = byKind.slice(0, 3), others = byKind.slice(3).reduce((n, [, c]) => n + c, 0);
+  const kindsSaid = [...shownKinds.map(([k, c]) => `${c} ${k}`), others && `${others} other`].filter(Boolean).join(', ');
+  const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive',
+    ...(many ? [`${plural(findings + largeCount, 'finding')}: ${kindsSaid}`] : [findings && plural(findings, 'finding'), largeCount && `${largeCount} at the largest text size`])].filter(Boolean);
+  const [top, topCount] = byKind[0] ?? [];
+  if (many && acceptable.has(top) && topCount * 2 > findings + largeCount) out.push(`most findings are ${top} (${topCount}): fix them, or, where the design means them, app.json's verify.accept takes each by its kind and testId (docs/recipes/tests.md)`);
   out.push(problems ? `verify: ${plural(problems, 'problem')} (${why.join(', ')}${failedTests || broken ? '' : '; the tests passed'}) in ${secs(ms)}` : `verify: clean in ${secs(ms)}`);
   return { lines: out, problems, exit: failedTests || broken ? 1 : 0, full: grouped ? full : [] };
 }
 
-async function main(argv) {
+async function deviceMain(argv, emitJSON, declined) {
   const args = guardFlags('verify', argv);
   const value = (flag) => args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined;
   const json = args.includes('--json'), sim = value('--sim'), copyTo = value('--shots');
   const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1, args.indexOf('--shots') + 1].filter((i) => i > 0));
-  if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return 2; }
+  if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return declined(2); }
   const host = args.find((a, i) => !a.startsWith('-') && !flagged.has(i)) ?? 'web';
-  if (!['web', 'ios'].includes(host)) { console.error(`verify: web or ios, not ${host} (test ${host} runs the tests there)`); return 2; }
+  if (!['web', 'ios'].includes(host)) { console.error(`verify: web or ios, not ${host} (test ${host} runs the tests there)`); return declined(2); }
   if (sim) process.env.EXACT_SIM = sim; // as the driver names it (devices.mjs `simulator`)
   const started = Date.now();
   const { resolveApp } = await import('./app.mjs');
@@ -1106,7 +1311,7 @@ async function main(argv) {
   // answering there (the builder's dev server) is refused before the build: never stopped, never written to; so is
   // an entry that does not read DB (LLP 1116.008 D1), which could only be run on its own database.
   const server = appServer(app.dir), owned = server && !server.why;
-  const refuse = (line) => { if (json) console.log(JSON.stringify({ host, server: { error: line }, problems: 1, exit: 1 })); else console.error(`verify: ${line}`); return 1; };
+  const refuse = (line) => { if (json) emitJSON({ host, server: { error: line }, problems: 1, exit: 1 }); else console.error(`verify: ${line}`); return declined(1); };
   if (server?.refusal) return refuse(server.refusal);
   // (A test run that holds the port's turn is waited for when the server starts.)
   if (owned && await answering(server.url) && !(await holderOf(server.port))) return refuse(heldLine(server));
@@ -1118,7 +1323,7 @@ async function main(argv) {
   if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ warnings?[,;]/.test(line)); }
   if (built?.code) {
     const tail = host === 'web' ? built.output.split('\n').filter((l) => l.trim()).slice(-20) : built.said;
-    if (json) console.log(JSON.stringify({ host, built: { ms: built.ms, code: built.code, said: tail }, problems: 1, exit: built.code }));
+    if (json) emitJSON({ host, built: { ms: built.ms, code: built.code, said: tail }, problems: 1, exit: built.code });
     else say([...tail, `verify: the ${host} build failed (exit ${built.code}), so nothing ran`]);
     return built.code;
   }
@@ -1134,7 +1339,7 @@ async function main(argv) {
   }
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
-  let tested, firsts, relaunched = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
+  let tested, firsts, relaunched = null, scrolled = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
   const compiling = compilerWarningsOf(app);
   if (owned) {
     try { running = await startServer(app.dir, server, 'verify'); }
@@ -1165,6 +1370,10 @@ async function main(argv) {
     }
     // An app's own server holds what the tests wrote by now: the tour, which writes again, goes last.
     if (running && host === 'web') toured = await largeTour(app);
+    if (host === 'ios' && firsts.some((runs) => runs.tall)) {
+      const key = await scrollKey(app, { udid: firsts.find((runs) => runs.udid)?.udid, server: owned ? server : null }).catch(() => null);
+      scrolled = await scrolling(app, shots, { key, force: args.includes('--rescroll') });
+    }
   } finally {
     if (host === 'web') {
       const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');
@@ -1201,15 +1410,43 @@ async function main(argv) {
   const large = [...visited, ...tourNews(visited, toured)];
   const fixed = await fixedType(app.dir, host);
   const findingsFile = resolve(shots, `${host}-findings.txt`), listed = relative(process.cwd(), findingsFile);
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, scrolled, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });
   if (r.full.length) writeFileSync(findingsFile, r.full.join('\n') + '\n'); else rmSync(findingsFile, { force: true });
   writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, file, failures, end }) => ({ name, file, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
-    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+    emitJSON({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started });
   } else say(r.lines);
+  // The run, against the build it used (LLP 1146 D2: `bun scripts/evidence.mjs`).
+  (await import('./evidence.mjs')).recordRun(app.name, { host, what: 'verify', result: r.problems ? `${r.problems} problem${r.problems === 1 ? '' : 's'}${tested?.failed ? `, ${tested.failed} failed test${tested.failed === 1 ? '' : 's'}` : ''}` : 'clean', timing: 'agent', sim });
   return r.exit;
+}
+
+// Both runs contribute to the exit status, including when the device build or drive fails. A refusal (a bad flag,
+// a server verify will not start or write to) stops both: it is one line and nothing runs (LLP 1116.008 D1).
+async function main(argv) {
+  const args = guardFlags('verify', argv), json = args.includes('--json');
+  const { resolveApp } = await import('./app.mjs');
+  const app = resolveApp(args.includes('--app') ? args[args.indexOf('--app') + 1] : undefined);
+  let device = null, code, refused = false;
+  try { code = await deviceMain(args, result => { device = result; }, (exit) => { refused = true; return exit; }); }
+  catch (e) { code = 1; device = { error: e.message, exit: 1 }; if (!json) console.error(`verify: ${e.message}`); }
+  if (refused) { if (json && device) console.log(JSON.stringify(device)); return code; }
+  console.error('verify: checking properties and scripts with contract verify');
+  const semantics = await new Promise(resolveResult => {
+    let output = '';
+    const child = spawn('cargo', ['run', '-q', '-p', 'contract', '--', 'verify', resolve(app.dir, 'app.contract')], { cwd: ROOT, stdio: ['ignore', 'pipe', 'inherit'] });
+    const pass = signal => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+    for (const signal of signals) process.on(signal, pass);
+    child.stdout.on('data', data => { output += data; if (!json) process.stdout.write(data); });
+    const finish = exit => { for (const signal of signals) process.off(signal, pass); resolveResult({ exit, output }); };
+    child.on('error', e => { output += e.message; finish(1); });
+    child.on('exit', exit => finish(exit ?? 1));
+  });
+  const exit = code || semantics.exit;
+  if (json) console.log(JSON.stringify({ ...device, semantics, exit }));
+  return exit;
 }
 
 // The design tool, named here and not through its exact.mjs: on the checkout's own port (tool-drive.mjs).

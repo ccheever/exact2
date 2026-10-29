@@ -124,12 +124,12 @@ final class IframeWindowsTests: XCTestCase {
     #endif
 
     nonisolated(unsafe) private static var server: WindowPages?
-    private let base = "http://127.0.0.1:16620"
+    private var baseURL: String { "http://127.0.0.1:\(Self.server!.port)" }
     override func setUpWithError() throws {
         #if os(macOS)
         _ = NSApplication.shared
         #endif
-        if Self.server == nil { Self.server = try WindowPages(port: 16620) }
+        if Self.server == nil { Self.server = try WindowPages() }
     }
 
     private func events(_ seen: Seen) -> [String] { seen.records.map(\.event) }
@@ -138,7 +138,7 @@ final class IframeWindowsTests: XCTestCase {
 
     func testWindowRequestsFollowThePopupTable() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "windows", "newwindow": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "windows", "newwindow": true], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
 
@@ -146,7 +146,7 @@ final class IframeWindowsTests: XCTestCase {
         _ = run(web, "document.getElementById('blank').click()")
         spin { !seen.records.isEmpty }
         XCTAssertEqual(seen.records.first?.event, "newwindow")
-        XCTAssertEqual(seen.records.first?.record["url"] as? String, "\(base)/b")
+        XCTAssertEqual(seen.records.first?.record["url"] as? String, "\(baseURL)/b")
         XCTAssertEqual(seen.records.first?.record["disposition"] as? String, "foreground-tab")
         XCTAssertEqual(web.url?.path, "/opener")
 
@@ -185,14 +185,14 @@ final class IframeWindowsTests: XCTestCase {
 
     func testAScriptedWindowIsThePlatformsPopupAndPostsToItsOpener() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "popups", "newwindow": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "popups", "newwindow": true], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         XCTAssertEqual(run(web, "window.open('/popup', 'signin', 'width=320,height=240') !== null") as? Bool, true)
         spin { !seen.records.isEmpty }
         XCTAssertEqual(seen.records.first?.event, "newwindow")
         XCTAssertEqual(seen.records.first?.record["disposition"] as? String, "new-window")
-        XCTAssertEqual(seen.records.first?.record["url"] as? String, "\(base)/popup")
+        XCTAssertEqual(seen.records.first?.record["url"] as? String, "\(baseURL)/popup")
         // The popup posts to its opener on load (OAuth's way back): the opener retitles itself.
         spin { web.title == "got signed-in" }
         XCTAssertEqual(web.title, "got signed-in")
@@ -219,7 +219,7 @@ final class IframeWindowsTests: XCTestCase {
 
     func testAFrameWithoutNewwindowOpensNothing() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "closed"], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "closed"], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         _ = run(web, "document.getElementById('blank').click(); 0")
@@ -240,7 +240,7 @@ final class IframeWindowsTests: XCTestCase {
             throw XCTSkip("no app opens mailto: on this Mac")
         }
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "schemes", "newwindow": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "schemes", "newwindow": true], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         _ = run(web, "document.getElementById('mail').click(); 0")
@@ -267,14 +267,14 @@ final class IframeWindowsTests: XCTestCase {
 
     func testDialogsAreSheetsTitledWithTheOrigin() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "dialogs"], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "dialogs"], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         let window = try XCTUnwrap(web.window)
         start(web, "window.alerted = (alert('Saved.'), 'done')")
         spin { window.attachedSheet != nil }
         var sheet = try XCTUnwrap(window.attachedSheet)
-        XCTAssertEqual(Set(sheet.contentView.map(allText) ?? []).intersection(["127.0.0.1:16620", "Saved."]).count, 2)
+        XCTAssertEqual(Set(sheet.contentView.map(allText) ?? []).intersection(["127.0.0.1:\(Self.server!.port)", "Saved."]).count, 2)
         window.endSheet(sheet, returnCode: .alertFirstButtonReturn)
         spin { self.run(web, "window.alerted") as? String == "done" }
 
@@ -322,7 +322,7 @@ final class IframeWindowsTests: XCTestCase {
 
     func testUnderTheAgentDialogsFilesAndDownloadsAreRequests() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "agent", "agent": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "agent", "agent": true], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         let answer = { (fields: [String: Any]) in
@@ -336,7 +336,7 @@ final class IframeWindowsTests: XCTestCase {
         let args = try XCTUnwrap(seen.asked.last?["args"] as? [String: Any])
         XCTAssertEqual(args["type"] as? String, "alert")
         XCTAssertEqual(args["message"] as? String, "Saved.")
-        XCTAssertEqual(args["origin"] as? String, "127.0.0.1:16620")
+        XCTAssertEqual(args["origin"] as? String, "127.0.0.1:\(Self.server!.port)")
         #if os(macOS)
         XCTAssertNil(web.window?.attachedSheet, "no sheet under the agent")
         #endif
@@ -376,7 +376,7 @@ final class IframeWindowsTests: XCTestCase {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("iframe-windows-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
         seen.asked = []
-        json(["op": "navigate", "url": "\(base)/report"], arm.command, handle)
+        json(["op": "navigate", "url": "\(baseURL)/report"], arm.command, handle)
         spin { !seen.asked.isEmpty }
         XCTAssertEqual(seen.asked.last?["capability"] as? String, "save-file")
         XCTAssertEqual((seen.asked.last?["args"] as? [String: Any])?["suggestedFilename"] as? String, "report.txt")
@@ -385,7 +385,7 @@ final class IframeWindowsTests: XCTestCase {
         spin { self.events(seen).filter { $0 == "download" }.count >= 2 }
         XCTAssertEqual(seen.records.map { $0.record["state"] as? String }, ["progressing", "completed"], "\(seen.records)")
         XCTAssertEqual(seen.records.last?.record["path"] as? String, "app:/tmp/downloads/report.txt")
-        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(base)/report")
+        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(baseURL)/report")
         XCTAssertEqual(try? String(contentsOf: target, encoding: .utf8), "report body")
         // The download's provisional URL shows until WebKit ends that navigation.
         spin { web.url?.path == "/opener" }
@@ -394,7 +394,7 @@ final class IframeWindowsTests: XCTestCase {
         // A cancelled destination: `cancelled`.
         seen.records = []
         seen.asked = []
-        json(["op": "navigate", "url": "\(base)/report"], arm.command, handle)
+        json(["op": "navigate", "url": "\(baseURL)/report"], arm.command, handle)
         spin { !seen.asked.isEmpty }
         answer(["cancel": true])
         spin { self.events(seen).count >= 2 }
@@ -405,7 +405,7 @@ final class IframeWindowsTests: XCTestCase {
     /// `confirm` gets Cancel.
     func testAHeldRequestEndsWithItsFrame() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "gone", "agent": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "gone", "agent": true], src: "\(baseURL)/opener")
         loaded(seen, web, "/opener")
         var answered: Any?
         web.evaluateJavaScript("confirm('Leave?')") { value, _ in answered = value ?? "none" }
@@ -424,7 +424,7 @@ final class IframeWindowsTests: XCTestCase {
     /// fixture drives measured what a guest sees (RFC §11).
     func testPermissionsAGuestAsksForAreDenied() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "permissions"], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "permissions"], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         let probe = FrameProbe()
@@ -466,7 +466,7 @@ final class IframeWindowsTests: XCTestCase {
     /// an agent's typed `/Users/me/Downloads` or `/` must not delete it.
     func testADownloadNeverReplacesAFolder() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "folders", "agent": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "folders", "agent": true], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("iframe-windows-folder-\(UUID().uuidString)")
@@ -477,7 +477,7 @@ final class IframeWindowsTests: XCTestCase {
         for (path, shown) in [(folder.path, folder.path), (folder.path + "/", folder.path + "/"), ("/", "/")] {
             seen.records = []
             seen.asked = []
-            json(["op": "navigate", "url": "\(base)/report"], arm.command, handle)
+            json(["op": "navigate", "url": "\(baseURL)/report"], arm.command, handle)
             spin { !seen.asked.isEmpty }
             json(["token": seen.asked.last?["token"] ?? 0, "path": path, "shown": shown], arm.answer, handle)
             spin { seen.records.count >= 2 }
@@ -494,7 +494,7 @@ final class IframeWindowsTests: XCTestCase {
             throw XCTSkip("no app opens mailto: on this Mac")
         }
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "loops"], src: "\(base)/timer-scheme")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "loops"], src: "\(baseURL)/timer-scheme")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/timer-scheme")
         let window = try XCTUnwrap(web.window)
@@ -516,7 +516,7 @@ final class IframeWindowsTests: XCTestCase {
         pause(0.8)
         XCTAssertNil(window.attachedSheet, "a reload does not start over")
         seen.navigation = []
-        json(["op": "navigate", "url": "\(base)/timer-scheme"], arm.command, handle)
+        json(["op": "navigate", "url": "\(baseURL)/timer-scheme"], arm.command, handle)
         loaded(seen, web, "/timer-scheme")
         _ = run(web, "document.getElementById('mail').click(); 0")
         spin { window.attachedSheet != nil }
@@ -528,7 +528,7 @@ final class IframeWindowsTests: XCTestCase {
     /// chosen, the page's dialogs answer at once with no sheet.
     func testAPageCanBeStoppedFromRaisingMoreDialogs() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "suppress"], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "suppress"], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         let window = try XCTUnwrap(web.window)
@@ -554,7 +554,7 @@ final class IframeWindowsTests: XCTestCase {
     /// dialog offers the box, and once ticked the reloads raise nothing.
     func testAReloadingPageCannotRaiseDialogsForever() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "reload-dialogs"], src: "\(base)/reload-alert")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "reload-dialogs"], src: "\(baseURL)/reload-alert")
         defer { arm.destroy(handle) }
         let window = try XCTUnwrap(web.window)
         spin { window.attachedSheet != nil }
@@ -577,7 +577,7 @@ final class IframeWindowsTests: XCTestCase {
             throw XCTSkip("no app opens mailto: on this Mac")
         }
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "reload-schemes"], src: "\(base)/reload-scheme")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "reload-schemes"], src: "\(baseURL)/reload-scheme")
         defer { arm.destroy(handle) }
         let window = try XCTUnwrap(web.window)
         spin { window.attachedSheet != nil }
@@ -590,7 +590,8 @@ final class IframeWindowsTests: XCTestCase {
     private func suppression(_ sheet: NSWindow) -> NSButton? {
         func find(_ view: NSView) -> NSButton? {
             if let button = view as? NSButton, button.title.hasPrefix("Prevent this page"), !button.isHidden { return button }
-            return view.subviews.lazy.compactMap(find).first
+            for child in view.subviews { if let found = find(child) { return found } }
+            return nil
         }
         return sheet.contentView.flatMap(find)
     }
@@ -599,7 +600,7 @@ final class IframeWindowsTests: XCTestCase {
     /// Cancel: the page's script gets its answer, and no sheet is left.
     func testSheetsEndWithTheirFrameOrPopup() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "endings", "newwindow": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "endings", "newwindow": true], src: "\(baseURL)/opener")
         loaded(seen, web, "/opener")
         let window = try XCTUnwrap(web.window)
         _ = run(web, "window.open('/b', 'p', 'width=300,height=200'); 0")
@@ -633,7 +634,7 @@ final class IframeWindowsTests: XCTestCase {
         let arm = try arm()
         for (sandbox, asks) in [("allow-scripts", false), ("allow-scripts allow-popups", true)] {
             let seen = Seen()
-            let (handle, web) = mount(arm, seen, configuration: [:], src: "\(base)/sandboxed-mail", sandbox: sandbox)
+            let (handle, web) = mount(arm, seen, configuration: [:], src: "\(baseURL)/sandboxed-mail", sandbox: sandbox)
             let window = try XCTUnwrap(web.window)
             spin(until: { window.attachedSheet != nil }, 3)
             XCTAssertEqual(window.attachedSheet != nil, asks, sandbox)
@@ -647,7 +648,7 @@ final class IframeWindowsTests: XCTestCase {
     /// writes beside it, and only a finished file is renamed over it.
     func testAFailedDownloadKeepsTheFileItWouldReplace() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "keep", "agent": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "keep", "agent": true], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("iframe-windows-keep-\(UUID().uuidString)")
@@ -655,7 +656,7 @@ final class IframeWindowsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: folder) }
         let target = folder.appendingPathComponent("report.txt")
         try Data("original".utf8).write(to: target)
-        json(["op": "navigate", "url": "\(base)/broken-report"], arm.command, handle)
+        json(["op": "navigate", "url": "\(baseURL)/broken-report"], arm.command, handle)
         spin { !seen.asked.isEmpty }
         json(["token": seen.asked.last?["token"] ?? 0, "path": target.path, "shown": target.path], arm.answer, handle)
         spin { seen.records.count >= 2 }
@@ -669,7 +670,7 @@ final class IframeWindowsTests: XCTestCase {
     /// popup closes.
     func testAClosedPopupEndsItsHeldRequest() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "popup-held", "newwindow": true, "agent": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "popup-held", "newwindow": true, "agent": true], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         _ = run(web, "window.open('/b', 'p', 'width=300,height=200'); 0")
@@ -688,7 +689,7 @@ final class IframeWindowsTests: XCTestCase {
     /// agent ends with the old one, as Cancel.
     func testAPartitionChangeEndsAHeldRequest() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "first", "agent": true], src: "\(base)/opener")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "first", "agent": true], src: "\(baseURL)/opener")
         defer { arm.destroy(handle) }
         loaded(seen, web, "/opener")
         var answered: Any?
@@ -711,21 +712,11 @@ private final class FrameProbe: NSObject, WKScriptMessageHandler {
 /// its opener), `/b`, `/posted` (echoes its method) and `/report` (an
 /// attachment).
 final class WindowPages {
-    private let listener: NWListener
+    private var listener: NWListener!
 
-    init(port: UInt16) throws {
-        let parameters = NWParameters.tcp
-        parameters.allowLocalEndpointReuse = true
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
-        listener = try NWListener(using: parameters)
-        listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
-        var state: NWListener.State = .setup
-        listener.stateUpdateHandler = { state = $0 }
-        listener.start(queue: .main)
-        let deadline = Date(timeIntervalSinceNow: 5)
-        while Date() < deadline { if case .ready = state { return }; RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
-        throw NSError(domain: "IframeWindowsTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "port \(port) did not listen: \(state)"])
-    }
+    var port: UInt16 { listener.port!.rawValue }
+
+    init(port: UInt16 = 0) throws { listener = try loopbackListener(port: port) { [weak self] in self?.serve($0) } }
 
     private func serve(_ connection: NWConnection) {
         connection.start(queue: .main)

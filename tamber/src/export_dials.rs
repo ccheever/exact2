@@ -58,9 +58,25 @@ pub struct Candidate {
     value: String,
 }
 
+impl Candidate {
+    /// The token, as the design spells it (what `dials` asks a literal by).
+    pub(crate) fn token(&self) -> &str {
+        &self.token
+    }
+}
+
 /// The token's literal operations, for when its dial cannot take the change,
 /// or the line and why they are refused too.
 pub(crate) type Literal = Result<Vec<Op>, (String, String)>;
+
+/// A candidate's literal, settled only when its dial falls back (theme2's
+/// ruling on the counts' round 2: the dial decided first): its operations, a
+/// refusal of them (said beside the dial's), or a report that leaves it out
+/// of its dial's change (said as the token's own, as before).
+pub(crate) enum Fallback {
+    Literal(Literal),
+    Report(String, String),
+}
 
 /// A tuple: every axis and its value.
 type Modes = Vec<(String, String)>;
@@ -165,17 +181,21 @@ pub(crate) struct Dialed {
     /// The tokens whose dial cannot take their change, by their literals:
     /// pinned overrides, marked, as any changed folded value is.
     pub fallback: Vec<(String, Vec<Op>)>,
+    /// The tokens whose dial fell back and whose literal lines can't be made:
+    /// reported as the token's own (the token, the line, why).
+    pub reported: Vec<(String, String, String)>,
 }
 
 impl Dialed {
     /// A candidate its dial cannot take (`why`): its literals, else reported.
-    fn fall(&mut self, token: String, literal: Literal, why: String) {
+    fn fall(&mut self, token: String, literal: Fallback, why: String) {
         match literal {
-            Ok(ops) => self.fallback.push((token, ops)),
-            Err((block, w)) => {
+            Fallback::Literal(Ok(ops)) => self.fallback.push((token, ops)),
+            Fallback::Literal(Err((block, w))) => {
                 self.refused
                     .push((token, block, format!("{why}; as a literal, {w}")))
             }
+            Fallback::Report(block, w) => self.reported.push((token, block, w)),
         }
     }
 }
@@ -187,7 +207,8 @@ impl Dialed {
 pub(crate) fn dials(
     cur: &Folding,
     current: &str,
-    candidates: Vec<(Candidate, Literal)>,
+    candidates: Vec<Candidate>,
+    literal: &mut dyn FnMut(&str) -> Fallback,
     vocab: &Vocab,
 ) -> Dialed {
     let mut out = Dialed {
@@ -196,16 +217,25 @@ pub(crate) fn dials(
         kept: 0,
         refused: Vec::new(),
         fallback: Vec::new(),
+        reported: Vec::new(),
     };
-    let mut by: Vec<(String, Vec<(Candidate, Literal)>)> = Vec::new();
+    // (each a candidate and nothing of its literal, which is settled only if
+    // its dial falls back: the dial's decision reads no literal)
+    let candidates: Vec<(Candidate, ())> = candidates.into_iter().map(|c| (c, ())).collect();
+    let mut by: Vec<(String, Vec<(Candidate, ())>)> = Vec::new();
     for c in candidates {
         match by.iter_mut().find(|(d, _)| *d == c.0.dial) {
             Some((_, all)) => all.push(c),
             None => by.push((c.0.dial.clone(), vec![c])),
         }
     }
-    let mut held: Vec<Vec<(Candidate, Literal)>> = Vec::new();
+    let mut held: Vec<Vec<(Candidate, ())>> = Vec::new();
     for (dial, all) in by {
+        // Past the re-import's budget (a literal's settle spent it), no more
+        // dials are checked: the re-import is refused.
+        if crate::budget::spent().is_some() {
+            return out;
+        }
         let tokens: Vec<String> = all.iter().map(|c| c.0.token.clone()).collect();
         let value = all[0].0.value.clone();
         if all.iter().any(|c| !same(&c.0.value, &value)) {
@@ -214,8 +244,9 @@ pub(crate) fn dials(
                 .map(|c| format!("{} {}", c.0.token, c.0.value))
                 .collect();
             let why = format!("tokens that follow the dial `{dial}` moved to different values ({}), and one dial takes one value", values.join(", "));
-            for (c, literal) in all {
-                out.fall(c.token, literal, why.clone());
+            for (c, ()) in all {
+                let l = literal(&c.token);
+                out.fall(c.token, l, why.clone());
             }
             continue;
         }
@@ -255,21 +286,22 @@ pub(crate) fn dials(
                     .first()
                     .map_or(String::new(), |d| format!("{}: {}", d.id, d.message));
                 let why = format!("its dial `{dial}` set to {value} is refused ({first})");
-                for (c, literal) in all {
-                    out.fall(c.token, literal, why.clone());
+                for (c, ()) in all {
+                    let l = literal(&c.token);
+                    out.fall(c.token, l, why.clone());
                 }
             }
         }
     }
+    if crate::budget::spent().is_some() {
+        return out;
+    }
     if !out.ops.is_empty() && crate::apply_all(current, &out.ops, vocab).is_err() {
         out.changes.clear();
         out.ops.clear();
-        for (c, literal) in held.into_iter().flatten() {
-            out.fall(
-                c.token,
-                literal,
-                "the dials it moves are refused together".into(),
-            );
+        for (c, ()) in held.into_iter().flatten() {
+            let l = literal(&c.token);
+            out.fall(c.token, l, "the dials it moves are refused together".into());
         }
     }
     out
@@ -509,4 +541,78 @@ pub(crate) fn last_by_name(tokens: &crate::export::ByContext) -> Lasts<'_> {
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dials, Candidate, Fallback};
+    use crate::Vocab;
+
+    fn candidate(token: &str, value: &str) -> Candidate {
+        Candidate {
+            token: token.into(),
+            dial: "c".into(),
+            value: value.into(),
+        }
+    }
+
+    /// The dial is decided on its candidates' values alone (theme2's
+    /// conditions on the counts' round 2): a dial that takes the change asks
+    /// for no literal, and a candidate whose literal can't be made swings
+    /// nothing; when the dial falls back, each candidate's literal is asked
+    /// for then, and one that can't be made is reported as its own.
+    #[test]
+    fn a_dial_is_decided_before_any_literal() {
+        let current =
+            "tamber t\n\ndials\n  c: color = #000000\n\ntheme\n  a = c\n  b = c\n  bad = c\n";
+        let cur = crate::check(current, &Vocab::default()).unwrap();
+        let mut asked = Vec::new();
+        let mut never = |t: &str| -> Fallback {
+            asked.push(t.to_string());
+            Fallback::Report(String::new(), "unbuildable".into())
+        };
+        let alike = vec![
+            candidate("a", "#ffffff"),
+            candidate("b", "#ffffff"),
+            candidate("bad", "#ffffff"),
+        ];
+        let taken = dials(&cur, current, alike, &mut never, &Vocab::default());
+        assert_eq!((taken.ops.len(), asked.len()), (1, 0), "{asked:?}");
+        // The same decision without the bad candidate.
+        let without = vec![candidate("a", "#ffffff"), candidate("b", "#ffffff")];
+        let mut none = |_: &str| -> Fallback { unreachable!("no literal is asked for") };
+        assert_eq!(
+            dials(&cur, current, without, &mut none, &Vocab::default()).ops,
+            taken.ops
+        );
+        // Falling back (values differ): each asked for, the bad one reported.
+        let differ = vec![
+            candidate("a", "#ffffff"),
+            candidate("b", "#ff0000"),
+            candidate("bad", "#ffffff"),
+        ];
+        let mut literal = |t: &str| -> Fallback {
+            match t {
+                "bad" => Fallback::Report("light".into(), "unbuildable".into()),
+                _ => Fallback::Literal(Ok(Vec::new())),
+            }
+        };
+        let fell = dials(&cur, current, differ, &mut literal, &Vocab::default());
+        assert!(fell.ops.is_empty());
+        assert_eq!(
+            fell.fallback
+                .iter()
+                .map(|(t, _)| t.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+        assert_eq!(
+            fell.reported,
+            [(
+                "bad".to_string(),
+                "light".to_string(),
+                "unbuildable".to_string()
+            )]
+        );
+    }
 }

@@ -24,8 +24,13 @@ fn plan() -> exact_plan::Plan {
         preview:serde_json::json!({"title":"preview"})
     }).unwrap()
 }
-fn runner(root: &super::storage::Root) -> Runner<Module> {
+/// The snapshot runner, its turns timed on the ticking clock when `turn`
+/// names a step (`Module::set_turn_step`).
+fn runner(root: &super::storage::Root, turn: Option<Duration>) -> Runner<Module> {
     let mut module = Module::new(Vec::new(), APP, GRANTS);
+    if let Some(step) = turn {
+        module.set_turn_step(step);
+    }
     module
         .prepare_snapshot(
             Some(SnapshotModule {
@@ -81,7 +86,7 @@ fn refresh(runner: &mut Runner<Module>, date: f64) -> Result<String, String> {
 #[test]
 fn now_and_fetch_and_file_read_return_typed_timelines() {
     let root = super::storage::Root::new();
-    let mut r = runner(&root);
+    let mut r = runner(&root, None);
     std::fs::write(root.0.join("data/value"), b"saved value").unwrap();
     for (date, title) in [(1., "kept secret"), (2., "from fetch"), (3., "saved value")] {
         let result = refresh(&mut r, date).unwrap();
@@ -95,7 +100,7 @@ fn now_and_fetch_and_file_read_return_typed_timelines() {
 #[test]
 fn snapshot_cannot_write_files_or_secrets_and_can_refresh_after_a_refusal() {
     let root = super::storage::Root::new();
-    let mut r = runner(&root);
+    let mut r = runner(&root, None);
     std::fs::write(root.0.join("data/value"), b"saved value").unwrap();
     assert!(refresh(&mut r, 4.).is_err());
     assert_eq!(
@@ -108,7 +113,7 @@ fn snapshot_cannot_write_files_or_secrets_and_can_refresh_after_a_refusal() {
 #[test]
 fn snapshot_requires_the_pinned_bytes_and_identity() {
     let mut m = Module::new(HBC.to_vec(), APP, GRANTS);
-    let deadline = Instant::now() + Duration::from_secs(1);
+    let deadline = Instant::now() + Duration::from_secs(30);
     assert!(m.prepare_snapshot(None, deadline).is_err());
     let mut bytes = HBC.to_vec();
     *bytes.last_mut().unwrap() ^= 1;
@@ -136,20 +141,48 @@ fn snapshot_requires_the_pinned_bytes_and_identity() {
         )
         .is_err());
 }
+/// A refresh's turns spend its deadline together: on the turn clock, the turn
+/// that admits its fetch takes 20 s of the 30 s left, and the reply's turn,
+/// 20 s more, is refused at its end.
+#[test]
+fn a_refresh_s_turns_spend_its_deadline_together() {
+    let root = super::storage::Root::new();
+    let mut r = runner(&root, Some(Duration::from_secs(20)));
+    let mut fetched = 0;
+    let error = r
+        .snapshot_timeline(
+            2.,
+            vec![],
+            Instant::now() + Duration::from_secs(30),
+            |_, _| {
+                fetched += 1;
+                Ok(Outcome::Response(Response {
+                    status: 200,
+                    headers: vec![],
+                    body: b"from fetch".to_vec(),
+                }))
+            },
+        )
+        .unwrap_err();
+    assert_eq!(fetched, 1, "the first turn was within the deadline");
+    assert!(error.contains("ms left to its deadline"), "{error}");
+}
 #[test]
 fn expired_refresh_never_dispatches_io() {
     let root = super::storage::Root::new();
-    let mut r = runner(&root);
-    let iterations = long_turn(&mut r);
-    // The source admits its fetch after a 150 ms JS turn. Its 50 ms host
-    // deadline expires in that turn, before the first I/O dispatch.
-    let error = r.snapshot_timeline(
-        -iterations,
-        vec![],
-        Instant::now() + Duration::from_millis(50),
-        |_, _| panic!("expired first call started I/O"),
-    );
-    assert!(error.unwrap_err().contains("timed out"));
+    // The source admits its fetch in its first turn, which takes a minute on
+    // the turn clock, past the 30 s left to the refresh's deadline: the turn
+    // is refused at its end, and the fetch it admitted never starts.
+    let mut r = runner(&root, Some(Duration::from_secs(60)));
+    let error = r
+        .snapshot_timeline(
+            -1000.,
+            vec![],
+            Instant::now() + Duration::from_secs(30),
+            |_, _| panic!("expired first call started I/O"),
+        )
+        .unwrap_err();
+    assert!(error.contains("ms left to its deadline"), "{error}");
 }
 
 #[test]
@@ -184,8 +217,10 @@ fn completed_app_writes_signal_once_but_reads_do_not() {
 #[test]
 fn snapshot_turn_uses_the_refresh_deadline_instead_of_the_app_budget() {
     let root = super::storage::Root::new();
-    let mut r = runner(&root);
-    long_turn(&mut r);
+    // 150 ms on the turn clock: over the app's 100 ms budget, within the 30 s
+    // left to the refresh's deadline.
+    let mut r = runner(&root, Some(Duration::from_millis(150)));
+    assert!(refresh(&mut r, 1000.).unwrap().contains("long turn"));
 }
 
 #[test]
@@ -201,24 +236,10 @@ fn snapshot_plan_must_be_admitted_by_the_module_receipt() {
                 plan: &plan,
                 kind: "card",
             }),
-            Instant::now() + Duration::from_secs(1),
+            Instant::now() + Duration::from_secs(30),
         )
         .unwrap_err();
     assert!(format!("{error:?}").contains("entry does not match"));
-}
-
-// Data sources cannot read an ambient clock. Calibrate a bounded CPU turn
-// instead, and require it to pass beyond 150 ms under the snapshot budget.
-fn long_turn(r: &mut Runner<Module>) -> f64 {
-    for power in 0..12 {
-        let iterations = 1_000_000. * 2_f64.powi(power);
-        let start = Instant::now();
-        assert!(refresh(r, iterations).unwrap().contains("long turn"));
-        if start.elapsed() >= Duration::from_millis(150) {
-            return iterations;
-        }
-    }
-    panic!("calibration did not reach a 150 ms turn");
 }
 
 #[cfg(target_os = "macos")]
@@ -240,7 +261,8 @@ fn apple_bridge_admits_the_plan_it_booted_with_borrowed_module_bytes() {
         160.,
         160.,
     );
-    let len = bridge.entry_timeline_module(1., 900., receipt().as_bytes(), HBC) as usize;
+    let hang = Instant::now() + Duration::from_secs(30);
+    let len = bridge.entry_timeline_module_until(1., hang, receipt().as_bytes(), HBC) as usize;
     let rows: serde_json::Value = serde_json::from_slice(bridge.output_bytes(len)).unwrap();
     assert_eq!(
         rows,

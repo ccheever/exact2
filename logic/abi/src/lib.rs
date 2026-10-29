@@ -323,6 +323,13 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 "exactBodyFrom cannot cross the Rust module seam".into(),
             )),
         ),
+        // Nor a body written to a file: refused, never read into memory instead.
+        Ok(Answer::Later(r)) if r.body_to.is_some() => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "exactBodyTo cannot cross the Rust module seam".into(),
+            )),
+        ),
         Ok(Answer::Now(v)) => {
             w.u8(0);
             v.encode(w);
@@ -418,9 +425,11 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 DataError::BadArguments(s) => (3, s),
                 // A coded failure's class is the TypeScript seam's and the
                 // runner's (LLP 1109 D3): a Rust source's own is `error`.
+                // (an overrun is exact-js's; a Rust module's seam never makes one)
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
                 | DataError::DeferredAtBake(s)
+                | DataError::Overrun(s)
                 | DataError::Failed(_, s, _) => (4, s),
             };
             w.u8(tag);
@@ -482,8 +491,13 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
         long_poll: None,
         timeout_ms: None,
         body_from: None,
+        body_to: None,
         redirect: Redirect::Follow,
         held: false,
+        reach: Default::default(),
+        listen: None,
+        due_ms: None,
+        wake_ms: None,
         http: if tag != 1 {
             let limit = r.u32().map_err(error)?;
             if limit == 0 || limit > 64 << 20 {

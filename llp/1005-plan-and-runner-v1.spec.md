@@ -602,8 +602,19 @@ UIKit.
 - **macOS** (`MouseChainMac`): `mouseDown`/`mouseUp`, from the hit view up
   through authored parents, held on the presenter until the button comes
   up. A native button's own tracking loop reports both (its up before the
-  action it sends). A held node's release drops it from the hold, and a
-  reset clears the hold.
+  action it sends). A text area or an input's editor runs AppKit's tracking
+  loop too; `tracksPointer` reports the down before it and the up after it.
+  A press that moves the focus into one delivers the old field's `change`
+  and `blur` and the new one's `focus` before `pointerdown`: NSWindow makes
+  the hit view first responder before it sends `mouseDown`. Chrome fires
+  `pointerdown` first. A drag of selected text out of a text area or an
+  input's editor is AppKit's dragging session, which runs after the loop
+  returns: `pointerup` comes as the drag starts, where Chrome sends
+  `pointercancel` (declared, not measured). A disabled editor tracks
+  nothing: its press
+  is the node's, as a disabled box's is, and its up the release. A press on
+  an inline atom (a pill) is the text area's node's down and up. A held
+  node's release drops it from the hold, and a reset clears the hold.
 - **Linux** (`presenter/pointer.rs`, 2026-10-04): beside the contact, from
   the node under the press up; a cancel is an up. A contact that a handler
   retires (the pressed node removed or disabled) is cancelled when the walk
@@ -616,10 +627,10 @@ UIKit.
 
 Tests: `contract/cli/tests/it/pointer.rs` (the runner and DOM's order),
 `testAPointerNodeObservesItsTouchWithoutPreventingAnything` (iOS),
-`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` and
-`PopoverMacTests` (macOS), the Linux presenter's `touch_tests.rs`, and
-`host/web/tests/pointer.test.mjs` (Chrome: order, bubbling, a lift elsewhere,
-the secondary button, a disabled node).
+`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress`,
+`EditorPointerMacTests` and `PopoverMacTests` (macOS), the Linux presenter's
+`touch_tests.rs`, and `host/web/tests/pointer.test.mjs` (Chrome: order,
+bubbling, a lift elsewhere, the secondary button, a disabled node).
 
 **`stopPropagation()`, one rule** (decided under Charlie's delegation,
 2026-10-15, after Astra's review). Every bubbling event (`key`, `keyup`,
@@ -809,7 +820,14 @@ modifier's own press and release, and a ⌘ chord (CDP's
   `false` (`KeyboardEvent::parse`); a missing one is false, so a chord alone
   and the three-line wire keep their meaning.
 - **Web** (`glue.js` and `document-glue.js` `keyChord`; the JS target's
-  `onKey`): `event.isComposing` as Chrome reports it.
+  `onKey`): `event.isComposing` as Chrome reports it, or a keydown whose
+  `keyCode` is 229 or whose `key` is `Process`, the marks of a key an input
+  method processed (UI Events, legacy key codes), as web code tests
+  `e.isComposing || e.keyCode === 229` (2026-10-26). WebKit sends the Enter
+  that commits a composition after `compositionend`, `isComposing` false and
+  `keyCode` 229, where Chrome's arrives composing. The web hosts' own keys
+  skip such a keydown too: `submit`, a declared shortcut, a pressable's
+  Enter, a prompt's Return and a GPU canvas's keys.
 - **macOS and iOS** (`Presenter.composes`, `NodeView.composes`): true on a
   modifier's own press or release while the field has marked text, the only
   composing keys that reach handlers there (`passesComposition`). A ⌘ chord
@@ -827,7 +845,9 @@ modifier's own press and release, and a ⌘ chord (CDP's
 Tests: `runner/src/runner/event/keyboard.rs`, `contract/cli/tests/it/keyup.rs`
 (a composer skipping the candidate's Enter), `KeyUpMacTests` (Shift released
 and ⌘ pressed during a composition), `FieldCompositionIOSTests`, and the web's
-`focus.test.mjs` (the wire) and `js-runtime.test.mjs` (the JS target's record).
+`focus.test.mjs` (the wire), `js-runtime.test.mjs` (the JS target's record) and
+`composing-key.test.mjs` (a keyCode-229 keydown in Chromium, Firefox and WebKit)
+and `surface-record.test.mjs` (a GPU canvas's).
 
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a

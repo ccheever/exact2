@@ -2,7 +2,7 @@
 // files, served by the app's Tamber server at its own local URL
 // (`bun exact.mjs tamber tool <app>`). app.ts is the protocol client; this
 // view keeps no design state of its own: the files are the design.
-use Written, Inspected, Uses, Hello, CanvasCheck, Clients, CanvasIn, Canvas, AppAxes, Changes, Grid, Design, Levels, Contrast, Branch, Proposal, Scrub, Changeset, Scope, Lit, History, Typed, Pinned, SelectUp, PairCode, Committed, Imported, Reverted from "./shapes.contract"
+use Written, Inspected, Uses, Hello, CanvasCheck, Clients, CanvasIn, Canvas, AppAxes, Changes, Grid, Design, Levels, Contrast, Branch, Proposal, Scrub, Changeset, Scope, Lit, History, Typed, Pinned, SelectUp, PairCode, Committed, Imported, Reverted, Choices, ChosenDiffs from "./shapes.contract"
 use Pairing from "./pairing.contract"
 use Inspector from "./inspector.contract"
 use Builds from "./builds.contract"
@@ -57,6 +57,8 @@ component DesignTool
   resource clients = loadClients(hello.local, changes.clients) as shape Clients else empty(ok=true)
   mutation revoked as shape Pinned refreshes clients
   state clientsTries = 0
+  // The builds gone up to this number are no longer shown as reloading: the window closed on them (D1.2).
+  state reloadSeen = 0
   // A paired client is the name the server gave it (T6), whatever it asks.
   derive client = hello.client != "" ? hello.client : `design-tool:${person}`
   // Its scope (T6): below write, what writes is greyed, said once why; the
@@ -169,6 +171,11 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
+  // Each import card's choice, sent to the server as it is ticked (tamber/1.18 `choose`), so a reload or another
+  // client starts from it; and the flips another client's choice since makes stale.
+  resource choices = sendChoices(client, picked.join(";"), changes.answer) as shape Choices else empty(ok=true)
+  // The diff each recomputed or edited import's card shows, as its choice is now (stage 15 D1.1).
+  resource chosenDiffs = loadChosenDiffs(client, picked.join(";"), changes.answer) as shape ChosenDiffs else empty(ok=true)
   resource scope = loadScope(client, changes.committable) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
@@ -179,16 +186,27 @@ component DesignTool
   // The server's files and their digests, folded below the canvas and the tokens (the hands-on pass: 25 rows came
   // before either on the clone).
   state filesShown = false
-  // A move up the chain (tamber/1.16 `select`): the selection it moved from, and the chain length it should land at;
-  // the page's own tree may have fewer above it (a rebuild), and its selection then lands higher, said so.
+  // A move up the chain (tamber/1.16 `select`; 1.17 by the page's own tree): the selection it moved from, and whether one
+  // is on its way (upExpect >= 0); the page says how many steps it took (`moved`), and a move that reached the root
+  // before `up` is said so.
   state upFromKey = ""
+  state upFromArrival = ""
+  // The component the press meant to select: the chain line's, or (no call site above: the step to what holds it)
+  // the selection's own, which a landing on another is said against (the Apple pass's #1).
+  state upFromComponent = ""
+  state upFromFill = false
+  // Every copy the selection is a caller's of (its own component and each chain line's, `|`-bounded): a landing on
+  // none of them holds it in a slot (the map says so, theme2's 08:51 condition); on another of them, it is plainly
+  // the nearest copy with a node of its own.
+  state upFromCallers = ""
   state upExpect = -1
   // Said of the selection the move lands on alone (the first after it), kept for that visit of it (a click away and
   // back is another).
   state upNote = ""
   state upNoteKey = ""
   derive upFailed = match selectedUp { case some(r) => not r.ok, case none => false }
-  task upLanded when upExpect >= 0 and inspected.has and inspected.key != upFromKey key=inspected.key
+  // Landed: another node, or this one said again with the move's own report (a move from the root stays on it).
+  task upLanded when upExpect >= 0 and inspected.has and inspected.arrival != upFromArrival and (inspected.key != upFromKey or inspected.movedUp == upExpect) key=inspected.arrival
     after(1, landUp)
   task upRefused when upExpect >= 0 and not pending(selectedUp) and upFailed key=upFromKey
     after(1, dropUp)
@@ -204,6 +222,21 @@ component DesignTool
   // bottom: the panels sit far above the panel's own place. One begun from the token grid stays in place, under it.
   state dockedFor = ""
   derive docked = editKind != "" and dockedFor == `${editKind}|${editTarget}`
+  // The edit dock (third pass #7) shows while a cell is selected or an edit is open; the selected cell's branch, read
+  // for the grid shown, is its editor. Each press of a grid cell (`pressed`, counted) moves the focus into it once it
+  // shows (`focusedPress`), and Close or Escape gives it back to that cell (`returnTo`); a selection made otherwise
+  // (the Inspector, an input's button) moves no focus and has no cell to give it back to.
+  derive editing = selToken != "" or editKind != ""
+  derive branchShown = selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and (selPlace == "" or branch.place == selPlace)
+  state pressed = 0
+  state focusedPress = 0
+  state returnTo = ""
+  // Text typed in the value field and not yet committed (it commits on change: Enter, or leaving it) is pending too.
+  state typing = false
+  // A rename typed and not proposed is pending too.
+  derive closable = selToken != "" and editKind == "" and not scrubShown and not typing and renameTo.trim() == ""
+  task focusEditor when branchShown and focusedPress != pressed key=pressed
+    after(1, enterEditor)
   state historyPages = 1
   resource history = loadHistory(historyShown, historyPages, since, epoch) as shape History else empty(ok=true)
   mutation committed as shape Committed refreshes changeset, scope
@@ -278,6 +311,10 @@ component DesignTool
   derive applyReady = applyAnswer and not pending(proposal) and not pending(written)
   task follow when not pending(changes) and changes.ok key=changes.answer
     after(1, advance)
+  task dropChoices when choices.drop.length > 0 key=choices.answer
+    after(1, takeChoices)
+  task choicesAgain when choices.again key=choices.answer
+    after(1, reheld)
   task retry when not pending(changes) and not changes.ok key=changes.answer
     after(3000, advance)
   // A newer design read under a held list on the long poll by cursor: asked once again (at once, from where it is),
@@ -292,6 +329,10 @@ component DesignTool
     after(1000, pollGrid)
   task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
     after(3000, reloadClients)
+  // A build that goes (a rebuild's reload) is shown reloading for 10 s from the first going this window saw, those
+  // going meanwhile with it, so none shows longer: past that, one not back is no build (stage 15 D1.2).
+  task reloadWindow when changes.reloadGen > reloadSeen key=reloadSeen
+    after(10000, closeReload)
 
   action reheld
     asks = asks + 1
@@ -340,6 +381,8 @@ component DesignTool
     gridCap = match parseNumber(v) { case some(n) => n, case none => 6 }
   action toggleGridMirror(checked: bool)
     gridMirror = checked
+  action closeReload
+    reloadSeen = changes.reloadGen
   action reloadClients
     clientsTries = clientsTries + 1
     refresh clients
@@ -476,8 +519,12 @@ component DesignTool
     if not pending(selectedUp)
       // How deep the selection it lands on should be, from the selection it moves from (review2 11:33).
       upFromKey = inspected.key
+      upFromArrival = inspected.arrival
+      upFromComponent = inspected.chain.length == 0 ? inspected.component : inspected.chain.filter(c => c.up == up).map(c => c.component).join("")
+      upFromFill = inspected.chain.length == 0
+      upFromCallers = `|${inspected.component}|${inspected.chain.map(c => c.component).join("|")}|`
       upRefusalsAt = refusalsKey
-      upExpect = inspected.chain.length - up
+      upExpect = up
       upNote = ""
       send selectedUp = sendSelectUp(client, inspected.build, up)
   action showInitial(key: string)
@@ -555,6 +602,12 @@ component DesignTool
     selToken = token
     selColumn = column
     selPlace = place
+    // (No grid cell pressed: none to give the focus back to, no press's focus still to move, and no typed text or
+    // rename of the last carried.)
+    returnTo = ""
+    focusedPress = pressed
+    typing = false
+    renameTo = ""
     pinning = false
     scopeOwn = false
     focusDial = ""
@@ -567,8 +620,18 @@ component DesignTool
   action outlineImpact
     if impactToken != "" and not pending(outlined)
       send outlined = outlineUses(client, impactToken)
-  action selectCell(token: string, column: string)
+  action selectCell(token: string, column: string, press: bool)
     dockedFor = ""
+    // In view and clear of the dock however tall it grows (the cell's scroll margin is the dock's most, half the window).
+    scrollIntoView(`cell-${token}-${column}`, block="nearest")
+    if press
+      pressed = pressed + 1
+      returnTo = `cell-${token}-${column}`
+    else
+      returnTo = ""
+      focusedPress = pressed
+    typing = false
+    renameTo = ""
     // A scrub open is of another edit: it ends first.
     if scrubShown
       scrubTick = scrubTick + 1
@@ -583,12 +646,44 @@ component DesignTool
     editKind = ""
     rawFor = ""
     partFor = ""
+  // Into the editor: its value field where there is one it can type in, else (a token that follows others, unpinned;
+  // a value this client or the token's source can't edit) the dock itself.
+  action enterEditor
+    focusedPress = pressed
+    if (branch.expression and not pinning and not typed.ok) or branch.readOnly != "" or not canPropose
+      focus("edit-dock")
+    else
+      focus("branch-value")
+  action typingValue(v: string)
+    typing = v != shownValue
+  // The selection ended with nothing pending (Close, Escape): the dock goes and the focus is back on the cell pressed.
+  action closeEditor
+    if closable
+      if returnTo != ""
+        focus(returnTo)
+      selToken = ""
+      selColumn = ""
+      selPlace = ""
+      returnTo = ""
+      focusedPress = pressed
+  // Escape in the dock (from its field or any control in it) closes it as Close does; with anything pending (a typed
+  // value, a draft, a scrub) it does nothing.
+  action dockKey(key: string)
+    if key == "Escape" and closable
+      if returnTo != ""
+        focus(returnTo)
+      selToken = ""
+      selColumn = ""
+      selPlace = ""
+      returnTo = ""
+      focusedPress = pressed
   action showDial(name: string, group: string, more: bool)
     if more and not opened.includes(group)
       opened = opened.concat([group])
     focusDial = name
   action cellText(v: string)
     dockedFor = ""
+    typing = false
     // A scrub open on another edit (another branch of it, a panel edit) ends first.
     if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == (scopeOwn ? branch.own : branch.when))
       scrubTick = scrubTick + 1
@@ -640,6 +735,8 @@ component DesignTool
     editWhen = branch.own
   action pin
     pinning = true
+    // The pressed Pin goes and the value field comes in its place, in this commit: the focus moves into it.
+    focus("branch-value")
   action editNewName(v: string)
     newName = v
   action editNewValue(v: string)
@@ -651,10 +748,24 @@ component DesignTool
         scrubTick = scrubTick + 1
         scrubWant = false
         send written = cancelScrub(scrubAsk)
-      editKind = "add-token"
-      editTarget = newName.trim()
+      // A package's or the base's name (its own row, or the app's override of it, `of`): the app's line over theirs is
+      // set-token, which the server writes as one, Set for this app's draft with its value changed included; add-token
+      // of their name is refused. Decided by the rows as they are now, not the name last set.
+      let n = newName.trim()
+      // (Only in the app's design, opened as "" or by its path, where set-token of their name is the app's line; another
+      // open file shows their rows beside its own but holds none of them, so a name added there is add-token, round 2.)
+      let theirs = design.appDesign and design.tokenGroups.filter(g => g.tokens.filter(t => t.name == n and (t.of == "base" or t.of == "package")).length > 0).length > 0
+      editKind = theirs ? "set-token" : "add-token"
+      // (Their read-only cell, if open, is no guard on the form's edit, as setForApp closes it, round 2.)
+      if theirs
+        selToken = ""
+      editTarget = n
       editWhen = ""
       editValue = newValue.trim()
+      // (A form's edit: no branch draft, as setForApp starts one.)
+      draftFor = ""
+      rawFor = ""
+      partFor = ""
   // Stage 11: a base or package value set for this app (its override line: set-token, theme2's 17:09Z
   // ruling, one op for both), or the app's line over one of theirs taken away (remove-token), each
   // reviewed and applied as any edit.
@@ -742,6 +853,11 @@ component DesignTool
     scopeOwn = false
     rawFor = ""
     partFor = ""
+    // (A rename's typed name goes with it.)
+    renameTo = ""
+    // The pressed Cancel is gone: the focus stays in the dock (its editor), where Escape still reaches it.
+    if selToken != ""
+      focus("edit-dock")
   action startScrub
     if not scrub.live and not pending(written)
       scrubAsk = scrubAsk + 1
@@ -818,15 +934,19 @@ component DesignTool
   action importPicked(files: Picked[])
     if not pending(imported) and files.length > 0
       send imported = importFiles(client, importKind, files.map(f => f.path).join("\n"), files.map(f => f.name).join("\n"))
-  action acceptImportNow(proposal: string)
+  // (`gen`, the card's `choiceGen` as shown: an accept or edit of a card not yet built again asks for another look)
+  action acceptImportNow(proposal: string, gen: number)
     if not pending(written)
-      send written = acceptImport(client, proposal, picked.join(";"))
-  action editImportValue(proposal: string, index: number, mode: number, v: string)
+      send written = acceptImport(client, proposal, picked.join(";"), gen)
+  action editImportValue(proposal: string, index: number, mode: number, gen: number, v: string)
     if not pending(written)
-      send written = editImport(client, proposal, index, mode, v, picked.join(";"))
-  // A mapped token is in until unticked: its id is picked when left out.
-  action toggleLeaveOut(id: string, checked: bool)
-    picked = checked ? picked.filter(p => p != id) : picked.filter(p => p != id).concat([id])
+      send written = editImport(client, proposal, index, mode, gen, v, picked.join(";"))
+  // A mapped token's id is picked when it differs from where it began (in, unless the server's choice leaves it out).
+  action toggleLeaveOut(id: string, on: bool, checked: bool)
+    picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
+  // Flips on a card another client chose on since: dropped, its choice the card's now (tamber/1.18).
+  action takeChoices
+    picked = picked.filter(p => not choices.drop.includes(p))
   // An offer's id is picked when it differs from where it began.
   action toggleOffer(id: string, on: bool, checked: bool)
     picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
@@ -852,8 +972,10 @@ component DesignTool
     filesShown = not filesShown
   action markReady
     readyFor = draftReadyKey
+  // Where the step landed, always said (the Apple pass's #1): at the root (already, or before the steps asked), or a
+  // copy other than the one the press named, the one holding it in its slot (a step the call-site chain doesn't list).
   action landUp
-    upNote = inspected.chain.length < upExpect ? `The page's tree had fewer above it: it selected ${inspected.source}.` : ""
+    upNote = inspected.movedUp > 0 and inspected.key == upFromKey ? `It is at the app's root already: no other copy above holds this one, so it stays on ${inspected.source}.` : inspected.movedUp > 0 and inspected.movedStepped < inspected.movedUp ? `It reached the app's root after ${inspected.movedStepped} of ${inspected.movedUp} steps: no other copy above holds this one, so it selected ${inspected.source}.` : inspected.movedUp > 0 and upFromComponent != "" and inspected.component != "" and inspected.component != upFromComponent ? (upFromCallers.includes(`|${inspected.component}|`) ? `It landed on ${inspected.component}, the nearest copy with a node of its own here: ${inspected.source}.` : upFromFill ? `It landed on ${inspected.component}, which holds this fill (written in ${upFromComponent}) in its slot: ${inspected.source}.` : `It landed on ${inspected.component}, which holds ${upFromComponent} in its slot: ${inspected.source}.`) : ""
     upNoteKey = inspected.visit
     upExpect = -1
   action dropUp
@@ -960,7 +1082,7 @@ component DesignTool
               if hello.local and canvasCheck.refused != ""
                 text canvasCheck.refused color="-exact-system-orange" font="-exact-footnote" testId="canvas-refused"
               if galleryOn and hello.local and hello.page != "" and canvasView != "states"
-                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
+                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. Each cell is a column's width, as a caller's column shows it. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
               if not hello.local
                 // (A grant spent, or an entry slower than its 30 s: a new one.)
                 if canvasAt.frame != ""
@@ -1020,7 +1142,7 @@ component DesignTool
                         if t.app != ""
                           text t.app color="-exact-secondary-label" font="-exact-caption1" max-width=390 testId=`grid-app-${t.name}`
             Inspector(inspected=inspected, changes=changes, canWrite=canWrite, canPropose=canPropose, canvasView=canvasView, gridAt=gridAt, upNote=upNote, upNoteKey=upNoteKey, foldedRows=foldedRows, foldedHeld=foldedHeld, impactToken=impactToken, uses=uses, inspectSent=inspectSent, selectedUp=selectedUp, holdSent=holdSent, outlined=outlined, sendingInspect=pending(inspectSent), movingUp=pending(selectedUp), sendingHold=pending(holdSent), outlining=pending(outlined), readingUses=pending(uses), toggleInspect=toggleInspect, selectUp=selectUp, showInitial=showInitial, editState=editState, editRow=editRow, moveRow=moveRow, holdState=holdState, editFromSelection=editFromSelection, outlineImpact=outlineImpact)
-            Builds(builds=changes.builds, canWrite=canWrite, pinBuild=pinBuild, pinScheme=pinScheme, pinContrast=pinContrast, pinMode=pinMode, pinFont=pinFont, pinFontOk=pinFontOk, pinAxes=pinAxes, pinned=pinned, sendingPin=pending(pinned), choosePinBuild=choosePinBuild, choosePinScheme=choosePinScheme, choosePinContrast=choosePinContrast, choosePinMode=choosePinMode, choosePinFont=choosePinFont, applyPin=applyPin, previewPin=previewPin, clearPins=clearPins)
+            Builds(builds=changes.builds, reloading=changes.reloading, reloadGen=changes.reloadGen, reloadSeen=reloadSeen, canWrite=canWrite, pinBuild=pinBuild, pinScheme=pinScheme, pinContrast=pinContrast, pinMode=pinMode, pinFont=pinFont, pinFontOk=pinFontOk, pinAxes=pinAxes, pinned=pinned, sendingPin=pending(pinned), choosePinBuild=choosePinBuild, choosePinScheme=choosePinScheme, choosePinContrast=choosePinContrast, choosePinMode=choosePinMode, choosePinFont=choosePinFont, applyPin=applyPin, previewPin=previewPin, clearPins=clearPins)
             // Design files only: the server's files hold the app's Contract
             // sources too (LLP 1121 stage 8 D), whose state parts it writes.
             if hello.files.filter(f => !f.path.endsWith(".contract")).length > 1
@@ -1072,13 +1194,13 @@ component DesignTool
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
+                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn, false), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
+                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn, false), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -1103,7 +1225,7 @@ component DesignTool
                             if t.follows != ""
                               text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
                           for cell in t.cells key=cell.column
-                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellMarks.filter(m => m.cell == `${t.name}|${cell.column}`).map(m => m.tint).join("") : "transparent") press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
+                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(selToken == t.name and selColumn == cell.column ? "AccentColor" : lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellMarks.filter(m => m.cell == `${t.name}|${cell.column}`).map(m => m.tint).join("") : "transparent") press=selectCell(t.name, cell.column, true) scroll-margin-top=8 scroll-margin-bottom="calc(50vh + 8px)" id=`cell-${t.name}-${cell.column}` role="button" aria-current=(selToken == t.name and selColumn == cell.column ? "true" : "false") aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
                               if cell.kind == "box-shadow"
                                 // In a padded box of the column's scheme, so the shadow falls on its own ground.
                                 view padding=6 border-radius=4 color-scheme=cell.scheme background-color="-exact-background" testId=`cell-shadow-${t.name}-${cell.column}`
@@ -1143,84 +1265,154 @@ component DesignTool
                     row gap=8 align-items="center" testId=`icon-${ic.name}`
                       text ic.name width="12rem" flex-shrink=0
                       text [ic.sf != "" ? `sf ${ic.sf}` : "", ic.material != "" ? `material ${ic.material}` : "", ic.svg != "" ? "svg" : ""].filter(x => x != "").join(" · ") color="-exact-secondary-label" font="-exact-footnote" testId=`icon-${ic.name}-sources`
-              // The branch of the cell chosen, read of the grid shown.
-              if selPlace != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and branch.place != selPlace
-                text "The design's axes changed since that copy was selected, so this column is another branch now: select it again." color="-exact-system-orange" testId="branch-moved"
-              if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and (selPlace == "" or branch.place == selPlace)
-                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
-                  text (scopeOwn ? `${branch.token} · ${branch.own} (only this mode)` : branch.label) role="heading" aria-level=3 testId="branch-label"
-                  if branch.readOnly != ""
-                    text branch.readOnly color="-exact-secondary-label" font="-exact-footnote" testId="branch-readonly"
-                  if branch.kind == "duration" or branch.kind == "easing"
-                    text "Rebuilds: an edit to a motion token rebuilds the app, so Apply writes it, with no scrub." font="-exact-footnote" color="-exact-secondary-label" testId="branch-rebuilds"
-                  if branch.expression and not pinning and not typed.ok
-                    text `Follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: edit those, or pin a value here.` color="-exact-secondary-label" testId="branch-inputs"
-                    for n in branch.inputs key=n
-                      button press=selectCell(n, selColumn) testId=`input-${n}`
-                        text n
-                    for d in branch.dials key=d.name
-                      if d.hidden
-                        text `${d.name}: a dial with no control (control=none)` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${d.name}`
+              // The edit dock (the design tool's third hands-on pass, #7): the selected cell's editor and the edit's
+              // proposal, one region at the window's bottom (at most half of it, scrolling inside) while either shows,
+              // so neither opens a screen below the grid nor covers the other. Escape, or Close, with nothing pending
+              // ends the selection and gives the focus back to its cell; with an edit pending Escape does nothing.
+              if editing
+                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" position="sticky" bottom=0 z-index=5 box-sizing="border-box" max-height="50vh" overflow-y="auto" box-shadow="0 -2px 12px rgba(0, 0, 0, 0.18)" key=dockKey id="edit-dock" tabindex=-1 role="region" aria-label="Editing" testId="edit-dock"
+                  if closable
+                    row justify-content="flex-end"
+                      button press=closeEditor testId="edit-dock-close"
+                        text "Close"
+                  // The branch of the cell chosen, read of the grid shown.
+                  if selPlace != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and branch.place != selPlace
+                    text "The design's axes changed since that copy was selected, so this column is another branch now: select it again." color="-exact-system-orange" testId="branch-moved"
+                  if branchShown
+                    column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
+                      text (scopeOwn ? `${branch.token} · ${branch.own} (only this mode)` : branch.label) role="heading" aria-level=3 testId="branch-label"
+                      if branch.readOnly != ""
+                        text branch.readOnly color="-exact-secondary-label" font="-exact-footnote" testId="branch-readonly"
+                      if branch.kind == "duration" or branch.kind == "easing"
+                        text "Rebuilds: an edit to a motion token rebuilds the app, so Apply writes it, with no scrub." font="-exact-footnote" color="-exact-secondary-label" testId="branch-rebuilds"
+                      if branch.expression and not pinning and not typed.ok
+                        text `Follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: edit those, or pin a value here.` color="-exact-secondary-label" testId="branch-inputs"
+                        for n in branch.inputs key=n
+                          button press=selectCell(n, selColumn, false) testId=`input-${n}`
+                            text n
+                        for d in branch.dials key=d.name
+                          if d.hidden
+                            text `${d.name}: a dial with no control (control=none)` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${d.name}`
+                          else
+                            button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
+                              text `${d.name} (dial)`
+                        for r in branch.roles key=r
+                          text `${r}: ${branch.kind == "color" ? "a platform colour" : "a platform value"}, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
+                        button press=pin disabled=(not canPropose or branch.readOnly != "") buttonStyle="bordered" testId="pin"
+                          text "Pin a value"
                       else
-                        button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
-                          text `${d.name} (dial)`
-                    for r in branch.roles key=r
-                      text `${r}: ${branch.kind == "color" ? "a platform colour" : "a platform value"}, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
-                    button press=pin disabled=(not canPropose or branch.readOnly != "") buttonStyle="bordered" testId="pin"
-                      text "Pin a value"
-                  else
-                    if branch.expression and typed.ok
-                      // Its fields keep the names it holds (a shadow's colour token).
-                      text `Names ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: its fields keep them; edit those for their own values.` color="-exact-secondary-label" testId="branch-names"
-                      for n in branch.inputs key=n
-                        button press=selectCell(n, selColumn) testId=`input-${n}`
-                          text n
-                      for d in branch.dials.filter(d => not d.hidden) key=d.name
-                        button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
-                          text `${d.name} (dial)`
-                    else if branch.expression
-                      text `Pinned here: no longer follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}.` color="-exact-system-orange" testId="pinned"
-                    if typed.ok and typed.of == partsBase
-                      column gap=6 testId="typed"
-                        for p in typed.parts.filter(p => p.control != "fixed") key=p.key
-                          row gap=8 align-items="center" testId=`part-${p.key}`
-                            text p.label width="7rem" color="-exact-secondary-label" font="-exact-footnote"
-                            if p.control == "number"
-                              input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
-                            else if p.control == "select"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
-                                for o in p.options key=o
-                                  option (o == "" ? "none" : o) value=o
-                            else if p.control == "inset"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
-                                option "outside" value=""
-                                option "inset" value="inset"
-                            else if p.control == "style"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
-                                option "unsaid" value=""
-                                option "italic" value="italic"
-                            else
-                              input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
-                        if partMissing != ""
-                          text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
-                    input value=shownValue change=cellText disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} value` testId="branch-value"
-                  if not branch.exact
-                    button press=onlyThisMode disabled=(not canPropose or branch.readOnly != "") testId="only-this-mode"
-                      text "Only this mode"
-                  if not branch.param
-                    row gap=8
-                      input value=renameTo input=editRename submit=renameToken disabled=(not canPropose or branch.readOnly != "") placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
-                      button press=renameToken disabled=(renameTo.trim() == "" or not canPropose or branch.readOnly != "") testId="rename"
-                        text "Rename"
-                      button commandfor="confirm-remove" command="show-modal" disabled=(not canPropose or branch.readOnly != "") destructive=true testId="remove"
-                        text "Remove"
-                  dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
-                    button press=removeToken disabled=(not canPropose or branch.readOnly != "") destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
-                      text "Remove"
-                    button commandfor="confirm-remove" command="close"
-                      text "Cancel"
-              if not branch.ok
-                text branch.error color="-exact-system-red" testId="branch-error"
+                        if branch.expression and typed.ok
+                          // Its fields keep the names it holds (a shadow's colour token).
+                          text `Names ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: its fields keep them; edit those for their own values.` color="-exact-secondary-label" testId="branch-names"
+                          for n in branch.inputs key=n
+                            button press=selectCell(n, selColumn, false) testId=`input-${n}`
+                              text n
+                          for d in branch.dials.filter(d => not d.hidden) key=d.name
+                            button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
+                              text `${d.name} (dial)`
+                        else if branch.expression
+                          text `Pinned here: no longer follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}.` color="-exact-system-orange" testId="pinned"
+                        if typed.ok and typed.of == partsBase
+                          column gap=6 testId="typed"
+                            for p in typed.parts.filter(p => p.control != "fixed") key=p.key
+                              row gap=8 align-items="center" testId=`part-${p.key}`
+                                text p.label width="7rem" color="-exact-secondary-label" font="-exact-footnote"
+                                if p.control == "number"
+                                  input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                                else if p.control == "select"
+                                  select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                    for o in p.options key=o
+                                      option (o == "" ? "none" : o) value=o
+                                else if p.control == "inset"
+                                  select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                    option "outside" value=""
+                                    option "inset" value="inset"
+                                else if p.control == "style"
+                                  select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                    option "unsaid" value=""
+                                    option "italic" value="italic"
+                                else
+                                  input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                            if partMissing != ""
+                              text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
+                        input value=shownValue input=typingValue change=cellText disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} value` id="branch-value" testId="branch-value"
+                      if not branch.exact
+                        button press=onlyThisMode disabled=(not canPropose or branch.readOnly != "") testId="only-this-mode"
+                          text "Only this mode"
+                      if not branch.param
+                        row gap=8
+                          input value=renameTo input=editRename submit=renameToken disabled=(not canPropose or branch.readOnly != "") placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
+                          button press=renameToken disabled=(renameTo.trim() == "" or not canPropose or branch.readOnly != "") testId="rename"
+                            text "Rename"
+                          button commandfor="confirm-remove" command="show-modal" disabled=(not canPropose or branch.readOnly != "") destructive=true testId="remove"
+                            text "Remove"
+                  if not branch.ok
+                    text branch.error color="-exact-system-red" testId="branch-error"
+                  if editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param"
+                    column gap=4 testId="move-editor"
+                      text rowWords role="heading" aria-level=3 testId="row-label"
+                      text (editKind == "detach-param" ? "One transaction: the param's default written at this row, and the param removed, with any param it alone left read (listed below); refused where the app's design sets it." : "One transaction: the new one, its default the value as written, and this row reading it.") color="-exact-secondary-label" font="-exact-footnote"
+                      if stateStale
+                        text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
+                      if editKind != "detach-param"
+                        input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
+                  if editKind == "set-state" or editKind == "set-row"
+                    column gap=4 testId="state-editor"
+                      if editKind == "set-row"
+                        text rowWords role="heading" aria-level=3 testId="row-label"
+                        text "A row as its author wrote it: written by set-row where it is written (this template: every copy of this node; a style: every node using it), which rebuilds the app; the file must be as it was when selected, and the app must build." color="-exact-secondary-label" font="-exact-footnote"
+                      else
+                        text `${editTarget.split("|").slice(0, 1).join("")} :${editTarget.split("|").slice(1, 2).join("")} ${editTarget.split("|").slice(2, 3).join("")}` role="heading" aria-level=3 testId="state-label"
+                        text "A state part's row: written by set-state, which rebuilds the app; a hold on it is held again once it has, where its node still corresponds." color="-exact-secondary-label" font="-exact-footnote"
+                      if stateStale
+                        text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
+                      input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
+                  if editKind != ""
+                    // In the edit dock with the cell's editor (the third pass's #7; the second pass's param proposal, opened
+                    // about 16,500 px below its field, docked first).
+                    column gap=8 padding=12 border-radius=10 background-color="-exact-tertiary-background" id="proposal-dock" tabindex=-1 role="region" aria-label="Proposal" testId="proposal"
+                      if editKind == "set-token" and editTarget == setForAppName and setForAppNote != ""
+                        text setForAppNote font="-exact-footnote" color="-exact-secondary-label" testId="set-for-app-note"
+                      if draftStale or partsStale
+                        text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
+                      // Said to a screen reader as it comes: a typed draft keeps the focus in its field.
+                      text readyLine aria-live="polite" font="-exact-footnote" color="-exact-secondary-label" testId="proposal-ready"
+                      if not proposal.ok
+                        text proposal.error color="-exact-system-red" white-space="pre-wrap" testId="proposal-error"
+                      else if proposal.active
+                        row gap=8 align-items="center"
+                          text (proposal.chip == "live" ? "Live" : "Rebuilds") font="-exact-footnote" padding="2px 8px" border-radius=8 background-color="-exact-tertiary-background" testId="chip"
+                          text proposal.tokens.join(", ") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId="proposal-tokens"
+                        text proposal.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId="proposal-diff"
+                      if scrubShown
+                        column gap=4 testId="scrub"
+                          if not scrub.ok
+                            text scrub.error color="-exact-system-red" white-space="pre-wrap" testId="scrub-error"
+                          else if scrub.open != ""
+                            text (scrub.ready ? "Previewing: the running copies show this value, and the files are unchanged until Keep." : scrub.sending ? "Previewing: sending this value to the running copies…" : "Previewing the last value sent: this one is not previewed.") color="-exact-system-orange" testId="scrub-previewing"
+                          row gap=8
+                            button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written) or not canWrite) buttonStyle="filled" testId="scrub-keep"
+                              text "Keep"
+                            button press=cancelScrub disabled=(not canWrite) testId="scrub-cancel"
+                              text "Cancel scrub"
+                      else
+                        row gap=8
+                          button id="proposal-apply" press=apply disabled=(not applyReady) buttonStyle="filled" testId="apply"
+                            text (canWrite ? "Apply" : "Propose for review")
+                          if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
+                            button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp)) testId="scrub-start"
+                              text "Scrub live"
+                          button press=cancelEdit testId="cancel-edit"
+                            text "Cancel"
+                        if (editKind == "set-dial" or editKind == "set-token" or editKind == "set-param") and proposal.ok and proposal.active and proposal.chip != "live"
+                          text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
+              // The Remove confirmation outside the dock, so its own Escape (which closes it) never reaches the dock's.
+              if branchShown and not branch.param
+                dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
+                  button press=removeToken disabled=(not canPropose or branch.readOnly != "") destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
+                    text "Remove"
+                  button commandfor="confirm-remove" command="close"
+                    text "Cancel"
               column gap=8 testId="add"
                 text "Add a token" role="heading" aria-level=3
                 row gap=8
@@ -1228,64 +1420,6 @@ component DesignTool
                   input value=newValue input=editNewValue submit=addToken disabled=(not canPropose) placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
                   button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "" or not canPropose) testId="add-token"
                     text "Add"
-              if editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param"
-                column gap=4 testId="move-editor"
-                  text rowWords role="heading" aria-level=3 testId="row-label"
-                  text (editKind == "detach-param" ? "One transaction: the param's default written at this row, and the param removed, with any param it alone left read (listed below); refused where the app's design sets it." : "One transaction: the new one, its default the value as written, and this row reading it.") color="-exact-secondary-label" font="-exact-footnote"
-                  if stateStale
-                    text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
-                  if editKind != "detach-param"
-                    input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "promote-param" ? "The new param's name" : "The new token's name") testId="move-name"
-              if editKind == "set-state" or editKind == "set-row"
-                column gap=4 testId="state-editor"
-                  if editKind == "set-row"
-                    text rowWords role="heading" aria-level=3 testId="row-label"
-                    text "A row as its author wrote it: written by set-row where it is written (this template: every copy of this node; a style: every node using it), which rebuilds the app; the file must be as it was when selected, and the app must build." color="-exact-secondary-label" font="-exact-footnote"
-                  else
-                    text `${editTarget.split("|").slice(0, 1).join("")} :${editTarget.split("|").slice(1, 2).join("")} ${editTarget.split("|").slice(2, 3).join("")}` role="heading" aria-level=3 testId="state-label"
-                    text "A state part's row: written by set-state, which rebuilds the app; a hold on it is held again once it has, where its node still corresponds." color="-exact-secondary-label" font="-exact-footnote"
-                  if stateStale
-                    text "The copy this edit was opened on is no longer current: select it again." color="-exact-system-orange" font="-exact-footnote" testId="state-stale"
-                  input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
-              if editKind != ""
-                // A panel's edit docks it at the window's bottom (the second hands-on pass: a param's proposal opened
-                // about 16,500 px below its field), at most 40% of it, scrolling inside; a grid edit's stays here.
-                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" position=(docked ? "sticky" : "relative") bottom=0 z-index=5 max-height=(docked ? "40vh" : "none") overflow-y=(docked ? "auto" : "visible") box-shadow=(docked ? "0 -2px 12px rgba(0, 0, 0, 0.18)" : "none") id="proposal-dock" tabindex=-1 role="region" aria-label="Proposal" testId="proposal"
-                  if editKind == "set-token" and editTarget == setForAppName and setForAppNote != ""
-                    text setForAppNote font="-exact-footnote" color="-exact-secondary-label" testId="set-for-app-note"
-                  if draftStale or partsStale
-                    text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
-                  // Said to a screen reader as it comes: a typed draft keeps the focus in its field.
-                  text readyLine aria-live="polite" font="-exact-footnote" color="-exact-secondary-label" testId="proposal-ready"
-                  if not proposal.ok
-                    text proposal.error color="-exact-system-red" white-space="pre-wrap" testId="proposal-error"
-                  else if proposal.active
-                    row gap=8 align-items="center"
-                      text (proposal.chip == "live" ? "Live" : "Rebuilds") font="-exact-footnote" padding="2px 8px" border-radius=8 background-color="-exact-tertiary-background" testId="chip"
-                      text proposal.tokens.join(", ") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId="proposal-tokens"
-                    text proposal.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId="proposal-diff"
-                  if scrubShown
-                    column gap=4 testId="scrub"
-                      if not scrub.ok
-                        text scrub.error color="-exact-system-red" white-space="pre-wrap" testId="scrub-error"
-                      else if scrub.open != ""
-                        text (scrub.ready ? "Previewing: the running copies show this value, and the files are unchanged until Keep." : scrub.sending ? "Previewing: sending this value to the running copies…" : "Previewing the last value sent: this one is not previewed.") color="-exact-system-orange" testId="scrub-previewing"
-                      row gap=8
-                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written) or not canWrite) buttonStyle="filled" testId="scrub-keep"
-                          text "Keep"
-                        button press=cancelScrub aria-keyshortcuts="Escape" disabled=(not canWrite) testId="scrub-cancel"
-                          text "Cancel scrub"
-                  else
-                    row gap=8
-                      button id="proposal-apply" press=apply disabled=(not applyReady) buttonStyle="filled" testId="apply"
-                        text (canWrite ? "Apply" : "Propose for review")
-                      if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
-                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp)) testId="scrub-start"
-                          text "Scrub live"
-                      button press=cancelEdit testId="cancel-edit"
-                        text "Cancel"
-                    if (editKind == "set-dial" or editKind == "set-token" or editKind == "set-param") and proposal.ok and proposal.active and proposal.chip != "live"
-                      text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
               if not scrubShown and scrub.ended != ""
                 text scrub.ended color="-exact-secondary-label" testId="scrub-note"
               row gap=8 align-items="center" testId="undo-bar"
@@ -1326,7 +1460,7 @@ component DesignTool
                   row gap=12
                     text f.path flex=1 testId=`file-${f.path}`
                     text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
-            Proposals(held=changes.held, picked=picked, client=client, canWrite=canWrite, canPropose=canPropose, writing=pending(written), acceptImportNow=acceptImportNow, editImportValue=editImportValue, toggleLeaveOut=toggleLeaveOut, toggleOffer=toggleOffer, togglePick=togglePick, acceptAll=acceptAll, acceptPicked=acceptPicked, dropProposal=dropProposal)
+            Proposals(held=changes.held, diffs=chosenDiffs.diffs, picked=picked, client=client, canWrite=canWrite, canPropose=canPropose, writing=pending(written), acceptImportNow=acceptImportNow, editImportValue=editImportValue, toggleLeaveOut=toggleLeaveOut, toggleOffer=toggleOffer, togglePick=togglePick, acceptAll=acceptAll, acceptPicked=acceptPicked, dropProposal=dropProposal)
             column gap=8 testId="import"
               text "Import a theme" role="heading" aria-level=2
               text "Its tokens, the role overrides it offers (each off until ticked) and what it could not map are held as a proposal, reviewed above." color="-exact-secondary-label" font="-exact-footnote"

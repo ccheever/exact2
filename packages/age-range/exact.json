@@ -1,0 +1,91 @@
+{
+  "kind": "interface",
+  "name": "@exact/age-range",
+  "version": "1.0.0",
+  "grants": [
+    "device.age-range"
+  ],
+  "substitute": "implementation",
+  "shapes": {
+    "AgeRangeStatus": {
+      "available": "bool",
+      "regulated": "option<bool>",
+      "apple": "option<AppleAgeRangeStatus>"
+    },
+    "AgeRange": {
+      "status": "enum<sharing|declined|unverified>",
+      "lowerBound": "number",
+      "upperBound": "option<number>",
+      "declaration": "enum<self|guardian|confirmed|unknown>",
+      "apple": "option<AppleAgeRange>",
+      "android": "option<AndroidAgeRange>"
+    }
+  },
+  "names": [
+    {
+      "source": "ageRangeStatus",
+      "live": true,
+      "overlays": "implementation",
+      "answers": "AgeRangeStatus",
+      "substitute": {
+        "default": {
+          "available": false,
+          "regulated": null,
+          "apple": null
+        },
+        "targets": {
+          "ios": {
+            "available": true,
+            "regulated": false,
+            "apple": {
+              "requiredRegulatoryFeatures": []
+            }
+          },
+          "macos": {
+            "available": true,
+            "regulated": false,
+            "apple": {
+              "requiredRegulatoryFeatures": []
+            }
+          },
+          "android": {
+            "available": true
+          }
+        }
+      }
+    },
+    {
+      "send": "requestAgeRange",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "ageGates": "number[]"
+      },
+      "answers": "AgeRange",
+      "substitute": {
+        "choose": {
+          "ticket": "age-range",
+          "choices": [
+            "decline",
+            "unverified",
+            "unavailable"
+          ],
+          "unless": {
+            "decline": {
+              "status": "ageRangeStatus",
+              "field": "apple.requiredRegulatoryFeatures",
+              "has": "declaredAgeRangeRequired"
+            }
+          }
+        },
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    }
+  ]
+}

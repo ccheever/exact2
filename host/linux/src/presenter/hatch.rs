@@ -186,9 +186,10 @@ impl<D: DataSource> Presenter<D> {
             let Some(node) = kernel.node(id) else {
                 continue;
             };
+            let placed = self.pane_frame(id).expect("live hatch");
             let frame = Rect {
-                x: node.frame.x,
-                y: node.frame.y,
+                x: placed.x,
+                y: placed.y,
                 width: node.frame.width,
                 height: node.frame.height,
             };
@@ -554,6 +555,18 @@ impl<D: DataSource> Presenter<D> {
         self.timer_or_scroll_due_ms()
             .into_iter()
             .chain(after)
+            .reduce(f64::min)
+    }
+
+    /// [`Self::timer_due_ms`], or a pad's effect starting or ending
+    /// (`pads.rs`): when a loop wakes. An agent's jump steps only to the
+    /// runner's, and the pads' land at the turn after it.
+    pub fn wake_due_ms(&self) -> Option<f64> {
+        let now = self.host.now();
+        self.timer_due_ms()
+            .into_iter()
+            .chain(crate::pads::due())
+            .chain(self.image_turn_due_in_ms().map(|ms| now + ms))
             .reduce(f64::min)
     }
 

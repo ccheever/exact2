@@ -25,6 +25,26 @@ fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization
     }
 }
 
+/// @ref LLP 1145 D4 — list.js reads `reach-margin` from the list's options.
+#[test]
+fn a_reach_margin_is_a_list_option() {
+    let source = "component App\n  action more\n    let n = 1\n  view\n    list virtualized=true height=200 reachend=more reach-margin=\"0px 200%\"\n      for x in [1, 2] key=x\n        text `${x}`\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("reach:\"0px 200%\""), "{js}");
+}
+
+/// @ref LLP 1010 §6.11 — list.js reads `keep-mounted` again at each update.
+#[test]
+fn keep_mounted_is_a_list_option_read_again() {
+    let source = "component App\n  state ids = [1, 2]\n  view\n    list virtualized=true height=200 keep-mounted=[first(ids), ids.at(-1)]\n      for x in ids key=x\n        text `${x}`\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("keep:()=>"), "{js}");
+}
+
 #[test]
 fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
     let plan = contract::compile(
@@ -810,4 +830,97 @@ fn a_symbol_under_a_written_colour_is_marked() {
             "{name}: {p:?}"
         );
     }
+}
+
+#[test]
+fn a_refusal_at_a_plan_node_is_said_at_its_source() {
+    let dir = std::env::temp_dir().join(format!("web-js-at-source-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(
+        &path,
+        "component App\n  view\n    column\n      Notes()\n\ncomponent Notes\n  state kind = \"markdown\"\n  view\n    textarea markup=kind aria-label=\"Notes\"\n",
+    )
+    .unwrap();
+    let (plan, map) = contract::compile_path_mapped(&path).unwrap();
+    let refusal = crate::emit::emit(&plan, false, false)
+        .err()
+        .expect("a dynamic markup");
+    assert!(refusal.starts_with("node "), "{refusal}");
+    let located = crate::at_source(&refusal, &map).expect("located");
+    assert_eq!(located.id, "web-target");
+    assert_eq!(
+        located.message,
+        "a dynamic `markup` on a text field is not in the JS target"
+    );
+    assert_eq!(located.file.as_deref(), Some(path.as_path()));
+    assert_eq!(located.related.len(), 1, "the call site of Notes");
+    assert!(crate::at_source("a refusal with no node", &map).is_none());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Right to left (d19cfb141a), a bound side stays the side its author wrote,
+/// as the wasm target and the kernel keep it: the JS target writes a bound
+/// `margin-left` and `padding-left` as themselves, never the logical
+/// property css.rs gives a side only the sheet set; and the sheet's own
+/// sides, a grouped row's insets, are still those logical ones.
+#[test]
+fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
+    let plan = contract::compile(
+        "component App\n  state wide = false\n  view\n    column direction=\"rtl\"\n      text \"a\" margin-left=(wide ? 12 : 4) padding-left=(wide ? 8 : 2) testId=\"bound\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(
+        js.contains("\"margin-left\"") && js.contains("\"padding-left\""),
+        "{js}"
+    );
+    assert!(!js.contains("inline-start"), "{js}");
+    let grouped = contract::compile(include_str!(
+        "../../../scripts/fixtures/grouped-list.contract"
+    ))
+    .unwrap();
+    let out = crate::emit::emit(&grouped, false, false).unwrap();
+    assert!(
+        out.css.contains("padding-inline-start"),
+        "the sheet's unsaid side mirrors: {}",
+        out.css
+    );
+    // A grouped row's inset beside a symbol shown by a condition is the
+    // sheet's own binding, no author's: it is bound to the logical side.
+    let conditional = contract::compile(
+        "component App\n  state show = true\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&conditional, false, false).unwrap().js;
+    assert!(js.contains("\"padding-inline-start\""), "{js}");
+    // Its author writing the other side of the pair, neither mirrors (as the kernel and wasm keep them).
+    let mixed = contract::compile(
+        "component App\n  state show = true\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&mixed, false, false).unwrap().js;
+    assert!(
+        js.contains("\"padding-left\"") && js.contains("\"padding-right\""),
+        "{js}"
+    );
+    assert!(
+        !js.contains("inline-start") && !js.contains("inline-end"),
+        "{js}"
+    );
+    // And beside the sheet's static inset (an unconditional symbol): that inset stays left too.
+    let mixed = contract::compile(
+        "component App\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          image \"symbol:person\"\n          text \"Name\"\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&mixed, false, false).unwrap();
+    let all = format!("{}{}", out.css, out.js);
+    assert!(
+        all.contains("padding-left:") && out.js.contains("\"padding-right\""),
+        "{all}"
+    );
+    assert!(
+        !all.contains("padding-inline-start") && !all.contains("padding-inline-end"),
+        "{all}"
+    );
 }

@@ -3,10 +3,40 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+#[cfg(windows)]
+mod accessibility;
+#[cfg(windows)]
+mod appearance;
+#[cfg(windows)]
+mod caret;
+#[cfg(windows)]
+mod clicks;
+#[cfg(windows)]
+mod clipboard;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod desktop;
+#[cfg(windows)]
+mod edit_menu;
+#[cfg(windows)]
+mod ime;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod jump_list;
+#[cfg(windows)]
+mod keyboard;
+#[cfg(windows)]
+mod modal;
+#[cfg(windows)]
+mod orientation;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod pad_poll;
 #[cfg(windows)]
 mod pads;
+#[cfg(windows)]
+mod placement;
+#[cfg(windows)]
+mod url;
+#[cfg(windows)]
+mod wheel;
 #[cfg(windows)]
 mod window;
 
@@ -36,6 +66,12 @@ impl Default for Window {
     }
 }
 
+/// The `windows` crate, for a package's Rust: the desktop builder includes
+/// that source in the app's crate and writes no manifest of its own
+/// (LLP 1133.022 D10 item 5), so the package names it through this host.
+#[cfg(windows)]
+pub use windows;
+
 /// Run a Windows app with its display name, window, baked plan and product identity.
 pub fn run<D: exact_runner::DataSource + Default + 'static>(
     name: &str,
@@ -43,13 +79,26 @@ pub fn run<D: exact_runner::DataSource + Default + 'static>(
     plan: &[u8],
     compat: &str,
 ) -> i32 {
+    run_composed::<D>(name, window, plan, compat, Default::default())
+}
+
+/// [`run`] with what the app's build composed: its hatches and its
+/// packages' Windows implementations (`exact_linux::package`, LLP 1133.022
+/// D10 item 5), whose calls run on the window's thread.
+pub fn run_composed<D: exact_runner::DataSource + Default + 'static>(
+    name: &str,
+    window: Window,
+    plan: &[u8],
+    compat: &str,
+    composed: exact_linux::Composed,
+) -> i32 {
     #[cfg(windows)]
     {
-        window::run::<D>(name, window, plan, compat, None)
+        window::run::<D>(name, window, plan, compat, composed)
     }
     #[cfg(not(windows))]
     {
-        let _ = (name, window, plan, compat);
+        let _ = (name, window, plan, compat, composed);
         refuse()
     }
 }
@@ -70,16 +119,11 @@ pub fn run_with_hatches<
     compat: &str,
     words: &'static [&'static str],
 ) -> i32 {
-    #[cfg(windows)]
-    {
-        let hatches = exact_linux::hatches::install::<H>(words);
-        window::run::<D>(name, window, plan, compat, Some(hatches))
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (name, window, plan, compat, words);
-        refuse()
-    }
+    let composed = exact_linux::Composed {
+        hatches: Some(exact_linux::hatches::install::<H>(words)),
+        ..Default::default()
+    };
+    run_composed::<D>(name, window, plan, compat, composed)
 }
 
 #[cfg(not(windows))]

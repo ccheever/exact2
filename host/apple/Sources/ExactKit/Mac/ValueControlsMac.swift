@@ -39,6 +39,7 @@ extension ControlHost {
     /// The control's size: a pop-up's is its widest item's, as HTML sizes a
     /// select (D3), which its cell measures and its intrinsic size may not.
     func naturalSize(_ control: NSControl) -> CGSize {
+        HostPhases.shared.count(.nativeControlMeasurements)
         let natural = control.intrinsicContentSize
         // A slider has no width of its own: it is as wide as its node, which
         // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the

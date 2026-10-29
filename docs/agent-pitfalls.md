@@ -13,6 +13,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **An unknown-size image stays blank after disclosure.** On Windows, an auto-height
+  wrapper around a percentage-width image can leave the image at zero height before
+  decoding. The lazy loader then sees no visible area to load. Give the image a fallback
+  ratio, such as `aspect-ratio="auto 16 / 9"`: it reserves space until the image's
+  natural ratio arrives. (Excord image spoilers, 2026-10-24.)
+
 - **`link "Title" href="/item"` is refused as zero-sized.** Only a `button`'s
   positional title becomes a text child; a `link` needs explicit children. Write:
 
@@ -281,6 +287,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   its action: that misses a return which lands before the hide's timer has fired
   (`prefer visibility-state hidden` then `visible` with no clock step between).
   (Web and iOS simulator, 2026-10-06.)
+- **A jump gated on the tab that shows runs again on every return to it.** A
+  tab's panel and its list stay mounted while another tab shows, so the list
+  keeps the reader's place, as a `UITabBarController`'s tabs and SwiftUI's
+  `TabView` keep theirs. A task gated on the tab (`task reveal when
+  top(nav).name == "board" key=station` with `after(1, jumpNow)`) re-arms when
+  the gate turns true again: switching to another tab and back runs its
+  `scrollIntoView` and throws that place away. Fix: gate the jump on what should
+  move the list (the data loaded, the station or filter chosen: its `key`), not
+  on which tab shows; run a jump the reader asks for (a Now button) from its
+  press. (Bake-off r25, timetable: Saved and back took the board from 07:34 to
+  05:00.)
 
 - **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
   a Rust source loaded on the wasm web host and on Linux, and on the JS target
@@ -330,6 +347,21 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   round 30's grader named it. Fix: rows under a screen's own content are a
   `listStyle="plain"` list on the page's white, as the Clock's laps are; keep
   inset-grouped for a list that is the whole screen.
+- **A sideways swipe on a row opens it.** Cause: the row has no swipe actions. A
+  `UITableView` or SwiftUI `List` row with none is selected by a horizontal drag of any
+  length or speed, and one with trailing actions only is selected by a rightward drag;
+  Exact does the same. Graders flag it when the other app's rows swipe (bake-off r28,
+  r29, and r31's podcasts and recipes). Fix: give rows the swipe actions their screen
+  implies, `delete=` or a swipe row (`contract vocab swipe`). (Measured on iOS 27 with
+  the bake-off driver, 2026-10-28.)
+- **A live list hitches once a tick when its data module rebuilds every row.** Cause: an
+  `every(1000, step)` that refreshes a resource answering all 260 tickers, each with
+  `toLocaleString` prices (Hermes makes a new `Intl.NumberFormat` per call) and a
+  60-point chart string. The clock's advance waits for that answer on the main thread:
+  45–60 ms each second, several dropped frames mid-fling. Fix: format with one
+  `Intl.NumberFormat` made at module load, keep what only a detail screen shows (its
+  chart) out of the per-tick answer, and limit each tick's work to the rows that
+  moved. (Round r21 watchlist, measured with the scroll-feel probe, 2026-10-26.)
 
 ## Native presentation and navigation (iOS)
 
@@ -464,6 +496,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
   `navigationPresentation="fullscreen"` route. (Signal Clone, build 10.)
+- **A full-screen route on iOS shows white bands above and below its content.**
+  Cause: the host keeps the route's content clear of the status bar and the home
+  indicator (LLP 1123 D3), so a child at `position="absolute" inset=0` starts
+  below the status bar, and where the route paints nothing its controller shows
+  the system background. Fix: give the route's own column the background
+  (`background-color`, with `color-scheme="dark"` for a photo viewer): the host
+  paints it to the screen's edges. It is painted once, so an animation of it does
+  not show there. (Excord's image viewer, 2026-10-27.)
 - **A Mac glass panel shows sharp content behind a wrapper.** AppKit's
   `backdrop-filter` samples only the parent's subtree, even when every wrapper
   is transparent. Make the glass a direct sibling of what it covers; put a
@@ -833,7 +873,8 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 - **`Date.now()` in a data module passes its Bun tests and fails on the
   device.** Since 2026-10-05 the build refuses a direct use by file and line
-  (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
+  (`Date.now()`, `new Date()`, `Math.random()`, `setInterval` and the frame
+  timers; an answer's own `setTimeout` is allowed since 2026-10-28), including literal
   bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
   from the call's arguments (the Contract's `wallTime.epochAtZero + performanceNow()`), as
@@ -859,12 +900,31 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   ends the page first. Fix: navigate in the mutation's `then`, which runs once the
   write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
 
+- **A module event's attribute refused as unknown on the root.** `main
+  reading=tagRead` fails `lower-unknown-attr` ("`main` has no attribute
+  `reading`") when the file also declares a derive, state or action named
+  `reading`, even with `reading` in the `use` line: the local name hides the
+  module's event, so the attribute is never bound. Shelf's `derive reading` (the
+  books in progress) did this to `@exact/nfc`'s `reading` event (LLP 1133.035).
+  Fix: rename the local name.
+
 - **Repeating with `pause` mutations.** A `then` cannot send its own mutation
   (`analyze-then-self-send`), and two mutations whose `then`s send each other
   are the same loop. To repeat while a condition holds, use a task with `when`
   and `every`. See "Repeating while a condition holds" in the guide.
 
 ## Sound
+
+- **A local speech recognizer may still need a language download.**
+  `speechRecognitionStatus.local` describes the engine, not its installed
+  languages. Gate recognition on `speechRecognitionAvailability` and offer
+  `installSpeechRecognition` when it answers `downloadable`. Recorder hid
+  Download behind `not speech.local` on an iPhone whose `en_KR` model was
+  missing. Refresh availability after installation. (LLP 1133.020.)
+- **An audio player is silent in iPhone Silent mode.** The default audio
+  session is `ambient`. An app whose purpose includes media playback should
+  set `"audio_session": "playback"` in `app.json`, as Recorder does; raising
+  the media volume alone does not override Silent mode. (LLP 1096 D8.)
 
 - **A scheduled sound plays after Stop.** A sequencer that schedules each step
   ahead (`playSounds(…)` with a future `at=`) keeps sounding the hits already
@@ -1091,6 +1151,13 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Driving and testing
 
+- **`bun test` reports that a test is outside the test runner.**
+  Importing `scripts/app.mjs` calls `ensureBun()`. If it selects another Bun
+  executable, re-execution carries the script arguments but loses Bun's `test`
+  mode. Set `BUN` to the pinned executable you invoke, even when both paths
+  report the same version. (Main integration, 2026-10-28;
+  [executable selection](../scripts/bun.mjs), `ensureBun`.)
+
 - **An iOS release simulator build keeps a separate version stamp.**
   `EXACT_VERSION` and `EXACT_BUILD_NUMBER` enter the iOS bundle through
   `distributionKeys` only when `--archive` writes an IPA. A `--ios --release`
@@ -1098,6 +1165,50 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   artifact's `Info.plist` separately before claiming its version or source.
   (T3 release verification, 2026-10-28;
   [bundle assembly](../host/apple/bundle.mjs), `assembleIOS`.)
+
+- **A temporary import fixture says a sibling `use` leaves the app directory.**
+  Canonicalize its directory before passing the entry path to the compiler. On
+  macOS, `/var` aliases `/private/var`; mixing those paths makes the containment
+  check reject the sibling. (`contract-property-cone`, 2026-10-28.)
+
+- **A timer has fired before the next assertion although the test has no clock line.**
+  The test driver advances one millisecond per mutation request after each step,
+  including requests answered synchronously and those issued by an automatic advance.
+  Read the expansion's `.events` file from `contract verify` when checking a timer's
+  exact deadline. An input and its continuations land before those advances.
+  (LLP 1151 delivery; `mutations/then` and `queue-then`, 2026-10-28.)
+
+- **An HDR gradient samples as 1, or a visible box shadow samples as black.**
+  Apple's agent samples through `CALayer.render(in:)`, which does not reproduce
+  every compositor effect. On iOS 27, a native `CAGradientLayer` from 1× to 4×
+  white also captures as 1, and layer shadows disappear from that capture.
+  Compare the layer's colors and range with Color Gallery's UIKit reference,
+  then inspect the displayed screen through iPhone Mirroring. A float capture
+  alone cannot judge those effects. (Color Gallery, iPhone 16 Pro, 2026-10-27.)
+
+- **A build's refusals do not say "error".** A compile refusal prints as
+  `app.contract:5:13 [lower-attr-value] symbol \`warning\` is not a role; …` and the
+  build exits 1, so a check that greps the output for `error` passes a build that
+  failed. Judge a build by its exit status (`bun host/web/build.mjs`, `bun
+  host/apple/build.mjs`). (Excord port, `symbol:warning`, LLP 1142 D7, 2026-10-25.)
+
+- **The first text read in a newly built Mac app takes a minute or more.** Vision's
+  text recognizer is compiled for the Neural Engine per app binary
+  (`ANECompilerService`, which a `sample` of the app shows as `_ANEClient
+  compileModel`), so a drive's first `detectText` after each build waits while the
+  later ones answer at once. It looks like a hang. Give the first read several
+  `clock data` ops, or keep one fixture between runs
+  (`EXACT_VISION_FIXTURE`, `packages/barcode-detection/test/agent.mjs`). (LLP
+  1133.027, 2026-10-26.)
+
+- **A host timing bug on iOS is chased with `NSLog` and rebuilds of exact2.** A
+  development build already journals what the host did: `logs` has `host:` lines for
+  navigation (`willShow`, `didShow`, and whether the app, UIKit's Back or the edge swipe
+  started it), sheets presented and dismissed, autofocus applied or skipped with what holds
+  the focus, the keyboard, and the status bar's style. A run driven by hand prints them to
+  `xcrun simctl spawn booted log stream --level debug --predicate 'subsystem == "dev.exact"
+  AND category == "host"'`, and the rest of the journal under `subsystem == "com.exact.app"
+  AND category == "journal"` (`--level info`). Read them before patching the host (LLP 1143).
 
 - **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
   string form sets the whole textarea: AppKit selects all, then inserts the supplied
@@ -1402,6 +1513,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   (HID, no accessibility) or have the host press a row itself, and read frames
   from Save Trace or a temporary log, not from a run an accessibility client
   touched. (x2-perf, 2026-10-05.)
+- **A `sample` of an agent-driven Mac app blames the presenter for a scroll.** Twenty
+  wheels in Excord put most of the main thread in `ExactSession.apply` →
+  `Presenter.apply`, about 0.75 ms a batch, over 1,800 batches that carried no ops.
+  Cause: the agent applies a batch for each of its own clock steps (`Agent.clockStep`)
+  and position reports (`tellAgentOffset`): 1,533 of the 1,573 empty batches in that
+  drive, against 13 from the app itself. A real session makes none of them. Fix:
+  measure scrolling from a Save Trace (⌥⌘T) of a real session; in an agent drive's
+  profile, discount every stack under `Agent`. (Excord, the Mac transcript, 2026-10-27.)
 - **`axe` stops delivering taps.** Use `axe` only as a last resort, for native
   chrome only a normal launch presents (bars, `UIMenu`s); drive everything else
   with `agent ios` by `testId`. After `axe touch --down --up --delay` (a long
@@ -1740,6 +1859,13 @@ are in [game-pitfalls.md](game-pitfalls.md).
 
 ## Access hatches
 
+- **Published diagnostics stop gaining keys, or repeated elements overwrite
+  one another.** `element.diagnostics` is scoped to the hatch word. The session
+  keeps 16 published names, with at most 4,096 bytes per value. Group repeated
+  instances under a stable name, for example `publish("gradient", {standard: ..., constrained:
+  ..., noLimit: ...})`, and keep each payload within that bound. (Color Gallery's
+  27 paint probes, 2026-10-27; `HatchDiagnostics.swift`.)
+
 - **A native view's frame ticket left on costs CPU on a still screen.** A
   live `context.frames` ticket keeps the display link running at the
   display's rate, whether or not the view changes: euxy's step strips, beat
@@ -1873,3 +1999,23 @@ its valid bindings disappear and return. Read it with
   JavaScript module. Load a fresh module instance and its matching wasm together; verify a
   declaration added during the dev session without another JSON edit. The table watcher
   uses a unique data URL for each primary build.
+
+- **Declare a system framework used only through an Objective-C category.** An
+  import can compile without leaving a symbol reference that links its framework.
+  For example, the [limited-library picker](https://developer.apple.com/documentation/photos/phphotolibrary/presentlimitedlibrarypicker%28from%3Acompletionhandler%3A%29) is supplied by PhotosUI;
+  without it, Manage crashes with an unrecognized selector. The Apple implementation
+  manifest declares `"frameworks": {"PhotosUI": {"ios": "14.0"}}`. Check the built
+  module’s load commands and exercise the picker on a device.
+
+- **A selected file does not grant directory enumeration.** On Apple, retain a
+  selected file’s parent with `O_SEARCH` for relative lookup. Opening it with
+  `O_RDONLY` can fail under the file’s security scope even though the file itself
+  is readable. Verify with a file selected from another app’s Documents folder;
+  a simulator fixture in the app’s own container does not exercise this boundary.
+
+- **A module name that fails on one target stops that target's boot as a resource.** A
+  Contract resource that fails at launch refuses the web app's boot, and
+  `attachedPorts`/`attachedDevices` fail `NotSupportedError` on the web by design (LLP
+  1133.037 D3). Read such a name from `app.ts`, choosing it or its other target's name by
+  the status (`attachedList ? attachedPorts({}) : getPorts({})`), as
+  `docs/recipes/usb-hid-serial.md` does.

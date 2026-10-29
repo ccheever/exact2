@@ -1,0 +1,55 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All contacts sorted by last name in lettered sections with sticky headers; the system-style blue A–Z index jumps correctly (tested M and Z)."},
+      {"n": 2, "status": "pass", "note": "Bottom search bar filters live by name, company, phone (formatted or digits only, e.g. 4317698) and email. Clearing it restores the full list, and a 'No Results' state has a Clear Search button. The first tap on a result with the keyboard up only ends the search; it takes a second tap to open the contact."},
+      {"n": 3, "status": "pass", "note": "Details card shows initials, name, company, phone, email and birthday. Phone and email are blue and look tappable."},
+      {"n": 4, "status": "pass", "note": "An Add to/Remove from Favorites row on the details screen works both ways. Favorites is the first section of the list and updates at once."},
+      {"n": 5, "status": "pass", "note": "The add sheet has first, last, company, phone and email. Done stays disabled until a non-blank first or last name exists (whitespace-only is rejected). Edit uses the same form and saves."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete on list rows and Delete Contact on details, both with a confirmation alert."},
+      {"n": 7, "status": "pass", "note": "An added contact, a deleted contact, an edited company and favorite changes all survived relaunch. The search text is also restored after relaunch."}
+    ],
+    "bugs": [
+      "With the search keyboard up, the first tap on a result only dismisses the search UI (the search bar disappears too); it takes a second tap to open the contact.",
+      "When a row is swiped to reveal Delete, its name and company disappear and the row shows as an empty grey pill.",
+      "During one search-dismiss and push sequence, two detail screens were pushed onto the stack (a tap landed while a delayed push was still pending)."
+    ],
+    "tells": [
+      "No avatars in list rows: plain text-only rows, sparser than iOS Contacts.",
+      "In the add/edit form, Return dismisses the keyboard instead of moving to the next field.",
+      "The form uses placeholder-only fields, so once filled they show no labels. Cancel discards edits silently, with no 'Discard Changes?' confirmation.",
+      "Search results repeat favorites in a Favorites section above the lettered results.",
+      "The details avatar is a flat grey circle with grey initials, with no colour or monogram styling.",
+      "At the largest text size, email addresses wrap mid-word ('felix.adeyemi@e / xample.com'), and the form fields truncate company, phone and email with ellipses."
+    ],
+    "scroll": "Native-feeling list: slow drags, flings and the rubber-band pull at the top are smooth with no blank or popping rows. Sticky section headers and scroll position are kept when coming back from a contact.",
+    "scores": {"features": 9, "platform": 8, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All contacts sorted by last name with lettered sections and an app-tinted index (★, A–Z) that jumps correctly. A '320 contacts' count sits at the top and the bottom."},
+      {"n": 2, "status": "pass", "note": "Search field under the title filters live by name, company, phone (formatted or digits only) and email, with an 'N results' line. Clearing it restores the full list, and the empty state has a Clear Search button. Results open on the first tap."},
+      {"n": 3, "status": "pass", "note": "Rich details screen: coloured avatar, name, company, a Favorite chip, Call and Email buttons, and phone and email rows in the accent colour with ↗ marks, plus birthday. Call and Email are disabled when the value is missing."},
+      {"n": 4, "status": "pass", "note": "An Add to/Remove from Favorites row works both ways. Favorites show at the top as a horizontal card carousel with a count, and rows carry a star badge."},
+      {"n": 5, "status": "pass", "note": "The add sheet has labelled first, last, company, phone and email fields. Save is disabled until a non-blank name exists, and leading spaces are trimmed. Return moves to the next field, and Cancel asks 'Discard Changes?'. Edit works the same way."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete on rows and Delete Contact on details, both with a confirmation that names the contact."},
+      {"n": 7, "status": "pass", "note": "An added contact, its favorite flag and the deletions all survived relaunch."}
+    ],
+    "bugs": [
+      "When a row is swiped to reveal Delete, its avatar vanishes and the text jumps to the left edge. The Delete button sits under the section index, so a letter shows through it.",
+      "A new contact's avatar colour differs between the form (green) and the saved details (peach)."
+    ],
+    "tells": [
+      "Custom warm beige and rust theme in place of system grouped backgrounds and tint; reads as a styled or cross-platform app rather than stock iOS.",
+      "The search field is pinned under the title instead of the iOS 26 bottom search bar, and the list sometimes opens with an inline title instead of a large one.",
+      "Favorites are a horizontal carousel of hand-drawn cards, not a list section.",
+      "At the largest text size, the search capsule grows to about a third of the screen. List and detail icons and avatars do not scale with the text, and the row text stays squeezed beside a small avatar column.",
+      "At the largest text size, email addresses are hyphenated inside the address ('felix.adeye- / mi@exam- / ple.com', 'dana.ab- / bott@ex- / ample.com'), which changes how the address reads.",
+      "Phone numbers typed into the form are saved unformatted (5551234567), while the seed data is formatted."
+    ],
+    "scroll": "Smooth during slow drags and hard flings, with no blank or late rows. Sticky headers with a blurred nav area, and scroll position is kept after returning from a contact.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "B",
+  "why": "Both meet every requirement and persist correctly. A looks and behaves more like a stock iOS 26 app, but it feels bare and has interaction rough edges: a double tap to open search results, Return that doesn't advance, no discard confirmation, and swiped rows going blank. B has a richer details screen, smoother form flow and safer editing, at the cost of a custom theme and weaker largest-text layout, so it's the one I'd rather use, by a small margin."
+}

@@ -73,6 +73,8 @@ test('the JS loop: a build an edit lands during is set aside, never published, a
     await new Promise(ok => setTimeout(ok, 500));
     clearInterval(sampler);
     expect(said()).toContain('edit → a build superseded');
+    // The input that moved, named (stage 15 D1.5).
+    expect(said()).toMatch(/set aside: app\.contract moved while it built/);
     expect(stale).toBe(false);
   } finally {
     await loop?.stop().catch(() => {});
@@ -95,25 +97,38 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     const count = (re) => (said().match(re) ?? []).length;
     await until(() => said().includes('plan ready') && said().includes('design reader ready'), 900_000);
     const bytes = () => { const out = []; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) e.isDirectory() ? walk(join(d, e.name)) : out.push(e.name, sha(readFileSync(join(d, e.name)))); }; walk(dist); return out.join(','); };
-    const first = bytes(), seen = new Set();
+    let first = bytes(), seen = new Set();
     // A sample is one dist (the same directory before and after it is read;
     // a swap is two renames).
     const sample = () => { const ino = statSync(dist).ino, b = bytes(); return statSync(dist).ino === ino ? b : null; };
     const sampler = setInterval(() => { try { const b = sample(); if (b) seen.add(b); } catch { /* replaced meanwhile */ } }, 10);
     // Three edits at once: the first's build is stopped young, and only
     // that one (one stop in a burst); the last edit's build publishes.
-    writeFileSync(join(dir, 'app.contract'), view('qz-two'));
-    await new Promise(ok => setTimeout(ok, 30));
-    writeFileSync(join(dir, 'app.contract'), view('qz-three'));
-    await until(() => said().includes('(aborted)'), 60_000);
+    // The second edit must find the first's build begun: a build begins
+    // after the edit's debounce and its own preparation (the compiler's
+    // copy, the reader's build started), past 30 ms on a loaded machine,
+    // and then both edits are one build, published, and the burst is
+    // made again.
+    let aside, plans;
+    for (let tries = 0; ; tries++) {
+      if (tries === 5) throw new Error(`no build of a burst's first edit was begun by its second, in 5 tries: ${said().slice(-2000)}`);
+      first = bytes(); seen = new Set(); aside = count(/edit → a build superseded/g); plans = count(/edit → plan ready/g);
+      const readers = count(/design reader ready/g);
+      writeFileSync(join(dir, 'app.contract'), view(`qz-two-${tries}`));
+      await new Promise(ok => setTimeout(ok, 30));
+      writeFileSync(join(dir, 'app.contract'), view(`qz-three-${tries}`));
+      await until(() => said().includes('(aborted)') || count(/edit → plan ready/g) > plans, 300_000);
+      if (said().includes('(aborted)')) break;
+      await until(() => count(/design reader ready/g) > readers, 300_000);
+    }
     // The stopped build ends (set aside) and the next begins; an edit in
     // that one sets it aside too, but stops it not.
-    await until(() => count(/edit → a build superseded/g) >= 1, 60_000);
+    await until(() => count(/edit → a build superseded/g) >= aside + 1, 60_000);
     await new Promise(ok => setTimeout(ok, 300));
     writeFileSync(join(dir, 'app.contract'), view('qz-four'));
-    await until(() => said().includes('edit → plan ready'), 300_000);
+    await until(() => count(/edit → plan ready/g) > plans, 300_000);
     expect(count(/\(aborted\)/g)).toBe(1);
-    expect(count(/edit → a build superseded/g)).toBe(2);
+    expect(count(/edit → a build superseded/g)).toBe(aside + 2);
     clearInterval(sampler);
     // dist was the first build's until the last one published: never the
     // stopped build's, nor a half-written one.
@@ -169,6 +184,41 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     await until(() => count(/edit → plan ready|edit → checked/g) > settled, 300_000);
     expect(count(/edit → a build superseded/g)).toBe(asideBefore + 1);
     expect(JSON.stringify(await (await fetch(`${base}/__dev/design`)).json())).toContain('#404040');
+  } finally {
+    await loop?.stop().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 1_200_000);
+
+test('the JS loop: a value-only design edit while the design reader builds waits for it, then is a batch, no full build', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-reader-wait-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Reader wait', app: { id: 'com.exact.readerwait', name: 'Reader wait' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    column background-color="surface.card" min-height=40\n      text "qz-wait"\n');
+  const design = (light) => `tamber readerwait\n\ntheme\n  surface.card = light-dark(${light}, #16181c)\n`;
+  writeFileSync(join(dir, 'app.tamber'), design('#f1f3f5'));
+  let loop = null;
+  try {
+    // The reader's first build is taken 3 minutes after cargo ends (a reader building again after any other edit, on
+    // a loaded machine): the app's first build is ready well before it.
+    loop = await devLoop(dir, { EXACT_DEV_READER_HOLD_MS: '180000' });
+    const { said } = loop;
+    const count = (re) => (said().match(re) ?? []).length;
+    const until = async (pass, ms) => { const end = Date.now() + ms; while (!pass()) { if (Date.now() > end) throw new Error(`not seen in: ${said().slice(-2000)}`); await new Promise(ok => setTimeout(ok, 100)); } };
+    await until(() => said().includes('plan ready'), 900_000);
+    if (said().includes('design reader ready')) throw new Error(`the reader was ready before the first build; the hold is too short: ${said().slice(-1500)}`);
+    writeFileSync(join(dir, 'app.tamber'), design('#e0f7e9'));
+    await until(() => said().includes('edit → waiting for the design reader'), 60_000);
+    // Nothing builds while it waits.
+    expect(count(/edit → building/g)).toBe(0);
+    await until(() => said().includes('design reader ready'), 400_000);
+    await until(() => count(/edit → batch ready/g) >= 1, 120_000);
+    // The edit's batch came after the reader, then the one build that checks it, and no other.
+    expect(said().indexOf('design reader ready')).toBeLessThan(said().indexOf('edit → batch ready'));
+    await until(() => count(/edit → checked/g) >= 1, 300_000);
+    expect(count(/edit → building \(checking the batch\)/g)).toBe(1);
+    expect(count(/edit → building/g)).toBe(1);
+    expect(count(/edit → plan ready/g)).toBe(0);
+    expect(JSON.stringify(await (await fetch(`${loop.base}/__dev/design`)).json())).toContain('e0f7e9');
   } finally {
     await loop?.stop().catch(() => {});
     rmSync(dir, { recursive: true, force: true });

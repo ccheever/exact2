@@ -290,16 +290,17 @@ struct SnapshotImageView: View {
         } else if let commands = node.props["symbolPath"] {
             // An icon with no SF Symbol draws its own path (LLP 1121 D10, stage 9 A), as the page hosts do: its
             // em square placed by `object-fit` in the box, the viewBox met in that square, each path filled
-            // nonzero into one mask that its tint (else its colour) shows through once.
+            // by its rule (nonzero, or even-odd by `symbolFillRule`) into one mask that its tint (else its
+            // colour) shows through once.
             let style = SnapshotStyle(node)
             let ink = SnapshotColor.style(style.color("tint_color") ?? style.color("text_color"), dark: scheme == .dark, context: .ink) ?? AnyShapeStyle(.tint)
             let box = node.contentBox.size, viewBox = node.props["symbolViewBox"] ?? ""
-            let points = style.number("font_size") ?? 17
+            let points = style.number("font_size") ?? 17, evenOdd = node.props["symbolFillRule"] == "evenodd"
             let square = IconPath.placed(em: points, fit: fit, in: CGRect(origin: .zero, size: box))
             Rectangle().fill(ink)
                 .mask(ZStack {
                     ForEach(Array(IconPath.paths(commands).enumerated()), id: \.offset) { _, path in
-                        IconShape(path: path, viewBox: viewBox, square: square).fill(Color.black)
+                        IconShape(path: path, viewBox: viewBox, square: square).fill(Color.black, style: FillStyle(eoFill: evenOdd))
                     }
                 })
                 .frame(width: box.width, height: box.height)

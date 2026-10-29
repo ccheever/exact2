@@ -27,6 +27,7 @@ pub fn measure_work_later() {
 pub fn measure_at_boot<D: DataSource>(runner: &mut exact_runner::Runner<D>, compat: Option<&str>) {
     if WORK_FROM_BOOT.load(Ordering::Relaxed) {
         runner.measure_unless_production(compat, true);
+        runner.measure_kernel_layouts();
     } else {
         runner.measure_later(compat);
     }
@@ -47,6 +48,7 @@ impl<D: DataSource> Bridge<D> {
         WORK_FROM_BOOT.store(true, Ordering::Relaxed);
         if let Some(host) = self.host.as_mut() {
             host.runner_mut().measure_from_now(self.compat, true);
+            host.runner_mut().measure_kernel_layouts();
         }
         0
     }
@@ -421,29 +423,46 @@ impl<D: DataSource> Bridge<D> {
 
     /// Whether the stack whose root route is `view` splits (`exact_stack_split`;
     /// `Runner::stack_split`, LLP 1115.002 D4), as JSON in the output buffer:
-    /// `{"list":view|null,"width":number|null,"rows":[[route,row]...]}`, the
-    /// list whose row pushes, the list column's width where `navigationSplit`
-    /// names one, and each route above the root that is a row's detail with
-    /// that row; `null` for a stack that pushes. Not a batch: nothing changes.
-    pub fn stack_split(&mut self, view: u32, retained: u32) -> u32 {
+    /// `{"list":view|null,"width":number|null,"rows":[[route,row]...],
+    /// "locations":[[route,url]...],"pressWrites":bool|null}`, the list whose
+    /// row pushes, the list column's width where `navigationSplit` names one,
+    /// each route above the root that is a row's detail with that row, each
+    /// route above the root with its location, and whether the press of
+    /// `pressed` (a view being pressed, or 0) writes the router; `null` for a
+    /// stack that pushes. Not a batch: nothing changes.
+    pub fn stack_split(&mut self, view: u32, retained: u32, pressed: u32) -> u32 {
         let json = self
             .host
             .as_ref()
             .and_then(|h| {
-                h.runner()
+                let runner = h.runner();
+                let writes = (pressed != 0)
+                    .then(|| runner.press_writes_router(pressed))
+                    .flatten();
+                runner
                     .stack_split(view, (retained != 0).then_some(retained))
+                    .map(|split| (split, writes))
             })
-            .map(|split| {
+            .map(|(split, writes)| {
                 let rows: Vec<String> = split
                     .rows
                     .iter()
                     .map(|(route, row)| format!("[{route},{row}]"))
                     .collect();
+                let locations: Vec<String> = split
+                    .locations
+                    .iter()
+                    .map(|(route, url)| {
+                        format!("[{route},{}]", serde_json::Value::from(url.as_str()))
+                    })
+                    .collect();
                 format!(
-                    "{{\"list\":{},\"width\":{},\"rows\":[{}]}}",
+                    "{{\"list\":{},\"width\":{},\"rows\":[{}],\"locations\":[{}],\"pressWrites\":{}}}",
                     split.list.map_or("null".into(), |v| v.to_string()),
                     split.width.map_or("null".into(), |w| w.to_string()),
-                    rows.join(",")
+                    rows.join(","),
+                    locations.join(","),
+                    writes.map_or("null".into(), |w| w.to_string())
                 )
             });
         self.output = json.unwrap_or_else(|| "null".into()).into_bytes();
@@ -583,6 +602,16 @@ impl<D: DataSource> Bridge<D> {
         let line = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         if let Some(h) = self.host.as_mut() {
             h.log(&line);
+        }
+        0
+    }
+
+    /// What the presenter applied of the orientation lock (`exact_orientation_applied`).
+    pub fn orientation_applied(&mut self, len: usize, conflict: bool) -> u32 {
+        let applied =
+            String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().set_orientation_applied(applied, conflict);
         }
         0
     }

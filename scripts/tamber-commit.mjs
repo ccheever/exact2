@@ -40,6 +40,7 @@ export function designSession(dir) {
   try { appDir = realpathSync(dir); } catch { /* not there yet */ }
   const files = new Map(); // path → { head, dirty, foreign, last, edits: [{client, tokens}] }
   const pending = new Map(); // path → { head, dirty, atHead }, read before a first write
+  const inflight = new Map(); // path → writes prepared and not yet ended (wrote or release), any write of it
   const top = () => tryGit(appDir, ['rev-parse', '--show-toplevel']);
 
   /** Before a write that may touch `paths`: the git facts of each the
@@ -51,13 +52,21 @@ export function designSession(dir) {
     // A name git cannot take (a NUL) is no file of the design; the server
     // refuses it.
     const named = [...new Set(paths)].filter(path => typeof path === 'string' && !path.includes('\0'));
+    // A file the session wrote whose text is HEAD's again (its edits committed by hand, or undone), with no write of
+    // it in flight, is written afresh: a new baseline, its old refusals gone (the third hands-on pass's #3). One whose
+    // edits are still pending (it differs from HEAD) keeps its record and any refusal.
+    const again = named.filter(path => files.has(path) && !pending.has(path) && !inflight.has(path));
+    const atHeadAgain = again.length ? read(again) : [];
+    again.forEach((path, i) => { if (!atHeadAgain[i].dirty && atHeadAgain[i].atHead !== null) files.delete(path); });
     const fresh = named.filter(path => !files.has(path) && !pending.has(path));
     // Every git read first: one that throws leaves no hold taken.
     const facts = fresh.length ? read(fresh) : [];
     const held = named.filter(path => !files.has(path));
     for (const path of held) if (pending.has(path)) pending.get(path).holds++;
     fresh.forEach((path, i) => pending.set(path, { ...facts[i], holds: 1 }));
-    return held;
+    // Every path held until its write ends, a recorded one too: no record is taken afresh under a write in flight.
+    for (const path of named) inflight.set(path, (inflight.get(path) ?? 0) + 1);
+    return named;
   }
 
   /** The git facts of `paths` now: three git processes however many. A
@@ -110,6 +119,8 @@ export function designSession(dir) {
     for (const path of paths) {
       const facts = pending.get(path);
       if (facts && --facts.holds <= 0) pending.delete(path);
+      const n = (inflight.get(path) ?? 0) - 1;
+      if (n > 0) inflight.set(path, n); else inflight.delete(path);
     }
   }
 
@@ -151,6 +162,9 @@ export function designSession(dir) {
     if (!root) return { error: { message: 'the app is in no git repository' } };
     const head = tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']);
     const refused = [], chosen = [];
+    // A file whose text is HEAD's again has nothing of the session's left to commit: its record goes, refusals and all.
+    const recorded = [...files.keys()].filter(path => !pending.has(path) && !inflight.has(path)), atHeadNow = recorded.length ? read(recorded) : [];
+    recorded.forEach((path, i) => { if (!atHeadNow[i].dirty && atHeadNow[i].atHead !== null) files.delete(path); });
     for (const [path, f] of files) {
       const repoPath = relative(root, resolve(appDir, path));
       // Read once: these bytes are the ones checked and the ones committed.

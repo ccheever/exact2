@@ -35,6 +35,9 @@ pub(crate) unsafe extern "C" fn host_door(
                 .read(&a)
                 .map(|v| v.map(str::to_string))
                 .map_err(store_error),
+            // An absence it cannot know would read as "nothing kept" (a
+            // signed-out session): refused as a write is (LLP 1146 D3).
+            None if state.between_answers => Err(no_store("store.get")),
             None => Ok(None),
         },
         3 => match state.store {
@@ -42,20 +45,16 @@ pub(crate) unsafe extern "C" fn host_door(
                 exact_runner::StoreError::NotSupported(_) => store_error(e),
                 e => format!("store.set: {e:?}"),
             }),
-            None => Err(
-                "store.set: no store at bake or in background work, which no answer waits for"
-                    .into(),
-            ),
+            None if state.between_answers => Err(no_store("store.set")),
+            None => Err("store.set: no store at bake".into()),
         },
         4 => match state.store {
             Some(s) => (*s)
                 .forget(&a)
                 .map(|_| None)
                 .map_err(|e| format!("store.forget: {e:?}")),
-            None => Err(
-                "store.forget: no store at bake or in background work, which no answer waits for"
-                    .into(),
-            ),
+            None if state.between_answers => Err(no_store("store.forget")),
+            None => Err("store.forget: no store at bake".into()),
         },
         // Storage's availability, as the prelude's refusal code (kanban
         // F28): none at bake; none for a drive that names no scratch store;
@@ -162,6 +161,11 @@ pub(crate) unsafe extern "C" fn host_door(
             crypto::hex(&bytes)
         })),
         10 => Ok(wire::canvas_image(state.canvas.as_ref(), &a)),
+        // Whether this host listens (LLP 1133.005 §8): the desktop's, where
+        // the prelude installs `exactListen`.
+        12 if a == "listen" => {
+            Ok(cfg!(any(target_os = "macos", target_os = "linux")).then(|| "1".into()))
+        }
         12 => Ok(crypto::auth_callback(state, &a)),
         // A journal line the runtime writes (LLP 1097 D8): a failed or
         // refused storage operation, an unhandled rejection. `logs` reads
@@ -209,6 +213,11 @@ pub(crate) unsafe extern "C" fn host_door(
         // A presence name's occupancy, never its value (LLP 1133.010 D5): a
         // value is kept, locked or not (18); kept locked or awaiting the move
         // (19); this device keeps locked secrets now (20). Each a device read.
+        18..=20 if state.store.is_none() && state.between_answers => Err(no_store(match op {
+            18 => "store.has",
+            19 => "store.locked",
+            _ => "store.protect",
+        })),
         18..=20 => Ok(state.store.map(|s| {
             let yes = match op {
                 18 => (*s).has(&a),
@@ -220,6 +229,18 @@ pub(crate) unsafe extern "C" fn host_door(
             };
             if yes { "1" } else { "0" }.to_string()
         })),
+        // The runner's clock as this call began, ms: when a timer the answer
+        // arms is due (binary.js `timers`). None at bake.
+        21 => Ok(state.store.map(|s| (*s).clock_ms().to_string())),
+        // Module work's state (LLP 1146 D2, binary.js `__exact_module_work`):
+        // what may still settle a waiting answer.
+        22 => match serde_json::from_str::<serde_json::Value>(&b) {
+            Ok(v) => {
+                state.module_outstanding = v["outstanding"].as_u64().unwrap_or(0) as usize;
+                Ok(None)
+            }
+            Err(e) => Err(format!("module work state: {e}")),
+        },
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();
@@ -234,6 +255,13 @@ pub(crate) unsafe extern "C" fn host_door(
             1
         }
     }
+}
+
+/// Why a store operation is refused where the executor offers no store:
+/// the continuation of an answer that was let go, or background work
+/// (LLP 1146 D3).
+pub(crate) fn no_store(operation: &str) -> String {
+    format!("{operation}: no store here, in background work or the continuation of an answer that was let go. Read the store before the answer's first await. A write that must stand goes after a request with effects (a POST), whose continuation keeps the store.")
 }
 
 /// A store refusal as the prelude names it: its message starts with the

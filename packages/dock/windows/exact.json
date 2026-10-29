@@ -1,0 +1,15 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/dock@^1.0",
+  "platform": "windows",
+  "targets": ["windows"],
+  "options": {
+    "requestAttention": { "count": "number" }
+  },
+  "names": [],
+  "views": [],
+  "hatches": ["taskbar"],
+  "sources": { "rust": ["lib.rs"] },
+  "artifacts": [],
+  "class": "Dock"
+}

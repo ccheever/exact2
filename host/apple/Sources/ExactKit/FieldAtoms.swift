@@ -148,7 +148,9 @@ final class AtomCatcher: NSView {
     required init?(coder: NSCoder) { fatalError("not coded") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { _ = field?.pressAtom(with: event) }
+    // A press on a pill is the text area's node's `pointerdown` and `pointerup` too.
+    override func mouseDown(with event: NSEvent) { field?.owner?.pointerPressed(event); _ = field?.pressAtom(with: event) }
+    override func mouseUp(with event: NSEvent) { field?.owner?.pointerReleased(event) }
     override func isAccessibilityElement() -> Bool { false }
 }
 
@@ -256,11 +258,14 @@ extension NodeView {
         session.atomPress(node: id, payload: "\(range.location),\(NSMaxRange(range)),\(mods)\n\(kind)\n\(href)\n\(source)")
     }
 
+    /// The scheme of the `href` a reader atom's run carries (`MarkupRuns.atomScheme`)
+    static let readerAtomScheme = "exact-atom:"
+
     /// A reader atom's run detail, `[kind, source, href, start, end, …]`,
-    /// from the `href` its run carries (`MarkupRuns.atomScheme`); nil for
-    /// any other run.
+    /// from the `href` its run carries (`readerAtomScheme`); nil for any
+    /// other run.
     static func readerAtom(_ url: String) -> (detail: [Any], range: NSRange)? {
-        guard url.hasPrefix("exact-atom:"), let json = String(url.dropFirst("exact-atom:".count)).removingPercentEncoding,
+        guard url.hasPrefix(readerAtomScheme), let json = String(url.dropFirst(readerAtomScheme.count)).removingPercentEncoding,
               let detail = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Any], detail.count >= 5,
               let start = detail[3] as? Int, let end = detail[4] as? Int, end >= start else { return nil }
         return (detail, NSRange(location: start, length: end - start))
@@ -294,9 +299,9 @@ extension NodeView {
         return frame.isNull ? nil : frame
     }
 
-    /// A reader atom's press: the `href` its run carries (`MarkupRuns.atomScheme`).
+    /// A reader atom's press: the `href` its run carries (`readerAtomScheme`).
     func pressReaderAtom(_ url: String) -> Bool {
-        guard url.hasPrefix("exact-atom:") else { return false }
+        guard url.hasPrefix(Self.readerAtomScheme) else { return false }
         guard let (detail, range) = Self.readerAtom(url) else { return true }
         #if os(macOS)
         let flags = NSApp.currentEvent?.modifierFlags ?? []

@@ -129,6 +129,14 @@ enum ExactExtensions {
             }
         }
         DispatchQueue.main.async { NotificationCenter.default.post(name: Notification.Name("exact.wakes.ready"), object: nil) }
+        // An interface declared `"start": "load"` (LLP 1133.015 D16 item 1): its implementation is made now, once the
+        // host has made the module after first pixel, rather than at its first call.
+        if !exactStartAtLoad.isEmpty {
+            DispatchQueue.main.async { [weak m] in
+                guard let m else { return }
+                for name in exactStartAtLoad { _ = adapter(m, name) }
+            }
+        }
     }
 
     /// The extensions this artifact composes, for the host to bind.
@@ -357,7 +365,7 @@ extension ExactExtensions {
         let module = m.context, tracks = tables[ObjectIdentifier(m)] as? ExactTracks ?? ExactTracks()
         tables[ObjectIdentifier(m)] = tracks
         return ExactPackageContext(
-            agent: module.agent && !real.contains(name), session: session,
+            agent: module.agent && !real.contains(name), session: session, hostSession: module.poster["owner"] ?? "",
             changed: { [weak module] topic in module?.changed(topic) },
             log: { [weak module] line in module?.diagnostics.log(line) },
             now: { [weak module] in module?.now() ?? 0 },
@@ -374,6 +382,7 @@ extension ExactExtensions {
                 }
             },
             orientation: { [weak m] in m?.hatches?.window?.angle ?? 0 },
+            view: { [weak module] in module?.sessionView as? ExactPackagePlatformView },
             invoke: { [weak m] handle, handler, args, reply in
                 let body: [String: Any] = ["extension": name, "handle": handle, "handler": handler, "args": args]
                 Invocations.invoke(m?.hatches, body, reply: reply)
@@ -399,8 +408,40 @@ extension ExactExtensions {
                 box["package"] = name
                 NotificationCenter.default.post(name: Notification.Name("exact.transfers"), object: box)
                 return box["reply"]
+            },
+            pads: ExactPads(driven: module.agent, injected: injectedPads),
+            after: { [weak module] ms, body in
+                // A host without the session clock's timer: the wall's.
+                guard let module, module.afterFn != nil else {
+                    let work = DispatchWorkItem(block: body)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000, execute: work)
+                    return work.cancel
+                }
+                return module.after(ms, body).stop
+            },
+            regions: ExactRegions { op, args in
+                let box = NSMutableDictionary(dictionary: args)
+                box["op"] = op
+                box["package"] = name
+                NotificationCenter.default.post(name: Notification.Name("exact.regions"), object: box)
+                return box["reply"]
+            },
+            expireWake: { [weak module] id in module?.expireWake(name, id: id) },
+            state: { [weak module] fields in
+                guard let module, module.agent else { return }
+                let body: [String: Any] = ["extension": name, "state": fields]
+                guard JSONSerialization.isValidJSONObject(body), let json = try? JSONSerialization.data(withJSONObject: body) else {
+                    return module.diagnostics.log("\(name): its state is not JSON")
+                }
+                module.changed("exact-state:" + String(decoding: json, as: UTF8.self))
             })
     }
+
+    /// `EXACT_AGENT_PADS`: a drive's test pads (ExactPads), a JSON list.
+    private static let injectedPads: [[String: Any]] = {
+        guard let text = ProcessInfo.processInfo.environment["EXACT_AGENT_PADS"] else { return [] }
+        return (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [[String: Any]] ?? []
+    }()
 }
 #endif
 extension ExactModuleContext {
@@ -433,6 +474,13 @@ extension ExactModuleContext {
             return
         }
         changed("exact-wake:" + String(decoding: json, as: UTF8.self))
+    }
+
+    /// The platform expired `extensionName`'s wake `id` (`context.expireWake`).
+    public func expireWake(_ extensionName: String, id: String) {
+        let body = ["extension": extensionName, "id": id]
+        guard let json = try? JSONSerialization.data(withJSONObject: body) else { return }
+        changed("exact-wake-expired:" + String(decoding: json, as: UTF8.self))
     }
 
     /// The `userInfo` entry for content the module posts whose activation

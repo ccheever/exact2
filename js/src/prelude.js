@@ -11,13 +11,14 @@
 (function (global) {
   "use strict";
   // (op, a, b) -> string | undefined, js/src/door.rs's ops: 1 a request, 2-4 and 18-20 the store, 5 storage,
-  // 6 native, 7 pure, 8 secure randomness drawn, 9/10 canvas, 11 the agent's random bytes, 12 auth, 13 a journal line.
+  // 6 native, 7 pure, 8 secure randomness drawn, 9/10 canvas, 11 the agent's random bytes, 12 auth, 13 a journal line,
+  // 21 the runner's clock as the call began.
   var host = global.__exact_host;
   delete global.__exact_host;
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
   var binary = global.__exact_binary;
   delete global.__exact_binary;
-  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf;
+  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, bodyWritten = binary.bodyWritten;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -47,12 +48,6 @@
   fixed(global.Math, "random", function () {
     throw new Error("Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument; a roll in the view needs no source (docs/recipes/random-rolls.md)");
   });
-  // No timers and no clock to read (LLP 1027.000): refused by name, as the
-  // web's module bindings refuse them (host/web-js/ts-fetch.js), rather than
-  // a bare "doesn't exist". Clearing what was never set is harmless.
-  function noTimers(api) {
-    return function () { throw new Error(api + " is unavailable in data sources: there are no timers; pass time as an argument"); };
-  }
   // The runtime's own journal line (LLP 1097 D8): a failed storage
   // operation, an unhandled rejection. Natively it is the runner's journal
   // (`logs`) as it is; a realm without that door writes it to its console.
@@ -65,13 +60,16 @@
     try { return e && typeof e === "object" && e.message !== undefined ? String(e.message) : String(e); }
     catch (_) { return "(an error that cannot be read)"; }
   }
-  // Every unhandled rejection in the module reaches the journal, as a
-  // page's `unhandledrejection` reaches its console (LLP 1097 D8). Hermes's
-  // tracker schedules its report with the global `setTimeout`, which a data
-  // source has none of: the prelude's runs the tracker's own callback alone,
-  // at the next checkpoint (`checkpoint` below), which is when a browser
-  // fires the event, and refuses every other.
-  var reports = [], nextReport = 1;
+  // An answer's own timers, on the runner's clock (op 21), and the timer
+  // Hermes's rejection tracker asks for (binary.js `timers`). Every
+  // unhandled rejection in the module reaches the journal, as a page's
+  // `unhandledrejection` reaches its console (LLP 1097 D8).
+  // The tracker's report is the timer it arms from inside its rejection
+  // hook (Hermes's `Promise._C`), told by that place, not by its name alone.
+  var reporting = 0, hooked = false;
+  var timers = binary.timers(timerOwner, function () { return host(21, "", ""); }, journal, function (callback) {
+    return (reporting > 0 || !hooked) && callback.name === "bound onUnhandled";
+  }, function (signal) { try { return abortHooks ? abortHooks.own(signal).sources : null; } catch (e) { return null; } });
   var tracker = global.HermesInternal;
   if (tracker && typeof tracker.enablePromiseRejectionTracker === "function") {
     tracker.enablePromiseRejectionTracker({
@@ -79,32 +77,14 @@
       onUnhandled: function (id, error) { journal("data: unhandled rejection: " + errorText(error)); leftOpen(); },
       onHandled: function () {},
     });
-  }
-  function checkpoint() {
-    while (reports.length) {
-      var report = reports.shift();
-      try { report.run(); } catch (e) { /* the tracker's own; nothing to tell */ }
+    var reject = global.Promise._C;
+    if (typeof reject === "function") {
+      hooked = true;
+      global.Promise._C = function (promise, error) { reporting++; try { return reject.call(this, promise, error); } finally { reporting--; } };
     }
   }
   // A browser realm (the wasm host's module realm) reports its own rejections (module-glue.js).
   if (!tracker && typeof global.addEventListener === "function") global.addEventListener("unhandledrejection", function () { leftOpen(); });
-  var refuseTimeout = noTimers("setTimeout()");
-  fixed(global, "setTimeout", function setTimeout(callback, delay) {
-    if (typeof callback === "function" && callback.name === "bound onUnhandled") {
-      reports.push({ id: nextReport, run: callback });
-      return nextReport++;
-    }
-    return refuseTimeout();
-  });
-  fixed(global, "clearTimeout", function clearTimeout(id) {
-    reports = reports.filter(function (r) { return r.id !== id; });
-  });
-  ["setInterval", "requestAnimationFrame", "requestIdleCallback"].forEach(function (name) {
-    fixed(global, name, noTimers(name + "()"));
-  });
-  ["clearInterval", "cancelAnimationFrame", "cancelIdleCallback"].forEach(function (name) {
-    fixed(global, name, function () {});
-  });
   fixed(global, "performance", Object.freeze({ now: function () { return refuseAmbient("performance.now()"); } }));
   // Intl's formatting methods also default an omitted/undefined date to
   // machine time. Guard the prototype before an app can capture its bound
@@ -120,23 +100,23 @@
       dateFormat = engineFormat;
       global.Intl.DateTimeFormat = engineFormat.constructor;
     }
-    var getFormat = Object.getOwnPropertyDescriptor(dateFormat, "format").get;
-    var formats = new WeakMap();
-    var apply = Reflect.apply;
+    var getFormat = Object.getOwnPropertyDescriptor(dateFormat, "format").get, formats = new WeakMap(), apply = Reflect.apply, engineOf = function (f) { return f; };
+    // Natively intl.js follows, whose formatters share an engine formatter (`engineOf` finds it).
+    if (tracker) Object.defineProperty(global, "__exact_dates", { configurable: true, value: { getFormat: getFormat, engineOf: function (f) { engineOf = f; } } });
     function explicitFormat(fn, name) {
       return new Proxy(fn, {
         apply: function (target, receiver, args) {
           if (args[0] === undefined) return refuseAmbient("Intl.DateTimeFormat." + name + "()");
-          return apply(target, receiver, args);
+          return apply(target, engineOf(receiver), args);
         },
       });
     }
     Object.defineProperty(dateFormat, "format", {
       configurable: false,
-      get: function () {
-        var native = getFormat.call(this);
-        if (!formats.has(native)) formats.set(native, explicitFormat(native, "format"));
-        return formats.get(native);
+      get: function () { // a function for each object, as each has its own bound format
+        var native = getFormat.call(engineOf(this));
+        if (!formats.has(this)) formats.set(this, explicitFormat(native, "format"));
+        return formats.get(this);
       },
     });
     if (typeof dateFormat.formatToParts === "function") {
@@ -457,7 +437,8 @@
   // `claimed` once a settle has handed the executor its request, `release`
   // ends its watch on `signal`.
   var pending = new Map(), currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
-  global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; } }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
+  var work = global.__exact_module_work({ host: host, live: function (c) { return !!c && c !== background && !c.stream && !c.module && c.status === "pending" && !c.replied && !c.letGo; } }); delete global.__exact_module_work; // work that outlives its answer (LLP 1146 D2, binary.js): an adopted fetch's reply reaches its let-go answer in a module turn; `route` keeps a live answer's async step in its own turn
+  global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; }, route: work.route }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
   // A fetch's `signal` is watched through Ibex's own abort hooks natively,
   // which run before any listener and so cannot be stopped by one; a
   // browser realm's signal is the browser's, watched by a listener, and
@@ -543,11 +524,14 @@
     var ys = call.yields || []; call.yields = []; yielded -= ys.length;
     ys.forEach(function (y) { if (error) y[1](error); else y[0](); }); return ys.length;
   }
-  fixed(global, "scheduler", Object.freeze({ yield: yieldTurn, postTask: function () { throw new Error("scheduler.postTask() is unavailable in data sources: there are no timers; split long work with await scheduler.yield()"); } }));
-  function Response(r) {
+  fixed(global, "scheduler", Object.freeze({ yield: yieldTurn, postTask: function () { throw new Error("scheduler.postTask() is unavailable in data sources; split long work with await scheduler.yield()"); } }));
+  // `to`: the fetch's `exactBodyTo`; `exactBodyTo` is `{path, bytes}` once the host wrote the body there.
+  function Response(r, to) {
+    var written = to === undefined ? undefined : bodyWritten(r);
     this.status = r.status;
     this.ok = r.status >= 200 && r.status < 300;
     this.headers = new global.Headers(r.headers);
+    this.exactBodyTo = written === undefined ? null : { path: to, bytes: written };
     this._text = r.body;
     this._b64 = r.bodyBase64;
   }
@@ -566,101 +550,28 @@
   }
   FetchError.prototype = Object.create(Error.prototype);
 
-  // A resource's two-way socket (LLP 1016.000 D7): the handle its mapper
-  // receives. Its state is what the mapper has seen: CONNECTING until
-  // `open`, OPEN until the end, CLOSED once the stream ends or its answer
-  // is let go. A mutation's synchronous source and the socket's own mapper
-  // answering `open` or a `message` may send or close: each operation is
-  // copied now, handed over with that turn's answer (`settle`,
-  // `__exact_message`) and published once the commit that settles it stands.
-  // An answer in flight's go to the host as each is made, in any turn of it (amendment of 2026-10-18).
-  var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
   // A mutation does one kind of effect, socket operations or a fetch: whichever
   // comes second refuses, and the mutation with it, before either leaves.
   var SOCKET_AND_FETCH = "a mutation cannot both send on a socket and fetch";
-  function socketOwner(ticket, byMutation) {
-    var owner = { ticket: ticket, state: 0 };
-    // The transport's bytes as this turn began, earlier turns' unsent ones and
-    // an answer's this turn (door op 15; none on wasm, whose handle never
-    // opens), as WHATWG's `bufferedAmount` counts them at a task's start.
-    function buffered() { try { return Number(host(15, String(ticket), "")) || 0; } catch (e) { return 0; } }
-    function turn() { return mapping && mapping.owner === owner ? mapping : currentCall; } // its own mapper's call, else the turn's
-    var closed = function () { return new DOMException("the socket is not open", "InvalidStateError"); }, quota = function (what) { return new DOMException(what, "QuotaExceededError"); };
-    function stage(op) {
-      var call = turn(), mapper = !!mapping && call === mapping;
-      // A turn of an answer the runner still holds, in no mapper call: a resource's, or a mutation's after a source that answered with a promise.
-      var answer = !mapper && !inMapper && !!call && !call.replied && !call.letGo && (call.answer || call.mutation && !call.sync && call.status === "pending");
-      if (!call || !mapper && !answer && (!call.mutation || !call.sync)) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source, its socket's own mapper or an answer in flight");
-      if (owner.state !== 1 || answer && byMutation) throw closed();
-      if (answer) return sendNow(call, op);
-      if (!mapper && call.tickets.length) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
-      var over = function (what) { var e = quota(what); if (mapper) call.overload = e; return e; }; // fails a mapper's snapshot, caught or not
-      var ops = call.socketOps || (call.socketOps = []), bytes = op.size, mine = op.size, kind = mapper ? "mapper call" : "mutation";
-      if (ops.length >= SOCKET_OPS) throw over("socket " + kind + " exceeds 256 operations");
-      for (var i = 0; i < ops.length; i++) {
-        if (ops[i].owner === owner && ops[i].op === "close") throw closed();
-        bytes += ops[i].size;
-        if (ops[i].owner === owner) mine += ops[i].size;
-      }
-      // The turn's payload as a whole; this socket's buffer with what it stages on it.
-      if (bytes > SOCKET_BYTES) throw over("socket " + kind + " exceeds 1 MiB");
-      if (buffered() + mine > SOCKET_BYTES) throw over("socket buffer exceeds 1 MiB");
-      op.owner = owner;
-      ops.push(op);
-    }
-    // An answer's operation goes to the host now; D7's bounds count over all its turns.
-    function sendNow(call, op) {
-      var sent = call.socketSent || (call.socketSent = { ops: 0, bytes: 0, closed: [] });
-      if (sent.closed.indexOf(owner) >= 0) throw closed();
-      if (sent.ops >= SOCKET_OPS) throw quota("socket answer exceeds 256 operations");
-      if (sent.bytes + op.size > SOCKET_BYTES) throw quota("socket answer exceeds 1 MiB");
-      if (buffered() + op.size > SOCKET_BYTES) throw quota("socket buffer exceeds 1 MiB");
-      sent.ops++; sent.bytes += op.size;
-      if (op.op === "close") sent.closed.push(owner);
-      host(17, String(ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
-    }
-    owner.handle = Object.freeze({
-      get readyState() { return owner.state; },
-      get bufferedAmount() {
-        var n = buffered(), call = turn(), ops = call && call.socketOps;
-        for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
-        return n;
-      },
-      send: function (data) {
-        if (typeof data === "string") return stage({ op: "text", data: data, size: utf8Length(data) });
-        if (!(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data)) throw new TypeError("socket.send expects a string, ArrayBuffer or ArrayBufferView");
-        var bytes = new Uint8Array(copyBytes(data, "socket.send"));
-        stage({ op: "binary", data: toBase64(bytes), size: bytes.length });
-      },
-      close: function (code, reason) {
-        if (code === undefined) code = 1000; if (reason === undefined) reason = "";
-        if (code !== 1000 && (!Number.isInteger(code) || code < 3000 || code > 4999)) throw new DOMException("invalid socket close code", "InvalidAccessError");
-        if (typeof reason !== "string" || utf8Length(reason) > 123) throw new SyntaxError("socket close reason exceeds 123 UTF-8 bytes");
-        stage({ op: "close", code: code, reason: reason, size: 0 });
-      },
-    });
-    return owner;
-  }
+  // A resource's two-way socket (LLP 1016.000 D7) and a listener's connections (LLP 1133.005 D6): their handles (binary.js `sockets`).
+  var sockets = binary.sockets({ host: host, copyBytes: copyBytes, current: function () { return currentCall; }, mapping: function () { return mapping; }, inMapper: function () { return inMapper; }, conflict: SOCKET_AND_FETCH });
+  var socketOwner = sockets.socketOwner, listenOwner = sockets.listenOwner, handSocketOps = sockets.hand;
   // A refused mutation's fetches, withdrawn before any was handed out.
   function withdrawFetches(call) {
     for (var i = 0; i < call.tickets.length; i++) { settled(call.tickets[i]); host(16, String(call.tickets[i]), ""); }
     call.tickets = [];
     call.socketOps = null;
   }
-  // A turn's staged operations to the host, with its answer.
-  function handSocketOps(call, door) { // door 17: a promise-answering mutation's first answer turn, counted toward its bounds
-    var ops = call.socketOps || [], sent = door === 17 && (call.socketSent = { ops: ops.length, bytes: 0, closed: [] }); call.socketOps = null;
-    ops.forEach(function (op) { if (sent) { sent.bytes += op.size; if (op.op === "close") sent.closed.push(op.owner); } host(door || 14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason })); });
-  }
-
   global.Response = Response;
-  global.fetch = function (url, init) {
+  global.fetch = function (url, init) { return request(url, init); };
+  // `listen`: a listener's options (`exactListen`, LLP 1133.005 D1).
+  function request(url, init, listen) {
     if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
     var call = currentCall;
-    // A continuation running as an answer already given still fetches: the
-    // next answer to settle claims the request (see `settle`).
+    // Refused with no answer running, and below in a let-go answer's continuation, as no answer waits for the reply
+    // (where the web lets it run; a request with effects already sent runs to its end, LLP 1146 D2, §2.4).
     if (!call) {
-      var refused = new Error("fetch() called outside an answer: it was never run. Start a fetch inside an answer");
+      var refused = new Error(work.inModuleTurn() ? "fetch() called from a plain .then callback a let-go answer's request settled: it was never run. Await that result in an async function, which resumes in its own answer's turn" : "fetch() called outside an answer: it was never run. Start a fetch inside an answer");
       if (global.console) global.console.error(refused.message);
       return Promise.reject(refused);
     }
@@ -697,29 +608,21 @@
     // host, which reads the file when it runs the request, under `fs.read`,
     // at most 64 MiB. The bytes never enter JavaScript. A missing file, a
     // denied path or one over the bound rejects the fetch before it is sent.
-    var bodyFrom = init ? init.exactBodyFrom : undefined;
-    if (bodyFrom !== undefined) {
-      if (typeof bodyFrom !== "string" || bodyFrom.slice(0, 5) !== "app:/")
-        return Promise.reject(new TypeError("exactBodyFrom must be an app:/ path"));
-      if (utf8Length(bodyFrom) > 4096)
-        return Promise.reject(new TypeError("exactBodyFrom: a path is at most 4096 bytes"));
-      if (/(^|\/)\.\.?(\/|$)|\0/.test(bodyFrom.slice(5)))
-        return Promise.reject(new TypeError("exactBodyFrom: an app:/ path has no . or .. segment"));
-      if (method === "GET" || method === "HEAD")
-        return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
-      if (raw != null)
-        return Promise.reject(new TypeError("fetch: a request has one body: body or exactBodyFrom"));
-      if (init.exactStream !== undefined && /^wss?:/i.test(String(url)))
-        return Promise.reject(new TypeError("exactBodyFrom: a WebSocket sends no body"));
-    }
+    // A body to an app file (`exactBodyTo`, 2026-10-26): the host writes a
+    // 2xx body there as it arrives, under `fs.write`, at most the ceiling or
+    // 1 GiB, and the file appears only whole; any other reply is read as usual.
+    var bodyFrom = init ? init.exactBodyFrom : undefined, bodyTo = init ? init.exactBodyTo : undefined;
+    var fileWhy = fileRefusal(init, method, url, raw); // binary.js
+    if (fileWhy) return Promise.reject(new TypeError(fileWhy));
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
     var independent = init ? init.exactIndependentHttp : undefined;
     var ceiling;
     if (independent !== undefined) {
       ceiling = independent && independent.maxResponseBytes;
-      if (!Number.isInteger(ceiling) || ceiling <= 0 || ceiling > 67108864)
-        return Promise.reject(new TypeError("exactIndependentHttp.maxResponseBytes must be an integer from 1 to 67108864"));
+      var most = bodyTo === undefined ? 67108864 : 1073741824; // a body written to a file: 1 GiB
+      if (!Number.isInteger(ceiling) || ceiling <= 0 || ceiling > most)
+        return Promise.reject(new TypeError("exactIndependentHttp.maxResponseBytes must be an integer from 1 to " + most));
     }
     // An answer that keeps coming (LLP 1016.000): `exactStream` maps each
     // server-sent event to the answer, and the end too. The promise never
@@ -754,23 +657,39 @@
       catch (e) { return Promise.reject(new TypeError("fetch: init.signal is not an AbortSignal")); }
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
+    // An `AbortSignal.timeout`'s time left is the host's deadline, unless an earlier `exactTimeout` is; past the
+    // longest a request waits (an hour), the hour is, and the signal does not abort when it passes.
+    var left = stream ? undefined : timers.left(signal), timed = left !== undefined && !(timeout < left);
+    if (timed) { timeout = Math.min(left, 3600000); timed = left <= 3600000; }
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
-    var socket = stream && /^wss?:/i.test(String(url));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect, held: held ? true : undefined }));
+    var socket = stream && (!!listen || /^wss?:/i.test(String(url)));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
-    var owner = socket ? (call.socket = socketOwner(ticket, call.mutation)) : null;
+    var owner = socket ? (call.socket = listen ? listenOwner(ticket) : socketOwner(ticket, call.mutation)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
-      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {}, early: call.status === "pending" };
+      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, timed: timed, release: function () {}, early: call.status === "pending", bodyTo: bodyTo };
       pending.set(ticket, p);
       // The caller's abort also makes its socket handle stale (D7); the
       // stream itself runs until the runner lets its ticket go.
-      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) reject(signal.reason); });
+      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) { if (p.module) work.landed(); reject(signal.reason); } }); // an adopted fetch aborted is retired here; its reply finds nothing
     });
+  }
+  // A local listener (LLP 1133.005 D1): a resource's answer, as `fetch(url, {exactStream})` is, whose events
+  // are mapped now with the connection's handle beside them. Natively on desktop hosts only (door 12 `listen`);
+  // elsewhere the global is absent, so `"exactListen" in globalThis` is the feature test (§8).
+  if (host(12, "listen", "") === "1") global.exactListen = function exactListen(address, options) {
+    var o = options || {}, call = currentCall;
+    if (call && call.mutation) throw new DOMException("exactListen() is a resource's answer: a mutation's listener would have no end", "InvalidStateError");
+    if (typeof o.exactStream !== "function") return Promise.reject(new TypeError("exactListen(address, {exactStream(event, connection)}) maps each event to the answer"));
+    var bound = function (name, most) { var v = o[name]; if (v !== undefined && (!Number.isInteger(v) || v < 1 || v > most)) throw new TypeError("exactListen: " + name + " is an integer from 1 to " + most); return v; };
+    try { var listen = { takeover: !!o.takeover, first_line_timeout_ms: bound("firstLineTimeout", 600000), max_line_bytes: bound("maxLineBytes", 1048576), max_connections: bound("maxConnections", 64) }; }
+    catch (e) { return Promise.reject(e); }
+    return request(String(address), { exactStream: o.exactStream, exactIndependentHttp: { maxResponseBytes: 1048576 } }, listen);
   };
 
   // --- signing in through the system browser (LLP 1069.006) ---------------
@@ -891,9 +810,9 @@
     }
     var refused;
     // A file operation names its path: a document the person chose
-    // (`doc:/`) needs no app storage (LLP 1069.010 D1).
+    // (`doc:/`) needs no app storage (LLP 1069.010 D1); a copy into an app file does.
     var path = receiver && nativeStorage && receiver === nativeStorage.fs && typeof args[0] === "string" ? args[0] : "";
-    try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
+    try { refused = host(5, method === "copyFile" && path && /^app:\//.test(args[1]) ? args[1] : path, "") || (receiver ? undefined : "unsupported"); }
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
     // A drive with no scratch store is said once, at its first refused read or write, for the driver's note (LLP 1102 §3.17); a read finds an empty store, as on a fresh install (storage-environment.js `emptyRead`, word for word).
     if (refused === "agent" && !toldAgent) { toldAgent = true; journal("storage refused (agent): " + REFUSED.agent); }
@@ -997,6 +916,8 @@
   ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath"].forEach(function (method) {
     files[method] = function () { return storageCall(nativeStorage && nativeStorage.fs, method, arguments); };
   });
+  // LLP 1069.010.000 D4: a kept file the app replaces with its own atomic write stays kept: the host reads what the write replaces, then carries the entry to the file written.
+  var atomic = files.atomicWriteFile; files.atomicWriteFile = function (path) { var t; try { t = typeof path === "string" && path.indexOf("doc:/") === 0 ? host(6, "kept", "replacing " + path) : undefined; } catch (e) { t = undefined; } var done = function (how) { if (t) try { host(6, "kept", how + t); } catch (e) {} }; return atomic.apply(null, arguments).then(function (v) { done("replaced "); return v; }, function (e) { done("dropped "); throw e; }); };
   // LLP 1069.010.000 D2a: `{expect: stat}` refuses a doc:/ write `ECHANGED` if the file changed since; the stat runs just before it.
   ["writeFile", "atomicWriteFile", "appendFile"].forEach(function (method) {
     var write = files[method], api = "storage.fs." + method + "()";
@@ -1014,7 +935,7 @@
     if (typeof path !== "string" || path.indexOf("doc:/") !== 0) throw new TypeError("storage.fs.watch(): path must be a doc:/ path");
     host(6, "watch", (options && options.recursive ? "doc-watch-recursive:" : "doc-watch:") + path);
   };
-  files.recentDocuments = function () { return kept(""); }; files.forgetDocument = function (path) { return kept("forget " + path); }; function kept(ask) { try { var r = host(6, "kept", ask); return Promise.resolve(r ? JSON.parse(r) : undefined); } catch (e) { return Promise.reject(storageError(String(e && e.message || e))); } } // LLP 1069.010.000 D5 (doc.keep): the host's kept list, which watch("doc:/") hears change, and the app's own removal
+  files.recentDocuments = function () { return web("recentDocuments", []) || kept(""); }; files.forgetDocument = function (path) { return web("forgetDocument", [path]) || kept("forget " + path); }; function web(method, args) { var fs = nativeStorage && nativeStorage.fs; return fs && fs[method] ? storageCall(fs, method, args) : null; } function kept(ask) { try { var r = host(6, "kept", ask); return Promise.resolve(r ? JSON.parse(r) : undefined); } catch (e) { var m = String(e && e.message || e); return Promise.reject(m === "bake" ? storageError(REFUSED.bake, "bake") : storageError(m)); } } // LLP 1069.010.000 D5 (doc.keep): the host's kept list, which watch("doc:/") hears change, and the app's own removal
   // `fs.compressImage(from, to, {maxDimension, maxBytes, type, rotate, flip, crop})` (LLP 1069.002 A1,
   // A1.11; LLP 1133.019 D15) and `fs.transformImage(from, to, options)` (D14): their options are checked
   // before anything is queued and travel as binary.js `imageOptions` words them; natively the reply is
@@ -1124,6 +1045,8 @@
     var p = pending.get(ticket);
     p.claimed = true;
     if (p.call !== call) { p.call = call; call.tickets.push(ticket); }
+    // An answer waits on one thing at a time here: its timer runs after the fetch lands (the web races them).
+    if (!p.timed && !call.toldRace && timers.armed(call)) { call.toldRace = true; journal("data: an answer awaits a fetch while a timer of its own is armed: the timer runs only after the fetch lands, so it cannot cut the fetch short as it can on the web; give the fetch AbortSignal.timeout or exactTimeout"); }
     return JSON.stringify({ tag: 1, call: call.id, ticket: ticket });
   }
   // An answer is given when its value is ready, as in a browser (LLP 1097
@@ -1132,6 +1055,7 @@
   // worker placement, which runs one turn to its end, it still waits.
   function reply(call, text) {
     endYields(call); // a branch its value did not wait for goes on, as a browser's does
+    timers.drop(call); // its timers are its own (binary.js `timers`)
     call.replied = true;
     calls.delete(call.id); cleanUp();
     return text;
@@ -1183,22 +1107,27 @@
       if (call.status === "done") handSocketOps(call);
       return reply(call, call.status === "done" ? ok(call.value, call.epoch !== gcEpoch()) : fail(call.error));
     }
+    // Its own timers (binary.js `timers`): the earliest is due on the runner's clock.
+    var due = timers.wait(call), later = due === undefined || due > timers.now();
     if (moduleWide) {
       var unclaimed;
-      pending.forEach(function (p, ticket) { if (unclaimed === undefined && !p.claimed && !p.stream) unclaimed = ticket; });
+      pending.forEach(function (p, ticket) { if (unclaimed === undefined && !p.claimed && !p.stream && !p.module) unclaimed = ticket; });
       if (unclaimed !== undefined) return claim(call, unclaimed);
       var left = false;
       // Never the background's: only its own round holds the storage
       // ticket (D2); an answer awaiting it waits with the module below.
       storing.forEach(function (c) { if (c !== background && !calls.has(c.id)) left = true; });
       if (left) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
-      if (!final && (pending.size || storing.size || yielded)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
-    } else if (moving && !final && background.storage > 0) {
+      // Another answer's work may settle it before its timer: whichever comes first asks it again (not on a
+      // worker, which runs one turn to its end and so cannot wait on another's).
+      if (!final && (due === undefined || moving && later) && (pending.size || storing.size || yielded || work.outstanding())) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true, timer: due });
+    } else if (due === undefined && moving && !final && background.storage > 0) {
       // The page's realm runs one answer at a time, but background work
       // goes on beside it: an answer awaiting it parks and is asked again
       // after a background delivery (LLP 1097 D7).
       return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
     }
+    if (due !== undefined) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, timer: due });
     call.replied = true;
     calls.delete(call.id); cleanUp();
     if (moduleWide) return fail(new Error("the answer is pending on nothing: it awaits a promise that no fetch or storage step " +
@@ -1230,7 +1159,7 @@
     initializing = false;
     var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", answer: mutation === "answer", sync: false, socketOps: null, epoch: gcEpoch() };
     var result;
-    currentCall = call;
+    currentCall = call; work.setTurn(call);
     try {
       // Null only where no module can be (a page with no page module). Else an
       // object; whether a module is linked is the device's fact, not the
@@ -1326,7 +1255,7 @@
   // Calls still tracked: a diagnostic for tests (LLP 1041 §8.4 Q5).
   global.__exact_calls_open = function () { return String(calls.size); };
   global.__exact_settle = function (id, final) {
-    checkpoint();
+    timers.checkpoint();
     currentCall = null;
     var call = calls.get(Number(id));
     return call ? settle(call, final === "final") : fail(new Error("no such call"));
@@ -1342,22 +1271,24 @@
   // (ledger F12). A fetch it makes then is refused: no one wants its reply.
   global.__exact_forget = function (id) {
     var call = calls.get(Number(id));
-    if (!call) return "";
+    if (!call) return ""; call.letGo = true; // a fetch, yield or timer it makes from here is refused
+    var moved = work.forgot(call); // its steps waiting for its own turn run in the let-go chain, with no store (LLP 1146 D2)
     // A released resource's socket handle is stale from now on (D7).
-    if (call.socket) call.socket.state = 3;
+    if (call.socket) { call.socket.state = 3; if (call.socket.close) call.socket.close(); }
     // Not a fetch another answer has since claimed: that one waits on it.
     var dropped = [];
     for (var i = 0; i < call.tickets.length; i++) {
       var p = pending.get(call.tickets[i]);
       // A stream's promise never settles (LLP 1016.000), ended or let go.
-      if (p && p.call === call) { settled(call.tickets[i]); if (!p.stream) dropped.push(p); }
+      if (p && p.call === call && !p.module) { settled(call.tickets[i]); if (!p.stream) dropped.push(p); }
     }
     // Rejected now, run at the next drain with no answer current.
     dropped.forEach(function (p) {
       p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
     });
-    var rejected = dropped.length + endYields(call, new DOMException("the answer was let go", "AbortError")) ? " rejected" : "";
-    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
+    var rejected = dropped.length + endYields(call, new DOMException("the answer was let go", "AbortError")) + moved ? " rejected" : "";
+    timers.drop(call);
+    if (call.storage > 0 && !call.lost) return "storage" + rejected;
     call.replied = true;
     calls.delete(call.id); cleanUp();
     return rejected.trim();
@@ -1388,18 +1319,23 @@
   global.__exact_message = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call || !call.stream) return fail(new Error("no stream answer " + id));
-    var o = JSON.parse(outcomeJson), event, socket = call.socket;
-    if (o.message) event = { type: o.message.event || "message", data: binary.messageData(o.message), lastEventId: o.message.id, coalesced: o.message.coalesced };
+    var o = JSON.parse(outcomeJson), event, socket = call.socket, listened = socket && socket.listen && o.message ? sockets.listenEvent(socket, o.message) : null;
+    if (listened) event = listened.event;
+    else if (o.message) event = { type: o.message.event || "message", data: binary.messageData(o.message), lastEventId: o.message.id, coalesced: o.message.coalesced };
     else if (o.closed) event = { type: "close", data: "", lastEventId: "", coalesced: 0, code: o.closed.code, reason: o.closed.reason, wasClean: o.closed.wasClean };
     else if (o.failed) event = { type: "error", data: "", lastEventId: "", coalesced: 0, kind: o.failed.kind, message: o.failed.message, status: 0 };
     else event = { type: "error", data: o.response.body, lastEventId: "", coalesced: 0, kind: "Response", message: "HTTP " + o.response.status, status: o.response.status };
-    // The socket's state as of this event (D7): `open` opens it, an end closes it.
+    // The socket's state as of this event (D7): `open` opens it, an end closes it. A listener's stream ends as its `error`.
+    // `AddressInUse` travels as `Refused`, its message so prefixed (executor_listen.rs).
+    if (socket && !o.message && socket.close) { var f = o.failed || { kind: "Network", message: event.message }, inUse = /^AddressInUse: /.test(f.message); socket.close(); event = { type: "error", kind: inUse ? "AddressInUse" : f.kind, message: inUse ? f.message.slice(14) : f.message }; }
     if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
     currentCall = call; inMapper = true;
     // Its mapper may reply on it answering `open` or a `message` (never on wasm, where it never opens): handed over however the call ends, sent if the frame's commit stands.
-    var turn = mapping = socket && o.message && socket.state === 1 ? { owner: socket, socketOps: null, overload: null } : null;
+    // A listener's, on the connection whose `connection` or `message` it answers (LLP 1133.005 D6).
+    var own = listened && listened.connection && (event.type === "connection" || event.type === "message") ? listened.connection : null;
+    var turn = mapping = socket && o.message && socket.state === 1 && (!socket.listen || own) ? { owner: socket, connection: own, socketOps: null, overload: null } : null;
     try {
-      var value = socket ? call.stream(event, socket.handle) : call.stream(event);
+      var value = !socket ? call.stream(event) : socket.listen ? call.stream(event, listened && listened.connection ? listened.connection.handle : undefined) : call.stream(event, socket.handle);
       if (value && typeof value.then === "function") throw new Error("exactStream answers each event now; it cannot await");
       if (turn && turn.overload) throw turn.overload;
       return ok(value);
@@ -1411,7 +1347,7 @@
   // operations queued behind it and in flight, an answer's or the
   // background's, and what landed and failed.
   global.__exact_background = function () {
-    checkpoint();
+    timers.checkpoint();
     currentCall = null;
     return JSON.stringify({ head: headOwner() === background, queued: queue.length, inFlight: head ? 1 : 0,
       writes: storageCounts.writes, done: storageCounts.done, failed: storageCounts.failed, last: storageCounts.last });
@@ -1450,7 +1386,7 @@
   };
   // A background round delivers with the background current: what its
   // completion's reaction issues is the background's too.
-  global.__exact_enter_background = function () { currentCall = background; };
+  global.__exact_enter_background = function () { currentCall = background; work.setTurn(null); };
   // A compression whose wait gave up, and whose right to write the waiter
   // took away (LLP 1069.002 A1.5): it can write nothing now, so it is
   // failed and the queue moves on. Any other operation whose wait ran out
@@ -1481,19 +1417,33 @@
     storing.delete(call);
     call.error = storageError(message);
   };
+  // The answer a timer belongs to (binary.js `timers`), or the refusal.
+  function timerOwner(api) {
+    if (overlaying) throw inOverlay(api);
+    if (inMapper || !currentCall || currentCall === background || currentCall.replied || currentCall.letGo)
+      throw new Error(api + " is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go)");
+    return currentCall;
+  }
+  // A timer's turn: the answer's earliest callback due by the runner's clock `at` runs in the drain that follows;
+  // `due`: the runner says the timer it waits for is due (where it has no clock, at bake, the time it waited for).
+  global.__exact_timer = function (id, at, due) { var call = calls.get(Number(id)); if (call) { currentCall = call; timers.fire(call, at, due === "due"); } };
   // A yielded answer's new turn: its yields resolve in the drain that follows.
   global.__exact_yielded = function (id) { var call = calls.get(Number(id)); if (call) { currentCall = call; endYields(call); } };
+  global.__exact_turn = function (id) { var t = id === "module" ? work.MODULE : id ? calls.get(Number(id)) || null : null; currentCall = t === work.MODULE ? null : t; work.setTurn(t); }; global.__exact_module_discarded = function () { work.runDiscarded(); }; // the executor's turns (js/src/module_work.rs): the turn's call is current, so a plain `.then` reaction runs as it (LLP 1146 D2)
+  global.__exact_adopt = function (id, ticket) { var p = pending.get(Number(ticket)); if (!p || p.stream || p.module || p.call !== calls.get(Number(id))) return ""; p.module = true; work.adopted(); return "adopted"; }; // a let-go call's fetch with effects the runner keeps (LLP 1146 D2): forgetting the call leaves it in flight, unclaimed and outstanding, until its reply reaches the call's continuation in a module turn
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;
     var o = JSON.parse(outcomeJson);
     // The continuation runs in the drain that follows, and a fetch it
     // makes belongs to this call.
-    currentCall = p.call;
+    currentCall = p.module ? null : p.call; if (p.module) work.landed(); // an adopted fetch's: its let-go call's steps run as it (the async helper), a plain reaction as no answer
+    // Its `AbortSignal.timeout`'s deadline passed on the host: the signal aborts.
+    if (o.failed && o.failed.kind === "Timeout" && p.timed) timers.expire(p.signal);
     // A browser realm's abort listener can be stopped by an earlier one;
     // the signal itself still says so.
     if (p.signal && p.signal.aborted) p.reject(p.signal.reason);
     else if (o.failed) p.reject(new FetchError(o.failed));
-    else p.resolve(new Response(o.response));
+    else p.resolve(new Response(o.response, p.bodyTo));
   };
 })(globalThis);

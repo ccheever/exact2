@@ -133,6 +133,7 @@ test('forwarded keyups survive focus changes; editable focus blurs; shortcuts st
   const send = (name, code, target = el, extra = {}) => el.listeners[name]({target, code, timeStamp:0, preventDefault(){}, ...extra});
   send('keydown', 'Space'); send('keyup', 'Space', button);
   send('keyup', 'KeyX'); send('keydown', 'Tab'); send('keydown', 'KeyR', button, {metaKey:true}); send('keydown', 'KeyW', el, {isComposing:true});
+  send('keydown', 'KeyW', el, {keyCode:229}); send('keydown', 'KeyW', el, {key:'Process'}); // an input method's keys: WebKit's committing one, Chromium's on Windows
   assert.deepEqual(f.events.map(e => [e.code, e.down]), [['Space',true],['Space',false]]);
   send('keydown', 'KeyW'); send('focusin', '', input); send('keyup', 'KeyW', input);
   assert.equal(f.events.at(-1).t, 'blur');

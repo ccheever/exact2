@@ -205,6 +205,19 @@ impl Bulk<'_> {
             Self::F32(_) => BulkKind::F32,
         }
     }
+    /// The number of elements.
+    pub fn len(self) -> usize {
+        match self {
+            Self::U8(v) => v.len(),
+            Self::U16(v) => v.len(),
+            Self::U32(v) => v.len(),
+            Self::F32(v) => v.len(),
+        }
+    }
+    /// Whether it has no elements.
+    pub fn is_empty(self) -> bool {
+        self.len() == 0
+    }
     /// The size of the encoded payload, excluding framing.
     pub fn byte_len(self) -> usize {
         match self {

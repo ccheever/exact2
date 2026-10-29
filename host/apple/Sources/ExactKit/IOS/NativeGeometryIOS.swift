@@ -73,7 +73,7 @@ final class NativeGeometry {
                 guard let self else { return }
                 pending = false
                 guard let session, session.state == .ready else { FrameClock.shared.drop(self); return }
-                guard let presenter, !presenter.applying, !Owner.shared.isServingMain else { changed(); return }
+                guard let presenter, !presenter.applying, !Owner.shared.isServingMain, !session.runtime.held else { changed(); return } // (held: after the reset, its caches and frame clock untouched: ResetGate)
                 followAnimations()
                 let shown = presenter.openTopLayer
                 let now = shown.frames.map { Box(id: $0.0, frame: $0.1, clip: $0.2) }

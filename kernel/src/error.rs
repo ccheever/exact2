@@ -263,8 +263,9 @@ pub enum ApplyError {
         id: ViewId,
         node_type: NodeType,
     },
-    /// A `Text` was given a child that is not a `Text`. A text node's children
-    /// are its inline runs; anything else has no place in a measured leaf.
+    /// A `Text` was given a child that is neither a `Text` nor an `Image`. A
+    /// text node's children are its inline runs and images (LLP 1011.002);
+    /// anything else has no place in a measured leaf.
     InlineRunNotText {
         op_index: usize,
         parent: ViewId,

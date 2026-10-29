@@ -538,17 +538,23 @@ fn studio(
     // A set's place: its exact id in `tokenSetOrder`, else its last segment
     // when that names one set only; sets it does not name after the ones it
     // does, in the files' order.
+    // (each id's first place, and how many sets end in each last segment,
+    // counted once: round 3 of the checker sweep)
+    let mut place: HashMap<&str, usize> = HashMap::new();
+    for (i, o) in order.iter().enumerate() {
+        place.entry(o.as_str()).or_insert(i);
+    }
+    let mut ending: HashMap<&str, usize> = HashMap::new();
+    for (n, _) in sets {
+        *ending.entry(n.rsplit('/').next().unwrap_or(n)).or_insert(0) += 1;
+    }
     let rank = |set: &str, at: usize| {
-        if let Some(i) = order.iter().position(|o| o == set) {
+        if let Some(&i) = place.get(set) {
             return (i, at);
         }
         let last = set.rsplit('/').next().unwrap_or(set);
-        let alike = sets
-            .iter()
-            .filter(|(n, _)| n.rsplit('/').next() == Some(last))
-            .count();
-        match (alike, order.iter().position(|o| o == last)) {
-            (1, Some(i)) => (i, at),
+        match (ending.get(last).copied().unwrap_or(0), place.get(last)) {
+            (1, Some(&i)) => (i, at),
             _ => (order.len(), at),
         }
     };
@@ -565,12 +571,16 @@ fn studio(
         }
     }
     let mut groups: Vec<(String, Vec<&Value>)> = Vec::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
     for t in list {
         // Ungrouped themes are one group.
         let group = t["group"].as_str().unwrap_or("").to_string();
-        match groups.iter_mut().find(|(g, _)| *g == group) {
-            Some((_, members)) => members.push(t),
-            None => groups.push((group, vec![t])),
+        match seen.get(&group) {
+            Some(&g) => groups[g].1.push(t),
+            None => {
+                seen.insert(group.clone(), groups.len());
+                groups.push((group, vec![t]));
+            }
         }
     }
     for (group, members) in &groups {
@@ -585,6 +595,16 @@ fn studio(
         } else {
             format!("the theme group `{group}`")
         };
+        // A group's themes are an axis's values: past the tuples a design
+        // may have, refused before anything compares them (round 2 of the
+        // checker sweep).
+        if members.len() > crate::MAX_TUPLES {
+            return Err(format!(
+                "{shown} has {} themes; a design has at most {} tuples",
+                members.len(),
+                crate::MAX_TUPLES
+            ));
+        }
         if members.len() > 1 {
             if names.iter().any(|n| n.trim().is_empty()) {
                 return Err(format!("{shown} has a theme with no name"));
@@ -597,8 +617,9 @@ fn studio(
                 return Err(format!("{shown} names two themes `{n}`"));
             }
         }
+        let by_scheme = scheme(&names);
         for (t, theme) in members.iter().zip(&names) {
-            let scope = match (members.len(), scheme(&names)) {
+            let scope = match (members.len(), by_scheme) {
                 (1, _) => Scope::Base,
                 (_, true) => Scope::Scheme(is_dark(theme)),
                 _ => out.axis(group, theme),

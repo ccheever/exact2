@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with bold symbol, grey name, price and a tinted % badge with arrow (green ↗ up, red ↘ down). An extra 'Market pulse' advancing/declining card sits above the list."},
+      {"n": 2, "status": "pass", "note": "Prices change every second, a handful of rows at a time, both at rest and while scrolling; rows update in place without jumps. When sorted by change, rows re-sort live, so a row can move just before you tap it (I starred a neighbour once)."},
+      {"n": 3, "status": "pass", "note": "Sort menu (Symbol/Price/Change plus Ascending/Descending) in a pinned section header; search by symbol or name ('cedar' gave 16 hits) with a 'No matching symbols' empty state and a Clear search button."},
+      {"n": 4, "status": "pass", "note": "Star on each row turns orange and filled; the All / My List segment filters correctly; My List has an empty state with an 'Explore All' button; there is also a star in the detail nav bar."},
+      {"n": 5, "status": "pass", "note": "Detail shows big price, change since open, open, volume and a filled line chart ('Price activity', range, sample count) that adds samples live, up to 60."},
+      {"n": 6, "status": "pass", "note": "My List (ARI, ZEXO) and the sort (Change ↓) survived relaunch. The search text is cleared on relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Custom warm off-white/cream background instead of systemBackground / grouped background",
+      "Segmented control is a hand-styled tall (45pt) pill rather than the standard UISegmentedControl metrics",
+      "Change shown as a tinted pill badge with arrow glyphs: a web/fintech look rather than plain coloured text",
+      "Sort control is a custom blue '⇅ Symbol ↑' text button in the section header; its ⇅ glyph doesn't scale with Dynamic Type while the text does",
+      "Row stars and the search field don't grow at the largest text size, while the rest of the row does",
+      "At the largest text size the pinned '260 SYMBOLS / Change ↓' section header grows to about a quarter of the screen",
+      "The no-results search state uses a star icon instead of a magnifying glass"
+    ],
+    "scroll": "Smooth, native-feeling List scrolling with no blank rows or pop-in; live updates don't disturb the scroll, and the position is kept on returning from a detail screen. The section header is sticky and rows clip cleanly under it.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 listed: star at leading edge, symbol/name stacked, price and coloured % text at trailing. Plain system list style."},
+      {"n": 2, "status": "pass", "note": "Prices update every second in place, including during scrolls and flings; no flicker."},
+      {"n": 3, "status": "pass", "note": "Sort is a system pull-down menu in the nav bar (Symbol/Price/Change + Descending Order toggle). The native bottom search bar filters by symbol or name, with a ContentUnavailableView-style 'No Matching Stocks' state."},
+      {"n": 4, "status": "pass", "note": "Leading star toggles (filled black); the segmented control in the list switches All / My List; My List has an empty state; there is a star in the detail nav bar."},
+      {"n": 5, "status": "pass", "note": "Detail is an inset-grouped list: name, big price, change, a 'Last 60 prices' line chart with low/high that grows live (29 samples after ~30 s), plus open and volume rows."},
+      {"n": 6, "status": "pass", "note": "My List (RZC, TKTO), the selected segment and the sort (Price) all survived relaunch. The search text also persisted across relaunch, which is unusual and left a stale 'cedarzz' query showing."}
+    ],
+    "bugs": [
+      "The search query persists across relaunch, so the app can open to a filtered or empty list with a stale query",
+      "Once, accessibility reported the 'All' segment as selected while My List was visibly selected and shown"
+    ],
+    "tells": [
+      "The detail's headline price is drawn in grey (secondary colour), which looks disabled",
+      "The filled star is black/label colour rather than the yellow/orange tint you'd expect for a favourite",
+      "At the largest text size the row stars stay tiny and rows lay out inconsistently (some put the price beside the symbol, others stack it)",
+      "Section headers 'Price History' / 'Market Details' are a custom grey semibold style rather than standard list headers",
+      "Inline small title rather than a large title on the root screen"
+    ],
+    "scroll": "Feels exactly like a UIKit/SwiftUI list: content scrolls under the blurred nav bar and the floating glass search bar, flings decelerate naturally, live updates don't jump, and the position is kept after visiting a detail screen.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement, including live updates while scrolling and persistence. B is built almost entirely from stock iOS parts (nav-bar sort menu, bottom glass search, system segmented control, inset-grouped detail, ContentUnavailable-style empty states) and is hard to tell from a hand-built app. A is more designed and arguably prettier (badges, a filled chart, a market-pulse card), but its cream background, custom pill segment and badge styling read as a custom theme rather than iOS. B's flaws (grey detail price, search text kept across relaunch) are smaller than A's platform departures."
+}

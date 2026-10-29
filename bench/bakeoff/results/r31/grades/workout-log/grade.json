@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History, newest first, in month sections (October 2026, September 2026…). Each row shows name, date, exercise count and volume. Volume is rounded to whole pounds (6,768 lb where the data sums to 6,767.5)."},
+      {"n": 2, "status": "pass", "note": "Detail has a large title, a summary (date, exercises, sets, total volume) and a section per exercise listing its sets as '25 lb × 13 reps' with a volume footer. Exercise rows push to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Workout tab: name field plus recent-name suggestions; an empty name defaults to 'Workout'. The picker sheet has a search field, muscle chips and multi-select ('Add (2)'). The Add Set sheet comes prefilled from the last time you did that exercise, has steppers and a live volume, and shows 0 lb as 'Bodyweight'. Tap a set to edit it (Edit Set sheet with Delete Set); swipe a set to delete it. Finish asks for confirmation, warns that exercises without sets will be left out, then opens the new workout in History."},
+      {"n": 4, "status": "pass", "note": "Library tab is grouped by muscle with counts ('Arms (20)') and has its own search field."},
+      {"n": 5, "status": "pass", "note": "Exercise screen shows muscle and equipment, the best set (heaviest weight, with its workout and date, tappable) and every workout the exercise appears in, with each workout's sets. A newly finished workout updated the best set correctly."},
+      {"n": 6, "status": "pass", "note": "The in-progress workout (name, exercises, sets, edits) survived a relaunch; the finished workout stayed in History after a relaunch. The app also reopens on the last tab."}
+    ],
+    "bugs": [
+      "On the exercise screen, the row linking to the workout you came from (or the Best Set row) stays highlighted grey: a selection highlight that never clears.",
+      "Volumes are rounded to whole pounds everywhere (6,767.5 shows as 6,768 lb), so totals don't exactly match the data."
+    ],
+    "tells": [
+      "The muscle filter in the picker is a row of hand-drawn capsule chips that scroll sideways (the last chip is clipped), not a system menu or segmented control.",
+      "The stuck grey selection highlight on exercise-screen rows doesn't happen in a stock List.",
+      "In the exercise screen's workout list, a set list wraps mid-value ('27.5 lb' then '× 6' on the next line).",
+      "The name text field on the New Workout screen has no accessibility label (placeholder only)."
+    ],
+    "scroll": "History (61 rows in month sections) scrolls, flings and rubber-bands like a native List with no blank rows or pop-in, and keeps its scroll position after a push and back.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History, newest first, under a '61 workouts' header. Rows are compact: name and date on the left, exercise count and exact volume (6,767.5 lb) on the right. An 'In Progress' section appears at the top while a workout is running."},
+      {"n": 2, "status": "pass", "note": "Detail shows date, exercises, sets and total volume, then a section per exercise with sets as '13 × 25 lb' and a per-exercise volume footer. Exercise rows push to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "'Start Workout' opens a sheet with name suggestions; Start stays disabled until a name is entered. The picker sheet has a bottom search bar, a 'Filter by Muscle' menu and multi-select ('Add 2'). The New Set sheet uses a number pad, carries over the previous set's values and validates its input (Save disabled with a hint). Tap a set to edit it (with Delete Set); swipe a set to delete it; swipe an exercise to remove it. Finish adds the workout to History immediately, with no confirmation, silently dropping exercises that have no sets."},
+      {"n": 4, "status": "pass", "note": "Library tab is grouped by muscle (Chest, Back…), with a large title and native rows. No search on this screen (the spec doesn't ask for one)."},
+      {"n": 5, "status": "pass", "note": "Exercise screen shows muscle and equipment, the best set (with a footer explaining the tie rule) and the workouts it appears in, each with set count and top weight. A newly finished workout updated the best set correctly."},
+      {"n": 6, "status": "pass", "note": "The in-progress workout survived a relaunch (and appears as 'In Progress' on History); the finished workout persisted."}
+    ],
+    "bugs": [
+      "Finish has no confirmation and silently drops exercises that have no sets.",
+      "When you edit a set, a tap in a right-aligned field can put the cursor at the start, so a new value is inserted before the old one (e.g. 145135.5). Fields don't select their contents on focus; this is standard UIKit behaviour, though."
+    ],
+    "tells": [
+      "At the largest text size, the History row's right column misaligns (the volume line is indented relative to the 'exercises' line).",
+      "The empty Workout tab has a plain white background while every other screen is grouped grey.",
+      "The accessibility tree lists a hidden 'Start Workout' nav-bar button on the workout detail screen that isn't drawn on screen."
+    ],
+    "scroll": "History scrolls, flings and rubber-bands like a native List with no blank rows, stutter or pop-in, and keeps its scroll position across a push and back.",
+    "scores": {"features": 8, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both are near-native SwiftUI-style apps that pass every requirement and hold up in dark mode and at the largest text size. A goes further: month-sectioned history, a searchable library, Add Set prefilled from your last session with steppers, a 'Bodyweight' label for 0 lb, and a Finish confirmation that warns about empty exercises. B shows exact volumes and has slightly tidier compact rows. A's flaws (stuck selection highlight, rounded volumes, hand-drawn filter chips) are slightly outweighed by its richer, more considered workout flow."
+}

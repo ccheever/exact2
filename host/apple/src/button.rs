@@ -362,6 +362,11 @@ mod tests {
         assert_eq!(svg["symbol"], "");
         assert_eq!(svg["symbolPath"], "M 2 2 L 22 2 L 12 20 Z");
         assert_eq!(svg["symbolViewBox"], "0 0 24 24");
+        assert!(svg.get("symbolFillRule").is_none(), "nonzero: {svg}");
+        // Stage 14 C2: an even-odd icon's face says its rule.
+        let even = json("icon||0 0 24 24|evenodd:M2 2 L22 2 L12 20 Z|icons/tri.svg");
+        assert_eq!(even["symbolPath"], "M 2 2 L 22 2 L 12 20 Z");
+        assert_eq!(even["symbolFillRule"], "evenodd");
         let sf = json("icon|heart|0 0 24 24|M2 2 L22 2 L12 20 Z|icons/tri.svg");
         assert_eq!(sf["symbol"], "heart");
         assert!(sf.get("symbolPath").is_none(), "{sf}");

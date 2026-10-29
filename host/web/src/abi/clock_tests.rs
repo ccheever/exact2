@@ -253,3 +253,33 @@ fn pending_requests_exclude_declared_holds_and_streams_after_their_first_message
         assert_eq!(bridge.requests_pending(), 0);
     }
 }
+
+/// A resource a turn over its budget refused is asked again at 250 ms
+/// (exact-runner's `overrun.rs`): the agent's `settle` is that re-ask's time,
+/// which the glue's `clock settle` seeks to, rather than stopping with the
+/// resource pending.
+#[test]
+fn settle_is_a_reasks_time() {
+    struct Busy(bool);
+    impl DataSource for Busy {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            if args[0] == Value::Number(2.) && std::mem::take(&mut self.0) {
+                return Err(DataError::Overrun(
+                    "took 180.0 ms, over the 100 ms budget for one turn".into(),
+                ));
+            }
+            Ok(args[0].clone())
+        }
+    }
+    let plan = contract::compile(
+        "component App\n  state n = 1\n  resource value = number(n) as shape number\n  action next\n    n = n + 1\n  view\n    text value.toString()\n",
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, Busy(true), 400., 400., "/");
+    let host = bridge.host.as_mut().unwrap();
+    host.runner_mut().act("next", vec![]).unwrap();
+    assert_eq!(host.runner().resource("value"), Some(&Value::Number(1.)));
+    assert_eq!(host.agent("{\"op\":\"settle\"}"), "{\"settle\":250}");
+}

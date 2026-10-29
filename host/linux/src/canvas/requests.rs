@@ -77,6 +77,17 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.force = true;
     }
 
+    /// What the activity asked for the session's orientation lock
+    /// (`Orientation.kt`, LLP 1133.029 D6), and a line its resolution
+    /// journals: a conflict, or a type this device does not show.
+    pub fn orientation_applied(&mut self, applied: &str, conflict: bool, line: Option<&str>) {
+        if let Some(line) = line {
+            self.p.host_mut().runner_mut().log(line);
+        }
+        self.p.orientation_applied(applied.to_owned(), conflict);
+        self.force = true;
+    }
+
     /// The activity started or stopped: the page's visibility, which a
     /// return lock reads (LLP 1133.010 §9).
     pub fn page_hidden(&mut self, hidden: bool) {
@@ -88,6 +99,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
             }
             self.force = true;
         }
+    }
+
+    /// A package's call of the app's handler (`ExtensionContext.invoke`, LLP
+    /// 1133.016 D15 item 1): its number, whose answer `Native.invoked` reads.
+    pub fn module_invoke(&mut self, body: &str) -> i32 {
+        let (id, answer) = crate::canvas::jni::jni_extensions::invoking();
+        self.p.host_mut().runner_mut().invoke_module(body, answer);
+        self.force = true;
+        id
     }
 
     /// A topic the reader's extensions announced (`ExtensionContext.changed`,

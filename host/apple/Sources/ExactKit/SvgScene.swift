@@ -297,7 +297,10 @@ final class SvgScene {
     /// colour space (`color-interpolation-filters`) changes only how the
     /// element's antialiased edge blends over its own shadow.
     static func dropShadow(_ fl: [String: Any]) -> (region: CGRect, sigma: CGFloat, offset: CGSize, color: CGColor, opacity: Float)? {
-        let p = nums(fl["p"])
+        dropShadow(program: nums(fl["p"]))
+    }
+    /// The same of a chain's numbers (`Filter::encode`), a box's included.
+    static func dropShadow(program p: [Double]) -> (region: CGRect, sigma: CGFloat, offset: CGSize, color: CGColor, opacity: Float)? {
         // region (4), count, then code, in, in2, subregion (4), linear, σx, σy, dx, dy, rgba.
         guard p.count == 5 + 8 + 8, p[4] == 1, p[5] == 6, p[6] == -1, p[13] == p[14], p[13] >= 0,
               p[15].isFinite, p[16].isFinite else { return nil }
@@ -609,6 +612,9 @@ final class SvgHost {
     private var boxInstalled: [UInt32: [String: Int]] = [:]
     private var hiddenBoxes: Set<UInt32> = []
     private var seeked: Double?
+    /// How a box's background tracks grey now, by its id: on a dimmed control's face, as its fill
+    /// does (TintDimmingIOS.swift); nil where they keep their colours. Set by the presenter.
+    var boxGrey: ((UInt32) -> ((CGColor) -> CGColor)?)?
 
     /// A scene's root layer's name, by which its node re-asks its range (LLP 1100 D8).
     static let rootName = "exact-svg"
@@ -655,13 +661,21 @@ final class SvgHost {
     }
 
     private func visibleBoxSpecs(_ id: UInt32, _ specs: [CssAnimation]) -> [CssAnimation] {
-        hiddenBoxes.contains(id) ? specs.filter { $0.key != "backgroundColor" } : specs
+        let shown = hiddenBoxes.contains(id) ? specs.filter { $0.key != "backgroundColor" } : specs
+        guard let grey = boxGrey?(id) else { return shown }
+        return shown.map { $0.key == "backgroundColor" ? $0.greyed(grey) : $0 }
+    }
+
+    /// Installs `id`'s box animations again, as it shows or hides or as its colours grey with the
+    /// tint or come back, keeping their timing (`CssAnimations.make` sets their begin time)
+    func refreshBoxAnimations(_ id: UInt32, clock: Double?) {
+        guard let entry = boxSpecs[id] else { return }
+        CssAnimations.apply(visibleBoxSpecs(id, entry.specs), to: entry.layer, clock: clock, installed: &boxInstalled[id, default: [:]])
     }
 
     func boxVisibility(_ id: UInt32, hidden: Bool, clock: Double?) {
         if hidden { hiddenBoxes.insert(id) } else { hiddenBoxes.remove(id) }
-        guard let entry = boxSpecs[id] else { return }
-        CssAnimations.apply(visibleBoxSpecs(id, entry.specs), to: entry.layer, clock: clock, installed: &boxInstalled[id, default: [:]])
+        refreshBoxAnimations(id, clock: clock)
     }
 
     /// An agent moved the clock: every held animation shows the new instant.

@@ -438,3 +438,31 @@ fn unsupported_text_wrap_styles_name_the_css_values_we_support() {
         );
     }
 }
+
+/// `-webkit-font-smoothing` (LLP 1019 D12): `auto | antialiased`, inherited;
+/// WebKit's other two keywords are refused with what is implemented.
+#[test]
+fn font_smoothing_is_inherited_and_refuses_what_no_host_draws() {
+    let r = boot("component App\n  view\n    column -webkit-font-smoothing=\"antialiased\"\n      text \"Smooth\" testId=\"inherits\"\n      text \"Own\" -webkit-font-smoothing=\"auto\" testId=\"own\"\n");
+    let k = r.kernel();
+    for (id, expected) in [("inherits", "antialiased"), ("own", "auto")] {
+        let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+        let style = node.computed_style(StyleMask::INHERITED);
+        assert_eq!(
+            style.get(exact_kernel::StyleId::FontSmoothing),
+            exact_kernel::RowValue::Enum(expected)
+        );
+    }
+    for value in ["none", "subpixel-antialiased"] {
+        let source = format!(
+            "component App\n  view\n    text \"Hello\" -webkit-font-smoothing=\"{value}\"\n"
+        );
+        let error = contract::compile(&source).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("implements `auto` and `antialiased`"),
+            "{error}"
+        );
+    }
+}

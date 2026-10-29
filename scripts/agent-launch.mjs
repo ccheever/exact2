@@ -480,6 +480,9 @@ export function parseFlags(argv) {
     else if (argv[i] === '--keep-storage') flags.keepStorage = true;
     else if (argv[i] === '--reset-storage') flags.resetStorage = true;
     else if (argv[i] === '--port') flags.port = argv[++i];
+    // `trace --pid <pid>` asks a running development app for its trace; `trace --out <file>` writes it with its map joined (LLP 1142 D2, D5).
+    else if (argv[i] === '--pid') flags.pid = argv[++i];
+    else if (argv[i] === '--out') flags.out = resolve(argv[++i]);
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
@@ -489,6 +492,14 @@ export function parseFlags(argv) {
     else if (argv[i] === '--notification') (flags.launchEntries ??= []).push({ launch: 'notification', entry: argv[++i] });
     // A cold wake (LLP 1133.017 §10): `--wake '<entry>'`, a registration as `state` printed it, raised before the first op.
     else if (argv[i] === '--wake') (flags.launchEntries ??= []).push({ launch: 'wake', entry: argv[++i] });
+    // A cold tool call (LLP 1133.023 §10): `--call '<tool> <json>'`, delivered once the data module is ready, as a system's call that started the app.
+    else if (argv[i] === '--call') (flags.launchEntries ??= []).push({ launch: 'call', entry: argv[++i] });
+    // A launch the login item made (LLP 1133.025 D2, D6): `--login`, or `--login hidden` for one registered to open with
+    // no window. The runner answers `launchedAtLogin`; the macOS host leaves the window unshown for a hidden one.
+    else if (argv[i] === '--login') {
+      flags.login = argv[i + 1] === 'hidden' ? (i++, 'hidden') : 'shown';
+      (flags.launchEntries ??= []).push({ launch: 'login', entry: flags.login });
+    }
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
     else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);
@@ -559,6 +570,18 @@ export function faultSpec(spec) {
     if (counts[0] === '0') throw new Error('fail fetch: `times` is a positive integer');
   }
   return lines.join('\n');
+}
+
+/** `address` as every browser carrier opens it: under the agent, with the launch facts, the drive's auth fixture,
+ * whose sign-in URLs a held request shows whole (LLP 1146 D4), its storage, and hatches off when the drive turns them
+ * off (LLP 1075.003.000.001 §2.6). */
+export function agentPage(address, { facts, storage, env }) {
+  address.searchParams.set('agent', '1');
+  for (const [key, value] of Object.entries(facts)) address.searchParams.set(key, value);
+  if (env?.EXACT_AUTH_FIXTURE) address.searchParams.set('authFixture', env.EXACT_AUTH_FIXTURE);
+  if (storage !== undefined) address.searchParams.set('storage', storage);
+  if ((env?.EXACT_HATCHES ?? process.env.EXACT_HATCHES) === 'off') address.searchParams.set('hatches', 'off');
+  return address;
 }
 
 /** The page address with the fault table a reload carries (LLP 1103 D3); `undefined` leaves the launch's. */
@@ -760,7 +783,9 @@ export function traceLocators(appName) {
 }
 
 // Outputs, fixtures and prose are not what a build is made from.
-const NOT_INPUT = /^(target|dist|dist.previous|dist-windows|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$/;
+// A dist's swap siblings (`dist.gen`, `dist.gen.reaped`, `dist.leases`, `dist.lock`, `dist.previous`,
+// host/web/generations.mjs) are written by builds, never read by one: a later build's reap is no change.
+const NOT_INPUT = /^(target|(web-)?dist(\.(gen|gen\.reaped|leases|lock|previous|stage-[^/]*))?|dist-windows|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$/;
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
 export function newerThan(since, roots, skip = () => false) {
   const out = [];
@@ -1001,7 +1026,7 @@ const contentDigest = path => { try { return createHash('sha1').update(readFileS
 /** Content digests of every input of a web build, recorded in its marker. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null};
+  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null, PORT: process.env.PORT ?? null};
 }
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
@@ -1017,8 +1042,9 @@ export function webChanges(dist, app) {
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', since);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
   // A file the build read that is gone since (a source deleted) is a change too: absence is an input.
-  for (const path of Object.keys(built.inputs ?? {})) if (path !== 'EXACT_BACKEND_ORIGIN' && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
+  for (const path of Object.keys(built.inputs ?? {})) if (!['EXACT_BACKEND_ORIGIN', 'PORT'].includes(path) && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
   if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
+  if ((built.inputs?.PORT ?? null) !== (process.env.PORT ?? null)) appChanges.push('PORT');
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
@@ -1251,5 +1277,16 @@ export async function launchEntries(s, flags) {
   for (const entry of flags.launchEntries ?? []) {
     const r = await s.op({ op: 'launchEntry', ...entry });
     if (r?.error) throw new Error(r.error);
+  }
+}
+
+if (import.meta.main) {
+  const helperArgs = process.argv.slice(2);
+  if (helperArgs.includes('--fixture-port')) {
+    const at = helperArgs.indexOf('--app');
+    const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
+    const selected = backendOriginSelection(resolveApp(at < 0 ? undefined : helperArgs[at + 1]).dir);
+    if (!selected) throw new Error('this app has no selected fixture origin; pass --app <name>');
+    console.log(new URL(selected.origin).port || (selected.origin.startsWith('https:') ? '443' : '80'));
   }
 }

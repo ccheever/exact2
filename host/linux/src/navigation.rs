@@ -48,18 +48,25 @@ pub fn survivor(shown: &[String], declared: impl Fn(&str) -> bool) -> Option<Str
     shown.iter().rev().find(|key| declared(key)).cloned()
 }
 
-/// Hidden and inert, respectively, for each direct route child. An unmatched
-/// selection leaves the previously projected state alone.
-pub fn route_visibility(keys: &[&str], selected: &str, modal: bool) -> Option<Vec<(bool, bool)>> {
+/// Hidden and inert, respectively, for each direct route child, `sheets`
+/// saying which routes are sheets. A sheet shows what it sits over: the page
+/// (the last route beneath it that is not a sheet) and every sheet between,
+/// as navigation.js `covered` does. An unmatched selection leaves the
+/// previously projected state alone.
+pub fn route_visibility(
+    keys: &[&str],
+    selected: &str,
+    sheets: &[bool],
+) -> Option<Vec<(bool, bool)>> {
     let selected = keys.iter().position(|key| *key == selected)?;
+    let sheet = |i: usize| sheets.get(i).copied().unwrap_or(false);
+    let page = (0..selected).rev().find(|i| !sheet(*i)).unwrap_or(0);
+    let covered = |i: usize| sheet(selected) && (page..selected).contains(&i);
     Some(
         (0..keys.len())
             .map(|index| {
                 let active = index == selected;
-                (
-                    !active && !(modal && index.checked_add(1) == Some(selected)),
-                    !active,
-                )
+                (!active && !covered(index), !active)
             })
             .collect(),
     )
@@ -94,6 +101,7 @@ pub(crate) fn stacks(
 
 #[derive(Default)]
 pub(crate) struct Navigation {
+    pub(crate) split: crate::presenter::split::State,
     routes: BTreeMap<ViewId, (bool, bool)>,
     /// The tabpanels a root last hid or showed: one it stops naming shows again.
     panels: BTreeSet<ViewId>,
@@ -105,6 +113,7 @@ pub(crate) struct Navigation {
     /// 1115.000 D4.2); a key that matches no route leaves it as it was.
     pub(crate) stack: Option<Vec<ViewId>>,
     popovers: bool,
+    pub(crate) shown_popover: Option<ViewId>,
     /// A shell presents the top layer (LLP 1115.001 D10: Android's reader,
     /// as windows): a press on an invoker is then the presenter's to act on
     /// (`presenter/top.rs`), not refused here.
@@ -243,13 +252,16 @@ impl Navigation {
                         self.stack = Some(routes[..through].to_vec());
                     }
                 }
-                let modal = routes.iter().find(|r| key(r) == shown).is_some_and(|r| {
-                    kernel
-                        .node(*r)
-                        .and_then(|n| n.props.str(PropId::NavigationPresentation))
-                        == Some("modal")
-                });
-                if let Some(visibility) = route_visibility(&keys, shown, modal) {
+                let sheets: Vec<bool> = routes
+                    .iter()
+                    .map(|r| {
+                        kernel
+                            .node(*r)
+                            .and_then(|n| n.props.str(PropId::NavigationPresentation))
+                            == Some("modal")
+                    })
+                    .collect();
+                if let Some(visibility) = route_visibility(&keys, shown, &sheets) {
                     for (route, state) in routes.iter().zip(visibility) {
                         self.routes.insert(*route, state);
                     }
@@ -292,10 +304,14 @@ impl Navigation {
         let mut at = Some(id);
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else { break };
-            let (hidden, inert) = self.routes.get(&id).copied().unwrap_or_default();
-            // Linux has no top-layer presenter yet. Closed popovers retain
-            // their logical tree but must never paint or intercept input.
-            let closed = self.popovers && node.props.str(PropId::Popover).is_some();
+            let (hidden, inert) = self
+                .split
+                .visibility(id)
+                .unwrap_or_else(|| self.routes.get(&id).copied().unwrap_or_default());
+            // Closed popovers retain their tree but neither paint nor take input.
+            let closed = self.popovers
+                && Some(id) != self.shown_popover
+                && node.props.str(PropId::Popover).is_some();
             // What a shell's bar stands for shows in the bar, not the page.
             let gone = closed || lifted && self.lifted.contains(&id);
             result.0 |= hidden || gone;
@@ -315,14 +331,12 @@ impl<D: exact_runner::DataSource> crate::Host<D> {
         kernel
             .node(view)
             .and_then(|node| exact_kernel::Invocation::of(kernel, &node))
-            .filter(|invocation| dialog_command(invocation.action))
             .and_then(|invocation| kernel.node_by_key(invocation.target))
             .is_some_and(|n| {
-                crate::presenter::top::shape::neutral_alert(kernel, n.id, &|id| {
-                    self.runner()
-                        .handlers_of(id)
-                        .contains(&exact_plan::EventKind::Press)
-                })
+                crate::paint::look::neutral()
+                    && (n.props.str(PropId::SemanticTag) == Some("dialog")
+                        || n.props.str(PropId::Popover).is_some()
+                            && n.props.str(PropId::AccessibilityRole) != Some("menu"))
             })
     }
 }
@@ -334,7 +348,7 @@ mod tests {
     fn selected_route_and_only_its_modal_underlay_are_visible() {
         let keys = ["a", "b", "c", "d"];
         assert_eq!(
-            route_visibility(&keys, "c", false),
+            route_visibility(&keys, "c", &[false; 4]),
             Some(vec![
                 (true, true),
                 (true, true),
@@ -343,7 +357,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            route_visibility(&keys, "c", true),
+            route_visibility(&keys, "c", &[false, false, true, false]),
             Some(vec![
                 (true, true),
                 (false, true),
@@ -352,7 +366,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            route_visibility(&keys, "a", true),
+            route_visibility(&keys, "a", &[true, false, false, false]),
             Some(vec![
                 (false, false),
                 (true, true),
@@ -360,8 +374,34 @@ mod tests {
                 (true, true)
             ])
         );
-        assert_eq!(route_visibility(&keys, "missing", false), None);
-        assert_eq!(route_visibility(&[], "missing", false), None);
+        assert_eq!(route_visibility(&keys, "missing", &[]), None);
+        assert_eq!(route_visibility(&[], "missing", &[]), None);
+    }
+
+    /// A sheet over a sheet shows both the sheet beneath it and the page
+    /// (LLP 1133.029 D3), as navigation.js `covered` does; a page pushed
+    /// beneath the first sheet hides the route it was pushed over.
+    #[test]
+    fn a_sheet_over_a_sheet_shows_the_page_and_the_sheets_between() {
+        let keys = ["a", "b", "c", "d"];
+        assert_eq!(
+            route_visibility(&keys, "d", &[false, false, true, true]),
+            Some(vec![
+                (true, true),
+                (false, true),
+                (false, true),
+                (false, false)
+            ])
+        );
+        assert_eq!(
+            route_visibility(&keys, "d", &[false, true, false, true]),
+            Some(vec![
+                (true, true),
+                (true, true),
+                (false, true),
+                (false, false)
+            ])
+        );
     }
 
     /// LLP 1035.001 D1: a root whose key names no route (visit "0" over a

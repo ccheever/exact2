@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across square centre-cropped grid with thin gaps, oldest (Feb 19) at top, opens at the newest at the bottom; day headings (Saturday/Sunday/Yesterday, then 'Thu, Feb 19' style for older days)."},
+      {"n": 2, "status": "pass", "note": "Push to a full-screen viewer at the photo's own aspect ratio (landscape 402x302, square 402x402); horizontal swipes page between neighbours; swipe down closes back to the grid."},
+      {"n": 3, "status": "pass", "note": "Heart button in the bottom toolbar toggles Favorite/Unfavorite; a white heart appears on the grid thumbnail."},
+      {"n": 4, "status": "pass", "note": "Albums tab: inset grouped list of all eight albums with a cover, name, count and chevron; counts update after deletes; opens a grid of the album's photos."},
+      {"n": 5, "status": "pass", "note": "Select → tap several (blue checkmarks, '3 Photos Selected' title), Favorite favorited all; Delete shows a 'Delete 2 Photos' popover confirmation and removes them (1,500 → 1,498)."},
+      {"n": 6, "status": "pass", "note": "Favorites and deletions (and the updated album counts) survived a relaunch."}
+    ],
+    "bugs": [
+      "Returning from the viewer shifts the grid by about 40 pt instead of landing exactly where it was (B does the same)."
+    ],
+    "tells": [
+      "Album grids keep a heading for every day, so a 177-photo album turns into long runs of one- and two-photo rows with large gaps; Photos shows albums as one continuous grid.",
+      "Day headings stick under the nav bar on an opaque white strip, which Photos doesn't do.",
+      "Library uses only an inline title, with no large title at the top of the scroll."
+    ],
+    "scroll": "Slow drags, hard flings over hundreds of rows and pulling past the top all felt native: thumbnails were already loaded mid-fling, with no blank or popping rows. The grid moves about 40 pt after returning from a photo.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across square centre-cropped grid with thin gaps, oldest at top, opens at the newest at the bottom; day headings like 'Saturday, Oct 24'; a large 'Library' title appears at the very top."},
+      {"n": 2, "status": "pass", "note": "Black full-screen viewer at the photo's aspect ratio, showing date/time and album; horizontal swipes page; swipe down (or the X) closes."},
+      {"n": 3, "status": "pass", "note": "Heart button toggles Favorite/Unfavorite; a heart appears on the grid thumbnail."},
+      {"n": 4, "status": "pass", "note": "Albums tab: Photos-style 'My Albums' two-column grid of eight covers with name and count; counts and covers update after deletes; opens a grid of the album's photos."},
+      {"n": 5, "status": "pass", "note": "Select → checkmarks, Favorite favorited all selected; Delete shows a 'Delete 2 Photos?' alert and removes them."},
+      {"n": 6, "status": "pass", "note": "Favorites and deletions (and the album counts) survived a relaunch."}
+    ],
+    "bugs": [
+      "Returning from the viewer shifts the grid by about 40 pt instead of landing exactly where it was (A does the same)."
+    ],
+    "tells": [
+      "The select-mode bottom bar is a flat, opaque, pre-Liquid-Glass toolbar with plain tinted icons, while the rest of the app uses glass controls, and it repeats '3 Photos Selected', which is already the nav-bar subtitle.",
+      "At the largest text size in select mode, the compact nav bar shows a small 'Library' over a huge grey 'Select Items' title, which looks wrong.",
+      "The date/time and album labels in the full-screen viewer don't grow with Dynamic Type.",
+      "Grid thumbnails are announced only as 'Photo', with no date, so VoiceOver can't tell them apart (A labels each with its date and time).",
+      "Delete confirmation is a centred alert instead of the action sheet/popover Photos uses."
+    ],
+    "scroll": "Slow drags, hard flings over hundreds of rows and pulling past the top were smooth, with no blank or late-loading thumbnails. The large title collapses properly, and the grid moves about 40 pt after returning from a photo.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements and both persist favorites and deletions. A looks like a real iOS 27 app throughout: glass toolbar buttons in the viewer and in select mode, a popover delete confirmation, and dated accessibility labels. B's Albums grid and black viewer are closer to Photos, but its flat, old-style select toolbar that repeats the selection count, its labels that don't scale, and its odd large-text nav bar give it away more often."
+}

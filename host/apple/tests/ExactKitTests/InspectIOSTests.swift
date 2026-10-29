@@ -199,40 +199,48 @@ final class InspectIOSTests: XCTestCase {
         XCTAssertNil(Inspect.select(session, id: node.id, clicked: true), "no selection outside inspect mode")
     }
 
-    /// `select {up}` (tamber/1.16) by the runner's own tree, as the web pages': the first level with a node
-    /// above the selection, the outermost there; an ask for a selection that moved, or one with nothing of
-    /// its levels above, is nil, the selection as it is now. (The levels here are the node's own ancestors'
-    /// sites, standing in for the server's map.)
-    func testSelectUpLandsOnTheOutermostAncestorOfTheFirstLevelWithOneAndAStaleAskOnNone() throws {
+    /// `select {up}` (tamber/1.17) by the runner's own tree and the plan's copies, as the web pages' and the Mac's
+    /// (InspectMacTests, over apps/select-walk-fixture's shapes): each new copy owning an ancestor a step, at step `up`
+    /// that copy's outermost node, past the last the root, with `moved`; an ask for a selection that moved, or with no
+    /// copies for its plan, is nil, the selection as it is now. (The copies here stand in for the server's map: every
+    /// site its own, except the selection's two nearest ancestor sites, one copy.)
+    func testSelectUpWalksTheTreeByCopiesToTheOutermostOfTheCopyAndAStaleAskOnNone() throws {
         let (session, window, _, _) = try chat()
         Inspect.set(true, seq: 4)
-        defer { Inspect.set(false, seq: 4) }
+        defer { Inspect.set(false, seq: 4); Inspect.copies = nil }
         func above(_ id: UInt32) -> [(view: Int, site: Int)] {
             let o = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"ancestors\",\"id\":\(id)}").utf8))) as? [String: Any]
             return (o?["ancestors"] as? [[Any]] ?? []).dropFirst().compactMap { p in (p[0] as? Int).flatMap { v in (p[1] as? Int).map { (v, $0) } } }
         }
-        let node = try XCTUnwrap(session.presenter.views.values.first { $0.window === window && !$0.isHidden && $0.props["testId"] != nil && Set(above($0.id).map(\.site)).count >= 2 })
+        let node = try XCTUnwrap(session.presenter.views.values.first { $0.window === window && !$0.isHidden && $0.props["testId"] != nil && Set(above($0.id).map(\.site)).count >= 3 })
         let ancestors = above(node.id)
         let selected = try XCTUnwrap(Inspect.select(session, id: node.id, clicked: true)?["selected"] as? [String: Any])
-        func ask(_ levels: [[Int]], plan: Any? = nil, instance: Any? = nil) -> [String: Any] {
-            ["up": 1, "levels": levels, "plan": plan ?? selected["planDigest"] ?? NSNull(), "from": selected["site"] ?? NSNull(), "instance": instance ?? selected["instance"] ?? []]
+        let first = ancestors[0].site, second = try XCTUnwrap(ancestors.first { $0.site != first }).site
+        let sites = ancestors.map(\.site) + [(selected["site"] as? Int) ?? 0]
+        var list = Array(0...(sites.max() ?? 0))
+        list[second] = list[first]
+        func ask(_ up: Int, plan: Any? = nil, instance: Any? = nil) -> [String: Any] {
+            ["up": up, "plan": plan ?? selected["planDigest"] ?? NSNull(), "from": selected["site"] ?? NSNull(), "instance": instance ?? selected["instance"] ?? []]
         }
-        let level = [ancestors[0].site, try XCTUnwrap(ancestors.first { $0.site != ancestors[0].site }).site]
-        XCTAssertNil(Inspect.selectUp(session, ask([[-1]])), "nothing of its levels above it")
-        XCTAssertNil(Inspect.selectUp(session, ask([level], plan: "another plan")), "asked of another plan's selection")
-        XCTAssertNil(Inspect.selectUp(session, ask([level], instance: [["key": "elsewhere"]])), "asked of another copy")
-        var moved = ask([level]); moved["from"] = -1
+        Inspect.copies = ("another plan", list)
+        XCTAssertNil(Inspect.selectUp(session, ask(1)), "no copies for this plan")
+        Inspect.copies = (selected["planDigest"] as? String, list)
+        XCTAssertNil(Inspect.selectUp(session, ask(1, plan: "another plan")), "asked of another plan's selection")
+        XCTAssertNil(Inspect.selectUp(session, ask(1, instance: [["key": "elsewhere"]])), "asked of another copy")
+        var moved = ask(1); moved["from"] = -1
         XCTAssertNil(Inspect.selectUp(session, moved), "asked of a selection at another site")
         XCTAssertEqual(Inspect.selected?.id, node.id, "a stale ask leaves the selection")
-        let body = try XCTUnwrap(Inspect.selectUp(session, ask([[-1], level])))
-        let outermost = try XCTUnwrap(ancestors.last { level.contains($0.site) })
+        let body = try XCTUnwrap(Inspect.selectUp(session, ask(1)))
+        let outermost = try XCTUnwrap(ancestors.last { $0.site == first || $0.site == second })
         XCTAssertEqual((body["selected"] as? [String: Any])?["node"] as? Int, outermost.view, "\(ancestors)")
+        XCTAssertEqual((body["selected"] as? [String: Any])?["moved"] as? [String: Int], ["up": 1, "stepped": 1])
         XCTAssertNil(body["click"], "a move is no press: its outline scrolls the copy into view")
         XCTAssertEqual(Inspect.selected?.id, UInt32(outermost.view))
-        // A nearer level with a node above wins over a later one that reaches higher.
+        // Past every copy above it: the root, the steps it took said.
         _ = Inspect.select(session, id: node.id, clicked: true)
-        let nearer = try XCTUnwrap(Inspect.selectUp(session, ask([[ancestors[0].site], level])))
-        XCTAssertEqual((nearer["selected"] as? [String: Any])?["node"] as? Int, ancestors.last { $0.site == ancestors[0].site }?.view, "\(ancestors)")
+        let rooted = try XCTUnwrap(Inspect.selectUp(session, ask(64)))
+        XCTAssertEqual((rooted["selected"] as? [String: Any])?["node"] as? Int, ancestors.last?.view, "\(ancestors)")
+        XCTAssertLessThan(((rooted["selected"] as? [String: Any])?["moved"] as? [String: Int])?["stepped"] ?? 64, 64)
         // A `select` that is no object (the web pages take any but null or false) is no move, and leaves inspect on.
         let was = Inspect.selected?.id
         ExactApp.shared.inspectCommand(["kind": "inspect", "select": "up"])

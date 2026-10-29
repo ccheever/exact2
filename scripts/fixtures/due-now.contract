@@ -1,6 +1,5 @@
-// A deadline already due when a batch lands advances before the turn's frame
-// is committed: a `then` is armed at its answer's time (LLP 1016.001 D3); here
-// a timer whose deadline passes before the next batch lands (DueBeforeFrameIOSTests).
+// A deadline already due when a batch lands: here a timer whose deadline
+// passes before the next batch lands, which is posted (DueBeforeFrameIOSTests).
 // Compiled by build.mjs --test.
 component DueNow
   state armed = false

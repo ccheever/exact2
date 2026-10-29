@@ -9,12 +9,12 @@
 //! Every export takes a runtime handle (LLP 1031 D2): `exact_create` returns
 //! a never-reused `u32` from the thread-local [`Registry`], never a pointer.
 //! Invalid/destroyed handles are refused; `exact_destroy` frees the session.
-//! Calls stay on the thread that created the runtime: on Apple, ExactKit's
-//! owner thread (LLP 1072 T1). Re-entrant calls return a `busy`
-//! batch instead of trapping. [`host!`] exports one app's source and baked plan;
+//! Calls stay on their runtime's creating thread: ExactKit's owner thread on Apple (LLP 1072 T1).
+//! Re-entrant calls return `busy` instead of trapping. [`host!`] exports one app's source and baked plan;
 //! each process links one app archive because the C names are fixed.
 mod control_text;
 mod navigation;
+mod share;
 use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
@@ -73,6 +73,8 @@ pub struct Bridge<D: DataSource> {
     /// The date and place last told before a boot (`set_launch_time`,
     /// `set_launch_place`): a runner booted later reads them from its first settle.
     launch_facts: exact_runner::time::Launch,
+    /// A share claimed before the boot, and whether its files move from an inbox (`share_land`).
+    cold_share: Option<(exact_runner::share_in::Claimed, bool)>,
     /// The host's live clock while it owns time, kept for every boot (`set_live_clock`)
     live_clock: Option<LiveClockFn>,
     input: Vec<u8>,
@@ -129,6 +131,7 @@ impl<D: DataSource> Bridge<D> {
             preferences: exact_runner::Preferences::NONE,
             launch_layout: crate::host::LaunchLayout::NONE,
             launch_facts: exact_runner::time::Launch::NONE,
+            cold_share: None,
             live_clock: None,
             input: Vec::new(),
             output: Vec::new(),
@@ -495,9 +498,7 @@ impl<D: DataSource> Bridge<D> {
         }
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
-                CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_symbol(hooks.symbol)
-                    .with_time_format(hooks.time_format)
+                CallbackMeasurer::of(f, &hooks)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
@@ -830,9 +831,7 @@ impl<D: DataSource> Bridge<D> {
         let carried = carried.or_else(|| self.host.as_ref().map(Host::carry));
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
-                CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_symbol(hooks.symbol)
-                    .with_time_format(hooks.time_format)
+                CallbackMeasurer::of(f, &hooks)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
@@ -1221,7 +1220,7 @@ impl<D: DataSource> Bridge<D> {
     /// `then`s already armed, the clock unmoved (an agent's input's end).
     pub fn advance(&mut self, now_ms: f64, mode: u32) -> u32 {
         let out = self.host.as_mut().map_or_else(not_booted, |h| match mode {
-            2 => h.land_then(),
+            2 | 3 => h.land_then(mode == 3),
             1 => h.advance_until_request(now_ms),
             _ => h.advance(now_ms),
         });

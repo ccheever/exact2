@@ -67,6 +67,7 @@ pub fn expand(source: &Run) -> Vec<Run> {
                 href,
                 bold_text: source.bold_text,
                 text: p.text,
+                inline: None,
             }
         })
         .collect()

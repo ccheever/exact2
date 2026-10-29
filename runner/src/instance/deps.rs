@@ -124,6 +124,11 @@ pub struct Reads {
     /// `k`, bit 63 for 63 and past; every bit when read other than one
     /// field at a time): LLP 1017.003 D6. Meaningful with bit 0 of `frames`.
     pub(crate) fields: u64,
+    /// Enclosing frames whose POSITION is read (`each item, i in list`,
+    /// LoadIndex), by relative depth as `frames`: bit 0 says a row's body
+    /// reads its own position, at any depth, so a row that moved must
+    /// re-evaluate (LLP 1062 D8); one that reads none keeps its bindings.
+    pub(crate) positions: u64,
     /// Whether any row slot is among `bits`.
     pub(crate) row_slots: bool,
     /// Reads a parameter or has an effect: never skipped.
@@ -147,6 +152,7 @@ impl Reads {
             self.fields = !0;
         }
         self.frames |= frames;
+        self.positions |= out_of(other.positions, shift);
         self.row_slots |= other.row_slots;
         self.opaque |= other.opaque;
     }
@@ -154,6 +160,12 @@ impl Reads {
     #[cfg(test)]
     pub(crate) fn constant(&self) -> bool {
         self.bits.is_empty() && self.frames == 0 && !self.opaque
+    }
+    /// Whether these reads, a row's body's, read the row's own position:
+    /// opaque reads count, since a scan that stops at code it can't decode
+    /// knows no more of them.
+    pub(crate) fn reads_position(&self) -> bool {
+        self.positions & 1 != 0 || self.opaque
     }
     /// The same reads seen from `shift` scopes further out.
     pub(crate) fn frames_outside(&self, shift: u32) -> u64 {
@@ -212,6 +224,18 @@ impl FromIterator<Reads> for ReadsTable {
             reads[place as usize] = set;
         }
         ReadsTable { at, reads }
+    }
+}
+
+#[cfg(test)]
+impl ReadsTable {
+    /// Index `i`'s reads as a scan that stopped at undecodable code leaves
+    /// them (`opaque`), for a test of a body nothing more is known of.
+    pub(crate) fn set_opaque(&mut self, i: usize) {
+        let mut reads = self[i].clone();
+        reads.opaque = true;
+        self.reads.push(reads);
+        self.at[i] = (self.reads.len() - 1) as u32;
     }
 }
 
@@ -485,8 +509,16 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
             Opcode::Call if Stdlib::from_wire(index as u8) == Some(Stdlib::PerformanceNow) => {
                 reads.bits.set(layout.clock())
             }
+            // A share's files arrive by `set_shared`, after the location (LLP
+            // 1133.024 D3): no input the scan sees changes with them.
+            Opcode::Call if Stdlib::from_wire(index as u8) == Some(Stdlib::SharedFiles) => {
+                reads.opaque = true
+            }
             Opcode::LoadItem | Opcode::LoadBound | Opcode::LoadIndex => {
                 reads.frames |= 1 << index.min(63);
+                if i.op == Opcode::LoadIndex {
+                    reads.positions |= 1 << index.min(63);
+                }
                 if index == 0 {
                     // One field of the innermost frame's value, or all of it
                     // (its position, LLP 1062 D8, counts as all of it).
@@ -593,5 +625,38 @@ mod tests {
         assert_eq!(into_scope(0b1, false), 0b10);
         assert_eq!(into_scope(1 << 62, false), 1 << 63);
         assert_eq!(into_scope(1 << 63, false), 1 << 63);
+    }
+
+    #[test]
+    fn position_reads_shift_as_frames_do_with_the_same_sticky_far_bit() {
+        let at = |positions: u64| Reads {
+            frames: positions,
+            positions,
+            ..Reads::default()
+        };
+        // An inner body reading the position one scope out: the row's own, seen from the row.
+        let mut row = Reads::default();
+        row.union(&at(0b10), 1);
+        assert!(row.reads_position());
+        assert_eq!(row.positions, row.frames);
+        // Its own position read from one scope further in is not this row's.
+        let mut outer = Reads::default();
+        outer.union(&at(0b1), 1);
+        assert!(!outer.reads_position());
+        // Bit 63 is 63 scopes out or farther, as for frames: seen `shift` scopes out it spreads from 63 - shift up,
+        // so it reaches this row's bit 0 once 63 shifts have passed, and no shift drops it.
+        for shift in [1, 30, 62, 63, 64] {
+            let mut far = Reads::default();
+            far.union(&at(1 << 63), shift);
+            assert_eq!(far.positions, !0 << (63 - shift.min(63)), "shift {shift}");
+            assert_eq!(far.reads_position(), shift >= 63, "shift {shift}");
+            assert_eq!(far.positions, far.frames);
+        }
+        // An opaque body counts as reading it.
+        assert!(Reads {
+            opaque: true,
+            ..Reads::default()
+        }
+        .reads_position());
     }
 }

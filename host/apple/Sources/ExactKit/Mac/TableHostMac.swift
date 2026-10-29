@@ -289,6 +289,14 @@ final class TableHost {
             }
         }
     }
+    /// Whether the separator under a painted row is drawn: a split's
+    /// selected row hides those beside it (SplitMac.swift `mark`).
+    func hideLine(of row: NodeView, _ hidden: Bool) {
+        guard let line = lines[row.id], line.isHidden != hidden else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        line.isHidden = hidden
+        CATransaction.commit()
+    }
     func reset() {
         cancelPress()
         feeds.values.forEach { $0.remove() }

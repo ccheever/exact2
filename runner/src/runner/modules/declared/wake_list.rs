@@ -51,10 +51,13 @@ pub(super) struct Meta {
     not_before: Option<f64>,
     /// Its handler registered it again during its own invocation.
     again: bool,
+    /// The event its running invocation was raised with, for an entry that
+    /// stays (`region_list.rs`).
+    event: Option<String>,
 }
 
 impl<D: DataSource> Runner<D> {
-    fn epoch_now(&self) -> f64 {
+    pub(super) fn epoch_now(&self) -> f64 {
         self.time.epoch_at_zero + self.now_ms
     }
 
@@ -101,7 +104,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The fields `state.<list>` shows of entry `e` beyond its options.
     pub(super) fn wake_fields(&self, e: &Listed, v: &mut Map<String, Json>) {
-        if !e.fields.contains_key("kind") {
+        if !e.fields.contains_key("kind") || self.stays(e) {
             return;
         }
         let m = self.extensions.declared.wake_meta.get(&e.reference);
@@ -113,6 +116,11 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn tap_wake(&mut self, state: &str, at: usize) -> Result<String, String> {
         let entry = &self.extensions.declared.lists[state][at];
         let reference = entry.reference;
+        // A region is crossed when the device crosses it (`region_list.rs`).
+        if self.stays(entry) {
+            self.log(format!("{state} @{reference}: tapped"));
+            return self.raise_entry(state, at, false, true);
+        }
         let due = self.due(entry);
         if self.epoch_now() < due {
             return Err(format!("@{reference} is not due until {due}"));
@@ -121,7 +129,7 @@ impl<D: DataSource> Runner<D> {
             return Err(format!("@{reference}: offline"));
         }
         self.log(format!("{state} @{reference}: tapped"));
-        self.raise_entry(state, at, false)
+        self.raise_entry(state, at, false, true)
     }
 
     /// `--wake '<entry>'`: the entry listed again in the relaunched app, and
@@ -144,10 +152,16 @@ impl<D: DataSource> Runner<D> {
         let key = sub["list"]["key"].as_str().unwrap_or_default();
         let mut fields: Map<String, Json> = Map::new();
         for (k, v) in entry.as_object().into_iter().flatten() {
-            if !matches!(k.as_str(), "ref" | "delivered" | "due" | "lastRun") {
+            if !matches!(
+                k.as_str(),
+                "ref" | "delivered" | "due" | "lastRun" | "deliver"
+            ) {
                 fields.insert(k.clone(), v.clone());
             }
         }
+        // A transition the host kept for a launch with a view (LLP 1133.021
+        // §12): delivered in the window, not as a wake with none.
+        let at_launch = entry["deliver"] == "launch";
         let reference = self.next_ticket;
         self.next_ticket += 1;
         let value = fields.get(key).cloned();
@@ -181,12 +195,18 @@ impl<D: DataSource> Runner<D> {
         );
         self.log(format!("launch --wake ({kind} @{reference})"));
         self.announce_listed(&state);
-        self.raise_entry(&state, at, true)
+        self.raise_entry(&state, at, !at_launch, !at_launch)
     }
 
     /// Raise the wake event entry `at` of list `state` declares, as a wake
     /// of its own (an agent's drive is one platform object a tap).
-    fn raise_entry(&mut self, state: &str, at: usize, cold: bool) -> Result<String, String> {
+    fn raise_entry(
+        &mut self,
+        state: &str,
+        at: usize,
+        cold: bool,
+        hidden: bool,
+    ) -> Result<String, String> {
         let entry = &self.extensions.declared.lists[state][at];
         let reference = entry.reference;
         let row = self.module_row(&entry.source);
@@ -195,10 +215,33 @@ impl<D: DataSource> Runner<D> {
         let attempts =
             (self.extensions.declared.wake_meta.get(&reference)).map_or(0, |m| m.attempts);
         fields.insert("lastChance".into(), json!(attempts + 1 >= ATTEMPTS));
-        let args = super::entry_args(&tap, &Json::Object(fields));
-        let Some(event) = tap["event"].as_str() else {
+        let now = self.epoch_now();
+        fields
+            .entry("timestamp")
+            .or_insert_with(|| json!(now as i64));
+        let Some((event, flip)) = Self::chosen_event(&tap, &fields) else {
             return Err(format!("@{reference}: its tap names no event"));
         };
+        // A field the tap chooses by is flipped before the event is heard,
+        // and the event carries the entry as it now is.
+        let stored = &mut self
+            .extensions
+            .declared
+            .lists
+            .get_mut(state)
+            .expect("found above")[at];
+        for internal in ["event", "timestamp", "pending"] {
+            stored.fields.remove(internal);
+        }
+        if let Some((field, next)) = flip {
+            stored.fields.insert(field.clone(), next.clone());
+            fields.insert(field, next);
+        }
+        if let Some(m) = self.extensions.declared.wake_meta.get_mut(&reference) {
+            m.event = Some(event.clone());
+        }
+        let args = super::entry_args(&tap, &Json::Object(fields));
+        let event = event.as_str();
         let extension = self.plan.str(row.extension).to_owned();
         let found = (self.plan.module_events.iter()).position(|e| {
             self.plan.str(e.extension) == extension && self.plan.str(e.declared) == event
@@ -209,7 +252,7 @@ impl<D: DataSource> Runner<D> {
         let how = WakeHow {
             id: reference,
             cold,
-            hidden: true,
+            hidden,
         };
         self.wake_invocation(found, args, how, Some(reference));
         Ok(
@@ -240,6 +283,15 @@ impl<D: DataSource> Runner<D> {
             return;
         };
         let now = self.epoch_now();
+        if self.stays(&self.extensions.declared.lists[&list][at]) {
+            let event = (self.extensions.declared.wake_meta.get_mut(&reference))
+                .and_then(|m| m.event.take())
+                .unwrap_or_default();
+            if delivered || state != "completed" {
+                self.region_ended(&list, reference, state, &event);
+            }
+            return;
+        }
         let periodic = self
             .interval(&self.extensions.declared.lists[&list][at])
             .is_some();
@@ -286,9 +338,13 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A source declared `"listed"`: the entries of its kind, its fields each.
-    pub(in crate::runner) fn listed_value(&self, sub: &Json) -> Option<Json> {
+    pub(in crate::runner) fn listed_value(&self, row: &ModulesRow, sub: &Json) -> Option<Json> {
+        if let Some(entries) = self.reach_value(sub) {
+            return Some(entries);
+        }
         let listed = sub["listed"].as_object()?;
         let state = listed.get("state")?.as_str()?;
+        let extension = self.plan.str(row.extension);
         let kind = listed.get("kind");
         let fields: Vec<&str> = (listed
             .get("fields")
@@ -297,23 +353,17 @@ impl<D: DataSource> Runner<D> {
             .flatten())
         .filter_map(Json::as_str)
         .collect();
-        let entries = (self
-            .extensions
-            .declared
-            .lists
-            .get(state)
-            .into_iter()
-            .flatten())
-        .filter(|e| kind.is_none() || e.fields.get("kind") == kind)
-        .map(|e| {
-            let mut all = e.fields.clone();
-            self.wake_fields(e, &mut all);
-            let picked: Map<String, Json> = (fields.iter())
-                .map(|f| (f.to_string(), all.get(*f).cloned().unwrap_or(Json::Null)))
-                .collect();
-            Json::Object(picked)
-        })
-        .collect();
+        let entries = (self.entries(extension, state).iter())
+            .filter(|e| kind.is_none() || e.fields.get("kind") == kind)
+            .map(|e| {
+                let mut all = e.fields.clone();
+                self.wake_fields(e, &mut all);
+                let picked: Map<String, Json> = (fields.iter())
+                    .map(|f| (f.to_string(), all.get(*f).cloned().unwrap_or(Json::Null)))
+                    .collect();
+                Json::Object(picked)
+            })
+            .collect();
         Some(Json::Array(entries))
     }
 
@@ -326,5 +376,6 @@ impl<D: DataSource> Runner<D> {
         for key in keys {
             self.announce(&key);
         }
+        self.hand_over(state);
     }
 }

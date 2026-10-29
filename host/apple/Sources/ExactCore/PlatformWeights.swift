@@ -78,8 +78,30 @@ extension TextEngine {
     }
 
     /// A face's `wght` (its axis default where the instance sets none) and
-    /// the axis's range; nil without the axis.
+    /// the axis's range; nil without the axis. Kept per font object, which is
+    /// immutable: Core Text builds every axis's localized name to answer
+    /// `CTFontCopyVariationAxes`, and measuring controls asked it for the
+    /// same face on every commit (44% of the owner thread's work while a list
+    /// filled rows on the Mac).
     private static func wght(_ font: PlatformFont) -> (value: CGFloat, min: CGFloat, max: CGFloat)? {
+        wghtLock.lock()
+        let kept = wghtKept.object(forKey: font)
+        wghtLock.unlock()
+        if let kept { return kept.wght }
+        let wght = readWght(font)
+        wghtLock.lock()
+        wghtKept.setObject(KeptWght(wght), forKey: font)
+        wghtLock.unlock()
+        return wght
+    }
+    private final class KeptWght {
+        let wght: (value: CGFloat, min: CGFloat, max: CGFloat)?
+        init(_ wght: (value: CGFloat, min: CGFloat, max: CGFloat)?) { self.wght = wght }
+    }
+    /// Gone with its font; the main and owner threads both measure.
+    private static let wghtKept = NSMapTable<PlatformFont, KeptWght>.weakToStrongObjects()
+    private static let wghtLock = NSLock()
+    private static func readWght(_ font: PlatformFont) -> (value: CGFloat, min: CGFloat, max: CGFloat)? {
         let tag = wghtTag.uint32Value
         guard let axis = (CTFontCopyVariationAxes(font as CTFont) as? [[CFString: Any]])?
             .first(where: { ($0[kCTFontVariationAxisIdentifierKey] as? NSNumber)?.uint32Value == tag }),

@@ -185,7 +185,8 @@ Hosts.share = (title, text, url, files) => {
 // What the person chooses becomes a `doc:/<n>/<name>` path the app reaches
 // through `storage.fs` (the glue's handles; storage-request.js routes it).
 let Docs = null;
-const docs = () => Docs ??= import(new URL('./documents-glue.js', import.meta.url).href).then(() => x().documents.install({
+// An app granted `doc.keep` keeps what the person chooses (LLP 1069.010.000 D3).
+const docs = () => Docs ??= import(new URL('./documents-glue.js', import.meta.url).href).then(() => (x().documents.keeping(data.appId, appGrantSet()), x().documents.install({
   log: say, openFile: () => false,
   dispatch(view, kind, payload) {
     const el = Views.get(view);
@@ -193,7 +194,7 @@ const docs = () => Docs ??= import(new URL('./documents-glue.js', import.meta.ur
     if (kind === 27) el.dispatchEvent(new Event('cancel'));
     else el.dispatchEvent(new CustomEvent('change', { detail: payload }));
   },
-}));
+})));
 // Files and folders dropped from outside (DOM's `drop`, studio diary R19),
 // of any type: Chromium's handles, asked for while the event lasts
 // (`getAsFileSystemHandle`), else a folder's entry or each File read-only,
@@ -259,4 +260,18 @@ for (const [name, [capability, usage]] of Object.entries(PICKERS)) Hosts[name] =
   // The browser's picker is called in the glue, after it loads: a picker
   // needs the activation, which a page that has loaded it already keeps.
   counted(docs().then(m => m.show(r, name)));
+};
+// `requestPermission(id, path, mode)` (LLP 1069.010.000 D7): the browser's
+// own prompt for a kept document after a reload, asked inside the press's
+// activation, as the pickers are; `change` at `id` hears `granted` or `denied`.
+Hosts.requestPermission = (id, path, mode) => {
+  const refuse = why => say(`requestPermission: refused: ${why}`);
+  if (typeof path !== 'string' || !path.startsWith('doc:/')) return refuse('path is not a doc:/ path');
+  if (mode !== 'read' && mode !== 'readwrite') return refuse('mode is "read" or "readwrite"');
+  const found = byId(String(id ?? ''));
+  if (!found) return refuse(`no element with id "${id}"`);
+  const answer = value => { if (found.el.isConnected) found.el.dispatchEvent(new CustomEvent('change', { detail: value })); };
+  // Loaded already on a page whose storage read its kept documents back, so the activation is still live.
+  const ask = () => x().documents.permission(path, mode, answer);
+  counted(x().documents?.permission ? Promise.resolve(ask()) : docs().then(ask));
 };

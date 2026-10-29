@@ -15,7 +15,8 @@ impl<D: DataSource> Presenter<D> {
         // Every loop runs this each turn, and a reader's shell is served
         // before its first: whether a shell keeps the screen on is known.
         self.wakelock_unavailable();
-        self.modules_in();
+        self.orientation_unavailable();
+        self.package_turn();
         self.run_queued_commands();
         if self.pending_update {
             self.pending_update = false;
@@ -26,6 +27,19 @@ impl<D: DataSource> Presenter<D> {
                 Err(e) => eprintln!("exact update: activate: {e}"),
             }
         }
+    }
+
+    /// The packages' part of a turn: the pads' effects due by now start or
+    /// end (`pads.rs`), then the module calls queued since are handed out.
+    /// The agent runs it too while it waits for replies.
+    pub(crate) fn package_turn(&mut self) {
+        crate::pads::tick(self.host.now());
+        for line in crate::pads::take_recorded() {
+            self.host.log(line);
+        }
+        // A hot key's press, the host's to raise (LLP 1133.025 D11 item 3).
+        crate::desktop::raise(self.host.runner_mut());
+        self.modules_in();
     }
 
     /// `postMessage(text, name)` into the named surface's canvas, stamped now
@@ -83,9 +97,6 @@ impl<D: DataSource> Presenter<D> {
                 // The shell's share sheet; with no shell, refused into the
                 // journal. Held for the agent like every host (LLP 1069.003 D6).
                 "share" => self.share(&c.args, c.source),
-                // No request carries a notification yet: refused, or listed
-                // for the agent.
-                "showNotification" | "closeNotification" => self.notify(&c.name, &c.args),
                 "blur" => self.blur_command(&c.args),
                 "focus" => {
                     self.focus_command(&c.args);
@@ -126,6 +137,8 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
                 }
+                // @ref LLP 1069.010.000 D7 — answered here, as every native host does.
+                "requestPermission" => self.request_permission(&c.args),
                 // The top layer, where a shell presents one (LLP 1115 D6;
                 // LLP 1115.001 D10): a confirmation by its `id`, and its
                 // close. With no windows, the journal names the refusal.
@@ -141,8 +154,8 @@ impl<D: DataSource> Presenter<D> {
                     .host
                     .log("close refused: dialogs unsupported on the headless/DRM host"),
                 // The shell's clipboard, and its browser, mail app and dialer.
-                "copyText" if self.has_shell() => self.copy_text(&c.args),
-                "openURL" if self.has_shell() => self.open_url(&c.args),
+                "copyText" if self.clipboard.is_some() || self.has_shell() => self.copy_text(&c.args),
+                "openURL" if self.has_shell() || self.url_opener.is_some() => self.open_url(&c.args),
                 // With no shell there is no clipboard or browser; and no
                 // editor, dev menu or window to close on any Linux host, and
                 // no media player (LLP 1042 §8): known, and named so.
@@ -150,6 +163,10 @@ impl<D: DataSource> Presenter<D> {
                 | "load") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
+                // Recording a trace is the Apple hosts'
+                name @ ("startTrace_EXPERIMENTAL" | "stopTrace_EXPERIMENTAL") => self
+                    .host
+                    .log(format!("{name} refused: trace recording is on Apple hosts only")),
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
@@ -158,3 +175,7 @@ impl<D: DataSource> Presenter<D> {
         self.dispatch_toggles();
     }
 }
+
+#[cfg(test)]
+#[path = "commands_tests.rs"]
+mod tests;

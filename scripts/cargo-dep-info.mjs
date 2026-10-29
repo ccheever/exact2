@@ -106,14 +106,30 @@ export function compilerPaths(text, workspace) {
   if (word) paths.push(resolve(workspace, word));
   return paths;
 }
+// One file under two spellings (macOS's /tmp and /private/tmp, a linked
+// checkout) is one file: a path that differs as written is compared as the
+// file system resolves it (LLP 1143 D6), and only then, since a receipt reads
+// hundreds of rules.
 // rustc records relative inputs against Cargo's workspace root, even when
 // EXACT_APP_DIR makes the invoking directory a nested app in that workspace.
 export function unitDepInfo(message, workspace, metadata) {
+  const realPaths = new Map();
+  // A path the file system will not resolve (unreadable, a link loop) is compared as written.
+  const real = path => { let r = realPaths.get(path); if (r === undefined) { try { r = outputPath(path); } catch { r = path; } realPaths.set(path, r); } return r; };
+  const holds = (paths, want) => paths.includes(want) || paths.some(path => real(path) === real(want));
   // Cargo reports copied roots in target_directory and units in build_directory.
   // When the directories nest, the more specific root identifies the file.
-  const intermediate = file => metadata && under(metadata.target_directory, file)
-      && (!under(metadata.build_directory, file) || metadata.target_directory.length > metadata.build_directory.length)
-    ? resolve(metadata.build_directory, relative(metadata.target_directory, file)) : file;
+  const targetDir = metadata && real(metadata.target_directory), buildDir = metadata && real(metadata.build_directory);
+  const intermediate = file => metadata && under(targetDir, real(file))
+      && (!under(buildDir, real(file)) || targetDir.length > buildDir.length)
+    ? resolve(metadata.build_directory, relative(targetDir, real(file))) : file;
+  const source = resolve(message.target.src_path);
+  // rustc leaves the single output path raw, but escapes dependency paths.
+  const names = (dep, candidate) => {
+    const output = dep.slice(0, dep.indexOf(': '));
+    return (holds([resolve(workspace, output)], candidate) || holds(compilerPaths('unit: ' + output, workspace), candidate))
+      && holds(compilerPaths(dep, workspace), source);
+  };
   const sameBytes = (product, file) => product === file || existsSync(product)
     && statSync(product).size === statSync(file).size && readFileSync(product).equals(readFileSync(file));
   for (const file of message.filenames) {
@@ -126,12 +142,7 @@ export function unitDepInfo(message, workspace, metadata) {
     // deps/<stem>.d for a unit this build did not produce.
     for (const candidate of [resolve(dirname(intermediate(file)), 'deps', stem + '.d'), resolve(dirname(intermediate(file)), stem + '.d')]) {
       if (!existsSync(candidate)) continue;
-      const dep = readFileSync(candidate, 'utf8');
-      const output = dep.slice(0, dep.indexOf(': '));
-      // rustc leaves the single output path raw, but escapes dependency paths.
-      if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
-          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))
-          && sameBytes(resolve(dirname(candidate), basename(file)), file)) return candidate;
+      if (names(readFileSync(candidate, 'utf8'), candidate) && sameBytes(resolve(dirname(candidate), basename(file)), file)) return candidate;
     }
   }
   // Cargo copies libraries and executables out of deps without reporting their
@@ -151,11 +162,7 @@ export function unitDepInfo(message, workspace, metadata) {
       if (statSync(product).size !== bytes.length || !readFileSync(product).equals(bytes)) continue;
       const candidate = resolve(directory, unit + '.d');
       if (!existsSync(candidate)) continue;
-      const dep = readFileSync(candidate, 'utf8');
-      const output = dep.slice(0, dep.indexOf(': '));
-      // rustc leaves the single output path raw, but escapes dependency paths.
-      if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
-          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) matches.push(candidate);
+      if (names(readFileSync(candidate, 'utf8'), candidate)) matches.push(candidate);
     }
     if (matches.length === 1) return matches[0];
     if (matches.length > 1) throw new Error(`ambiguous rustc unit dep-info for ${message.target.name}`);
@@ -177,13 +184,12 @@ export function unitDepInfo(message, workspace, metadata) {
         const product = resolve(out, name);
         const candidate = resolve(out, name.replace(/\.[^.]+$/, '.d').replace(extension === '.wasm' ? /^$/ : /^lib/, ''));
         if (!existsSync(candidate) || statSync(product).size !== bytes.length || !readFileSync(product).equals(bytes)) continue;
-        const dep = readFileSync(candidate, 'utf8'), output = dep.slice(0, dep.indexOf(': '));
-        if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
-            && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) matches.push(candidate);
+        if (names(readFileSync(candidate, 'utf8'), candidate)) matches.push(candidate);
       }
     }
     if (matches.length === 1) return matches[0];
     if (matches.length > 1) throw new Error(`ambiguous rustc unit dep-info for ${message.target.name}`);
   }
-  throw new Error(`no matching rustc unit dep-info for ${message.target.name}; rebuild the stale Cargo unit or use a private target directory`);
+  const searched = metadata ? `; searched target directory ${metadata.target_directory}${buildDir !== targetDir ? ` and build directory ${metadata.build_directory}` : ''}` : '';
+  throw new Error(`no matching rustc unit dep-info for ${message.target.name}${searched}; rebuild the stale Cargo unit or use a private target directory`);
 }

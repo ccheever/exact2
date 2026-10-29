@@ -132,11 +132,15 @@ pub(crate) fn style_json_rows(
             continue;
         }
         let size = matches!(name, "width" | "height");
-        if matches!(name, "translate" | "scale" | "rotate" | "opacity")
-            || !keep.has(id) && (presenter_ignores(name) || size)
+        if matches!(
+            name,
+            "translate" | "scale" | "rotate" | "opacity" | "animation"
+        ) || !keep.has(id) && (presenter_ignores(name) || size)
         {
-            // A size is layout's; that its author wrote one is still said.
-            if size && style.written.has(id) {
+            // A size is layout's and an animation the engine's; that its
+            // author wrote one is still said (a glass the author animates
+            // in does not also materialize).
+            if (size || name == "animation") && style.written.has(id) {
                 let comma = if written.is_empty() { "" } else { "," };
                 let _ = write!(written, "{comma}\"{name}\"");
             }
@@ -1042,7 +1046,8 @@ fn style_json_shown(
     let (mut json, skipped) = style_json_sized(&computed, env, kept_geometry(node));
     // A modal dialog is placed in the viewport by AppKit: its insets cross. A popover (its area,
     // or the web's default: `PositionArea.painted`) is placed by the host against its invoker by
-    // its margin box: its margins cross (a dialog used as one, both), `auto` and % read as 0.
+    // its margin box, or at its authored `left`/`top` (LLP 1021 D2): its margins and insets cross,
+    // `auto` and % margins read as 0.
     let placed = [
         StyleId::MarginTop,
         StyleId::MarginRight,
@@ -1057,10 +1062,8 @@ fn style_json_shown(
     let placed_box = computed.position_area != PositionArea::None
         || node.props.str(exact_kernel::PropId::Popover).is_some();
     let crossing: Option<&[StyleId]> =
-        if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
+        if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") || placed_box {
             Some(if placed_box { &both } else { &insets })
-        } else if placed_box {
-            Some(&placed)
         } else if node.layout_position() == exact_kernel::PositionType::Sticky {
             Some(&vertical)
         } else {

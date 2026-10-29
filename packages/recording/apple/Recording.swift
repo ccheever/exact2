@@ -103,10 +103,14 @@ public final class RecordingModule: ExactPackage {
         let asked = args["mimeType"] as? String
         let type = context.agent ? "audio/wav" : asked ?? "audio/mp4"
         guard context.agent || ["audio/mp4", "audio/wav"].contains(type) else { return ["error": "NotSupportedError"] }
+        // `apple.formatID` must be a codec the container holds: WAV is linear PCM, MP4 AAC, ALAC or Opus (D4).
+        if !context.agent, let word = (args["apple"] as? [String: Any])?["formatID"] as? String,
+           !(type == "audio/wav" ? ["linearPCM"] : ["aac", "alac", "opus"]).contains(word) { return ["error": "NotSupportedError"] }
         guard let path = Recorder.path(args["path"] as? String ?? "", type), let url = context.file(path) else { return ["error": "NotSupportedError"] }
         next += 1
-        let r = Recorder(id: "recorder-\(context.session)-\(next)", type: type, path: path, url: url, context: context,
-                         bitRate: args["audioBitsPerSecond"] as? Double, apple: args["apple"] as? [String: Any] ?? [:], changed: { [weak self] in self?.announce() })
+        let r = Recorder(id: "recorder-\(context.session)-\(next)", track: track, type: type, path: path, url: url, context: context,
+                         bitRate: args["audioBitsPerSecond"] as? Double,
+                         bitRateMode: args["audioBitrateMode"] as? String, apple: args["apple"] as? [String: Any] ?? [:], changed: { [weak self] in self?.announce() })
         do {
             r.subscription = try context.tracks.subscribe(track, r, start: true, origin: context.origin)
         } catch {
@@ -171,11 +175,12 @@ public final class RecordingModule: ExactPackage {
 /// One recorder: a consumer of its track, writing on its own queue.
 final class Recorder: ExactTrackConsumer {
     let id: String, type: String, path: String, url: URL
+    private let track: String
     private(set) var state = "recording", reason: String?, error: String?
     private var result: [String: Any]?
     private var recorded = 0.0, since: Double?
     private let context: ExactPackageContext, changed: () -> Void
-    private let bitRate: Double?, apple: [String: Any]
+    private let bitRate: Double?, bitRateMode: String?, apple: [String: Any]
     var subscription: ExactSubscription?
     private var tap: ExactSubscription?
     /// The agent's spans of recording, ms of the session clock.
@@ -187,9 +192,10 @@ final class Recorder: ExactTrackConsumer {
     /// Frames handed to the queue and not yet written: the bound (D6).
     private let pending = Pending()
 
-    init(id: String, type: String, path: String, url: URL, context: ExactPackageContext, bitRate: Double?, apple: [String: Any], changed: @escaping () -> Void) {
+    init(id: String, track: String, type: String, path: String, url: URL, context: ExactPackageContext, bitRate: Double?, bitRateMode: String?, apple: [String: Any], changed: @escaping () -> Void) {
         self.id = id; self.type = type; self.path = path; self.url = url; self.context = context
-        self.bitRate = bitRate; self.apple = apple; self.changed = changed
+        self.track = track
+        self.bitRate = bitRate; self.bitRateMode = bitRateMode; self.apple = apple; self.changed = changed
         queue = DispatchQueue(label: "exact.recording.\(id)")
         since = context.now()
         spans = [(context.now(), nil)]
@@ -226,6 +232,14 @@ final class Recorder: ExactTrackConsumer {
     func resume() {
         state = "recording"; reason = nil; since = context.now(); recordingFlag.value = true
         if context.agent { spans.append((context.now(), nil)) }
+        // A reset or a failed foreground activation can leave the track without a capture.
+        subscription?.cancel(); subscription = nil
+        do {
+            subscription = try context.tracks.subscribe(track, self, start: true, origin: context.origin)
+        } catch {
+            pause("interrupted")
+            self.error = "the track did not resume: \(error)"
+        }
         changed()
     }
 
@@ -235,7 +249,7 @@ final class Recorder: ExactTrackConsumer {
         guard let source, tap == nil, state != "inactive" else { return }
         let format = source.format, pending = pending, limit = AVAudioFrameCount(format.sampleRate * 2)
         do {
-            let writer = try Writer(url: url, type: type, format: format, bitRate: bitRate, apple: apple)
+            let writer = try Writer(url: url, type: type, format: format, bitRate: bitRate, bitRateMode: bitRateMode, apple: apple)
             queue.sync { self.writer = writer }
             context.log("recording: \(id) writes \(Writer.describe(format))")
         } catch {
@@ -338,6 +352,11 @@ final class Pending: @unchecked Sendable {
 /// A file being written: AAC in fragmented MP4, or 16-bit PCM WAV.
 final class Writer {
     private var asset: AVAssetWriter?, input: AVAssetWriterInput?, file: AVAudioFile?
+    private var backup: AVAudioFile?
+    private let url: URL
+    private var backupURL: URL?
+    private var backupFailure: String?
+    private var encoding: [String: Any] = [:]
     private var frames: Int64 = 0
     private let rate: Double
     /// The format the file was opened with. A capture reopened by a route or
@@ -349,7 +368,8 @@ final class Writer {
     /// Why the file holds less than was recorded, the first time it happened.
     private(set) var failure: String?
 
-    init(url: URL, type: String, format: AVAudioFormat, bitRate: Double?, apple: [String: Any]) throws {
+    init(url: URL, type: String, format: AVAudioFormat, bitRate: Double?, bitRateMode: String?, apple: [String: Any]) throws {
+        self.url = url
         rate = format.sampleRate
         self.format = format
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -360,13 +380,26 @@ final class Writer {
             file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
             return
         }
-        let writer = try AVAssetWriter(outputURL: url, fileType: .m4a)
+        // `apple.formatID` beats the default codec (D4). Linear PCM is `audio/wav`'s, which MP4 does not hold.
+        let codecs: [String: AudioFormatID] = ["aac": kAudioFormatMPEG4AAC, "alac": kAudioFormatAppleLossless, "opus": kAudioFormatOpus]
+        let word = apple["formatID"] as? String ?? "aac"
+        guard let codec = codecs[word] else { throw CaptureFailure("NotSupportedError: \(word) in audio/mp4") }
+        // The `.m4a` brand takes no Opus (measured: `canAdd` refuses it); a plain MP4 does.
+        let writer = try AVAssetWriter(outputURL: url, fileType: codec == kAudioFormatOpus ? .mp4 : .m4a)
         // One-second fragments: a take whose process ended plays up to its last fragment (D6).
         writer.movieFragmentInterval = CMTime(seconds: 1, preferredTimescale: 600)
-        var settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: format.sampleRate, AVNumberOfChannelsKey: min(format.channelCount, 2)]
-        if let bitRate { settings[AVEncoderBitRateKey] = bitRate }
+        var settings: [String: Any] = [AVFormatIDKey: codec, AVSampleRateKey: format.sampleRate, AVNumberOfChannelsKey: min(format.channelCount, 2)]
+        if codec == kAudioFormatAppleLossless { settings[AVEncoderBitDepthHintKey] = 16 }
+        if let bitRate, codec != kAudioFormatAppleLossless { settings[AVEncoderBitRateKey] = bitRate }
         let qualities: [String: AVAudioQuality] = ["min": .min, "low": .low, "medium": .medium, "high": .high, "max": .max]
         if let q = (apple["audioQuality"] as? String).flatMap({ qualities[$0] }) { settings[AVEncoderAudioQualityKey] = q.rawValue }
+        // `apple.bitRateStrategy` beats the web's `audioBitrateMode`.
+        let strategies = ["constant": AVAudioBitRateStrategy_Constant, "longTermAverage": AVAudioBitRateStrategy_LongTermAverage,
+                          "variableConstrained": AVAudioBitRateStrategy_VariableConstrained, "variable": AVAudioBitRateStrategy_Variable]
+        if codec == kAudioFormatMPEG4AAC, let s = (apple["bitRateStrategy"] as? String ?? bitRateMode).flatMap({ strategies[$0] }) {
+            settings[AVEncoderBitRateStrategyKey] = s
+        }
+        encoding = settings
         let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
         guard writer.canAdd(input) else { throw CaptureFailure("the writer takes no audio input") }
@@ -374,17 +407,35 @@ final class Writer {
         guard writer.startWriting() else { throw writer.error ?? CaptureFailure("the writer did not start") }
         writer.startSession(atSourceTime: .zero)
         asset = writer; self.input = input
+        // iOS can invalidate the AAC encoder while suspended. Keep PCM so
+        // resumed audio survives, while the fragmented MP4 remains crash-playable.
+        let backupURL = url.appendingPathExtension("pcm.caf")
+        let pcm: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: rate,
+                                 AVNumberOfChannelsKey: format.channelCount, AVLinearPCMBitDepthKey: 16,
+                                 AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
+        backup = try AVAudioFile(forWriting: backupURL, settings: pcm, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+        self.backupURL = backupURL
     }
 
     /// One buffer, on the recorder's queue. Its time is the frames written,
     /// so a pause leaves no gap in the file.
     func append(_ buffer: AVAudioPCMBuffer) {
-        guard let buffer = conformed(buffer) else { return fail("a buffer of \(Writer.describe(buffer.format)) did not convert to \(Writer.describe(format))") }
+        guard let buffer = conformed(buffer) else {
+            let why = "a buffer of \(Writer.describe(buffer.format)) did not convert to \(Writer.describe(format))"
+            backupFailure = why
+            return fail(why)
+        }
         if let file {
             do { try file.write(from: buffer) } catch { fail(Writer.code(error)) }
             return
         }
-        guard let input, input.isReadyForMoreMediaData, let sample = sample(buffer) else { return }
+        if let backup {
+            do { try backup.write(from: buffer) } catch { backupFailure = Writer.code(error) }
+        }
+        guard failure == nil else { return }
+        guard let input, input.isReadyForMoreMediaData, let sample = sample(buffer) else {
+            return fail(asset?.error.map(Writer.code) ?? "the writer refused a buffer")
+        }
         if input.append(sample) { frames += Int64(buffer.frameLength) } else { fail(asset?.error.map(Writer.code) ?? "the writer refused a buffer") }
     }
 
@@ -432,11 +483,44 @@ final class Writer {
     /// Finish the file, then `done`.
     func finish(_ done: @escaping () -> Void) {
         guard let asset, let input else { file = nil; return done() }
-        input.markAsFinished()
-        asset.finishWriting { [self] in
+        backup = nil
+        let complete = { [self] in
             if asset.status == .failed { fail(asset.error.map(Writer.code) ?? "the writer failed") }
+            if failure != nil {
+                do {
+                    try recover()
+                    failure = nil
+                } catch { failure = "\(failure ?? "the writer failed"); recovery: \(Writer.code(error))" }
+            }
+            if failure == nil, let backupURL { try? FileManager.default.removeItem(at: backupURL) }
             done()
         }
+        guard asset.status == .writing else { return complete() }
+        input.markAsFinished()
+        asset.finishWriting(completionHandler: complete)
+    }
+
+    /// Re-encode only a failed take, with bounded memory. Preserve the original
+    /// and PCM if recovery fails; replace the playable path only after closing AAC.
+    func recover() throws {
+        if let backupFailure { throw CaptureFailure(backupFailure) }
+        guard let backupURL else { throw CaptureFailure("no recovery audio") }
+        backup = nil
+        let source = try AVAudioFile(forReading: backupURL, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+        let rebuilt = url.deletingPathExtension().appendingPathExtension("recovered.m4a")
+        defer { try? FileManager.default.removeItem(at: rebuilt) }
+        var output: AVAudioFile? = try AVAudioFile(forWriting: rebuilt, settings: encoding,
+                                                  commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: source.processingFormat, frameCapacity: 4096) else {
+            throw CaptureFailure("no recovery buffer")
+        }
+        while source.framePosition < source.length {
+            try source.read(into: buffer)
+            guard buffer.frameLength > 0 else { throw CaptureFailure("recovery audio ended early") }
+            try output?.write(from: buffer)
+        }
+        output = nil
+        _ = try FileManager.default.replaceItemAt(url, withItemAt: rebuilt)
     }
 
     /// The agent's take: WAV, 16-bit mono at 8 kHz, of a 440 Hz tone whose amplitude follows the signal over its spans (§10).

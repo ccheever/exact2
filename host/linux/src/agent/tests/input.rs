@@ -39,7 +39,7 @@ fn the_clipboard_events_reach_the_nearest_handler() {
         &format!(r#"{{"op":"type","id":{log},"clipboard":"cut"}}"#),
     );
     assert!(reply.contains("no cut handler"), "{reply}");
-    // The Linux host pastes text only and takes no drag from outside: both
+    // This host pastes text only and takes no drag from outside: both
     // are refused by name, and neither presses nor pastes.
     let reply = handle(
         &mut p,
@@ -48,7 +48,9 @@ fn the_clipboard_events_reach_the_nearest_handler() {
         ),
     );
     assert!(
-        reply.contains("unsupported: the Linux host pastes text only"),
+        reply.contains(&format!(
+            "unsupported: the {HOST_NAME} host pastes text only"
+        )),
         "{reply}"
     );
     for form in [
@@ -58,7 +60,7 @@ fn the_clipboard_events_reach_the_nearest_handler() {
     ] {
         let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{cell},{form}}}"#));
         assert!(
-            reply.contains("unsupported: the Linux host takes no drag"),
+            reply.contains(&format!("unsupported: the {HOST_NAME} host takes no drag")),
             "{reply}"
         );
     }
@@ -779,7 +781,15 @@ fn a_named_tap_never_toggles_focuses_or_follows_what_is_inside_it() {
     assert_eq!(text(&p), "row;field-row;");
     // An inline run's link at the box's middle: refused, not followed.
     let reply = tap(&mut p, "link-box");
-    assert!(reply.contains("would press a link in #"), "{reply}");
+    assert!(
+        reply.contains(&format!("would press #{} inside it", id(&p, "guide"))),
+        "{reply}"
+    );
+    assert!(!p
+        .host()
+        .runner()
+        .journal()
+        .any(|line| line.contains("openURL")));
     // A disabled row: nothing, not the Like at its middle.
     let reply = tap(&mut p, "off-row");
     assert!(!reply.contains("error"), "{reply}");

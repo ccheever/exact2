@@ -14,18 +14,19 @@ pub(super) struct Mapping {
 impl<D: DataSource> Presenter<D> {
     pub(super) fn arrange_base(&self, key: NodeKey) -> Option<Value> {
         let node = self.host.kernel().node_by_key(key)?;
+        let frame = self.pane_frame(node.id)?;
         let mut v = Value {
-            x: node.frame.x as f64 - self.page.0 as f64,
-            y: node.frame.y as f64 - self.page.1 as f64,
+            x: frame.x as f64 - self.page.0 as f64,
+            y: frame.y as f64 - self.page.1 as f64,
             ..Value::ZERO
         };
-        let mut at = node.parent;
+        let mut at = self.geometry_parent(node.id);
         while let Some(id) = at {
-            let parent = self.host.kernel().node(id)?;
+            self.host.kernel().node(id)?;
             let (x, y) = self.scroll_of(id);
             v.x -= x as f64;
             v.y -= y as f64;
-            at = parent.parent;
+            at = self.geometry_parent(id);
         }
         finite(v).then_some(v)
     }
@@ -90,6 +91,23 @@ impl<D: DataSource> Presenter<D> {
             (list.frame.height - top - bottom).max(0.),
         );
         let mut clip = intersect(port, (0., 0., self.viewport.0, self.viewport.1));
+        if self.pane_root(list.id).is_some() {
+            let split = self.host.navigation.split.active.as_ref()?;
+            let parent = kernel.node(split.within)?;
+            let base = self.arrange_base(parent.key)?;
+            let pane = split.pane();
+            // The pane scrolls with the routes' parent, as paint and placement move it.
+            let (sx, sy) = self.scroll_of(split.within);
+            clip = intersect(
+                clip,
+                (
+                    pane.0 + base.x as f32 - parent.frame.x - sx,
+                    pane.1 + base.y as f32 - parent.frame.y - sy,
+                    pane.2,
+                    pane.3,
+                ),
+            );
+        }
         let mut path = Vec::new();
         let mut at = Some(list.id);
         while let Some(id) = at {
@@ -120,7 +138,7 @@ impl<D: DataSource> Presenter<D> {
                     );
                 }
             }
-            at = node.parent;
+            at = self.geometry_parent(id);
         }
         Some((port, clip, path))
     }

@@ -12,6 +12,8 @@ use super::*;
 use exact_runner::picker_support as support;
 use exact_runner::ControlValue;
 
+pub(crate) mod share;
+
 impl<D: DataSource> Presenter<D> {
     /// `showPicker(id)`, from an action or a press on a visible file input.
     pub(crate) fn show_picker(&mut self, id: &str) {
@@ -102,20 +104,6 @@ impl<D: DataSource> Presenter<D> {
         self.dirty = true;
     }
 
-    /// `showNotification(…)` and `closeNotification(tag)`: the runner's rule,
-    /// with no notification centre (refused, or listed for the agent).
-    pub(crate) fn notify(&mut self, name: &str, args: &[exact_plan::Value]) {
-        use exact_runner::notify::{arm, close, Arm, Notice};
-        let runner = self.host.runner_mut();
-        if name == "closeNotification" {
-            let tag = args.first().and_then(exact_plan::Value::as_str);
-            close(runner, tag.unwrap_or_default(), self.agent);
-        } else if let Arm::Refused(reason) = arm(runner, Notice::from_args(args), self.agent, false)
-        {
-            self.not_carried("showNotification", &reason);
-        }
-    }
-
     /// The agent's answer to a held export: copy the `app:/` file (or write
     /// the `text=`) to the driver's path and fire `change` with its name,
     /// or `cancel`.
@@ -200,7 +188,11 @@ impl<D: DataSource> Presenter<D> {
         let docs: Vec<String> =
             exact_runner::file_pickers::answer_paths(q["text"].as_str().unwrap_or(""))
                 .into_iter()
-                .filter_map(|p| exact_data::documents::mint(std::path::Path::new(p), 0))
+                .filter_map(|p| {
+                    // Kept across launches where the app keeps documents (LLP 1069.010.000 D3).
+                    let p = std::path::Path::new(p);
+                    crate::kept::chosen(0, p).or_else(|| exact_data::documents::mint(p, 0))
+                })
                 .collect();
         if docs.is_empty() {
             self.host.log(format!("{name}: refused: nothing to open"));
@@ -210,6 +202,33 @@ impl<D: DataSource> Presenter<D> {
         self.host.log(format!("{name}: chosen"));
         let value = ControlValue::Text(docs.join("\n"));
         self.deliver_picker(view, Event::Change(value));
+    }
+
+    /// `requestPermission(id, path, mode)` (LLP 1069.010.000 D7): the
+    /// runner's rule, then `granted` at `id` for a document that resolves
+    /// (the host owns no permission a person could withhold), else `denied`.
+    pub(crate) fn request_permission(&mut self, args: &[exact_plan::Value]) {
+        let arg = |i: usize| {
+            args.get(i)
+                .and_then(exact_plan::Value::as_str)
+                .unwrap_or("")
+        };
+        let request = serde_json::json!({
+            "command": "requestPermission", "id": arg(0), "path": arg(1), "mode": arg(2),
+        });
+        let ruling =
+            exact_runner::file_pickers::request(self.host.runner_mut(), &request.to_string());
+        let ruling: serde_json::Value = serde_json::from_str(&ruling).unwrap_or_default();
+        self.dirty = true;
+        let Some(view) = ruling["view"].as_u64() else {
+            return;
+        };
+        let granted = exact_data::documents::resolve(arg(1), 0).is_ok();
+        let answer = if granted { "granted" } else { "denied" };
+        self.deliver_picker(
+            view as ViewId,
+            Event::Change(ControlValue::Text(answer.into())),
+        );
     }
 
     fn deliver_picker(&mut self, view: ViewId, event: Event) {

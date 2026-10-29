@@ -118,6 +118,13 @@ fn a_list_whose_rows_link_to_a_route_splits_and_names_each_rows_detail() {
             (view(&r, "item-c"), view(&r, "row-c")),
         ]
     );
+    assert_eq!(
+        found.locations,
+        vec![
+            (view(&r, "item-b"), "/item/b".to_string()),
+            (view(&r, "item-c"), "/item/c".to_string()),
+        ]
+    );
     // A pushed route is no stack's root, and a button in a row is not the row.
     assert_eq!(r.stack_split(view(&r, "item-c"), None), None);
     assert_eq!(r.stack_split(view(&r, "star-a"), None), None);
@@ -236,10 +243,20 @@ fn a_row_whose_press_writes_the_router_splits_and_one_that_writes_none_does_not(
             "              for id in [\"a\", \"b\"] key=id\n                button press={action}(id) testId=`row-${{id}}`\n                  text id"
         )
     };
-    let r = boot(&app("", "", &pressed("open")));
+    let mut r = boot(&app("", "", &pressed("open")));
     let found = split(&r).expect("a press that writes the router pushes");
     assert_eq!(found.list, Some(view(&r, "rows")));
     assert!(found.rows.is_empty(), "a press names no location");
+    assert!(found.locations.is_empty(), "nothing is pushed yet");
+    // What a press pushes is named with its location, which a host reads to
+    // tell when `replace` moves it (LLP 1127 D3).
+    r.dispatch(view(&r, "row-b"), Event::Press).unwrap();
+    let found = split(&r).unwrap();
+    assert!(found.rows.is_empty());
+    assert_eq!(
+        found.locations,
+        vec![(view(&r, "item-b"), "/item/b".to_string())]
+    );
 
     // Rows that select into state push nothing: the header's button, which
     // does write the router, is no row of the list.
@@ -397,4 +414,74 @@ fn a_list_in_a_block_of_its_own_is_covered_by_the_route_over_it() {
         r.inactive(view(&r, "row-a")),
         "a sheet covers the screen under it"
     );
+}
+
+/// LLP 1116.006 D2: a box the root route marks `navigationSplit="placeholder"`
+/// is `display: none` until a host shows it in its split's empty detail pane
+/// (`Runner::show_split_placeholder`): then it is the web shell's flex box
+/// filling the block it is given, its content centred where the author said
+/// nothing of that, and hidden again after. A list in it is never the
+/// split's list.
+#[test]
+fn a_shown_placeholder_fills_its_block_and_hides_again() {
+    use exact_kernel::{BlockAxis, Display, HostBlock, Offer};
+    let rows = r#"              for id in ["a", "b"] key=id
+                link href=path("item", id) testId=`row-${id}`
+                  text id"#;
+    let own = r#"            column navigationSplit="placeholder" justify-content="flex-start" testId="own"
+              text "Pick one" testId="own-text"
+              list testId="own-list"
+                link href=path("item", "x")
+                  text "x"
+"#;
+    let source = app("", "", rows).replace(
+        "            list testId=\"rows\"",
+        &format!("{own}            list testId=\"rows\""),
+    );
+    let mut r = boot(&source);
+    let own = view(&r, "own");
+    let display = |r: &Runner<NoData>| r.kernel().node(own).unwrap().style.display;
+    assert_eq!(display(&r), Display::None, "hidden as lowered");
+    assert!(
+        r.show_split_placeholder(view(&r, "home"), true)
+            .unwrap()
+            .is_none(),
+        "only the marked box"
+    );
+    assert!(
+        r.show_split_placeholder(own, false).unwrap().is_none(),
+        "already hidden"
+    );
+    assert!(r.show_split_placeholder(own, true).unwrap().is_some());
+    assert_eq!(display(&r), Display::Flex);
+    assert_eq!(split(&r).unwrap().list, Some(view(&r, "rows")));
+    assert!(
+        r.show_split_placeholder(own, true).unwrap().is_none(),
+        "already shown"
+    );
+    let pane = HostBlock {
+        width: BlockAxis::Is(500.0),
+        height: BlockAxis::Is(400.0),
+    };
+    r.kernel_mut().set_host_block(own, Some(pane)).unwrap();
+    let root = r.kernel().roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, Offer::definite(900.0, 400.0))
+        .unwrap();
+    let frame = |r: &Runner<NoData>, id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        r.kernel().laid_out_frame(key).unwrap().0
+    };
+    let (box_, text) = (frame(&r, "own"), frame(&r, "own-text"));
+    assert_eq!(
+        (box_.x, box_.y, box_.width, box_.height),
+        (0.0, 0.0, 500.0, 400.0),
+        "the block's size"
+    );
+    // Centred across (unsaid), at the top (the author's `justify-content`), inside 16 px.
+    assert_eq!(text.y, 16.0);
+    assert!((text.x + text.width / 2.0 - 250.0).abs() < 1.0, "{text:?}");
+    r.kernel_mut().set_host_block(own, None).unwrap();
+    assert!(r.show_split_placeholder(own, false).unwrap().is_some());
+    assert_eq!(display(&r), Display::None);
 }

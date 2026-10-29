@@ -263,8 +263,8 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     // parent's edges, so an inset from a covered edge starts where the bar
     // ends, as on the web the footer rests above the tablist in flow and a
     // hand-built screen pins it to the safe area. A percentage inset stays
-    // as written.
-    if s.position == taffy::style::Position::Absolute {
+    // as written. A subtree in its own block has no covered parent edge.
+    if s.position == taffy::style::Position::Absolute && !arena.blocks.holds(slot) {
         if let Some(parent) = arena.parent(slot) {
             if matches!(arena.cover(parent), Some(HostCover::Edges(_))) {
                 let [top, right, bottom, left] = added_padding(arena, parent);

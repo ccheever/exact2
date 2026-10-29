@@ -229,7 +229,9 @@ test("an inspect table asked with no page of the gallery open is a process of th
   const pids = join(s.dir, 'table-pids');
   writeFileSync(pids, '');
   writeFileSync(join(s.dir, 'table'), `#!/bin/sh\nsleep 30 & echo $! >> ${pids}; echo $$ >> ${pids}; sleep 30\n`, { mode: 0o755 });
-  const loop = galleryLoop({ app: { dir: join(s.dir, 'app'), id: 'life-table' }, root: join(s.dir, 'root'), appDist: join(s.dir, 'dist'), env: { ...process.env, CARGO_TARGET_DIR: join(s.dir, 'target') }, client: () => '', log: () => {}, idleMs: 200, tableTool: () => ({ cmd: join(s.dir, 'table'), pre: [] }) });
+  // (A quiet period longer than a loaded machine takes from the table writing its pids to the check that they run:
+  // at 200 ms the gallery could already have stopped them, 1 run in 5 on main.)
+  const loop = galleryLoop({ app: { dir: join(s.dir, 'app'), id: 'life-table' }, root: join(s.dir, 'root'), appDist: join(s.dir, 'dist'), env: { ...process.env, CARGO_TARGET_DIR: join(s.dir, 'target') }, client: () => '', log: () => {}, idleMs: 3000, tableTool: () => ({ cmd: join(s.dir, 'table'), pre: [] }) });
   rmSync(loop.cache, { recursive: true, force: true });
   mkdirSync(join(loop.cache, 'dist'), { recursive: true });
   writeFileSync(join(loop.cache, 'dist', 'app.plan'), 'a plan');

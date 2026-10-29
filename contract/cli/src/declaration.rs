@@ -74,7 +74,20 @@ pub(crate) fn read(path: &Path, text: &str, source_id: u32) -> Result<File, Refu
                 }
                 file.modules.push(decl);
             }
+            for (owner, members) in object(&json["members"]) {
+                for (member, spec) in object(members) {
+                    let decl = member_decl(owner, member, spec, package, &json, span)
+                        .map_err(refuse)?;
+                    file.modules.push(decl);
+                }
+            }
             groups(&json, &file).map_err(refuse)?;
+            // An implementation made when the module loads, after first
+            // pixel, rather than at its first call (LLP 1133.015 D16 item 1);
+            // the hosts' builds read it from the interface.
+            if !json["start"].is_null() && json["start"] != "load" {
+                return Err(refuse("an interface's `start` is \"load\" or absent".into()));
+            }
         }
         "implementation" => {
             // Its platform-only names (D2) are read when one is first
@@ -161,9 +174,54 @@ fn shapes(json: &Value, span: Span) -> Result<Vec<ShapeDecl>, String> {
     object(&json["shapes"])
         .iter()
         .map(|(name, fields_json)| {
+            let fields = match keyed(fields_json) {
+                Some(keys) => keyed_fields(name, keys, span)?,
+                None => fields(object(fields_json), span)?,
+            };
             Ok(ShapeDecl {
                 name: name.clone(),
-                fields: fields(object(fields_json), span)?,
+                fields,
+                span,
+            })
+        })
+        .collect()
+}
+
+/// A shape declared as a record keyed by string (LLP 1133.006 D8 item 1),
+/// `{"record": {key: type}}`: its keys and their types, as the Clipboard
+/// API's `ClipboardItem` maps a MIME type to its data. `None` for a shape of
+/// fields.
+fn keyed(shape: &Value) -> Option<&Map<String, Value>> {
+    shape
+        .as_object()
+        .filter(|s| s.len() == 1)?
+        .get("record")?
+        .as_object()
+}
+
+/// A keyed shape's keys as Contract's optional fields: an item gives any of
+/// them. A key that takes an `app:/` path or bytes (`{"type": "path", "or":
+/// "bytes"}`) is a string to Contract, which never calls a name that takes
+/// one (`"contract": false`); so is a string held to its UTF-8 bytes
+/// (`{"type": "string", "maxBytes": n}`).
+fn keyed_fields(shape: &str, keys: &Map<String, Value>, span: Span) -> Result<Vec<Field>, String> {
+    keys.iter()
+        .map(|(key, ty)| {
+            let ty = match ty {
+                Value::Object(_) if ty["type"] == "path" => {
+                    if !matches!(ty["or"].as_str(), None | Some("bytes")) {
+                        return Err(format!("`{shape}`'s key `{key}` is a path `or` bytes"));
+                    }
+                    "string"
+                }
+                Value::Object(_) if ty["type"] == "string" => "string",
+                ty => ty.as_str().ok_or_else(|| {
+                    format!("`{shape}`'s key `{key}` has a type, or is a path's object")
+                })?,
+            };
+            Ok(Field {
+                name: key.clone(),
+                ty: TypeExpr::Option(Box::new(type_expr(ty, span)?), span),
                 span,
             })
         })
@@ -173,8 +231,13 @@ fn shapes(json: &Value, span: Span) -> Result<Vec<ShapeDecl>, String> {
 fn fields(map: &Map<String, Value>, span: Span) -> Result<Vec<Field>, String> {
     map.iter()
         .map(|(name, ty)| {
-            // A path option (LLP 1133.009 D10 item 4) is a string to Contract.
+            // A path option (LLP 1133.009 D10 item 4) is a string to Contract;
+            // a list of them (`"list": true`, LLP 1133.024 D16: a mail's
+            // attachments) an optional list of strings.
             let ty = match ty {
+                Value::Object(_) if ty["type"] == "path" && ty["list"] == true => {
+                    "option<string[]>"
+                }
                 Value::Object(_) if ty["type"] == "path" && ty["optional"] == true => {
                     "option<string>"
                 }
@@ -271,6 +334,15 @@ fn module(
             ))
         }
     };
+    // A name whose signature carries bytes in every form (LLP 1133.006 D8
+    // item 1) is data code's alone too, refused in Contract by its own id
+    // (`contract-module-bytes`, LLP 1133.022 D19 item 4). An option that may
+    // be a string or bytes (`string|bytes`) keeps the name in Contract, with
+    // the string alone (LLP 1133.035 D2).
+    let bytes = std::iter::once(&entry["answers"])
+        .chain(object(&entry["options"]).values())
+        .any(|t| carries_bytes(t, interface, &mut Vec::new()));
+    let data_only = data_only || bytes;
     let takes_json = std::iter::once(&entry["answers"])
         .chain(object(&entry["options"]).values())
         .any(is_json);
@@ -325,9 +397,23 @@ fn module(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut substitute = substitute(entry, interface)?;
-    let effect = kind == ModuleKind::Send && answers.is_none();
-    if admission.is_some() || effect {
+    // A ceremony's own options, beside which a call may carry only a
+    // platform's words and another package's members (LLP 1133.014 D10).
+    if entry["substitute"]["ceremony"].is_object() {
         let mut json: Value = serde_json::from_str(&substitute).unwrap_or_default();
+        let takes: Vec<Value> = object(&entry["options"])
+            .keys()
+            .map(|k| Value::from(k.as_str()))
+            .collect();
+        json["takes"] = Value::Array(takes);
+        substitute = json.to_string();
+    }
+    let effect = kind == ModuleKind::Send && answers.is_none();
+    if admission.is_some() || effect || bytes {
+        let mut json: Value = serde_json::from_str(&substitute).unwrap_or_default();
+        if bytes {
+            json["bytes"] = true.into();
+        }
         if let Some(admission) = admission {
             json["admission"] = admission.into();
         }
@@ -357,6 +443,101 @@ fn module(
         sync: entry["sync"]["name"].as_str().map(str::to_owned),
         data_only,
         substitute,
+        span,
+    })
+}
+
+/// A member an interface declares on another interface's name (LLP
+/// 1133.014 D10 item 1), as FedCM's WebIDL adds `identity` to
+/// `CredentialRequestOptions`: `"members": {"@exact/passkeys#get":
+/// {"identity": {"type", "answers", "origin", "foreground", "handles",
+/// "substitute"}}}`. It is a row of the plan for data code alone, which the
+/// runner reads when the owner's call carries the member's option
+/// (`memberOf`, `member`); data code calls the owner, never the row.
+fn member_decl(
+    owner: &str,
+    member: &str,
+    spec: &Value,
+    package: &str,
+    interface: &Value,
+    span: Span,
+) -> Result<ModuleDecl, String> {
+    let Some((owner_package, owner_name)) = owner.split_once('#') else {
+        return Err(format!(
+            "a member's owner is `<package>#<name>` (`@exact/passkeys#get`), not `{owner}`"
+        ));
+    };
+    if owner_package == package {
+        return Err(format!(
+            "`{member}` is a member of the interface's own `{owner_name}`: declare it among its options"
+        ));
+    }
+    let uses = interface["uses"].as_str().unwrap_or_default();
+    let pinned = uses
+        .strip_prefix(owner_package)
+        .and_then(|v| v.strip_prefix('@'));
+    if pinned.is_none_or(|v| v.is_empty() || v.starts_with(['^', '~', '>', '<', '*'])) {
+        return Err(format!(
+            "a member of `{owner}` needs `\"uses\": \"{owner_package}@<version>\"`, pinned exactly (LLP 1133.009 D3)"
+        ));
+    }
+    let shape = |key: &str| -> Result<String, String> {
+        let t = spec[key].as_str().unwrap_or_default();
+        match interface["shapes"][t].is_object() {
+            true => Ok(t.to_owned()),
+            false => Err(format!(
+                "member `{member}`'s `{key}` names one of the interface's shapes, not `{t}`"
+            )),
+        }
+    };
+    let options = shape("type")?;
+    let answers = shape("answers")?;
+    let mut sub = match &spec["substitute"] {
+        Value::Null => Map::new(),
+        Value::Object(map) => map.clone(),
+        other => {
+            return Err(format!(
+                "member `{member}`'s `substitute` is an object, not `{other}`"
+            ))
+        }
+    };
+    let owner_extension = owner_package.rsplit('/').next().unwrap_or(owner_package);
+    sub.insert(
+        "memberOf".into(),
+        format!("{owner_extension}.{owner_name}").into(),
+    );
+    sub.insert("member".into(), member.into());
+    for field in ["origin", "foreground", "handles", "grants"] {
+        if !spec[field].is_null() {
+            sub.insert(field.into(), spec[field].clone());
+        }
+    }
+    if !interface["grants"].is_null() && !sub.contains_key("grants") {
+        sub.insert("grants".into(), interface["grants"].clone());
+    }
+    Ok(ModuleDecl {
+        name: member.to_owned(),
+        declared: member.to_owned(),
+        package: package.to_owned(),
+        extension: package.rsplit('/').next().unwrap_or(package).to_owned(),
+        kind: ModuleKind::Send,
+        options: vec![Field {
+            name: member.to_owned(),
+            ty: type_expr(&options, span)?,
+            span,
+        }],
+        words: Vec::new(),
+        answers: Some(type_expr(&answers, span)?),
+        args: Vec::new(),
+        raised: String::new(),
+        hold: 0,
+        budget: 0,
+        handler: None,
+        live: false,
+        request: "always".to_owned(),
+        sync: None,
+        data_only: true,
+        substitute: Value::Object(sub).to_string(),
         span,
     })
 }
@@ -391,8 +572,21 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     // the words a drive may prefer for its implementation's agent path alone
     // (LLP 1133.012 §9: `speech-recognition.heard`), each with its type.
     // Its `images`, an `img` source scheme the package serves (LLP 1133.019
-    // D11 item 1), is read by picture admission from any name too.
-    for field in ["permission", "grants", "authenticator", "agent", "images"] {
+    // D11 item 1), is read by picture admission from any name too. Its
+    // `tables` are what a `fill` reads by a field (`{"table", "by"}`: a
+    // gamepad's labels by its family, LLP 1133.022 D2). Its `devices` says
+    // how the substitute keeps a module of plugged-in devices (LLP 1133.037
+    // §11: the agent word that lists them, the handle kind, whether an open
+    // is exclusive, the record's fields and the targets with none).
+    for field in [
+        "permission",
+        "grants",
+        "authenticator",
+        "agent",
+        "images",
+        "tables",
+        "devices",
+    ] {
         if !interface[field].is_null() {
             out.insert(field.into(), interface[field].clone());
         }
@@ -421,9 +615,28 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         let many_ok = choose["many"].is_null()
             || (choose["many"].as_str()).is_some_and(|o| !object(&entry["options"])[o].is_null());
         let typed_ok = choose["typed"].is_null() || choose["typed"].is_boolean();
-        if !choose["ticket"].is_string() || !word_ok || !choices_ok || !many_ok || !typed_ok {
+        // The targets whose platform shows the sheet (LLP 1133.015 D17:
+        // restoring asks on Apple alone); elsewhere the call goes on with no ticket.
+        let targets_ok = choose["targets"].is_null()
+            || (choose["targets"].as_array()).is_some_and(|t| t.iter().all(Value::is_string));
+        // A tap its status rules out (LLP 1133.028 §7): one of its `choices`,
+        // by a status source's field.
+        let listed =
+            |c: &str| (choose["choices"].as_array()).is_some_and(|l| l.iter().any(|x| x == c));
+        let unless_ok = choose["unless"].is_null()
+            || object(&choose["unless"]).iter().all(|(c, rule)| {
+                listed(c) && rule["status"].is_string() && rule["field"].is_string()
+            }) && choose["unless"].is_object();
+        if !choose["ticket"].is_string()
+            || !word_ok
+            || !choices_ok
+            || !many_ok
+            || !typed_ok
+            || !unless_ok
+            || !targets_ok
+        {
             return Err(format!(
-                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, and the option that allows `many`"
+                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, the option that allows `many`, the choices its status rules out (`unless`), and the `targets` that show it"
             ));
         }
     }
@@ -449,9 +662,27 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         Value::String(s) if s == "implementation" => {
             out.insert("implementation".into(), Value::Bool(true));
         }
+        // The runner keeps the interface's declared lists where its
+        // implementation is bound, and hands them over (LLP 1133.033 §13).
+        Value::String(s) if s == "runner" => {
+            out.insert("runner".into(), Value::Bool(true));
+        }
+        // An arrival the agent's words stand for (LLP 1133.035 D16 item 1):
+        // the names a tag in the field settles, raises and ends, read by
+        // the runner from any name of the interface.
+        Value::Object(forms)
+            if forms.len() == 1
+                && forms["arrival"].as_object().is_some_and(|a| {
+                    ["field", "from", "status", "scan", "write", "lock", "reading", "readingerror"]
+                        .iter()
+                        .all(|k| a.get(*k).is_some_and(Value::is_string))
+                }) =>
+        {
+            out.insert("arrival".into(), forms["arrival"].clone());
+        }
         other => {
             return Err(format!(
-                "an interface's `substitute` is \"implementation\", not `{other}`"
+                "an interface's `substitute` is \"implementation\", \"runner\" or {{\"arrival\": {{\"field\", \"from\", \"status\", \"scan\", \"write\", \"lock\", \"reading\", \"readingerror\"}}}}, not `{other}`"
             ))
         }
     }
@@ -472,8 +703,55 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         )?;
         paths.insert(option.clone(), ty.clone());
     }
+    // An option of a keyed shape (or a list of them) whose keys take a path:
+    // each item's string at those keys is one (LLP 1133.006 D8 item 3).
+    for (option, ty) in object(&entry["options"]) {
+        let Some(keys) = ty
+            .as_str()
+            .and_then(|t| keyed(&interface["shapes"][bare(t).0]))
+        else {
+            continue;
+        };
+        let at: Vec<(&String, &Value)> = keys.iter().filter(|(_, t)| t["type"] == "path").collect();
+        if let Some((key, first)) = at.first() {
+            check(
+                matches!(first["access"].as_str(), Some("read" | "write"))
+                    && at.iter().all(|(_, t)| t["access"] == first["access"]),
+                &format!(
+                    "path key `{key}` has an `access` of \"read\" or \"write\", one for every key"
+                ),
+            )?;
+            let keys: Vec<Value> = at.iter().map(|(k, _)| Value::from(k.as_str())).collect();
+            paths.insert(
+                option.clone(),
+                serde_json::json!({ "type": "path", "access": first["access"], "keys": keys }),
+            );
+        }
+    }
     if !paths.is_empty() {
         out.insert("paths".into(), Value::Object(paths));
+    }
+    // The fields of an option's records that name a URL or an app file,
+    // `{"type", "admit": {field: "net.fetch"|"fs.read"|"fs.write"}}`: each
+    // record's are admitted as a fetch's URL and a path option are (LLP
+    // 1133.017 D3, a transfer's requests).
+    let mut admits = Map::new();
+    for (option, ty) in object(&entry["options"]) {
+        let Some(fields) = ty.get("admit") else {
+            continue;
+        };
+        let ok = fields.as_object().is_some_and(|f| {
+            f.values()
+                .all(|c| matches!(c.as_str(), Some("net.fetch" | "fs.read" | "fs.write")))
+        });
+        check(
+            ok,
+            &format!("option `{option}`'s `admit` maps fields to \"net.fetch\", \"fs.read\" or \"fs.write\""),
+        )?;
+        admits.insert(option.clone(), fields.clone());
+    }
+    if !admits.is_empty() {
+        out.insert("admits".into(), Value::Object(admits));
     }
     // The options that name a handle: a read whose every one is empty names
     // no object, and a poll does not ask it again (LLP 1133.009 D10 item 7).
@@ -515,6 +793,14 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     if !surfaces.is_empty() {
         out.insert("surfaceOptions".into(), Value::Array(surfaces));
     }
+    // The options that take a CSS colour (LLP 1133.022 D10 item 2).
+    let colors: Vec<Value> = (object(&entry["options"]).iter())
+        .filter(|(_, ty)| ty.as_str().is_some_and(|t| bare(t).0 == "color"))
+        .map(|(option, _)| Value::String(option.clone()))
+        .collect();
+    if !colors.is_empty() {
+        out.insert("colorOptions".into(), Value::Array(colors));
+    }
     // Where a call writes a shape's name (LLP 1133.016 D15 item 4), which
     // the bake writes as its JSON Schema: an option, or a field of the
     // records an option takes (`tools[].inputSchema`); and the option a
@@ -548,12 +834,34 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     if entry["contract"] == false {
         out.insert("dataOnly".into(), Value::Bool(true));
     }
+    // The options the bake requires a literal for (LLP 1133.026 D19 item 4:
+    // a `read` list the Android manifest derives each permission from).
+    let literal: Vec<Value> = (object(&entry["options"]).iter())
+        .filter(|(_, ty)| ty["literal"] == true)
+        .map(|(option, _)| Value::String(option.clone()))
+        .collect();
+    if !literal.is_empty() {
+        out.insert("literal".into(), Value::Array(literal));
+    }
+    // The options that name a handler, each a string literal (LLP 1133.034 D5).
+    let handlers: Vec<Value> = (object(&entry["options"]).iter())
+        .filter(|(_, ty)| ty.as_str().is_some_and(|t| bare(t).0 == "handler"))
+        .map(|(option, _)| Value::String(option.clone()))
+        .collect();
+    if !handlers.is_empty() {
+        out.insert("handlerOptions".into(), Value::Array(handlers));
+    }
+    if let Value::Array(permissions) = &interface["permission"] {
+        permission_templates(entry, name, permissions, &mut out)?;
+    }
     for (field, value) in object(entry) {
         match field.as_str() {
             // `{"whenAny": [options], "is": "app"}` holds a call to `app`
             // only when it gives one of those options (LLP 1133.012 D12
             // item 5): a recognition of a track is a capture start, of a
             // file not.
+            // `{"none": ["tool", "wake"]}`: refused while any of those is
+            // among the call's possible causes (LLP 1133.035 D16 item 6).
             "origin" => check(
                 matches!(value.as_str(), Some("app" | "person"))
                     || (value["is"] == "app"
@@ -562,10 +870,26 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
                                 o.as_str()
                                     .is_some_and(|o| !object(&entry["options"])[o].is_null())
                             })
+                        }))
+                    || (value.as_object().is_some_and(|o| o.len() == 1)
+                        && value["none"].as_array().is_some_and(|none| {
+                            !none.is_empty()
+                                && none.iter().all(|w| {
+                                    matches!(w.as_str(), Some("device" | "wake" | "tool"))
+                                })
                         })),
-                "`origin` is \"app\", \"person\", or {\"whenAny\": [its options], \"is\": \"app\"}",
+                "`origin` is \"app\", \"person\", {\"whenAny\": [its options], \"is\": \"app\"}, or {\"none\": [\"device\", \"wake\" or \"tool\"]}",
             )?,
             "foreground" => check(value.is_boolean(), "`foreground` is true or false")?,
+            // A `foreground` name admitted while hidden when the app holds a
+            // call, on iOS and Android (LLP 1133.033 D10).
+            "inCall" => check(value.is_boolean(), "`inCall` is true or false")?,
+            // A reader whose origin may not start the name joins a group the
+            // app's own readers run (LLP 1133.036 D3).
+            "join" => check(value.is_boolean(), "`join` is true or false")?,
+            // A source whose answers are the person's own data, which no
+            // tool's result may read (LLP 1133.026 D7, D19 item 6).
+            "person" => check(value.is_boolean(), "`person` is true or false")?,
             "when" => check(value.is_object(), "`when` is an object of argument values")?,
             "grants" => check(
                 value.is_array()
@@ -606,6 +930,29 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             // which derives the line's write permission where a platform
             // splits it (Android's `WRITE_CALENDAR`, D11).
             "writes" => check(value.is_boolean(), "`writes` is true or false")?,
+            // What an app that uses the name declares to its platform beside
+            // its grant line's own (LLP 1133.026 D19 item 4), by target
+            // (`ios`: a usage key, written with the line's purpose;
+            // `android`: a permission): a list, derived by the name's use,
+            // or per option, a permission for each literal value the app
+            // writes, or one for a flag it sets.
+            "derives" => check(
+                (value.as_object()).is_some_and(|by| {
+                    by.iter().all(|(target, d)| {
+                        matches!(target.as_str(), "ios" | "android")
+                            && (d.as_array().is_some_and(|l| l.iter().all(Value::is_string))
+                                || d.as_object().is_some_and(|o| {
+                                    o.values().all(|v| {
+                                        v.is_string()
+                                            || v.as_object().is_some_and(|m| {
+                                                m.values().all(Value::is_string)
+                                            })
+                                    })
+                                }))
+                    })
+                }),
+                "`derives` names, for `ios` or `android`, a list of what the name's use declares, or per option a permission for each value or the flag",
+            )?,
             // A read of the app's own item, let through under another grant
             // line on the targets named (LLP 1133.019 D11 item 4).
             "owned" => check(
@@ -649,6 +996,67 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             // implementation may run (`invoke`, LLP 1133.016 D15 item 1); and
             // the handle option whose handlers a call's own handles take.
             "handlers" => check(value.is_string(), "`handlers` is a field path")?,
+            // A live source whose last fresh answer seeds the next launch's
+            // first frame (LLP 1133.015 D4, LLP 1027 D4).
+            "kept" => check(
+                value.is_boolean() && entry["live"] == true && !entry["source"].is_null(),
+                "`kept` is true or false, on a live source",
+            )?,
+            // The handler options a pending call may call back through
+            // `invoke`, each marked `final` when, once called, it holds the
+            // call against its cancel (LLP 1133.034 D16 item 1).
+            "callbacks" => check(
+                (value.as_object()).is_some_and(|by| {
+                    by.iter().all(|(option, spec)| {
+                        (object(&entry["options"])[option].as_str())
+                            .is_some_and(|t| bare(t).0 == "handler")
+                            && spec.is_object()
+                            && (spec["final"].is_null() || spec["final"].is_boolean())
+                    })
+                }),
+                "`callbacks` names its handler options, each `{}` or `{\"final\": true}`",
+            )?,
+            // The package view whose press the web's call adopts (D16 item 7).
+            "adopts" => check(
+                value.as_str().is_some_and(|v| !interface["views"][v].is_null()),
+                "`adopts` names one of the interface's views",
+            )?,
+            // The dictionaries of each payment method, by `supportedMethods`
+            // (D16 item 4): the keys of its `data` and of a modifier's, the
+            // grant line it needs, the targets that have it, the keys that
+            // exclude one another, and the keys refused with a code.
+            "methods" => check(
+                (value.as_object()).is_some_and(|by| {
+                    by.values().all(|m| {
+                        let names = |k: &str| {
+                            m[k].is_null()
+                                || (m[k].as_array()).is_some_and(|l| l.iter().all(Value::is_string))
+                        };
+                        names("data")
+                            && names("modifier")
+                            && names("targets")
+                            && names("exclusive")
+                            && m["grant"].is_string()
+                            && (m["refuse"].is_null() || m["refuse"].is_object())
+                    })
+                }),
+                "`methods` gives each method's `grant`, and lists its `data`, `modifier`, `targets` and `exclusive` keys",
+            )?,
+            // A send's positional parameters, each one of its options in
+            // order, and the group of sends whose calls land in the order
+            // they were made (LLP 1133.006 D8 item 1, D2): the binding's.
+            "params" => {
+                check(
+                    (value.as_array()).is_some_and(|p| p.iter().all(option))
+                        && object(&entry["options"]).len() == value.as_array().map_or(0, Vec::len),
+                    "`params` lists every one of its options, in order",
+                )?;
+                continue;
+            }
+            "sequence" => {
+                check(value.is_string(), "`sequence` names the group its calls are ordered in")?;
+                continue;
+            }
             "handlersFrom" => check(
                 value.as_str().is_some_and(|o| {
                     (object(&entry["options"])[o].as_str())
@@ -672,7 +1080,9 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
 /// argument is given, or a line whose target must be the argument's value
 /// (`{"line": "auth.passkey", "matches": "target"}`, LLP 1133.011 D6), with
 /// the code a refusal answers (`refuse`) and what an omitted argument stands
-/// for (`"omitted": "page"`: the page's host on the web; none elsewhere).
+/// for (`"omitted": "page"`: the page's host on the web; none elsewhere). A
+/// path through a list (`methodData[].data.merchantIdentifier`) matches each
+/// element whose fields are `when`'s (LLP 1133.034 D13).
 fn argument_grant(spec: &Value) -> bool {
     match spec {
         Value::String(_) => true,
@@ -682,8 +1092,13 @@ fn argument_grant(spec: &Value) -> bool {
                 && o.get("matches").is_none_or(|m| m == "target")
                 && o.get("refuse").is_none_or(Value::is_string)
                 && o.get("omitted").is_none_or(|m| m == "page")
-                && (o.keys())
-                    .all(|k| matches!(k.as_str(), "line" | "matches" | "refuse" | "omitted"))
+                && o.get("when").is_none_or(Value::is_object)
+                && (o.keys()).all(|k| {
+                    matches!(
+                        k.as_str(),
+                        "line" | "matches" | "refuse" | "omitted" | "when"
+                    )
+                })
         }
         _ => false,
     }
@@ -739,6 +1154,9 @@ fn permission_of(
     }
     match &entry["permission"] {
         Value::Null => {}
+        // An admission word, as with one permission: the name asks the
+        // permission that covers its grant lines (LLP 1133.030 D12 item 1).
+        Value::String(s) if matches!(s.as_str(), "asks" | "request" | "none") => {}
         Value::Bool(false) => return Ok((None, Map::new(), Vec::new())),
         Value::String(s) if s == "narrowest" => {
             let mut any = Vec::new();
@@ -779,6 +1197,89 @@ fn permission_of(
         Value::Null => Ok((None, Map::new(), Vec::new())),
         line => Ok((Some(covering(line)?), Map::new(), Vec::new())),
     }
+}
+
+/// A name whose permission is chosen by an argument's value (LLP 1133.026
+/// D19 item 1): `"permissionBy": {"type": "health.{}"}` asks `health.steps`
+/// of `type="steps"`, a platform's word (`apple.quantityType`) before the
+/// shared option it beats; `"permissionEach": {"read": "health.{}"}` asks
+/// the permission of every listed value, and of every flag the call sets,
+/// in one ticket. Each becomes a list of `[option, template]` pairs,
+/// `permissionValue` and `permissionEach`, in the order the runtime tries
+/// them. A template names a declared permission once `{}` is filled, or
+/// one a `<prefix>.*` permission stands for.
+fn permission_templates(
+    entry: &Value,
+    name: &str,
+    permissions: &[Value],
+    out: &mut Map<String, Value>,
+) -> Result<(), String> {
+    let declared = |p: &str| {
+        (permissions.iter()).any(|d| {
+            d["name"].as_str().is_some_and(|n| {
+                n == p || n.strip_suffix('*').is_some_and(|pre| p.starts_with(pre))
+            })
+        })
+    };
+    for (field, key) in [
+        ("permissionBy", "permissionValue"),
+        ("permissionEach", "permissionEach"),
+    ] {
+        let Some(by) = entry[field].as_object() else {
+            if !entry[field].is_null() {
+                return Err(format!(
+                    "`{name}`'s `{field}` maps options to permission names"
+                ));
+            }
+            continue;
+        };
+        let mut pairs: Vec<(&String, &str)> = Vec::new();
+        for (option, template) in by {
+            let Some(template) = template.as_str() else {
+                return Err(format!(
+                    "`{name}`'s `{field}.{option}` is a permission name, `{{}}` for the value"
+                ));
+            };
+            // Each value an enum option can take must name a declared permission.
+            let ty = object(&entry["options"])
+                .get(option.as_str())
+                .cloned()
+                .unwrap_or_default();
+            let ty = ty
+                .as_str()
+                .or(ty["type"].as_str())
+                .unwrap_or_default()
+                .to_owned();
+            let members: Vec<String> = match bare(&ty)
+                .0
+                .strip_prefix("enum<")
+                .and_then(|t| t.strip_suffix('>'))
+            {
+                Some(m) => m.split('|').map(str::to_owned).collect(),
+                None => vec!["x".to_owned()],
+            };
+            if let Some(missing) = members
+                .iter()
+                .map(|m| template.replace("{}", m))
+                .find(|p| !declared(p))
+            {
+                return Err(format!(
+                    "`{name}`'s `{field}.{option}` asks `{missing}`, which is not declared"
+                ));
+            }
+            pairs.push((option, template));
+        }
+        // A platform's word beats the shared option it stands beside (D10);
+        // a list's flags are asked after its values.
+        let by_value = key == "permissionValue";
+        pairs.sort_by_key(|(option, _)| option.contains('.') != by_value);
+        let list = pairs
+            .into_iter()
+            .map(|(o, t)| serde_json::json!([o, t]))
+            .collect();
+        out.insert(key.into(), Value::Array(list));
+    }
+    Ok(())
 }
 
 /// The schemes a host owns, which no package's `images` may take (LLP
@@ -827,8 +1328,10 @@ fn images_checked(images: &Map<String, Value>) -> Result<(), String> {
 /// `option<T>`, `T[]`, `enum<a|b>`, a shape's name, `strings-key`, a key of
 /// the app's strings table, `handle<kind>`, the id of a native object the
 /// session holds (LLP 1133.009 D10 item 10), `surface`, a canvas's surface
-/// name (LLP 1133.013 D12 item 3), or `json<T>`, a WebAuthn dictionary passed
-/// whole (LLP 1133.011 D10); each is a string here. `unit` answers nothing.
+/// name (LLP 1133.013 D12 item 3), `color`, a CSS colour (LLP 1133.022 D10
+/// item 2), `json<T>`, a WebAuthn dictionary passed whole (LLP 1133.011
+/// D10), or `handler`, a function of the data module's `tools` (LLP
+/// 1133.034 D5); each is a string here. `unit` answers nothing.
 fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
     let ty = ty.trim();
     if let Some(inner) = ty.strip_suffix("[]") {
@@ -852,8 +1355,16 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
     if ty == "shape-name" {
         return Ok(TypeExpr::Named("string".to_owned(), span));
     }
+    // A function of the data module's `tools` the module calls back while
+    // its call is pending, named by a string literal (LLP 1133.034 D5).
+    if ty == "handler" {
+        return Ok(TypeExpr::Named("string".to_owned(), span));
+    }
     let named = match ty {
-        "strings-key" | "surface" => "string",
+        // Bytes are data code's (LLP 1133.006 D8 item 1): Contract never
+        // calls a name that carries them, and takes the string alone of an
+        // option that may be either (`string|bytes`).
+        "strings-key" | "surface" | "color" | "bytes" | "string|bytes" => "string",
         "number" | "string" | "bool" | "unit" => ty,
         shape
             if shape.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
@@ -864,6 +1375,26 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
         _ => return Err(format!("`{ty}` is not a declaration's type")),
     };
     Ok(TypeExpr::Named(named.to_owned(), span))
+}
+
+/// Whether a value of `ty` carries bytes in every form: `bytes` itself, or
+/// a record of the interface's shapes with such a field, at any depth.
+fn carries_bytes(ty: &Value, interface: &Value, seen: &mut Vec<String>) -> bool {
+    let Some(ty) = ty.as_str().or(ty["type"].as_str()) else {
+        return false;
+    };
+    let named = bare(ty).0;
+    if named == "bytes" {
+        return true;
+    }
+    let Some(fields) = interface["shapes"][named].as_object() else {
+        return false;
+    };
+    if seen.iter().any(|s| s == named) {
+        return false;
+    }
+    seen.push(named.to_owned());
+    fields.values().any(|t| carries_bytes(t, interface, seen))
 }
 
 /// `ty` without `option<…>` and a list's `[]`, and whether a list was there.

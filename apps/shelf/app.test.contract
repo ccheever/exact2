@@ -158,3 +158,18 @@ test "discover shows an error, then tries again"
   tap "retry"
   clock data
   expect tree missing "discover-error"
+
+test "Scan Barcode opens the scan screen inside the add sheet, and Cancel goes back"
+  tap "add-book"
+  clock settle
+  tap "scan-barcode"
+  expect state current.name == "scan"
+  expect text "scan-hint" == "Point the camera at the barcode on the back of the book"
+  clock +400
+  tap "scan-cancel"
+  expect state current.name == "add"
+  expect state scanTrack == ""
+
+test "the web reads no text from a photo, so a book offers no Add Quote from Photo"
+  tap "book-seed-2"
+  expect tree missing "add-quote"

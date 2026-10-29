@@ -14,6 +14,11 @@
 // - VoiceOver: each action is a custom action of the row's content, as a
 //   cell's swipe actions are, and the painted controls, off screen behind
 //   it, are hidden from it.
+//
+// The row's scroll view waits for a touch landing on the row (`touch`, from
+// its hit test, before UIKit gathers the touch's recognizers), as a native
+// row's cell does: a list of such rows builds no `UIScrollView` a row as it
+// scrolls, and a row that was never touched parks in the node pool.
 #if os(iOS)
 import UIKit
 
@@ -40,7 +45,6 @@ final class PaintedSwipes {
         let row = Row(owner: owner, body: body, leading: leading.map { Weak(node: $0) }, trailing: trailing.map { Weak(node: $0) })
         if let old = rows[owner.id] { release(old, keeping: row) }
         rows[owner.id] = row
-        owner.needScroll()
         let id = owner.id
         let actions = (trailing + leading).map { control in
             UIAccessibilityCustomAction(name: label(control)) { [weak self, weak control] _ in
@@ -53,6 +57,32 @@ final class PaintedSwipes {
         }
         for element in [body] + Self.elements(under: body) { element.accessibilityCustomActions = actions }
         for control in leading + trailing { control.accessibilityElementsHidden = true }
+    }
+    /// `owner`'s row as the last batch left it: its content and every
+    /// control still there. Nil for an owner that is no painted row.
+    func held(_ owner: NodeView) -> (body: NodeView, controls: [NodeView])? {
+        guard let row = rows[owner.id], row.owner === owner, let body = row.body else { return nil }
+        let controls = (row.leading + row.trailing).compactMap(\.node)
+        guard controls.count == row.leading.count + row.trailing.count else { return nil }
+        return (body, controls)
+    }
+    /// A touch is landing on `owner`: its scroll view comes now, so UIKit
+    /// gathers its pan with the touch's recognizers. False when `owner` is
+    /// no painted row.
+    func touch(_ owner: NodeView) -> Bool {
+        guard rows[owner.id]?.owner === owner else { return false }
+        owner.needScroll()
+        return true
+    }
+    /// Rows whose owner left the presenter, or whose views now stand for
+    /// another node (parked and taken by a row the batch built, `NodePool`),
+    /// give back what they took before the batch's rows are adopted, so the
+    /// release cannot clear what an adopted row just installed.
+    func dropStale() {
+        for (id, row) in rows where row.owner == nil || presenter.views[id] !== row.owner {
+            release(row, keeping: nil)
+            rows.removeValue(forKey: id)
+        }
     }
     /// Keep only the rows the batch still has; one that is no longer a
     /// painted row gives back what it took (its VoiceOver actions, its

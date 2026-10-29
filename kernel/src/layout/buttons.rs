@@ -2,6 +2,7 @@
 use super::*;
 use crate::{ButtonMeasure, ButtonMeasureRequest, PropId};
 
+#[derive(Clone)]
 pub(super) struct ButtonRecord {
     inputs: crate::arena::button::ButtonInputs,
     request: ButtonMeasureRequest,

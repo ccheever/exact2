@@ -184,6 +184,21 @@ private let hatchAudioClaim: HatchAudioClaimFn = { host, mode, length, options, 
         return macClaims
         #endif
     }
+    // A call's claim, and the system's activation of the calls' session (LLP 1133.033 D10).
+    if word.hasPrefix("call-") {
+        #if os(iOS) || os(tvOS)
+        switch word {
+        case "call-voice", "call-video":
+            hatchSession(host)?.log("audio session: claimed by a call (\(word))")
+            return AudioSession.claimCall(video: word == "call-video") { code in event(context, code) }
+        case "call-activated", "call-deactivated":
+            hatchSession(host)?.log("audio session: the system \(word == "call-activated" ? "activated" : "deactivated") the calls' session")
+            AudioSession.callActivated(word == "call-activated")
+        default: break
+        }
+        #endif
+        return 0
+    }
     hatchSession(host)?.log("audio session: claimed by a capture\(word.isEmpty ? "" : " (mode \(word))")")
     #if os(iOS) || os(tvOS)
     // Map `AudioClaims.options` in declaration order to `CategoryOptions` raw values.
@@ -197,7 +212,8 @@ private let hatchAudioClaim: HatchAudioClaimFn = { host, mode, length, options, 
     let defaults: AVAudioSession.CategoryOptions = [.allowBluetoothHFP]
     #endif
     let id = AudioSession.claimCapture(mode: modes[word] ?? .default, options: options == 0 ? defaults : AVAudioSession.CategoryOptions(rawValue: chosen),
-                                       background: background != 0) { code in event(context, code) }
+                                       background: background != 0,
+                                       failure: { hatchSession(host)?.log("audio session: capture activation failed: \($0 as NSError)") }) { code in event(context, code) }
     if id == 0 { hatchSession(host)?.log("audio session: the capture's claim was refused (the session would not activate)") }
     return id
     #else
@@ -210,6 +226,12 @@ private let hatchAudioRelease: HatchAudioReleaseFn = { host, id in
     if AudioSession.isSpeech(id) {
         hatchSession(host)?.log("audio session: a speech claim released")
         return AudioSession.releaseSpeech(id)
+    }
+    #endif
+    #if os(iOS) || os(tvOS)
+    if AudioSession.isCall(id) {
+        hatchSession(host)?.log("audio session: a call's claim released")
+        return AudioSession.releaseCall(id)
     }
     #endif
     hatchSession(host)?.log("audio session: a claim released")
@@ -384,10 +406,11 @@ private let hatchHostTable: UnsafeRawPointer = {
     return UnsafeRawPointer(t)
 }()
 
-/// A route hatch's moment.
+/// A route or element hatch's moment; `configuring` is a hatched frame's
+/// before its web view is made (LLP 1020.002 §9).
 enum RouteHatchEvent: UInt32 {
-    case built = 0, changed = 1, ended = 2
-    var name: String { switch self { case .built: "built"; case .changed: "changed"; case .ended: "ended" } }
+    case built = 0, changed = 1, ended = 2, configuring = 3
+    var name: String { switch self { case .built: "built"; case .changed: "changed"; case .ended: "ended"; case .configuring: "configuring" } }
 }
 
 extension NativeViews {
@@ -440,8 +463,10 @@ extension NativeViews {
         return owned
     }
 
-    /// `element` (built, changed) or `elementEnded` for a hatched node (LLP
-    /// 1075.003.000): its view, its kind's platform object, and
+    /// `element` (built, changed), `elementEnded` or, for a frame before its
+    /// web view is made, `elementConfiguration` for a hatched node (LLP
+    /// 1075.003.000, LLP 1020.002 §9): its view, its kind's platform object
+    /// (the `WKWebViewConfiguration` for `configuring`), and
     /// `{"hatch", "node", "id", "kind", "data"}`. `quiet` leaves the call out
     /// of the journal (a list row's after the first; `state` counts them).
     /// True when the hatch set `reusable` (LLP 1075.003.000.000 §8).
@@ -467,9 +492,10 @@ extension NativeViews {
         json.removeLast()
         json.append(Data(",\"data\":\(node.props["dataset"] ?? "{}")}".utf8))
         let word = node.props["hatch"] ?? ""
-        if !quiet { session?.log("hatch element \(word) #\(node.id): \(["built", "changed", "ended"][Int(min(event, 2))])") }
+        let moment = RouteHatchEvent(rawValue: event)?.name ?? "changed"
+        if !quiet { session?.log("hatch element \(word) #\(node.id): \(moment)") }
         // ElementHatches counts a node's calls; the store times them.
-        let flags = timedHatch("element \(word)", ["built", "changed", "ended"][Int(min(event, 2))], site: planSite(node.id, ended: event == 2), counts: false) {
+        let flags = timedHatch("element \(word)", moment, site: planSite(node.id, ended: event == 2), counts: false) {
             json.withUnsafeBytes { j in
                 call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
                      j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))

@@ -1,0 +1,53 @@
+{
+  "kind": "interface",
+  "name": "@exact/search-index",
+  "version": "1.0.0",
+  "shapes": {
+    "ContentDescription": {
+      "id": "string",
+      "kind": "option<string>",
+      "title": "string",
+      "description": "option<string>",
+      "category": "option<enum<homepage|article|video|audio>>",
+      "icons": "option<ContentIcon[]>",
+      "url": "string",
+      "apple": "option<AppleContentDescription>"
+    },
+    "ContentIcon": {
+      "src": "string",
+      "sizes": "option<string>",
+      "type": "option<string>"
+    },
+    "AppleContentDescription": {
+      "keywords": "option<string[]>",
+      "rating": "option<number>",
+      "contentType": "option<string>"
+    }
+  },
+  "names": [
+    {
+      "send": "addContentIndexEntry",
+      "options": { "description": "ContentDescription" },
+      "answers": null,
+      "substitute": { "index": "add" }
+    },
+    {
+      "send": "deleteContentIndexEntry",
+      "options": { "id": "string" },
+      "answers": null,
+      "substitute": { "index": "delete" }
+    },
+    {
+      "send": "setContentIndex",
+      "options": { "kind": "string", "entries": "ContentDescription[]" },
+      "answers": null,
+      "substitute": { "index": "set" }
+    },
+    {
+      "source": "contentIndexEntries",
+      "live": true,
+      "answers": "ContentDescription[]",
+      "substitute": { "index": "entries" }
+    }
+  ]
+}

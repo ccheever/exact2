@@ -499,7 +499,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let adopted = presenter.navigation.adopts(tablist: list)
             guard adopted != adoptedLists.contains(list.id) else { continue }
             if adopted { adoptedLists.insert(list.id) } else { adoptedLists.remove(list.id) }
-            list.isHidden = adopted
+            list.hiddenByHost = adopted
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) + Array(bars.keys) where !live.contains(id) { restore(owner: id) }
@@ -544,7 +544,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             if control.superview !== owner { owner.addSubview(control) }
             assign(control, \.isEnabled, available(owner))
             // The authored colour belongs to UIKit's control, within its native height and corners.
-            assign(control, \.backgroundColor, owner.channels("background_color").map { TextEngine.color($0) })
+            assign(control, \.backgroundColor, owner.undimmedChannels("background_color", dark: owner.drawsDark).map { TextEngine.color($0) })
             owner.applyBoxLayer()
             owner.setNeedsDisplay()
             control.accessibilityLabel = owner.props["accessibilityLabel"]

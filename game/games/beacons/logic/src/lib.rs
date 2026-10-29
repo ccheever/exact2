@@ -164,16 +164,24 @@ impl Game for Beacons {
             .step(input.stick_xz("move"), input.pressed("jump"));
         let mut near = "";
         let mut reach = false;
+        let mut lit = false;
         if let Some((_, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
             reach = true;
             if input.pressed("light") {
                 beacon.lit = true;
                 beacon.glow_to(1.0, 0.5);
+                lit = true;
             } else {
                 near = beacon.name().unwrap_or_default();
             }
         }
-        w.publish("lit", w.count::<Beacon>(|b| b.lit));
+        let count = w.count::<Beacon>(|b| b.lit);
+        // The page answers a beacon lit in the hand, and the last one with
+        // the light bar (LLP 1133.022 §10): the presentation path, outside the hash.
+        if lit {
+            w.emit(if count == 3 { "all lit" } else { "lit" });
+        }
+        w.publish("lit", count);
         w.publish("near", near);
         w.input_context("beacon", reach);
     }

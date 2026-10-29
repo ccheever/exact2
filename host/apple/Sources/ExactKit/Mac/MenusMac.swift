@@ -36,6 +36,8 @@ final class MenuHost: NSObject {
         let value: String?
         var frame: NSRect
         var placement = PositionArea.History()
+        /// The region its option sized it in, as the kernel was told it (`PositionArea.place`).
+        var block: HostBlock?
         let layer = PopoverLayer(frame: .zero)
         var menu: NSMenu?
         /// AppKit's popover, while one shows it (PopoversMac.swift).
@@ -253,7 +255,7 @@ final class MenuHost: NSObject {
     /// the event's listeners (a handler may retarget it, or give it one).
     func command(_ source: NodeView, fromNativeMenu: Bool = false, bubbled: Bool = false) -> (() -> Void)? {
         guard let presenter, source.isButton, !source.disabled, !(bubbled ? source.authoredInert : source.inert),
-              fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter.toolbar.contains(source),
+              fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter.toolbar.contains(source) || presenter.statusItems.places(source),
               popoverInvocation(source) != nil || source.handlers.contains("press") else { return nil }
         return { [weak self, weak source] in
             guard let self, let source else { return }
@@ -277,7 +279,7 @@ final class MenuHost: NSObject {
         let bubbled = bubbled && presenter.dialogs.isBehindModal(source)
         return live(source) && live(pop) && presenter.hosts(source.window) && !source.disabled
             && !(bubbled ? source.authoredInert : source.inert) && (!bubbled || !pop.inert)
-            && (!requiringTarget || opens(source, pop)) && (!hidden(source) || presenter.toolbar.contains(source))
+            && (!requiringTarget || opens(source, pop)) && (!hidden(source) || presenter.toolbar.contains(source) || presenter.statusItems.places(source))
     }
     /// A choice awaiting its turn is checked as each batch lands and as a
     /// popover is presented again: one a change has invalidated is
@@ -436,8 +438,13 @@ final class MenuHost: NSObject {
     /// Where a menu presenting `pop` pops up in `source`: its top-left, by
     /// the popover's `position-area` and margins as its painted box would
     /// sit, the menu's own size the box, clamped to the viewport (§5), or to
-    /// the split's pane when `source` is in it.
+    /// the split's pane when `source` is in it. One whose author wrote `left`
+    /// or `top` pops up at that viewport point, where AppKit keeps it on
+    /// screen as it keeps a context menu (LLP 1021 D2).
     func popUpPoint(_ menu: NSMenu, _ pop: NodeView, in source: NodeView) -> NSPoint {
+        if let presenter, let at = PositionArea.inset(of: pop, viewport: presenter.clientSize) {
+            return presenter.point(fromClient: at, in: source)
+        }
         let column = presenter.map { $0.navigation.split.pane(holding: source) ?? $0.viewport }
         let bounds = column.map { source.convert($0.bounds, from: $0) } ?? .infinite
         return PositionArea.origin(PositionArea.of(pop), anchor: anchor(source, in: source), size: menu.size,
@@ -467,6 +474,7 @@ final class MenuHost: NSObject {
             presenter.scheduleLanding()
         }
         entries.remove(at: index)
+        presenter?.tellRegion(pop.id, nil, told: &entry.block)
         presenter?.popoverEvents.changed(pop, open: false)
         // Reset, unmount, a changed row: the menu ends and nothing it showed dispatches.
         if cancelling { entry.confirmation?.cancel() }
@@ -527,6 +535,7 @@ final class MenuHost: NSObject {
                   entry.menu == nil || (entry.confirmation.map(valid) ?? isMenuShaped(entry.popover))
             else { close(entry.popover); continue }
             syncPresentation(entry)
+            entry.native?.repoint()
         }
         revalidate()
         var changed = false
@@ -569,17 +578,24 @@ final class MenuHost: NSObject {
             // The page scrolls under a layer in its own window; a sheet's layer is its own extent.
             let document = presenter.viewport.documentView.flatMap { $0.window != nil && $0.window === entry.layer.window ? $0 : nil }
             let page = document.map { $0.convert($0.bounds, to: entry.layer) } ?? entry.layer.bounds
-            let placed = PositionArea.painted(entry.popover, rtl: presenter.documentDirection == "rtl")
-            box.origin = PositionArea.origin(placed.area, anchor: anchor, size: box.size,
-                                             margins: PositionArea.margins(of: entry.popover),
-                                             fallbacks: placed.fallbacks,
-                                             overflow: PositionArea.overflow(of: entry.popover, page: page),
-                                             rtl: presenter.documentDirection == "rtl",
-                                             history: &entry.placement, in: entry.layer.bounds)
-            if !entry.sourced { box.origin = NSPoint(x: (entry.layer.bounds.width - box.width) / 2, y: (entry.layer.bounds.height - box.height) / 2) }
+            if entry.sourced {
+                // Sized in its option's region, as the web's (PopoverRegion.swift).
+                // A button in the window's bar scrolls with nothing.
+                let scroll = entry.source.flatMap { presenter.toolbar.anchor(of: $0, in: entry.layer) == nil ? presenter.anchorScroll($0, outside: entry.layer) : nil } ?? .zero
+                let at = presenter.placePainted(entry.popover, laid: box.size, anchor: anchor, scroll: scroll,
+                                                pageScroll: document == nil ? .zero : presenter.viewport.contentView.bounds.origin, overflow: PositionArea.overflow(of: entry.popover, page: page),
+                                                history: &entry.placement, told: &entry.block, in: entry.layer, bounds: entry.layer.bounds)
+                box = NSRect(origin: at.origin, size: at.size)
+            } else if let at = presenter.placeAtInset(entry.popover, laid: box.size, told: &entry.block, in: entry.layer, bounds: entry.layer.bounds) {
+                box.origin = at.origin
+            } else {
+                // One opened with no invoker sits in the middle, sized in the viewport its top layer implies.
+                box.origin = NSPoint(x: (entry.layer.bounds.width - box.width) / 2, y: (entry.layer.bounds.height - box.height) / 2)
+            }
             if entry.popover.frame != box { entry.popover.frame = box }
         }
     }
+
     /// Shared by the local event monitor and direct agent event delivery.
     func key(_ event: NSEvent) -> Bool {
         guard event.keyCode == 53, let window = event.window, window !== presenter?.alerts.sheet,
@@ -756,7 +772,7 @@ final class MenuHost: NSObject {
     func fill(_ menu: InvokerMenu) {
         menu.removeAllItems()
         guard let presenter, let source = menu.source, live(source), !source.inert, !source.disabled,
-              presenter.toolbar.contains(source) else { return }
+              presenter.toolbar.contains(source) || presenter.statusItems.places(source) else { return }
         if source.handlers.contains("press") {
             presenter.commitPendingEdit()
             presenter.onPress?(source.id)
@@ -782,6 +798,7 @@ final class MenuHost: NSObject {
             built.removeItem(item)
             menu.addItem(item)
         }
+        if presenter.statusItems.places(source) { presenter.statusItems.endMenu(menu) }
     }
     private func menuItem(of row: NodeView, action: Selector?) -> NSMenuItem {
         let item = AccessibleMenuItem(title: title(of: row), action: action, keyEquivalent: "")

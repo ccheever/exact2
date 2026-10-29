@@ -786,24 +786,8 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: Selection and the row's press
 
-    /// The node a row's click presses: its authored root, when that has a
-    /// press (a `press`, or a link's `href`). Else, where the root is a
-    /// swipe container (`swipeContent`, the row the list-rows recipe
-    /// writes: a snap scroller holding the row and its swipe action), the
-    /// content it names, when that has one. Nil for a row of text.
-    func pressing(_ row: Row) -> NodeView? {
-        guard let presenter, let root = presenter.views[row.root] else { return nil }
-        if root.pressable { return root }
-        guard let name = root.props["swipeContent"], !name.isEmpty else { return nil }
-        func find(_ view: NSView) -> NodeView? {
-            for case let node as NodeView in (view as? NodeView)?.container.subviews ?? view.subviews {
-                if node.props["id"] == name { return node.pressable ? node : nil }
-                if let found = find(node) { return found }
-            }
-            return nil
-        }
-        return find(root)
-    }
+    /// The node a row's click presses: its authored root's `rowPress`.
+    func pressing(_ row: Row) -> NodeView? { presenter?.views[row.root]?.rowPress }
     /// A row is selected, by a click or a key, when it presses and is not
     /// disabled. Any other row is a row of text, as in SwiftUI's list with
     /// no selection. A row that is not mounted may be reached by a key (the
@@ -939,6 +923,27 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         table.dataSource = nil
         table.delegate = nil
         table.removeFromSuperview()
+    }
+}
+
+extension NodeView {
+    /// The node a click on this row presses, this being a list's row's
+    /// authored root: itself, when it has a press (a `press`, or a link's
+    /// `href`). Else, where it is a swipe container (`swipeContent`, the row
+    /// the list-rows recipe writes: a snap scroller holding the row and its
+    /// swipe action), the content it names, when that has one. Nil for a
+    /// row of text.
+    var rowPress: NodeView? {
+        if pressable { return self }
+        guard let name = props["swipeContent"], !name.isEmpty else { return nil }
+        func find(_ view: NSView) -> NodeView? {
+            for case let node as NodeView in (view as? NodeView)?.container.subviews ?? view.subviews {
+                if node.props["id"] == name { return node.pressable ? node : nil }
+                if let found = find(node) { return found }
+            }
+            return nil
+        }
+        return find(self)
     }
 }
 #endif

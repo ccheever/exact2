@@ -43,6 +43,12 @@ pub struct SiteWork {
     pub inherited: u64,
     /// Layout passes that moved an instance's frame (a host that lays out).
     pub moved: u64,
+    /// Virtual row operations at this collection site, including work later refused.
+    pub row_constructed: u64,
+    /// Existing wrappers rebound to a different item.
+    pub row_rebound: u64,
+    /// Mounted rows whose destruction was requested, including nested collections.
+    pub row_retired: u64,
 }
 
 /// What is measured: a row per plan node, empty while nothing is.
@@ -52,10 +58,107 @@ pub struct Work {
     pub sites: Vec<SiteWork>,
     /// The host lays out and reports frames that moved ([`Runner::moved`]).
     pub moves: bool,
+    /// Runner clock at measurement start; counters do not reconstruct earlier work.
+    pub since: f64,
+    /// Actual kernel layout entries reported by a participating host.
+    pub kernel_layouts: Option<u64>,
     /// The last transaction a batch trailer reported ([`Runner::seq_range`]).
     pub reported: std::cell::Cell<u64>,
     /// Measuring waits for the host's first ask ([`Runner::measure_later`]).
     pub later: bool,
+    /// Refused answers by resource index since measuring began (LLP 1142 D4).
+    pub failures: Vec<Failures>,
+    /// Asks of the app's data source by resource index since measuring
+    /// began: `perf`'s `resources` (LLP 1146 D3). Never rolled back.
+    pub asked: Vec<u64>,
+    /// Current request and last successful request, only while measuring (LLP 1142 D9).
+    pub resources: Vec<ResourceWork>,
+    /// Next observation identifier; refusals never reuse one.
+    pub resource_serial: u64,
+    /// Runner clock when resource observation began.
+    pub resources_since: f64,
+    /// Failure lines a development host also writes to its platform's log,
+    /// oldest first, and how many were dropped past [`ALERTS`] (D4).
+    pub alerts: std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
+    /// Every other journal line, kept the same way for a development host's
+    /// platform log at a lower level (LLP 1143 open question 1).
+    pub journal: std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
+    /// Dispatches and the ones that committed a change, by plan site and
+    /// event name (LLP 1142 D6).
+    pub handlers: BTreeMap<(u32, &'static str), Handler>,
+    /// The `for` regions already said to build a long list whole (LLP 1144
+    /// D4): each once a session.
+    pub long_lists: std::collections::BTreeSet<u32>,
+}
+
+/// Rows a `for` repeats outside a virtualized list from which a development
+/// build says the list is built whole (LLP 1144 D4).
+pub const LONG_LIST: usize = 200;
+
+/// The most alert lines kept for a host that has not taken them.
+pub const ALERTS: usize = 64;
+
+/// Opaque observation identifiers; never used to admit or retain an answer.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ResourceWork {
+    /// Latest source invocation observed.
+    pub request: u64,
+    /// Latest invocation whose valid answer committed.
+    pub successful: u64,
+}
+
+/// Queue `line` for the host, dropping the oldest past [`ALERTS`].
+pub(crate) fn queue(
+    queue: &std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
+    line: String,
+) {
+    let mut queue = queue.borrow_mut();
+    queue.0.push_back(line);
+    if queue.0.len() > ALERTS {
+        queue.0.pop_front();
+        queue.1 += 1;
+    }
+}
+
+/// The queued lines, oldest first, each once; lines dropped past the bound
+/// are counted in a first line of their own.
+pub(crate) fn take(
+    queue: &std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
+    what: &str,
+) -> Vec<String> {
+    let mut queue = queue.borrow_mut();
+    let dropped = std::mem::take(&mut queue.1);
+    let mut lines: Vec<String> = queue.0.drain(..).collect();
+    if dropped > 0 {
+        lines.insert(
+            0,
+            format!("{dropped} earlier {what} lines were dropped; `logs` has the journal"),
+        );
+    }
+    lines
+}
+
+/// One resource's refused answers (LLP 1142 D4): how many, and the runner's
+/// clock at the first and the latest. Not reset by a success, nor rolled
+/// back with a refused commit: what happened happened.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Failures {
+    /// Refused answers.
+    pub count: u64,
+    /// The runner's clock at the first, ms.
+    pub first: f64,
+    /// The runner's clock at the latest, ms.
+    pub last: f64,
+}
+
+/// One handler's dispatches (LLP 1142 D6): each one the runner ran, and
+/// each whose commit changed the tree (a non-empty receipt).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Handler {
+    /// Dispatches the runner ran.
+    pub dispatched: u64,
+    /// Of those, the ones whose receipt created, destroyed or touched a node.
+    pub committed: u64,
 }
 
 /// The node `site` sits under in the plan, through its region's arm when it
@@ -183,10 +286,47 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             w.authored,
             w.inherited
         );
+        let _ = write!(
+            s,
+            ",\"rowConstructed\":{},\"rowRebound\":{},\"rowRetired\":{}",
+            w.row_constructed, w.row_rebound, w.row_retired
+        );
         if ids.work.moves {
             let _ = write!(s, ",\"moved\":{}", w.moved);
         }
         s.push('}');
+    }
+    // Each listed site's handlers (LLP 1142 D6): no rate, no threshold.
+    s.push_str("],\"handlers\":[");
+    let mut first = true;
+    for ((site, event), h) in &ids.work.handlers {
+        if sites.contains_key(site) {
+            if !first {
+                s.push(',');
+            }
+            first = false;
+            let _ = write!(
+                s,
+                "{{\"site\":{site},\"event\":\"{event}\",\"dispatched\":{},\"committed\":{}}}",
+                h.dispatched, h.committed
+            );
+        }
+    }
+    let _ = write!(s, "],\"work\":{{\"scope\":\"session\",\"since\":{},\"timebase\":\"runner-clock-ms\",\"counts\":{{", num(ids.work.since));
+    if let Some(count) = ids.work.kernel_layouts {
+        let _ = write!(s, "\"kernelLayouts\":{count}");
+    }
+    s.push_str("},\"coverage\":\"virtual row operations by collection site; kernelLayouts only when the host reports actual entries\"}");
+    // Each resource the data source was asked for, and how often (LLP 1146 D3).
+    s.push_str(",\"resources\":[");
+    let asked = ids.work.asked.iter().enumerate().filter(|(_, n)| **n > 0);
+    for (i, (r, n)) in asked.enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str("{\"name\":");
+        quote(plan.str(plan.resources[r].name), &mut s);
+        let _ = write!(s, ",\"asked\":{n}}}");
     }
     let _ = write!(s, "],\"walked\":{walked},\"truncated\":{truncated}}}");
     s
@@ -215,4 +355,28 @@ fn streams<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     out.push_str(&crate::stream_timing::report(&name));
     out.push('}');
     out
+}
+
+/// `state.failures` (LLP 1142 D4): how often each resource has been refused,
+/// beside `failed`'s strings, which the test runner prints. Only while measuring.
+pub(crate) fn failures<D: DataSource>(runner: &Runner<D>, s: &mut String) {
+    let counts = runner.failure_counts();
+    if counts.is_empty() {
+        return;
+    }
+    s.push_str(",\"failures\":{");
+    for (i, (name, f)) in counts.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(name, s);
+        let _ = write!(
+            s,
+            ":{{\"count\":{},\"first\":{},\"last\":{}}}",
+            f.count,
+            num(f.first),
+            num(f.last)
+        );
+    }
+    s.push('}');
 }

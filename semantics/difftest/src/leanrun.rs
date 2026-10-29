@@ -16,7 +16,7 @@ pub struct LeanCase {
     pub program: String,
     /// The oracle, in `Contract.OracleText`'s format.
     pub oracle: String,
-    /// `Contract.Observe.Event` terms.
+    /// `Contract.Observe.ScriptEvent` terms.
     pub events: Vec<String>,
 }
 
@@ -73,7 +73,7 @@ pub fn module(cases: &[LeanCase]) -> String {
     for c in cases {
         s.push_str(&c.program);
         s.push_str(&format!(
-            "\ndef {}_oracle : Oracle := OracleText.parse! {}\n\ndef {}_events : List Observe.Event := [{}]\n\n",
+            "\ndef {}_oracle : Oracle := OracleText.parse! {}\n\ndef {}_events : List Observe.ScriptEvent := [{}]\n\n",
             c.name,
             contract::lean::string(&c.oracle),
             c.name,
@@ -83,7 +83,7 @@ pub fn module(cases: &[LeanCase]) -> String {
     s.push_str("def main : IO Unit := do\n");
     for (i, c) in cases.iter().enumerate() {
         s.push_str(&format!(
-            "  IO.println \"#case {i}\"\n  for l in Observe.run {n} {n}_oracle {n}_events do IO.println l\n",
+            "  IO.println \"#case {i}\"\n  for l in Observe.runScript {n} {n}_oracle {n}_events do IO.println l\n",
             n = c.name
         ));
     }

@@ -1,0 +1,55 @@
+// The fixture (LLP 1133.034 §12 stage 3): @exact/payments read and sent as an
+// app would, each answer shown by testId. It is Android's acceptance app, since
+// the photo editor has no Android build. Its checkout is the print lab's
+// (`apps/photo-editor/fixture/prints.ts`), reached from a phone through
+// `adb reverse tcp:4334 tcp:4334`.
+use showPaymentRequest, paymentRequestStatus, PaymentResult, PaymentRequestStatus, PaymentMethodData, PaymentDetailsInit, PaymentOptions from "@exact/payments"
+
+shape Checkout
+  id: string
+  methodData: PaymentMethodData[]
+  details: PaymentDetailsInit
+  options: PaymentOptions
+  button: string
+  error: string
+
+component Fixture
+  state open = false
+  state line = ""
+  resource checkout = checkout(open) as shape Checkout else empty()
+  resource wallet = paymentRequestStatus(methodData=checkout.methodData) as shape PaymentRequestStatus else empty()
+  mutation ordered as shape PaymentResult then paid
+  // A failed send runs no `then`: its code is read here.
+  derive failed = match failure(ordered) { case some(f) => f.code, case none => "" }
+  action start
+    open = true
+    line = ""
+  // Lets the payment go, as leaving a screen does.
+  action leave
+    ordered = none
+    open = false
+  action pay
+    line = ""
+    send ordered = showPaymentRequest(methodData=checkout.methodData, details=checkout.details, options=checkout.options, onshippingaddresschange="quoteShipping", onshippingoptionchange="quoteShipping", onpaymentauthorized="placeOrder")
+  action paid
+    match ordered
+      case some(r)
+        line = `${r.result} ${r.methodName}`
+      case none
+        line = ""
+  view
+    column gap=8 padding=16
+      text `${wallet.available} ${wallet.canMakePayment}` testId="wallet"
+      button press=start testId="start"
+        text "Checkout"
+      text checkout.error testId="error"
+      if checkout.id != "" and wallet.canMakePayment
+        exact-payment-button buttonType="buy" checkout=checkout.button press=pay testId="pay" height=48
+      // The same send from a plain button, so a browser with no wallet still shows what `show()` answered.
+      if checkout.id != ""
+        button press=pay testId="pay-plain"
+          text "Pay from a plain button"
+      text line testId="line"
+      text failed testId="failed"
+      button press=leave testId="leave"
+        text "Leave"

@@ -25,7 +25,9 @@ export function longPollEnded(t) { HeldAsks.delete(t); }
 export function counted(t, inflight) {
   if (t.call) { t.call.recount ??= () => counted(t, inflight); t.call.ticket ??= t; } // a fetch's start and end (ts-fetch.js)
   const waits = !!t.waiting && !t.closed, candidate = waits && t.call?.held > 0;
-  const held = candidate && !t.call.plain && !loose.n, counts = waits && !held;
+  // An answer with only its own timers out waits on the clock, not on I/O (ts-fetch.js `arm`).
+  const held = candidate && !t.call.plain && !loose.n, timed = waits && !held && t.call?.timers > 0 && !t.call.plain && !t.call.firing && !loose.n;
+  const counts = waits && !held && !timed;
   if (counts !== !!t.counted) { t.counted = counts; inflight.n += counts ? 1 : -1; }
   if (counts) Counting.add(t); else Counting.delete(t);
   if (held) HeldAsks.add(t); else HeldAsks.delete(t);

@@ -10,6 +10,9 @@ use crate::Span;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+/// Status intrinsics resolve their target before looking up a function.
+pub const STATUS_CALLS: &[&str] = &["pending", "failed", "failure"];
+
 /// The namespaces a top-level name lives in. Shapes and `fn`s share one:
 /// both are called as `Name(…)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -227,8 +230,12 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         fns,
         modules,
         tests,
+        properties: _,
         launch: _,
         components,
+        members,
+        // Decided by the loader once the component is whole.
+        deferred: _,
     } = file;
     for m in modules {
         r.scope.rename(Kind::Call, &mut m.name, m.span)?;
@@ -296,7 +303,12 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         }
     }
     for c in components {
-        r.component(c)?;
+        r.component(c, true)?;
+    }
+    // A members block's name is the component's that lists it, not a
+    // declaration of this file's.
+    if let Some(block) = members {
+        r.component(block, false)?;
     }
     Ok(())
 }
@@ -321,7 +333,7 @@ const PRIMITIVES: [&str; 4] = ["number", "string", "bool", "unit"];
 type R = Result<(), SyntaxError>;
 
 impl Rewriter<'_> {
-    fn component(&mut self, c: &mut Component) -> R {
+    fn component(&mut self, c: &mut Component, declared: bool) -> R {
         let Component {
             name,
             props,
@@ -336,20 +348,31 @@ impl Rewriter<'_> {
             actions,
             tasks,
             sequences,
+            tools: _,
             view,
             params: _,
             anatomy: _,
+            members,
             span,
         } = c;
-        self.scope.rename(Kind::Component, name, *span)?;
+        if declared {
+            self.scope.rename(Kind::Component, name, *span)?;
+        }
         // In the order the type checker brings them into scope: props and
-        // injects; each state, seen by those after it; then the rest.
-        let mark = self.bind_callable(props.iter().chain(injects.iter()).map(|p| p.name.clone()));
+        // injects (a members block's are its component's); each state, seen
+        // by those after it; the members the component's other files
+        // declare (LLP 1091.002 D5); then the rest.
+        let mark = self.locals.len();
+        self.bind_callable(members.props.iter().cloned());
+        self.bind_callable(props.iter().chain(injects.iter()).map(|p| p.name.clone()));
         self.params(props)?;
         self.params(injects)?;
         for b in states.iter_mut() {
             self.expr(&mut b.expr)?;
             self.bind([b.name.clone()]);
+        }
+        for (name, callable) in &members.outer {
+            self.bind_as([name.clone()], *callable);
         }
         self.bind(
             derives
@@ -898,7 +921,7 @@ impl Rewriter<'_> {
                 // program (this file's, renamed with it) or an action, prop or
                 // inject of the name is the innermost binding.
                 let intrinsic = routing
-                    || matches!(name.as_str(), "pending" | "failed" | "failure")
+                    || STATUS_CALLS.contains(&name.as_str())
                     || (name == "t" && !declared && !self.callable_t());
                 if !intrinsic && (declared || !(self.local(name) || roster)) {
                     self.scope.rename(Kind::Call, name, *span)?;

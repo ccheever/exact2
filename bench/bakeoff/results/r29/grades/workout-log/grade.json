@@ -1,0 +1,42 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History list, newest first, with name, date, exercise count and volume (e.g. Legs 4 exercises · 6,767.5 lb). A new workout appears at the top."},
+      {"n": 2, "status": "pass", "note": "Detail shows a summary section (date, exercises, sets, total volume) and one section per exercise with its sets and a per-exercise volume footer; exercise rows link to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Workout tab: name field with suggestion chips, then Start. Add Exercises sheet has multi-select, a search field and muscle filter chips. The New Set sheet has number fields and steppers, and prefills from the last set. Tapping a set opens Edit with a Delete Set button; swipe gives Edit and Delete. Finish shows a confirmation summary that warns about exercises with no sets, then the workout is added to History with the correct volume (1,355 lb)."},
+      {"n": 4, "status": "pass", "note": "Library tab is grouped by muscle with counts (e.g. Arms (20)) and has a search field for exercises, muscles and equipment."},
+      {"n": 5, "status": "pass", "note": "Exercise screen shows muscle and equipment, a Best Set card (trophy, 72.5 lb × 14 reps, which workout and date) and the workouts it appears in with their sets; those rows navigate to the workout."},
+      {"n": 6, "status": "pass", "note": "After relaunch the in-progress workout comes back (it reopens on the Workout tab with its sets and running duration), and finished workouts stay in History."}
+    ],
+    "bugs": [
+      "Arriving on an exercise screen from a workout leaves that workout's row in 'Workouts (n)' showing a grey selected highlight; it only clears after navigating away and back."
+    ],
+    "tells": [
+      "The muscle filter in the picker is a row of hand-made pill chips, where iOS would use a scope bar, segmented control or menu.",
+      "At the largest text size the steppers in the New Set sheet shrink to a tiny clipped '− +' under the field.",
+      "At the largest text size the Start Workout button sits behind the keyboard, so the next tap lands on the keyboard's predictions."
+    ],
+    "scroll": "History (61 rows) and the Library (120 rows) drag, fling, return to the top and rubber-band like system lists, with a collapsing large title and an edge blur. No blank rows or jumps.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "History has a Start Workout row (or an In Progress row), then a 'Past Workouts' section, newest first, with name, date, exercise count and volume. A finished workout appears at the top."},
+      {"n": 2, "status": "pass", "note": "Detail shows Date/Exercises/Sets/Volume, then one section per exercise with numbered sets; exercise rows link to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "A New Workout sheet asks for the name (with suggestions) and the workout then opens. The Add Exercise picker (one exercise at a time) has a bottom search field and a muscle-filter popover menu. The Add Set sheet has reps and weight fields with validation messages and prefills from the previous set. Tapping a set opens Edit Set with Delete; swipe-to-delete works. Finish is disabled until a set exists, then adds the workout to History with the correct volume (1,355 lb)."},
+      {"n": 4, "status": "pass", "note": "Library tab is grouped by muscle; there is no search on this screen, though the spec doesn't ask for one."},
+      {"n": 5, "status": "pass", "note": "Exercise screen leads with a Best Set card (72.5 lb × 14, date, tappable), then muscle and equipment, then the workouts it appears in (sets count and top weight)."},
+      {"n": 6, "status": "pass", "note": "After relaunch the in-progress workout shows as an 'In Progress' row on History with its exercise kept, and finished workouts stay in History."}
+    ],
+    "bugs": [],
+    "tells": [
+      "At the largest text size, the right-hand values on the workout detail summary (Exercises '4', Sets '16', Volume) don't scale: they drop to a tiny caption under the label while everything else is huge.",
+      "Only one exercise can be added per trip to the picker, so building a workout takes many sheet round-trips.",
+      "The Library has no search, and the only way into an in-progress workout is the History row or the + button, which changes to 'Resume'."
+    ],
+    "scroll": "History and the Library scroll, fling and rubber-band smoothly with a collapsing large title and an edge blur; rows don't pop in and no blank space appears.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps are clean, native-feeling builds that meet every requirement, scroll like system lists and handle dark mode well. A goes further: picking several exercises at once, steppers, a running duration, search in the Library and a finish confirmation that warns about exercises without sets. B's main visible flaw is detail values that don't scale at the largest text size, which outweighs A's stuck row highlight and hand-made filter chips."
+}

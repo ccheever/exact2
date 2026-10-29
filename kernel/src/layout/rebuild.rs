@@ -11,7 +11,7 @@ impl LayoutTree {
         arena.clear_taffy();
         let slots: Vec<u32> = arena
             .iter_live()
-            .filter(|s| !arena.is_inline_run(*s))
+            .filter(|s| !arena.in_paragraph(*s))
             .collect();
         for slot in &slots {
             let node = tree.new_leaf(

@@ -76,6 +76,98 @@ pub use value::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StrId(pub u32);
 
+/// An `icons` row's `path` (LLP 1121 stage 14 C2, round 2): an interned
+/// string on the wire, as any `str` field (format.json and its digest are
+/// unchanged), but no [`StrId`], so `plan.str()` and the string pool don't
+/// take it. An even-odd icon's path starts `evenodd:`, which only
+/// `exact_kernel::Icon` strips; its one method (below) is the one way
+/// out, called by `exact_runner::icon_of` alone (a guard test holds that).
+///
+/// Every way a row's path could be read as a string fails to compile (C2
+/// round 2's bypasses). A sibling field reads as written:
+///
+/// ```
+/// fn read(plan: &exact_plan::Plan) {
+///     let rows = &plan.icons;
+///     for glyph in rows {
+///         let _ = plan.str(glyph.sf);
+///     }
+/// }
+/// ```
+///
+/// Through a binding the table hands out:
+///
+/// ```compile_fail
+/// fn read(plan: &exact_plan::Plan) {
+///     let rows = &plan.icons;
+///     for glyph in rows {
+///         let _ = plan.str(glyph.path);
+///     }
+/// }
+/// ```
+///
+/// Parenthesised:
+///
+/// ```compile_fail
+/// fn read(plan: &exact_plan::Plan, row: &exact_plan::IconsRow) {
+///     let _ = plan.str((row).path);
+/// }
+/// ```
+///
+/// Destructured, its id taken out:
+///
+/// ```compile_fail
+/// fn read(plan: &exact_plan::Plan, row: &exact_plan::IconsRow) {
+///     let exact_plan::IconsRow { path, .. } = row.clone();
+///     let _ = plan.strings.get(path.0 as usize);
+/// }
+/// ```
+///
+/// Nor by printing it:
+///
+/// ```
+/// let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+/// b.icon("icon.a", "", "0 0 24 24", "M0 0h1Z", "icons/a.svg");
+/// let plan = b.finish().unwrap();
+/// assert_eq!(format!("{:?}", plan.icons[0].path), "IconPathId(..)");
+/// ```
+///
+/// Nor hashed or ordered (no `Hash`, `Ord`: they would hand its index to a
+/// hasher or a comparison; C2, the last gaps):
+///
+/// ```compile_fail
+/// use std::hash::{Hash, Hasher};
+/// fn index(row: &exact_plan::IconsRow) -> u64 {
+///     let mut h = std::collections::hash_map::DefaultHasher::new();
+///     row.path.hash(&mut h);
+///     h.finish()
+/// }
+/// ```
+///
+/// ```compile_fail
+/// fn order(a: &exact_plan::IconsRow, b: &exact_plan::IconsRow) -> bool {
+///     a.path < b.path
+/// }
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct IconPathId(pub(crate) u32);
+
+/// Its index stays inside: a debug print shows none (C2 round 3).
+impl std::fmt::Debug for IconPathId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("IconPathId(..)")
+    }
+}
+
+impl IconPathId {
+    /// The path's string id, for `exact_runner::icon_of` to hand
+    /// `exact_kernel::Icon::of_row`, the one reader of the marker. Call it
+    /// nowhere else.
+    pub fn raw_for_icon(self) -> StrId {
+        StrId(self.0)
+    }
+}
+
 /// A bytecode range in the code pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Code {
@@ -888,6 +980,21 @@ impl Plan {
             binds: self.intern(&binds.join(" ")),
         };
         self.views.push(row);
+    }
+
+    /// Replace module row `i`'s declared substitute, after lowering: the
+    /// bake adds what `app.json` says the platform would show (LLP 1133.023
+    /// §10).
+    pub fn set_module_substitute(&mut self, i: usize, json: &str) {
+        let id = self.intern(json);
+        self.modules[i].substitute = id;
+    }
+
+    /// Set tool row `i`'s face, the manifest's `intents` face for it as a
+    /// JSON object (LLP 1133.023 D8), after lowering.
+    pub fn set_tool_face(&mut self, i: usize, json: &str) {
+        let id = self.intern(json);
+        self.tools[i].face = id;
     }
 
     /// The package view row of `tag`, if a package serves it.

@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset grouped list of all 160 with title, 'Category · time' subtitle and star rating, chevron; header shows 'All Recipes · 160 recipes'."},
+      {"n": 2, "status": "pass", "note": "Filter is a system pull-down menu with All + all nine categories (checkmark on current); search matches titles and ingredients and combines with category (Desserts 28 → 9 with 'egg'); good empty state 'No Desserts recipes match …' with Show All Recipes."},
+      {"n": 3, "status": "pass", "note": "Separate sort menu: Name A–Z, Time quickest, Rating highest; all verified; button label reflects current sort."},
+      {"n": 4, "status": "pass", "note": "Detail shows category, time, rating, servings stepper, ingredients and numbered steps; stepper scales amounts with fractions (2 → 2¾ at 5→7)."},
+      {"n": 5, "status": "pass", "note": "Heart in nav bar toggles; Favorites tab lists them with system swipe-to-delete and a hint; helpful empty state with Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "Favorites survive relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size list-row titles break inside words ('Crea / my / Chick / en') because the rating column keeps its width beside the title."
+    ],
+    "tells": [
+      "Steps are laid out like LabeledContent: number on the left, step text right-aligned in grey as if it were a value. Reads oddly and wraps awkwardly at large text.",
+      "Ingredient rows at the largest text size have almost no vertical padding and sit tight against the separators.",
+      "Detail screen has no large title or header for the recipe name, only the inline nav title. Category/Time/Rating are a plain settings-style form, so it looks more like a settings page than a recipe.",
+      "Scaled fractions are sometimes imprecise (1.4 shown as 1½)."
+    ],
+    "scroll": "Smooth native collection-view scrolling: no blank or popping rows when flung and flung back, large title collapses properly, rubber-bands at the top. Scroll position is kept on returning from a recipe (shifted by about 13pt).",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list with title, tinted category, clock + time, star + rating, chevron; '160 recipes' subtitle under the large title."},
+      {"n": 2, "status": "pass", "note": "Horizontal chip bar with All + all nine categories, plus a Category submenu in the toolbar menu; search covers titles and ingredients and combines with the chip (Desserts + 'egg' → 9); 'No Results for …' empty state with Search All Categories."},
+      {"n": 3, "status": "pass", "note": "Toolbar menu with Name/Time/Rating (with icons) and current-sort value; all verified; sort choice even persists across relaunch."},
+      {"n": 4, "status": "pass", "note": "Header with category, large title and Time/Servings/Rating tiles; servings stepper scales ingredients with fractions (4 → 5⅓ at 6→8); steps in numbered circles."},
+      {"n": 5, "status": "pass", "note": "Heart toggles; Favorites tab with 'N saved recipes' subtitle, swipe-to-remove and Edit button; friendly empty state with Browse Recipes that switches tabs."},
+      {"n": 6, "status": "pass", "note": "Favorites survive relaunch."}
+    ],
+    "bugs": [
+      "On first launch list rows are 92pt tall with extra space above the title. After the first re-sort or filter they become 77pt, so the list visibly changes density.",
+      "Favorites empty state (heart, title, text, Browse Recipes button) is invisible to accessibility: the tree shows only an 'Empty list' table, so VoiceOver cannot read or reach it."
+    ],
+    "tells": [
+      "Custom-drawn category chip bar instead of a system control or menu; it scrolls away while the search field stays pinned, and list content shows through behind the floating search field while scrolling.",
+      "The recipe title appears twice on the detail screen: as the inline nav title and as the large header at the same time.",
+      "Header 'Servings' tile keeps showing the base serving count while the stepper shows the scaled count.",
+      "Search placeholder does not grow with Dynamic Type at the largest size."
+    ],
+    "scroll": "Smooth fling and return with no blank or popping rows; nav title collapses into a centred title/subtitle. Rows do change height between first load and later reloads, and position on returning from a recipe shifts by about 10pt.",
+    "scores": {"features": 10, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet every requirement. B's detail screen is richer and better laid out (stat tiles, numbered step badges, scaled amounts highlighted), its empty and no-result states are more helpful, and it reflows cleanly at the largest text size. A's list titles break inside words at that size, and its steps are right-aligned grey 'values'. B's flaws are smaller: a hand-drawn chip bar, a row-height jump after the first reload, and an empty state that VoiceOver can't read."
+}

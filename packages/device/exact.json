@@ -1,0 +1,58 @@
+{
+  "kind": "interface",
+  "name": "@exact/device",
+  "version": "1.0.0",
+  "grants": [],
+  "shapes": {
+    "BatteryManager": {
+      "charging": "bool",
+      "level": "number",
+      "apple": "option<AppleBattery>",
+      "android": "option<AndroidBattery>"
+    },
+    "NetworkInformation": {
+      "type": "enum<bluetooth|cellular|ethernet|mixed|none|other|unknown|wifi|wimax>",
+      "saveData": "bool",
+      "apple": "option<AppleNetwork>",
+      "android": "option<AndroidNetwork>",
+      "linux": "option<LinuxNetwork>",
+      "windows": "option<WindowsNetwork>"
+    },
+    "PowerState": {
+      "lowPowerMode": "bool",
+      "thermalState": "option<enum<nominal|fair|serious|critical>>",
+      "android": "option<AndroidPower>"
+    }
+  },
+  "names": [
+    {
+      "source": "getBattery",
+      "live": true,
+      "answers": "BatteryManager",
+      "substitute": {
+        "default": { "charging": true, "level": 1 },
+        "partial": true
+      }
+    },
+    {
+      "source": "connection",
+      "live": true,
+      "answers": "NetworkInformation",
+      "substitute": {
+        "default": { "type": "unknown", "saveData": false },
+        "partial": true
+      }
+    },
+    {
+      "source": "powerState",
+      "live": true,
+      "answers": "PowerState",
+      "substitute": {
+        "default": { "lowPowerMode": false, "thermalState": "nominal" },
+        "partial": true,
+        "unsupported": ["web"],
+        "targets": { "linux": { "thermalState": null }, "windows": { "thermalState": null } }
+      }
+    }
+  ]
+}

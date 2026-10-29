@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.17`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.18`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.17"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.18"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -178,6 +178,40 @@ on macOS and Linux.
   Figma plugin keeps the POST form: its door's CORS preflight allows POST only.
   It also adds **`edit-held`** `{client, proposal, index, when?, value, items?}`: one value of a held proposal
   changed in place, no ops sent (see Held proposals), the reason word `edited`, and `editedBy` on the proposal.
+  And an `accept`, `drop` or `edit-held` of a proposal replaced since answers 409 `{stale: true, replacedBy, by}`
+  (the latest replacement and its maker, one client's name; 256 ids remembered, then 404; see Held proposals; the
+  third hands-on pass's #2).
+  It also adds **`resolve` with `tokens: [name, …]`** (the third pass's #5 B), in place of `token`: several names from
+  one snapshot and one fold, `{files, answers}`, each answer the one `resolve` with that `token` gives but its `files`
+  (said once), and a name one would refuse answered `{error}` in its place. At most 4,096 names: more, `token` beside
+  it, or `tokens` not a list of names is refused whole, before any fold (`tamber-resolve-batch` for the bound); its
+  answers are at most 16 MiB, refused whole (`tamber-resolve-batch`) once they pass it, inside an Exact fetch's
+  default reply cap (64 MiB; a stream's is 1 MiB). The clone's answers are about 370 B a name, 4,096 of them about
+  1.5 MB. The design tool asks at most 1,024 names at once, its reply cap said as 17 MiB, and an ask refused for its
+  bytes again in halves. Its
+  scope is `resolve`'s, `read`. And it says what a write's and a scrub frame's `changed` always held: the app's
+  design is planned folded with its packages' designs, so `changed` names a package's token derived from one the app
+  sets (`reading.edge = reading.card`, the app setting `reading.card = brand`, then `brand` edited), under the app's
+  design file.
+  And `inspect`'s `select` walks the page's own tree by the plan's copies (the third hands-on pass's #4, theme2's
+  rulings of the 25th): `copies` comes once per plan per registration to a build that registers the `copies`
+  capability, with the `on` frame or, on a plan change, alone, a `select` is `{up, plan, from, instance}` plus the
+  1.16 `levels` for a page of an older build, and the page's selection reports `moved: {up, stepped}` (see The build channel's `inspect`). A slot's host
+  is a step; past the last copy, the root. A plan past the copies limit (2^20 sites, 512 KiB encoded) gets none, and
+  a `select` there is `unsupported` (`what: "inspect"`), not stale; a site past the copies held, within a map, is stale.
+  Then the sweep's: `tamber-axes` (32 axes) and `tamber-whens` (64 `when` lines a token), design limits alike everywhere,
+  and `tamber-ops-size` (1024 operations in a client's request).
+  The local token's body may be 16 MiB, every other client's 1 MiB.
+- `tamber/1.18` (stage 15, after stage 14 closed) is opened by the selection's chain as the page walks it (stage 15 D):
+  `source.chain`'s entry `i` is where a `select` of `up: i + 1` lands (the page's own walk up its tree, by `copies`), a
+  slot's host one of its entries with `slot: true`, named by its own call, and a component with no element of its
+  own none. The field is optional: an older server never sends it, and an older client shows the entry as a plain
+  call site whose press lands there all the same.
+  And a held proposal's **choice** (the design tool's third hands-on pass #6's follow-up): **`choose`** `{client,
+  proposal, items}` records which of its operations are chosen, on the proposal (`choice`, `choiceBy`, `choiceAt`),
+  so a reload or another client sees it; an `accept` with no `items` takes it, one naming an older `choiceAt` answers
+  409 `{stale: true, choice, choiceBy, choiceAt}` (the check is optional), and `edit-held` carries it, refused alike
+  when it names an older `choiceAt` (see Held proposals).
 
 ## Where it runs
 
@@ -219,7 +253,14 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
   a browser POST whose `Origin` isn't the server's own (`scripts/install-page.mjs`).
 - **A body** is one JSON object, at most 1 MiB less 4,672 bytes (room for the id the wire adds and
   the digests an `import` carries to the server). A larger one gets 413, or the connection is cut
-  while it is being read.
+  while it is being read. (*1.17*) The local loopback token's body may be 16 MiB (a CLI import's
+  sources, which the server plans as any import), judged from its length before a byte is read;
+  every paired, remote or relayed client's stays 1 MiB, as does a request through `tamber tool --via`'s
+  proxy.
+- **A client's `ops`** (*1.17*) are at most 1024 in one request (`transaction`, `propose`, a
+  scrub): more is refused with 400 and `id: "tamber-ops-size"` before any is read. Operations the
+  server applies itself (accepting a held proposal, a revert's, an import it plans) are no
+  client's request; a value edited in a held proposal is `edit-held`'s, which sends none.
 - **A field of the wrong type** is an error. An optional field given as `null` reads as absent.
 
 **Replies.** A reply is `{"ok": …}` with 200, or `{"error": {"message": …, …}}` with one of these
@@ -426,8 +467,8 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 | Scope | Requests |
 |---|---|
 | `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
-| `propose` | `propose` (held or not), `import`, `revert`, and `drop` and `edit-held` of the client's own held proposal |
-| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` and `edit-held` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
+| `propose` | `propose` (held or not), `import`, `revert`, and `drop`, `edit-held` and `choose` (*1.18*) of the client's own held proposal |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop`, `edit-held` and `choose` (*1.18*) of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
 | the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
 
 The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
@@ -570,6 +611,11 @@ tuple:
 - **The reply** is `{token, tuples, files}`.
   - `files` gives the digests it read, so a client reading many tokens can tell one revision from
     two (*1.1*).
+- **Several at once** (*1.17*): `{tokens: [name, …], file?}` answers `{files, answers}` from one
+  snapshot and one fold, each answer what `{token: name}` gives but its `files`, a refused name's
+  answer `{error}` in its place. At most 4,096 names; more, `token` beside `tokens`, or `tokens` not a
+  list of names is refused whole, before any fold; and answers past 16 MiB are refused whole as they
+  pass it.
 - **A constant tuple** is `{modes, value, light, dark, srgb}`:
   - `modes` is `{axis: value}`;
   - `value` is the folded CSS (`#rrggbbaa`, `light-dark(…)`, or a wide colour's serialization);
@@ -779,7 +825,9 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
 - **The limits are the checker's:**
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
     `text-shadow`, `duration`, `easing`, `type`, `family`);
-  - the axes may make at most 64 tuples;
+  - the axes may make at most 64 tuples; (*1.17*) a design has at most 32 axes (`tamber-axes`) and
+    a token at most 64 `when` lines (`tamber-whens`), refused before anything walks them, and an
+    importer that would pass either refuses with the same id;
   - (*1.17*) a value is at most 4096 bytes (`tamber-value-size`) and nests at most 32 functions or calc
     groups deep (`tamber-value-depth`), refused before anything reads it, in every op that
     carries one (a name or metadata word past 4096 bytes too), in words that give its size and
@@ -1044,7 +1092,31 @@ with.
 
 **`drop`** `{proposal, client}` forgets one, and answers `{dropped: id}`.
 
-**`edit-held`** `{proposal, client, index, when?, value, items?}` (*1.17*) changes one value of a held proposal and
+**A proposal replaced since** (*1.17*): an `accept`, `drop` or `edit-held` of a proposal that an `edit-held` or an
+`accept`'s recompute has replaced answers 409 `{stale: true, replacedBy, by, message}`, so no client acts on one changed
+under it without being told who changed it. `replacedBy` is the latest of a chain (A replaced it, then C replaced A's),
+and `by` the client that made that latest: one client's name, unlike a transaction's `by`, which maps each stale file to
+who changed it. The server remembers 256 replaced ids per run, oldest first; an id past that, like one never held or
+held and since dropped, accepted or expired, answers 404.
+
+**A proposal's choice** (*1.18*): **`choose`** `{proposal, client, items}` records which of a held proposal's
+operations are chosen, and answers `{proposal, choice, choiceBy, choiceAt}`. It writes and plans nothing.
+- One choice a proposal, the last to choose setting it: `choice` (its indices, sorted, no duplicates), `choiceBy`
+  (that client) and `choiceAt` (how many times it has been chosen) are on the proposal wherever it is shown, the list,
+  `subscribed` and the `proposal` event, which a `choose` sends again; it moves `held`, the list's revision. A proposal
+  never chosen has none of the three.
+- Scope as `edit-held`'s: `propose` for the client's own, `write` for another's. `items` must be indices of its
+  operations (400); an unknown or busy proposal is 404, a replaced one 409 stale as above.
+- An `accept` with no `items` takes the choice: the whole proposal when all of it is chosen, else the recompute an
+  `accept` of those `items` does; nothing chosen is 400, and the proposal stays held. An explicit `items` always wins.
+  An `accept` may name the `choiceAt` it saw: another choice since answers 409 `{stale: true, choice, choiceBy,
+  choiceAt}` and takes nothing out, so a client never accepts a choice it hasn't seen; a client's own `choose` answers
+  the `choiceAt` to send. The check is optional: an `accept` naming no `choiceAt` is not checked, as before 1.18.
+- `edit-held` carries the choice to the proposal it holds (the chosen operations it keeps, renumbered; `choiceAt` 1);
+  a recompute at `accept` holds only chosen operations, so its proposal has no choice. It may name a `choiceAt` as an
+  `accept` does, checked alike, so the choice it carries is one the client has seen; naming none is not checked.
+
+**`edit-held`** `{proposal, client, index, when?, value, items?, choiceAt?}` (*1.17*; `choiceAt` *1.18*) changes one value of a held proposal and
 holds it again in its place, sending no ops:
 - `index` names an `add-token` or `set-token` among its operations. `when`, from 1, names one of an `add-token`'s
   `whens` branches (a `set-token` writes its value alone); with none, its own value. `value` is the new value (trimmed, not empty). `items`, as `accept`'s,
@@ -1513,12 +1585,25 @@ The tool drives no input into an app; a command changes only what `prefer` would
     "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
     pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
     what the first pin replaced.
-  - `inspect` (*1.3*) `{on, seq}` or `{refresh: true}`, or `{select: {up, levels, plan, from, instance}}` (*1.16*:
-    `levels` are the plan sites of each enclosing copy from `up` call sites out to the app's own,
-    each that owns a node, nearest first, as the server's map gives them for the selection at site
-    `from` (its instance path `instance`) under `plan`; a page whose selection or plan is another reports its selection as it is now, else it
-    selects, in the first level with a node above its selection, the outermost by its own tree,
-    and reports it as a click's selection): inspect mode on or off (`seq` numbers
+  - `inspect` (*1.3*) `{on, seq, copies?}`, `{copies}` or `{refresh: true}`, or `{select: {up, levels, plan, from, instance}}` (*1.16*; *1.17*
+    by the page's own tree: an `on: true` frame carries `copies: {plan, data}`, each site of that plan's copy, an
+    integer equal for every node whose call-site chain is the same, encoded as runs, `r1:` and base64 of LEB128 varints
+    of `[copy, run length]` pairs in site order, at most 4 bytes a varint and 2^20 sites (a page refuses more), and at
+    most 512 KiB encoded (half Apple's event limit; a plan past either gets none, and the server answers a `select`
+    there with the build's `unsupported` (`what: "inspect"`, it can't step there, so a client greys its up control,
+    never `stale`, which a client would ask again on for good), sending the page nothing); sent only to a build that registers the `copies` capability, which keeps them whatever
+    its mode, once per plan per registration (not again for an off and on under the same plan), with inspect mode on and again with the
+    `on` frame a new registration (a new plan) gets, or alone, `{copies}`, changing no mode, when an inspected build's
+    status names a new plan, or, still unsent (its source map read after the plan was named), alone just before a
+    `select`; none for a plan with no map. `levels` (1.16, for a page of a build before 1.17, which
+    selects in the first level with a node above its selection, the outermost) are the plan sites of each enclosing
+    copy from `up` call sites out to the app's own, each that owns a node, nearest first; a 1.17 page ignores them. A page whose selection or plan is
+    another than the select's, or that holds no copies for `plan`, reports its selection as it is now; else, walking up
+    its own tree from the selection, its own copy seen, each ancestor of a copy not yet seen is one step (a slot's
+    host, a library card whose slot holds the selection, among them; a component that only renders another, none), and
+    at step `up` it selects that copy's outermost ancestor, with fewer the root (the outermost node with a site), and
+    reports it as a click's selection with `selected.moved: {up, stepped}`, the steps it took, fewer only at the root;
+    the server passes `moved` to clients on the `selection`): inspect mode on or off (`seq` numbers
     the command), or the selection
     reported again under the digests now (found again by its site and instance path after a
     new generation, or said gone). In inspect mode the page shows a banner with a close control
@@ -1540,7 +1625,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
     row bound by an expression is the element's computed CSS, said `computed: true` (*1.9*). tvOS and
     the Linux host answer `inspect` unsupported. A build that registers again
     is told inspect mode as the server holds it. A build that can says
-    `inspect` among its `capabilities` (the wasm and JS web pages, and the iOS and Mac hosts).
+    `inspect` among its `capabilities` (the wasm and JS web pages, and the iOS and Mac hosts); one that walks a `select` by the plan's copies says `copies` too (*1.17*, the same hosts).
     Development builds only.
   - `outline` (*1.3*) `{sites, plan, click?}`: the sites of plan `plan` (its digest) to outline while
     inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
@@ -1631,7 +1716,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
   status it has. A current one is joined to the source map of the plan it names
   (the dev loop's `app.plan.map.json`, verified by that digest) and published as the `selection`
   event: `source` `{file, line, col, end_col, component, chain, library?}` (the component call sites above
-  it; `library` *1.15*, stage 12 D4, LLP 1139 D5: `{identity, part}` on a node of an exported library
+  it, as the page's own walk up its tree takes them (*1.18*, stage 15 D3): entry `i` is where a `select` of `up: i + 1`
+  lands, a slot's host one of them with `slot: true`, named by its own call, a component that renders only another
+  none; a copy is still its call-site chain (`copies`); `library` *1.15*, stage 12 D4, LLP 1139 D5: `{identity, part}` on a node of an exported library
   component's own view, its declaring identity (`@scope/pkg/file.contract#Name`) and the part it is
   named as, or null, joined from the map since `part=` never reaches a host, beside
   `component`, the bare name the map gives (the declared one, which two packages can share; an alias
@@ -1739,7 +1826,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
   build whose map is missing, or compiled a file that has changed since (a fresh span would land
   on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
-- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*), or `{client, build, select: {up: n}}` (*1.16*, n from 1 to 64; write scope and the build's inspecting client alone, 409 otherwise, or with no selection to move from, or with `stale: true` when the selection moved since its chain was read: its selection moves `n` call sites up, past the outermost to the root, answered `{builds}`)
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*), or `{client, build, select: {up: n}}` (*1.16*, n from 1 to 64; write scope and the build's inspecting client alone, 409 otherwise, or with no selection to move from, or with `stale: true` when the selection moved since its chain was read: its selection moves `n` call sites up, past the outermost to the root; *1.17*: `n` copies up its page's own tree by the plan's `copies`, the selection's own copy seen and each new copy one step, a slot's host among them, landing on the `n`-th copy's outermost node or past the last on the root, its `selection` event carrying `moved: {up, stepped}`; answered `{builds}`)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
   it went to, and those that can't inspect. Inspect mode is its client's: when the client stops
@@ -1788,6 +1875,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
 - **`bun exact.mjs tamber tool [<app>] [--via <dev url>]`** serves the tool at the fixed origin
   `http://127.0.0.1:7740`, which the tool's grant names. So one tool runs per machine, on one
   project. With `--via`, port 7740 forwards `/__tamber` to the dev loop that holds the design.
+  A loop that doesn't answer yet (refused while its first build runs, or reset, one restarting, or its design server
+  starting, its `hello` held past 120 s) is waited for, probed every 2 s, saying why in one line per reason, for at most 20 minutes
+  (`EXACT_TAMBER_VIA_WAIT_MS` shortens it, read only under `EXACT_TAMBER_TEST_TIMING=1`, as the server's clocks
+  are); an answer that is another app's, or no design server, still fails at once, and so does a
+  second `tamber tool --via` when port 7740 already serves this design (that loop is probed once, not waited for). Port 7740 is taken only once
+  the loop answers.
   See `apps/design-tool/README.md`.
 
 ## Not yet in the protocol

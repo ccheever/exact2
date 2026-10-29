@@ -266,9 +266,20 @@ extension NodeView {
         let target: NSView = field ?? presenter?.controls.controls[id] ?? textArea as NSView? ?? self
         let required = props["accessibilityRequired"] == "true"
         let enabled = !disabled && !ariaUnavailable
-        if target.isAccessibilityEnabled() != enabled { target.setAccessibilityEnabled(enabled) }
-        if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
-        if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
+        if target === self {
+            // The host owns these values on the node; native controls still
+            // read their cell's values below.
+            var last = lastAccessibilityWrite
+            if !last.formInitialized || last.enabled != enabled { setAccessibilityEnabled(enabled); last.enabled = enabled }
+            if !last.formInitialized || last.help != description { setAccessibilityHelp(description); last.help = description }
+            if !last.formInitialized || last.required != required { setAccessibilityRequired(required); last.required = required }
+            last.formInitialized = true
+            lastAccessibilityWrite = last
+        } else {
+            if target.isAccessibilityEnabled() != enabled { target.setAccessibilityEnabled(enabled) }
+            if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
+            if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
+        }
         // An `input`'s `aria-label` names its field, as a text area's names it.
         if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
         #else
@@ -431,16 +442,28 @@ extension NodeView {
     /// request at this node (X84), as Chrome sends both through Blink's
     /// `ShowNonLocatedContextMenu`: the `contextmenu`, then the
     /// `contextPopover`'s menu, of the first node from this one up that
-    /// answers (`contextTarget`; the event bubbles), at this one's drawn middle.
+    /// answers (`contextTarget`; the event bubbles), at this one's drawn
+    /// middle; where none does, the menu a right-click there would show
+    /// (`unansweredContextMenu`), as AppKit's show menu pops a view's menu.
     package override func accessibilityPerformShowMenu() -> Bool {
-        guard let target = showMenuTarget, let presenter, let point = presenter.contextPoint(self) else { return false }
-        return presenter.contextMenu(target, at: point, from: self)
+        guard let presenter, presenter.views[id] === self, let point = presenter.contextPoint(self), let window else { return false }
+        guard presenter.contextTarget(self) == nil else { return showMenuTarget.map { presenter.contextMenu($0, at: point, from: self) } ?? false }
+        return presenter.unansweredContextMenu(at: point, from: self, in: window)
     }
     /// AppKit offers every action whose method the class implements; show
     /// menu only where something answers it, as AppKit offers it only on a
-    /// view with a `menu` (no node has one).
+    /// view with a `menu`: a node whose `contextmenu` or `contextPopover`
+    /// runs, or where the view drawn at its middle, or one above it, holds
+    /// selected text or a menu (`offersKeyboardMenu`). A responder past the
+    /// session's view (an app's menu) cannot be judged ahead, so a node only
+    /// it answers is not offered. AppKit's accessibility server performs
+    /// show menu there all the same when another process asks (measured on
+    /// macOS 27.2: `AXUIElementPerformAction` succeeds on an element that
+    /// does not list it), though an assistive app reading the element's
+    /// actions does not see it there.
     package override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
-        selector == #selector(accessibilityPerformShowMenu) ? showMenuTarget != nil : super.isAccessibilitySelectorAllowed(selector)
+        guard selector == #selector(accessibilityPerformShowMenu) else { return super.isAccessibilitySelectorAllowed(selector) }
+        return showMenuTarget != nil || offersUnansweredMenu
     }
     package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
     /// A menu's selected child is the row that holds the focus, and that row
@@ -453,6 +476,11 @@ extension NodeView {
     package override func isAccessibilitySelected() -> Bool {
         guard isMenuItem, let menu = owningMenu else { return super.isAccessibilitySelected() }
         return menu.focusedMenuRow === self
+    }
+    private var offersUnansweredMenu: Bool {
+        guard let presenter, presenter.views[id] === self, presenter.contextTarget(self) == nil, presenter.contextUnanswered(self),
+              let point = presenter.contextPoint(self), let window else { return false }
+        return presenter.offersKeyboardMenu(at: point, in: window)
     }
     private var showMenuTarget: NodeView? {
         guard let presenter, presenter.views[id] === self, !formDisabled, !inert, field == nil, textArea == nil,
@@ -683,15 +711,21 @@ extension Presenter {
             let projected = node.headerField != nil
             guard shown || projected, let window = node.window ?? root.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
-            guard !hasFocus(window) else { continue }
+            guard !hasFocus(window) else {
+                HostLog.note(session, "focus: autofocus #\(node.id) not applied: \(Self.focusHolder(in: window)) holds the focus")
+                continue
+            }
             if projected {
+                HostLog.note(session, "focus: autofocus #\(node.id)")
                 autofocused(node)
                 focusNode(node)
                 continue
             }
             let target: UIResponder = node.textArea ?? node.field ?? node, caret = pressCaret(in: node)
             autofocused(node) // the app's focus now, as Tab's and focus(id)'s
-            if target.becomeFirstResponder() {
+            let took = target.becomeFirstResponder()
+            HostLog.note(session, took ? "focus: autofocus #\(node.id)" : "focus: autofocus #\(node.id) not applied: its view declined the focus")
+            if took {
                 if let (input, at) = caret { input.selectedTextRange = input.textRange(from: at, to: at) }
                 autofocusedThisTurn = node
                 DispatchQueue.main.async { [weak self] in self?.autofocusedThisTurn = nil }
@@ -926,7 +960,7 @@ extension Presenter {
             // Hidden, undisplayed or painted over, it or any ancestor (a sheet's stack beside a root overlay).
             var below = true // covers are judged inside the session's viewport
             for at in ancestors(view) {
-                if at === viewport { below = false }
+                if at === viewport || at === documentMount { below = false }
                 if at.accessibilityElementsHidden || (at as? NodeView)?.style["display"]?.string == "none" || (below && covered(at)) { return false }
             }
             return true

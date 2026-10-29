@@ -393,10 +393,11 @@ capability has a call of its own.
 | 9 | a date or time control's picker (LLP 1115.001.000 D1) | the control's node; then five strings: its kind (`date`, `time`, `datetime-local`), what it shows now, its `min`, `max` and `step`, each as HTML writes it; then its `accent-color`, opaque ARGB, or 0 for none | asks the node's Kotlin hatch (D3), then shows the activity's `pickers`: Compose Material 3's where the app links it, else the framework's dialogs ("Pickers and hatches", below) | the value chosen in HTML's form, which exact2 sets as a person's choice (`input`, then `change`), or null when dismissed; exact2 journals `picker: dismissed for <node>` |
 | 10 | the moments the app's Kotlin hatches hear, and what their clock and input call back (LLP 1115.001.000 D4) | for each, led by its scope: 1 the app or 3 a node, then its moment (0 built, 1 changed, 2 ended), the node, its box (four floats as bits, the document's points), its word and `id` as strings, the count of its `data-*` words and each name and value; 5 a tick, its ticket, the clock (an `f64`'s bits, high word first) and the commit; 6 an `after`, its ticket; 7 input, its ticket, the node, then 1 and a pointer's phase, points and whether it was handled, or 2 and a key's `key`, `code`, down, repeat and handled (`hatches/reader.rs`) | calls the app's `exact.app.Hatches` (`HatchReader.told`) | none: what a hatch asks goes by `Native.hatchAct` |
 | 11 | a call of a module a package implements here (LLP 1133.001 D5) | one string: the runner's body, `{"extension", "source"\|"send", "args"}` or `{"extension", "release"}`; or a package picture the runner admitted (LLP 1133.019 D11 item 1), `{"extension", "picture", "width", "height", "fit", "owned", "agent"}` | calls the extension's `later` or `release`, or `picture` (`Extensions.call`, "Module implementations", below) | the reply's JSON, `{"error": code}` for a failure; null fails the call. A picture is answered by `Native.picture` with its `Bitmap`, or with an error code |
+| 13 | the session's orientation lock (LLP 1133.029 D6) | 0 for none; or 1, the orientations its types allow as bits (portrait-primary 1, portrait-secondary 2, landscape-primary 4, landscape-secondary 8), whether a holder says `natural`, whether one says `current`, a count, and for each holder its node and its word as a string | sets the activity's `requestedOrientation` (`Orientation.told`): the manifest's mapping for the set, `locked` for `current`, the manifest's value for none; on a display 600 dp wide or wider only `current` | none by id: `Native.orientationApplied` reports what was asked, for `state.orientationlock.applied` |
 
-Kinds 5, 6, 7 and 8 are statements of the app's state, told when it changes and anew to a reader made again; exact2
-reads them as the queue is taken (`Presenter::tell_shell`), Back and the wake lock only after a commit or (Back) when
-a surface opens or closes, and none of them during a scroll's own frames.
+Kinds 5, 6, 7, 8 and 13 are statements of the app's state, told when it changes and anew to a reader made again; exact2
+reads them as the queue is taken (`Presenter::tell_shell`), Back, the wake lock and the orientation lock only after a
+commit or (Back) when a surface opens or closes, and none of them during a scroll's own frames.
 
 **Haptics.** Android names occasions, not strengths. Under its constants are a texture tick, a tick, a click, a
 heavy click and a double click, and Exact's names choose by those: `selection` is `SEGMENT_TICK` (Android 14;
@@ -416,8 +417,9 @@ where it is asked (`Presenter::request`, which wakes the reader); with an answer
 row above. What layout needs while it runs (a field's metrics, D8) is not a request: a queue taken after the frame is
 too late for it.
 
-**Not on it yet:** notifications and the file pickers (`showNotification`, `showPicker`, `saveFile`, the document
-pickers) are still refused, and the journal then says the channel does not carry them yet. Accessibility events
+**Not on it yet:** the file pickers (`showPicker`, `saveFile`, the document pickers) are still refused, and the journal
+then says the channel does not carry them yet. `@exact/notifications` has no Android implementation until LLP 1133.004
+stage 3. Accessibility events
 (D13) will take it too.
 
 `x_log_requests=1` at launch (exact2's `EXACT_LOG_REQUESTS`) logs each request as exact2 queues it and as the reader

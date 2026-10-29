@@ -189,6 +189,18 @@ fn css_text_in(
                     push_text!(&mut out, "--exact-layout-transition:{};", text);
                 }
             }
+            // @ref LLP 1011.002 D3 — CSS's `vertical-align` is one
+            // property: the keyword, or the length when one shifts the box.
+            (StyleId::VerticalAlign, _) if shifted(style) => {}
+            (StyleId::BaselineShift, RowValue::Dimension(d)) => {
+                if shifted(style) {
+                    out.push_str("vertical-align:");
+                    if !authored(&mut out, id) {
+                        dimension(&mut out, *d);
+                    }
+                    out.push(';');
+                }
+            }
             // @ref LLP 1077 D1 — Apple's continuous curve is no CSS keyword:
             // the web's stand-in is `superellipse(K)` over the radius scaled
             // to the same reach (kernel `APPLE_ON_THE_WEB`, declared in LLP
@@ -300,6 +312,21 @@ fn css_text_in(
             }
             (StyleId::TextBoxEdge, RowValue::Enum(edge)) => {
                 crate::text_box_css::push_edge(edge, &mut out)
+            }
+            // @ref LLP 1019 D12 — Firefox's Mac spelling beside WebKit's, as
+            // Tailwind's `antialiased` writes both.
+            (StyleId::FontSmoothing, RowValue::Enum(v)) => {
+                let firefox = if *v == "antialiased" {
+                    "grayscale"
+                } else {
+                    "auto"
+                };
+                push_text!(
+                    &mut out,
+                    "-webkit-font-smoothing:{};-moz-osx-font-smoothing:{};",
+                    *v,
+                    firefox
+                )
             }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
@@ -540,6 +567,11 @@ pub(crate) fn css_string(value: &str) -> String {
     out
 }
 
+/// Whether `vertical-align` is a length: the box is shifted.
+fn shifted(style: &StyleProps) -> bool {
+    style.mask.has(StyleId::BaselineShift) && style.rare.baseline_shift != Dimension::Points(0.0)
+}
+
 /// Whether the corner a radius row sizes is `-exact-continuous` (LLP 1077 D1).
 fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
     let i = match id {
@@ -668,6 +700,8 @@ fn spell_property(out: &mut String, id: StyleId) {
         // @ref LLP 1077 D7 — the Compat Standard's prefixed names.
         StyleId::TextStrokeWidth => return out.push_str("-webkit-text-stroke-width"),
         StyleId::TextStrokeColor => return out.push_str("-webkit-text-stroke-color"),
+        // @ref LLP 1019 D12 — WebKit's and Chromium's name.
+        StyleId::FontSmoothing => return out.push_str("-webkit-font-smoothing"),
         id => id.name(),
     };
     for (prefix, suffix) in [

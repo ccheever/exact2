@@ -423,6 +423,39 @@ pub trait DataSource {
         Ok(None)
     }
 
+    /// At the end of every commit, after [`DataSource::forgotten`] when that
+    /// is called. `let_go` holds the requests with effects
+    /// ([`crate::Request::has_effects`]) the commit let go, which run to their
+    /// end (LLP 1146 D2). The answer has one entry per request, in order: the
+    /// token this source takes the reply under ([`DataSource::module_landed`]),
+    /// or `None`, and the host cancels that request as it cancels any it lets
+    /// go. A call this source set aside is dropped unless `let_go` names it;
+    /// after a `refused` commit, one whose request is in flight again is put
+    /// back instead, and its replacement dropped. A source that forwards
+    /// `background` forwards this and `module_landed`.
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        let _ = (store, refused);
+        vec![None; let_go.len()]
+    }
+
+    /// The kept request `token` came back: deliver it to the let-go answer's
+    /// continuation in a module turn, with the store and no checkpoint open,
+    /// so what the turn writes stands on its own.
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        let _ = (store, token, outcome);
+        Ok(())
+    }
+
     /// The module's background storage now, or `None` for a source that
     /// has none (LLP 1097 D8).
     fn background_state(&self) -> Option<BackgroundState> {
@@ -604,8 +637,9 @@ pub trait DataSource {
     /// or when a refused commit puts back what it had and drops what it
     /// asked; so is one a re-ask with equal arguments replaced (a `refresh`),
     /// which only its continuation token tells apart. Its reply is never
-    /// parsed, so a source that parks calls until replies come drops every
-    /// call it parked for anything no longer in flight. A call parked without
+    /// parsed as its answer, so a source that parks calls until replies come
+    /// drops every call it parked for anything no longer in flight; one with
+    /// effects it may keep instead, when [`DataSource::keep_sent`] follows. A call parked without
     /// a target (`answer`) is its own to keep. A source that forwards
     /// `answer_for` forwards this too, translating any continuation token it
     /// remapped back to the one its child handed out.
@@ -740,6 +774,11 @@ pub enum DataError {
     /// validation still refuse it. A Rust source's own error is `Unavailable`.
     /// The third field carries an application reason (`failure(x).reason`).
     Failed(crate::failure::FailureCode, String, String),
+    /// A turn the source ran over its budget (exact-js's own time, or its
+    /// wall backstop): transient, the machine's load as much as the
+    /// source's, so a resource refused by it is asked again, twice at most,
+    /// before it fails (LLP 1027 as amended 2026-10-27). Never a mutation's.
+    Overrun(String),
 }
 
 impl std::fmt::Display for DataError {
@@ -750,6 +789,7 @@ impl std::fmt::Display for DataError {
             | Self::Unavailable(reason)
             | Self::DeferredAtBake(reason)
             | Self::Interface(reason)
+            | Self::Overrun(reason)
             | Self::Failed(_, reason, _) => f.write_str(reason),
         }
     }

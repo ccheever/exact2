@@ -57,6 +57,7 @@ mod menus;
 mod metrics;
 pub mod motion;
 mod native;
+mod native_typed;
 mod nodes;
 mod overflow;
 pub mod params;
@@ -77,6 +78,7 @@ mod symbols;
 pub mod tags;
 mod theme;
 mod timers;
+mod tools;
 mod type_tokens;
 mod values;
 pub mod warning_rank;
@@ -92,6 +94,7 @@ pub use identity::compiler_identity;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
+pub use native_typed::{DeclaredView, DeclaredViews, EVENT_MARKER};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites, Written};
 pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
@@ -272,6 +275,9 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) row_depth: u8,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
+    /// The element whose children are being lowered, through any region arms between (an arm's root has no plan
+    /// parent): the node a site is placed under, as a page's tree has it (`NodeSite::parent`, stage 15 D3).
+    site_parent: Option<u32>,
     parent_bounded_column: bool,
     parent_horizontal_flex: Option<bool>,
     /// Where a native button may not be, from the nearest ancestor that says.
@@ -413,6 +419,7 @@ fn lower_with_sites(
         element_children: false,
         row_depth: 0,
         parent_positioned: true,
+        site_parent: None,
         parent_bounded_column: false,
         parent_horizontal_flex: Some(false),
         button_context: None,
@@ -573,9 +580,12 @@ fn lower_body(
     // A used module's other names are there too, unread: its substitute reads
     // them (its status, the source a send answers from).
     let mut sources = root_types.sources.clone();
-    // An event the root hears uses its module too (LLP 1133.004 D6).
+    // An event the root hears uses its module too (LLP 1133.004 D6), and so
+    // does a name data code alone calls (LLP 1133.011 D12), which Contract
+    // never reads: a package of such names alone (`@exact/clipboard`, LLP
+    // 1133.006) is used once a `use` reads its declaration.
     let used: Vec<&str> = (file.modules.iter())
-        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some())
+        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some() || m.data_only)
         .map(|m| m.extension.as_str())
         .collect();
     // An `img` scheme is one package's (LLP 1133.019 D11 item 1).
@@ -781,6 +791,7 @@ fn lower_body(
             m.budget,
         );
     }
+    l.tools(file)?;
     l.timers(&root.tasks, &scope)?;
     l.sequences(&root.sequences, &scope)?;
     // The view, inlined (by `expand`, above).
@@ -1003,6 +1014,7 @@ impl<'a> Lowerer<'a> {
                     n => n,
                 };
                 let row_depth = std::mem::replace(&mut self.row_depth, below);
+                let site_parent = self.site_parent.replace(step.id.0);
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
@@ -1011,6 +1023,7 @@ impl<'a> Lowerer<'a> {
                     locals,
                     Some(step.tag),
                 );
+                self.site_parent = site_parent;
                 self.parent_horizontal_flex = parent_axis;
                 self.nav_place = nav_place;
                 self.row_depth = row_depth;
@@ -1124,20 +1137,16 @@ impl<'a> Lowerer<'a> {
         if a.name == "atomFaces" {
             return self.bind_atom_faces(a, scope, locals, bindings);
         }
+        if a.name == "keep-mounted" {
+            return self.bind_keep_mounted(a, scope, locals, bindings);
+        }
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
-        // @ref LLP 1021 §5.3 — stable menu ids, never localized titles.
-        if a.name == "-exact-menu"
-            && (tag != "button"
-                || !matches!(&a.value, Expr::Str(value, _) if matches!(value.as_str(),
-                    "about" | "app" | "file" | "edit" | "view" | "go" | "window" | "help" | "none")))
-        {
-            return err(
-                "lower-menu-placement",
-                "`-exact-menu` belongs to a button and takes a literal about, app, file, edit, view, go, window, help or none",
-                a.span,
-            );
+        // @ref LLP 1021 §5.3, LLP 1133.025 D11 item 4 — stable menu ids,
+        // never localized titles.
+        if a.name == "-exact-menu" {
+            menus::check_menu_placement(tag, a)?;
         }
         // HTML's global `title` on any element but `head`: advisory text, the
         // platform's tooltip (studio diary R24); `head`'s is the document's.

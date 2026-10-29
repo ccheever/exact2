@@ -39,6 +39,21 @@ require them.
   Stop and restart pass in the normal iPhone app. Bounded cache transfers also
   address the separate 4 MiB native-request refusals.
 
+The working branch incorporates remote `main` at `2b9447b370`. Five conflict
+resolutions preserve both the clone's production package qualification and
+main's development flags, system-framework linking and source-sweep exclusions.
+The clone lockfile adds the three dependencies its updated path crates require.
+All 3,871 mobile tests, strict TypeScript, boot, Rust build/tests/Clippy/formatting,
+workspace compilation and the quick semantics comparison pass. The builder suite
+has 99 passing cases and one skip after two timeouts pass in a focused rerun.
+Caps still reports only the inherited desktop Contract violation. Independent
+review finds no integration defect. The normal merged iPhone build restores the
+saved environment and conversation, receives `MAIN_SYNC_OK`, displays growing
+output from 416 to 818 characters, and stops with server-confirmed interruption.
+After restart, the interrupted conversation reopens with an empty composer and
+receives `MAIN_RESTART_OK`. This integration is outside the delivered TestFlight
+build below. Full phone parity remains open.
+
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
 

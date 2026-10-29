@@ -113,26 +113,41 @@ fn bake_source<D: contract::DataSource>(
         "generated game hosts require app.json rust: false"
     );
     fs::write(out.join("compat.json"), compat.to_json()).unwrap();
+    // What the APK's build reads beside the plan: its capabilities and derived permissions.
+    if platform == "android" {
+        contract::native::android_reach(&app, &baked, &out)
+            .unwrap_or_else(|e| panic!("android reach: {e}"));
+    }
     let entry = contract::rust_entry(data_type, constructor, "off").unwrap();
     let linked = if platform == "web" {
         contract::web_linked(&baked, &compat.inputs)
     } else {
         String::new()
     };
+    // The packages' Linux or Windows implementations (LLP 1133.022 D10 item 5).
+    let packages = if matches!(platform, "linux" | "windows") {
+        contract::native::plan_packages(&app, &baked, &target)
+            .unwrap_or_else(|e| panic!("packages: {e}"))
+    } else {
+        String::new()
+    };
+    let composed = "exact_linux::Composed { packages: exact_packages(), ..Default::default() }";
     let windows = format!(
-        "fn main() {{ std::process::exit(exact_windows::run::<AppData>({:?}, {}, PLAN, COMPAT)); }}",
+        "fn main() {{ std::process::exit(exact_windows::run_composed::<AppData>({:?}, {}, PLAN, COMPAT, {composed})); }}",
         manifest.name,
         manifest.windows_window().unwrap_or_else(|e| panic!("app.json: {e}"))
     );
+    let linux = format!(
+        "fn main() {{ std::process::exit(exact_linux::run_composed::<AppData>(PLAN, COMPAT, {composed})); }}"
+    );
+    let linux_empty = linux.replace("<AppData>", "<()>");
     let host = match platform {
         "web" => "exact_web::host!(AppData, PLAN, COMPAT, app_data);",
         "macos" | "ios" => {
             "exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);"
         }
-        "linux" if has_data => {
-            "fn main() { std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT)); }"
-        }
-        "linux" => "fn main() { std::process::exit(exact_linux::app::run_empty(PLAN, COMPAT)); }",
+        "linux" if has_data => &linux,
+        "linux" => &linux_empty,
         // canvas_jni! embeds OUT_DIR's plan and compat itself.
         "android" => "exact_linux::canvas_jni!(crate::AppData);",
         "windows" => &windows,
@@ -151,6 +166,7 @@ const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));"#
 {embedded}
 {entry}
 {linked}
+{packages}
 {host}
 "#
         ),

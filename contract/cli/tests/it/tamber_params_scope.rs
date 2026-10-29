@@ -15,6 +15,29 @@ fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
 
 const DESIGN: &str = "tamber t\n\ntheme\n  accent.fill = #0a7aff\n";
 
+/// This thread's CPU time: what an in-process build's work takes, not the
+/// wall clock, which a loaded machine (the suite's other tests, another
+/// agent's builds) stretches with no work the build did (many ranged params
+/// read 20.7 s of wall at load 58; the build runs on its caller's thread).
+#[cfg(unix)]
+fn cpu() -> std::time::Duration {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: a valid timespec for the call to fill.
+    let read = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+    assert_eq!(read, 0, "this thread's CPU clock");
+    std::time::Duration::new(t.tv_sec as u64, t.tv_nsec as u32)
+}
+
+/// Elsewhere (no thread CPU clock here), the monotonic clock, as before.
+#[cfg(not(unix))]
+fn cpu() -> std::time::Duration {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed()
+}
+
 fn build(name: &str, src: &str) -> Result<exact_plan::Plan, contract::CompileError> {
     contract::compile_path(&app(name, &[("app.contract", src), ("app.tamber", DESIGN)]))
 }
@@ -309,4 +332,247 @@ fn a_short_name_is_a_components_a_text_has_an_identity_and_icons_fold() {
         .find(|p| p["param"] == "glyph")
         .unwrap();
     assert_eq!(glyph["values"][0]["sf"], "heart");
+}
+
+/// Many ranged params, each given a value in the design's `params` block,
+/// build in moments: the lines resolved by one index and their values folded
+/// together, a probe per value index, not a fold of the design per value
+/// (the checker's work in param counts, Astra's round 1).
+#[test]
+fn many_ranged_params_set_by_the_design_build_in_moments() {
+    let n = 1500;
+    let mut src = String::from("component App\n  params\n");
+    for k in 0..n {
+        src += &format!("    p{k}: number = \"0.5\"  range=\"0..1\"\n");
+    }
+    src += "  view\n    column\n";
+    for k in 0..n {
+        src += &format!("      column opacity=\"param.p{k}\"\n        text \"x\"\n");
+    }
+    let mut design = String::from("tamber t\n\ntheme\n  accent.fill = #0a7aff\n\nparams\n");
+    for k in (0..n).rev() {
+        let v = if k == 7 { "2" } else { "0.7" };
+        design += &format!("  App.p{k} = {v}\n");
+    }
+    let path = app(
+        "many-ranged",
+        &[("app.contract", &src), ("app.tamber", &design)],
+    );
+    let began = cpu();
+    let built = contract::compile_path(&path);
+    let took = cpu() - began;
+    // (in CPU time: 0.5 s now, 4.9 s before the batch per value index)
+    assert!(
+        took < std::time::Duration::from_millis(2500),
+        "{took:?} of CPU"
+    );
+    // `p7`'s value, out of its range, is refused as before.
+    let e = built.unwrap_err();
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+}
+
+/// A ranged line whose value reads a param through a theme token is folded
+/// alone, with that param's `when` lines as written (Grok's round 2 on the
+/// counts: folded beside its siblings, the other line's dark value was
+/// pinned to its default and the out-of-range value went unseen).
+#[test]
+fn a_value_reading_a_param_through_a_token_is_checked_against_the_design() {
+    let src = r##"component App
+  params
+    p0: number = "0.5"  range="0..5"
+    p1: number = "0.5"  range="0..1"
+  view
+    column opacity="param.p0"
+      column opacity="param.p1"
+        text "x"
+"##;
+    // (a token names a param by its token name)
+    let p0 = contract_lower::params::token_name("app.contract#App", "p0");
+    let design = format!("tamber t\n\naxes\n  tone = a | b\n\ntheme\n  accent.fill = #0a7aff\n  via: number = {p0}\n\nparams\n  App.p0 = 0.5\n    when tone=b: 3\n  App.p1 = via\n");
+    let design = design.as_str();
+    let path = app(
+        "range-via",
+        &[("app.contract", src), ("app.tamber", design)],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    // `p1` through `via` is 3 where tone=b: past its 0..1 (`p0`'s 0..5 holds it).
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p1"), "{e:?}");
+}
+
+/// Ranged params each with a `when` line reading one dial fold together
+/// too: the batch reads the dial beside them, so it stays moving a token
+/// (Astra's round 2 on the counts: cleared `when` lines left it inert and
+/// every value folded alone).
+#[test]
+fn many_ranged_params_reading_a_dial_build_in_moments() {
+    let n = 1500;
+    let mut src = String::from("component App\n  params\n");
+    for k in 0..n {
+        src += &format!("    p{k}: number = \"0.5\"  range=\"0..1\"\n");
+    }
+    src += "  view\n    column\n";
+    for k in 0..n {
+        src += &format!("      column opacity=\"param.p{k}\"\n        text \"x\"\n");
+    }
+    let mut design = String::from(
+        "tamber t\n\naxes\n  tone = a | b\n\ndials\n  d: number = 0.3  in 0..1\n\ntheme\n  accent.fill = #0a7aff\n\nparams\n",
+    );
+    for k in 0..n {
+        let v = if k == 7 { "2" } else { "0.5" };
+        design += &format!("  App.p{k} = {v}\n    when tone=b: d\n");
+    }
+    let path = app(
+        "many-dial",
+        &[("app.contract", &src), ("app.tamber", &design)],
+    );
+    let began = cpu();
+    let built = contract::compile_path(&path);
+    let took = cpu() - began;
+    // (in CPU time: 0.5 s now, 32 s before the dial readers)
+    assert!(
+        took < std::time::Duration::from_millis(10000),
+        "{took:?} of CPU"
+    );
+    let e = built.unwrap_err();
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p7"), "{e:?}");
+}
+
+/// Ranged params whose values name a theme token that reads no param fold
+/// together, each line's k-th value in one probe: only a token that reads a
+/// param, directly or through another, folds its values alone (Astra's and
+/// Grok's round 3 on the counts: every token-valued line was a fold of the
+/// design).
+#[test]
+fn many_ranged_params_naming_a_token_build_in_moments() {
+    let n = 5000;
+    let mut src = String::from("component App\n  params\n");
+    for k in 0..n {
+        src += &format!("    p{k}: number = \"0.5\"  range=\"0..1\"\n");
+    }
+    src += "  view\n    column\n";
+    for k in 0..n {
+        src += &format!("      column opacity=\"param.p{k}\"\n        text \"x\"\n");
+    }
+    let mut design = String::from(
+        "tamber t\n\ntheme\n  accent.fill = #0a7aff\n  half: number = 0.5\n  most: number = half\n  two: number = 2\n\nparams\n",
+    );
+    for k in 0..n {
+        let v = if k == 7 {
+            "two"
+        } else if k % 2 == 0 {
+            "half"
+        } else {
+            "most"
+        };
+        design += &format!("  App.p{k} = {v}\n");
+    }
+    let path = app(
+        "many-named",
+        &[("app.contract", &src), ("app.tamber", &design)],
+    );
+    let began = cpu();
+    let built = contract::compile_path(&path);
+    let took = cpu() - began;
+    // (in CPU time: 4.3 s now, 64 s before tokens reading no param batched)
+    assert!(
+        took < std::time::Duration::from_millis(20000),
+        "{took:?} of CPU"
+    );
+    let e = built.unwrap_err();
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p7"), "{e:?}");
+}
+
+/// The dials' readers a batch adds never take an authored token's place: a
+/// design with tokens under the readers' first stems is checked as written
+/// (Astra's round 3 on the counts).
+#[test]
+fn a_batchs_dial_readers_take_no_authored_name() {
+    let src = r##"component App
+  params
+    p0: number = "0.5"  range="0..1"
+    p1: number = "0.5"  range="0..1"
+  view
+    column opacity="param.p0"
+      column opacity="param.p1"
+        text "x"
+"##;
+    let design = "tamber t\n\naxes\n  tone = a | b\n\ndials\n  d: number = 0.3  in 0..1\n\ntheme\n  accent.fill = #0a7aff\n  exact.probe.dial0: number = 2\n  exact.probe0.dial0: number = 2\n\nparams\n  App.p0 = 0.5\n    when tone=b: d\n  App.p1 = exact.probe0.dial0\n    when tone=b: d\n";
+    let path = app(
+        "probe-names",
+        &[("app.contract", src), ("app.tamber", design)],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    // `p1` is the authored 2, past its 0..1.
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p1"), "{e:?}");
+}
+
+/// An icon's name is taken too: the readers' stem skips it, so the batch
+/// folds and a range error in a `when` value reading the dial is still found
+/// (Astra's narrow re-check: a reader named as the icon failed the batch,
+/// and the value alone left the dial inert, so the error went unseen).
+#[test]
+fn a_batchs_dial_readers_take_no_icons_name() {
+    let src = r##"component App
+  params
+    p0: number = "0.5"  range="0..1"
+    p1: number = "0.5"  range="0..1"
+  view
+    column opacity="param.p0"
+      column opacity="param.p1"
+        text "x"
+"##;
+    let design = "tamber t\n\naxes\n  tone = a | b\n\ndials\n  d: number = 0.3  in 0..1\n\ntheme\n  accent.fill = #0a7aff\n\nicons\n  exact.probe0.dial0 = icon(sf \"house\")\n\nparams\n  App.p0 = 2\n    when tone=b: d\n  App.p1 = 0.5\n";
+    let path = app(
+        "probe-icon",
+        &[("app.contract", src), ("app.tamber", design)],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p0"), "{e:?}");
+}
+
+/// A design read again unchanged through `fold_with` (what `describe` and
+/// `resolve` read) is answered from the last few checked, not folded again
+/// (both reviewers' round 3 on the counts).
+#[test]
+fn fold_with_answers_an_unchanged_design_from_the_last() {
+    let src = "component App\n  params\n    p0: number = \"0.5\"  range=\"0..1\"\n  view\n    column opacity=\"param.p0\"\n      text \"x\"\n";
+    let mut design = String::from("tamber t\n\ndials\n");
+    for k in 0..800 {
+        design += &format!("  d{k}: number = 0.1  in 0..0.5\n");
+    }
+    design += "\ntheme\n  accent.fill = #0a7aff\n  t0 = oklch(from #3366cc calc(l + d0) c h)\n";
+    for k in 1..800 {
+        design += &format!("  t{k} = oklch(from t{} calc(l + d{k}) c h)\n", k - 1);
+    }
+    let path = app(
+        "fold-cached",
+        &[("app.contract", src), ("app.tamber", &design)],
+    );
+    let params = contract::tamber_params::params_of(&path);
+    assert!(!params.failed && params.tokens.len() == 1, "{params:?}");
+    let vocab = contract_lower::tamber_vocab();
+    let began = std::time::Instant::now();
+    let first = contract::tamber_params::fold_with(&design, &params, &vocab)
+        .map(|(f, _)| f.tokens.len())
+        .ok();
+    let cold = began.elapsed();
+    assert!(first.is_some());
+    // (the fastest of a few: another test's designs may push it out once)
+    let warm = (0..5)
+        .map(|_| {
+            let began = std::time::Instant::now();
+            let again = contract::tamber_params::fold_with(&design, &params, &vocab)
+                .map(|(f, _)| f.tokens.len())
+                .ok();
+            assert_eq!(again, first);
+            began.elapsed()
+        })
+        .min()
+        .unwrap();
+    assert!(warm * 2 < cold, "again {warm:?}, the first {cold:?}");
 }

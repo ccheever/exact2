@@ -459,7 +459,10 @@ axis is room before the first row and after the last, as in CSS: a length or an
 below its `padding-top`, so a header laid over that padding does not hide it. A
 virtualized list's `scroll-padding` insets where `scrollIntoView` aligns a row,
 as in CSS: `scroll-padding-top` the height of that header brings a row to just
-below it, and the first row to the very top. Other elements refuse it.
+below it, and the first row to the very top. On iOS the row also lands clear of
+the bars UIKit draws the list under (a header, or a composer it lifts into a
+bar), as `scrollToItem(at:at:animated:)` does: `block="end"` puts the newest
+message just above the composer. Other elements refuse it.
 Virtualized lists nest one level deep (an inner vertical list needs a literal
 `height` or `max-height`); deeper nesting, masonry, wrapping, reversed lists, and
 RTL horizontal collections are not supported.
@@ -883,12 +886,15 @@ call outside them fails. The capabilities are:
 
 **What catches people.**
 
-- *A source cannot read the clock, start a timer or call `Math.random()`.*
-  `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
+- *A source cannot read the clock, repeat a timer or call `Math.random()`.*
+  `Date.now()`, `new Date()` without a value, `setInterval`,
   `performance.now()` and `Math.random()` are refused when first used, on every
   executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
   and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
+  An answer may wait with `setTimeout` or `AbortSignal.timeout`: the timer is
+  due on the app's clock, the agent's `clock +N` fires it, and it is cleared
+  when its answer gives its value.
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage or `native.call` then is refused
   with `code: 'bake'`. An uncaught refusal leaves the resource unbaked;
@@ -1276,6 +1282,10 @@ iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
 other hosts draw a sheet measured from it, and your own attributes replace any
 of its rows. A section's own `margin-top` or `margin-bottom` is the space iOS
 leaves there too, collapsed with its neighbour's as on the web (LLP 1084 §6.4).
+The rest of a section's layout is the platform's, its rows one under another
+across the card: besides those margins a section takes only `display` `"block"`
+or `"none"` of its own layout, written or from its `class`, and the compiler
+refuses any other (`lower-grouped-list`); lay rows out yourself in a `column`.
 A row is as wide as its card, `border-box`, with the cell's insets as its
 padding, so `width="100%"` keeps it in the card. The separator under it is the
 platform's, in the platform's colour: `border-bottom-color` alone does not

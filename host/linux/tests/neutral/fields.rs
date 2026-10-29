@@ -137,7 +137,9 @@ pub(super) fn select_and_date_focus() {
                     focus(&mut p, programmatic);
                     for (step, invalid) in [false, true, false].into_iter().enumerate() {
                         assert_eq!(p.focus(), Some(field), "{context}");
-                        let expected = if bare {
+                        // A field a press's action focuses shows no ring until
+                        // a key, as Chrome's `:focus-visible` has it for `focus()`.
+                        let expected = if bare || programmatic && step == 0 {
                             unfocused
                         } else if invalid {
                             red
@@ -166,11 +168,10 @@ pub(super) fn select_and_date_focus() {
                     let (x, y, w, h) = p.rect_of(field).unwrap();
                     p.press_at(x + w / 2.0, y + h / 2.0, 0.0);
                     assert_eq!(p.focus(), Some(field), "{context}: {pointer:?}");
-                    let expected = if bare || pointer == PointerKind::Touch {
-                        unfocused
-                    } else {
-                        [0, 136, 0]
-                    };
+                    // A press's focus shows no ring, by finger or mouse, as
+                    // WinUI's ComboBox and DatePicker and GTK's drop-down have
+                    // it (LLP 1115.004 D9.2); Chrome rings a clicked select.
+                    let expected = unfocused;
                     let actual = pixel(&mut p, "field", 80.0, 1.0);
                     if actual != expected {
                         failures.push(format!(

@@ -1,8 +1,8 @@
 // An icon token's path on Apple (LLP 1121 D10; stage 9 A): an icon with no
 // `sf` source and a template SVG arrives as absolute `M`/`L`/`C`/`Z` commands,
 // `;` between its SVG's paths, and its viewBox (host/apple/src/icon_path.rs,
-// the kernel's parse). Each path is filled nonzero on its own, as Linux and
-// the web fill them, under the viewBox kept in its aspect (`xMidYMid meet`,
+// the kernel's parse). Each path is filled on its own, as Linux and the web
+// fill them, nonzero unless the icon says even-odd (`symbolFillRule`, stage 14 C2), under the viewBox kept in its aspect (`xMidYMid meet`,
 // as Linux's `fitted` and the web's mask). The page's image views and the
 // widget snapshot both draw it from here.
 import CoreGraphics
@@ -41,6 +41,9 @@ package enum IconPath {
         return path.isEmpty ? nil : path
     }
 
+    /// An icon's fill rule from its `symbolFillRule`: even-odd for `evenodd`, else nonzero.
+    package static func rule(_ text: String?) -> CGPathFillRule { text == "evenodd" ? .evenOdd : .winding }
+
     /// `min-x min-y width height`, a 24-unit square when it says none.
     package static func viewBox(_ text: String) -> CGRect {
         let v = text.split(whereSeparator: { $0 == " " || $0 == "," }).compactMap { Double($0) }
@@ -72,15 +75,15 @@ package enum IconPath {
         return CGRect(x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
     }
 
-    /// Fill each path, placed into `rect` (a top-left origin), in `ctx`'s fill colour.
-    package static func fill(_ paths: [CGPath], viewBox text: String, in rect: CGRect, _ ctx: CGContext) {
+    /// Fill each path by `rule`, placed into `rect` (a top-left origin), in `ctx`'s fill colour.
+    package static func fill(_ paths: [CGPath], viewBox text: String, in rect: CGRect, rule: CGPathFillRule = .winding, _ ctx: CGContext) {
         var transform = fitted(viewBox(text), in: rect)
-        for p in paths { if let placed = p.copy(using: &transform) { ctx.addPath(placed); ctx.fillPath(using: .winding) } }
+        for p in paths { if let placed = p.copy(using: &transform) { ctx.addPath(placed); ctx.fillPath(using: rule) } }
     }
 
     /// The icon as a template image `size` big (an em square for its glyph
-    /// box, a larger one for the box it shows in), each path filled nonzero.
-    package static func image(_ commands: String, viewBox text: String, size: CGSize) -> IconImage? {
+    /// box, a larger one for the box it shows in), each path filled by `rule`.
+    package static func image(_ commands: String, viewBox text: String, size: CGSize, rule: CGPathFillRule = .winding) -> IconImage? {
         let paths = paths(commands)
         guard size.width > 0, size.height > 0, !paths.isEmpty else { return nil }
         let rect = CGRect(origin: .zero, size: size)
@@ -89,14 +92,14 @@ package enum IconPath {
         #elseif canImport(UIKit)
         let format = UIGraphicsImageRendererFormat.preferred(); format.opaque = false
         let image = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
-            ctx.cgContext.setFillColor(UIColor.black.cgColor); fill(paths, viewBox: text, in: rect, ctx.cgContext)
+            ctx.cgContext.setFillColor(UIColor.black.cgColor); fill(paths, viewBox: text, in: rect, rule: rule, ctx.cgContext)
         }
         return image.withRenderingMode(.alwaysTemplate)
         #else
         // A vector image: AppKit draws it again at the size and scale it shows at.
         let image = NSImage(size: size, flipped: true) { drawn in
             guard let cg = NSGraphicsContext.current?.cgContext else { return false }
-            cg.setFillColor(NSColor.black.cgColor); fill(paths, viewBox: text, in: drawn, cg)
+            cg.setFillColor(NSColor.black.cgColor); fill(paths, viewBox: text, in: drawn, rule: rule, cg)
             return true
         }
         image.isTemplate = true

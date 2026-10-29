@@ -149,7 +149,7 @@ fn tilt_walks_from_the_level_and_stops_at_the_end() {
     for _ in 0..60 {
         a.input(InputEvent::Sensor {
             sensor: SensorKind::Gravity,
-            values: [3.0, 4.9, 7.9, 0.0],
+            values: [-3.0, 4.9, 7.9, 0.0],
             dropped: 0,
             at_ms: at,
             player: 0,
@@ -158,7 +158,7 @@ fn tilt_walks_from_the_level_and_stops_at_the_end() {
         a.run(1000.0 / 60.0);
     }
     let stick = tilt_stick(
-        Vec3::new(3.0, 4.9, 7.9),
+        Vec3::new(-3.0, 4.9, 7.9),
         Vec3::new(0.0, 4.9, 8.49),
         Tilt {
             max_degrees: 20.0,

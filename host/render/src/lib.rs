@@ -36,7 +36,7 @@ pub use direct::boot_swap_js;
 pub use executor::Executor;
 pub use page::{capture, capture_js, page, scroll_document_js};
 pub use pages::pages;
-pub use serve::{Serve, Server, Stopper};
+pub use serve::{expire_renders, Serve, Server, Stopper};
 pub use source::Anonymous;
 
 // The render never lays out (the projection is style rows, not boxes): its
@@ -462,6 +462,8 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
         ),
         Err(e) => return Err(format!("boot: {e:?}")),
     };
+    // The page is the web's: its packages answer as there, not as on this machine.
+    runner.set_module_target("web");
     // A rendered page holds every tab panel, which the JS target adopts at
     // boot, building every one (LLP 1075.003 §9.14).
     runner
@@ -817,7 +819,11 @@ pub fn settle<D: DataSource>(
         if runner
             .pending()
             .iter()
-            .all(|(_, t)| held.refused.contains(t) || held.busy.contains(t))
+            // A re-ask's wait is the runner's, never the executor's: no timer
+            // fires here, and the checkpoint lists it for the client to ask.
+            .all(|(_, t)| {
+                held.refused.contains(t) || held.busy.contains(t) || runner.is_reask_wait(*t)
+            })
         {
             return Ok(if held.busy.is_empty() {
                 Settled::Complete

@@ -42,6 +42,7 @@ macro_rules! host {
         $crate::corner_exports!();
         $crate::gradient_exports!();
         $crate::calc_exports!();
+        $crate::local_network_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -97,6 +98,17 @@ macro_rules! host {
             lines: ::std::option::Option<$crate::measure::LinesFn>,
         ) {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.lines = lines; });
+        }
+
+        /// Each inline box's origin in its paragraph (LLP 1011.002 D2), with
+        /// the context `exact_set_measure` was given; `None` leaves an image
+        /// at its paragraph's content origin.
+        #[no_mangle]
+        pub extern "C" fn exact_set_inline_boxes(
+            rt: u32,
+            boxes: ::std::option::Option<$crate::measure::LinesFn>,
+        ) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.inline_boxes = boxes; });
         }
 
         /// A system symbol's natural size, measured before layout
@@ -282,6 +294,18 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_host_go(rt: u32, len: usize, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_go(len, now_ms), |n| n)
+        }
+
+        /// A received share, a batch. @ref LLP 1133.024 D2–D4
+        #[no_mangle]
+        pub extern "C" fn exact_share(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share(len, now_ms), |n| n)
+        }
+
+        /// The files of a share claimed before the boot, landed: a batch.
+        #[no_mangle]
+        pub extern "C" fn exact_share_land(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share_land(), |n| n)
         }
 
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
@@ -634,7 +658,8 @@ macro_rules! host {
         }
 
         /// Move the clock; `mode` as `Bridge::advance` (0 the wall clock, 1
-        /// the agent's jump, 2 an input's `then`s). Returns the batch's length.
+        /// the agent's jump, 2 an input's `then`s, 3 those `then`s only when
+        /// one is the earliest work due). Returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_advance(rt: u32, now_ms: f64, mode: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, mode), |n| n)
@@ -975,6 +1000,21 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.covers(len), |n| n)
         }
 
+        /// A trial layout of a block's root (`Bridge::measure_block`): its border
+        /// box and margins, six LE f32s, in the output buffer; 0 when refused.
+        /// No batch.
+        #[no_mangle]
+        pub extern "C" fn exact_measure_block(rt: u32, view: u32, width: f32, height: f32, width_policy: u32, height_policy: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.measure_block(view, [width, height], [width_policy, height_policy]), |_| 0)
+        }
+
+        /// What moves whenever a block measure could answer differently
+        /// (`Bridge::layout_stamp`): a host keeps measures while it stands.
+        #[no_mangle]
+        pub extern "C" fn exact_layout_stamp(rt: u32) -> u64 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.layout_stamp(), |_| 0)
+        }
+
         /// Common LE collection feedback from the input buffer; returns batch length.
         #[no_mangle]
         pub extern "C" fn exact_collection_feedback(rt: u32, len: usize, now_ms: f64) -> u32 {
@@ -986,6 +1026,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_into_view(rt: u32, view: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.into_view(view, len), |n| n)
+        }
+
+        /// What UIKit covers of list `view`'s port at its start and end, in
+        /// points: a row the runner aligns lands clear of it.
+        #[no_mangle]
+        pub extern "C" fn exact_list_covered(rt: u32, view: u32, start: f64, end: f64) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_covered(view, start, end), |_| ())
         }
 
         /// Canvas draws in a turn of their own (`deferred` nonzero), or in every
@@ -1043,6 +1090,20 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.log(len), |_| 0)
         }
 
+        /// What the presenter applied of the orientation lock (LLP 1133.029
+        /// §8): JSON in the input buffer's first `len` bytes, and whether
+        /// its resolution found a conflict. Returns 0.
+        #[no_mangle]
+        pub extern "C" fn exact_orientation_applied(rt: u32, len: usize, conflict: u8) -> u32 {
+            $crate::abi::with_runtime(
+                &EXACT_RUNTIMES,
+                rt,
+                true,
+                |b, _| b.orientation_applied(len, conflict != 0),
+                |_| 0,
+            )
+        }
+
         /// An auth session's word (LLP 1069.006): `hold` under the agent, or
         /// `done` with the callback URL or a status; JSON in the input buffer.
         #[no_mangle]
@@ -1097,8 +1158,8 @@ macro_rules! host {
         /// Whether a stack splits, by the runner's rule (LLP 1115.002 D4),
         /// JSON; returns its length.
         #[no_mangle]
-        pub extern "C" fn exact_stack_split(rt: u32, view: u32, retained: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.stack_split(view, retained), |n| n)
+        pub extern "C" fn exact_stack_split(rt: u32, view: u32, retained: u32, pressed: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.stack_split(view, retained, pressed), |n| n)
         }
 
         /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP

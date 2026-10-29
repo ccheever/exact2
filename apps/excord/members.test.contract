@@ -1,0 +1,80 @@
+// Excord's member list and profile cards (members.contract) on the fixture server as app.test.contract runs it
+// (--world transcript --reset-on-identify). Each launch runs `clock settle` (IDENTIFY's task), waits for the gateway's
+// READY with the clock frozen (`clock until state`), then `clock settle` again for what READY armed (the channel list).
+epoch "2026-10-22T18:00:00Z"
+time-zone "America/Los_Angeles"
+
+test "an avatar opens its author's card, with their roles"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "avatar-1562887009075210000"
+  clock data
+  clock settle
+  expect text "profile-name" == "Ada"
+  expect text "profile-handle" == "@ada"
+  expect state profile.roles.0.name == "Maintainers"
+  tap "profile-close"
+  clock settle
+  expect state profileUser == ""
+
+test "a mention opens its person's card"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "transcript" into "1562761332271359740"
+  clock settle
+  tap "follow-1562761332271359740-b0.r0"
+  clock data
+  clock settle
+  expect text "profile-handle" == "@charlie"
+
+test "the member list opens from the channel, and a member opens their card"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  // In a narrow window the list is a sheet; its rows are held before it opens.
+  expect state members.length == 19
+  tap "members-toggle"
+  clock settle
+  expect tree has "member-1191168914227200001"
+  tap "member-1191168914227200001"
+  clock data
+  clock settle
+  expect text "profile-handle" == "@ada"
+  expect state profile.roles.0.name == "Maintainers"
+
+// The channel's Escape (cancel a reply, jump to the present) is not a dialog's: on the web it kept the
+// sheet open.
+
+test "Escape closes the member sheet over a channel, and then a member's card"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "members-toggle"
+  clock settle
+  back
+  clock settle
+  expect state membersSheet == false
+  tap "members-toggle"
+  clock settle
+  tap "member-1191168914227200001"
+  clock data
+  clock settle
+  expect text "profile-handle" == "@ada"
+  back
+  clock settle
+  expect state profileUser == ""
+  expect state open == "1191168914235588608"

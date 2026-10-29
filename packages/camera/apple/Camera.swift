@@ -47,6 +47,7 @@ public final class CameraModule: ExactPackage {
     private var views: [String: ViewState] = [:]
     private var picture: String?
     private var taken = 0
+    private var photos: [[String: Any]] = []
 
     /// What the runner said of a viewfinder, and what it consumes.
     final class ViewState {
@@ -67,10 +68,11 @@ public final class CameraModule: ExactPackage {
         var subscription: ExactSubscription?
         var onLive: (ExactVideoSource?) -> Void = { _ in }
         var onBlank: () -> Void = {}
+        var onMuted: () -> Void = {}
         var onUnmuted: () -> Void = {}
         init(track: String, origin: String) { self.track = track; self.origin = origin }
         func live(video source: ExactVideoSource?) { live = true; onLive(source) }
-        func muted(_ reason: String) { onBlank() }
+        func muted(_ reason: String) { onMuted() }
         func unmuted() { onUnmuted() }
         func ended() { live = false; onBlank() }
         func leave() { subscription?.cancel(); subscription = nil }
@@ -97,7 +99,10 @@ public final class CameraModule: ExactPackage {
         let next = named?.isEmpty == false ? named : nil
         guard next != picture else { return }
         picture = next
-        for (id, v) in views where v.sub?.live == true { v.sub?.leave(); v.sub = nil; reconcile(id) }
+        for (id, v) in views where v.sub?.live == true {
+            context.tracks.lookup(v.sub?.track ?? "")?.picture = agentPicture()
+            v.sub?.leave(); v.sub = nil; reconcile(id)
+        }
     }
 
     public func destroy(_ done: @escaping () -> Void) {
@@ -169,10 +174,16 @@ public final class CameraModule: ExactPackage {
         let show = { [weak self, weak v, weak sub] in
             guard let self, let v, let sub, v.sub === sub, sub.live else { return }
             let facing = (self.context.tracks.lookup(sub.track)?.state?()["settings"] as? [String: Any])?["facingMode"] as? String
-            if self.context.agent { v.view?.show(picture: self.agentPicture(), mirrored: facing == "user") } else if let source { v.view?.show(source: source) }
+            if self.context.agent {
+                let picture = self.agentPicture()
+                v.view?.show(picture: picture, mirrored: facing == "user")
+                // The track's frame is the picture drawn, unmirrored, as a sensor's is (LLP 1133.027 D17 item 2).
+                self.context.tracks.lookup(sub.track)?.picture = picture
+            } else if let source { v.view?.show(source: source) }
         }
         sub.onLive = { s in source = s; show() }
         sub.onUnmuted = show
+        sub.onMuted = { [weak v] in v?.view?.mute() }
         sub.onBlank = { [weak v] in v?.view?.blank() }
         v.sub = sub
         do {
@@ -192,7 +203,15 @@ public final class CameraModule: ExactPackage {
         let s = entry.state?() ?? [:]
         // A track that is not shown takes no photo (D1): ended, disabled, or muted (`idle` among them).
         guard s["readyState"] as? String == "live", s["enabled"] as? Bool == true, s["muted"] as? Bool == false else {
+            say("takePhoto \(id): InvalidStateError (state=\(s["readyState"] ?? "unknown"), enabled=\(s["enabled"] ?? false), muted=\(s["muteReason"] ?? "none"))")
             return reply(["error": "InvalidStateError"])
+        }
+        let origin = context.origin
+        let took = { [self] (path: String, data: Data) in
+            say("took \(path) (\(data.count) bytes\(context.agent ? ", the agent's picture" : ""), sha256 \(Self.sha256(data)))")
+            // Under the agent, each photo for `state.extensions` (§9, Disclosure).
+            photos.append(["path": path, "sha256": Self.sha256(data), "track": id, "origin": origin])
+            context.state(["photos": photos])
         }
         let written = { [self] (ext: String) -> (String, URL)? in
             let path: String
@@ -204,7 +223,7 @@ public final class CameraModule: ExactPackage {
         if context.agent {
             guard let data = agentPictureData(), let (path, url) = written("jpg") else { return reply(["error": "UnknownError"]) }
             do { try data.write(to: url) } catch { return reply(["error": "UnknownError"]) }
-            say("took \(path) (\(data.count) bytes, the agent's picture, sha256 \(Self.sha256(data)))")
+            took(path, data)
             return reply(Self.photo(path: path, data: data))
         }
         guard let source = entry.video?() else { return reply(["error": "InvalidStateError"]) }
@@ -225,7 +244,7 @@ public final class CameraModule: ExactPackage {
                     DispatchQueue.main.async {
                         holder.leave()
                         guard ok else { return reply(["error": "UnknownError"]) }
-                        self.say("took \(path) (\(data.count) bytes, sha256 \(Self.sha256(data)))")
+                        took(path, data)
                         reply(Self.photo(path: path, data: data))
                     }
                 }

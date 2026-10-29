@@ -1,0 +1,56 @@
+// The OAuth fixture (LLP 1146): `@exact/oauth` against the fake
+// authorization server (`packages/oauth/test/fixture.ts`), one provider
+// profile at a time. Its testIds are the ones the conformance cases read
+// (`packages/oauth/test/cases.template.contract`): sign-in, sign-out, status,
+// name, refresh and error.
+
+use OAuthSession, OAuthResult from "@exact/oauth"
+
+shape Person
+  name: string
+
+fn resultError(r: option<OAuthResult>): string = match r { case some(x) => x.error, case none => "" }
+
+component OAuthFixture
+  state profile = "spec" persist
+  resource session = session(profile) as shape OAuthSession
+  resource me = me(profile, session.signedIn) as shape Person else empty()
+  mutation signedIn as shape OAuthResult refreshes session, me
+  mutation signedOut as shape OAuthResult refreshes session, me
+  derive signInError = resultError(signedIn)
+  derive problem = signInError != "" ? signInError : session.error
+
+  action signIn
+    send signedIn = signIn(profile)
+  action signOut
+    send signedOut = signOut(profile)
+  action reload
+    refresh me
+  action choose(p: string)
+    profile = p
+
+  view
+    column gap=12 padding=16
+      h1 "Sign-in"
+      select value=profile change=choose aria-label="Provider" testId="profile"
+        option "Specification" value="spec"
+        option "Google" value="google"
+        option "Entra" value="entra"
+        option "Entra v1" value="entra-v1"
+        option "Auth0" value="auth0"
+        option "Okta" value="okta"
+        option "OneLogin" value="onelogin"
+        option "GitHub" value="github"
+        option "Salesforce" value="salesforce"
+      text (session.signedIn ? "Signed in" : "Signed out") testId="status"
+      if problem != "" and not pending(signedIn)
+        text problem color="-exact-system-red" testId="error"
+      if session.signedIn
+        text me.name testId="name"
+        button press=reload testId="refresh"
+          text "Reload"
+        button press=signOut testId="sign-out"
+          text "Sign Out"
+      else
+        button press=signIn disabled=pending(signedIn) buttonStyle="filled" testId="sign-in"
+          text "Sign In"

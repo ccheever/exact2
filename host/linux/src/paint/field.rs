@@ -14,6 +14,15 @@ use crate::text::field::{line_left, Cursor, Geometry};
 use crate::text::{Paragraph, Spec, TextEngine};
 use std::borrow::Cow;
 
+#[derive(Clone)]
+pub(crate) struct Composition {
+    pub(crate) key: exact_kernel::NodeKey,
+    pub(crate) value: String,
+    pub(crate) range: exact_runner::FieldSelection,
+    pub(crate) cursor: bool,
+    pub(crate) unconverted: Vec<(u32, u32)>,
+}
+
 pub(crate) struct PaintedField {
     pub(crate) geometry: Geometry,
     pub(crate) value: String,
@@ -22,6 +31,8 @@ pub(crate) struct PaintedField {
     multiline: bool,
     masked: bool,
     origin: (f32, f32),
+    scroll: (f32, f32),
+    pub(crate) scroll_max: (f32, f32),
     pub(super) transform: Transform,
     decorations: Option<Rc<FieldDecorations>>,
 }
@@ -85,6 +96,11 @@ impl PaintedField {
             multiline,
             masked,
             origin,
+            scroll: (0., 0.),
+            scroll_max: (
+                (paragraph.width + 1. - content.2).max(0.),
+                (paragraph.height - content.3).max(0.),
+            ),
             transform,
             decorations,
         }
@@ -103,7 +119,7 @@ impl PaintedField {
             spec = decorations.project(spec, value).spec;
         }
         let paragraph = text.paragraph(&spec, self.multiline.then_some(self.content.2));
-        Self::new(
+        let mut field = Self::new(
             &paragraph,
             value,
             spec,
@@ -112,6 +128,38 @@ impl PaintedField {
             self.masked,
             self.transform,
             self.decorations.clone(),
+        );
+        field.set_scroll(self.scroll);
+        field
+    }
+
+    fn set_scroll(&mut self, scroll: (f32, f32)) {
+        let next = (
+            scroll.0.clamp(0., self.scroll_max.0),
+            scroll.1.clamp(0., self.scroll_max.1),
+        );
+        self.origin.0 += self.scroll.0 - next.0;
+        self.origin.1 += self.scroll.1 - next.1;
+        self.scroll = next;
+    }
+
+    pub(crate) fn reveal_cursor(&self, cursor: Cursor) -> (f32, f32) {
+        let caret = self.geometry.caret(cursor);
+        let x = self.origin.0 + self.scroll.0 - self.content.0 + caret.0;
+        let y = self.origin.1 + self.scroll.1 - self.content.1 + caret.1;
+        let reveal = |at: f32, size: f32, offset: f32, port: f32, max: f32| {
+            let next = if at < offset {
+                at
+            } else if at + size > offset + port {
+                at + size - port
+            } else {
+                offset
+            };
+            next.clamp(0., max)
+        };
+        (
+            reveal(x, caret.2, self.scroll.0, self.content.2, self.scroll_max.0),
+            reveal(y, caret.3, self.scroll.1, self.content.3, self.scroll_max.1),
         )
     }
 
@@ -122,6 +170,20 @@ impl PaintedField {
             self.geometry
                 .hit(point.x - self.origin.0, point.y - self.origin.1),
         )
+    }
+
+    pub(crate) fn hit_character(&self, x: f32, y: f32) -> Option<u32> {
+        let mut point = tiny_skia::Point::from_xy(x, y);
+        self.transform.invert()?.map_point(&mut point);
+        Some(
+            self.geometry
+                .hit_character(point.x - self.origin.0, point.y - self.origin.1),
+        )
+    }
+
+    pub(crate) fn caret_frame(&self, cursor: Cursor) -> Rect4 {
+        let caret = super::intersect(self.place(self.geometry.caret(cursor)), self.content);
+        super::bbox(self.transform, caret)
     }
 
     /// `rangeFrame` (LLP 1114.007): the UTF-16 range `start..end` of the
@@ -203,7 +265,11 @@ impl Painter {
             content
         };
         // Typed text its bound value has not replaced (LLP 1069.001 D4).
-        let value = control::choice(node, walk.scene.chosen.get(&node.id))
+        let composition = self.composition.clone().filter(|c| c.key == node.key);
+        let value = composition
+            .as_ref()
+            .map(|c| c.value.as_str())
+            .or_else(|| control::choice(node, walk.scene.chosen.get(&node.id)))
             .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
         // Material's field floats its placeholder as its label (`material.rs`).
         let labelled = native
@@ -271,7 +337,7 @@ impl Painter {
             multiline.then_some(content.2),
         );
         walk.text.insert(node.key, paragraph.clone());
-        let oy = content.1
+        let mut oy = content.1
             + if multiline {
                 0.0
             } else {
@@ -311,7 +377,7 @@ impl Painter {
         // A single line is shaped unconstrained, so `text-align` places
         // it here; a textarea's paragraph is laid out at the field's
         // width and aligns its own lines.
-        let ox = content.0
+        let mut ox = content.0
             + if multiline {
                 0.0
             } else {
@@ -337,7 +403,7 @@ impl Painter {
             ),
             None => Cow::Borrowed(std::slice::from_ref(&base)),
         };
-        let field = PaintedField::new(
+        let mut field = PaintedField::new(
             &paragraph,
             value,
             spec,
@@ -347,6 +413,10 @@ impl Painter {
             ts,
             decorations,
         );
+        field.set_scroll(walk.scene.scroll.get(&node.id).copied().unwrap_or_default());
+        ox -= field.scroll.0;
+        oy -= field.scroll.1;
+        self.backend.push_clip(outer, ts);
         let selection = walk.scene.selection.filter(|_| focused);
         if let Some(backgrounds) = backgrounds {
             let backgrounds: Vec<_> = backgrounds
@@ -363,9 +433,13 @@ impl Painter {
                     .fill(&Shape::rect((ox + r.0, oy + r.1, r.2, r.3)), color, ts);
             }
         }
-        if let Some(s) = selection {
+        // Windows reports the active conversion clause as a selection. Its
+        // native editor underlines that clause without a selection background.
+        if let Some(s) = selection.filter(|_| !cfg!(target_os = "windows") || composition.is_none())
+        {
             self.field_highlight(&field, s);
         }
+        self.backend.push_clip(&Shape::rect(content), ts);
         if !placeholder {
             let painted = material::FieldText::painted(&paragraph, (ox, oy), ts);
             self.labels.value(node.id, painted);
@@ -385,7 +459,41 @@ impl Painter {
             self.backend
                 .text(&mut engine, &paragraph, &palette, (ox, oy), ts);
         }
-        if focused {
+        if let Some(composition) = &composition {
+            let line = 1. / self.scale.max(1.);
+            let mut underline = |start, end, dotted| {
+                if start >= end {
+                    return;
+                }
+                for rect in field.geometry.underlines(start, end, line) {
+                    let rect = field.place(rect);
+                    if dotted {
+                        let visible = super::intersect(rect, content);
+                        let step = line * 2.;
+                        let mut x = rect.0 + ((visible.0 - rect.0) / step).ceil() * step;
+                        while visible.3 > 0. && x < visible.0 + visible.2 {
+                            let width = line.min(visible.0 + visible.2 - x);
+                            self.backend.fill(
+                                &Shape::rect((x, visible.1, width, visible.3)),
+                                value_ink,
+                                ts,
+                            );
+                            x += step;
+                        }
+                    } else {
+                        self.backend.fill(&Shape::rect(rect), value_ink, ts);
+                    }
+                }
+            };
+            let mut start = composition.range.start;
+            for &(a, b) in &composition.unconverted {
+                underline(start, a, false);
+                underline(a, b, true);
+                start = b;
+            }
+            underline(start, composition.range.end, false);
+        }
+        if focused && composition.as_ref().is_none_or(|c| c.cursor) {
             let caret = computed
                 .caret_color
                 .map_or(value_ink, |c| rgba(c.resolve(self.dark)));
@@ -396,12 +504,53 @@ impl Painter {
                 selection.unwrap_or_else(at_end),
                 walk.scene.caret_upstream,
             );
-            // LLP 1104 D6: `outline: none` (the row's one value) draws no ring.
-            if ringed {
-                let accent = control::ring(node, self.dark);
-                self.field_ring(field_shape.as_ref().unwrap_or(outer), accent, ts);
-            }
+        }
+        self.backend.pop_clip();
+        self.backend.pop_clip();
+        if ringed {
+            let accent = control::ring(node, self.dark);
+            self.field_ring(field_shape.as_ref().unwrap_or(outer), accent, ts);
         }
         walk.fields.insert(node.id, Rc::new(field));
     }
+}
+
+/// A node's effective overflow per axis — the kernel's own rule: a
+/// `ScrollView`/`List` scrolls on y unless its row says otherwise, and an
+/// unset axis beside a non-visible one is scrollable (CSS Overflow §3). A
+/// neutral top-layer box and alert part read their structural defaults too.
+pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
+    let resolved;
+    let s = if look::neutral()
+        && (node.props.get(PropId::AlertPart).is_some()
+            || node.props.str(PropId::SemanticTag) == Some("dialog")
+            || node.props.str(PropId::Popover).is_some())
+    {
+        resolved = node.computed_style(StyleMask::EMPTY);
+        &resolved
+    } else {
+        node.style
+    };
+    let field_overflow = if node.props.str(PropId::SemanticTag) == Some("textarea") {
+        Overflow::Auto
+    } else {
+        Overflow::Hidden
+    };
+    let y = if s.mask.has(StyleId::OverflowY) {
+        s.overflow_y
+    } else if node.node_type == NodeType::TextInput {
+        field_overflow
+    } else if node.node_type.scrolls_by_default() {
+        Overflow::Auto
+    } else {
+        Overflow::Visible
+    };
+    let x = if s.mask.has(StyleId::OverflowX) {
+        s.overflow_x
+    } else if node.node_type == NodeType::TextInput {
+        field_overflow
+    } else {
+        Overflow::Visible
+    };
+    (x.computed(y), y.computed(x))
 }

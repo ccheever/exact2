@@ -11,8 +11,13 @@ export interface RestRequest {
 }
 export interface RestContext { origin: string; headers: Record<string, string> }
 export interface HistoryQuery { before?: string; after?: string; around?: string; limit?: number }
-export interface ReplyTo { messageId: string; channelId?: string; guildId?: string }
-export interface SendMessage { content: string; nonce: string; replyTo?: ReplyTo }
+// `mention` false sends the reply without pinging its original's author, as Discord's @ OFF does.
+export interface ReplyTo { messageId: string; channelId?: string; guildId?: string; mention?: boolean }
+/** A file uploaded for a message: the slot's id and the name Discord's upload gave it. */
+export interface Uploaded { id: string; filename: string; uploaded_filename: string }
+export interface SendMessage { content: string; nonce: string; replyTo?: ReplyTo; attachments?: Uploaded[] }
+/** A file a message will carry, as the upload slots ask for it. */
+export interface UploadFile { id: string; filename: string; file_size: number }
 
 function pathOnly(path: string): string {
   return path.replace(/^https?:\/\/[^/]+/, '').split('?')[0].replace(/^\/api\/v\d+/, '');
@@ -65,11 +70,20 @@ export function sendMessage(ctx: RestContext, channelId: string, message: SendMe
   const reply = message.replyTo;
   return request(ctx, 'POST', `/channels/${channelId}/messages`, {
     content: message.content, nonce: message.nonce, tts: false, flags: 0, enforce_nonce: true,
+    ...(message.attachments?.length ? { attachments: message.attachments } : {}),
     ...(reply ? { message_reference: {
       ...(reply.guildId ? { guild_id: reply.guildId } : {}),
       channel_id: reply.channelId ?? channelId, message_id: reply.messageId,
     } } : {}),
+    ...(reply?.mention === false ? { allowed_mentions: { parse: ['users', 'roles', 'everyone'], replied_user: false } } : {}),
   });
+}
+
+/** Build the request for upload slots: one URL per file, which the file is PUT to before the message
+ * names it (as Discord's clients upload). */
+export function uploadSlots(ctx: RestContext, channelId: string, files: UploadFile[]): RestRequest {
+  return request(ctx, 'POST', `/channels/${channelId}/attachments`,
+    { files: files.map(f => ({ id: f.id, filename: f.filename, file_size: f.file_size, is_clip: false })) });
 }
 
 /** Build a content edit without replacing embeds or attachments. */
@@ -90,6 +104,11 @@ export function addReaction(ctx: RestContext, channelId: string, messageId: stri
 /** Build removal of the current user's reaction. */
 export function removeReaction(ctx: RestContext, channelId: string, messageId: string, emoji: string): RestRequest {
   return request(ctx, 'DELETE', `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`);
+}
+
+/** Build the current user's vote on a poll: the answers chosen, none to take the vote back. */
+export function votePoll(ctx: RestContext, channelId: string, messageId: string, answerIds: string[]): RestRequest {
+  return request(ctx, 'PUT', `/channels/${channelId}/polls/${messageId}/answers/@me`, { answer_ids: answerIds });
 }
 
 /** Build an explicit read acknowledgement; lastViewed is Discord's day counter, not milliseconds. */

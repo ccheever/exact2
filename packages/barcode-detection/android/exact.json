@@ -1,0 +1,22 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/barcode-detection@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidBarcodeFormats": {
+      "bundled": "bool"
+    },
+    "AndroidDetectedBarcode": {
+      "valueType": "string",
+      "rawBytes": "option<string>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "artifacts": []
+}

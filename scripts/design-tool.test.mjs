@@ -44,7 +44,7 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.17', app });
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.18', app });
     expect(hello.files.map(f => f.path)).toEqual(['app.contract', 'app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
@@ -60,10 +60,15 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(reused.status, reused.stderr).toBe(0);
     expect(reused.stdout).toContain('already running');
     // Through a dev loop, it is not: it holds the design server, so --via
-    // to any loop is refused rather than given its page (none).
+    // to any loop is refused rather than given its page (none), at once:
+    // a loop that doesn't answer is not waited for here (third pass #9,
+    // the lead), the cap left at its real 20 minutes to show it.
+    const began = Date.now();
     const through = spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', 'http://127.0.0.1:9', '--no-open'], { cwd: ROOT, encoding: 'utf8' });
     expect(through.status, through.stderr).toBe(1);
     expect(through.stderr).toContain(`already serves this design, not through http://127.0.0.1:9; stop it first`);
+    expect(through.stderr).not.toContain('waiting for the dev loop');
+    expect(Date.now() - began).toBeLessThan(60_000);
   } finally {
     if (drive) await stop(drive);
     await stop(tool);
@@ -107,6 +112,7 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
     const elsewhere = run([mine, '--via', 'http://127.0.0.1:9']);
     expect(elsewhere.status).toBe(1);
     expect(elsewhere.stderr).toContain('already serves this design, not through http://127.0.0.1:9; stop it first');
+    expect(elsewhere.stderr).not.toContain('waiting for the dev loop');
     expect(run([mine, '--via', TOOL_ORIGIN]).status).toBe(2);
   } finally {
     if (tool) await stop(tool);

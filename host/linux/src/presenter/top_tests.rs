@@ -164,6 +164,67 @@ fn boot() -> Presenter<()> {
     p
 }
 
+#[test]
+fn desktop_overlay_accepts_pointer_keys_and_dismisses_without_clicking_through() {
+    let mut p = boot();
+    p.serve_overlays();
+    p.frame();
+    tap(&mut p, "more").unwrap();
+    p.frame();
+    assert!(
+        p.brush.top_surface.is_some(),
+        "the menu reaches the page painter"
+    );
+    let open = p.top.open.as_ref().unwrap();
+    let (x, y, w, h) = open.layout.targets[0].rect;
+    let x = open.frame[0] as f32 / open.scale + x + w / 2.;
+    let y = open.frame[1] as f32 / open.scale + y + h / 2.;
+    p.pointer_down(x, y, 0.).unwrap();
+    p.pointer_up(x, y, 1.).unwrap();
+    assert!(p.surface().is_none());
+    assert_eq!(text(&p, "said"), "renamed");
+    p.frame();
+    assert!(p.brush.top_surface.is_none());
+
+    tap(&mut p, "more").unwrap();
+    p.pointer_down(2., 2., 2.).unwrap();
+    p.pointer_up(2., 2., 3.).unwrap();
+    assert!(p.surface().is_none());
+    assert_eq!(text(&p, "said"), "renamed");
+    tap(&mut p, "more").unwrap();
+    assert!(p.surface_key("ArrowDown", 4.));
+    assert!(p.surface_key("ArrowDown", 5.));
+    assert!(p.surface_key("Enter", 6.));
+    assert_eq!(text(&p, "said"), "sent");
+    assert!(p.surface().is_none());
+}
+
+#[test]
+fn desktop_alerts_focus_cancel_or_ok_on_open_and_replacement() {
+    let mut p = boot();
+    p.serve_overlays();
+    let frame = p.display_frame().unwrap();
+    assert!(p.display_complete(&frame));
+    tap(&mut p, "ask").unwrap();
+    let open = p.top.open.as_ref().unwrap();
+    assert_eq!(
+        open.focused.map(|i| open.layout.targets[i].node),
+        Some(id(&p, "confirm-cancel"))
+    );
+    assert!(p.surface_key("Enter", 1.));
+    assert!(p.surface().is_none());
+    assert_eq!(text(&p, "said"), "nothing");
+    tap(&mut p, "ask").unwrap();
+    let notice = named(&p, "notice");
+    let key = p.host.kernel().node(notice).unwrap().key;
+    assert!(p.present(Some(key), "notice", None, None, true, 3.));
+    assert_eq!(p.top.open.as_ref().unwrap().focused, Some(0));
+    assert!(p.surface_key("Enter", 4.));
+    assert!(p.surface().is_none());
+    assert_eq!(text(&p, "said"), "nothing");
+    assert_eq!(p.focus(), Some(id(&p, "ask")));
+}
+
 /// A presenter whose shell makes windows, and the pictures it recorded.
 fn windowed() -> (Presenter<()>, Rc<RefCell<Vec<Pixmap>>>) {
     let mut p = boot();
@@ -893,6 +954,7 @@ fn a_surface_follows_the_scheme_the_font_scale_and_a_reader_made_again() {
 fn the_dialog_and_the_menu_keep_materials_metrics() {
     let engine = crate::text::TextEngine::shared();
     let inputs = |width: f32| Inputs {
+        contrast: None,
         dark: false,
         font_scale: 1.0,
         window: (width, 800.0),

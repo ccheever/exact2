@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-hatches-'));
 copyFileSync(resolve(new URL('../../web-js/hatches.js', import.meta.url).pathname), resolve(dir, 'hatches.js'));
 writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, journal, clock, viewId, inflight, painted, time, paint, drive } = globalThis.rtStandIn;\n');
-writeFileSync(resolve(dir, 'native.js'), 'export const pageTable = () => globalThis.pageModule;\n');
+writeFileSync(resolve(dir, 'native.js'), 'export const pageTable = () => { globalThis.pageTables = (globalThis.pageTables ?? 0) + 1; return globalThis.pageModule; };\n');
 
 const ends = [], journal = [], clock = { now: 0, epoch: 1, timers: [], agent: true };
 const rt = globalThis.rtStandIn = { onEnd: f => ends.push(f), journal, clock, viewId: e => e.id, inflight: { n: 0 }, painted: () => Promise.resolve(), time() {}, paint() {}, drive() {} };
@@ -152,6 +152,26 @@ test('a word this platform does not handle is shown and never called', async () 
     await mount(hatches, node('meter', 31));
     expect(handles.length).toBe(before + 1);
   } finally { delete globalThis.exact.hatchWords; }
+});
+
+test('an app with no page module asks for no module artifact: a handled word is shown, nothing loaded (pass 1 #6)', async () => {
+  // (A fresh copy: the page table is asked once per page.)
+  const fresh = await import(resolve(dir, 'hatches.js') + '?no-page-module');
+  // (Its own state published, not the first copy's, which is put back after.)
+  const kept = Object.fromEntries(['hatchState', 'hatchPerf', 'hatchActs', 'hatchRegions', 'diagnostics', 'hatches'].map(k => [k, globalThis.exact[k]]));
+  for (const k of Object.keys(kept)) delete globalThis.exact[k];
+  globalThis.exact.pageModule = false;
+  try {
+    const before = handles.length, asked = globalThis.pageTables ?? 0;
+    const end = await mount(fresh, node('meter', 32));
+    expect(handles.length).toBe(before);
+    expect(globalThis.pageTables ?? 0).toBe(asked);
+    expect(journal.some(l => /did not load/.test(l))).toBe(false);
+    expect(journal.filter(l => /element meter: no page module \(modules\/web\/\) on this page/.test(l)).length).toBe(1);
+    // Never counted live, so its end leaves nothing counted either.
+    end?.();
+    expect(globalThis.exact.hatchState().words.meter?.live ?? 0).toBe(0);
+  } finally { delete globalThis.exact.pageModule; Object.assign(globalThis.exact, kept); }
 });
 
 // A fake text field: the DOM's value, `setRangeText` and events, enough for `input`.

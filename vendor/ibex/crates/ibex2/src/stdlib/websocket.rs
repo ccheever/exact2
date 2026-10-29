@@ -246,6 +246,25 @@ pub fn open(
     open_with_protocols(transport, grants, url, max_message, signal, &[])
 }
 
+/// [`open`], with the host's `gate` checked after the grant and before the
+/// transport connects (Exact patch, LLP 1133.036 D6). A handshake follows no
+/// redirect, so the open is the one hop.
+pub fn open_gated(
+    transport: &dyn SocketTransport,
+    grants: &GrantSet,
+    gate: Option<&dyn crate::boundary::HopGate>,
+    url: &str,
+    max_message: usize,
+    signal: &AbortSignal,
+) -> Result<Box<dyn MessageSource>, HostError> {
+    signal.check()?;
+    let parsed = parse_and_admit(grants, url)?;
+    if let Some(gate) = gate {
+        gate.admit(&parsed)?;
+    }
+    transport.connect_with_protocols(&parsed, max_message, signal, &[])
+}
+
 /// Protocol-aware spelling used by the event and JavaScript projections.
 pub fn open_with_protocols(
     transport: &dyn SocketTransport,

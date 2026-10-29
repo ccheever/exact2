@@ -18,7 +18,16 @@ const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 
 const END_SLACK = 1;
 // A port in the padding before the first row is at the rows' start, unless the target is there too (start.rs).
 const atTarget = (a, c, offset, sent) => { if (c >= 0) offset = Math.max(0, offset); const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap < END_SLACK && Math.abs(c - sent) <= 0.01); };
-const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
+const travelLead = (port, v) => Math.min(Math.abs(v) * LEAD_SECONDS, port * 2);
+const lead = (port, v) => { const extra = travelLead(port, v); return v > 0 ? [port, port + extra] : [port + extra, port]; };
+// `reach-margin` (reach.rs `Margin`, @ref LLP 1145 D4): px or % of the port, before and after an edge; default one port.
+const reachMargin = text => {
+  const parts = (text ?? "100%").trim().split(/\s+/).map(p => { const m = /^(.*?)(px|%)$/i.exec(p), n = m && m[1] !== "" ? Number(m[1]) : NaN; return isFinite(n) && n >= 0 ? [n, m[2] === "%"] : null; });
+  if (parts.length > 2 || parts.includes(null)) throw new Refusal("reach margin must be one or two nonnegative px or % lengths");
+  return [parts[0], parts.at(-1)];
+};
+// The edge band (reach.rs `Margin::band`): the margin, plus the window's travel lead toward the side it travels.
+const reachBand = (margin, port, v) => { const band = margin.map(([n, percent]) => percent ? port * n / 100 : n); if (v) band[v > 0 ? 1 : 0] += travelLead(port, v); return band; };
 const same = Object.is;
 // A row remeasured within this of the height it already has keeps that
 // height (mod.rs `MEASURE_NOISE`): a translated row reads float32 ulps off
@@ -210,6 +219,16 @@ function num(n) {
   for (let p = 1; p < 10; p++) { const s = Number(f.toPrecision(p)); if (Math.fround(s) === f) return String(s); }
   return String(f);
 }
+/** `keep-mounted` (keep.rs `idents`): at most 64 keys, `none` naming no row;
+ * another value keeps none and says so. */
+function keepIdents(v) {
+  const out = [];
+  try {
+    if (!Array.isArray(v) || v.length > 64) throw new Refusal("not a list of at most 64 keys");
+    for (const k of v) if (k != null) { const t = keyText(k); if (!out.includes(t)) out.push(t); }
+  } catch { journal.push("invalid keepMounted value; unset"); return []; }
+  return out;
+}
 function keyText(k) {
   if (typeof k === "string") return "s:" + k;
   if (typeof k === "number" && isFinite(k)) return "n:" + String(k === 0 ? 0 : k);
@@ -235,9 +254,9 @@ class Collection {
     this.port = sizes.length ? Math.min(...sizes) : null;
     this.bootstrap = o.init ?? Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
-      zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], pending: false, parent: null,
-      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0 });
-    this.edges = [o.start, o.end];
+      zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], edgeFired: [null, null], pending: false, parent: null,
+      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0, keepKeys: [] });
+    this.edges = [o.start, o.end]; this.reach = reachMargin(o.reach);
   }
   snapshot() {
     const g = this.geometry;
@@ -262,6 +281,9 @@ class Collection {
   }
   // ------------------------------------------------ data (mod.rs update_data)
   update(items, [idents, dups], fresh) {
+    // The kept keys as they are now, whichever of the two effects ran first.
+    if (this.o.keep) this.keepKeys = keepIdents(this.o.keep());
+    Remount.delete(this);
     let anchor = this.anchor();
     const dropAnchor = this.dropAnchor?.(), last = this.index.order.at(-1), count = this.index.len;
     const compare = !fresh && items.length === this.items.length;
@@ -378,6 +400,13 @@ class Collection {
       const first = this.atEnd ? Math.max(0, this.index.len - this.bootstrap) : this.index.rowAt(this.startOffset) ?? 0;
       ranges = [[first, Math.min(this.index.len, first + this.bootstrap)]];
     }
+    // The rows it keeps mounted are owed wherever the window is (keep.rs).
+    for (const k of this.keepKeys) {
+      const i = this.index.pos.get(k);
+      if (i === undefined) continue;
+      owed.push([i, i + 1]);
+      if (!ranges.some(r => i >= r[0] && i < r[1])) { ranges.push([i, i + 1]); ranges.sort((a, b) => a[0] - b[0]); }
+    }
     const old = new Map(this.mounted.map(m => [m.key, m]));
     this.mounted = [];
     const limited = limit !== null && port !== null;
@@ -452,7 +481,12 @@ class Collection {
     w.setAttribute("data-listitemkey", key);
     const m = { key, position: p, wrapper: w, item: sig(this.items[p]), index: sig(p), published: [-1, -1], inner: [], list: this };
     // The row's scope names its row, for a list inside it (at any time).
-    const build = () => scope(() => { owner().$row = m; this.o.row(w, m.item, m.index); }, this.own);
+    const build = () => scope(() => {
+      owner().$row = m;
+      globalThis.exact?.rowWork?.(this.el, "rowConstructed");
+      onEnd(() => globalThis.exact?.rowWork?.(this.el, "rowRetired"));
+      this.o.row(w, m.item, m.index);
+    }, this.own);
     m.s = served ? adoptRow(w, build) : unadopted(build);
     m.view = viewId(w); w.dataset.view = m.view;
     m.root = w.firstElementChild ? viewId(w.firstElementChild) : m.view;
@@ -640,7 +674,7 @@ class Collection {
     now.scrollSequence = previous.scrollSequence;
     const changed = paddingChanged || JSON.stringify(previous) !== JSON.stringify(now);
     if (changed) this.revision++;
-    return [changed, this.edge()];
+    return [changed, this.edge(fill.velocity ?? 0)];
   }
   /** inset.rs `report_anchor`: on the old range, where the port is as far down as a grown padding
    * before the rows moved them (none before a first report), or on the new one when only that follows the end;
@@ -671,7 +705,7 @@ class Collection {
     for (const [a2, b] of w.segments) for (let p = a2; p < b; p++) if (this.mounted[k++]?.position !== p) return undefined;
     if (k !== this.mounted.length) return undefined;
     this.geometry = { ...f, measurements: [] };
-    return this.edge();
+    return this.edge(fill.velocity ?? 0);
   }
   // ------------------------------------------------ scrollIntoView (into_view.rs)
   /** A key's row identity here, or why it is refused (LLP 1070.000 §2.2);
@@ -745,9 +779,16 @@ class Collection {
     if (p === undefined) return this.end("cancelled");
     if (!g) return;
     const desired = this.aligned(p, t.align, reported, t.offset);
-    const first = Math.min(this.mounted[0]?.position ?? p, p);
+    // The run of mounted rows that reaches it, and each mounted row before
+    // that run alone: the rows between a kept row and the window are never
+    // measured (into_view.rs `settle_target`).
+    let first = p, joined = true, others = true;
+    for (const q of this.mounted.map(m => m.position).filter(q => q < p).sort((a, b) => b - a)) {
+      if (joined && q + 1 === first) first = q;
+      else { joined = false; others &&= this.index.measured(this.index.order[q]); }
+    }
     if (Math.abs(desired - reported) <= 0.5) {
-      t.aligned = this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
+      t.aligned = others && this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
       if (t.aligned >= 2) this.end("done");
       return;
     }
@@ -757,19 +798,24 @@ class Collection {
     this.correction = { scrollSequence: g.scroll_sequence, offset: desired };
     t.reports++;
   }
-  edge() {
+  disarm(i) { this.edgeArmed[i] = false; this.edgeFired[i] = this.index.order[i ? this.index.len - 1 : 0] ?? null; }
+  edge(velocity) {
     const reached = [false, false], g = this.geometry;
     if (g && this.index.len) {
-      const w = this.index.window(g.offset, g.port_main);
-      const n = this.index.len - 1;
-      reached[0] = w.segments.some(r => 0 >= r[0] && 0 < r[1]);
-      reached[1] = w.segments.some(r => n >= r[0] && n < r[1]);
-      if (!(this.edgeArmed[0] && this.edgeArmed[1]) && this.index.rangeMeasured(...w.overscan)) for (const i of [0, 1]) this.edgeArmed[i] ||= !reached[i];
+      // Reached within the edge band; re-armed outside it, or outside the band at rest once the edge's row is
+      // another than the one it fired at, and only once the window at rest (one port each side) is measured (reach.rs).
+      const w = this.index.window(g.offset, g.port_main), n = this.index.len - 1;
+      const within = band => { const s = this.index.window(g.offset, g.port_main, band).segments; return [0, n].map(e => s.some(r => e >= r[0] && e < r[1])); };
+      [reached[0], reached[1]] = within(reachBand(this.reach, g.port_main, velocity));
+      if (!(this.edgeArmed[0] && this.edgeArmed[1]) && this.index.rangeMeasured(...w.overscan)) {
+        const rest = within(reachBand(this.reach, g.port_main, 0));
+        for (const i of [0, 1]) this.edgeArmed[i] ||= !reached[i] || (this.edgeFired[i] !== this.index.order[i ? n : 0] && !rest[i]);
+      }
     }
     const ready = [0, 1].map(i => reached[i] && this.edgeArmed[i] && !!this.edges[i]);
     const i = ready.indexOf(true);
     if (i < 0) return null;
-    this.edgeArmed[i] = false;
+    this.disarm(i);
     return { first: i, endAfterNoop: ready[0] && ready[1] };
   }
 }
@@ -797,6 +843,14 @@ export function vl(el, subject, key, row, o) {
   onEnd(() => Lists.delete(c.view));
   let first = true;
   if (o.follow) effect(() => { c.followEnd = !!o.follow(); });
+  // A changed set mounts its rows and lets the others go after the commit,
+  // in the update's pass when the data changed too (mod.rs `update_data`).
+  if (o.keep) effect(() => {
+    const keys = keepIdents(o.keep());
+    if (keys.join("\0") === c.keepKeys.join("\0")) return;
+    c.keepKeys = keys;
+    if (!first) Remount.add(c);
+  });
   // The keys are read here, so a key's other inputs rerun the update too.
   effect(() => {
     const items = subject(), idents = [], dups = new Map(), unique = new Set();
@@ -866,7 +920,19 @@ function release() {
     else if (!inactive(c.el)) { Held.delete(c); for (const m of c.mounted) m.epoch = ++c.nextEpoch; c.revision++; }
   }
 }
-After.push(() => { release(); wake(); publish(); });
+// Lists whose kept rows changed in a commit that left their data alone.
+const Remount = new Set();
+function remount() {
+  for (const c of Remount) if (Lists.has(c.view)) {
+    // The revision moves only when a kept row was not mounted (keep.rs `mounts`).
+    const mounted = new Set(c.mounted.map(m => m.key));
+    const mounts = c.keepKeys.some(k => c.index.pos.has(k) && !mounted.has(k));
+    c.realize(true, {});
+    if (mounts) c.revision++;
+  }
+  Remount.clear();
+}
+After.push(() => { remount(); release(); wake(); publish(); });
 function load() {
   if (Loading || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
@@ -908,7 +974,7 @@ function edges(c, edge) {
   }
   for (const [position, i] of [[0, edge.first], [1, 1]]) {
     if (position === 1 && (!endAfterNoop || !c.edgeArmed[1])) break;
-    if (position === 1) c.edgeArmed[1] = false;
+    if (position === 1) c.disarm(1);
     if (i === 1 && Deferred.some(d => d[0] === c)) { c.edgeArmed[1] = true; break; }
     const before = rev(), since = ticket();
     const ok = c.edges[i]();

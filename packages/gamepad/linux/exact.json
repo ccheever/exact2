@@ -1,0 +1,20 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/gamepad@^1.0",
+  "platform": "linux",
+  "targets": ["linux"],
+  "shapes": {
+    "LinuxGamepad": {
+      "driver": "string",
+      "vendor": "number",
+      "product": "number"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["lib.rs"] },
+  "artifacts": [],
+  "class": "Gamepad"
+}

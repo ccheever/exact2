@@ -102,6 +102,18 @@ extension Picker {
                         suggestedName: ruling["suggestedName"] as? String ?? "")
     }
 
+    /// `requestPermission(id, path, mode)` (LLP 1069.010.000 D7): the
+    /// runner's rule, then `granted` at `id` for a document that resolves
+    /// (a native host owns no permission a person could withhold), else `denied`.
+    func permission(_ args: [Any]) {
+        var request: [String: Any] = ["command": "requestPermission"]
+        for (key, value) in zip(["id", "path", "mode"], args) { request[key] = value }
+        let ruling = session.runtime.command(request)
+        guard let view = (ruling["view"] as? NSNumber)?.uint32Value, let path = ruling["path"] as? String else { return }
+        let granted = session.documentCall(["op": "documentPermission", "path": path])["granted"] as? Bool == true
+        session.apply(session.runtime.change(view, granted ? "granted" : "denied", now: session.now()))
+    }
+
     /// The agent's answer to a held picker: each path minted as a chosen
     /// file would be.
     func documentAnswered(_ reply: [String: Any], request: [String: Any]) {

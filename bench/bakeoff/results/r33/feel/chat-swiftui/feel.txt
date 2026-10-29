@@ -1,0 +1,25 @@
+dev.bakeoff.chat.b93358f: SwiftUI.HostingScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 22.28 s of motion
+  ok    hitch ratio (ms/s)                     2
+  tell  longest frame (ms)                     41.8
+  ok    main thread p95 (ms/frame)             4.14
+  ok    tracking ratio                         1.009
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       501
+  ok    momentum hand-off (content/asked)      1.04
+  ok    flings that drop a frame at the lift   0/4
+  bad   offset jumps while decelerating        3
+  n/a   edge bounce settle (s)                 –
+  n/a   rubber band (overscroll/finger)        –
+  n/a   rubber band settle (s)                 –
+  tell  status-bar scroll to top (s)           1.18
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  ok    scrub: hitch ratio (ms/s)              0
+  ok    scrub: longest frame (ms)              16.7
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  14 ok, 2 tell, 1 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 2):
+    fling-1500: 1 late frame (0 on a timer's tick), 25 ms late; app code 20 ms (in SwiftUI 15) · SwiftUI 5 ms; in display links and ports 18 ms
+    status-bar: 1 late frame (0 on a timer's tick), 20 ms late; app code 20 ms (in SwiftUI 8) · SwiftUI 12 ms; in display links and ports 23 ms

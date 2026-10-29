@@ -1,0 +1,28 @@
+dev.bakeoff.podcasts.b5145a3: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 22.6 s of motion
+  ok    hitch ratio (ms/s)                     3.7
+  tell  longest frame (ms)                     41.3
+  ok    main thread p95 (ms/frame)             5.24
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       505
+  ok    momentum hand-off (content/asked)      0.99
+  tell  flings that drop a frame at the lift   1/4
+  tell  offset jumps while decelerating        1
+  ok    edge bounce settle (s)                 0.68
+  ok    rubber band (overscroll/finger)        0.47
+  ok    rubber band settle (s)                 0.54
+  ok    status-bar scroll to top (s)           0.41
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              272
+  bad   scrub: longest frame (ms)              118.5
+  bad   scrub: blank samples (share)           0.167
+  ok    scrub: blanks while held (share)       0
+  14 ok, 3 tell, 3 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 3.7):
+    slow-drag: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 13 ms (in UIKit 13); in display links and ports 13 ms
+    fling-partway: 3 late frames (0 on a timer's tick), 50 ms late; Exact host 38 ms (in UIKit 22) · Exact runtime (main waits on exact.owner) 3 ms; in display links and ports 22 ms, the main queue 17 ms, events 3 ms
+    fling-for-tap: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 21 ms (in UIKit 10); in display links and ports 13 ms, the main queue 8 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 23 late frames (0 on a timer's tick), 929 ms late; Exact host 1471 ms (in UIKit 1189) · Exact runtime (main waits on exact.owner) 68 ms · Exact runtime 31 ms; in events 1052 ms, display links and ports 436 ms, the main queue 102 ms

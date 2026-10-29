@@ -1,0 +1,18 @@
+{
+  "_comment": "LLP 1121 stage 14 C2: icon source forms (after `symbol:`) and what exact_kernel::Icon::parse reads from each (null: no icon). contract/cli/tests/it/icon_forms.rs holds Icon::parse to it, and host/web/tests/symbol-hole.test.mjs holds the JS target's iconForm (host/web-js/symbols.js), its JavaScript mirror, to the same cases.",
+  "cases": [
+    ["icon||0 0 24 24|M0 0h4v4H0Z|icons/a.svg", { "sf": "", "view_box": "0 0 24 24", "path": "M0 0h4v4H0Z", "svg": "icons/a.svg", "even_odd": false }],
+    ["icon|heart|0 0 24 24|evenodd:M0 0h4v4H0Z;M1 1h2v2H1Z|icons/r.svg", { "sf": "heart", "view_box": "0 0 24 24", "path": "M0 0h4v4H0Z;M1 1h2v2H1Z", "svg": "icons/r.svg", "even_odd": true }],
+    ["icon||0 0 24 24||icons/two.svg", { "sf": "", "view_box": "0 0 24 24", "path": "", "svg": "icons/two.svg", "even_odd": false }],
+    ["icon||0 0 24 24|M0 0h1Z|a|b.svg", { "sf": "", "view_box": "0 0 24 24", "path": "M0 0h1Z", "svg": "a|b.svg", "even_odd": false }],
+    ["icon||0 0 24 24|:M0 0h1Z|x.svg", null],
+    ["icon||0 0 24 24|winding:M0 0h1Z|x.svg", null],
+    ["icon||0 0 24 24|nonzero:M0 0h1Z|x.svg", null],
+    ["icon||0 0 24 24|evenodd:|x.svg", null],
+    ["icon||0 0 24 24|evenodd:   |x.svg", null],
+    ["icon||0 0 24 24|evenodd:evenodd:M0 0h1Z|x.svg", null],
+    ["icon||0 0 24 24|EvenOdd:M0 0h1Z|x.svg", null],
+    ["icon||0 0 24 24", null],
+    ["icon||0 0 24 24|M0 0h1Z", null]
+  ]
+}

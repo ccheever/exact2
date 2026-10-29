@@ -73,7 +73,7 @@ impl<'a, B: Brush> Line<'a, B> {
     }
 
     /// Returns an iterator over the non-glyph runs and inline boxes for the line.
-    pub(crate) fn items_nonpositioned(&self) -> impl Iterator<Item = LineItem<'a, B>> + Clone {
+    pub fn items_nonpositioned(&self) -> impl Iterator<Item = LineItem<'a, B>> + Clone {
         let copy = self.clone();
         let line_items = &copy.layout.data.line_items[self.data.item_range.clone()];
         line_items
@@ -152,8 +152,10 @@ impl LineMetrics {
 
 /// A line item and its corresponding data (a run or inline box). Unlike a
 /// [`PositionedLayoutItem`], runs are not guaranteed to be split by style.
-pub(crate) enum LineItem<'a, B: Brush> {
+pub enum LineItem<'a, B: Brush> {
+    /// A run of text.
     Run(Run<'a, B>),
+    /// An inline box.
     InlineBox(&'a InlineBox),
 }
 

@@ -678,7 +678,7 @@ function listen(entry) {
   // A pointer-owned control may coexist with a focused editor outside this canvas.
   const pressedKey = (event, down) => {
     if (event.exactFlowCapture) return;
-    if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || !["Space", "Enter", "NumpadEnter"].includes(event.code)) return;
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.metaKey || event.ctrlKey || !["Space", "Enter", "NumpadEnter"].includes(event.code)) return; // an input method's key, as input-glue.js's
     cancelRemoved(); entry.resampleHeld();
     const owner = controlKeys.get(event.code) ?? (down ? controls.values().next().value : null);
     if (!owner) return;
@@ -694,7 +694,7 @@ function listen(entry) {
   window.addEventListener("keyup", pressedUp, true);
   on("keydown", event => {
     const target = event.target instanceof Element ? event.target : null;
-    if (event.defaultPrevented || event.isComposing || event.code === "Tab" || editable(target)) return;
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.code === "Tab" || editable(target)) return;
     // The focused game's own canvas owns Ctrl/Meta chords (RTS control groups).
     // An editor or ordinary HUD control keeps its browser shortcuts.
     if (event.metaKey || event.ctrlKey) {

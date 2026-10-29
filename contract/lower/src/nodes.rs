@@ -130,6 +130,7 @@ impl Lowerer<'_> {
         decorations::check_field(tag, expanded)?;
         atoms::check_field(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
+        menus::check_menu_keys(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         menus::check_invoker(tag, expanded)?;
         crate::alert_parts::check_authored(expanded)?;
@@ -154,6 +155,46 @@ impl Lowerer<'_> {
         let expanded = boxed.as_deref().unwrap_or(expanded);
         self.check_svg(tag, parent_tag, expanded, *span)?;
         shorthands::check_text_box(tag, parent_tag, expanded)?;
+        // @ref LLP 1011.002 D3 — the one box `vertical-align` moves.
+        let inline_image = tag == "image" && matches!(parent_tag, Some("text"));
+        if inline_image {
+            // Its box takes lengths alone, not the sizes it would resolve
+            // against a containing block (LLP 1011.002 §"Not built").
+            // A literal percentage, or one a choice may take.
+            fn percent(e: &contract_syntax::Expr) -> bool {
+                use contract_syntax::Expr;
+                match e {
+                    Expr::Str(t, _) => t.contains('%'),
+                    Expr::Ternary(_, yes, no, _) => percent(yes) || percent(no),
+                    Expr::Match { some, none, .. } => percent(some) || percent(none),
+                    Expr::Let { body, .. } => percent(body),
+                    _ => false,
+                }
+            }
+            if let Some(a) = expanded.iter().find(|a| {
+                matches!(
+                    a.name.as_str(),
+                    "min-width" | "max-width" | "min-height" | "max-height"
+                ) || matches!(a.name.as_str(), "width" | "height") && percent(&a.value)
+            }) {
+                return err(
+                    "lower-attr-value",
+                    format!("`{}` on an `image` in a paragraph's text: its box takes a length `width` and `height`, no percentage and no min or max size", a.name),
+                    a.span,
+                );
+            }
+        }
+        if let Some(a) = expanded.iter().find(|a| a.name == "vertical-align") {
+            if !inline_image {
+                return err(
+                    "lower-attr-tag",
+                    format!(
+                        "`vertical-align` aligns an `image` in a paragraph's text, not `{tag}`"
+                    ),
+                    a.span,
+                );
+            }
+        }
         // @ref LLP 1034 §8 — an inline run paints in its paragraph's
         // scheme: no host gives a run an appearance of its own.
         if matches!(tag.as_str(), "text" | "time") && matches!(parent_tag, Some("text" | "time")) {
@@ -208,7 +249,7 @@ impl Lowerer<'_> {
         let (expanded, children) = match grouped {
             Some(style) => {
                 listed = [grouped::list_rows(style, *span), expanded.to_vec()].concat();
-                sections = Some(grouped::sections(style, children)?);
+                sections = Some(grouped::sections(style, children, &|a| self.class_rows(a))?);
                 (
                     listed.as_slice(),
                     sections.as_deref().expect("sections just set"),
@@ -703,7 +744,9 @@ impl Lowerer<'_> {
                 .iter()
                 .filter(|a| native::leftover(tag, a))
                 .collect();
-            if let Err(e) = self.native_bindings(tag, &rest, scope, locals, &mut bindings) {
+            let made =
+                self.native_bindings(tag, &rest, scope, locals, &mut bindings, &mut handlers);
+            if let Err(e) = made {
                 self.errors.push(e);
             }
             if let Some(origins) = &mut origins {
@@ -753,20 +796,58 @@ impl Lowerer<'_> {
         if t.node_type.is_text_leaf() {
             // Regions have no node of their own: a dynamic Markdown
             // paragraph's each/when still produces only text runs.
-            fn run(c: &Node) -> bool {
+            // An image in the text is the paragraph's own child (LLP
+            // 1011.002), never a run's: its box is placed in the paragraph.
+            fn run(c: &Node, images: bool) -> bool {
                 match c {
-                    Node::Element { tag, .. } => matches!(tag.as_str(), "text" | "time"),
-                    Node::Each { body, .. } => body.iter().all(run),
+                    Node::Element { tag, .. } => {
+                        matches!(tag.as_str(), "text" | "time") || images && tag == "image"
+                    }
+                    Node::Each { body, .. } => body.iter().all(|c| run(c, images)),
                     Node::When {
                         then, otherwise, ..
-                    } => then.iter().chain(otherwise).all(run),
+                    } => then.iter().chain(otherwise).all(|c| run(c, images)),
                     _ => false,
                 }
             }
-            if let Some(bad) = children.iter().find(|c| !run(c)) {
+            // A `text` that holds runs, not a string or a `time` value.
+            let paragraph = !matches!(parent_tag, Some("text" | "time"))
+                && tag == "text"
+                && positional.is_empty()
+                && !expanded.iter().any(|a| a.name == "text");
+            // Columns lay a paragraph's lines out apart, which an image's
+            // place is not read from (LLP 1011.002, "Not built").
+            fn has_image(c: &Node) -> bool {
+                match c {
+                    Node::Element { tag, .. } => tag == "image",
+                    Node::Each { body, .. } => body.iter().any(has_image),
+                    Node::When {
+                        then, otherwise, ..
+                    } => then.iter().chain(otherwise).any(has_image),
+                    _ => false,
+                }
+            }
+            let columns = expanded
+                .iter()
+                .find(|a| matches!(a.name.as_str(), "columns" | "column-count" | "column-width"));
+            if let (Some(a), true) = (columns, children.iter().any(has_image)) {
+                return err(
+                    "lower-attr-tag",
+                    format!(
+                        "`{}`: a multi-column `text` holds no `image` in its text",
+                        a.name
+                    ),
+                    a.span,
+                );
+            }
+            if let Some(bad) = children.iter().find(|c| !run(c, paragraph)) {
                 return err(
                     "lower-leaf-children",
-                    "a text paragraph holds `text` or `time` runs",
+                    if paragraph {
+                        "a text paragraph holds `text` or `time` runs and `image`s"
+                    } else {
+                        "this holds `text` or `time` runs; an `image` is the child of a `text` paragraph that holds runs alone"
+                    },
                     bad.span(),
                 );
             }
@@ -887,6 +968,7 @@ impl Lowerer<'_> {
             let mut site = sites::node_site(
                 *span,
                 *instance,
+                parent.map(|p| p.0).or(self.site_parent),
                 button,
                 &bindings,
                 origins.as_deref().expect("site origins"),

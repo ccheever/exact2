@@ -3,6 +3,7 @@
 // LAN clients can read plans, errors and generations (LLP 1023 D8); the agent
 // carrier and installer stay loopback-only. Games serve HTTP during the first build.
 import { buildingServer } from '../../game/dev.mjs';
+import { failedPhase, phased } from './dev-phase.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 let tuning = null;
 import { createHash, randomBytes } from 'node:crypto';
@@ -210,7 +211,7 @@ const toolingEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target };
 const reflectBin = resolve(app.target, 'debug/exact-gpu-reflect');
 function reflectShaders(tree) {
   if (!existsSync(reflectBin)) {
-    const built = spawnSync('cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: root, env: toolingEnv, stdio: 'inherit' });
+    const built = phased('the GPU tools (exact-gpu-reflect)', 'cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: root, env: toolingEnv });
     if (built.status !== 0) throw new Error(`exact-gpu-reflect did not build (exit ${built.status ?? built.signal})`);
   }
   return shaderInterfaceDigests(tree, reflectBin);
@@ -224,12 +225,11 @@ for (const [from, to] of assetTrees.filter(([,to]) => to !== 'shaders')) {
   const present = syncStaticTree(from, resolve(dist, to), to === 'shaders' ? (candidate) => { reflected = reflectShaders(candidate); } : null);
   if (present && to === 'shaders') for (const [name, digest] of reflected) shaderDigests.set(name, digest);
 }
-
 applyShaderTreeChange(app, resolve(dist,'shaders'), candidate => { for (const [name,digest] of reflectShaders(candidate)) shaderDigests.set(name,digest); });
 const clients = new Set();
 let seq = 0;
 const pending = new Map(); // seq -> { saved, ready }
-const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
+const push = (data) => { if (data.error) failedPhase(data.error); for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
 // The live table (LLP 1121 stage 4): a value-only design edit publishes no
 // plan; its batch goes to every build, and its snapshot is kept for a build
 // that connects (or missed a batch) until the next plan.
@@ -699,7 +699,7 @@ function contractGraph() {
   } catch { return { files: new Set(), dirs: new Set(), shallow: [], sources: new Set() }; }
 }
 function startModuleCompiler() {
-  const built = spawnSync('cargo', ['build', '-q', '--release', '-p', 'exact-js-bake'], { cwd: root, env: toolingEnv, stdio: 'inherit' });
+  const built = phased('the module producer (exact-js-bake --release; the first run takes a few minutes)', 'cargo', ['build', '-q', '--release', '-p', 'exact-js-bake'], { cwd: root, env: toolingEnv });
   if (built.status !== 0) throw new Error('the module producer did not build');
   const scratch = resolve(app.target, 'module-dev');
   mkdirSync(scratch, { recursive: true });

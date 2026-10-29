@@ -591,11 +591,12 @@ mod tests {
 
 // @ref LLP 0068.001#3-chosen-document-provider — one provider contract for both doors.
 pub use super::documents::{
-    run_document, DocumentAccess, DocumentError, DocumentErrorKind, DocumentLease, Documents,
-    DOCUMENT_PREFIX,
+    copy_document, run_document, DocumentAccess, DocumentError, DocumentErrorKind, DocumentLease,
+    Documents, DOCUMENT_PREFIX,
 };
 
-/// Dispatch with an optional chosen-document service. Mixed namespaces refuse.
+/// Dispatch with an optional chosen-document service. Mixed namespaces
+/// refuse, except `copyFile` from a document into an app file.
 #[allow(clippy::too_many_arguments)]
 pub fn run_with_documents(
     grants: &GrantSet,
@@ -607,6 +608,11 @@ pub fn run_with_documents(
     data: Option<&[u8]>,
 ) -> Result<FsResult, HostError> {
     if path.starts_with("doc:") || destination.is_some_and(|p| p.starts_with("doc:")) {
+        if let (FsOp::CopyFile, true, Some(to)) = (op, path.starts_with("doc:"), destination) {
+            if to.starts_with("app:") {
+                return copy_document(grants, directories, documents, path, to);
+            }
+        }
         if destination.is_some() {
             return Err(HostError::Failed(
                 "unsupported: two-path document operation".into(),

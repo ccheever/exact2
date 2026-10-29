@@ -115,6 +115,12 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     // LLP 1105 D6: UIKit asks a presented controller that covers the screen;
     // it answers the presenter's one resolved style, as the root does.
     override var preferredStatusBarStyle: UIStatusBarStyle { host?.presenter.statusBar.style ?? .default }
+    // LLP 1133.029 D5: and the session's orientation lock, as the root does.
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        host?.presenter.orientationLock.supported ?? super.supportedInterfaceOrientations
+    }
+    @available(iOS 26, *)
+    override var prefersInterfaceOrientationLocked: Bool { host?.presenter.orientationLock.locked ?? false }
     #endif
     private var backdropTap: UITapGestureRecognizer?
     /// Each appearance, the first and one after a cancelled interactive dismissal.
@@ -686,9 +692,11 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         let guarded = zoomGuard === controller
         zoomGuard = nil
         defer { if owner.presentedViewController !== controller { endPress(layer) } } // UIKit refused it
+        HostLog.note(presenter.session, "presentation: presenting the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
         owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer, weak controller] in
             if guarded { UIView.performWithoutAnimation { controller?.view.alpha = 1 } }
             guard let self, let layer else { return }
+            HostLog.note(presenter.session, "presentation: presented the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
             layer.presenting = false
             #if os(iOS)
             // Up: what the bar sits over now (LLP 1105 D5).
@@ -781,6 +789,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             }
         }
         if !layer.alreadyDismissed, let owner = layer.controller.presentingViewController {
+            HostLog.note(presenter.session, "presentation: dismissing the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
             // Dismissing the route itself would dismiss only what it presents.
             owner.dismiss(animated: layer.animated, completion: completion)
         } else { completion() }
@@ -804,6 +813,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         guard let layer = layers.last, layer.controller === presentationController.presentedViewController else { return }
+        HostLog.note(presenter.session, "presentation: the person dismissed the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
         closing = true
         presenter.cancelPendingFocus()
         layer.presenting = false

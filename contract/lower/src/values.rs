@@ -534,6 +534,12 @@ fn style_value(
             if rows.contains(&StyleId::TextWrapStyle) && matches!(v.trim(), "pretty" | "stable") {
                 return err("lower-attr-value", format!("`{}=\"{v}\"`: exact2 implements `auto` and `balance`; Chrome's `pretty` and `stable` line breakers are not implemented on the native hosts. Use `auto` for ordinary wrapping", a.name), span);
             }
+            // @ref LLP 1019 D12: WebKit's keywords no native host draws.
+            if rows.contains(&StyleId::FontSmoothing)
+                && matches!(v.trim(), "none" | "subpixel-antialiased")
+            {
+                return err("lower-attr-value", format!("`{}=\"{v}\"`: exact2 implements `auto` and `antialiased`; `none` (aliased glyphs) and `subpixel-antialiased` are not implemented. `auto` is the platform's own smoothing", a.name), span);
+            }
             // @ref LLP 1034 §8: `light` or `dark`. CSS's `normal` means the
             // page's schemes, not the parent's, and `light dark` and `only`
             // ask a browser to choose: none is implemented; leaving the
@@ -994,6 +1000,7 @@ pub(crate) fn check_prop_value(
         PropId::NavigationGrabber => Some((&["visible", "hidden", "auto"], "`navigationGrabber` takes \"visible\", \"hidden\" or \"auto\" (the default: the platform's, a grabber on a sheet with several detents)")),
         PropId::FocusGuide => Some((&["auto"], "`focusGuide` takes \"auto\"")),
         PropId::Wakelock => Some((&["screen", "none"], "`wakelock` takes \"screen\" (the display stays awake while this element is displayed) or \"none\" (the default)")),
+        PropId::Orientationlock => Some((&["portrait", "landscape", "portrait-primary", "portrait-secondary", "landscape-primary", "landscape-secondary", "natural", "any", "current", "none"], "`orientationlock` takes a Screen Orientation API lock type (\"portrait\", \"landscape\", \"portrait-primary\", \"portrait-secondary\", \"landscape-primary\", \"landscape-secondary\", \"natural\", \"any\"), \"current\" (the orientation the window has when the lock begins) or \"none\" (the default)")),
         PropId::AccessibilityLive => Some((&["off", "polite", "assertive"], "`aria-live` takes \"off\", \"polite\" or \"assertive\"")),
         _ => None,
     };

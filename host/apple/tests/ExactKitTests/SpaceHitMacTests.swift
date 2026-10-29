@@ -43,6 +43,17 @@ final class SpaceHitMacTests: XCTestCase {
         parent.hitTest(parent.superview!.convert(NSPoint(x: x, y: y), from: parent))
     }
 
+    func testPlainBoundsRejectionPreservesOverflowAndClipping() {
+        let (_, parent, child) = fixture(parent: [:], size: 100, child: [:], frame: [120, 10, 40, 40])
+        XCTAssertTrue(hit(parent, 130, 20) === child, "an unclipped parent's child can extend beyond its frame")
+        XCTAssertNil(child.hitTest(NSPoint(x: 170, y: 20)), "a plain leaf has no hit outside its frame")
+        XCTAssertTrue(child.hitTest(NSPoint(x: 130, y: 20)) === child)
+        parent.clipsToBounds = true
+        XCTAssertNil(hit(parent, 130, 20), "a clipped box excludes its overflowing child")
+        parent.clipsToBounds = false
+        XCTAssertTrue(hit(parent, 130, 20) === child, "removing clipping restores the child's hit")
+    }
+
     // Turned 60° about y under a 200 px perspective, the near (left) edge
     // stands at x ≈ 68 and runs y ≈ 36…164; the far (right) edge at x ≈ 121.
     func testATurnedBoxIsHitWhereItIsDrawn() {

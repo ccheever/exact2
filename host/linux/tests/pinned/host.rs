@@ -6,14 +6,19 @@
 //! wire.
 
 use crate::pin_font;
-use exact_kernel::{Kernel, NodeType, Op, PropId};
+use exact_kernel::NodeType;
+#[cfg(unix)]
+use exact_kernel::{Kernel, Op, PropId};
 use exact_linux::agent::handle;
+#[cfg(unix)]
 use exact_linux::image::Images;
 use exact_linux::paint::PaintedBox;
 use exact_linux::Presenter;
 use exact_runner::{DataError, DataSource, Value};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 fn assets() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"))

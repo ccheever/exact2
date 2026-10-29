@@ -10,6 +10,7 @@
 
 pub mod colors;
 pub mod compat;
+mod icon_rules;
 mod link;
 mod reach;
 mod receipt;

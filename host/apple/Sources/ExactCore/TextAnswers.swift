@@ -39,6 +39,11 @@ package enum TextAnswerKey {
         put(Int32(truncatingIfNeeded: space), &out)
         put(Int32(bitPattern: Float(indent).bitPattern), &out); put(Int32(truncatingIfNeeded: hyphens), &out)
     }
+    /// An image's box (LLP 1011.002), as a spec's run and a request's both carry it.
+    private static func box(_ width: Double, _ height: Double, _ align: Int, _ shift: Double, _ out: inout [UInt8]) {
+        out.append(3); put(width.bitPattern, &out); put(height.bitPattern, &out)
+        put(Int32(truncatingIfNeeded: align), &out); put(shift.bitPattern, &out)
+    }
     private static func finish(_ out: [UInt8]) -> Int {
         var h = Hasher()
         out.withUnsafeBytes { h.combine(bytes: $0) }
@@ -60,6 +65,7 @@ package enum TextAnswerKey {
             // A list item's lines start at its indent (LLP 1045 D4): only an
             // expanded Markdown spec has one, never a request's plain runs.
             if r.indent != 0 || r.hang { out.append(r.hang ? 2 : 1); put(single(r.indent).bitPattern, &out) }
+            if let b = r.box { box(single(b.width), single(b.height), b.align, single(b.shift), &out) }
         }
         out.append(spec.strut == nil ? 0 : 1)
         if let s = spec.strut {
@@ -93,6 +99,7 @@ package enum TextAnswerKey {
             put(Int32(truncatingIfNeeded: r.len), &out)
             out.append(contentsOf: UnsafeBufferPointer(start: r.text, count: r.len))
             run(r)
+            if r.inline_box != 0 { box(Double(r.box_width), Double(r.box_height), Int(r.box_align), Double(r.box_shift), &out) }
         }
         out.append(1)
         run(request.strut)

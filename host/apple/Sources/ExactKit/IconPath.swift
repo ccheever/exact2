@@ -8,9 +8,10 @@ import ExactCore
 
 extension NodeView {
     /// An icon path's image for this node `side` points square, when it has
-    /// one (`symbolPath`).
+    /// one (`symbolPath`), filled by its `symbolFillRule`.
     func iconPathImage(side: CGFloat) -> IconImage? {
         guard let commands = props["symbolPath"] else { return nil }
-        return IconPath.image(commands, viewBox: props["symbolViewBox"] ?? "", size: CGSize(width: side, height: side))
+        return IconPath.image(commands, viewBox: props["symbolViewBox"] ?? "", size: CGSize(width: side, height: side),
+                              rule: IconPath.rule(props["symbolFillRule"]))
     }
 }

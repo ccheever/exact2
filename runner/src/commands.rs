@@ -2,7 +2,7 @@
 //! that shows system UI (`exact_command` on the web and Apple): the
 //! runner's ruling, refused, held for the agent, or present it. `command`
 //! names which: `share` (LLP 1069.003), `saveFile` (LLP 1069.010 D3), the
-//! three pickers (D2), and `showNotification`/`closeNotification`.
+//! three pickers (D2) and `requestPermission` (LLP 1069.010.000 D7).
 
 use crate::agent::{error, field_str};
 use crate::{DataSource, Runner};
@@ -22,15 +22,14 @@ pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
             Some((save, _)) => save(runner, json),
             None => error("saveFile is not linked into this artifact"),
         },
-        Some("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
-            match links.documents {
-                Some((_, pick)) => pick(runner, json),
-                None => error("the file pickers are not linked into this artifact"),
-            }
-        }
-        Some("showNotification" | "closeNotification") => match links.notifications {
-            Some(request) => request(runner, json),
-            None => error("showNotification is not linked into this artifact"),
+        Some(
+            "showOpenFilePicker"
+            | "showDirectoryPicker"
+            | "showSaveFilePicker"
+            | "requestPermission",
+        ) => match links.documents {
+            Some((_, pick)) => pick(runner, json),
+            None => error("the file pickers are not linked into this artifact"),
         },
         Some(other) => error(&format!("no ruling for command {other}")),
         None => error("no command"),

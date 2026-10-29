@@ -196,6 +196,51 @@ final class AppAccentIOSTests: XCTestCase {
         XCTAssertEqual(rgb(try XCTUnwrap(p.controls.controls[3]).tintColor), [232, 28, 36], "the app's accent is back")
     }
 
+    /// A control whose `accent-color` is `AccentColor` resolves the tint it
+    /// inherits when it is configured: configured out of the window, as an
+    /// unselected tab's content is, it has UIKit's default, and in the window
+    /// it takes the app's accent there. Behind an alert it keeps the accent,
+    /// which UIKit dims.
+    func testAControlConfiguredOutOfTheWindowTakesTheAccentInIt() throws {
+        let p = presenter(view(1, style: ["accent_color": red]) + [["op": "roots", "ids": [1]]], faces: [2: tintedFace])
+        XCTAssertEqual(rgb(window.tintColor), [232, 28, 36])
+        p.viewport.removeFromSuperview()
+        p.apply(wireBatch(tintedButton(2) + [["op": "roots", "ids": [1, 2]]]))
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonIOS)
+        XCTAssertEqual(rgb(button.written?.accent), rgb(UIView().tintColor), "out of the window it has UIKit's default tint")
+        window.addSubview(p.viewport)
+        XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36], "in the window it takes the app's accent")
+        p.viewport.tintAdjustmentMode = .dimmed
+        XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36], "behind an alert it keeps the accent")
+        p.viewport.tintAdjustmentMode = .automatic
+        XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36])
+    }
+
+    /// A control that is leaving keeps the accent it had when the tint
+    /// changes: its owner left the tree, and the next sync would not
+    /// configure it either.
+    func testALeavingControlKeepsItsAccentWhenTheTintChanges() throws {
+        let p = presenter(view(1, style: ["accent_color": red]) + tintedButton(2) + [["op": "roots", "ids": [1, 2]]], faces: [2: tintedFace])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonIOS)
+        XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36])
+        p.apply(wireBatch([["op": "exit", "id": 2]]))
+        XCTAssertTrue(p.controls.controls[2] === button, "it draws until its exit ends")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["accent_color": [0, 122, 255, 255]]]]))
+        XCTAssertEqual(rgb(window.tintColor), [0, 122, 255])
+        XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36], "the leaving control is not configured again")
+    }
+
+    private var tintedFace: ButtonFace {
+        var face = ButtonFace(); face.title = "Try again"; face.style = "filled"; face.ios = "filled"; face.iosBefore26 = "filled"
+        return face
+    }
+    /// A native button whose accent is `AccentColor`.
+    private func tintedButton(_ id: Int) -> [[String: Any]] {
+        [["op": "create", "id": id, "kind": "control", "props": ["type": "button", "accessibilityRole": "button"], "handlers": ["press"],
+          "style": ["appearance": "auto", "accent_color": ["sys": "@tint", "c": [[0, 122, 255, 255], [10, 132, 255, 255]]]]],
+         ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 120.0, "h": 34.0]]
+    }
+
     func testASymbolsComputedColorUsesATemplateImage() throws {
         func symbol(_ id: Int, _ style: [String: Any]) -> [[String: Any]] {
             [["op": "create", "id": id, "kind": "image", "props": ["imageSource": "symbol:lock", "symbolName": "lock.fill"], "handlers": [],

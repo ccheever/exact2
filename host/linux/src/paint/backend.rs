@@ -1,6 +1,17 @@
 //! What the paint walk draws through.
 use super::*;
 
+/// The consumer of a completed paint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameTarget {
+    /// Return the complete image without presenting it to a window.
+    Pixels,
+    /// Present to the window, or return pixels for its carrier to present.
+    Window,
+    /// Refresh painted geometry without changing the visible window image.
+    Geometry,
+}
+
 /// UI below a split window canvas, with storage retained for its next repaint.
 pub enum WindowLayer {
     /// Pixels contain the complete painted layer.
@@ -50,8 +61,28 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
-    /// `"gpu"` or `"cpu"`.
+    /// Displayed-frame time since process creation, when the device exposes it.
+    /// Explicit measurement only: this may wait for the compositor.
+    #[cfg(windows)]
+    fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        Ok(None)
+    }
+    /// Attach the carrier's owned window when the device can present directly.
+    #[cfg(windows)]
+    fn attach_window(
+        &mut self,
+        _window: exact_ink::device::d3d11::Window,
+        _size: [u32; 2],
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
+    /// The selected backend's name.
     fn name(&self) -> &'static str;
+    /// Whether geometry queries must draw through this backend to keep its
+    /// recordings or native state current. Stateless raster backends may opt out.
+    fn needs_geometry_paint(&self) -> bool {
+        true
+    }
     /// The page's own colour, told before each frame begins: what a frame
     /// is cleared to, so an unset background is the platform's surface for
     /// the scheme and never white under a dark one (LLP 1115 D2; LLP
@@ -62,6 +93,10 @@ pub trait Backend {
     /// A new frame of this size in points at this scale, cleared to the
     /// page's colour ([`Backend::page`]; white until one is told).
     fn begin(&mut self, width: f32, height: f32, scale: f32);
+    /// Release idle renderer storage on memory pressure or backgrounding.
+    fn trim(&mut self) {}
+    /// Storage from a presented frame after its last reader releases it.
+    fn recycle_frame(&mut self, _pixels: Pixmap) {}
     /// Seed a clipped repaint from an accepted frame; false means full repaint.
     fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {
         false
@@ -198,9 +233,24 @@ pub trait Backend {
     fn pointer(&mut self, x: f32, y: f32);
     /// The frame's pixels.
     fn finish(&mut self) -> Result<Pixmap, String>;
+    /// Complete a paint for its consumer. `Pixels` requires an image; `Window`
+    /// permits `None` only after successful presentation. `Geometry` may omit
+    /// pixels, but must not present. CPU backends can keep their ordinary path.
+    fn finish_for(&mut self, _target: FrameTarget) -> Result<Option<Pixmap>, String> {
+        self.finish().map(Some)
+    }
     /// Whether this backend keeps rows' recordings ([`rows`]).
     fn rows(&self) -> bool {
         false
+    }
+    /// Whether recordings can be made at the local origin. Device-rasterized
+    /// text needs the viewport origin to preserve its hinting phase.
+    fn row_local(&self) -> bool {
+        true
+    }
+    /// Whether a retained recording remains usable at this viewport origin.
+    fn row_reusable(&self, _id: u32, _origin: (f32, f32)) -> bool {
+        true
     }
     /// Record row `id`, whose ops are relative to `origin` (viewport points;
     /// zero when the row is walked in its own coordinates); the row was
@@ -261,5 +311,25 @@ pub trait Backend {
     /// backend that has them.
     fn last_frame_ms(&self) -> Option<(f64, f64)> {
         None
+    }
+}
+
+impl super::Painter {
+    #[cfg(windows)]
+    pub(crate) fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        self.backend.displayed_process_ms()
+    }
+    #[cfg(windows)]
+    pub(crate) fn attach_window(
+        &mut self,
+        window: exact_ink::device::d3d11::Window,
+        size: [u32; 2],
+    ) -> Result<bool, String> {
+        self.backend.attach_window(window, size)
+    }
+
+    /// Release idle renderer storage while preserving kept rows.
+    pub fn trim(&mut self) {
+        self.backend.trim();
     }
 }

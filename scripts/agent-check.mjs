@@ -155,8 +155,9 @@ export function judge(obs, png, { host = 'web' } = {}) {
   // it): neither holds the other and they share more than a sliver of what is presented of each (`vis`: a row its list
   // or scroller cuts overlaps nothing past that edge, LLP 1116.006 D5).
   const controls = items.filter((it) => it.control && !it.inline);
+  // A list's section header (`pinned`) lies over the rows passing under it, as UIKit pins it: no overlap.
   for (const a of controls) for (const b of items) {
-    if (a === b || !(b.control || b.text) || (b.control && b.id < a.id && controls.includes(b))) continue;
+    if (a === b || !(b.control || b.text) || b.pinned || (b.control && b.id < a.id && controls.includes(b))) continue;
     if (!b.control && (b.of === a.id || controls.some((c) => c !== a && holds(c, b)))) continue; // its own label, or another control's
     const i = inter(shown(a, obs.keyboard), b.control ? shown(b, obs.keyboard) : drawn(b));
     if (i.w >= 2 && i.h >= 2 && !holds(a, b) && !holds(b, a)) add('overlap', a, { with: b.id, by: [r0(i.w), r0(i.h)] }, 'give them room (a gap, or let the row wrap)');
@@ -170,7 +171,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
   // `beneath`, `on` and `solid`; a label running past its bar's edge still meets the row outside it).
   const hides = (top, below, i) => below.beneath != null && top.on === below.beneath.by && top.solid && holds(below.beneath, i);
   for (const [k, a] of texts.entries()) for (const b of texts.slice(k + 1)) {
-    if (holds(a, b) || holds(b, a)) continue;
+    if (holds(a, b) || holds(b, a) || a.pinned || b.pinned) continue;
     const da = drawn(a), db = drawn(b);
     if (da.w <= 0 || da.h <= 0 || db.w <= 0 || db.h <= 0) continue;
     const i = inter(da, db), meet = { x: Math.max(da.x, db.x), y: Math.max(da.y, db.y), w: i.w, h: i.h };

@@ -287,6 +287,8 @@ pub fn import_with(
     design: &Design,
     vocab: &crate::Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
+    // Its work charged to one import's budget, as DTCG's and Pencil's is.
+    let _work = crate::budget::Work::begin(crate::budget::IMPORT);
     super::bounded(import_with_unbounded(css, prefix, design, vocab))
 }
 

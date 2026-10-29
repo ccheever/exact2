@@ -12,13 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-/// Chosen documents use the selected directory's owned Windows handle.
-pub(crate) fn document(
-    root: &File,
-    path: &str,
-    op: FsOp,
-    data: Option<&[u8]>,
-) -> io::Result<FsResult> {
+fn document_parts(path: &str) -> io::Result<Vec<&str>> {
     let parts: Vec<_> = if path.is_empty() {
         Vec::new()
     } else {
@@ -27,6 +21,29 @@ pub(crate) fn document(
     for part in &parts {
         windows_directory::validate_name(part)?;
     }
+    Ok(parts)
+}
+/// A chosen document's regular file at `path` beneath `root`, opened for
+/// reading as `readFile` opens it.
+pub(crate) fn document_file(root: &File, path: &str) -> io::Result<File> {
+    let parts = document_parts(path)?;
+    let (leaf, ancestors) = parts
+        .split_last()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::IsADirectory, "EISDIR"))?;
+    let mut parent = Directory::selected(root)?;
+    for part in ancestors {
+        parent = parent.child(part, false)?;
+    }
+    parent.document_file(leaf)
+}
+/// Chosen documents use the selected directory's owned Windows handle.
+pub(crate) fn document(
+    root: &File,
+    path: &str,
+    op: FsOp,
+    data: Option<&[u8]>,
+) -> io::Result<FsResult> {
+    let parts = document_parts(path)?;
     let mut parents = vec![Directory::selected(root)?];
     if op == FsOp::Mkdir {
         for part in parts {
@@ -206,6 +223,35 @@ impl AppDirectories {
         validate_sqlite_location(&physical)?;
         Ok(physical)
     }
+    /// `copyFile` into the app file `destination` from a file `source` opens
+    /// outside the app's directories, a chosen document's: `destination` is
+    /// admitted under `fs.write` before `source` runs, and `source`'s guard
+    /// lives until the copy is done.
+    pub(crate) fn copy_in<G>(
+        &self,
+        grants: &GrantSet,
+        destination: &str,
+        source: impl FnOnce() -> Result<(File, G), HostError>,
+    ) -> Result<FsResult, HostError> {
+        self.parse(destination)?;
+        crate::boundary::admit(
+            grants,
+            &Operation::FsWrite {
+                path: destination.into(),
+            },
+        )?;
+        let (parent, leaf) = self.parent(destination)?;
+        let (mut source, _guard) = source()?;
+        let mut target = parent
+            .file(&leaf, libc::O_WRONLY | libc::O_CREAT)
+            .map_err(error)?;
+        if identity(&source).map_err(error)? == identity(&target).map_err(error)? {
+            return Err(error("copy requires distinct regular files"));
+        }
+        target.set_len(0).map_err(error)?;
+        io::copy(&mut source, &mut target).map_err(error)?;
+        Ok(FsResult::Done)
+    }
     pub(crate) fn run(
         &self,
         grants: &GrantSet,
@@ -325,6 +371,69 @@ pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostEr
 #[cfg(test)]
 #[path = "app_fs_windows_tests.rs"]
 mod tests;
+
+/// An app file written in pieces beside its target and put in its place
+/// whole (Exact local patch 19): the staging file is removed unless
+/// [`Staged::publish`] renames it over the target.
+pub struct Staged {
+    parent: Directory,
+    leaf: String,
+    temp: String,
+    file: Option<File>,
+}
+impl AppDirectories {
+    /// Admit `fs.write` on `path` and create its staging file in the pinned
+    /// parent. A missing parent, or a target that is not a regular file, is
+    /// refused before anything is written.
+    pub fn stage(&self, grants: &GrantSet, path: &str) -> Result<Staged, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
+        let (parent, leaf) = self.parent(path)?;
+        match parent.kind(&leaf) {
+            Ok(kind) if !kind.regular => return Err(error("write needs a regular file")),
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(error(e)),
+            _ => {}
+        }
+        let temp = format!(".exact-{}.partial", token().map_err(error)?);
+        let file = parent
+            .file(&temp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)
+            .map_err(error)?;
+        Ok(Staged {
+            parent,
+            leaf,
+            temp,
+            file: Some(file),
+        })
+    }
+}
+impl Staged {
+    pub fn write_all(&mut self, bytes: &[u8]) -> Result<(), HostError> {
+        match self.file.as_mut() {
+            Some(file) => file.write_all(bytes).map_err(error),
+            None => Err(error("staged file already published")),
+        }
+    }
+    /// Sync the staging file and rename it over the target.
+    pub fn publish(mut self) -> Result<(), HostError> {
+        let file = self
+            .file
+            .take()
+            .ok_or_else(|| error("staged file already published"))?;
+        file.sync_all().map_err(error)?;
+        self.parent.rename(&file, &self.leaf).map_err(error)?;
+        drop(file);
+        self.temp.clear();
+        Ok(())
+    }
+}
+impl Drop for Staged {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        if !self.temp.is_empty() {
+            let _ = self.parent.unlink(&self.temp);
+        }
+    }
+}
 
 pub(crate) struct AtomicTarget {
     parent: Directory,

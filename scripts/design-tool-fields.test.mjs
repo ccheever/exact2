@@ -37,10 +37,11 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     const id = review.proposal, nth = k => id.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
     const [edited, kept] = [nth(1), nth(2)];
     // Tick AccentColor, leave shadcn.foreground out, and edit one value: the
-    // edit holds again what the card had chosen, with the edit, its
-    // AccentColor on. Untick it there and Accept: the server recomputes
-    // without it (nothing written), and that is accepted as one
-    // transaction; one Undo gives the bytes back.
+    // edit holds the import again whole, with the edit, every override still
+    // offered (third pass #6), the card's choice carried to it (AccentColor
+    // ticked, shadcn.foreground left out). Untick AccentColor there and Accept:
+    // the server recomputes without it (nothing written), and that is accepted
+    // as one transaction; one Undo gives the bytes back.
     const more = await drive(tool.url, `design-tool-import-${process.pid}`, [
       'clock data', 'clock +1', 'clock data',
       `tap override-${id}-AccentColor`, `tap take-${id}-1`,
@@ -54,10 +55,17 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     ], { keepStorage: true });
     const later = more.filter(r => r.resources);
     const after = later[0].resources.changes.held.find(h => h.proposal === edited);
+    // (it begins from the choice the edit carried, recorded on the server, tamber/1.18: `kept`, the card's heading)
     expect(after).toMatchObject({ from: id, kept: true });
     expect(after.mapped[0].modes[0].value).toBe('light-dark(oklch(0.99 0 0), oklch(0.145 0 0))');
-    expect(after.mapped.map(m => m.name)).not.toContain('shadcn.foreground');
-    expect(after.offers.filter(o => o.items !== '').map(o => [o.role, o.on])).toEqual([['AccentColor', true]]);
+    // Whole, the choice carried by the server (tamber/1.18): shadcn.foreground still held but left out, every override
+    // offered, AccentColor alone ticked, with no flips of the page's on the new one.
+    const flips = later[0].slots.picked;
+    expect(after.mapped.map(m => m.name)).toContain('shadcn.foreground');
+    expect(flips.filter(f => f.startsWith(`${edited}:`))).toEqual([]);
+    expect(after.mapped.find(m => m.name === 'shadcn.foreground').on).toBe(false);
+    expect(after.offers.map(o => o.role)).toEqual(['-exact-background', '-exact-label', '-exact-secondary-background', '-exact-separator', 'AccentColor']);
+    expect(after.offers.filter(o => o.on !== flips.includes(`${edited}:${o.items}`)).map(o => o.role)).toEqual(['AccentColor']);
     expect(after.diff).toContain('AccentColor = shadcn.primary');
     expect(later[1].slots.written.note).toContain(`as ${kept}`);
     expect(later[1].resources.changes.held.find(h => h.proposal === kept)).toMatchObject({ replaces: edited });
@@ -102,6 +110,135 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
   }
 }, 900_000);
 
+test('third pass #6, end to end: ticking a role override then editing a value, and editing then ticking, hold the same import and the same choice, and the override is written', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-reheld-'));
+  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  const css = join(resolve(ROOT, 'tamber/tests/import'), 'shadcn-neutral.css');
+  const value = 'light-dark(oklch(0.99 0 0), oklch(0.145 0 0))';
+  const tool = await proxied(app);
+  const session = `design-tool-reheld-${process.pid}`;
+  const step = async (steps, first = false) => (await drive(tool.url, session, ['clock data', 'clock +1', 'clock data', ...steps, 'clock data', 'clock +1', 'clock data', 'state'], first ? {} : { keepStorage: true })).filter(r => r.resources).at(-1);
+  const importOne = ['type import-kind shadcn', 'tap import-choose', `type @import-file ${css}`];
+  const editOne = id => [`type mapped-value-${id}-0-0 ${value}`, `type mapped-value-${id}-0-0 key Enter`];
+  // What a held import's card has chosen: each token and override as it begins (`on`, the record's choice once
+  // there is one) unless flipped.
+  const choice = (st, h) => {
+    const flips = st.slots.picked;
+    return { tokens: h.mapped.filter(m => m.on !== flips.includes(`${h.proposal}:${m.index}`)).map(m => m.name),
+      offers: h.offers.filter(o => o.items !== '' && o.on !== flips.includes(`${h.proposal}:${o.items}`)).map(o => o.role) };
+  };
+  try {
+    let st = await step(['type name Ada', 'tap save-name', 'clock data', ...importOne], true);
+    const a = st.resources.changes.held.find(h => h.importer === 'shadcn').proposal, nth = k => a.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
+    // Each order within one page's session (a card's choice is the page's): order one, tick AccentColor and leave
+    // shadcn.foreground out, then edit a value; order two, a second import of the same file, edit the value first,
+    // then tick and leave out on the edited one; then accept order two's, recomputed to its choice, and that.
+    const [a2, b, b2, kept] = [nth(1), nth(2), nth(3), nth(4)];
+    const settle = ['clock data', 'clock +1', 'clock data'];
+    const run = async steps => (await drive(tool.url, session, [...settle, ...steps], { keepStorage: true })).filter(r => r.resources);
+    const heldOf = (r, id) => r.resources.changes.held.find(h => h.proposal === id);
+    const first = await run([`tap override-${a}-AccentColor`, `tap take-${a}-1`, ...editOne(a), ...settle, 'state', ...importOne, ...settle, 'state']);
+    const one = { held: heldOf(first[0], a2), choice: choice(first[0], heldOf(first[0], a2)) };
+    // (the second import's held list may land after the drive: waited for, as order one's choice is already read)
+    for (let i = 0; i < 40 && !heldOf(st = await step([]), b); i++) await new Promise(ok => setTimeout(ok, 250));
+    expect(heldOf(st, b)).toBeDefined();
+    const replies = await run([...editOne(b), ...settle, `tap override-${b2}-AccentColor`, `tap take-${b2}-1`, ...settle, 'state',
+      `tap accept-${b2}`, ...settle, `tap accept-${kept}`, ...settle, 'state']);
+    const two = { held: heldOf(replies[0], b2), choice: choice(replies[0], heldOf(replies[0], b2)) };
+    expect([one.held.from, two.held.from]).toEqual([a, b]);
+    // The same held import (its diff, tokens and every override offered) and the same choice, either way.
+    expect(two.held.diff).toBe(one.held.diff);
+    expect(two.held.mapped.map(m => [m.name, m.modes.map(x => x.value)])).toEqual(one.held.mapped.map(m => [m.name, m.modes.map(x => x.value)]));
+    expect(two.held.offers.map(o => o.role)).toEqual(['-exact-background', '-exact-label', '-exact-secondary-background', '-exact-separator', 'AccentColor']);
+    expect(one.held.offers.map(o => o.role)).toEqual(two.held.offers.map(o => o.role));
+    expect(two.choice).toEqual(one.choice);
+    expect(two.choice.offers).toEqual(['AccentColor']);
+    expect(two.choice.tokens).not.toContain('shadcn.foreground');
+    // Accepted: written with the override and the edit, without what was left out.
+    expect(replies[1].slots.written.note).toBe(`Accepted ${kept}.`);
+    const written = tool.writes.at(-1).after;
+    expect(written).toContain('AccentColor = shadcn.primary');
+    expect(written).toContain(`shadcn.background = ${value}`);
+    expect(written).not.toContain('shadcn.foreground =');
+    expect(written).not.toContain('-exact-background = shadcn.background');
+    // A page loaded again starts from the choice the server keeps (tamber/1.18 choose): order one's, still held, as
+    // ticked, its flips gone with the page.
+    st = await step([]);
+    const again = heldOf(st, a2);
+    expect(st.slots.picked).toEqual([]);
+    expect(choice(st, again)).toEqual(one.choice);
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('a held import\'s choice is the proposal\'s (tamber/1.18 choose): ticked, then a reload, then accepted; ticked on one page, accepted on another; kept through an edit and a reload', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-choice-'));
+  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
+  const css = join(resolve(ROOT, 'tamber/tests/import'), 'shadcn-neutral.css');
+  const value = 'light-dark(oklch(0.98 0 0), oklch(0.145 0 0))';
+  const tool = await proxied(app);
+  const settle = ['clock data', 'clock +1', 'clock data', 'clock +1', 'clock data'];
+  const page = (name, steps, first = false) => drive(tool.url, `design-tool-choice-${name}-${process.pid}`, [...(first ? [`type name ${name}`, 'tap save-name'] : []), ...settle, ...steps, ...settle, 'state'], first ? {} : { keepStorage: true }).then(r => r.filter(x => x.resources).at(-1));
+  const importOne = ['type import-kind shadcn', 'tap import-choose', `type @import-file ${css}`];
+  const card = (st, id) => st.resources.changes.held.find(h => h.proposal === id);
+  // What the card shows chosen: tokens and overrides as they begin (the record's choice), the page's flips over them.
+  const shown = (st, h) => ({ tokens: h.mapped.filter(m => m.on !== st.slots.picked.includes(`${h.proposal}:${m.index}`)).map(m => m.name),
+    offers: h.offers.filter(o => o.items !== '' && o.on !== st.slots.picked.includes(`${h.proposal}:${o.items}`)).map(o => o.role) });
+  const lastWrite = () => tool.writes.at(-1).after;
+  const reset = () => writeFileSync(join(app, 'app.tamber'), original);
+  try {
+    // One: tick AccentColor and leave shadcn.foreground out, then load the page again: the card shows that choice
+    // (the server's), and accepting it writes it.
+    let st = await page('Ada', importOne, true);
+    const a = st.resources.changes.held.find(h => h.importer === 'shadcn').proposal, nth = k => a.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
+    await page('Ada', [`tap override-${a}-AccentColor`, `tap take-${a}-1`]);
+    st = await page('Ada', []);
+    expect(st.slots.picked).toEqual([]);
+    expect(shown(st, card(st, a)).offers).toEqual(['AccentColor']);
+    expect(shown(st, card(st, a)).tokens).not.toContain('shadcn.foreground');
+    st = await page('Ada', [`tap accept-${a}`, ...settle, `tap accept-${nth(1)}`]);
+    expect(st.slots.written.note).toBe(`Accepted ${nth(1)}.`);
+    expect(lastWrite()).toContain('AccentColor = shadcn.primary');
+    expect(lastWrite()).not.toContain('shadcn.foreground =');
+    reset();
+    // Two: ticked on Ada's page, accepted on Bo's (another page, its own storage): Ada's choice is what's written.
+    st = await page('Ada', importOne);
+    const b = st.resources.changes.held.find(h => h.importer === 'shadcn' && !h.replaces).proposal;
+    await page('Ada', [`tap override-${b}-AccentColor`, `tap take-${b}-1`]);
+    st = await page('Bo', [], true);
+    expect(shown(st, card(st, b)).offers).toEqual(['AccentColor']);
+    expect(card(st, b).offers.length).toBe(5);
+    st = await page('Bo', [`tap accept-${b}`, ...settle]);
+    const bKept = st.resources.changes.held.find(h => h.replaces === b).proposal;
+    st = await page('Bo', [`tap accept-${bKept}`]);
+    expect(st.slots.written.note).toBe(`Accepted ${bKept}.`);
+    expect(lastWrite()).toContain('AccentColor = shadcn.primary');
+    expect(lastWrite()).not.toContain('shadcn.foreground =');
+    reset();
+    // Three: ticked, a value edited, the page loaded again: the edited one keeps the choice, and accepting writes it.
+    st = await page('Ada', importOne);
+    const c = st.resources.changes.held.find(h => h.importer === 'shadcn' && !h.replaces).proposal;
+    st = await page('Ada', [`tap override-${c}-AccentColor`, `tap take-${c}-1`, ...settle, `type mapped-value-${c}-0-0 ${value}`, `type mapped-value-${c}-0-0 key Enter`]);
+    const c2 = st.resources.changes.held.find(h => h.from === c).proposal;
+    st = await page('Ada', []);
+    expect(shown(st, card(st, c2)).offers).toEqual(['AccentColor']);
+    expect(shown(st, card(st, c2)).tokens).not.toContain('shadcn.foreground');
+    st = await page('Ada', [`tap accept-${c2}`, ...settle]);
+    const cKept = st.resources.changes.held.find(h => h.replaces === c2).proposal;
+    st = await page('Ada', [`tap accept-${cKept}`]);
+    expect(st.slots.written.note).toBe(`Accepted ${cKept}.`);
+    expect(lastWrite()).toContain('AccentColor = shadcn.primary');
+    expect(lastWrite()).toContain(`shadcn.background = ${value}`);
+    expect(lastWrite()).not.toContain('shadcn.foreground =');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
 test('typed fields write one line through set-token for each kind: a length, a number, a shadow list with inset and a token colour, a text shadow, a type longhand', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-typed-'));
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
@@ -136,3 +273,4 @@ test('typed fields write one line through set-token for each kind: a length, a n
     rmSync(app, { recursive: true, force: true });
   }
 }, 900_000);
+

@@ -1,0 +1,219 @@
+// Excord's routing on the fixture server (llp/0001 §3.12): the launch's restore and warm navigation, one
+// request at a time (routing.contract), and the place a reopened channel restores (§3.3). The fixture and its
+// launches are app.test.contract's: the run starts it with --world transcript --reset-on-identify, so each
+// launch's IDENTIFY starts from the same world, and each launch runs `clock settle` (IDENTIFY's task), waits for
+// the gateway's READY with the clock frozen (`clock until state`), then `clock settle` again.
+epoch "2026-10-22T18:00:00Z"
+time-zone "America/Los_Angeles"
+
+test "a user action before the launch's restore lands wins: another conversation chosen first opens, the restore never applies"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  type "composer" "kept for later"
+  tap "fixture"
+  tap "inject-hold-guilds"
+  clock data
+  reload
+  // The web comes back on /c/general, a native relaunch on / with #general remembered. The fixture holds the
+  // servers 3 s past READY, so the restore of #general waits for its server while the direct messages are
+  // there to choose: the reader picks one first.
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  type "excord" key "Meta+k"
+  type "switcher-search" "Weekend"
+  clock data
+  type "switcher-search" key "Enter"
+  clock +3500 real
+  clock settle
+  expect state chan.name == "Weekend rides"
+  expect state onScreen == "1191168914239782914"
+  // #general's draft is still there, in its server.
+  tap "back"
+  clock settle
+  tap "server-1191168914231394304"
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect text "composer" == "kept for later"
+
+// Warm navigation (theme2's approval of x2-perf4's plan): an in-app link moves the address to another
+// channel, which opens there; Back undoes one step. Ops land at a standing clock, so a second step taken
+// before a clock step is taken before the first one resolved.
+test "a link opens its channel with its own draft, and one Back returns with the first channel's"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  type "composer" "a draft for general"
+  tap "fixture"
+  tap "inject-links"
+  clock data
+  clock settle
+  tap "#help"
+  clock data
+  clock settle
+  expect state chan.name == "help"
+  expect text "composer" == ""
+  type "composer" "a draft for help"
+  back
+  clock data
+  clock settle
+  expect state chan.name == "general"
+  expect text "composer" == "a draft for general"
+  back
+  clock settle
+  expect state reading == false
+  tap "channel-help"
+  clock settle
+  expect text "composer" == "a draft for help"
+
+test "Back before a link's channel opens wins: it never opens"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "fixture"
+  tap "inject-links"
+  clock data
+  clock settle
+  tap "#help"
+  back
+  clock data
+  clock settle
+  expect state chan.name == "general"
+  expect state reading == true
+  expect state onScreen == "1191168914235588608"
+
+test "a link to a direct message selects the direct messages and opens it"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "fixture"
+  tap "inject-links"
+  clock data
+  clock settle
+  tap "https://discord.com/channels/@me/1191168914239782912"
+  clock data
+  clock settle
+  expect state server == "@me"
+  expect state chan.direct == true
+
+// A restore that moves nothing (reopened at the saved row and offset, or the open channel chosen again) still
+// leaves the reader away from the end, so the next leaving keeps the place rather than saving the end.
+test "a place restored without a scroll stays the reader's place, not the end"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562755578936174328"
+  clock settle
+  expect state away == true
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == "1562033782335219374"
+  expect state away == true
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state away == true
+  type "composer" key "Meta+k"
+  clock settle
+  type "switcher-search" "gen"
+  clock data
+  type "switcher-search" key "Enter"
+  clock data
+  clock settle
+  expect state chan.name == "general"
+  expect state anchor == "1562033782335219374"
+  expect state away == true
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == "1562033782335219374"
+  expect state away == true
+  expect tree has "message-1562755578936174328"
+
+// The other branch: a channel left at its end opens at its end, live, however it is opened again.
+test "a channel left at its end reopens at its end, live"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  clock settle
+  expect state away == false
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  type "composer" key "Meta+k"
+  clock settle
+  type "switcher-search" "gen"
+  clock data
+  type "switcher-search" key "Enter"
+  clock data
+  clock settle
+  expect state chan.name == "general"
+  expect state anchor == ""
+  expect state away == false
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect state endGap == 0
+
+// A link to a message the channel never had leaves the reader at its end: a saved place it replaced is not
+// kept, so the reader is not away, and the next leaving saves the end.
+test "a link to a missing message in a channel with a saved place lands at its end, live"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562755578936174328"
+  clock settle
+  expect state away == true
+  back
+  clock settle
+  tap "channel-random"
+  clock settle
+  tap "fixture"
+  tap "inject-links"
+  clock data
+  clock settle
+  tap "a message never sent"
+  clock data
+  clock settle
+  expect state chan.name == "general"
+  expect state target == ""
+  expect state anchor == ""
+  expect state away == false
+  back
+  clock settle
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect state endGap == 0

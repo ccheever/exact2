@@ -33,6 +33,10 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = host.set_root_font_size(runner.host_root_font_size()) {
             return Err(HostError::Layout(error));
         }
+        if let Some(styles) = self.host.kernel().env().control_text_styles.clone() {
+            host.set_control_text_styles(styles)
+                .map_err(HostError::Layout)?;
+        }
         if let Some(error) = host.set_display_scale(runner.display_scale()) {
             return Err(HostError::Layout(error));
         }

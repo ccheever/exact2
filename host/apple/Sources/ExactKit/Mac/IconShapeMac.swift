@@ -1,6 +1,7 @@
 // A template-path icon on AppKit (LLP 1121 stage 14 C1): an image node whose
 // source is an icon path (no SF Symbol, a `symbolPath`) draws that path, each
-// `;` path its own shape layer filled nonzero, at the node's own fractional
+// `;` path its own shape layer filled by the icon's rule (nonzero, or even-odd
+// by `symbolFillRule`, stage 14 C2), at the node's own fractional
 // frame in its tint. An NSImageView showing the path as a template NSImage
 // resamples it off a whole pixel, lighter and offset (theme2's 07:01 ruling,
 // case 3b); SF Symbols and bitmaps keep their NSImageView (NodeSymbolMac.swift).
@@ -33,8 +34,8 @@ final class IconShapeView: NSView {
     private var placement = CGAffineTransform.identity, square = CGRect.zero
     private var fill: CGColor?
 
-    /// New paths (the node's `symbolPath`), each filled on its own.
-    func show(_ paths: [CGPath]) {
+    /// New paths (the node's `symbolPath`), each filled on its own by `rule`.
+    func show(_ paths: [CGPath], rule: CGPathFillRule = .winding) {
         self.paths = paths
         wantsLayer = true
         guard let host = layer else { return }
@@ -44,9 +45,9 @@ final class IconShapeView: NSView {
             let shape = CAShapeLayer()
             // A path, colour or frame changes at once, as the image did.
             shape.actions = ["path": NSNull(), "fillColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "contentsScale": NSNull()]
-            shape.fillRule = .nonZero
             group.addSublayer(shape); shapes.append(shape)
         }
+        for shape in shapes { shape.fillRule = rule == .evenOdd ? .evenOdd : .nonZero }
         redraw()
     }
 

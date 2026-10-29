@@ -57,7 +57,7 @@ final class TextRasterizer {
                    ranges: geometry.ranges, baselines: geometry.baselines,
                    flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
                    box: key.box, size: key.size, scale: key.scale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped,
-                   shadow: key.spec.hdrShadow.map(TextRunShadow.init),
+                   shadow: key.spec.hdrShadow.map(TextRunShadow.init), antialiased: key.spec.antialiased,
                    measuredGlyphs: key.spec.color.count == 4 ? engine.measuredGlyphs(key.spec, width: key.box.width) : nil,
                    measuredColor: TextEngine.color(key.spec.color).cgColor)
     }
@@ -212,7 +212,7 @@ extension NodeView {
     var textIsSmall: Bool {
         let scale = window?.backingScaleFactor ?? 2
         guard bounds.width * bounds.height * scale * scale < TextRasterizer.minPixels else { return false }
-        return !(isParagraph && paragraphSpec().headroom > 1)
+        return !(isParagraph && paragraphHeadroom(drawing: true) > 1)
     }
 
     /// Whether the pump still owes this paragraph pixels.

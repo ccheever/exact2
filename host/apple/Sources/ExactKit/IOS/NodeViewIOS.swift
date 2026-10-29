@@ -60,7 +60,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     weak var paintParent: PaintView?
     let firstDraw: DrawReceipt?
     package let kind: String
-    var inlineText: [InlineText] = []
+    var inlineText: [InlineText] = [] { didSet { hasInlineContextPopover = inlineText.contains { $0.props["contextPopover"]?.isEmpty == false } } }
+    /// A run names a context popover: read for every paragraph each batch (`ContextMenuHost.sync`).
+    private(set) var hasInlineContextPopover = false
     /// The rarely set fields (`NodeExtrasIOS.swift`); nil until one is set.
     var extras: NodeExtras?
     /// A box's gradient and shadows (`NodePaintExtras`); nil until one is set.
@@ -85,20 +87,28 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Whether the host hid this view, whatever CSS's `display` says: what a
     /// projection or a placement saves and restores, since `isHidden` also
     /// reads `display: none` (review B1: restoring that wrote CSS's bit into
-    /// the host's and kept the view hidden once it was displayed).
-    package var hiddenByHost: Bool { hostHidden }
+    /// the host's and kept the view hidden once it was displayed). Setting it
+    /// is the host's word even while `display: none` hides the view, where the
+    /// `isHidden` setter reads a hide as a restored save and drops it.
+    package var hiddenByHost: Bool {
+        get { hostHidden }
+        set { hostHidden = newValue; isHidden = newValue }
+    }
     package override var isHidden: Bool {
         get { super.isHidden }
         set {
             // Writing back "hidden" that only CSS's `display: none` made is not
             // the host's word (a save of `isHidden` restored; review B1): a
-            // projection that means it hides again on its next pass.
+            // projection that means it hides again on its next pass, or sets
+            // `hiddenByHost` once.
             let css = style["display"]?.string == "none"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             let hidden = hostHidden || css
-            let changed = super.isHidden != hidden
-            super.isHidden = hidden
-            if changed, scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
+            // UIKit's setter walks the subtree's backdrop masks and accessibility
+            // even when the value stands (a list hiding its hidden sections every batch).
+            guard super.isHidden != hidden else { return }
+            super.isHidden = hidden; if !hidden { materializeAppearingGlass() }
+            if scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
     package var handlers: Set<String> = [] {
@@ -265,6 +275,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set {
             let oldValue = placementHidden
             if newValue || extras != nil { more.placementHidden = newValue }
+            if newValue { Self.placedViews.add(self) }
             if placementHidden && !oldValue { more.hiddenBeforePlacement = hiddenByHost }
             if placementHidden { isHidden = true }
             else if oldValue { isHidden = extras?.hiddenBeforePlacement ?? false }
@@ -535,14 +546,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
-        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)"
+        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)" + (props["symbolFillRule"].map { ":\($0)" } ?? "")
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
             // An icon with no SF Symbol draws its own path (D10, stage 9 A).
             image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolShape(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
-            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(RasterRetry.withoutQuery(source)) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
             let leaf = symbolView ?? UIImageView()
             if symbolView == nil { symbolView = leaf; addSubview(leaf) }
@@ -553,7 +564,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        symbolView?.tintColor = drawnSymbolInk
+        inkSymbolView()
         symbolView?.preferredSymbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
@@ -634,10 +645,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             o.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(o)
             overlay = o
+            Self.canvasOverlays.add(o)
         }
         if kind == "textarea" { makeTextArea() }
         if kind == "input" { if presenter.fieldsWaiting.contains(id) { fieldWaits = true } else { makeField() } }
-        presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
+        if kind != "iframe" { presenter.leaves.embed(self) } // a video's player, a module's box (LLP 1068 §5.1); a web view waits for the props (`embedFrame`)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -682,19 +694,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush() }
+        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush(); materializeJoiningGlass() }
         if window == nil, textRaster != nil { DispatchQueue.main.async { [weak self] in self?.dropTextRasterOffWindow() } }
     }
-    /// Still off every window a turn later (a tab not shown, a covered
-    /// route, a parked row; not a view moved within a batch), its text lets
-    /// go of its pixels, as Core Animation lets go of a backing store there.
-    /// `display` paints them again when it is back: at once where it shows.
-    private func dropTextRasterOffWindow() {
-        guard window == nil, textRaster != nil else { return }
-        dropTextRaster()
-        layer.setNeedsDisplay()
-    }
-
     /// Glass content participates in UIKit's interactive effect. Other
     /// materials remain background siblings of the authored children. A
     /// glass group is innermost (`GlassGroup.swift`).
@@ -702,9 +704,18 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Where layout put this box and where it is drawn (`PixelGridIOS.swift`).
     package var grid: GridPlace?
 
+    /// Every canvas's overlay alive, and every node a surface placed. With
+    /// none, no node is under a canvas (`canvasAbove`) or placed
+    /// (`placedAncestor`), and the walks up the tree that ask (each visible
+    /// paragraph every scrolled frame, each node a hit test visits) are
+    /// skipped. A weak table may count one just freed: it only keeps the walk.
+    static let canvasOverlays = NSHashTable<PlainView>.weakObjects()
+    static let placedViews = NSHashTable<NodeView>.weakObjects()
+
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
     package var canvasAbove: NodeView? {
+        guard Self.canvasOverlays.count > 0 else { return nil }
         var v: UIView = self
         while let s = v.superview {
             if let c = s as? NodeView, c.overlay === v { return c }
@@ -766,8 +777,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     package func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === self.scrollView else { return }
-        let post = Presenter.signposts.beginInterval("scrolled")
-        defer { Presenter.signposts.endInterval("scrolled", post) }
+        let post = Presenter.signposts.beginInterval("scrolled"), phase = HostPhases.shared.begin(.scroll)
+        defer { Presenter.signposts.endInterval("scrolled", post); HostPhases.shared.end(phase) }
         // The kernel's authored frames already include this content room.
         // Keep the physical UI inset basis, but do not count native padding twice.
         let room = extras?.nativeScrollContentInsets ?? .zero
@@ -780,6 +791,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.videoVisibility?.changed()
         presenter?.reaimFixedGradients()
         presenter?.scrollPump.scrolled(self)
+        FrameSampler.scrolled(scrollView, in: presenter?.session, person: false)
         repaintThrough()
         scrollEndMoved(scrollView)
         // User scrolling is already a coherent position. Deliver before the
@@ -821,6 +833,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The direct child of a canvas this node is under, when that child is
     /// placed by the surface: the node whose `placement` maps this subtree.
     var placedAncestor: NodeView? {
+        guard Self.placedViews.count > 0 else { return nil }
         var v: UIView? = self
         while let n = v {
             if let node = n as? NodeView, (node.placement != nil || node.placementHidden) { return node }
@@ -876,6 +889,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// without them, and then the canvas itself is the hit. (`point` is in
     /// this view's own coordinates — UIKit's convention, not AppKit's.)
     package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // A true leaf cannot hit beyond its bounds; flat children can overflow.
+        if !bounds.contains(point), subviews.isEmpty,
+           presenter?.flats.holdsLeaves(id) != true { return nil }
         // UIKit's conversion already carries a box in space through its
         // plane (LLP 1077 D8); a hidden back face is the host's to refuse.
         if placedAncestor?.placementHidden == true || hidesBack() { return nil }
@@ -985,13 +1001,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     // @ref LLP 1034 D1/D2
     var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     package func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) }
+        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0, key: key)) }.map { dimmedWithTint($0, key: key) }
     }
-    func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
+    func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0, key: key)) }.map { dimmedWithTint($0, key: key) } }
     package func color(_ key: String, _ fallback: UIColor) -> UIColor { cgColor(key).map { UIColor(cgColor: $0) } ?? fallback }
-    /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
-    var placeholderColor: UIColor? { cgColor("placeholder_color").map { UIColor(cgColor: $0) } }
-    package func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
+    /// CSS `::placeholder { color }` (LLP 1104 D3), a native editor's undimmed as `fieldInk` is; nil, the platform's.
+    var placeholderColor: UIColor? { (isNativeTextControl ? undimmedCGColor("placeholder_color") : cgColor("placeholder_color")).map { UIColor(cgColor: $0) } }
+    package func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0, key: key)) }.map { dimmedWithTint($0, key: key) } }
     package func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
         return fallback
@@ -1070,7 +1086,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         guard let materialView else { rehomeMaterialChildren(); return }
         if cssVisibilityHidden { materialView.effect = nil }
         else if materialView.effect == nil || materialInteractive != interactive || backdropStale {
-            materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
+            showMaterialEffect(backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive))
             materialInteractive = interactive
         }
         applyMaterialRadius()
@@ -1117,8 +1133,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if disabled { pressEpoch &+= 1; cancelPressContact() }
         if props["inert"] == "true" { cancelPressContactsInSubtree() }
         swipeOwner = props["swipeContent"] != nil
+        if isParagraph, set["textOffset"] != nil || clear.contains("textOffset") { textRasterGeometryChanged() } // its lines' place in its box
         if set["groupedSeparator"] != nil || clear.contains("groupedSeparator") { applyGroupedSeparator() }
-        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten") { updateSymbol() }
+        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten")
+            || set["symbolFillRule"] != nil || clear.contains("symbolFillRule") { updateSymbol() }
         if (pendingScrollLeft ?? 0) != 0 || (pendingScrollTop ?? 0) != 0 { needScroll() }
         if set["inert"] != nil || clear.contains("inert") {
             let ownInert = props["inert"] == "true"
@@ -1138,8 +1156,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         updateTextAccessibility()
         if actsAsButton {
             isAccessibilityElement = true
-            // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6).
-            let link = props["accessibilityRole"] == "link"
+            // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6);
+            // a list row is a cell, a button whatever it opens (`listRow`).
+            let link = props["accessibilityRole"] == "link" && !listRow
             accessibilityTraits.insert(link ? .link : .button); accessibilityTraits.remove(link ? .button : .link)
             // `aria-current` (not `false`) is the selected trait too: UIKit has no
             // current, and a bar's current item is its selected one (theme2 2026-10-22 06:40).
@@ -1177,7 +1196,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
-    /// picture (`BoxFilter`), drawn again after each batch.
+    /// picture (`BoxFilter`), drawn again when what it shows changes.
     private(set) var boxFilter: BoxFilter?
     var hasBoxFilter: Bool { boxFilter != nil }
     func applyFilter() {
@@ -1188,8 +1207,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if f.set(style["filter"]) {
             boxFilter = f
             layer.mask = f.hide
-            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter() }
-            renderFilter()
+            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter(fresh: $0) }
+            redrawFilter()
         } else if let f = boxFilter {
             f.remove()
             boxFilter = nil
@@ -1198,11 +1217,19 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
 
-    func renderFilter() {
+    /// In a batch, the picture is drawn once as it ends, with the whole batch in it.
+    private func redrawFilter() {
+        if presenter?.applying == true { presenter?.boxFilters.touched(self) } else { renderFilter() }
+    }
+    func renderFilter(fresh: Bool = true) {
         guard let f = boxFilter else { return }
         guard superview != nil else { f.remove(); return }
         setPaintPosition(paintZPosition)
-        f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark)
+        let shown = window.map { convert(bounds, to: $0).intersects($0.bounds) } ?? true
+        f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark,
+                 node: id, fresh: fresh, shown: shown) { [weak self] in
+            if let self { presenter?.boxFilters.landed(self) }
+        }
     }
 
     /// Inside `GlassGroups.moving`: a container comes or goes under the
@@ -1211,8 +1238,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package override func didMoveToSuperview() {
         if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
-        paintOrderMoved()
-        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+        Self.textGeometry &+= 1
+        paintOrderMoved(); repaintFacesWhileDimmed() // as a move into or out of a control changes its face (TintDimmingIOS.swift)
+        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { redrawFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
         if superview != nil, style["color_scheme"] != nil || overrideUserInterfaceStyle != .unspecified { settleColorScheme() }
@@ -1443,8 +1471,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // nothing redisplays a row the lead drew off-screen when it
             // scrolls in: draw it now, visible or not.
             if textRaster == nil && (!canRasterText || Capture.capturing || presenter?.textIsVisible(self) == true) {
-                let post = Presenter.signposts.beginInterval("text-draw")
-                defer { Presenter.signposts.endInterval("text-draw", post) }
+                let post = Presenter.signposts.beginInterval("text-draw"), phase = HostPhases.shared.begin(.text)
+                defer { Presenter.signposts.endInterval("text-draw", post); HostPhases.shared.end(phase) }
                 let spec = paragraphSpec()
                 if let paragraph = paragraphLayout() { eachFragment(ctx) { box, at in
                     paintBackgroundThroughText(ctx, paragraph: paragraph, spec: spec, in: box)

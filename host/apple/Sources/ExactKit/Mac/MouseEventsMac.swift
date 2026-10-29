@@ -44,12 +44,97 @@ extension Presenter {
             guard responder == nil || responder === window || responder === viewport
                     || responder === root || responder === session?.view,
                   session?.view?.ownsShortcutFocus() ?? true else { return false }
-            let clip = viewport.contentView
-            point = clip.convert(NSPoint(x: clip.bounds.minX + 1, y: clip.bounds.minY + 1), to: nil)
-            start = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
+            if let (node, at) = selection.keyboardMenuPoint(in: window) {
+                // Selected text: at its first line, as Blink's
+                // `ShowNonLocatedContextMenu` places a menu with no focus.
+                point = at
+                start = node
+            } else {
+                let clip = viewport.contentView
+                point = clip.convert(NSPoint(x: clip.bounds.minX + 1, y: clip.bounds.minY + 1), to: nil)
+                start = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
+            }
         }
-        guard let node = contextTarget(start) else { return false }
+        guard let node = contextTarget(start) else { return unansweredContextMenu(at: point, from: start, in: window) }
         return contextMenu(node, at: point, from: start)
+    }
+
+    /// A request from the keyboard that no node answers (the ContextMenu
+    /// key, VoiceOver's show menu) gets the menu a right-click at `point`
+    /// would show, as Chrome's own menu follows a `contextmenu` no handler
+    /// prevented: the menu of the view drawn there or of the first view
+    /// above it that has one (selected text's), else the session's view and
+    /// the responders past it (an embedder's, an app's), which hear a
+    /// secondary click's press and release. No node hears it, since the
+    /// tree already declined, and selected text keeps its selection. It
+    /// goes on the next turn, as a context menu's popover does
+    /// (`MenuHost.context`), outside VoiceOver's request. False where the
+    /// walk from `start` stopped at a field, which keeps its own menu.
+    func unansweredContextMenu(at point: NSPoint, from start: NSView?, in window: NSWindow) -> Bool {
+        guard contextUnanswered(start), let down = Self.keyboardClick(.rightMouseDown, at: point, in: window),
+              let up = Self.keyboardClick(.rightMouseUp, at: point, in: window) else { return false }
+        let found = keyboardMenu(for: down, in: window)
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            guard let self else { return }
+            if let (view, menu) = found { return NSMenu.popUpContextMenu(menu, with: down, for: view) }
+            let past = self.session?.view ?? self.viewport
+            past.rightMouseDown(with: down)
+            past.rightMouseUp(with: up)
+        }
+        return true
+    }
+
+    /// Whether a request from the keyboard at `point` would get a menu,
+    /// judged without building one, since VoiceOver asks on every query:
+    /// the view drawn there or one above it holds selected text or has a
+    /// `menu`, below any native control (`keyboardMenu`). A responder past
+    /// the session's view is not counted.
+    func offersKeyboardMenu(at point: NSPoint, in window: NSWindow) -> Bool {
+        var next = hit(point, in: window)
+        while let view = next, view !== session?.view, !(view is NSControl) {
+            if let node = view as? NodeView, node.isParagraph, !ExactEnv.agentMode, (selection.range(node)?.length ?? 0) > 0 { return true }
+            if view.menu != nil { return true }
+            next = view.superview
+        }
+        return false
+    }
+
+    private static func keyboardClick(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) -> NSEvent? {
+        NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+    }
+
+    private func hit(_ point: NSPoint, in window: NSWindow) -> NSView? {
+        guard let content = window.contentView else { return nil }
+        return content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+    }
+
+    /// The first view from the one drawn at `event`'s point up to the
+    /// session's view whose `menu(for:)` gives a request from the keyboard
+    /// a menu, as AppKit asks a right-click's view and then its superviews;
+    /// nil when none does. The walk stops at a native control: its own menu
+    /// (a `select`'s options, which its `NSPopUpButton` gives) is no context
+    /// menu, and Chrome shows its page menu over a `select` too.
+    private func keyboardMenu(for event: NSEvent, in window: NSWindow) -> (NSView, NSMenu)? {
+        NodeView.keyboardMenuRequest = true
+        defer { NodeView.keyboardMenuRequest = false }
+        var next = hit(event.locationInWindow, in: window)
+        while let view = next, view !== session?.view, !(view is NSControl) {
+            if let menu = view.menu(for: event) { return (view, menu) }
+            next = view.superview
+        }
+        return nil
+    }
+
+    /// Whether the walk `contextTarget` takes from `view` meets no field,
+    /// which keeps its own menu.
+    func contextUnanswered(_ view: NSView?) -> Bool {
+        var next = view
+        while let view = next {
+            if let node = view as? NodeView, node.field != nil || node.textArea != nil { return false }
+            next = eventParent(of: view)
+        }
+        return true
     }
 
     /// The node a request from the keyboard at `view` reaches (the
@@ -76,9 +161,15 @@ extension Presenter {
     func contextPoint(_ node: NodeView, rect: NSRect? = nil) -> NSPoint? {
         guard !node.formDisabled, !node.inert, !node.isHiddenOrHasHiddenAncestor,
               !dialogs.blocks(node), node.field == nil, node.textArea == nil else { return nil }
-        // AppKit's visibleRect clips the untransformed frame. Clip the
-        // drawn anchor instead, including a frame translated into view.
-        var drawn = node.drawnRect(rect ?? menus.anchor(node, in: node))
+        let drawn = visiblePart(of: node.drawnRect(rect ?? menus.anchor(node, in: node)), in: node)
+        return drawn.isEmpty ? nil : NSPoint(x: drawn.midX, y: drawn.midY)
+    }
+
+    /// `drawn`, a rect of `node` as drawn in its window, clipped by what
+    /// clips `node`. AppKit's visibleRect clips the untransformed frame; this
+    /// clips the drawn rect, including a frame translated into view.
+    func visiblePart(of drawn: NSRect, in node: NodeView) -> NSRect {
+        var drawn = drawn
         var ancestor = node.superview
         while let view = ancestor {
             if let node = view as? NodeView, node.overflowClips {
@@ -91,7 +182,7 @@ extension Presenter {
             }
             ancestor = view.superview
         }
-        return drawn.isEmpty ? nil : NSPoint(x: drawn.midX, y: drawn.midY)
+        return drawn
     }
 
     /// `node`'s `contextmenu` and `contextPopover` at `point` in the source's
@@ -207,7 +298,8 @@ extension NodeView {
             // The element has no view of its own: the `svg`'s view stands for it.
             if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target {
                 presenter?.menus.activating(from: self, pressing: nil) {
-                    presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
+                    presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.pressClick = event
+                    presenter?.onPress?(target); presenter?.pressHeld = ""; presenter?.pressClick = nil
                 }
             }
             return
@@ -331,7 +423,8 @@ extension NodeView {
         guard let presenter, !presenter.inlineInert(id), let run = presenter.inlineText(id),
               let line = inlineRects(run).first, let point = presenter.contextPoint(self, rect: line) else { return false }
         guard let target = inlineContextTarget(from: run), let first = inlineRects(target).first else {
-            return presenter.contextTarget(self).map { presenter.contextMenu($0, at: point, from: self) } ?? false
+            if let node = presenter.contextTarget(self) { return presenter.contextMenu(node, at: point, from: self) }
+            return window.map { presenter.unansweredContextMenu(at: point, from: self, in: $0) } ?? false
         }
         let local = self.local(point), client = presenter.client(point)
         let sample = PointerSample(x: Double(local.x - first.minX), y: Double(local.y - first.minY),
@@ -341,12 +434,16 @@ extension NodeView {
     }
 
     /// Whether a request from the keyboard at run `id` reaches a run or
-    /// node from it up whose `contextmenu` or `contextPopover` runs.
+    /// node from it up whose `contextmenu` or `contextPopover` runs, or,
+    /// where none answers, a menu at the run's middle (`offersKeyboardMenu`).
     func inlineOffersContextMenu(_ id: UInt32) -> Bool {
         guard let presenter, presenter.views[self.id] === self, !formDisabled, !inert,
               !presenter.inlineInert(id), let run = presenter.inlineText(id) else { return false }
         if inlineContextTarget(from: run) != nil { return true }
-        return presenter.contextTarget(self).map { !$0.formDisabled && !$0.authoredInert } ?? false
+        if let node = presenter.contextTarget(self) { return !node.formDisabled && !node.authoredInert }
+        guard presenter.contextUnanswered(self), let line = inlineRects(run).first,
+              let point = presenter.contextPoint(self, rect: line), let window else { return false }
+        return presenter.offersKeyboardMenu(at: point, in: window)
     }
 
     /// `run`'s `contextmenu`, then its `contextPopover`'s menu at `point`

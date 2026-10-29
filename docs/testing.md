@@ -29,18 +29,50 @@ its time counts too.
   seeds and iteration counts. Change compiler optimization levels only for a
   whole test suite or when the intent is to test a specific optimization level.
 
+## Whose failure it is, and what has run
+
+- **`bun scripts/known.mjs -- <command>`** runs `cargo test …`, `bun test …` or
+  `bun host/apple/build.mjs --test …` and, when it fails, sorts each failing
+  test against the async lane's record of origin/main (LLP 1146 D1): **known**
+  (it fails there too, with how often it failed in the lane's last ten runs),
+  **new** (the lane ran it there and it passed), or **unknown** (no lane run
+  there covers it). The exit status stays the command's. The lane attaches what
+  each commit's checks found to that commit as a git note
+  (`refs/notes/async`, tier 2's `async2`), which it fetches from origin.
+- **`bun scripts/evidence.mjs --app <name>`** lists the drives, test runs and
+  `verify` runs recorded against the app's builds (LLP 1146 D2,
+  `<app>/.exact/runs.jsonl`): current while the build they ran on is still the
+  host's and still fresh, else stale, saying what changed. It names the hosts
+  the branch changed that no current run covers; `--draft` prints lines for a
+  diary's Checkpoints or a PR's Test Plan. `evidence.mjs note <host> "<what>"
+  [--device "<model, OS>"]` records something seen by hand. Web, macOS and
+  iOS-simulator builds are identified; other hosts' runs are listed as
+  unchecked.
+
 ## Waiting
 
 - **Wait on events rather than sleeping for a duration.** A fixed sleep is too
   long on a fast machine and too short on a slow one. Some ways to wait for
   events are:
   - Rust: a channel, a condition variable, a count to observe.
+  - The TypeScript executor (`exact-js`): `Module::set_turn_step` times each
+    turn as one step of a clock that moves at no other time;
+    `exact_render::expire_renders` brings render deadlines to now;
+    `Module::hold_compressions` holds compressions until released, and a
+    storage wait with only held work in flight runs out at once.
   - Swift: an expectation fulfilled by the callback, or a run-loop pass that
     returns once work has run: `RunLoop.main.run(mode: .default, before:)`.
     `RunLoop.main.run(until:)` waits out its whole slice; on a loaded Mac a
     10 ms slice takes about 80 ms.
   - Browsers: an event or a promise, or the agent's `clock settle` and virtual
     time.
+  - A drive or an authored test: `clock settle` or `clock data` for what the
+    app has in flight. A stream counts as landed at its first message (LLP
+    1016.000 D5), so for state a protocol reaches later (a socket's READY after
+    its HELLO) write `clock until state <path> == <literal> within <ms>`, not
+    `clock +N real`: the clock stays frozen while it polls `state` on real
+    time, and a miss fails naming the last value. A task due a commit later
+    (`after(1, …)`) needs a `clock settle` before it.
 - **Poll only when nothing notifies, and poll cheaply.** Every 50–100 ms, with a
   limit of tens of seconds that only stops hanging tests. A shorter interval can
   be considered for state that is cheap to read in the test's own process, when
@@ -118,6 +150,14 @@ its time counts too.
   the condition the product itself uses (`Agent.nativeInFlight()` on Apple, the
   agent's `clock settle`), not a hardcoded sleep timeout.
 
+A real drag with `during` ops fails when the touch runner finishes before a
+dispatch-log read sees the touch begin. The failure carries the aim, the injection
+result and the log, and says whether the touch began and lifted. The log's `t` and
+`dispatched` are seconds on the mach clock of `UITouch.timestamp`; the injection's
+`end` is wall-clock milliseconds, so do not subtract one from the other. A dispatch-log
+read, operation or clock step still pending a second after the runner finishes stops
+the app's carrier, and the failure names it.
+
 With an iOS session using `touch: 'platform'`, `await session.back({ native: true })`
 locates UIKit's Back button through XCTest inside the active navigation container
 and taps it. Embedded sessions target their own container. The driver refuses missing
@@ -131,9 +171,14 @@ minute for SpringBoard to idle before tapping, so the native call has a 150-seco
 check multi-entry Back in primary and presented stacks. It asserts the retained
 controllers and the router's chosen visit, including return to the sheet root
 without changing the background stack. It also checks that header search commits
-and blurs once before dispatch, newer app navigation wins during a pop (including
-navigation from blur), and an unmapped destination restores the declared stack.
-A test sends UIKit's registered search-cancellation action and checks the live query and native bar state.
+and blurs once before dispatch and keeps the typed query, newer app navigation
+wins during a pop (including navigation from blur), and an unmapped destination
+restores the declared stack.
+A test exercises UIKit's registered search-cancellation action and the controller
+dismissal used by Duo's inner-display Close, including dismissal in a presented stack.
+It checks that cancellation clears the live and committed query, commits once and
+keeps the route. It repeats cancellation after the Search key dismisses the keyboard
+and checks that no second blur is sent.
 The runner tests distinguish visits with the same URL and reject stale or
 cross-tab jumps. These tests use UIKit's public stack API; they do not establish
 activation of its Back-history menu.
@@ -152,6 +197,11 @@ It covers native Back taps, completed and cancelled edge and content swipes,
 the secondary editor's focus and draft, destination scroll restoration, and
 horizontal clearance during the gesture. The sheet's root refuses a native
 Back tap rather than targeting the stack behind it.
+
+The runtime refuses a host call made from a callback it waits on
+(`Owner.shared.callMain` inside `Owner.shared.sync`). To test a report made there,
+change the native state inside that pair, then wait for the runner to apply it
+(`testACoverFromAServedCallbackReachesTheRunner`, `testAReportWaitsForTheServedCallbackToReturn`).
 
 ## Browsers
 
@@ -217,6 +267,11 @@ on the tailnet (LLP 1115.004 D13). As recorded on 2026-10-23:
   is not installed (`EXACT_FONT=unpinned`) to draw the system's own. In
   PowerShell, `$env:EXACT_FONT = ""` removes the variable, and the pin
   returns.
+- **Confirm focus independently when reports disagree.** Sky's focused-element
+  field can remain on Excord's composer after Tab moves to a button. Windows SDK
+  Inspect reports the button's UI Automation focus correctly, and Enter activates
+  it. Check the visible focus, action and an independent accessibility client
+  before changing the provider (`target/windows-chat-comparison/focus-inspect-qualification.json`).
 
 ## Pixels
 

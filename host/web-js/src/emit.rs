@@ -11,11 +11,13 @@
 
 use crate::code::{self, Scope, Uses};
 use crate::style;
-use exact_kernel::{NodeType, PropId, StyleId};
+use exact_kernel::{NodeType, PropId};
 use exact_plan::{BindingKind, EventKind, NodesId, Plan, RegionKind, Value};
 use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
+#[path = "list_options.rs"]
+mod list_options;
 #[path = "motion.rs"]
 mod motion;
 #[path = "named_records.rs"]
@@ -1218,10 +1220,10 @@ impl Em<'_> {
                         format!("()=>!({f})()")
                     } else if prop == PropId::GlassGroup {
                         format!("()=>{{const v=({f})();return v===-1?\"auto\":v}}")
-                    } else if prop == PropId::Wakelock {
-                        // The value as computed, which wakelock.js journals
-                        // as the runner does when it is neither word.
-                        format!("()=>{{const v=({f})();{e}.$wake=v;return v}}")
+                    } else if matches!(prop, PropId::Wakelock | PropId::Orientationlock) {
+                        // The value as computed, which wakelock.js and orientationlock.js journal.
+                        let k = ["wake", "orient"][usize::from(prop == PropId::Orientationlock)];
+                        format!("()=>{{const v=({f})();{e}.${k}=v;return v}}")
                     } else {
                         f.clone()
                     };
@@ -1255,6 +1257,18 @@ impl Em<'_> {
         let mut edges = ["0".to_string(), "0".to_string()];
         for h in row.handlers.iter() {
             let h = plan.handler(h);
+            if let Some((name, types)) = crate::events::declared(plan, h) {
+                let (on, ve) = (self.uses.rt("on"), self.uses.rt("viewEvent"));
+                let message = self.uses.rt("onMessage");
+                let name = serde_json::to_string(&name).unwrap_or_default();
+                let types = types.join(",");
+                let a = h.action.0;
+                let _ = write!(
+                    self.out,
+                    "{on}({e},\"message\",{ve}({name},[{types}],a_{a}),{message});"
+                );
+                continue;
+            }
             let mut args = Vec::new();
             for a in h.args.iter() {
                 let f = code::expression(plan, plan.code(plan.arg(a).expr), scope, &mut self.uses)?;
@@ -1415,75 +1429,6 @@ impl Em<'_> {
             self.out.push_str("});");
         }
         Ok(())
-    }
-
-    /// What the runner reads when a virtualized list is created
-    /// (`Collection::create`), evaluated there: its axis, its literal sizes,
-    /// its row estimate, `scrollFollowEnd` (read again at each update),
-    /// `scroll-start`, `scroll-restoration`, its edges' handlers, and its plan site.
-    fn list_options(
-        &mut self,
-        i: u32,
-        scope: &Scope,
-        edges: &[String; 2],
-    ) -> Result<String, String> {
-        let plan = self.plan;
-        let (mut ph, mut pw) = (Vec::new(), Vec::new());
-        let (mut x, mut est, mut follow, mut manual) = (
-            "!1".to_string(),
-            "void 0".to_string(),
-            "0".to_string(),
-            "!1".to_string(),
-        );
-        let mut init = "void 0".to_string();
-        let mut at_end = "!1".to_string();
-        let bindings = plan.node(NodesId(i)).bindings;
-        for b in bindings.iter().map(|b| plan.binding(b)) {
-            let value = match style::literal(plan, plan.code(b.expr)) {
-                Some(v) => value_js(&v),
-                None => code::expression(plan, plan.code(b.expr), scope, &mut self.uses)
-                    .map_err(|x| format!("node {i}: {x}"))?,
-            };
-            match b.kind {
-                BindingKind::Style
-                    if b.id == StyleId::Height as u16 || b.id == StyleId::MaxHeight as u16 =>
-                {
-                    ph.push(value)
-                }
-                BindingKind::Style
-                    if b.id == StyleId::Width as u16 || b.id == StyleId::MaxWidth as u16 =>
-                {
-                    pw.push(value)
-                }
-                BindingKind::Style if b.id == StyleId::Display as u16 => {
-                    x = format!("({value})===\"flex\"")
-                }
-                BindingKind::Prop
-                    if b.id == PropId::EstimatedItemHeight as u16
-                        || b.id == PropId::EstimatedItemWidth as u16 =>
-                {
-                    est = value
-                }
-                BindingKind::Prop if b.id == PropId::ScrollFollowEnd as u16 => {
-                    follow = format!("()=>{value}")
-                }
-                BindingKind::Prop if b.id == PropId::InitialItemCount as u16 => init = value,
-                BindingKind::Prop if b.id == PropId::ScrollStart as u16 => {
-                    at_end = format!("({value})===\"end\"")
-                }
-                BindingKind::Prop if b.id == PropId::ScrollRestoration as u16 => {
-                    manual = format!("({value})===\"manual\"")
-                }
-                _ => {}
-            }
-        }
-        Ok(format!(
-            "{{x:{x},ph:[{}],pw:[{}],est:{est},init:{init},atEnd:{at_end},follow:{follow},manual:{manual},start:{},end:{},site:\"{i}\"}}",
-            ph.join(","),
-            pw.join(","),
-            edges[0],
-            edges[1]
-        ))
     }
 }
 

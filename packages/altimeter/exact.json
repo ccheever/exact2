@@ -1,0 +1,211 @@
+{
+  "kind": "interface",
+  "name": "@exact/altimeter",
+  "version": "1.0.0",
+  "grants": [
+    "device.motion"
+  ],
+  "permission": {
+    "name": "motion-fitness",
+    "targets": [
+      "ios"
+    ],
+    "status": "altimeterStatus",
+    "field": "state",
+    "denied": "NotAllowedError",
+    "whilePrompt": {
+      "error": "NotAllowedError",
+      "message": "requestAltimeterPermission"
+    }
+  },
+  "shapes": {
+    "BarometerSample": {
+      "pressure": "number",
+      "timestamp": "number"
+    },
+    "Barometer": {
+      "pressure": "number",
+      "timestamp": "number",
+      "sequence": "number",
+      "samples": "BarometerSample[]",
+      "dropped": "number",
+      "interrupted": "bool"
+    },
+    "AltimeterSample": {
+      "relativeAltitude": "number",
+      "timestamp": "number"
+    },
+    "Altimeter": {
+      "relativeAltitude": "number",
+      "since": "number",
+      "timestamp": "number",
+      "sequence": "number",
+      "samples": "AltimeterSample[]",
+      "dropped": "number",
+      "interrupted": "bool"
+    },
+    "AltimeterStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "apple": "option<AppleAltimeterStatus>"
+    }
+  },
+  "names": [
+    {
+      "source": "altimeterStatus",
+      "live": true,
+      "answers": "AltimeterStatus",
+      "sync": {
+        "name": "altimeterStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "state": "prompt"
+        },
+        "partial": true,
+        "targets": {
+          "android": {
+            "state": "granted"
+          },
+          "web": {
+            "available": false,
+            "state": "unknown"
+          },
+          "macos": {
+            "available": false,
+            "state": "unknown"
+          },
+          "linux": {
+            "available": false,
+            "state": "unknown"
+          },
+          "windows": {
+            "available": false,
+            "state": "unknown"
+          },
+          "tvos": {
+            "available": false,
+            "state": "unknown"
+          }
+        }
+      }
+    },
+    {
+      "send": "requestAltimeterPermission",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "derives": {
+        "ios": [
+          "NSMotionUsageDescription"
+        ]
+      },
+      "answers": "AltimeterStatus",
+      "substitute": {
+        "answers": "altimeterStatus",
+        "deniedAnswers": true
+      }
+    },
+    {
+      "source": "barometer",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 1000
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "frequency": "frequency",
+        "rate": 1,
+        "stream": "pressure",
+        "values": [
+          "pressure"
+        ],
+        "stamp": "timestamp"
+      },
+      "origin": "app",
+      "person": true,
+      "grants": [
+        "device.motion"
+      ],
+      "derives": {
+        "ios": [
+          "NSMotionUsageDescription"
+        ]
+      },
+      "options": {
+        "frequency": "option<number>",
+        "interval": {
+          "type": "option<number>",
+          "min": 250,
+          "default": 1000
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 256,
+          "default": 0
+        }
+      },
+      "answers": "Barometer",
+      "substitute": {
+        "default": {
+          "pressure": 1013.25
+        },
+        "track": true
+      }
+    },
+    {
+      "source": "altimeter",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 1000
+      },
+      "samples": {
+        "bound": "history",
+        "cursor": "sequence",
+        "frequency": "frequency",
+        "rate": 1,
+        "stream": "pressure",
+        "values": [
+          "relativeAltitude"
+        ],
+        "stamp": "timestamp",
+        "since": "since"
+      },
+      "origin": "app",
+      "person": true,
+      "grants": [
+        "device.motion"
+      ],
+      "derives": {
+        "ios": [
+          "NSMotionUsageDescription"
+        ]
+      },
+      "options": {
+        "frequency": "option<number>",
+        "interval": {
+          "type": "option<number>",
+          "min": 250,
+          "default": 1000
+        },
+        "history": {
+          "type": "option<number>",
+          "max": 256,
+          "default": 0
+        }
+      },
+      "answers": "Altimeter",
+      "substitute": {
+        "default": {
+          "relativeAltitude": 0
+        },
+        "track": true
+      }
+    }
+  ]
+}

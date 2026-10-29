@@ -128,6 +128,25 @@ pub enum BridgeError {
     },
 }
 
+/// @ref LLP 1121 stage 14 C2 — the icon a plan `icons` row is: the ONE
+/// place a row's path leaves its `IconPathId` (its one method), handed
+/// straight to `exact_kernel::Icon::of_row`, which strips an even-odd
+/// icon's `evenodd:` marker into its rule. Every reader of the table calls
+/// this (a guard test holds that nothing else calls that method); `None`
+/// for a row no reader reads (a rule it doesn't know).
+pub fn icon_of<'a>(
+    plan: &'a exact_plan::Plan,
+    row: &exact_plan::IconsRow,
+) -> Option<exact_kernel::Icon<'a>> {
+    let s = |id: exact_plan::StrId| plan.strings.get(id.0 as usize).unwrap_or("");
+    exact_kernel::Icon::of_row(
+        s(row.sf),
+        s(row.view_box),
+        s(row.path.raw_for_icon()),
+        s(row.svg),
+    )
+}
+
 /// @ref LLP 1121 D10 — a computed `symbol:` source naming an icon token, by
 /// its name or (`sf/<name>`) by its SF Symbol, written as the source form a
 /// host reads, as the compiler writes a literal one; any other value as it is.
@@ -149,17 +168,10 @@ pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> P
             .find(|i| !sf.is_empty() && s(i.sf.0) == sf),
         None => plan.icons.iter().find(|i| s(i.name.0) == name),
     };
-    match icon {
-        Some(i) => PropValue::Str(
-            format!(
-                "symbol:icon|{}|{}|{}|{}",
-                s(i.sf.0),
-                s(i.view_box.0),
-                s(i.path.0),
-                s(i.svg.0)
-            )
-            .into(),
-        ),
+    // The row read through the one reader of it, which keeps an even-odd
+    // icon's rule (stage 14 C2); a row it doesn't read leaves the value.
+    match icon.and_then(|i| icon_of(plan, i)) {
+        Some(icon) => PropValue::Str(format!("symbol:{}", icon.form()).into()),
         None => value,
     }
 }
@@ -184,6 +196,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
                 .map_err(|_| mismatch())?
                 .into(),
         )
+    } else if prop == PropId::KeepMounted {
+        // The runner reads the list's value; the row holds its keys.
+        crate::instance::collection::keep_mounted(value).ok_or_else(mismatch)?;
+        let mut json = String::new();
+        crate::agent::untyped_json(value, &mut json);
+        PropValue::Str(json.into())
     } else if prop == PropId::AtomFaces {
         PropValue::Str(
             crate::decorations::atom_faces(value)
@@ -221,6 +239,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
     // row is unset (`none`) and journaled (LLP 1125 D11).
     if prop == PropId::Wakelock
         && !matches!(&out, PropValue::Str(s) if matches!(s.as_str(), "screen" | "none"))
+    {
+        return Err(mismatch());
+    }
+    // And `orientationlock` outside its words (LLP 1133.029 D2).
+    if prop == PropId::Orientationlock
+        && !matches!(&out, PropValue::Str(s) if crate::orientation::WORDS.contains(&s.as_str()))
     {
         return Err(mismatch());
     }
@@ -870,6 +894,58 @@ impl KeyframesTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Stage 14 C2: a computed `symbol:` source naming an icon is written
+    /// from its row through `exact_kernel::Icon`, so an even-odd icon's
+    /// source keeps its `evenodd:` marker and a nonzero one is as before.
+    #[test]
+    fn a_computed_icon_source_keeps_its_fill_rule() {
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        b.icon(
+            "icon.ring",
+            "",
+            "0 0 24 24",
+            "evenodd:M0 0h4v4H0Z;M1 1h2v2H1Z",
+            "icons/ring.svg",
+        );
+        b.icon(
+            "icon.dot",
+            "circle",
+            "0 0 24 24",
+            "M0 0h1Z",
+            "icons/dot.svg",
+        );
+        b.icon(
+            "icon.odd",
+            "",
+            "0 0 24 24",
+            "winding:M0 0h1Z",
+            "icons/odd.svg",
+        );
+        let plan = b.finish().unwrap();
+        let source =
+            |v: &str| match icon_source(&plan, PropId::ImageSource, PropValue::Str(v.into())) {
+                PropValue::Str(s) => s.to_string(),
+                other => panic!("{other:?}"),
+            };
+        assert_eq!(
+            source("symbol:icon.ring"),
+            "symbol:icon||0 0 24 24|evenodd:M0 0h4v4H0Z;M1 1h2v2H1Z|icons/ring.svg"
+        );
+        assert_eq!(
+            source("symbol:icon.dot"),
+            "symbol:icon|circle|0 0 24 24|M0 0h1Z|icons/dot.svg"
+        );
+        assert_eq!(
+            source("symbol:sf/circle"),
+            "symbol:icon|circle|0 0 24 24|M0 0h1Z|icons/dot.svg"
+        );
+        assert_eq!(
+            source("symbol:icon.odd"),
+            "symbol:icon.odd",
+            "a row no reader reads is left as named"
+        );
+    }
 
     #[test]
     fn runtime_css_family_members_keep_quoted_commas_and_order() {

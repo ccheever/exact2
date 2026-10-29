@@ -8,6 +8,9 @@ use std::sync::{
 /// A hang detector, not a speed claim: a wait returns once nothing is
 /// pending, and a 2048² decode took over 3 s on this Mac at load 170.
 const SETTLED: Duration = Duration::from_secs(60);
+// These fixtures must occupy both process workers before releasing either.
+// Running them together can leave each holding one while waiting for the other.
+static BOTH_WORKERS: Mutex<()> = Mutex::new(());
 
 fn encoded(w: u32, h: u32, color: [u8; 4]) -> Arc<[u8]> {
     let mut data = Vec::new();
@@ -38,6 +41,78 @@ fn assets() -> Assets {
             )))
         }),
     )
+}
+
+#[test]
+fn http_images_share_a_download_without_blocking_local_images() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/redirect", listener.local_addr().unwrap());
+    let png = encoded(24, 16, [40, 120, 220, 255]);
+    let (arrived, requested) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    let server = std::thread::spawn(move || {
+        for request in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(SETTLED)).unwrap();
+            let mut header = Vec::new();
+            while !header.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                header.push(byte[0]);
+                assert!(header.len() < 8192);
+            }
+            let header = String::from_utf8(header).unwrap().to_ascii_lowercase();
+            assert!(
+                !header.contains("authorization:")
+                    && !header.contains("cookie:")
+                    && !header.contains("referer:")
+            );
+            if request == 0 {
+                assert!(header.starts_with("get /redirect "));
+                stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: /photo\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+            } else {
+                assert!(header.starts_with("get /photo "));
+                arrived.send(()).unwrap();
+                released.recv_timeout(SETTLED).unwrap();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", png.len()).unwrap();
+                stream.write_all(&png).unwrap();
+            }
+        }
+    });
+    let mut k = kernel(3);
+    source(&mut k, 1, &url);
+    source(&mut k, 2, &url);
+    let mut images = Images::with_assets(assets());
+    images.sync(&k, &k.roots());
+    requested.recv_timeout(SETTLED).unwrap();
+    until(|| {
+        images.poll();
+        images.bitmaps.contains_key(&3)
+    });
+    assert!(!images.bitmaps.contains_key(&1));
+    release.send(()).unwrap();
+    images.wait(SETTLED);
+    server.join().unwrap();
+    assert_eq!(
+        (images.bitmaps[&1].width(), images.bitmaps[&1].height()),
+        (24, 16)
+    );
+    assert!(Arc::ptr_eq(&images.bitmaps[&1], &images.bitmaps[&2]));
+    let path = images.views[&1].source_id.as_ref().unwrap().file().unwrap();
+    assert!(path.is_file());
+    drop(images);
+    // The shared download cache survives a view's lifetime. A later view
+    // must reuse it even after the fixture server has closed.
+    let mut again = Images::with_assets(assets());
+    again.sync(&k, &k.roots());
+    again.wait(SETTLED);
+    assert!(again.bitmaps.contains_key(&1));
+    assert_eq!(
+        again.views[&1].source_id.as_ref().unwrap().file(),
+        Some(path)
+    );
 }
 fn kernel(count: u32) -> Kernel {
     let mut k = Kernel::with_monospace();
@@ -215,6 +290,7 @@ fn twenty_replacement_waves_decode_distinct_sources_without_retaining_history() 
 
 #[test]
 fn full_undrained_session_does_not_block_another_sessions_native_workers() {
+    let _both = BOTH_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
     let k = kernel(2);
     let mut a = Images::with_assets(assets());
     // Prepare metadata without occupying a decode worker. Holding one worker
@@ -357,6 +433,7 @@ fn source_identity_survives_displayed_replacement_and_cold_unmount() {
 
 #[test]
 fn metadata_progresses_under_known_decode_pressure_in_shared_pool() {
+    let _both = BOTH_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
     use std::sync::atomic::AtomicUsize;
     let decoded = Arc::new(AtomicUsize::new(0));
     let release = Arc::new(AtomicBool::new(false));
@@ -429,7 +506,7 @@ fn provider_identity_outlives_metadata_churn_and_generation_retirement() {
     for n in 100..180 {
         let owner = images
             .backend
-            .source(images.generation, &n.to_string(), &images.assets)
+            .source(images.generation, &n.to_string(), &images.assets, false)
             .unwrap();
         until(|| matches!(images.backend.prepared(owner.id), Some(Prepared::Ready(_))));
     }
@@ -452,7 +529,7 @@ fn provider_identity_outlives_metadata_churn_and_generation_retirement() {
     drop(a);
     until(|| weak_owner.upgrade().is_none());
     images.reset();
-    assert_eq!(images.backend.sources(), 0);
+    until(|| images.backend.sources() == 0);
 }
 
 #[test]

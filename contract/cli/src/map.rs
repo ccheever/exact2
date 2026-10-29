@@ -120,6 +120,51 @@ impl SourceMap {
         .unwrap();
     }
 
+    /// Site `site`'s chain as the page's walk up its own tree takes it (host/web-js/inspect-dev.js `selectUp`):
+    /// from the node, each plan ancestor whose instance is one not yet seen is a step. Each step is
+    /// `(call, at, slot)`: a lexical ancestor `at` is reached through the call of its child on the way
+    /// (`call`), as the map's `chain` writes it; any other instance is a slot's host, named by its own call.
+    /// None when the steps are the chain itself (no fill on the way, no instance without elements).
+    fn steps(&self, site: usize, copies: &[usize]) -> Option<Vec<(u32, u32, bool)>> {
+        let (nodes, instances) = (&self.sites.nodes, &self.sites.instances);
+        let node = &nodes[site];
+        let mut lexical = Vec::new();
+        let mut at = node.instance;
+        while let Some(parent) = instances[at as usize].parent {
+            lexical.push((at, parent, false));
+            at = parent;
+        }
+        let (mut seen, mut from, mut steps) = (
+            vec![copies[node.instance as usize]],
+            node.instance,
+            Vec::new(),
+        );
+        let mut up = node.parent;
+        while let Some(p) = up {
+            let x = nodes[p as usize].instance;
+            let k = copies[x as usize];
+            if !seen.contains(&k) {
+                seen.push(k);
+                // The child of `x` on `from`'s lexical chain, if `x` is a lexical ancestor of it.
+                let mut child = from;
+                let lexical_step = loop {
+                    match instances[child as usize].parent {
+                        Some(parent) if parent == x => break Some(child),
+                        Some(parent) => child = parent,
+                        None => break None,
+                    }
+                };
+                steps.push(match lexical_step {
+                    Some(call) => (call, x, false),
+                    None => (x, x, true),
+                });
+                from = x;
+            }
+            up = nodes[p as usize].parent;
+        }
+        (steps != lexical).then_some(steps)
+    }
+
     fn declarations(&self, out: &mut Vec<u8>, declarations: &[Declared]) {
         out.push(b'{');
         for (i, declaration) in declarations.iter().enumerate() {
@@ -132,7 +177,10 @@ impl SourceMap {
             out.extend_from_slice(b",\"component\":");
             quote(
                 out,
-                &self.sites.instances[declaration.instance as usize].component,
+                declaration
+                    .component
+                    .as_deref()
+                    .unwrap_or(&self.sites.instances[declaration.instance as usize].component),
             );
             out.push(b'}');
         }
@@ -156,13 +204,14 @@ impl SourceMap {
             .collect()
     }
 
-    /// Where the plan's slot, derive or action named `name` was declared.
+    /// Where the plan's slot, derive, resource or action named `name` was declared.
     pub fn declared(&self, name: &str) -> Option<(&std::path::Path, Span)> {
         let d = self
             .sites
             .slots
             .iter()
             .chain(&self.sites.derives)
+            .chain(&self.sites.resources)
             .chain(&self.sites.actions)
             .find(|d| d.name == name)?;
         Some((self.sources.path(d.span), d.span))
@@ -244,6 +293,26 @@ impl SourceMap {
         out.extend_from_slice(b"{\"digest\":");
         quote(&mut out, &plan_digest(plan_bytes));
         out.extend_from_slice(b",\"nodes\":[");
+        let (mut walks, mut walk_index) = (
+            Vec::<Vec<usize>>::new(),
+            std::collections::HashMap::<Vec<usize>, usize>::new(),
+        );
+        // Each instance's copy, as `copies` keys one: its call-site chain (one call expanded twice is one copy).
+        let mut copies = Vec::with_capacity(self.sites.instances.len());
+        let mut copy_ids = std::collections::HashMap::<(Span, usize), usize>::new();
+        for instance in &self.sites.instances {
+            let id = instance.parent.map(|p| {
+                let next = copy_ids.len() + 1;
+                *copy_ids
+                    .entry((instance.span, copies[p as usize]))
+                    .or_insert(next)
+            });
+            copies.push(id.unwrap_or(0));
+        }
+        let (mut walk_steps, mut step_index) = (
+            Vec::<Vec<u8>>::new(),
+            std::collections::HashMap::<Vec<u8>, usize>::new(),
+        );
         for (i, node) in self.sites.nodes.iter().enumerate() {
             if i != 0 {
                 out.push(b',');
@@ -280,12 +349,44 @@ impl SourceMap {
                 out.push(b'}');
                 instance = parent as usize;
             }
+            out.push(b']');
+            // The chain as a page's walk up its tree meets it, where that differs: a slot's host is a step, a
+            // component that only renders another none (stage 15 D3). Written once in `walks`, each node naming
+            // its own by index (`walk`): the copies of a component share theirs.
+            if let Some(steps) = self.steps(i, &copies) {
+                // (Each step once in `walk_steps`, each walk a list of their indices: hosts and calls repeat.)
+                let walk: Vec<usize> = steps
+                    .into_iter()
+                    .map(|(call, at, slot)| {
+                        let mut step = Vec::new();
+                        step.push(b'{');
+                        self.at(&mut step, self.sites.instances[call as usize].span);
+                        step.extend_from_slice(b",\"component\":");
+                        quote(&mut step, &self.sites.instances[at as usize].component);
+                        if slot {
+                            step.extend_from_slice(b",\"slot\":true");
+                        }
+                        step.push(b'}');
+                        let next = step_index.len();
+                        *step_index.entry(step.clone()).or_insert_with(|| {
+                            walk_steps.push(step);
+                            next
+                        })
+                    })
+                    .collect();
+                let next = walk_index.len();
+                let index = *walk_index.entry(walk.clone()).or_insert_with(|| {
+                    walks.push(walk);
+                    next
+                });
+                write!(out, ",\"walk\":{index}").unwrap();
+            }
             if let Some(reason) = node.button.as_ref().and_then(|b| b.bare_reason.as_deref()) {
-                out.extend_from_slice(b"],\"bare_reason\":");
+                out.extend_from_slice(b",\"bare_reason\":");
                 quote(&mut out, reason);
                 out.extend_from_slice(b",\"bindings\":[");
             } else {
-                out.extend_from_slice(b"],\"bindings\":[");
+                out.extend_from_slice(b",\"bindings\":[");
             }
             // Each row once (theme2's 02:46 and 03:18 rulings): its base
             // value's origin and place where a base row writes it (none
@@ -365,10 +466,26 @@ impl SourceMap {
             }
             out.push(b'}');
         }
-        out.extend_from_slice(b"],\"slots\":");
+        out.push(b']');
+        if !walks.is_empty() {
+            out.extend_from_slice(b",\"walk_steps\":[");
+            out.extend_from_slice(&walk_steps.join(&b',')[..]);
+            out.extend_from_slice(b"],\"walks\":[");
+            for (k, walk) in walks.iter().enumerate() {
+                if k != 0 {
+                    out.push(b',');
+                }
+                let list: Vec<String> = walk.iter().map(usize::to_string).collect();
+                write!(out, "[{}]", list.join(",")).unwrap();
+            }
+            out.push(b']');
+        }
+        out.extend_from_slice(b",\"slots\":");
         self.declarations(&mut out, &self.sites.slots);
         out.extend_from_slice(b",\"derives\":");
         self.declarations(&mut out, &self.sites.derives);
+        out.extend_from_slice(b",\"resources\":");
+        self.declarations(&mut out, &self.sites.resources);
         out.extend_from_slice(b",\"actions\":");
         self.declarations(&mut out, &self.sites.actions);
         out.push(b'}');

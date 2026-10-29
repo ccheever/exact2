@@ -58,9 +58,19 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         #endif
     }
     required init?(coder: NSCoder) { nil }
+    #if os(iOS)
+    // LLP 1133.029 D5: UIKit asks a presented controller, whose default is
+    // not its presenter's answer; a dialog over a locked screen keeps the lock.
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        host?.orientationLock?.supported ?? super.supportedInterfaceOrientations
+    }
+    @available(iOS 26, *)
+    override var prefersInterfaceOrientationLocked: Bool { host?.orientationLock?.locked ?? false }
+    #endif
 
     override func loadView() {
-        let view = UIView()
+        // Keeping its tint undimmed for the dialog's nodes (`RestsTint`)
+        let view = RestingTintView()
         #if os(tvOS)
         view.backgroundColor = .white
         #else
@@ -172,6 +182,10 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     private weak var presenter: Presenter?
     /// Its presenter's root: what a sheet's surface resolves the theme by.
     var root: UIView? { presenter?.root }
+    #if os(iOS)
+    /// Its presenter's orientation lock, which each sheet answers.
+    var orientationLock: OrientationLock? { presenter?.orientationLock }
+    #endif
     private final class Entry {
         let dialog: NodeView
         let incarnation: UInt64
@@ -471,7 +485,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         if cancelled || entry.notifyClose { dialog.queueDialogClose() }
         if cancelled, live(dialog), dialog.handlers.contains("cancel") {
             if let onCancel { onCancel(dialog.id) }
-            else if let session = presenter.session { session.apply(session.runtime.pickerCancel(dialog.id, now: session.now())) }
+            else if let session = presenter.session { session.applyInput(session.runtime.pickerCancel(dialog.id, now: session.now())) }
         }
     }
 
@@ -485,6 +499,18 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         guard let entry = entries.first(where: { $0.controller === controller }), !entry.closing, !refuses(entry.dialog) else { return false }
         dismiss(entry, animated: !ExactEnv.agentFreezes, cancelled: true)
         return true
+    }
+
+    /// The agent's `back` at the top sheet, as Escape takes it: nil with
+    /// none open, else why it was refused ("" when it closed).
+    func agentCancel() -> String? {
+        // A sheet still leaving holds the route beneath it.
+        guard !entries.isEmpty else { return nil }
+        if inTransition { return "the sheet is still moving: `clock settle` first" }
+        guard let entry = entries.last(where: { !$0.closing }) else { return nil }
+        if refuses(entry.dialog) { return "its closedby is \"none\"" }
+        dismiss(entry, animated: !ExactEnv.agentFreezes, cancelled: true)
+        return ""
     }
 
     // UIKit's own dismissal: the swipe down, and whatever else it gives a sheet.

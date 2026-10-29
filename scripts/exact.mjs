@@ -573,13 +573,15 @@ export function contract(args, env = process.env) {
 
 /** `app.ts` against the plan just built, by the type check every host's build runs (the web JS
  * target's `--check`), so a TypeScript error surfaces at the build an author runs most, not at an
- * iOS build. Its report goes to stderr, or is returned as `report` when `capture` (`--json`). */
-function checkTypes(dir, {capture = false} = {}) {
+ * iOS build. Its report goes to stderr, or is returned as `report` when `capture` (`--json`). Supervised
+ * (scripts/check-supervise.mjs): a check that outlasts its bound, or outlives its caller, is stopped, its process
+ * group with it. `builder`: the check's script (a test's stand-in). */
+export function checkTypes(dir, {capture = false, builder = resolve(ROOT, 'host/web-js/build.mjs')} = {}) {
   // An app's directory alone: the check is the app build's, which reads its app.json.
   if (!existsSync(resolve(dir, 'app.ts')) || !existsSync(resolve(dir, 'app.json'))) return {status: 0, report: ''};
   const out = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
   try {
-    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web-js/build.mjs'), basename(dir), '--check', '--out', out], { stdio: ['ignore', capture ? 'pipe' : 2, capture ? 'pipe' : 2], encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, EXACT_APP_DIR: dir } });
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/check-supervise.mjs'), String(process.pid), builder, basename(dir), '--check', '--out', out], { stdio: ['ignore', capture ? 'pipe' : 2, capture ? 'pipe' : 2], encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, EXACT_APP_DIR: dir } });
     return {status: r.status ?? 1, report: `${r.stdout ?? ''}${r.stderr ?? ''}`};
   } finally { rmSync(out, { recursive: true, force: true }); }
 }
@@ -710,7 +712,9 @@ EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
 export function add(args, say = console.log) {
   const [module, name] = args, short = String(module ?? '').replace(/^@exact\//, '');
   const read = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
-  const standard = readdirSync(resolve(ROOT, 'packages')).filter((p) => read(resolve(ROOT, 'packages', p, 'exact.json'))?.kind === 'interface');
+  // A standard module (an interface), or a TypeScript library of exact2's own (`@exact/oauth`, LLP 1146 D5).
+  const standard = readdirSync(resolve(ROOT, 'packages')).filter((p) => read(resolve(ROOT, 'packages', p, 'exact.json'))?.kind === 'interface'
+    || read(resolve(ROOT, 'packages', p, 'package.json'))?.exports?.['.']?.types !== undefined);
   if (!standard.includes(short)) throw new Error(`add: ${module ? `no standard module ${module}` : 'name a module'}; exact2's are ${standard.join(', ')} (exact add geolocation)`);
   if (!name && !process.env.EXACT_APP_DIR) throw new Error('add: name the app (exact add geolocation <app>), or run bun exact.mjs add in it');
   const app = resolveApp(name), at = resolve(app.dir, 'package.json'), manifest = read(at);
@@ -1085,6 +1089,7 @@ const TOPICS = {
   deploy: 'Recipe: porting an app, a release build, splitting the work',
   accessibility: 'Native views: accessibility', strings: 'Recipe: app.json, assets and modules',
   list: 'Recipe: list rows: search, swipe, filter and long-press', midi: 'MIDI: `exactMIDI`, `sendMIDI`, `midimessage`',
+  'sign-in provider': 'Sign-in providers (`@exact/oauth`)',
 };
 
 const STOP = new Set(['a', 'an', 'and', 'by', 'for', 'in', 'it', 'its', 'of', 'on', 'or', 'the', 'to', 'you']);

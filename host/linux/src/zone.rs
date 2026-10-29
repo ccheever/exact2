@@ -90,6 +90,8 @@ pub fn launch_place(
             format_locale: env("EXACT_AGENT_FORMAT_LOCALE").unwrap_or_default(),
         }
     } else {
+        #[cfg(windows)]
+        crate::com::ensure_mta().map_err(|error| format!("launch COM: {error}"))?;
         // Below 2^32 (LLP 1116.005 D5): four bytes of entropy.
         let mut bytes = [0; 4];
         getrandom::fill(&mut bytes).map_err(|e| format!("launch seed: {e}"))?;

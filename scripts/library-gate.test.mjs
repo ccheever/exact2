@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { cellsFor, conditional, markedSlot, option, placements, uncommented } from './library-gate.mjs';
 import { SLOTTED } from './stage12-gate.mjs';
-import { COMPONENTS, DERIVED, PARAM_TOKENS, READS, cases as restyleCases, newTokens, packageParams, readsOf } from './s13c-restyle.mjs';
+import { COMPONENTS, DERIVED, EMPTY, EXPORTED_TOKENS, PARAM_TOKENS, READS, cases as restyleCases, newTokens, packageParams, readsOf } from './s13c-restyle.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const APP = join(ROOT, 'apps/library-gate/app.contract');
@@ -43,7 +43,7 @@ function ir() {
 test('every exported component, once per variant value, every cell rendered, every slot marked', () => {
   const library = ir();
   const names = library.map(c => c.name);
-  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'BarItem', 'ComposeFrame', 'HeaderButton', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow']);
+  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'Avatar', 'BarItem', 'ComposeFrame', 'EmptyState', 'FollowButton', 'HeaderButton', 'ListRow', 'MenuGroup', 'MenuItem', 'PersonRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow', 'VerifiedBadge']);
   // The gate's slot-rendered line reads every component with a slot (one at
   // its view's root, as ComposeFrame's, is in no part).
   const slotted = slottedIn(['actions', 'cards', 'lists']).filter(n => names.includes(n));
@@ -53,6 +53,8 @@ test('every exported component, once per variant value, every cell rendered, eve
   expect([...app.matchAll(/^component (\w+)/gm)].map(m => m[1])).toEqual(['App']);
   expect(conditional(app)).toEqual([]);
   const placed = placements(app, names);
+  // Every placement has an id: its own prop, or the box that holds only it.
+  expect(placed.filter(p => !p.id).map(p => p.name)).toEqual([]);
   for (const c of library) {
     const mine = placed.filter(p => p.name === c.name);
     const cells = mine.filter(p => !p.id.startsWith('sample-'));
@@ -82,18 +84,77 @@ test("contract gallery places the cells this app does, each placed, on the app's
   const out = mkdtempSync(join(ROOT, 'target', 'library-gate-gallery-'));
   const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
   expect([r.status, r.stderr]).toEqual([0, '']);
-  expect(r.stdout).toContain('gallery: 10 components, 25 cells (0 refused)');
+  expect(r.stdout).toContain('gallery: 17 components, 63 cells (0 refused)');
   const gallery = readFileSync(join(out, 'app.contract'), 'utf8');
   expect(gallery).not.toContain("can't place");
-  const placed = placements(gallery, library.map(c => c.name));
+  const placed = placements(gallery, library.map(c => c.name)), own = placements(readFileSync(APP, 'utf8'), library.map(c => c.name));
   for (const c of library) {
-    const want = cellsFor(c.variants).map(v => JSON.stringify(v)).sort();
-    const got = placed.filter(p => p.name === c.name).map(p => JSON.stringify(Object.fromEntries(c.variants.map(v => [v.prop, option(p.values[v.prop])])))).sort();
+    const cells = placed.filter(p => p.name === c.name);
+    // Beside the compiler's variants, a prop the view compares with literals in an `if` is the gallery's variant too:
+    // a string's one cell a literal and the empty one (stage 15 D4 batch 1 #2), an enum's (by == or !=) one cell a
+    // declared value (VerifiedBadge's, PostCard's and PersonRow's badge, stage 15 B batch 2): the values this app places.
+    const extra = Object.keys(cells[0]?.values ?? {}).filter(k => !c.variants.some(v => v.prop === k) && new Set(cells.map(p => p.values[k])).size > 1)
+      .map(prop => ({ prop, options: [...new Set(cells.map(p => option(p.values[prop])))] }));
+    for (const { prop, options } of extra) expect([c.name, prop, [...options].sort()]).toEqual([c.name, prop, [...new Set(own.filter(p => p.name === c.name).map(p => option(p.values[prop])))].sort()]);
+    const variants = [...c.variants, ...extra];
+    const want = cellsFor(variants).map(v => JSON.stringify(v)).sort();
+    const got = cells.map(p => JSON.stringify(Object.fromEntries(variants.map(v => [v.prop, option(p.values[v.prop])])))).sort();
     expect([c.name, got]).toEqual([c.name, want]);
   }
   expect(JSON.parse(readFileSync(join(out, 'app.json'), 'utf8')).tamber).toBe(relative(out, join(ROOT, 'apps/library-gate/app.tamber')));
   rmSync(out, { recursive: true, force: true });
 }, 600_000);
+
+// FollowButton says following by its label alone (theme2's 14:15 ruling, no
+// aria-pressed; contract/cli/tests/it/actions_exports.rs asserts the label in
+// both states, round too). A round one shows no text, so its label must not
+// be "", which the compiler can't see (one prop required by another's
+// value): every round cell names one, and in both states, the app's swap.
+/** The placement of `id` in `app` (its line, comments set aside) writes
+ * `prop` as a whole string literal with words in it (or, `empty`, exactly
+ * `""`): the closing quote ends the argument (a `,` or the call's `)` next),
+ * so `"Follow Ada".slice(99)`, `"" + "Following Ada"`, a missing prop and
+ * `""` (unless `empty`) all fail. */
+function wordsWritten(app, id, prop, empty = false) {
+  const line = app.split('\n').map(uncommented).find(l => l.includes(`(id="${id}",`));
+  const value = empty ? '""' : '"\\s*\\S[^"]*"';
+  return !!line && new RegExp(`[(,]\\s*${prop}=${value}\\s*(?:,|\\)\\s*$)`).test(line);
+}
+test("every round FollowButton cell names its label, the label swapped with the state", () => {
+  const app = readFileSync(APP, 'utf8');
+  const placed = placements(app, ['FollowButton']);
+  const round = placed.filter(p => option(p.values.shape) === 'round');
+  expect(round.length).toBeGreaterThanOrEqual(3);
+  for (const p of round) expect([p.id, wordsWritten(app, p.id, 'label')]).toEqual([p.id, true]);
+  expect(new Set(round.map(p => option(p.values.following))).size).toBe(2);
+  // The guard refuses what would leave a round button speechless.
+  const cell = l => `      FollowButton(id="r", following=false, text="", ${l}tone="primary", size="small", shape="round", icon="both", press=press)\n`;
+  expect(['label="Follow Ada", ', 'label="Follow Ada".slice(99), ', 'label="", ', 'label=" ", ', '', 'label=name, '].map(l => wordsWritten(cell(l), 'r', 'label'))).toEqual([true, false, false, false, false, false]);
+  // A pill's "" is the empty literal alone, not the head of an expression.
+  expect(['label="", ', 'label="" + "Following Ada", ', 'label="Follow", '].map(l => wordsWritten(cell(l), 'r', 'label', true))).toEqual([true, false, false]);
+  // Each cell's words are its state's: the spoken label (the text where it's
+  // "") starts "Following" following, "Follow " or is "Follow" not; every
+  // label and text a whole literal (or "" for a label).
+  for (const p of placed) {
+    const said = option(p.values.label) || option(p.values.text);
+    const on = option(p.values.following) === 'true';
+    expect([p.id, on ? said.startsWith('Following') : !said.startsWith('Following') && said.startsWith('Follow')]).toEqual([p.id, true]);
+    expect([p.id, wordsWritten(app, p.id, 'text'), wordsWritten(app, p.id, 'label') || wordsWritten(app, p.id, 'label', true)]).toEqual([p.id, true, true]);
+  }
+});
+
+// A pill's label is as tall as its icon's box (Bluesky's leading_snug on
+// text_sm and text_xs, 17 and 15 px), so it keeps its height when the icon
+// comes or goes with the state (icon "follow" or "following").
+test("a FollowButton label's line is its icon box's height, each size", () => {
+  const design = readFileSync(join(ROOT, 'packages/actions/actions.tamber'), 'utf8');
+  const px = name => {
+    const v = new RegExp(`^\\s+${name.replace('.', '\\.')}: length = (\\S+)`, 'm').exec(design)?.[1];
+    return v?.endsWith('rem') ? Number.parseFloat(v) * 16 : Number.parseFloat(v);
+  };
+  expect([px('actions.follow-line'), px('actions.follow-tiny-line')]).toEqual([px('actions.follow-icon-box'), px('actions.follow-tiny-icon-box')]);
+  expect([px('actions.follow-line'), px('actions.follow-tiny-line')]).toEqual([17, 15]);
+});
 
 test('the cells rule, and the parse refuses what could hide a cell', () => {
   expect(cellsFor([{ prop: 'a', options: ['false', 'true'] }, { prop: 'k', options: ['x', 'y', 'z'] }])).toEqual([
@@ -110,13 +171,20 @@ test('the cells rule, and the parse refuses what could hide a cell', () => {
   const marked = '      Card(id="a")\n        box testId="marker-a" press=toggle width=24 height=24\n          text glyph\n';
   const unmarked = '      Card(id="a")\n        // box testId="marker-a" press=toggle width=24 height=24\n        text glyph\n';
   expect([markedSlot(placements(marked, ['Card'])[0]), markedSlot(placements(unmarked, ['Card'])[0])]).toEqual([true, false]);
+  // A component with no id prop takes the id of the box holding only it:
+  // the box two spaces out, named and nothing else, with no sibling after.
+  const held = '      box testId="av-a"\n        Pic(src="")\n      box testId="av-b" width=4\n        Pic(src="")\n      box testId="av-c"\n        Pic(src="")\n        Pic(src="x")\n';
+  expect(placements(held, ['Pic']).map(p => p.id)).toEqual(['av-a', undefined, undefined, undefined]);
+  expect(placements('      Card(id="a")\n', ['Card'])[0].id).toBe('a');
 });
 
 // The gate's restyle cases (theme2 09:49 (c), 10:28 (5)): every token and
 // param stage 13 C added, by the packages' sources, is in a case and read
-// somewhere, so a new one with no case or no read fails here.
-test("the restyle cases name every stage 13 C token and param, each one read", () => {
+// somewhere, so a new one with no case or no read fails here; and every
+// token stage 15 B's exported Avatar and VerifiedBadge draw with.
+test("the restyle cases name every stage 13 C token and param and every exported use's token, each one read", () => {
   const tokens = newTokens(), params = packageParams(), all = restyleCases();
+  const app = readFileSync(APP, 'utf8');
   const named = new Set(all.flatMap(c => c.set.map(s => (c.param ? s.key : s.name))));
   const derived = new Set(all.flatMap(c => c.derived));
   expect(tokens.map(t => t.name).filter(n => !named.has(n) && !derived.has(n))).toEqual([]);
@@ -129,9 +197,33 @@ test("the restyle cases name every stage 13 C token and param, each one read", (
   const read = n => readsOf(n).length > 0 || params.some(p => PARAM_TOKENS[p.key] === n && readsOf(p.key).length > 0)
     || Object.entries(DERIVED).some(([d, x]) => x.from.includes(n) && readsOf(d).length > 0);
   expect([...named, ...derived].filter(n => !read(n))).toEqual([]);
-  // No read of a name that isn't stage 13 C's.
-  expect(Object.keys(READS).filter(k => !tokens.some(t => t.name === k) && !params.some(p => p.key === k))).toEqual([]);
+  // No read of a name that isn't stage 13 C's or the exports'.
+  expect(Object.keys(READS).filter(k => !tokens.some(t => t.name === k) && !params.some(p => p.key === k) && !EXPORTED_TOKENS.includes(k))).toEqual([]);
+  // The exports' tokens are every token their sources name (a token one of
+  // them comes to draw with fails here until the case sets it and a read
+  // reads it), each set in the exports' case and read on their cells.
+  const common = readFileSync(join(ROOT, 'packages/cards/common.contract'), 'utf8');
+  const exportsBody = common.slice(common.indexOf('component Avatar'));
+  const own = [...new Set([...exportsBody.matchAll(/"(cards\.[\w-]+)"/g)].map(m => m[1]))].filter(n => !/^cards\.(verified|verifier)(-check)?$/.test(n));
+  const passed = [...new Set([...app.matchAll(/^\s+(?:Avatar|VerifiedBadge)\((.*)\)\s*$/gm)].flatMap(([, a]) => [...a.matchAll(/(?:size|ink|mark)="(cards\.[\w-]+)"/g)].map(m => m[1])))];
+  expect([...new Set([...own, ...passed])].sort()).toEqual([...EXPORTED_TOKENS].sort());
+  const exportsCase = all.find(c => c.name === 'Avatar and VerifiedBadge tokens');
+  expect(exportsCase.set.map(s => s.name).sort()).toEqual([...EXPORTED_TOKENS].sort());
+  // Each is read on the exports' own cells, only there, and by every one of
+  // the two that draws with it (cards.badge-mark: Avatar's figure and
+  // VerifiedBadge's check), so a read dropped from one fails here.
+  const drawnBy = n => ['Avatar', 'VerifiedBadge'].filter(c => {
+    const body = exportsBody.slice(exportsBody.indexOf(`component ${c}`)).split(/\n(?=component )/)[0];
+    return body.includes(`"${n}"`) || [...app.matchAll(new RegExp(`^\\s+${c}\\((.*)\\)\\s*$`, 'gm'))].some(([, a]) => a.includes(`"${n}"`));
+  });
+  for (const n of EXPORTED_TOKENS) {
+    const reads = readsOf(n);
+    expect([n, reads.length > 0 && reads.every(r => ['Avatar', 'VerifiedBadge'].includes(r.component))]).toEqual([n, true]);
+    expect([n, [...new Set(reads.map(r => r.component))].sort()]).toEqual([n, drawnBy(n).sort()]);
+  }
+  // The "none" badge's cell is library-gate's.
+  expect(EMPTY.every(id => placements(app, ['VerifiedBadge']).some(p => p.id === id && option(p.values.badge) === 'none'))).toBe(true);
   // The cases' components and instances are library-gate's.
-  const app = readFileSync(APP, 'utf8');
-  for (const [name, c] of Object.entries(COMPONENTS)) expect([name, placements(app, [name]).map(p => p.id).sort()]).toEqual([name, [...c.ids].sort()]);
+  // (The empty cell has nothing to read, so it is held apart, in EMPTY.)
+  for (const [name, c] of Object.entries(COMPONENTS)) expect([name, placements(app, [name]).map(p => p.id).filter(id => !EMPTY.includes(id)).sort()]).toEqual([name, [...c.ids].sort()]);
 });

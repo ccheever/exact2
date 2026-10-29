@@ -452,6 +452,15 @@ public enum DevMenu {
             let size = session.presenter.viewportSize
             lines.append("session: \(session.label) · viewport: \(Int(size.width))×\(Int(size.height)) · \(session.viewCount) views")
             lines.append("boot: \(String(format: "%.1f", session.bootMs)) ms")
+            // A resource whose answers are refused keeps showing its last value (LLP 1142 D4).
+            if let state = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any],
+               let failed = state["failed"] as? [String: String] {
+                let counts = state["failures"] as? [String: [String: Any]] ?? [:]
+                for (name, why) in failed.sorted(by: { $0.key < $1.key }) {
+                    let n = (counts[name]?["count"] as? NSNumber).map { ", \($0) times" } ?? ""
+                    lines.append("failing: \(name)\(n): \(why)")
+                }
+            }
         }
         return lines.joined(separator: "\n")
     }

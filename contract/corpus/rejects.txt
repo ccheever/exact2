@@ -358,6 +358,21 @@ component A
     input value=q change=set
       text "inside an input"
 ---
+== lower-leaf-children
+# LLP 1011.002 D1: an image in text is its paragraph's own child.
+component A
+  view
+    text
+      text
+        image "app:/a.png"
+---
+== lower-css-shorthand
+# LLP 1011.002 D1: `top` aligns to the line box, which is not built.
+component A
+  view
+    text
+      image "app:/a.png" vertical-align="top"
+---
 == lower-native-attr
 # LLP 1024 D1: a known row a module's box never uses is refused, not bound
 # to nothing while the module waits for the prop.
@@ -1149,47 +1164,20 @@ component A
     button press=go
       text "a"
 ---
-== type-notification-argument
-# `showNotification` takes the Notification API's names, named.
-component A
-  action go
-    showNotification("Stretch")
-  view
-    button press=go
-      text "a"
----
-== type-notification-argument
-# It needs a title.
-component A
-  action go
-    showNotification(body="Five minutes")
-  view
-    button press=go
-      text "a"
----
-== type-notification-argument
-# `showTrigger` is a time in epoch milliseconds, not text.
-component A
-  action go
-    showNotification(title="Stretch", showTrigger="7:30")
-  view
-    button press=go
-      text "a"
----
-== type-notification-argument
-# `closeNotification` takes the tag.
-component A
-  action go
-    closeNotification()
-  view
-    button press=go
-      text "a"
----
 == type-file-picker-argument
 # `showSaveFilePicker` takes (id, suggestedName) (LLP 1069.010 D2).
 component A
   action go
     showSaveFilePicker("out")
+  view
+    button press=go
+      text "a"
+---
+== type-permission-argument
+# `requestPermission` takes (id, path, mode), mode "read" or "readwrite" (LLP 1069.010.000 D7).
+component A
+  action go
+    requestPermission("asked", "doc:/1/notes.md", "write")
   view
     button press=go
       text "a"

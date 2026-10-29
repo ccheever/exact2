@@ -115,6 +115,11 @@ named here pass.
     host's `host-dev` profile) called each once per glyph from the host's
     run, cluster and glyph walk: 21 ms of a 1 MiB paragraph's 992,721
     glyphs, 7.5 ms inlined (expo-build-1000). No behaviour changes.
+17. **Line items in order.** `Line::items_nonpositioned` and `LineItem` are
+    public: the host walks a line's runs by cluster, as it always has, and
+    its inline boxes (an image in a paragraph's text, LLP 1011.002) in the
+    same visual order, so a glyph after a box is placed past it. No
+    behaviour changes.
 
 `Cargo.toml` also carries the empty `[workspace]` boundary described below;
 retain it when updating. All remaining archive files are byte-for-byte upstream.

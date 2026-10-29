@@ -226,6 +226,41 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertNotNil(p.inlineText(22))
     }
 
+    /// A row whose text shows one-colour ink (`TintInk`) parks, and the ink
+    /// does not come back with it: a chat's bubbles, every one tinted ink.
+    func testARowWhoseTextShowsTintedInkParks() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        func row(_ base: Int, _ text: String) -> [[String: Any]] {
+            [["op": "create", "id": base, "kind": "view"],
+             ["op": "create", "id": base + 1, "kind": "text", "props": ["text": text], "style": ["font_size": 16.0]],
+             ["op": "children", "id": base, "ids": [base + 1]],
+             ["op": "frame", "id": base, "x": 0.0, "y": 0.0, "w": 300.0, "h": 44.0],
+             ["op": "frame", "id": base + 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 20.0]]
+        }
+        p.apply(wireBatch([collections([(10, 10)]),
+            ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]]
+            + row(10, "Hello")
+            + [["op": "children", "id": 1, "ids": [10]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+               ["op": "content", "id": 1, "w": 300.0, "h": 2000.0]]))
+        let text = try XCTUnwrap(p.views[11])
+        let context = try XCTUnwrap(CGContext(data: nil, width: 300, height: 20, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let key = TextRasterKey(spec: text.paragraphSpec(), size: text.bounds.size, box: text.paragraphBox(), scale: 1)
+        var ink = TextRasterImage(try XCTUnwrap(context.makeImage()), frame: text.bounds, covered: text.bounds, headroom: 0)
+        ink.tint = UIColor.red.cgColor
+        text.textRasterKey = key; text.textRasterReady = false
+        text.showTextRaster(ink, for: key)
+        XCTAssertTrue(text.textRasterLayer is TintInk)
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11]) + row(20, "Bye")
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertTrue(p.views[21] === text, "the text's view came back")
+        XCTAssertFalse(text.textRasterLayer is TintInk, "without the last row's ink")
+        XCTAssertFalse(text.layer.sublayers?.contains { $0 is TintInk } ?? false)
+    }
+
     func testARowWhoseNodeMovesAwayIsDestroyedAsBefore() throws {
         let p = fixture()
         let old = try XCTUnwrap(p.views[10]), button = try XCTUnwrap(p.views[12])
@@ -251,12 +286,12 @@ final class NodePoolIOSTests: XCTestCase {
     }
     /// A carousel row: a title (`base + 1`) and an inner list (`base + 2`)
     /// of cards `base + 10 * k` (k = 1, 2), each a box holding an image.
-    private func carouselOps(_ base: Int, y: Double) -> [[String: Any]] {
+    private func carouselOps(_ base: Int, y: Double, kind: String = "list") -> [[String: Any]] {
         let list = base + 2, cards = [base + 10, base + 20]
         var ops: [[String: Any]] = [
             ["op": "create", "id": base, "kind": "view", "props": ["testId": "row-\(base)"]],
             ["op": "create", "id": base + 1, "kind": "text", "props": ["text": "Row \(base)"], "style": ["font_size": 15.0]],
-            ["op": "create", "id": list, "kind": "list", "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+            ["op": "create", "id": list, "kind": kind, "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
         ]
         for (i, card) in cards.enumerated() {
             ops += [["op": "create", "id": card, "kind": "view", "props": ["testId": "card-\(card)"]],
@@ -305,6 +340,47 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertFalse(row.isHidden || card.isHidden || other.isHidden)
         XCTAssertEqual(p.pool.count, 0); XCTAssertEqual(p.pool.innerCount, 0)
         XCTAssertTrue(p.scrollers.contains(202) && !p.scrollers.contains(102))
+    }
+
+    /// An inner list that is not virtualized (a feed post's carousel, which
+    /// mounts every card) parks with its row, and a row of its shape takes
+    /// it back, with its cards.
+    func testARowHoldingAPlainInnerListPoolsAndItsCardsAreReused() throws {
+        try plainInnerListPools(kind: "list")
+    }
+    /// A `scroll` carousel whose content overflows, as a feed post's: its
+    /// row parks with it as with a list.
+    func testARowHoldingAScrollingCarouselPoolsAndItsCardsAreReused() throws {
+        try plainInnerListPools(kind: "scroll")
+    }
+    private func plainInnerListPools(kind: String) throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        func outer(_ row: Int) -> [String: Any] {
+            ["op": "collections", "items": [["view": 1, "revision": 1, "scrollSequence": 0, "count": 50, "totalExtent": 5000,
+                                              "rows": [["view": row, "root": row, "epoch": 1]], "correction": NSNull()]]]
+        }
+        p.apply(wireBatch([outer(100), ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]]
+            + carouselOps(100, y: 0, kind: kind)
+            + [["op": "children", "id": 1, "ids": [100]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+               ["op": "content", "id": 1, "w": 300.0, "h": 5000.0]]))
+        let row = try XCTUnwrap(p.views[100]), list = try XCTUnwrap(p.views[102])
+        let scroll = try XCTUnwrap(list.scroll)
+        let card = try XCTUnwrap(p.views[110]), other = try XCTUnwrap(p.views[120])
+        XCTAssertFalse(p.collections.owns(102), "the inner list is not a collection")
+        scroll.contentOffset = CGPoint(x: 240, y: 0)
+
+        p.apply(wireBatch([outer(200)] + destroy(carouselIDs(100)) + carouselOps(200, y: 140, kind: kind)
+            + [["op": "children", "id": 1, "ids": [200]]]))
+        XCTAssertTrue(p.views[200] === row, "the row's view came back")
+        XCTAssertTrue(p.views[202] === list && list.scroll === scroll, "its inner list's, with its scroll view")
+        XCTAssertEqual(scroll.contentOffset, .zero, "at a new list's offset")
+        XCTAssertTrue(p.views[210] === card && p.views[220] === other, "the cards came back under the same list")
+        XCTAssertTrue(card.superview === scroll)
+        XCTAssertFalse(row.isHidden || card.isHidden || other.isHidden)
+        XCTAssertEqual(p.pool.count, 0); XCTAssertEqual(p.pool.innerCount, 0)
     }
 
     func testARowWhoseInnerListIsMovingIsDestroyedAsBefore() throws {
@@ -385,16 +461,18 @@ final class NodePoolIOSTests: XCTestCase {
         }
     }
 
-    /// LLP 1069.011.000 D8: a row holding controls — a native button and a
-    /// switch — pools around them; each is a new node with a new `UIControl`
-    /// under the next row's id, pressing that id.
-    func testARowPoolsAroundItsControlsWhichAreBuiltFresh() throws {
-        func row(_ base: Int, y: Double) -> [[String: Any]] {
+    /// LLP 1069.011.000 D8: a row holding controls pools around a switch,
+    /// a new node with a new `UIControl` under the next row's id; its native
+    /// button, which holds no value, parks with its `UIButton`, and the
+    /// next row's press reaches the next row's id.
+    func testARowPoolsAroundItsSwitchAndKeepsItsNativeButton() throws {
+        func row(_ base: Int, y: Double, label: String) -> [[String: Any]] {
             [
                 ["op": "create", "id": base, "kind": "view", "props": ["testId": "row-\(base)"]],
                 ["op": "create", "id": base + 1, "kind": "text", "props": ["text": "Row \(base)"], "style": ["font_size": 17.0]],
                 ["op": "create", "id": base + 2, "kind": "control", "handlers": ["press"],
-                 "props": ["type": "button", "accessibilityRole": "button"], "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                 "props": ["type": "button", "accessibilityRole": "button", "accessibilityLabel": label, "testId": "go-\(base)"],
+                 "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
                 ["op": "create", "id": base + 3, "kind": "control", "handlers": ["change"],
                  "props": ["type": "checkbox", "accessibilityRole": "switch", "checked": "true"], "style": ["text_color": [0, 0, 0, 255]]],
                 ["op": "children", "id": base, "ids": [base + 1, base + 2, base + 3]],
@@ -404,28 +482,67 @@ final class NodePoolIOSTests: XCTestCase {
                 ["op": "frame", "id": base + 3, "x": 230.0, "y": 10.0, "w": 51.0, "h": 31.0],
             ]
         }
-        let p = listFixture(row(10, y: 0), root: 10)
+        let p = listFixture(row(10, y: 0, label: "Go to 10"), root: 10)
         p.buttonFace = { _ in var f = ButtonFace(); f.title = "Go"; return f }
         p.apply(wireBatch([]))
-        let rowView = try XCTUnwrap(p.views[10]), label = try XCTUnwrap(p.views[11])
+        let rowView = try XCTUnwrap(p.views[10]), label = try XCTUnwrap(p.views[11]), node = try XCTUnwrap(p.views[12])
         let button = try XCTUnwrap(p.controls.controls[12] as? NativeButtonIOS)
         let toggle = try XCTUnwrap(p.controls.controls[13])
-        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + row(20, y: 0)
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + row(20, y: 0, label: "Go to 20")
             + [["op": "children", "id": 1, "ids": [20]]]))
-        XCTAssertTrue(p.views[20] === rowView && p.views[21] === label, "the plain views, by position")
-        let freshButton = try XCTUnwrap(p.controls.controls[22] as? NativeButtonIOS)
+        XCTAssertTrue(p.views[20] === rowView && p.views[21] === label && p.views[22] === node, "the views, by position")
+        XCTAssertTrue(p.controls.controls[22] === button, "the same UIButton, in its node")
+        XCTAssertTrue(button.superview === node && button.owner === node)
+        XCTAssertEqual(button.accessibilityLabel, "Go to 20"); XCTAssertEqual(button.accessibilityIdentifier, "go-20")
         let freshToggle = try XCTUnwrap(p.controls.controls[23])
-        XCTAssertFalse(freshButton === button, "a new UIButton")
         XCTAssertFalse(freshToggle === toggle, "a new switch")
         XCTAssertNil(p.controls.controls[12]); XCTAssertNil(p.controls.controls[13])
-        XCTAssertNil(button.superview, "the old control left with its node")
-        XCTAssertEqual(p.pool.leavesDropped["control"], 2); XCTAssertEqual(p.pool.leavesBuilt["control"], 2)
+        XCTAssertEqual(p.pool.leavesDropped["control"], 1); XCTAssertEqual(p.pool.leavesBuilt["control"], 1)
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
-        freshButton.sendActions(for: .primaryActionTriggered)
-        XCTAssertEqual(pressed, [22], "the new row's id")
         button.sendActions(for: .primaryActionTriggered)
-        XCTAssertEqual(pressed, [22], "the old control reaches nothing")
+        XCTAssertEqual(pressed, [22], "the new row's id")
+    }
+
+    /// A row whose native button pulls down a `role="menu"` popover holding
+    /// another native button (an episode's "more"): the pull-down parks with
+    /// its menu, the popover's button, which has no `UIButton` while the
+    /// popover is closed, parks bare, and the next row takes them both. Its
+    /// menu is the new row's.
+    func testARowWithAPullDownAndItsClosedMenuParksAndIsTaken() throws {
+        func row(_ base: Int, y: Double) -> [[String: Any]] {
+            [
+                ["op": "create", "id": base, "kind": "view", "props": ["testId": "row-\(base)"]],
+                ["op": "create", "id": base + 1, "kind": "control", "handlers": ["press"],
+                 "props": ["type": "button", "accessibilityLabel": "Actions for \(base)", "popovertarget": "menu-\(base)"],
+                 "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                ["op": "create", "id": base + 2, "kind": "view",
+                 "props": ["popover": "auto", "id": "menu-\(base)", "accessibilityRole": "menu"]],
+                ["op": "create", "id": base + 3, "kind": "control", "handlers": ["press"],
+                 "props": ["type": "button", "popovertarget": "menu-\(base)", "popovertargetaction": "hide"],
+                 "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                ["op": "children", "id": base, "ids": [base + 1, base + 2]],
+                ["op": "children", "id": base + 2, "ids": [base + 3]],
+                ["op": "frame", "id": base, "x": 0.0, "y": y, "w": 300.0, "h": 60.0],
+                ["op": "frame", "id": base + 1, "x": 240.0, "y": 10.0, "w": 44.0, "h": 44.0],
+                ["op": "frame", "id": base + 3, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ]
+        }
+        let p = listFixture(row(10, y: 0), root: 10)
+        p.buttonFace = { _ in var f = ButtonFace(); f.title = "More"; return f }
+        p.apply(wireBatch([]))
+        let opener = try XCTUnwrap(p.controls.controls[11] as? NativeButtonIOS)
+        XCTAssertNotNil(opener.menu)
+        XCTAssertNil(p.controls.controls[13], "a closed popover's button has no control yet")
+        let item = try XCTUnwrap(p.views[13])
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + row(20, y: 0)
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertEqual(p.pool.takes, 1, "the parked row is taken")
+        XCTAssertTrue(p.controls.controls[21] === opener, "the same UIButton, in its node")
+        XCTAssertTrue(p.views[23] === item)
+        XCTAssertTrue(opener.showsMenuAsPrimaryAction)
+        XCTAssertEqual(opener.menuShape, "menu-20|", "its menu is built for the new row")
+        XCTAssertTrue(opener.popover === p.views[22])
     }
 
     /// A 2D canvas row (LLP 1056 D10, LLP 1068 §4.0): the canvas is a new
@@ -555,8 +672,8 @@ final class NodePoolIOSTests: XCTestCase {
     }
 
     func testAFullShapeEvictsItsOldestTreeAndItsRootLeavesTheList() throws {
-        // Nine rows of one shape, retired together; a row of another shape is built.
-        let bases = (1...9).map { $0 * 10 }
+        // One row more than a shape keeps, retired together; a row of another shape is built.
+        let bases = (1...(NodePool.perShape + 1)).map { $0 * 10 }
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()

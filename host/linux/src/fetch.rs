@@ -17,6 +17,13 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 const ENVELOPE_TYPE: &str = "application/vnd.exact.envelope+json";
+/// A dev loop's answer while its producers start, or after their start
+/// failed (llp/1023.001; host/web/dev-phase.mjs): a status, said once.
+const DEV_STATUS_TYPE: &str = "application/vnd.exact.dev-status+json";
+/// How a dev loop's status reads as a poll's error while its producers start,
+const LOOP_PREPARING: &str = "dev loop: ";
+/// and after their start failed.
+const LOOP_FAILED: &str = "dev loop failed to start: ";
 /// What each rung may cost, the Apple loader's numbers (`PlanURL.swift`):
 /// a page and an envelope are small documents, a plan is the only large one.
 /// These reach the transport as `Request::max_body` and are enforced while
@@ -132,6 +139,10 @@ pub(crate) struct Poller {
     /// Shared with the workers, so one in flight when a reload brings a new
     /// executor wakes that one.
     pub waker: std::sync::Arc<std::sync::Mutex<Option<Waker>>>,
+    /// The dev loop's status last said, so a poll says it once, not each tick.
+    said: Option<String>,
+    /// How many poll errors it has said (`say`).
+    pub lines_said: usize,
 }
 
 /// What a worker calls when its answer is in.
@@ -170,7 +181,32 @@ impl Poller {
             channel: None,
             channel_due: now,
             waker: Default::default(),
+            said: None,
+            lines_said: 0,
         }
+    }
+
+    /// Say a poll's `error` on stderr, as `says` lets it: what the Linux
+    /// display and the Android reader do with each (`tick_development`).
+    pub fn say(&mut self, error: &str) {
+        if self.says(error) {
+            self.lines_said += 1;
+            eprintln!("exact url: {error}; keeping the running app");
+        }
+    }
+
+    /// Whether a poll's `error` is to be said: a dev loop's status once,
+    /// until it changes or a poll succeeds; any other error each time.
+    pub fn says(&mut self, error: &str) -> bool {
+        if !is_loop_status(error) {
+            self.said = None;
+            return true;
+        }
+        if self.said.as_deref() == Some(error) {
+            return false;
+        }
+        self.said = Some(error.to_string());
+        true
     }
 
     /// How long until this wants polling again: its next tick, or the
@@ -242,6 +278,9 @@ impl Poller {
             match worker.try_recv() {
                 Ok((outcome, design)) => {
                     self.worker = None;
+                    if outcome.is_ok() {
+                        self.said = None;
+                    }
                     // A snapshot asked for and not answered (a failed
                     // request, a 5xx) is asked for again next tick.
                     if self.asked_design && design.is_none() {
@@ -281,6 +320,32 @@ impl Poller {
     }
 }
 
+/// Whether a fetch's error is a dev loop's status (`loop_status`).
+pub(crate) fn is_loop_status(error: &str) -> bool {
+    error.starts_with(LOOP_PREPARING) || error.starts_with(LOOP_FAILED)
+}
+
+/// A dev loop's status answer read as the error a poll says: `dev loop:
+/// <message>` while its producers start, `dev loop failed to start: <error>`
+/// after their start failed; `None` for any other answer.
+fn loop_status(kind: &str, body: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Said {
+        status: String,
+        message: String,
+    }
+    if !kind.contains(DEV_STATUS_TYPE) {
+        return None;
+    }
+    let said: Said = serde_json::from_slice(body).ok()?;
+    let lead = if said.status == "failed" {
+        LOOP_FAILED
+    } else {
+        LOOP_PREPARING
+    };
+    Some(format!("{lead}{}", said.message))
+}
+
 /// Fetch only when the envelope declares a changed plan or module pair.
 pub fn fetch_changed(
     page: &str,
@@ -288,7 +353,7 @@ pub fn fetch_changed(
     previous: Option<&str>,
 ) -> Result<Option<Generation>, String> {
     let transport = ibex2::transport::default_transport();
-    let get = |url: &str, accept: &str, limit: usize| -> Result<(u16, Vec<u8>), String> {
+    let get = |url: &str, accept: &str, limit: usize| -> Result<(u16, Vec<u8>, String), String> {
         let mut req = ibex2::stdlib::fetch::Request::get(url);
         req.headers.set("accept", accept);
         req.headers.set("cache-control", "no-cache");
@@ -297,15 +362,20 @@ pub fn fetch_changed(
         // a plan, four hundred times too generous for an envelope.
         req.max_body = Some(limit);
         let r = transport.send(&req).map_err(|e| format!("{url}: {e}"))?;
-        Ok((r.status, r.body))
+        let kind = r
+            .headers
+            .get("content-type")
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        Ok((r.status, r.body, kind))
     };
-    let (status, body) = get(
+    let (status, body, kind) = get(
         page,
         &format!("{ENVELOPE_TYPE}, text/html;q=0.9"),
         MAX_PAGE_BYTES,
     )?;
     if status != 200 {
-        return Err(format!("{page}: HTTP {status}"));
+        return Err(loop_status(&kind, &body).unwrap_or_else(|| format!("{page}: HTTP {status}")));
     }
     let (envelope, envelope_base) = if body.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{')
     {
@@ -319,7 +389,7 @@ pub fn fetch_changed(
             .ok_or_else(|| format!("{page} is not an Exact app: no envelope and no link"))?;
         let url = join(page, &href)?;
         same_host(page, &url)?;
-        let (status, body) = get(&url, ENVELOPE_TYPE, MAX_ENVELOPE_BYTES)?;
+        let (status, body, _) = get(&url, ENVELOPE_TYPE, MAX_ENVELOPE_BYTES)?;
         if status != 200 {
             return Err(format!("{url}: HTTP {status}"));
         }
@@ -360,7 +430,7 @@ pub fn fetch_changed(
         same_host(page, &url)?;
         // The envelope's own count is the tighter ceiling: a plan that overruns
         // what its envelope promised is refused as it arrives, not weighed after.
-        let (status, bytes) = get(&url, "application/vnd.exact.plan", count)?;
+        let (status, bytes, _) = get(&url, "application/vnd.exact.plan", count)?;
         if status != 200 {
             return Err(format!("{url}: HTTP {status}"));
         }
@@ -505,7 +575,10 @@ fn origin(url: &str) -> Option<(String, String, u16)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_envelope, fetch_app, same_host, ENVELOPE_TYPE};
+    use super::{
+        decode_envelope, fetch_app, fetch_changed, loop_status, same_host, Poller, DEV_STATUS_TYPE,
+        ENVELOPE_TYPE,
+    };
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
 
@@ -577,6 +650,87 @@ mod tests {
             .nth(1)
             .unwrap_or("/")
             .to_string()
+    }
+
+    /// A loop that answers every page request with `status` and a dev status body.
+    fn serve_status(status: &'static str, body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            while let Ok((mut stream, _)) = listener.accept() {
+                let _ = read_request_path(&mut stream);
+                let _ = stream.write_all(format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {DEV_STATUS_TYPE}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                ).as_bytes());
+            }
+        });
+        format!("http://127.0.0.1:{port}/")
+    }
+
+    /// A dev loop whose producers start answers its status, read as what
+    /// it is (dtool2's pass 3 #8): preparing, or the error its start ended
+    /// with; anything else is the HTTP error it was.
+    #[test]
+    fn a_loops_status_is_read_as_preparing_or_failed() {
+        let preparing = serve_status(
+            "503 Service Unavailable",
+            r#"{"exact":1,"status":"preparing","message":"building the module producer"}"#,
+        );
+        assert_eq!(
+            fetch_changed(&preparing, "{}", None).err().as_deref(),
+            Some("dev loop: building the module producer")
+        );
+        let failed = serve_status(
+            "500 Internal Server Error",
+            r#"{"exact":1,"status":"failed","message":"the resident loop exited 1"}"#,
+        );
+        assert_eq!(
+            fetch_changed(&failed, "{}", None).err().as_deref(),
+            Some("dev loop failed to start: the resident loop exited 1")
+        );
+        assert_eq!(loop_status("text/plain", b"{}"), None);
+    }
+
+    /// Its status is said once however often the host polls (theme2's
+    /// condition c), for the Linux display and the Android reader alike:
+    /// both poll through this `Poller` and say what `says` lets through
+    /// (`Presenter::tick_development`); a change, or another error first,
+    /// is said again.
+    #[test]
+    fn a_loops_status_is_said_once_across_polls() {
+        let page = serve_status(
+            "503 Service Unavailable",
+            r#"{"exact":1,"status":"preparing","message":"building the module producer"}"#,
+        );
+        let mut poller = Poller::new(page, "{}".into(), None);
+        let (mut answers, mut said) = (0, Vec::new());
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while answers < 3 && std::time::Instant::now() < end {
+            match poller.poll() {
+                Err(error) => {
+                    answers += 1;
+                    if poller.says(&error) {
+                        said.push(error);
+                    }
+                }
+                Ok(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            }
+        }
+        assert_eq!(answers, 3);
+        assert_eq!(said, ["dev loop: building the module producer"]);
+        assert!(
+            poller.says("dev loop: building the GPU tools"),
+            "a new step"
+        );
+        assert!(
+            poller.says("http://127.0.0.1:9/: refused")
+                && poller.says("http://127.0.0.1:9/: refused")
+        );
+        assert!(
+            poller.says("dev loop: building the GPU tools"),
+            "again after another error"
+        );
     }
 
     /// The first rung: a page that never ends is refused at the page ceiling

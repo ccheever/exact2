@@ -99,10 +99,16 @@ fn grants_and_hosts_refuse_before_anything_opens() {
     );
     let out = press(&mut r, "go");
     assert_eq!(
-        auth::arm(&mut r, &out, true, Browser::None, None),
+        auth::arm(&mut r, &out, false, Browser::None, None),
         Arm::Settled
     );
     assert_eq!(deliver(&mut r), "501 no system browser on this host");
+    // Under the agent a host with no browser holds it too (LLP 1146 D4).
+    let out = press(&mut r, "go");
+    assert_eq!(
+        auth::arm(&mut r, &out, true, Browser::None, None),
+        Arm::Held
+    );
 }
 
 #[test]
@@ -179,4 +185,24 @@ fn one_session_per_window_and_supersession_forgets_the_old_one() {
     auth::complete(&mut r, first.ticket, Ok("app.test:/cb?state=s1"));
     auth::complete(&mut r, second.ticket, Ok("app.test:/cb?code=c&state=s1"));
     assert_eq!(deliver(&mut r), "200 28");
+}
+
+/// `authorize` and `authorize cancel` parse as test steps and reach the driver
+/// as its `authorize` operation; anything else after the word is refused
+/// (LLP 1146 D4).
+#[test]
+fn authorize_steps_parse_and_reach_the_driver() {
+    let tests = contract::tests("test \"sign in\"\n  authorize\n  authorize cancel\n").unwrap();
+    let json = contract::tests_json(&tests);
+    for want in [
+        r#"{"op":"authorize","cancel":false"#,
+        r#"{"op":"authorize","cancel":true"#,
+    ] {
+        assert!(json.contains(want), "{want}\n{json}");
+    }
+    let refused = contract::tests("test \"sign in\"\n  authorize now\n").unwrap_err();
+    assert!(
+        format!("{refused:?}").contains("takes nothing or `cancel`"),
+        "{refused:?}"
+    );
 }

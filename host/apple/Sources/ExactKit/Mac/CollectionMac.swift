@@ -300,6 +300,8 @@ extension CollectionHost {
     /// under it); a momentum scroll's next delta goes on from there.
     func shift(_ id: UInt32, by delta: Double, extent: Double, from start: Double?) {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return }
+        let phase = HostPhases.shared.begin(.anchor)
+        defer { HostPhases.shared.end(phase) }
         let clip = scroll.contentView, horizontal = entries[id]?.snapshot.horizontal ?? false
         let content = node.contentBox()
         if animating.contains(id), delta.isFinite, let headed = owedTargets[id] ?? animationTargets[id] {
@@ -358,6 +360,15 @@ extension CollectionHost {
         }
         if document.frame.size != size { document.setFrameSize(size) }
     }
+    /// Whether a correction to `wanted` is left to AppKit: past an edge, the
+    /// rubber band owns the offset until it settles at that edge, and a
+    /// correction that asks for no more than the edge (the end a follower
+    /// keeps, an anchor that did not move) would only clamp it. Clamping it
+    /// snapped the bounce on every batch (a hover's, a poll's), which read as
+    /// jitter at the end of a chat, as on iOS (`NodeView.followedTop`).
+    static func leavesRubberBand(at: CGFloat, wanted: CGFloat, maximum: CGFloat) -> Bool {
+        (at > maximum + 0.5 && wanted >= maximum - 0.5) || (at < -0.5 && wanted <= 0.5)
+    }
     func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false) {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               let document = scroll.documentView else { return }
@@ -367,14 +378,13 @@ extension CollectionHost {
         fit(node, scroll, extent: extent, horizontal: horizontal)
         // The anchor stays put, except under a knob held at the end (`KnobDrag`).
         let holdsEnd = KnobDrag.of(scroll)?.holdsEnd == true
-        let target: NSPoint
-        if horizontal {
-            let maximum = max(0, document.frame.width - clip.bounds.width)
-            target = NSPoint(x: holdsEnd ? maximum : min(maximum, max(0, CGFloat(top) + content.minX)), y: clip.bounds.minY)
-        } else {
-            let maximum = max(0, document.frame.height - clip.bounds.height)
-            target = NSPoint(x: clip.bounds.minX, y: holdsEnd ? maximum : min(maximum, max(0, CGFloat(top) + content.minY)))
-        }
+        let at = horizontal ? clip.bounds.minX : clip.bounds.minY
+        let wanted = CGFloat(top) + (horizontal ? content.minX : content.minY)
+        let maximum = max(0, horizontal ? document.frame.width - clip.bounds.width : document.frame.height - clip.bounds.height)
+        // A running animation takes the correction as its own target or is stopped by it, below.
+        if !holdsEnd && !animating.contains(id) && Self.leavesRubberBand(at: at, wanted: wanted, maximum: maximum) { return }
+        let along = holdsEnd ? maximum : min(maximum, max(0, wanted))
+        let target = horizontal ? NSPoint(x: along, y: clip.bounds.minY) : NSPoint(x: clip.bounds.minX, y: along)
         // A smooth correction is AppKit's scroll animation (LLP 1070.000
         // §6.2), as UIKit's is on iOS; one already running goes on and
         // takes this target when it lands.

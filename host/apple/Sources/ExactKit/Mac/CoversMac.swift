@@ -34,6 +34,11 @@ final class HostCovers {
     }
 
     private func deliver() {
+        // A callback the runtime waits on can make no runtime call: deliver once it returns
+        if Owner.shared.isServingMain {
+            DispatchQueue.main.async { [weak self] in self?.deliver() }
+            return
+        }
         queued = false
         var wanted: [UInt32: HostCover] = [:]
         // A replaced box leaves layout, including any scrollbar gutter.

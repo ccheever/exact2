@@ -1,0 +1,38 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/health@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleHealthStatus": {
+      "requestStatus": "enum<shouldRequest|unnecessary|unknown>"
+    },
+    "AppleHealthWorkout": {
+      "activityType": "string",
+      "sourceBundleId": "option<string>"
+    }
+  },
+  "options": {
+    "healthStatistics": {
+      "quantityType": "string",
+      "unit": "string",
+      "statistics": "enum<cumulativeSum|discreteAverage|discreteMin|discreteMax|mostRecent>"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "healthStore"
+  ],
+  "sources": {
+    "swift": [
+      "Health.swift",
+      "AgentHealth.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "HealthModule"
+}

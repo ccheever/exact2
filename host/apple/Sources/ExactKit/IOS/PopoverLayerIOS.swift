@@ -1,10 +1,23 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+extension MenuHost {
+    /// Hears touches on the surface the popovers are lifted over: the top
+    /// modal's view, or the view the document is mounted in.
+    func observeTouches() {
+        guard let presenter else { return }
+        let surface = presenter.modals.coordinateView ?? presenter.documentHost
+        guard touchObserver?.view !== surface else { return }
+        if let observer = touchObserver { observer.view?.removeGestureRecognizer(observer) }
+        let observer = PopoverTouch(host: self)
+        surface.addGestureRecognizer(observer); touchObserver = observer
+    }
+}
+
 /// The dialog sheets that may host it are captured at opening: a later
 /// sheet must cover this layer. Elsewhere it is where BASE put every lifted
 /// popover, the top live route modal's view or the viewport.
-final class PopoverLayer: UIView {
+final class PopoverLayer: RestingTintView {
     private struct Host { weak var controller: UIViewController? }
     private var hosts: [Host]
     let order: Int
@@ -32,7 +45,7 @@ final class PopoverLayer: UIView {
     func mount(in presenter: Presenter) {
         mounting = true
         defer { mounting = false }
-        var host: UIView = presenter.modals.coordinateView ?? presenter.viewport
+        var host: UIView = presenter.modals.coordinateView ?? presenter.documentHost
         sheet = nil
         // A sheet hosts it only while its dialog still holds the popover: a move out of it leaves the sheet.
         let holding = popover.map { presenter.menus.sheets.controllers(holding: $0) } ?? []

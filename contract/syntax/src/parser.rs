@@ -6,6 +6,7 @@
 
 use crate::ast::*;
 use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind};
+use crate::members::Deferred;
 use crate::Span;
 
 mod anatomy;
@@ -23,6 +24,7 @@ mod names;
 pub use names::is_reserved;
 mod params;
 mod parts;
+mod properties;
 #[path = "routes.rs"]
 mod routes;
 mod sequence;
@@ -30,6 +32,7 @@ mod sounds;
 mod states;
 mod steps;
 mod theme;
+mod tool;
 mod view;
 pub use steps::{is_launch, same_launch};
 use steps::{launch_word, LAUNCH};
@@ -124,14 +127,17 @@ struct Parser {
     /// Free calls of a method's name (`trim(s)`), each with its refusal: refused
     /// at the end of the file unless the file declares a `fn`, shape or action
     /// of that name (LLP 1116.015 D2).
-    free: Vec<(String, SyntaxError, Vec<crate::migrate::Edit>)>,
+    free: Vec<(String, SyntaxError, Vec<crate::migrate::Edit>, bool)>,
     retired: Vec<SyntaxError>,
     edits: Vec<crate::migrate::Edit>,
     /// Method calls (`s.trim()`, `xs.length`): refused at the end of the file
     /// when it declares a `fn`, shape or action of that name, which the
     /// rewritten call would reach where TypeScript's method never would
     /// (LLP 1116.016 D2).
-    methods: Vec<(String, Span)>,
+    methods: Vec<(String, Span, bool)>,
+    /// Whether the parser is in a members block (LLP 1091.002): each
+    /// `free` and `methods` entry records it.
+    in_block: bool,
     /// Whether a refused component member is recorded and skipped.
     recover: bool,
     /// The refusals recorded inside a declaration that was kept.
@@ -324,6 +330,7 @@ impl Parser {
         let mut errors = Vec::new();
         loop {
             let start = self.pos;
+            self.in_block = false;
             let declared = self.declaration(&mut file);
             errors.append(&mut self.recovered);
             match declared {
@@ -338,27 +345,68 @@ impl Parser {
                                 .iter()
                                 .any(|c| c.actions.iter().any(|a| a.name == name))
                     };
+                    // Whether a method's name is an action is the whole
+                    // component's to decide where another file may declare it
+                    // (LLP 1091.002): in a members block, and anywhere in a
+                    // file whose components list members files.
+                    let host = file.components.iter().any(|c| !c.members.lines.is_empty());
+                    let mut deferred = Vec::new();
                     // A free call of a refused declaration's or member's name may
                     // be a call of it, as of one that parsed.
                     let free = std::mem::take(&mut self.free);
-                    for (name, error, edits) in free {
-                        if !declared(&name) && !self.hidden.contains(&name) {
+                    for (name, error, edits, in_block) in free {
+                        if declared(&name) || self.hidden.contains(&name) {
+                            continue;
+                        }
+                        if in_block || host {
+                            deferred.push(Deferred {
+                                name,
+                                if_action: false,
+                                in_block,
+                                error,
+                            });
+                        } else {
                             errors.push(error);
                             self.edits.extend(edits);
                         }
                     }
                     errors.append(&mut self.retired);
-                    let methods = std::mem::take(&mut self.methods);
-                    errors.extend(methods.into_iter().filter(|(n, _)| declared(n)).map(|(n, span)| {
-                        let call = if n == "length" { ".length".to_string() } else { format!(".{n}(…)") };
-                        SyntaxError {
+                    for (n, span, in_block) in std::mem::take(&mut self.methods) {
+                        let call = if n == "length" {
+                            ".length".to_string()
+                        } else {
+                            format!(".{n}(…)")
+                        };
+                        let error = SyntaxError {
                             id: "syntax-method-shadowed",
                             message: format!(
                                 "rename this file's `{n}`: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
                             ),
                             span,
+                        };
+                        if declared(&n) {
+                            errors.push(error);
+                        } else if in_block || host {
+                            let message = format!(
+                                "rename the action `{n}`, which another of this component's files declares: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
+                            );
+                            let error = SyntaxError { message, ..error };
+                            deferred.push(Deferred {
+                                name: n,
+                                if_action: true,
+                                in_block,
+                                error,
+                            });
                         }
-                    }));
+                    }
+                    if !file.components.is_empty() {
+                        errors.extend(file.properties.iter().map(|p| SyntaxError {
+                            id: "syntax-property-component",
+                            message: "a property lives in the test file beside the app".into(),
+                            span: p.span,
+                        }));
+                    }
+                    file.deferred = deferred;
                     file.names = std::mem::take(&mut self.names);
                     if errors.is_empty() {
                         return Ok(file);
@@ -488,6 +536,9 @@ impl Parser {
                 TokenKind::Ident(w) if w == "theme" => self.theme(file)?,
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
+                TokenKind::Ident(w) if matches!(w.as_str(), "always" | "after" | "never") => {
+                    file.properties.push(self.property_decl()?);
+                }
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
                     let line = self.step()?;
                     if !is_launch(&line) {
@@ -514,6 +565,13 @@ impl Parser {
                     }
                     file.components.push(component);
                 }
+                TokenKind::Ident(w) if w == "members" => {
+                    let block = self.members_block()?;
+                    if let Some(first) = &file.members {
+                        return duplicate("members block", &block.name, block.span, first.span);
+                    }
+                    file.members = Some(block);
+                }
                 TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
                 other => {
                     if let Some(e) = self.continued_expression("syntax-expected-declaration") {
@@ -522,7 +580,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, `component`, or `members`, found {}",
                         describe(other)
                     ),
                     );

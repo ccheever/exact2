@@ -88,7 +88,19 @@ fn prepare(case: &Case, i: usize) -> Result<Prepared, Verdict> {
         flat,
         comp,
         oracle: data.map_or_else(String::new, |o| o.text()),
-        events: case.events.iter().map(crate::script::Event::lean).collect(),
+        // Component semantics refuses `then` and queue mutations. Its remaining
+        // programs have no modeled work for `land` to deliver.
+        events: case
+            .events
+            .iter()
+            .filter(|e| {
+                !matches!(
+                    e,
+                    crate::script::Event::Land | crate::script::Event::InputLand
+                )
+            })
+            .map(crate::script::Event::lean)
+            .collect(),
     })
 }
 

@@ -1,6 +1,6 @@
 // The router on the JS target (LLP 1038; route/src), re-exported by rt.js: the verbs and reads, the route table, and the
 // router slot's changes to the browser's history.
-import { Refusal, effect, After, journal, clock, commit, W, pressFeedback } from "./rt.js";
+import { Refusal, effect, After, journal, clock, commit, W, pressFeedback, fact } from "./rt.js";
 import { projectRoots } from "./document.js";
 import { canonical, locationOf, enc, dec, matchPattern } from "./route-pattern.js";
 export { canonical, locationOf };
@@ -111,6 +111,19 @@ export function x_searchParam(e, name) {
   for (const pair of q.split("#")[0].split("&").filter(Boolean)) { const [k, ...v] = pair.split("="); if (dec(k, true) === name) return dec(v.join("="), true); }
   return "";
 }
+// A received share's files by token (LLP 1133.024 D3; runner/src/runner/router.rs `share`): a token not set this launch answers none.
+const Shared = new Map(); let SharedSet = null; const sharedSet = () => SharedSet ??= fact(); // made at first use: rt.js imports this module before its own body runs
+export function x_sharedFiles(e, name) {
+  sharedSet().get();
+  const token = x_searchParam(e, name), files = Shared.get(token);
+  if (!files && token) say(`router sharedFiles refused: no share under \`${name}\` this launch`);
+  return files ?? [[], 0, 0];
+}
+/** What the host copied of a share so far: `files` Picked records, then the counts. */
+export function setShared(token, files, dropped, pending) {
+  say(`share: ${files.length} files set, ${pending} pending, ${dropped} dropped`);
+  Shared.set(token, [files, dropped, pending]); commit(() => sharedSet().bump(), "shared");
+}
 export { segmentOf }; // `encodeRouteSegment` is budget.js's, checked
 export const x_path = (name, ...values) => path(Routes.find(r => r.name === name && !r.notfound), values);
 /** The router slot's changes, to the browser's history (`navigation.js`,
@@ -172,6 +185,8 @@ export function goTo(location) {
 }
 export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;
+/** Whether `location` names a declared route, never only the notfound fallback: the runner's `route_matches`. */
+export const routeMatches = location => { const m = matchRoute(canonical(location)); return m !== null && !Routes[m[0]].notfound; };
 // ---------------------------------------------------------------- validity
 const int = n => typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 9007199254740991, str = s => typeof s === "string";
 /** Whether `r` is a valid router (runner/src/runner/router.rs `router`): its shape; tabs of distinct names, each stack

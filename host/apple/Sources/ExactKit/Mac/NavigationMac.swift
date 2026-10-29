@@ -95,6 +95,9 @@ final class NavigationHost {
         if concerned { sheetsRead = true }
         var sheeted: [(base: NodeView, route: NodeView, header: SheetHeader?)] = []
         for op in batch.ops {
+            // A row, or a symbol in one, came or changed: the split's painted list is read again (SplitMac.swift `veil`).
+            if op.op == .create || op.op == .children || op.op == .props { split.rowsChanged = true }
+            if op.op == .style || op.op == .frame, let id = op.nodeID { split.restyled(id) }
             if let id = op.nodeID {
                 if op.op == .destroy { gates.removeValue(forKey: id); refused.removeValue(forKey: id); shown.removeValue(forKey: id); keptSheets.removeValue(forKey: id) }
                 else if Self.gating.contains(op.op) { touched.insert(id) }
@@ -204,6 +207,11 @@ final class NavigationHost {
             for child in view.subviews { descendants(child) }
         }
         for id in subtrees { if let node = presenter.views[id] { descendants(node) } }
+        // The placeholder the split's pane shows is out of its route's views: its gates follow its authored ancestors'.
+        if let lifted = split.shownPlaceholder, !subtrees.isEmpty,
+           presenter.logicalAncestry(of: lifted).contains(where: { ($0 as? NodeView).map { subtrees.contains($0.id) } ?? false }) {
+            descendants(lifted)
+        }
         for id in touched {
             guard let node = presenter.views[id] else { continue }
             gates[id] = [node.isHidden, node.routeInert, node.props["inert"] == "true", node.props["accessibilityElementsHidden"] == "true"]

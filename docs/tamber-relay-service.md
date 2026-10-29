@@ -82,6 +82,10 @@ Paths are relative to the config file.
 
 `bun scripts/tamber-relay-gate.mjs` runs the relay, two accounts' design servers (the real connector, each wildcard by ACME through the relay's TXT records, against the ACME stand-in) and a client on loopback, and prints each line MET or FAILED with its evidence: a paired propose client reads and can't write; revocation cuts its long poll and its next request; plain HTTP is closed at the relay; a capture at the relay holds no token, code or design text; one account's names reach only its own server and its TXT records are refused to another; one account's canvas cookie opens its own canvas only (not the other's, not a tool); one session's pairing flood leaves another's untouched. The deployed R4 runs the same lines against the real host.
 
+## Deploying it
+
+`relay/deploy/deploy.sh <host> provision <domain>`, then `release`, run from a checkout over SSH: one Ubuntu or Debian host, firewalled to 22 and 443, the relay under a sandboxed systemd unit, released as one compiled file with a health check that switches back on failure; `rollback`, `install-cert`, `accounts-add`, `accounts-revoke`, `health`, `status` and `check` beside them (the script's header says each). The relay is outward-facing: it is deployed only to a host Charlie provides for it. `bun scripts/tamber-relay-gate.mjs` with `RELAY_GATE_DOMAIN` set runs R4's lines against the deployed relay (the file's header names the rest).
+
 ## What waits on hosting (the seams)
 
 - **Domain:** `domain`. It needs wildcard DNS for `*.<label>.<domain>` pointing at the relay, and a way to set TXT records under it (`dns.command`, a script for the DNS provider's API).

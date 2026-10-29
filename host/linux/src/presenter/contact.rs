@@ -75,6 +75,7 @@ pub(super) struct Contact {
     press: Option<(NodeKey, PaintedBox)>,
     /// Mouse focus was decided on down; its prior focus, possibly none.
     focus_before_down: Option<Option<ViewId>>,
+    focus_blocked: bool,
     /// The canvas that owns this contact and sees its down, moves and up.
     canvas: Option<ViewId>,
 }
@@ -335,6 +336,17 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    /// A finger or a pen on Android puts the focus back in touch mode
+    /// (`touch_mode`): the focus it finds shows no ring until a key.
+    pub(crate) fn touched(&mut self) {
+        if self.brush.touch_mode && self.contact_is_direct() {
+            self.brush.keyless = true;
+            let ringless = self.focus.and_then(|id| self.unringed(id));
+            self.dirty |= self.brush.ringless != ringless;
+            self.brush.ringless = ringless;
+        }
+    }
+
     /// Whether the web host prevents pointerdown's default focus for this hit.
     /// Swipe and reorder prevent moves, not the down.
     pub(crate) fn pointerdown_prevents_focus(&self, hit: ViewId) -> bool {
@@ -422,6 +434,10 @@ impl<D: DataSource> Presenter<D> {
     /// synthesis; then the node's `pointerdown` (LLP 1005 §3), which the
     /// contact never waits for.
     pub fn pointer_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        self.touched();
+        if self.overlay_pointer(0, x, y, now_ms) || self.scrollbar_pointer(0, x, y) {
+            return Ok(true);
+        }
         // A hatch observes after this dispatch, and claims nothing
         // (LLP 1075.003.000.001 §2.2.2); so for a move, an up and a cancel.
         // Under an open surface of the top layer the page takes no touch.
@@ -444,6 +460,11 @@ impl<D: DataSource> Presenter<D> {
                 match self.pointer_pressed(x, y, now_ms) {
                     Some(error) => Err(error),
                     None => {
+                        let queued = self.commands.len();
+                        self.commands.retain(|c| c.name != "preventDefault");
+                        if let Some(contact) = &mut self.contact {
+                            contact.focus_blocked = self.commands.len() != queued;
+                        }
                         if let Some((key, point, field)) = focus {
                             self.focus_on_down(key, point, now_ms, field);
                         }
@@ -457,6 +478,37 @@ impl<D: DataSource> Presenter<D> {
         self.hatch_pointer(mark, crate::hatches::Phase::Down, x, y);
         result
     }
+    /// A desktop mouse down with the shell's platform click count.
+    pub fn pointer_down_with_clicks(
+        &mut self,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+        clicks: u32,
+    ) -> Result<bool, String> {
+        let before = self.hit(x, y).and_then(|id| {
+            let node = self.host.kernel().node(id)?;
+            (node.node_type == NodeType::TextInput)
+                .then(|| (node.key, self.field_text(id), self.field_selection(id)))
+        });
+        let result = self.pointer_down(x, y, now_ms);
+        if result.is_ok() && !self.contact_is_direct() {
+            let target = self
+                .contact
+                .as_ref()
+                .filter(|c| {
+                    c.focus_before_down.is_some()
+                        && !c.focus_blocked
+                        && c.canvas.is_none()
+                        && c.retained.is_none()
+                })
+                .map(|c| c.hit);
+            if let Some(key) = target {
+                self.begin_field_drag(key, (x, y), clicks, before);
+            }
+        }
+        result
+    }
     fn focus_on_down(&mut self, key: NodeKey, point: (f32, f32), now_ms: f64, field: bool) {
         if self.contact_is_direct() || self.menu.is_some() {
             return;
@@ -464,6 +516,9 @@ impl<D: DataSource> Presenter<D> {
         let hit = self.host.kernel().node_by_key(key).map(|n| n.id);
         if let Some(contact) = self.contact.as_mut().filter(|c| c.hit == key) {
             contact.focus_before_down = Some(self.focus);
+            if contact.focus_blocked {
+                return;
+            }
         }
         let editing = self
             .focus
@@ -523,6 +578,7 @@ impl<D: DataSource> Presenter<D> {
                     retained: Some(retained),
                     press: None,
                     focus_before_down: None,
+                    focus_blocked: false,
                     canvas: None,
                     panning: false,
                     pan_velocity: VelocityTracker::new(),
@@ -577,6 +633,7 @@ impl<D: DataSource> Presenter<D> {
                 retained: None,
                 press: None,
                 focus_before_down: None,
+                focus_blocked: false,
                 canvas: Some(canvas),
             });
             return Ok(true);
@@ -617,6 +674,7 @@ impl<D: DataSource> Presenter<D> {
             retained: None,
             press,
             focus_before_down: None,
+            focus_blocked: false,
             canvas: None,
         });
         self.set_collection_interaction(Some(view));
@@ -645,6 +703,9 @@ impl<D: DataSource> Presenter<D> {
         now_ms: f64,
         event_ms: f64,
     ) -> Result<bool, String> {
+        if self.overlay_pointer(2, x, y, now_ms) || self.scrollbar_pointer(2, x, y) {
+            return Ok(true);
+        }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Move, x, y);
         let moved = self.pointer_moved(x, y, now_ms, event_ms);
         // The device's motion belongs to this move alone, sent or not.
@@ -684,6 +745,11 @@ impl<D: DataSource> Presenter<D> {
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
         contact.event_ms = event_ms;
+        if self.drag_field(x, y) {
+            contact.position = (x, y);
+            self.contact = Some(contact);
+            return Ok(true);
+        }
         if let Some(canvas) = contact.canvas {
             // At the screen's edge the position stops; the device's motion does not.
             let moved = (x, y) != contact.position || self.has_raw_motion();
@@ -904,8 +970,12 @@ impl<D: DataSource> Presenter<D> {
         now_ms: f64,
         event_ms: f64,
     ) -> Result<bool, String> {
+        if self.overlay_pointer(1, x, y, now_ms) || self.scrollbar_pointer(1, x, y) {
+            return Ok(true);
+        }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Up, x, y);
         let result = self.pointer_lift(x, y, now_ms, event_ms);
+        self.field_drag = None;
         self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Up, x, y);
         result
@@ -1054,10 +1124,13 @@ impl<D: DataSource> Presenter<D> {
                         false,
                         contact.focus_before_down.unwrap_or(self.focus),
                     );
-                    if contact.focus_before_down.is_none() && !self.pointerdown_prevents_focus(hit)
+                    if contact.focus_before_down.is_none()
+                        && !contact.focus_blocked
+                        && !self.pointerdown_prevents_focus(hit)
                     {
                         self.focus_for_press(hit, (x, y), now_ms, self.contact_is_direct());
                     }
+                    self.press_point = Some((x, y));
                     self.activate(id, now_ms);
                 }
             }
@@ -1084,6 +1157,13 @@ impl<D: DataSource> Presenter<D> {
         result
     }
     fn mouse_click_target(&mut self, x: f32, y: f32) -> Option<NodeKey> {
+        if self
+            .field_drag
+            .as_ref()
+            .is_some_and(|drag| drag.moved((x, y)))
+        {
+            return None;
+        }
         let contact = self.contact.as_ref()?;
         if contact.canvas.is_some()
             || contact.retained.is_some()
@@ -1127,6 +1207,10 @@ impl<D: DataSource> Presenter<D> {
     /// Escape, wheel takeover, disconnection, or invalidated binding: no
     /// release event, except a pan that began, which releases at rest.
     pub fn pointer_cancel(&mut self, now_ms: f64) -> Result<(), String> {
+        self.overlay_pointer_cancel();
+        self.field_drag = None;
+        self.brush.scrollbars.drag = None;
+        self.brush.scrollbars.pressed = false;
         let at = self.contact_position().or(self.pointer).unwrap_or((0., 0.));
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Cancel, at.0, at.1);
         let result = self.pointer_abandon(now_ms);

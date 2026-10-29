@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History, newest first, with name, date, exercise count and volume (e.g. Legs, Sun Oct 25, 4 exercises · 6,767.5 lb). It also has a native search field and a '61 workouts' footer."},
+      {"n": 2, "status": "pass", "note": "Detail shows a summary (date, exercises, sets, total volume), then a section per exercise with muscle · equipment · volume and its sets as 'reps × weight'."},
+      {"n": 3, "status": "pass", "note": "The Workout tab opens a system alert to name the workout (Start stays disabled while the name is empty). The Add Exercise sheet has a muscle filter as a pull-down menu, a bottom search field, and lists grouped by muscle; filter and search combine. Add Set is a sheet with a number pad, prefilled from the previous set, and checks weight from 0 to 2,000 lb. Tapping a set edits it and offers Delete Set; swipe-to-delete works. More menu has Rename and Discard. Finish stays disabled until a set is logged; finishing pushes the new workout's detail and it appears at the top of History."},
+      {"n": 4, "status": "pass", "note": "Library tab: a large-title inset-grouped list in muscle sections with a chevron on each row. It has no search, which this requirement does not ask for."},
+      {"n": 5, "status": "pass", "note": "Exercise screen shows muscle and equipment, a Best Set card (heaviest weight, reps, which workout and date) and the workouts it appears in, with their sets. It updated straight away with a newly finished heavier set."},
+      {"n": 6, "status": "pass", "note": "After relaunch, the workout in progress kept its name, exercise and edited/deleted sets; the finished workout stayed in History and in the exercise's best set."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The Add Set sheet header is not a real navigation bar: the title is regular weight instead of semibold, and Cancel is a bare blue X while Save is a glass checkmark, so the two buttons don't match.",
+      "Workout detail and exercise screens use a small inline title, while the root screens use large titles. This is acceptable, but B keeps the large title on detail.",
+      "Finish has no confirmation and jumps straight to the finished workout's detail. That is abrupt, but not wrong."
+    ],
+    "scroll": "History (61 rows) and Library (120 rows) scroll like native lists: smooth flings, no blank or popping rows, a normal rubber-band at both ends, and scroll position kept when switching tabs.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History, newest first, with a '60 workouts' header. Each row shows name, date, an exercise count with a list icon and volume with a scale icon. There is no search on History."},
+      {"n": 2, "status": "pass", "note": "Detail keeps the large title and shows a summary card. Each exercise is a tinted section header that links to the exercise and shows its volume, with sets below as 'N reps × W lb'."},
+      {"n": 3, "status": "pass", "note": "A '+' in History opens the workout as a sheet: an inline name field, a started time and Add Exercises. The picker is multi-select with checkmark circles, a search field, muscle filter chips and an 'Add (n)' button. Add Set uses text fields plus system steppers (5 lb steps). Tapping a set opens Edit Set with Delete Set; swipe-to-delete works; each exercise's ellipsis menu has Remove Exercise. Hide shows a 'Workout in Progress – Resume' card in History. Finish asks for confirmation in a popover, summarises the workout and warns that exercises without sets will be left out; the finished workout then appears in History."},
+      {"n": 4, "status": "pass", "note": "Library tab is grouped by muscle, with a search field and a filter-by-muscle toolbar button."},
+      {"n": 5, "status": "pass", "note": "Exercise screen shows muscle and equipment, a Best Set card (weight, reps, workout and date) and the workouts it appears in with their sets, plus a count footer. It updated with the new workout."},
+      {"n": 6, "status": "pass", "note": "After relaunch, the workout in progress kept its name, sets and the edit and delete, and the app reopened straight into it. The finished workout stayed in History."}
+    ],
+    "bugs": [
+      "On an exercise screen opened from a workout, that workout's row in the 'Workouts' list stays highlighted grey and never clears (a stuck selection)."
+    ],
+    "tells": [
+      "The stuck grey selection highlight on the exercise screen's workout row.",
+      "In the exercise screen's list of sets, a set breaks across lines ('6 ×' / '27.5 lb') at the default text size.",
+      "The muscle filter chips in the picker are hand-made capsules that run off the right edge, followed by a large empty gap before the list.",
+      "Library uses a small inline title while History uses a large one, so the two tabs don't match.",
+      "Exercise headers on workout detail are tinted links with a separate faded-tint volume, which looks a little web-like."
+    ],
+    "scroll": "History and Library scroll smoothly with native deceleration and bounce; no blank rows or jumps, and position is kept across tabs.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement, persist correctly, and handle dark mode and the largest text size well. B has some nicer touches (multi-select picker, steppers, a finish confirmation, Resume from History), but it also has a stuck selection highlight, a set that breaks mid-expression, and hand-made chips with odd spacing. A is more consistent and cleaner throughout, so it edges ahead."
+}

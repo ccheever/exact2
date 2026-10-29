@@ -87,16 +87,15 @@ enum PresenceKeychain {
             let status = SecItemDelete(query(service, account) as CFDictionary)
             return status == errSecItemNotFound ? (1, Data()) : done(status)
         case 3:
-            // Attributes alone, which an access-controlled item gives without its check.
-            var q = query(service)
-            q[kSecReturnAttributes] = true
-            q[kSecMatchLimit] = kSecMatchLimitAll
-            var found: CFTypeRef?
-            let status = SecItemCopyMatching(q as CFDictionary, &found)
-            if status == errSecItemNotFound { return (0, Data("[]".utf8)) }
-            guard status == errSecSuccess else { return done(status) }
-            let accounts = (found as? [[CFString: Any]] ?? []).compactMap { $0[kSecAttrAccount] as? String }
-            return (0, (try? JSONSerialization.data(withJSONObject: accounts)) ?? Data("[]".utf8))
+            // A protected item's attributes also require authentication on
+            // a phone. Probe one indexed account without permitting a sheet.
+            guard let account else { return failed("an existence check needs an account") }
+            var q = query(service, account)
+            q[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+            let status = SecItemCopyMatching(q as CFDictionary, nil)
+            if status == errSecItemNotFound { return (1, Data()) }
+            if status == errSecInteractionNotAllowed { return (0, Data()) }
+            return done(status)
         case 4:
             let status = SecItemDelete(query(service) as CFDictionary)
             return status == errSecItemNotFound ? (0, Data()) : done(status)

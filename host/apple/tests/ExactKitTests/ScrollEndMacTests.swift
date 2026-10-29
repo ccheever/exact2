@@ -27,9 +27,13 @@ final class ScrollEndMacTests: XCTestCase {
         let (p, _, sv) = try scroller()
         var ends: [UInt32] = []
         p.onScrollend = { ends.append($0) }
-        move(sv, to: 40); move(sv, to: 80)
+        move(sv, to: 40)
+        let last = Date() // (before the last move schedules its settle: Astra's round 1)
+        move(sv, to: 80)
         XCTAssertEqual(ends, [], "not before it has been still")
-        spin(ScrollEnd.quiet + 0.1)
+        // On its event, not a 0.2 s deadline (a loaded run's settle came later; EventWaits).
+        waitFor("the end after the last move", late: ScrollEnd.quiet + 0.1) { !ends.isEmpty }
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(last), ScrollEnd.quiet, "not before the offset was still for quiet")
         XCTAssertEqual(ends, [1], "once, after the last move")
         spin(ScrollEnd.quiet + 0.05)
         XCTAssertEqual(ends, [1], "nothing more without another move")
@@ -54,7 +58,8 @@ final class ScrollEndMacTests: XCTestCase {
         spin(ScrollEnd.quiet + 0.1)
         XCTAssertEqual(ends, [], "a live scroll holds its end, its momentum included")
         NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: sv)
-        spin(0.02)
+        XCTAssertEqual(ends, [], "not at the notification itself")
+        waitFor("the live scroll's end", late: 0.02) { !ends.isEmpty }
         XCTAssertEqual(ends, [1], "on the next turn, after the end's other observers")
         // A live scroll that moved nothing ends nothing.
         NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: sv)
@@ -116,9 +121,8 @@ final class ScrollEndMacTests: XCTestCase {
         // window server's animation clock. The bounds observer owns the end.
         move(sv, to: 40)
         XCTAssertTrue(node.scrollEnd?.owed == true)
-        let ended = expectation(description: "interrupted scroll ends")
         var ends = 0
-        p.onScrollend = { _ in ends += 1; ended.fulfill() }
+        p.onScrollend = { _ in ends += 1 }
         if wheel {
             let event = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: 0, wheel2: -1, wheel3: 0))
             sv.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: event)))
@@ -126,7 +130,7 @@ final class ScrollEndMacTests: XCTestCase {
             p.scrollElementIntoView(["visible", "nearest", "nearest", "instant"])
         }
         XCTAssertNil(node.scrollEnd?.elementAnimation)
-        wait(for: [ended], timeout: 1)
+        waitFor("interrupted scroll ends", late: 1) { ends > 0 } // (its event, not a 1 s deadline: EventWaits)
         XCTAssertEqual(sv.contentView.bounds.minY, 40)
         XCTAssertEqual(ends, 1)
     }

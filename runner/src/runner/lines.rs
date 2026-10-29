@@ -141,7 +141,7 @@ pub(super) fn waits_for(topic: &str, ticket: u64, name: &str) -> String {
 /// That request's reply landed (or failed): the resource is asked again.
 pub(super) fn asked_again(ticket: u64, name: &str) -> String {
     text!(
-        "{}: asked again, a watched topic changed while request {} was in flight",
+        "{}: asked again, a watched topic changed or module work wrote the store while request {} was in flight",
         name,
         ticket
     )
@@ -228,6 +228,18 @@ pub(super) fn send_failed_now(name: &str, why: &str) -> String {
 
 pub(super) fn failed_now(name: &str, why: &str) -> String {
     text!("resource {} failed: {}", name, why)
+}
+
+/// A resource a turn over its budget refused, asked again (`overrun.rs`).
+pub(super) fn overrun_reask(name: &str, why: &str, after_ms: f64, nth: usize, of: usize) -> String {
+    text!(
+        "resource {}: {}; asked again in {} ms ({} of {})",
+        name,
+        why,
+        after_ms as u64,
+        nth,
+        of
+    )
 }
 
 #[cfg(test)]

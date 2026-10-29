@@ -98,8 +98,9 @@ extension Presenter {
             let edge = viewport.convert(CGPoint(x: 0, y: top), from: window).y
             b.size.height = max(0, min(b.maxY, edge) - b.minY)
         }
-        guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
-        let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
+        let host = documentHost
+        guard b.height > 1, let hit = host.hitTest(host.convert(CGPoint(x: b.midX, y: b.maxY - 1), from: viewport), with: nil) else { return nil }
+        let chain = Array(sequence(first: hit, next: { $0 === host ? nil : $0.superview }))
         let from = chain.firstIndex { $0 is UIScrollView } ?? 0
         return chain[from...].lazy.compactMap { v in
             v.backgroundColor.flatMap { $0.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 ? $0 : nil }
@@ -267,17 +268,25 @@ extension NodeView {
     /// What a drag on this node's scroller does to the keyboard. Unsaid, on
     /// a scroller that scrolls vertically, the keyboard follows a drag that
     /// reaches it (`.interactive`), as a hand-built list or form has it; it
-    /// never takes the keyboard from someone who was only scrolling. A
-    /// sideways scroller keeps UIKit's `.none`. An authored
-    /// `keyboardDismissMode` wins, `none` included: the prop has no default
-    /// row, so unsaid it is absent from the node's props, and absence is the
-    /// whole test.
+    /// never takes the keyboard from someone who was only scrolling. While
+    /// its route's bar search field is being typed in, a drag puts the
+    /// keyboard away (`.onDrag`), as SwiftUI's `searchable` list does and as
+    /// Contacts and Mail do, the search staying open. A sideways scroller
+    /// keeps UIKit's `.none`. An authored `keyboardDismissMode` wins, `none`
+    /// included: the prop has no default row, so unsaid it is absent from
+    /// the node's props, and absence is the whole test.
     var keyboardDismissal: UIScrollView.KeyboardDismissMode {
         switch props["keyboardDismissMode"] {
         case "interactive": return .interactive
         case "on-drag": return .onDrag
         case "none": return .none
-        default: return scrollsVertically ? .interactive : .none
+        default:
+            guard scrollsVertically else { return .none }
+            #if os(iOS)
+            let route = ViewPresentation.controllers(for: self).lazy.compactMap { $0 as? RouteController }.first
+            if route?.search?.controller.searchBar.searchTextField.isEditing == true { return .onDrag }
+            #endif
+            return .interactive
         }
     }
     /// Written again when the prop or the axes the node scrolls change; a
@@ -289,6 +298,12 @@ extension NodeView {
 }
 
 extension Presenter {
+    /// A bar's search field began or ended editing: the scrollers under it
+    /// take their drag's answer again (`keyboardDismissal`).
+    func searchEditingChanged() {
+        for id in scrollers { views[id]?.updateKeyboardDismissal() }
+    }
+
     /// Return with `enterkeyhint="next"`: the next field, shown as focus
     /// shows any (`reveal`). In a grouped list that is the list's own order,
     /// which its cells among a window's views are not, and a row scrolled
@@ -357,7 +372,7 @@ extension NavigationHost {
     /// The primary controller keeps its native bounds while route content avoids the keyboard.
     func ownerFrame(_ owner: UIViewController, in root: UIView) -> CGRect {
         let viewport = presenter.viewport
-        var frame = !ExactEnv.authoredChrome && root.isDescendant(of: viewport) ? viewport.convert(viewport.pageBounds, to: root) : root.bounds
+        var frame = !ExactEnv.authoredChrome && presenter.inDocument(root) ? viewport.convert(viewport.pageBounds, to: root) : root.bounds
         frame.size.height += ownerKeyboardExtension(owner)
         // The authored tablist the agent paints takes its own place in the
         // root, as on the web; the routes end at its edge, not under it.

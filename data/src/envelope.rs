@@ -132,6 +132,8 @@ fn error_json(error: &DataError) -> Json {
         DataError::BadArguments(m) => ("BadArguments", m),
         DataError::DeferredAtBake(m) => ("DeferredAtBake", m),
         DataError::Unavailable(m) | DataError::Interface(m) => ("Unavailable", m),
+        // Transient: a peer that predates it reads it as `Unavailable` (`error_from`'s catch-all).
+        DataError::Overrun(m) => ("Overrun", m),
         // Its class travels with it (LLP 1109 D3).
         DataError::Failed(code, m, reason) => {
             return json!({"kind": "Failed", "code": code.name(), "message": m, "reason": reason});
@@ -146,6 +148,7 @@ fn error_from(error: &Json) -> DataError {
         Some("UnknownSource") => DataError::UnknownSource(message),
         Some("BadArguments") => DataError::BadArguments(message),
         Some("DeferredAtBake") => DataError::DeferredAtBake(message),
+        Some("Overrun") => DataError::Overrun(message),
         Some("Failed") => match error["code"].as_str().and_then(FailureCode::from_name) {
             Some(code) => {
                 let reason = error["reason"].as_str().unwrap_or("").to_string();
@@ -176,8 +179,11 @@ fn request_json(request: &Request) -> Json {
         })),
         "timeout_ms": request.timeout_ms,
         "body_from": request.body_from,
+        "body_to": request.body_to,
         "redirect": (request.redirect != Redirect::Follow).then(|| request.redirect.name()),
         "held": request.held.then_some(true),
+        "due_ms": request.due_ms,
+        "wake_ms": request.wake_ms,
     })
 }
 
@@ -202,8 +208,18 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         })
         .transpose()?
         .unwrap_or_default();
+    // A listener's connections are handles a worker's turn cannot hold, as
+    // a socket's are (LLP 1133.005).
+    if !json["listen"].is_null() {
+        return Err(unavailable(
+            "exactListen is unavailable in a worker-placed source; place it on main",
+        ));
+    }
     let request = Request {
         surface: None,
+        // The runner stamps who asked when the request goes out.
+        reach: Default::default(),
+        listen: None,
         continuation: json["continuation"].as_u64(),
         http: match &json["max_response_bytes"] {
             Json::Null => HttpScheduling::Ordered,
@@ -262,9 +278,16 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
             Json::String(path) => Some(path.clone()),
             _ => return Err(unavailable("turn reply: an invalid exactBodyFrom")),
         },
+        body_to: match &json["body_to"] {
+            Json::Null => None,
+            Json::String(path) => Some(path.clone()),
+            _ => return Err(unavailable("turn reply: an invalid exactBodyTo")),
+        },
         redirect: Redirect::parse(json["redirect"].as_str())
             .map_err(|_| unavailable("turn reply: an invalid redirect mode"))?,
         held: json["held"].as_bool().unwrap_or(false),
+        due_ms: json["due_ms"].as_u64(),
+        wake_ms: json["wake_ms"].as_u64(),
     };
     // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
     match request.long_poll_refusal() {
@@ -330,6 +353,24 @@ mod tests {
             Answer::Later(r) => assert_eq!(r, storage),
             _ => panic!("a storage yield"),
         }
+    }
+
+    /// A turn over its budget keeps its class across the envelope, so a
+    /// worker's or a mixed member's is asked again as an in-process one is;
+    /// a kind an older peer doesn't know reads as `Unavailable`.
+    #[test]
+    fn an_overrun_keeps_its_class_across_the_envelope() {
+        let why = "`r` took 180.0 ms of its own (CPU) time, over the 100 ms budget for one turn";
+        let back = error_from(&error_json(&DataError::Overrun(why.into())));
+        assert!(
+            matches!(back, DataError::Overrun(ref m) if m == why),
+            "{back:?}"
+        );
+        let older = error_from(&json!({"kind": "SomethingNewer", "message": why}));
+        assert!(
+            matches!(older, DataError::Unavailable(ref m) if m == why),
+            "{older:?}"
+        );
     }
 
     #[test]

@@ -1,7 +1,8 @@
 // The account's settings arrive as protobuf, base64 (`user_settings_proto` in READY,
 // `USER_SETTINGS_PROTO_UPDATE` after it), when IDENTIFY asks for USER_SETTINGS_PROTO. Only the
-// server list's order is read: PreloadedUserSettings field 14, GuildFolders { repeated GuildFolder
-// folders = 1; repeated fixed64 guild_positions = 2 }, GuildFolder { repeated fixed64 guild_ids = 1 }
+// server list is read: PreloadedUserSettings field 14, GuildFolders { repeated GuildFolder
+// folders = 1; repeated fixed64 guild_positions = 2 }, GuildFolder { repeated fixed64 guild_ids = 1;
+// Int64Value id = 2; StringValue name = 3; UInt64Value color = 4 }
 // (discord-userdoccers/discord-protos, discord_users/v1/PreloadedUserSettings.proto). `folders`
 // lists every guild in a folder, a guild in none as a folder of one; `guild_positions` is its
 // deprecated predecessor, read only when there are no folders.
@@ -62,12 +63,32 @@ function ids(all: Field[], field: number): string[] {
   return out;
 }
 
-/** The guild ids in the order the account's server list shows them, or null when these settings
- * do not carry the list (a partial update about something else). */
-export function guildOrder(proto: string): string[] | null {
+export interface Folder { id: string; name: string; color: number | null; guildIds: string[] }
+
+// A wrapper message (Int64Value, StringValue, UInt64Value) holds its value in field 1; a wrapper that is
+// there with no field 1 holds the default, zero or "" (proto3).
+const wrapped = (all: Field[], field: number, empty: bigint | Uint8Array): Field['value'] | undefined => {
+  const w = all.filter(f => f.field === field && f.wire === 2).at(-1);
+  return w ? fields(w.value as Uint8Array).find(f => f.field === 1)?.value ?? empty : undefined;
+};
+
+/** The account's server list as folders, in its order: a folder with no id holds one guild that sits
+ * in no folder. Null when these settings do not carry the list (a partial update about something else). */
+export function guildFolders(proto: string): Folder[] | null {
   const folders = fields(base64(proto)).filter(f => f.field === 14 && f.wire === 2).at(-1);
   if (!folders) return null;
   const inner = fields(folders.value as Uint8Array);
-  const order = inner.filter(f => f.field === 1 && f.wire === 2).flatMap(f => ids(fields(f.value as Uint8Array), 1));
-  return order.length ? order : ids(inner, 2);
+  const out = inner.filter(f => f.field === 1 && f.wire === 2).map(f => {
+    const all = fields(f.value as Uint8Array);
+    const id = wrapped(all, 2, 0n), name = wrapped(all, 3, new Uint8Array()), color = wrapped(all, 4, 0n);
+    return { id: typeof id === 'bigint' ? id.toString() : '', name: name instanceof Uint8Array ? new TextDecoder().decode(name) : '',
+      color: typeof color === 'bigint' ? Number(color) : null, guildIds: ids(all, 1) };
+  });
+  return out.length ? out : ids(inner, 2).map(id => ({ id: '', name: '', color: null, guildIds: [id] }));
+}
+
+/** The guild ids in the order the account's server list shows them, or null when these settings
+ * do not carry the list. */
+export function guildOrder(proto: string): string[] | null {
+  return guildFolders(proto)?.flatMap(f => f.guildIds) ?? null;
 }

@@ -11,7 +11,7 @@
 //! negative ([`MAX_CONTENT`], [`MIN_CONTENT`]).
 
 use exact_kernel::{
-    AxisOffer, ParagraphStamp, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics,
+    AxisOffer, InlineBox, ParagraphStamp, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics,
 };
 
 mod identified;
@@ -57,6 +57,16 @@ pub struct CRun {
     pub variation_values: [f32; 8],
     /// 1 for CSS `font-optical-sizing: none`: the face keeps its own `opsz`.
     pub optical_sizing_none: u8,
+    /// 1 when the run is an image in the paragraph's text (LLP 1011.002).
+    pub inline_box: u8,
+    /// Its `vertical-align` keyword, as `VerticalAlign`'s wire value.
+    pub box_align: u8,
+    /// Its margin box, points.
+    pub box_width: f32,
+    /// See `box_width`.
+    pub box_height: f32,
+    /// Its `vertical-align` length, points: how far it is raised.
+    pub box_shift: f32,
 }
 
 /// One request, as the callback sees it.
@@ -307,6 +317,8 @@ pub struct CallbackMeasurer {
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<std::rc::Rc<std::cell::Cell<u64>>>,
     lines: Option<LinesFn>,
+    /// Each inline box's origin (LLP 1011.002 D2), with `ctx`.
+    inline_boxes: Option<LinesFn>,
     symbol: Option<SymbolFn>,
     /// Each symbol's answer by its Apple name, point size and weight, under
     /// the measuring traits of `symbols_revision`
@@ -330,6 +342,7 @@ impl CallbackMeasurer {
             button_measure: None,
             measure_revision: None,
             lines,
+            inline_boxes: None,
             symbol: None,
             symbols: Default::default(),
             symbols_revision: 0,
@@ -348,8 +361,19 @@ fn offer(a: AxisOffer) -> f32 {
     }
 }
 
-fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
+fn c_run(text: &str, style: exact_kernel::TextStyle, inline: Option<InlineBox>) -> CRun {
+    let b = inline.unwrap_or(InlineBox {
+        width: 0.0,
+        height: 0.0,
+        align: exact_kernel::VerticalAlign::Baseline,
+        shift: 0.0,
+    });
     CRun {
+        inline_box: u8::from(inline.is_some()),
+        box_align: b.align as u8,
+        box_width: b.width,
+        box_height: b.height,
+        box_shift: b.shift,
         text: text.as_ptr(),
         len: text.len(),
         font_size: style.font_size,
@@ -387,6 +411,21 @@ impl CallbackMeasurer {
         callback: Option<crate::control_text::FieldChromeFn>,
     ) -> Self {
         self.field_chrome = callback;
+        self
+    }
+
+    /// The measurer `hooks` make with `f`, their measure: its lines, inline
+    /// boxes, symbols and times.
+    pub fn of(f: MeasureFn, hooks: &crate::abi::Hooks) -> CallbackMeasurer {
+        CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
+            .with_inline_boxes(hooks.inline_boxes)
+            .with_symbol(hooks.symbol)
+            .with_time_format(hooks.time_format)
+    }
+
+    /// Place inline boxes with `f` (`TextMeasurer::inline_boxes`).
+    pub fn with_inline_boxes(mut self, f: Option<LinesFn>) -> Self {
+        self.inline_boxes = f;
         self
     }
 
@@ -443,14 +482,14 @@ impl CallbackMeasurer {
         let single;
         let owned;
         let runs: &[CRun] = if let [run] = request.runs {
-            single = c_run(text(0), run.style);
+            single = c_run(text(0), run.style, run.inline);
             std::slice::from_ref(&single)
         } else {
             owned = request
                 .runs
                 .iter()
                 .enumerate()
-                .map(|(i, r)| c_run(text(i), r.style))
+                .map(|(i, r)| c_run(text(i), r.style, r.inline))
                 .collect::<Vec<CRun>>();
             &owned
         };
@@ -462,7 +501,7 @@ impl CallbackMeasurer {
             revision: stamp.map_or(0, ParagraphStamp::metric_revision),
             runs: runs.as_ptr(),
             count: runs.len(),
-            strut: c_run("", request.paragraph.strut),
+            strut: c_run("", request.paragraph.strut, None),
             width: offer(request.width),
             height: offer(request.height),
             // Physical already (`Paragraph::from_style`); `start`/`end` never arrive.
@@ -603,6 +642,25 @@ impl TextMeasurer for CallbackMeasurer {
         true
     }
 
+    /// @ref LLP 1011.002 D2 — each inline box's origin, from the app's hook.
+    fn inline_boxes(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        origins: &mut Vec<(f32, f32)>,
+    ) {
+        let Some(boxes) = self.inline_boxes else {
+            return;
+        };
+        let mut out = vec![0.0f32; 2 * request.runs.len()];
+        let count = self.foreign(request, Some(stamp), |ctx, c| {
+            boxes(ctx, c, out.as_mut_ptr(), out.len())
+        });
+        out.truncate(count.min(out.len()));
+        // A non-finite pair is a box on no line, which the kernel hides.
+        origins.extend(out.chunks_exact(2).map(|p| (p[0], p[1])));
+    }
+
     /// @ref LLP 1093 D6 — the paragraph's line boxes, from the app's hook.
     fn lines(
         &mut self,
@@ -669,15 +727,15 @@ mod tests {
     #[test]
     fn used_zero_and_normal_are_distinct_at_the_c_seam() {
         let mut style = exact_kernel::StyleProps::default();
-        let normal = c_run("", exact_kernel::TextStyle::from_style(&style));
+        let normal = c_run("", exact_kernel::TextStyle::from_style(&style), None);
         assert_eq!(normal.has_line_height, 0);
         style.line_height = exact_kernel::LineHeight::Number(0.0);
-        let zero = c_run("", exact_kernel::TextStyle::from_style(&style));
+        let zero = c_run("", exact_kernel::TextStyle::from_style(&style), None);
         assert_eq!(zero.has_line_height, 1);
         assert_eq!(zero.line_height, 0.0);
         style.font_size = 20.0;
         style.line_height = exact_kernel::LineHeight::Number(1.5);
-        let ratio = c_run("", exact_kernel::TextStyle::from_style(&style));
+        let ratio = c_run("", exact_kernel::TextStyle::from_style(&style), None);
         assert_eq!(ratio.has_line_height, 1);
         assert_eq!(ratio.line_height, 30.0);
     }

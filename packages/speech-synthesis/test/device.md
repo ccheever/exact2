@@ -16,8 +16,9 @@ Each step says what to do and what should happen.
    holds the mark and the voice, and Resume goes on from there. When the
    last paragraph ends, "Finished" shows.
 2. **The screen locked** (iPhone). Tap Listen and lock the phone. Reading
-   goes on, and the lock screen's controls show it. Unlock: the mark is at
-   the word being spoken.
+   goes on. Unlock: the mark is at the word being spoken. Lock-screen
+   controls are not required: Now Playing for a speech `playback` queue
+   remains deferred (`rules/DEFERRED.md`, Speech).
 3. **A call.** While reading, call the phone from another one. Reading
    pauses while the call rings. End the call: reading resumes, or Resume
    resumes it.

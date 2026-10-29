@@ -1150,3 +1150,17 @@ fn inline_admission_evaluates_size_branches_with_preview_props() {
         assert!(errors.iter().any(|e| e.id == "snapshot-inline" && e.message.contains("emit exactly one")), "{errors:?}");
     }
 }
+
+#[test]
+fn a_source_text_entry_names_no_members_file() {
+    // A text has no path to read members from (LLP 1091.002).
+    let src = source("    text title", "", "  members \"./more.contract\"\n");
+    let errors = compile(&src, &widget()).unwrap_err();
+    assert_eq!(errors[0].id, "contract-use-unresolved", "{errors:?}");
+    let block = format!(
+        "{}members Card\n  state extra = 1\n",
+        source("    text title", "", "")
+    );
+    let errors = compile(&block, &widget()).unwrap_err();
+    assert_eq!(errors[0].id, "contract-members-unlisted", "{errors:?}");
+}

@@ -147,9 +147,11 @@ final class FrameAutomation {
         }
         switch op {
         case "evaluate", "callFunction": script(op, request, web, reply)
+        // A preload script is a read, as a script without `userActivation`
+        // is: it runs in each new document, where it can watch what the page
+        // does from its first script on, and leaves the frame the person's.
         case "addPreloadScript":
             guard let world = world(request, reply) else { return }
-            take()
             nextId += 1
             let script = WKUserScript(source: "(\n\(request["functionDeclaration"] as? String ?? "")\n)();", injectionTime: .atDocumentStart, forMainFrameOnly: true, in: world)
             preload.append(("script-\(nextId)", script))
@@ -159,7 +161,6 @@ final class FrameAutomation {
         case "removePreloadScript":
             let named = request["script"] as? String ?? ""
             guard let index = preload.firstIndex(where: { $0.id == named }) else { return reply(["error": "NotFoundError", "message": "no preload script \(named)"]) }
-            take()
             let gone = preload.remove(at: index).script, controller = web.configuration.userContentController
             let kept = controller.userScripts.filter { $0 !== gone }
             controller.removeAllUserScripts()

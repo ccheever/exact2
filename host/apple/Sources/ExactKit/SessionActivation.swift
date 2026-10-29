@@ -46,7 +46,9 @@ extension ExactSession {
         }
     }
 
-    private func activateData(_ drawnGeneration: Int, token: UInt64) {
+    func activateData(_ drawnGeneration: Int, token: UInt64) {
+        // A restart holding the runtime: the activation waits as a pending one does, retried after (ResetGate).
+        if runtime.holds("activateData(_:token:)") { pendingActivation = (drawnGeneration, token); return }
         let batch = runtime.dataReady()
         if batch.pending {
             pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
@@ -54,6 +56,8 @@ extension ExactSession {
         }
         appFileRoots = AppFiles.learn(runtime) // the roots storage configured
         apply(batch)
+        landColdShare() // a share claimed before the boot lands in the storage just configured
+        observeLeaving()
         dataGeneration = drawnGeneration
         activityOutput?.drain()
         storeRefresh.activated = { [weak self] in
@@ -63,6 +67,7 @@ extension ExactSession {
         storeRefresh.record(batch)
         retryStoreActivation()
         deliverModuleEvents() // a launching activation, once the module and the data are up (LLP 1133.004 D6)
+        NotificationCenter.default.post(name: Self.dataActivated, object: self)
         canvases.loadIfNeeded()
         openNativeViews(drawnGeneration)
         drainSurfaceWorkNow()
@@ -81,6 +86,11 @@ extension ExactSession {
 }
 
 extension ExactSession {
+    /// Posted, with the session, when its data module's first commit has
+    /// been applied (a host decides then what its first pixel could not:
+    /// LLP 1133.025 D6).
+    public static let dataActivated = Notification.Name("ExactSessionDataActivated")
+
     /// The scene became active (iOS): the canvases follow.
     public func becameActive() { frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) }
 
@@ -110,7 +120,7 @@ extension ExactSession {
     /// event's own; then everything the runner queued is heard, once (an
     /// agent's tap of a listed entry too).
     func deliverModuleEvents() {
-        guard state != .destroyed, booted, firstDrawMs != nil else { return }
+        guard state != .destroyed, booted, firstDrawMs != nil, !runtime.holds("deliverModuleEvents()") else { return } // (kept for after: ResetGate)
         let held = heldModuleEvents
         heldModuleEvents = []
         for json in held { apply(runtime.moduleEvent(json)) }

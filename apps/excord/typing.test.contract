@@ -1,0 +1,77 @@
+// Excord's typing line (who is typing in the open channel) on the fixture server as app.test.contract runs it
+// (--world transcript --reset-on-identify). The fixture's injected typing comes from Ada, then Grace. Each launch
+// runs `clock settle` (IDENTIFY's task), then waits for the gateway's READY with the clock frozen (`clock until state`).
+epoch "2026-10-22T18:00:00Z"
+time-zone "America/Los_Angeles"
+
+// A reaction while someone types changes the channel, not when their typing stops.
+test "the typing line goes ten seconds after the typing, whatever else changes in the channel"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "fixture"
+  tap "inject-typing"
+  clock data
+  expect tree has "typing"
+  clock +6000
+  tap "fixture"
+  tap "inject-react-above"
+  clock data
+  expect tree has "typing"
+  clock +4500
+  clock data
+  expect tree missing "typing"
+
+// Each typer's ten seconds are their own, checked once a second.
+test "of two typers, the first goes at the end of their own ten seconds"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "fixture"
+  tap "inject-typing"
+  clock data
+  clock +4000
+  tap "fixture"
+  tap "inject-typing"
+  clock data
+  expect state typing.line == "Ada and Grace are typing…"
+  clock +6500
+  clock data
+  expect tree has "typing"
+  expect state typing.line == "Grace is typing…"
+  clock +5000
+  clock data
+  expect tree missing "typing"
+
+// Typing in a channel left before it ended keeps its own ten seconds when the channel opens again.
+test "typing in a channel left ends on time when it opens again"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "fixture"
+  tap "inject-typing"
+  clock data
+  expect tree has "typing"
+  back
+  clock settle
+  tap "channel-help"
+  clock data
+  clock settle
+  expect tree missing "typing"
+  clock +9000
+  back
+  clock settle
+  tap "channel-general"
+  clock data
+  clock +1100
+  clock data
+  expect tree missing "typing"

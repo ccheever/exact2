@@ -119,9 +119,12 @@ test('every refusal: no proposal, an index, a when, a value, items without the e
   await post({ method: 'drop', client: 'agent', proposal: id });
 }, 60_000);
 
+/** A Tailwind theme of 3,000 colours, `--color-<stem>-t<i>`, all `value`. */
+const bigTheme = (stem, value) => `@theme {\n${Array.from({ length: 3000 }, (_, i) => `  --color-${stem}-t${i}: ${value};`).join('\n')}\n}\n`;
+
 test('a 3,000-op held import has one value edited with no ops sent', async () => {
-  const ops = Array.from({ length: 3000 }, (_, i) => ({ op: 'add-token', name: `big.t${i}`, value: '#0c0c0c' }));
-  const held = await post({ method: 'propose', hold: true, client: 'agent:figma', ops, review: { importer: 'dtcg', tokens: 3000 } });
+  // Planned and held by the server (a client may send at most 1024 operations, tamber-ops-size).
+  const held = await post({ method: 'import', kind: 'tailwind', client: 'agent:figma', source: bigTheme('big', '#0c0c0c') });
   expect(held.status).toBe(200);
   const request = { method: 'edit-held', client: 'design-tool:Ada', proposal: held.ok.proposal, index: 1234, value: '#0d0d0d' };
   expect(JSON.stringify(request).length).toBeLessThan(200);
@@ -136,8 +139,7 @@ test('a 3,000-op held import has one value edited with no ops sent', async () =>
 test('an edit racing an accept: the edit holds it while it plans, so the accept finds none; a plan that fails leaves it held as it was', async () => {
   const stream = await subscribe();
   // A big proposal, so its edit's plan takes a while: the accept, the drop and a second edit come while it plans.
-  const ops = Array.from({ length: 3000 }, (_, i) => ({ op: 'add-token', name: `race.t${i}`, value: '#060606' }));
-  const id = (await post({ method: 'propose', hold: true, client: 'agent', ops })).ok.proposal;
+  const id = (await post({ method: 'import', kind: 'tailwind', client: 'agent', source: bigTheme('race', '#060606') })).ok.proposal;
   const editing = post({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#070707' });
   await Bun.sleep(30);
   const [accepted, dropped, second] = await Promise.all([post({ method: 'accept', client: 'person', proposal: id }), post({ method: 'drop', client: 'agent', proposal: id }), post({ method: 'edit-held', client: 'person', proposal: id, index: 1, value: '#080808' })]);
@@ -145,7 +147,7 @@ test('an edit racing an accept: the edit holds it while it plans, so the accept 
   const edit = await editing;
   expect(edit.status).toBe(200);
   // The survivor: the edit, held; nothing written.
-  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('race.t0');
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('race-t0');
   const list = await heldList();
   expect(list.map(p => p.proposal)).toEqual(expect.arrayContaining([edit.ok.proposal]));
   expect(list.map(p => p.proposal)).not.toContain(id);
@@ -310,4 +312,38 @@ test('an accept that cannot hold again, its slot taken and every other held prop
     await Promise.all(edits);
     expect((await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events')).proposals).toHaveLength(64);
   } finally { await wire.close(); }
+}, 60_000);
+
+test('a replaced proposal (1.17): its old id is refused 409 stale naming who replaced it, the latest of a chain; the new one is accepted', async () => {
+  const held = await post({ method: 'propose', hold: true, client: 'bea', ops: [{ op: 'set-token', name: 'edge', value: '#0a0a0a' }] });
+  const p1 = held.ok.proposal;
+  // Ada edits Bea's held proposal: held again as a new one.
+  const p2 = (await post({ method: 'edit-held', client: 'ada', proposal: p1, index: 0, value: '#0b0b0b' })).ok.proposal;
+  for (const method of ['accept', 'drop', 'edit-held']) {
+    const r = await post({ method, client: 'bea', proposal: p1, ...(method === 'edit-held' ? { index: 0, value: '#0c0c0c' } : {}) });
+    expect([method, r.status, r.error?.stale, r.error?.replacedBy, r.error?.by], JSON.stringify({ r, p1, p2 })).toEqual([method, 409, true, p2, "ada"]);
+  }
+  // Cy edits Ada's: the old id answers with the latest replacement and its maker.
+  const p3 = (await post({ method: 'edit-held', client: 'cy', proposal: p2, index: 0, value: '#0d0d0d' })).ok.proposal;
+  const chained = await post({ method: 'accept', client: 'bea', proposal: p1 });
+  expect([chained.status, chained.error.replacedBy, chained.error.by]).toEqual([409, p3, 'cy']);
+  expect((await post({ method: 'accept', client: 'bea', proposal: p2 })).error.replacedBy).toBe(p3);
+  // Bea accepts the one there is, knowingly; accepted, it is gone, not replaced: 404.
+  const accepted = await post({ method: 'accept', client: 'bea', proposal: p3 });
+  expect(accepted.status, JSON.stringify(accepted)).toBe(200);
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #0d0d0d');
+  expect((await post({ method: 'accept', client: 'bea', proposal: p3 })).status).toBe(404);
+}, 60_000);
+
+test('replaced by an accept\'s recompute (the file moved since it was held): the old id names the accepter, not the proposer', async () => {
+  const held = await post({ method: 'propose', hold: true, client: 'bea', ops: [{ op: 'set-token', name: 'edge', value: '#0e0e0e' }] });
+  const p1 = held.ok.proposal;
+  // The design moves under it (a hand edit), so Ada's accept recomputes it rather than writing.
+  writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace(/ink = #[0-9a-f]{6}/, 'ink = #010101'));
+  await Bun.sleep(600);
+  const recomputed = await post({ method: 'accept', client: 'ada', proposal: p1 });
+  expect(recomputed.ok?.recomputed, JSON.stringify(recomputed)).toBe(true);
+  const again = await post({ method: 'accept', client: 'bea', proposal: p1 });
+  expect([again.status, again.error.replacedBy, again.error.by]).toEqual([409, recomputed.ok.proposal, 'ada']);
+  await post({ method: 'drop', client: 'bea', proposal: recomputed.ok.proposal });
 }, 60_000);

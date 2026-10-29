@@ -101,6 +101,12 @@ impl NodeType {
         )
     }
 
+    /// Whether a `Text` may hold the node: a run, or an image in its text
+    /// (LLP 1011.002).
+    pub fn in_text(self) -> bool {
+        matches!(self, NodeType::Text | NodeType::Image)
+    }
+
     /// Whether the node is measured by the text measurer.
     pub fn is_text_leaf(self) -> bool {
         matches!(self, NodeType::Text | NodeType::TextInput)

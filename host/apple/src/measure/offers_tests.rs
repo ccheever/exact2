@@ -496,10 +496,12 @@ mod storage {
             TextRun {
                 text: source.as_str().into(),
                 style,
+                inline: None,
             },
             TextRun {
                 text: "".into(),
                 style: strut,
+                inline: None,
             },
         ];
         let expected_runs = [
@@ -519,6 +521,11 @@ mod storage {
                 variation_tags: [u32::from_be_bytes(*b"GRAD"), 0, 0, 0, 0, 0, 0, 0],
                 variation_values: [150.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 optical_sizing_none: 1,
+                inline_box: 0,
+                box_align: 0,
+                box_width: 0.0,
+                box_height: 0.0,
+                box_shift: 0.0,
             },
             CRun {
                 text: "".as_ptr(),
@@ -536,6 +543,11 @@ mod storage {
                 variation_tags: [0; 8],
                 variation_values: [0.0; 8],
                 optical_sizing_none: 0,
+                inline_box: 0,
+                box_align: 0,
+                box_width: 0.0,
+                box_height: 0.0,
+                box_shift: 0.0,
             },
         ];
         let widths = [

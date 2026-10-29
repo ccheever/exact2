@@ -44,6 +44,7 @@ impl Painter {
             Box::new(crate::raster::Raster::transparent()),
         );
         painter.dark = self.dark;
+        painter.symbols = self.symbols;
         painter.placements = self.placements.clone();
         painter.placements.remove(&id);
         painter.viewport = (f.width, f.height);

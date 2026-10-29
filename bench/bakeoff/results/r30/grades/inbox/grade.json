@@ -1,0 +1,54 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first; sender, subject, two-line preview, date (Oct 24 / time for today); unread rows get an orange dot."},
+      {"n": 2, "status": "pass", "note": "Swipe left shows Flag/Archive actions (full swipe archives) with an 'Archived · Undo' toast; swipe right toggles read/unread. Archive screen lists archived mail."},
+      {"n": 3, "status": "pass", "note": "Flag button on every row plus swipe action; All/Unread/Flagged chips with counts filter correctly."},
+      {"n": 4, "status": "pass", "note": "Tap pushes a detail view; message is marked read (count drops). Toolbar has archive/flag/mark-unread."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh adds two new unread messages at the top (Alex Morgan, The Sunday Edit)."},
+      {"n": 6, "status": "pass", "note": "'109 unread · 320 messages' under the title, plus counts in the filter chips."},
+      {"n": 7, "status": "pass", "note": "Archived, read/unread, flagged and the refreshed messages all survived relaunch."}
+    ],
+    "bugs": [
+      "Scroll position is not kept: open a message from deep in the list, go back, and the list is somewhere else (Zoe Walsh/Carlos Walsh at top before, David Edwards/Rosa Fischer after).",
+      "Accessibility tree has duplicated filter buttons and dozens of off-screen row labels stacked at one point, so VoiceOver would find phantom elements.",
+      "Refresh always invents the same two messages (same senders and text each time)."
+    ],
+    "tells": [
+      "Custom cream background and burnt-orange accent everywhere instead of system background and tint; looks more like a branded web app than Mail.",
+      "Hand-made pill filter chips instead of a system filter menu or segmented control.",
+      "A floating '320 messages · On your device' capsule sits over the bottom, and the list is cut off hard above it instead of scrolling under a translucent bar.",
+      "A flag button is drawn on every row, which iOS Mail doesn't do. Rows are tall and loose.",
+      "Detail subject wraps early ('Your order / has shipped') and doesn't use the full width.",
+      "At the largest text size the header (search, count, chips) fills the whole first screen and the first row is cut off by the bottom capsule.",
+      "Swipe action buttons are not exposed to accessibility."
+    ],
+    "scroll": "Scrolling is smooth with no blank rows or jumps during flings, and the large title collapses properly. But the list is clipped hard at the bottom and loses its scroll position after you come back from a message.",
+    "scores": {"features": 8, "platform": 5, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first; sender, subject, preview, Mail-style dates (time, weekday, then numeric date); blue unread dot and an orange flag mark. At the largest size the preview runs past two lines."},
+      {"n": 2, "status": "pass", "note": "Swipe left shows Flag/Archive (circular, Mail-like); swipe right toggles read/unread. Archive screen has a swipe action that moves mail back to Inbox."},
+      {"n": 3, "status": "pass", "note": "Flag via swipe or detail toolbar; a native pull-down filter menu (All / Unread Only / Flagged Only) works and shows the active filter under the title."},
+      {"n": 4, "status": "pass", "note": "Detail pushes with a native back button; opening marks it read; 'Mark as Unread', flag and archive are there."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh (and a refresh button) adds two new unread messages at the top."},
+      {"n": 6, "status": "pass", "note": "'109 unread' under the large title, updated live."},
+      {"n": 7, "status": "pass", "note": "Archived, read and flagged states and the refreshed messages survived relaunch."}
+    ],
+    "bugs": [
+      "Refresh always invents the same two messages (Alex Rivera / Morgan Chen), so the inbox fills with identical pairs.",
+      "Refreshing from the Archive screen adds messages to the Inbox, which is a little surprising."
+    ],
+    "tells": [
+      "A redundant refresh button in the nav bar alongside pull to refresh.",
+      "Unread rows aren't bolder; only the dot marks them (Mail does the same, so this is minor).",
+      "'Mark as Unread' is a link-style button in the message body rather than a toolbar item.",
+      "Archive screen shows a '1 message' footer cell inside the list."
+    ],
+    "scroll": "Feels like a native list: smooth slow drags and flings, content scrolls under the glass nav bar and bottom search field, the large title collapses inline with the unread count, and position is kept when you return from a message.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both meet all seven requirements and persist state. B looks and behaves like iOS Mail: system colours, native filter menu, glass bars that content scrolls under, and scroll position kept. A has a custom cream-and-orange theme, hand-made chips, a list clipped by a floating capsule, and it loses scroll position after you open a message."
+}

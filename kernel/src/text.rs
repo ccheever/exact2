@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 pub(crate) mod case;
 pub mod decorations;
+pub mod inline_box;
 
 /// A payload-free lifetime namespace. Allocation identity is valid only while
 /// retained: it is never a wire id, address handle, or serialized cache key.
@@ -330,6 +331,20 @@ pub struct TextRun<'a> {
     pub text: Cow<'a, str>,
     /// Its style.
     pub style: TextStyle,
+    /// An image in the paragraph (LLP 1011.002): the box a measurer reserves
+    /// in place of this run's text, which is [`inline_box::INLINE_BOX_TEXT`].
+    pub inline: Option<inline_box::InlineBox>,
+}
+
+impl<'a> TextRun<'a> {
+    /// A run of text in `style`.
+    pub fn new(text: impl Into<Cow<'a, str>>, style: TextStyle) -> Self {
+        TextRun {
+            text: text.into(),
+            style,
+            inline: None,
+        }
+    }
 }
 
 impl AsRef<str> for TextRun<'_> {
@@ -623,6 +638,20 @@ pub trait TextMeasurer {
         _bottoms: &mut Vec<f32>,
     ) {
     }
+
+    /// @ref LLP 1011.002 D2 — where the paragraph the last measure of
+    /// `request` built put each inline box (a run whose `inline` is set):
+    /// its margin box's top left in content coordinates, one pair per box in
+    /// run order, non-finite for a box on no line (one `line-clamp` cut).
+    /// A measurer that answers nothing leaves each at the content box's
+    /// origin.
+    fn inline_boxes(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        _request: &TextMeasureRequest<'_>,
+        _origins: &mut Vec<(f32, f32)>,
+    ) {
+    }
 }
 
 /// Deterministic reference measurer: every glyph advances `advance_em` ems
@@ -665,6 +694,7 @@ enum Token {
     Word { glyphs: Vec<f32> },
     Space { width: f32 },
     Break,
+    Box { width: f32, above: f32, below: f32 },
 }
 
 impl crate::WhiteSpace {
@@ -771,6 +801,17 @@ impl TextMeasurer for MonospaceMeasurer {
             }
         }
     }
+
+    fn inline_boxes(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        origins: &mut Vec<(f32, f32)>,
+    ) {
+        if request.exclusions.is_empty() {
+            self.box_origins(request, origins);
+        }
+    }
 }
 
 impl MonospaceMeasurer {
@@ -810,6 +851,28 @@ impl MonospaceMeasurer {
     }
 }
 
+/// One line of the reference measurer's layout: its width, and how far its
+/// box reaches above and below its baseline.
+#[derive(Debug, Clone, Copy)]
+struct MonoLine {
+    width: f32,
+    above: f32,
+    below: f32,
+}
+
+/// The reference measurer's lines, and where each inline box went: its line
+/// and its x there, with its height above the baseline.
+struct MonoLayout {
+    lines: Vec<MonoLine>,
+    /// Each box's line (past the last when `line-clamp` cut it), x and
+    /// height above the baseline.
+    boxes: Vec<(usize, f32, f32)>,
+    /// Each line's bottom: whole line heights, so a paragraph without a box
+    /// measures as one line height times its lines, plus what each box
+    /// added to its line.
+    bottoms: Vec<f32>,
+}
+
 impl MonospaceMeasurer {
     fn measure_lines(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         if let AxisOffer::Definite(width) = request.width {
@@ -817,6 +880,30 @@ impl MonospaceMeasurer {
                 return self.flow(request, width);
             }
         }
+        let Some(laid) = self.lay_out(request) else {
+            return TextMetrics::default();
+        };
+        // Lines never exceed the limit except for a single unbreakable word,
+        // which legitimately overflows — so the widest line is the width.
+        TextMetrics {
+            width: laid.lines.iter().map(|l| l.width).fold(0f32, f32::max),
+            height: laid.bottoms.last().copied().unwrap_or(0.0),
+            first_baseline: laid.lines.first().map(|l| l.above),
+        }
+    }
+
+    /// The reference face's edges at `style` (LLP 1011.002): its ascent and
+    /// descent split its line height at the baseline, its x-height half an em.
+    fn edges(&self, style: &TextStyle) -> inline_box::FontEdges {
+        let line = self.line_height(style);
+        inline_box::FontEdges {
+            ascent: line * self.baseline_frac,
+            descent: line * (1.0 - self.baseline_frac),
+            x_height: style.font_size * 0.5,
+        }
+    }
+
+    fn lay_out(&mut self, request: &TextMeasureRequest<'_>) -> Option<MonoLayout> {
         let white_space = request.paragraph.white_space.model();
         // CSS collapsing first, as every native engine now does (LLP 1053 G5).
         let collapsed = exact_textflow::collapse(request.runs, white_space);
@@ -825,7 +912,25 @@ impl MonospaceMeasurer {
         let mut line_height = self.line_height(&request.paragraph.strut);
         let mut pending_word: Vec<f32> = Vec::new();
         let mut any_text = false;
+        let mut boxes = 0;
         for (index, run) in request.runs.iter().enumerate() {
+            if let Some(b) = run.inline {
+                // An inline box is a word of its own: lines break around it.
+                any_text = true;
+                if !pending_word.is_empty() {
+                    tokens.push(Token::Word {
+                        glyphs: std::mem::take(&mut pending_word),
+                    });
+                }
+                let above = b.ascent(self.edges(&run.style));
+                tokens.push(Token::Box {
+                    width: b.width,
+                    above,
+                    below: b.height - above,
+                });
+                boxes += 1;
+                continue;
+            }
             line_height = line_height.max(self.line_height(&run.style));
             let advance = self.advance(&run.style);
             let text = collapsed
@@ -858,7 +963,7 @@ impl MonospaceMeasurer {
             });
         }
         if !any_text {
-            return TextMetrics::default();
+            return None;
         }
 
         // Lay lines out under the offer.
@@ -871,81 +976,134 @@ impl MonospaceMeasurer {
         let breaks_words = request.paragraph.overflow_wrap != OverflowWrap::Normal
             && (!matches!(request.width, AxisOffer::MinContent)
                 || request.paragraph.overflow_wrap == OverflowWrap::Anywhere);
-        let mut lines: Vec<f32> = vec![0.0];
+        let empty = MonoLine {
+            width: 0.0,
+            above: line_height * self.baseline_frac,
+            below: line_height * (1.0 - self.baseline_frac),
+        };
+        let mut lines: Vec<MonoLine> = vec![empty];
+        let mut placed = Vec::with_capacity(boxes);
         let mut trailing_space = 0f32;
         for token in tokens {
             match token {
                 Token::Break => {
-                    lines.push(0.0);
+                    lines.push(empty);
                     trailing_space = 0.0;
                 }
                 Token::Space { width } => {
                     if let Some(current) = lines.last_mut() {
-                        if *current > 0.0 {
-                            *current += width;
+                        if current.width > 0.0 {
+                            current.width += width;
                             trailing_space += width;
                         }
                     }
                 }
+                Token::Box {
+                    width,
+                    above,
+                    below,
+                } => {
+                    let current = lines.last_mut().expect("one line exists");
+                    if limit.is_some_and(|max| current.width > 0.0 && current.width + width > max) {
+                        current.width -= trailing_space;
+                        lines.push(empty);
+                    }
+                    trailing_space = 0.0;
+                    let at = lines.len() - 1;
+                    let current = &mut lines[at];
+                    placed.push((at, current.width, above));
+                    current.width += width;
+                    current.above = current.above.max(above);
+                    current.below = current.below.max(below);
+                }
                 Token::Word { glyphs } => {
                     let width: f32 = glyphs.iter().sum();
                     let current = lines.last_mut().expect("one line exists");
-                    if limit.is_some_and(|max| *current > 0.0 && *current + width > max) {
-                        *current -= trailing_space;
-                        lines.push(0.0);
+                    if limit.is_some_and(|max| current.width > 0.0 && current.width + width > max) {
+                        current.width -= trailing_space;
+                        lines.push(empty);
                     }
                     trailing_space = 0.0;
                     if breaks_words && limit.is_some_and(|max| width > max) {
                         for advance in glyphs {
                             let current = lines.last_mut().expect("one line exists");
-                            if limit.is_some_and(|max| *current > 0.0 && *current + advance > max) {
-                                lines.push(advance);
+                            if limit.is_some_and(|max| {
+                                current.width > 0.0 && current.width + advance > max
+                            }) {
+                                lines.push(MonoLine {
+                                    width: advance,
+                                    ..empty
+                                });
                             } else {
-                                *current += advance;
+                                current.width += advance;
                             }
                         }
                     } else {
-                        *lines.last_mut().expect("one line exists") += width;
+                        lines.last_mut().expect("one line exists").width += width;
                     }
                 }
             }
         }
         if let Some(last) = lines.last_mut() {
-            *last -= trailing_space;
+            last.width -= trailing_space;
         }
         let max_lines = request.paragraph.line_clamp;
         if max_lines > 0 && lines.len() > max_lines as usize {
             lines.truncate(max_lines as usize);
         }
-        // Lines never exceed the limit except for a single unbreakable word,
-        // which legitimately overflows — so the widest line is the width.
-        let width = lines.iter().copied().fold(0f32, f32::max);
-        let height = line_height * lines.len() as f32;
-        TextMetrics {
-            width,
-            height,
-            first_baseline: Some(line_height * self.baseline_frac),
-        }
+        let mut grown = 0.0;
+        let bottoms = (lines.iter().enumerate())
+            .map(|(i, l)| {
+                grown += (l.above - empty.above) + (l.below - empty.below);
+                line_height * (i + 1) as f32 + grown
+            })
+            .collect();
+        Some(MonoLayout {
+            lines,
+            boxes: placed,
+            bottoms,
+        })
     }
 }
 
 impl MonospaceMeasurer {
-    /// Every line is one line height, so each bottom is a multiple of it.
+    /// Each line's bottom, from the lines the measure laid out.
     fn line_bottoms(
         &mut self,
         _stamp: &ParagraphStamp,
         request: &TextMeasureRequest<'_>,
         bottoms: &mut Vec<f32>,
     ) {
-        let height = self.measure_lines(request).height;
-        let line_height = request
-            .runs
-            .iter()
-            .map(|run| self.line_height(&run.style))
-            .fold(self.line_height(&request.paragraph.strut), f32::max);
-        if line_height > 0.0 {
-            let count = (height / line_height).round() as usize;
-            bottoms.extend((1..=count).map(|i| line_height * i as f32));
+        if !request.exclusions.is_empty() {
+            // Flowed lines are each one line height.
+            let height = self.measure_lines(request).height;
+            let line_height = request
+                .runs
+                .iter()
+                .map(|run| self.line_height(&run.style))
+                .fold(self.line_height(&request.paragraph.strut), f32::max);
+            if line_height > 0.0 {
+                let count = (height / line_height).round() as usize;
+                bottoms.extend((1..=count).map(|i| line_height * i as f32));
+            }
+        } else if let Some(laid) = self.lay_out(request) {
+            bottoms.extend(laid.bottoms);
+        }
+    }
+
+    /// Each inline box's top left, as [`TextMeasurer::inline_boxes`] asks.
+    fn box_origins(&mut self, request: &TextMeasureRequest<'_>, origins: &mut Vec<(f32, f32)>) {
+        let Some(laid) = self.lay_out(request) else {
+            return;
+        };
+        let measured = self.measure_lines(request);
+        let (top, _) = self.trim(request, measured);
+        for &(index, x, above) in &laid.boxes {
+            let Some(line) = laid.lines.get(index) else {
+                origins.push((f32::NAN, f32::NAN));
+                continue;
+            };
+            origins.push((x, laid.bottoms[index] - line.below - above - top));
         }
     }
 }
