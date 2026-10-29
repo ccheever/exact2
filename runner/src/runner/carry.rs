@@ -96,7 +96,7 @@ impl<D: super::DataSource> super::Runner<D> {
             forgot_waiting: self.queued(),
             faults: (!self.faults.is_empty()).then(|| self.faults.spec()),
             modes: self.modes(),
-            uploads: self.uploads.carried(),
+            uploads: self.carried_uploads(),
         }
     }
 }

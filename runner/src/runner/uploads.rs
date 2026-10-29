@@ -3,10 +3,11 @@
 //! Nothing asks an upload again at arguments it has a mark for: the
 //! resource shows the answer the upload ended with, or its failure. The
 //! marks last as long as the runner, and a plan reload or a data module's
-//! update carries them by resource name and arguments; an upload that one
-//! cut off comes back failed, `interrupted`. A launch starts with none: an
-//! app records what an upload answered in its store and stops showing the
-//! resource, or the launch asks it again.
+//! update carries them by resource, source and arguments; an upload that
+//! one cut off comes back failed, `interrupted`, once its host says it had
+//! begun to go out, and is asked again if it had not. A launch starts with
+//! none: an app records what an upload answered in its store and stops
+//! showing the resource, or the launch asks it again.
 
 use super::{DataSource, Runner, Target};
 use crate::failure::{Failure, FailureCode};
@@ -76,36 +77,18 @@ pub(super) struct Uploads {
 }
 
 impl Uploads {
-    /// The marks a new runner starts with, carried from the old one: each
-    /// still on its way cut off, since its ticket was the old runner's.
-    pub(super) fn starting(marks: &[UploadMark]) -> Uploads {
-        let marks = marks
-            .iter()
-            .map(|m| UploadMark {
-                end: match &m.end {
-                    UploadEnd::Sent(_) => UploadEnd::Failed(interrupted()),
-                    end => end.clone(),
-                },
-                ..m.clone()
-            })
-            .collect();
-        Uploads {
-            marks: Rc::new(marks),
-            let_go: Vec::new(),
-        }
-    }
-
-    /// How the upload `resource` asked at `args` stands, if it was asked.
-    pub(super) fn at(&self, resource: &str, args: &[Value]) -> Option<&UploadEnd> {
+    /// How the upload `resource` asked of `source` at `args` stands, if it
+    /// was asked.
+    pub(super) fn at(&self, resource: &str, source: &str, args: &[Value]) -> Option<&UploadEnd> {
         (self.marks.iter().rev())
-            .find(|m| m.resource == resource && m.args == args)
+            .find(|m| m.resource == resource && m.source == source && m.args == args)
             .map(|m| &m.end)
     }
 
     /// `resource` asked an upload at `args`, on its way under `ticket`.
     pub(super) fn sent(&mut self, resource: &str, source: &str, args: &[Value], ticket: u64) {
         let marks = Rc::make_mut(&mut self.marks);
-        marks.retain(|m| !(m.resource == resource && m.args == args));
+        marks.retain(|m| !(m.resource == resource && m.source == source && m.args == args));
         marks.push(UploadMark {
             resource: resource.into(),
             source: source.into(),
@@ -150,14 +133,54 @@ impl Uploads {
             Rc::make_mut(&mut self.marks).retain(|m| m.end != UploadEnd::Sent(ticket));
         }
     }
-
-    /// The marks as a reload or an update carries them.
-    pub(super) fn carried(&self) -> Vec<UploadMark> {
-        self.marks.to_vec()
-    }
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Start with the marks the old runner carried: those of a resource the
+    /// plan still has, with the same source. One on its way waits for the
+    /// host's word on whether it had begun to go out (`uploads_started`),
+    /// and this runner's tickets start past its, so the two never meet.
+    pub(super) fn carry_uploads_in(&mut self, marks: &[UploadMark]) {
+        let plan = &self.plan;
+        let marks: Vec<UploadMark> = (marks.iter())
+            .filter(|m| {
+                (plan.resources.iter())
+                    .any(|row| plan.str(row.name) == m.resource && plan.str(row.source) == m.source)
+            })
+            .cloned()
+            .collect();
+        let let_go: Vec<u64> = (marks.iter())
+            .filter_map(|m| match m.end {
+                UploadEnd::Sent(ticket) => Some(ticket),
+                _ => None,
+            })
+            .collect();
+        if let Some(last) = let_go.iter().max() {
+            self.next_ticket = self.next_ticket.max(last + 1);
+        }
+        self.uploads = Uploads {
+            marks: Rc::new(marks),
+            let_go,
+        };
+    }
+
+    /// The marks as a reload or an update carries them: an upload on its way
+    /// that this runner heard begin is cut off, `interrupted`; one it did not
+    /// stays on its way, for the next runner to ask its host about.
+    pub(super) fn carried_uploads(&self) -> Vec<UploadMark> {
+        (self.uploads.marks.iter())
+            .map(|m| match m.end {
+                UploadEnd::Sent(t) if self.pending.iter().any(|p| p.ticket == t && p.sent) => {
+                    UploadMark {
+                        end: UploadEnd::Failed(interrupted()),
+                        ..m.clone()
+                    }
+                }
+                _ => m.clone(),
+            })
+            .collect()
+    }
+
     /// Resource `i`'s identifying arguments among `args`: its `with`
     /// context reaches the source but does not identify the upload.
     pub(super) fn upload_identity<'a>(&self, i: usize, args: &'a [Value]) -> &'a [Value] {
@@ -168,8 +191,9 @@ impl<D: DataSource> Runner<D> {
 
     /// How resource `i`'s upload asked at `args` stands, if it was asked.
     pub(super) fn upload_at(&self, i: usize, args: &[Value]) -> Option<&UploadEnd> {
-        let name = self.plan.str(self.plan.resources[i].name);
-        self.uploads.at(name, self.upload_identity(i, args))
+        let row = &self.plan.resources[i];
+        let (name, source) = (self.plan.str(row.name), self.plan.str(row.source));
+        self.uploads.at(name, source, self.upload_identity(i, args))
     }
 
     /// Whether an upload is in flight for resource `i` (LLP 1016.000 D10).
@@ -217,15 +241,33 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The host's word on the uploads let go since it last spoke, after it
-    /// let their tickets go (`Core::let_go_started` natively): each in
-    /// `started` had begun to go out, and is cut off, `interrupted`; any
-    /// other never reached the network and is no upload asked, so `refresh`
-    /// asks it again (LLP 1016.000 D10).
+    /// let their tickets go (`Core::let_go_started` natively), or on those an
+    /// old runner had on their way, when it swapped in this one: each in
+    /// `started` had begun to go out, and is cut off, `interrupted`. Any
+    /// other never reached the network and is no upload asked: `refresh`
+    /// asks it again, and a resource that shows it cut off is asked again at
+    /// the next commit (LLP 1016.000 D10).
     pub fn uploads_started(&mut self, started: &[u64]) {
         for ticket in std::mem::take(&mut self.uploads.let_go) {
-            match started.contains(&ticket) {
-                true => self.uploads.end(ticket, &UploadEnd::Failed(interrupted())),
-                false => self.uploads.unmark(ticket),
+            if started.contains(&ticket) {
+                self.uploads.end(ticket, &UploadEnd::Failed(interrupted()));
+                continue;
+            }
+            let left: Vec<(String, Vec<Value>)> = (self.uploads.marks.iter())
+                .filter(|m| m.end == UploadEnd::Sent(ticket))
+                .map(|m| (m.resource.clone(), m.args.clone()))
+                .collect();
+            self.uploads.unmark(ticket);
+            for i in 0..self.plan.resources.len() {
+                let name = self.plan.str(self.plan.resources[i].name);
+                let shows = (self.failed_args[i].as_ref()).is_some_and(|failed| {
+                    let identity = self.upload_identity(i, failed);
+                    left.iter()
+                        .any(|(r, args)| r == name && args[..] == *identity)
+                });
+                if shows {
+                    self.force_refresh(i);
+                }
             }
         }
     }
@@ -282,10 +324,16 @@ mod tests {
         uploads.sent("photo", "upload", &[Value::Number(3.0)], 5);
         let ok = UploadEnd::Answered(Value::str("ok"));
         uploads.end(4, &ok);
-        assert_eq!(uploads.at("photo", &[Value::Number(1.0)]), Some(&ok));
-        assert_eq!(uploads.at("photo", &[Value::Number(2.0)]), Some(&ok));
+        assert_eq!(
+            uploads.at("photo", "upload", &[Value::Number(1.0)]),
+            Some(&ok)
+        );
+        assert_eq!(
+            uploads.at("photo", "upload", &[Value::Number(2.0)]),
+            Some(&ok)
+        );
         uploads.unmark(5);
-        assert_eq!(uploads.at("photo", &[Value::Number(3.0)]), None);
+        assert_eq!(uploads.at("photo", "upload", &[Value::Number(3.0)]), None);
     }
 
     #[test]
@@ -322,18 +370,15 @@ mod tests {
     }
 
     #[test]
-    fn a_new_runner_cuts_off_what_was_on_its_way_and_a_checkpoint_shares_the_marks() {
+    fn a_checkpoint_shares_the_marks_until_they_change() {
         let mut uploads = Uploads::default();
         uploads.sent("photo", "upload", &[Value::Number(1.0)], 1);
         uploads.sent("photo", "upload", &[Value::Number(2.0)], 2);
         uploads.end(1, &UploadEnd::Answered(Value::str("done")));
-        let started = Uploads::starting(&uploads.carried());
         assert_eq!(
-            marks(&started),
-            [
-                (1.0, UploadEnd::Answered(Value::str("done"))),
-                (2.0, UploadEnd::Failed(interrupted())),
-            ]
+            uploads.at("photo", "elsewhere", &[Value::Number(1.0)]),
+            None,
+            "another source's"
         );
         let copy = uploads.clone();
         assert!(

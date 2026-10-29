@@ -905,9 +905,9 @@ impl<D: DataSource> Runner<D> {
                     })
             })
             .collect();
-        // @ref LLP 1016.000 D10 — the uploads asked, carried by resource name
-        // and arguments whatever the data module; a launch starts with none.
-        runner.uploads = uploads::Uploads::starting(carried.map_or(&[][..], |c| &c.uploads));
+        // @ref LLP 1016.000 D10 — the uploads asked, carried by resource,
+        // source and arguments whatever the data module; a launch starts with none.
+        runner.carry_uploads_in(carried.map_or(&[][..], |c| &c.uploads));
         // @ref LLP 1048.000 D6 — a document's answers seed their resources.
         // The device's own store is an input its render never had.
         let (seeded, note) = match seed {

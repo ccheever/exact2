@@ -916,6 +916,13 @@ impl<D: DataSource> Bridge<D> {
             return self.prepare_error("no prepared plan");
         };
         candidate.host.commit_boot();
+        // The old executor lets go of everything, then says which uploads had
+        // begun to go out; the rest never left (LLP 1016.000 D10).
+        if let Some(old) = self.executor.as_deref() {
+            old.forget(&|_| false);
+            let started = old.let_go_started(&|_| false);
+            candidate.host.runner_mut().uploads_started(&started);
+        }
         let executor = self.links.io.map(|io| {
             (io.start)(
                 candidate.bindings,

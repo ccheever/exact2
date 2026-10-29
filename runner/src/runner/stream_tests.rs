@@ -110,6 +110,11 @@ impl DataSource for Scripted {
 }
 
 fn plan() -> Plan {
+    plan_from("progress")
+}
+
+/// The plan, its `progress` resource asking `source`.
+fn plan_from(source: &str) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let number = b.primitive(TypeKind::Number);
     let boolean = b.primitive(TypeKind::Bool);
@@ -118,7 +123,7 @@ fn plan() -> Plan {
     let mut arg = Asm::new();
     arg.load_slot(wave);
     let arg = b.code(arg);
-    let progress = b.resource("progress", "progress", &[arg], number, None);
+    let progress = b.resource("progress", source, &[arg], number, None);
     let mut arg = Asm::new();
     arg.pending_resource(progress);
     let arg = b.code(arg);
@@ -858,5 +863,105 @@ fn an_upload_let_go_before_its_start_was_heard_waits_for_the_hosts_word() {
         if asks == 0 {
             assert_eq!(failure(&r).as_deref(), Some("interrupted"), "{word:?}");
         }
+    }
+}
+
+/// Marks belong to their resource and its source (LLP 1016.000 D10): an
+/// update that points the resource at another source drops them, and that
+/// source is asked at the arguments.
+#[test]
+fn an_update_that_repoints_the_resource_asks_its_new_source() {
+    let mut r = uploads();
+    let a = one(&mut r);
+    uploaded(&mut r, a, 201);
+    let mut carried = r.carry();
+    carried.data_revision = Some("an older module".into());
+    for (source, asks) in [("progress", 0), ("elsewhere", 1)] {
+        let mut again = Runner::boot_carrying(
+            plan_from(source),
+            Scripted {
+                upload: true,
+                ..Scripted::default()
+            },
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(again.take_requests().len(), asks, "{source}");
+    }
+}
+
+/// Fifteen photos, each a resource that uploads (its argument past the
+/// scripted source's failing third), and an action that changes nothing
+/// else.
+fn photos() -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let number = b.primitive(TypeKind::Number);
+    for k in 1..=15 {
+        let arg = b.constant(&Value::Number(f64::from(10 + k)));
+        b.resource(&format!("photo{k}"), "photo", &[arg], number, None);
+    }
+    let zero = b.constant(&Value::Number(0.));
+    let pokes = b.slot("pokes", number, zero);
+    let mut body = Asm::new();
+    body.load_param(0).store_slot(pokes);
+    let body = b.code(body);
+    b.action("poke", &[("value", number)], &[pokes], body);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    b.finish().unwrap()
+}
+
+/// An immediate update while a burst of fifteen uploads is out (LLP 1016.000
+/// D10). The old runner heard two of them begin; its executor had begun a
+/// third, unheard, and the other twelve waited in its queue. The new runner
+/// sends nothing until its host says which had begun: those three come back
+/// cut off, and the twelve that never left are asked again, under tickets
+/// past the old runner's.
+#[test]
+fn an_update_during_a_burst_asks_again_the_uploads_that_never_left() {
+    let scripted = || Scripted {
+        upload: true,
+        ..Scripted::default()
+    };
+    let mut old = Runner::boot(
+        photos(),
+        scripted(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let tickets: Vec<u64> = old.take_requests().iter().map(|o| o.ticket).collect();
+    assert_eq!(tickets.len(), 15);
+    started(&mut old, tickets[0]);
+    started(&mut old, tickets[1]);
+    let mut carried = old.carry();
+    carried.data_revision = Some("an older module".into());
+    let mut new = Runner::boot_carrying(
+        photos(),
+        scripted(),
+        Kernel::with_monospace(),
+        &carried,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        new.take_requests().is_empty(),
+        "nothing before the host's word"
+    );
+    new.uploads_started(&tickets[..3]);
+    new.act("poke", vec![Value::Number(1.)]).unwrap();
+    let again = new.take_requests();
+    assert_eq!(again.len(), 12);
+    assert!(
+        again.iter().all(|o| o.ticket > tickets[14]),
+        "tickets past the old ones"
+    );
+    for i in 0..3 {
+        let f = crate::failure::state(&new.failed_args, &new.failed_why, i).expect("cut off");
+        assert_eq!(f.reason, "interrupted", "photo{}", i + 1);
     }
 }
