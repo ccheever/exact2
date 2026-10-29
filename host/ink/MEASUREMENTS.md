@@ -4,6 +4,8 @@
 
 [C5: direct Metal against wgpu](#c5-direct-metal-measured-against-wgpu) reports the second decision gate. [C6: NucBox](#nucbox) reports the Windows spike.
 
+[G1: GPUI on the Mac](../../bench/heavy-list/gpui/RESULTS.md) records the heavy-list arm, parity captures and pending whole-app measurement.
+
 ## First D15 verdict: frame time passes; the full gate is not established
 
 **C beats B's frame-time threshold; D15 is not an unconditional pass.**

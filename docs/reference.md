@@ -2714,6 +2714,47 @@ Native inline runs, moving presentation geometry, rotated roots and SVG clip ref
 percentage margins follow Chrome (LLP 1001). See LLP 1005's intersection
 visibility deviation; other native hosts remain unqualified.
 
+## Timer options
+
+### A timer that can wait
+
+Timers have precise deadlines by default. Choose an admission condition for work that can wait:
+
+```
+task refresh mount
+  every(5000, tick, wait=scrollend, max=1000)
+task autosave when dirty
+  after(800, save, wait=idle, max=5000)
+```
+
+| Option | Live behavior |
+| --- | --- |
+| `wait=frame` | Run at the next frame callback at or after the deadline; request a frame if necessary. |
+| `wait=update` | Join existing frame demand; run immediately when the host observes none. |
+| `wait=scrollend` | Wait for the session's observed scroll activity to end. |
+| `wait=idle` | Wait for no observed scrolling, frame demand, unapplied batches, or conflicting timer work; keep a 60 Hz frame period clear before the next known deadline. |
+
+`frame` and `update` have a 100 ms waiting bound. `scrollend` is unbounded unless `max=` names a bound. `idle` defaults to the larger of its interval and 1,000 ms. Bounds start at the nominal deadline; reaching one makes the firing ordinary due work. They limit intentional waiting, not OS scheduling latency. A hidden session admits frame and scroll waits without waiting for display callbacks. Observations can arrive late; a web scroll that ends without an event uses a quiet-period fallback.
+
+Use `wait=scrollend` for list refreshes and `wait=idle` for saves or housekeeping. For a clock display, prefer live `time` rather than an action that copies the clock into state. A waiting repeat keeps its original phase and merges missed beats. A false gate or changed key cancels its held firing.
+
+The agent's clock is deterministic: `frame` runs at the next virtual 60 Hz frame; `update`, `scrollend` and `idle` run at their nominal deadlines, with idle tasks last at the same time. `state.taskTiming` reports each task's nominal deadline, requested wait kind, held state, active cap and wake tolerance. `perf` counts firings by admission kind, including caps.
+
+### A wake the OS can coalesce
+
+```
+task housekeeping mount
+  every(5000, clean, tolerance=500)
+```
+
+`tolerance=` allows a wake to be delayed by up to that many milliseconds. It accepts a literal whole number from 0 through 4,294,967,295; zero requests no intentional delay.
+
+Apple gives each ordinary millisecond task its own native timer with the full requested `Timer.tolerance`; the OS chooses coalescing and may limit tolerance. Windows uses an independent thread-pool timer with its full requested tolerance and native repeat period. Each native callback runs only its own task; live order follows OS delivery. These ordinary timers do not request display-link callbacks.
+
+Hosts without a native tolerance backend schedule a shared wake at the latest permitted time, bounded by every known timer and internal deadline; another wake may run a tolerant action once it is due. Actions never run early. Suspension and executor load can still make them late.
+
+Positive tolerance and `wait=` are alternatives. Frame tasks cannot wait or have positive tolerance. Tolerance affects host wakes only: seeks retain nominal times, and a repeating timer retains its phase. It permits wake coalescing; it makes no claim about measured battery savings.
+
 ## Live time and progress
 
 `time` is HTML's instant, in epoch milliseconds. `format` names the platform

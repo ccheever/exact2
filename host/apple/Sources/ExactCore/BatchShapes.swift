@@ -2,6 +2,20 @@
 // second style schema; unknown rows/keys keep their existing meaning.
 import Foundation
 
+/// One ordinary task's native timer; generations reject delivery after cancellation.
+public struct NativeTimerWake: Equatable, Sendable {
+    public let index: UInt32
+    public let generation: UInt64
+    public let due: Double
+    public let interval: UInt32
+    public let tolerance: UInt32
+    public let once: Bool
+    public init(index: UInt32, generation: UInt64, due: Double, interval: UInt32, tolerance: UInt32, once: Bool) {
+        self.index = index; self.generation = generation; self.due = due
+        self.interval = interval; self.tolerance = tolerance; self.once = once
+    }
+}
+
 extension BatchReader {
     /// A `canvas2d` op's lists, `[address, length]` pairs in the runtime's
     /// memory (LLP 1056 D4), copied out now: the runtime keeps them alive
@@ -19,6 +33,8 @@ extension BatchReader {
         var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false, frames = false, canvasOwed = false, controls = false
         var layoutProvisional = false, busy = false, requests = false
         var clock: Double?, due: Double?, error: String?
+        var waits: [Double] = [], waitContinue = false
+        var nativeTimers: [NativeTimerWake]?
         var images: [String] = []
         var seq: (UInt64, UInt64)?
         var alerts: [String] = []
@@ -35,6 +51,9 @@ extension BatchReader {
             case "timers": timers = try r.bool()
             case "motion": motion = try r.bool()
             case "canvas": canvas = try r.bool()
+            case "nativeTimers": nativeTimers = try r.array { try $0.nativeTimer() }
+            case "waits": waits = try r.array { try $0.number() }
+            case "waitContinue": waitContinue = try r.bool()
             case "frames": frames = try r.bool()
             case "canvasOwed": canvasOwed = try r.bool()
             case "controls": controls = try r.bool()
@@ -75,6 +94,9 @@ extension BatchReader {
         batch.requests = requests
         batch.canvas = canvas
         batch.frames = frames
+        batch.timerWaits = waits
+        batch.nativeTimers = nativeTimers
+        batch.waitContinue = waitContinue
         batch.canvasOwed = canvasOwed
         batch.controls = controls
         batch.layoutProvisional = layoutProvisional
@@ -90,6 +112,23 @@ extension BatchReader {
         batch.wakelock = wakelock
         batch.orientation = orientation
         return batch
+    }
+
+    private mutating func nativeTimer() throws -> NativeTimerWake {
+        var index: UInt32?, generation: UInt64?, due: Double?, interval: UInt32?, tolerance: UInt32?, once: Bool?
+        try object { r, key in
+            switch key {
+            case "index": index = try r.id()
+            case "generation": generation = UInt64(try r.string())
+            case "due": due = try r.number()
+            case "interval": interval = try r.id()
+            case "tolerance": tolerance = try r.id()
+            case "once": once = try r.bool()
+            default: try r.skip()
+            }
+        }
+        guard let index, let generation, let due, due >= 0, let interval, interval > 0, let tolerance, let once else { throw Invalid.wire }
+        return NativeTimerWake(index: index, generation: generation, due: due, interval: interval, tolerance: tolerance, once: once)
     }
 
     package mutating func batchOp() throws -> BatchOp {

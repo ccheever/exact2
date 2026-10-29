@@ -29,6 +29,7 @@ struct App<D: DataSource> {
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     presenter: Option<Presenter<D>>,
+    timers: crate::timers::Timers,
     started: Instant,
     pointer: (f32, f32),
     pointer_inside: bool,
@@ -62,6 +63,7 @@ struct App<D: DataSource> {
 
 impl<D: DataSource> Drop for App<D> {
     fn drop(&mut self) {
+        self.timers.clear();
         self.accessibility.take();
         // The module's GPU swapchain must release its HWND before the window.
         self.presenter.take();
@@ -211,6 +213,10 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     exact_linux::set_event_waker(Some(Arc::new(move || {
         let _ = wake.send_event(crate::accessibility::Event::Wake);
     })));
+    let timer_proxy = proxy.clone();
+    let timers = crate::timers::Timers::new(move |fired| {
+        let _ = timer_proxy.send_event(crate::accessibility::Event::Timer(fired));
+    });
     let mut state = App::<D> {
         proxy,
         accessibility: None,
@@ -220,6 +226,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         window: None,
         surface: None,
         presenter: None,
+        timers,
         started,
         pointer: (0., 0.),
         pointer_inside: false,
@@ -322,6 +329,29 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
             window.request_redraw();
         }
+    }
+    fn deliver_timer(&mut self, fired: Arc<crate::timers::Fired>, now: f64) {
+        if let Some(p) = &mut self.presenter {
+            if fired.live(p.native_timer_generation()) {
+                let due = p
+                    .host()
+                    .runner()
+                    .native_timers()
+                    .into_iter()
+                    .find(|row| {
+                        row.index == fired.row.index && row.generation == fired.row.generation
+                    })
+                    .map(|row| row.due_ms);
+                if let Some(due) = due.filter(|due| *due > now) {
+                    self.timers.defer(due, fired);
+                    return;
+                }
+                if let Some(e) = p.fire_native_timer(fired.epoch, &fired.row, now) {
+                    eprintln!("exact-windows: {e}");
+                }
+            }
+        }
+        fired.complete();
     }
     fn draw(&mut self, events: &ActiveEventLoop) -> Result<(), String> {
         if std::mem::take(&mut self.refit_after_scale) {
@@ -763,6 +793,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 p.surface_lifecycle(self.minimized || self.occluded, !self.focused);
                 p.set_window_active(self.focused);
                 // The window's clock owns time (the timers RFC, D1)
+                p.use_native_timers(true);
                 p.set_live_clock(Some(exact_linux::presenter::wall_since(self.started)));
                 if let Some(warning) = warning {
                     eprintln!("exact-windows: {warning}");
@@ -795,6 +826,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         self.window = Some(window);
     }
     fn user_event(&mut self, events: &ActiveEventLoop, event: crate::accessibility::Event) {
+        if let crate::accessibility::Event::Timer(fired) = event {
+            self.deliver_timer(fired, self.now());
+            self.about_to_wait(events);
+            return;
+        }
         if matches!(event, crate::accessibility::Event::ModalWake) {
             // Requesting another WM_PAINT is insufficient inside a native
             // modal loop. Consume its deadline in this dispatched callback.
@@ -816,9 +852,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 access.event(p, window, &self.name, event.window_event);
             }
         }
-        if let Some(window) = &self.window {
-            window.request_redraw();
-        }
+        self.about_to_wait(events);
     }
     fn window_event(&mut self, events: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         if let (Some(access), Some(window)) = (&mut self.accessibility, &self.window) {
@@ -1031,6 +1065,29 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        let now = self.now();
+        for fired in self.timers.take_due(now) {
+            self.deliver_timer(fired, now);
+        }
+        if let Some(p) = self.presenter.as_mut() {
+            p.timer_visibility(self.minimized || self.occluded);
+            let now = self.started.elapsed().as_secs_f64() * 1000.0;
+            if p.wake_due_ms().is_some_and(|due| due <= now) {
+                if let Some(e) = p.advance(now) {
+                    eprintln!("exact-windows: {e}");
+                }
+            }
+            // Deliver nonvisual effects even when this turn needs no presentation
+            if let Some(e) = p.pump(self.started.elapsed().as_secs_f64() * 1000.0) {
+                eprintln!("exact-windows: {e}");
+            }
+            p.run_commands(D::default);
+            crate::orientation::apply(p);
+            p.hatch_turn();
+            if let Some(e) = p.admit_idle_timer(self.started.elapsed().as_secs_f64() * 1000.0) {
+                eprintln!("exact-windows: {e}");
+            }
+        }
         if self.appearance.take() {
             if let (Some(window), Some(p)) = (&self.window, &mut self.presenter) {
                 system_theme(p, window.theme().unwrap_or(Theme::Light));
@@ -1047,12 +1104,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             return;
         }
         let Some(p) = &mut self.presenter else { return };
-        if self.minimized {
-            self.modal.wait_until(None);
-            events.set_control_flow(ControlFlow::Wait);
-            return;
+        if p.dirty() && !self.minimized && !self.occluded {
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
         }
-        let pads_active = self.focused && p.has_gamepad_input();
+        let pads_active = self.focused && !self.minimized && p.has_gamepad_input();
         if self.pads_active != pads_active {
             self.pads_active = pads_active;
             self.pads.forget();
@@ -1069,7 +1126,18 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 },
             );
         }
-        if self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion() {
+        if let Err(e) = self.timers.update(
+            p.native_timer_generation(),
+            p.host().runner().native_timers(),
+            self.started.elapsed().as_secs_f64() * 1000.0,
+        ) {
+            self.fail(events, e);
+            return;
+        }
+        if !self.minimized
+            && (self.frame_limit.is_some()
+                || (!self.occluded && (p.wants_display_frames() || p.host().motion())))
+        {
             if Instant::now() >= self.next_frame {
                 if let Some(window) = &self.window {
                     window.request_redraw();
@@ -1078,11 +1146,6 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             events.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
         } else if let Some(due) = p.wake_due_ms() {
             let deadline = self.started + Duration::from_secs_f64((due / 1000.).max(0.));
-            if Instant::now() >= deadline {
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
             events.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             events.set_control_flow(ControlFlow::Wait);
@@ -1097,6 +1160,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 events.set_control_flow(ControlFlow::WaitUntil(due));
             }
         }
+        if let Some(due) = self.timers.next_delivery() {
+            let deadline = self.started + Duration::from_secs_f64(due / 1000.0);
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= deadline) {
+                events.set_control_flow(ControlFlow::WaitUntil(deadline));
+            }
+        }
         // Only an app with an input canvas needs controller discovery wakes.
         if pads_active {
             let soon = self.pads.next_poll(Instant::now());
@@ -1106,6 +1175,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         if self.focused
             && !self.occluded
+            && !self.minimized
             && !p.dirty()
             && !p.wants_display_frames()
             && !p.host().motion()

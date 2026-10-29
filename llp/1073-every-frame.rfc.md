@@ -6,16 +6,15 @@
 **Systems:** Contract syntax and lowering (`task … every(frame, a)`), Plan (`timers.frame`), Runner (`Runner::frame`, virtual frames on a seek), JS web target (`host/web-js/rt.js`, a `requestAnimationFrame` loop), wasm web, Apple and Linux hosts (their display links call `frame`), Agent API (the seekable clock's virtual display)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-29
-**Related:** LLP 1006 §4 (tasks: `every`, `after`); LLP 1005 §6 ("The clock": `advance` is a seek); LLP 1043.000 D8 and ruling 5 (hosts wake on the display frame near a timer's due time; "a display-linked source is its own document, written only if judder or cost shows" — this is that document); LLP 1027.000 and 1027.000.000 (`now()` is elapsed time; the date is `exactTime.epochAtZero + now()`); LLP 1012 §2 (the agent's clock); LLP 1056 D5 (Canvas 2D's frame request, the nearest precedent); `rules/DEFERRED.md` §Motion ("no per-frame callbacks", amended here); the web-framework bench's grid ticker (`web-framework-bench/apps/grid`, EXACT2-FINDINGS.md)
+**Related:** LLP 1006 §4 (tasks: `every`, `after`); LLP 1005 §6 ("The clock": `advance` is a seek); LLP 1043.000 D8 and ruling 5 (explicit frame work); LLP 1147 D4/D11 (live timers and native OS scheduling); LLP 1027.000 and 1027.000.000 (`now()` is elapsed time; the date is `exactTime.epochAtZero + now()`); LLP 1012 §2 (the agent's clock); LLP 1056 D5 (Canvas 2D's frame request, the nearest precedent); `rules/DEFERRED.md` §Motion ("no per-frame callbacks", amended here); the web-framework bench's grid ticker (`web-framework-bench/apps/grid`, EXACT2-FINDINGS.md)
 
 ## Summary
 
-Contract has one kind of clock: `task t mount / every(ms, action)`, whose
-missed intervals all fire on the next `advance`, each at its own due time. A
-host can't run that in step with the display: a 60 Hz ticker written as
-`every(16, step)` drifts against a 60 Hz display, fires twice in some frames
-and none in others, and after a stall fires every tick it missed back to back
-and paints fewer frames. The grid bench's 1,000-row ticker painted 258 frames
+A millisecond task such as `every(16, step)` is an interval timer, which can drift
+against a 60 Hz display and does not request a callback for each displayed frame.
+On iOS and macOS it uses a native timer directly, even with zero tolerance
+(LLP 1147 D11). Seeks fire its missed beats deterministically; live repeats merge
+missed beats (LLP 1147 D4). The grid bench's 1,000-row ticker painted 258 frames
 with 33 dropped where the React, Solid and Svelte builds, each ticking on
 `requestAnimationFrame`, painted about 304 with 1.
 
@@ -58,13 +57,13 @@ root-only tasks are unchanged (LLP 1006 §4; `type-child-resource`).
   `exactTime.epochAtZero + now()` is still the date.
 - **No catch-up.** A frame the host could not present (a long commit, a
   hidden tab, a backgrounded app) is not fired later. After a stall the task
-  fires once, at the next frame, and `now()` shows how long it was. This is
-  the difference from `every(16, …)`, whose missed intervals all fire
-  (LLP 1005 §6: `advance` is a seek).
-- **Order.** At a frame at time *t* the host first advances timers to *t*
-  (each due timer at its own time, as before), then fires each frame task at
-  *t*, in plan order. Every task of the frame is its own commit, as a
-  timer's is. The frame then paints.
+  fires once, at the next frame, and `now()` shows how long it was. A seek through
+  `every(16, …)` fires all missed intervals (LLP 1005 §6). Live interval timers also merge missed beats; they retain their
+  interval schedule rather than following display frames (LLP 1147 D4/D11).
+- **Order.** At a frame at time *t* the host processes runner-owned deadlines and
+  explicit timer admissions (LLP 1147 D4), then fires each frame task at *t* in plan
+  order. Each is its own commit. Independent native timers run only from their OS
+  callbacks; a frame does not drain them. The frame then paints.
 - **Nothing to present, nothing fired.** A frame task keeps the host's frame
   source running while the root holds one. A task that must stop checks a
   slot (the grid's `step` does nothing while the ticker is off), as a timer's
@@ -103,8 +102,8 @@ one:
   `timer_due_ms()` reports the next one. While it is on, no advance fires a
   frame task and `timer_due_ms()` leaves them out; the host's frame source
   wakes it instead.
-- `Runner::frame(now_ms) -> Advanced`: a presented frame. It advances timers
-  to `now_ms` (no virtual frames), then fires every frame task once at
+- `Runner::frame(now_ms) -> Advanced`: a presented frame. It advances runner-owned
+  timers to `now_ms` (no virtual frames or delegated native timers), then fires every frame task once at
   `now_ms` and restarts each task's virtual frames from `now_ms`. It returns
   the commits with their times and any refusal, as `advance_timed` does.
 - `wants_frames()` is true while the plan has a frame task; a host keeps its

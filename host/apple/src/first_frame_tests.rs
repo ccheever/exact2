@@ -331,18 +331,24 @@ fn a_played_springs_spec_is_made_once() {
 /// a transition reaches Core Animation in the frame's own batch.
 #[test]
 fn a_display_frame_starts_what_waits_in_its_own_batch() {
-    let mut host = boot();
-    host.svg.play_transitions = true;
-    let (go, fade) = (id(&host, "go"), id(&host, "fade"));
-    host.dispatch_at(go, Event::Press, 100.0);
-    let framed = host.frame_at(133.0, 120.0);
-    assert_eq!(spec(&framed, fade)["s"], 0.133, "{framed}");
-    assert!(!motion(&framed), "no tick is owed: {framed}");
-    assert_eq!(
-        host.engine.now(),
-        0.120,
-        "the input clock stays at the wall"
-    );
+    for admitted in [false, true] {
+        let mut host = boot();
+        host.svg.play_transitions = true;
+        let (go, fade) = (id(&host, "go"), id(&host, "fade"));
+        host.dispatch_at(go, Event::Press, 100.0);
+        let framed = if admitted {
+            host.admitted_frame(133.0, 120.0)
+        } else {
+            host.frame_at(133.0, 120.0)
+        };
+        assert_eq!(spec(&framed, fade)["s"], 0.133, "{framed}");
+        assert!(!motion(&framed), "no tick is owed: {framed}");
+        assert_eq!(
+            host.engine.now(),
+            0.120,
+            "the input clock stays at the wall"
+        );
+    }
 }
 
 #[test]

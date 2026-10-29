@@ -3,6 +3,16 @@
 use super::{Bridge, Hooks};
 use exact_runner::DataSource;
 
+pub(super) struct PreparedHost<D: DataSource> {
+    pub(super) host: crate::host::Host<D>,
+    pub(super) batch: String,
+    pub(super) bindings: Option<ibex2::host::Bindings>,
+    pub(super) hooks: Hooks,
+    pub(super) module: bool,
+    pub(super) let_go: bool,
+    pub(super) carried_from: Option<exact_runner::Carried>,
+}
+
 impl<D: DataSource> Bridge<D> {
     /// Prepare and commit a single session's plan replacement.
     pub fn boot_plan(&mut self, len: usize, data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
