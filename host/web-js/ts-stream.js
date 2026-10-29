@@ -38,6 +38,7 @@ function uploadOf(init, method, url, redirect) {
   if (upload === undefined || upload === false) return undefined;
   if (upload !== true) throw new TypeError('exactUploadProgress is true or false');
   if (/^wss?:/i.test(url)) throw new TypeError('exactUploadProgress: a WebSocket sends no body');
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url)) throw new TypeError('exactUploadProgress: an upload is an http: or https: request');
   if (init.exactLongPoll !== undefined) throw new TypeError('exactUploadProgress: a long poll sends no body');
   if (method === 'GET' || method === 'HEAD') throw new TypeError('exactUploadProgress: a GET or HEAD request sends no body');
   if (redirect !== undefined && redirect !== 'follow') throw new TypeError('exactUploadProgress: an upload follows its redirects');
@@ -164,10 +165,12 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
       return { error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) };
     } finally { if (turn) answering.mapper = null; }
   };
-  // A long poll's reply that is no event (`exact:reply`, LLP 1016.000 D8) reaches no mapper; an upload's bytes sent
-  // are a `progress` event, as XMLHttpRequest's.
+  // A long poll's reply that is no event (`exact:reply`, LLP 1016.000 D8) reaches no mapper, nor an upload's start
+  // (`exact:sending`), which, as any bytes sent, says it reached the network (rt.js); its bytes sent are a `progress`
+  // event, as XMLHttpRequest's.
   const event = m => req.upload && m.event === 'exact:progress' ? { type: 'progress', ...JSON.parse(m.data), lengthComputable: true, data: '', lastEventId: '', coalesced: m.coalesced } : { type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced };
-  const message = m => req.longPoll && m.event === 'exact:reply' ? undefined : deliver({ ...value(event(m), true), coalesced: m.coalesced });
+  const message = m => (controller.sent ||= !!req.upload, req.longPoll && m.event === 'exact:reply' || req.upload && m.event === 'exact:sending')
+    ? undefined : deliver({ ...value(event(m), true), coalesced: m.coalesced });
   const timed = m => {
     const g = gate();
     if (!g) return message(m);

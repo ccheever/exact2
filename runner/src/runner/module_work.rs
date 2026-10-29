@@ -79,6 +79,12 @@ impl<D: DataSource> Runner<D> {
     /// Request `p` is let go by the commit being made: one with effects is
     /// offered to its source when the commit ends.
     pub(super) fn let_go_request(&mut self, p: PendingReq) {
+        // An upload let go before its reply is cut off; one that never
+        // reached the network is not marked as asked (LLP 1016.000 D10).
+        if p.upload {
+            let end = super::UploadEnd::Failed(super::uploads::interrupted());
+            self.upload_over(p.ticket, p.sent, end);
+        }
         // One the host refused never ran: nothing of it is lost.
         if p.effects && p.refusal.is_none() && !p.refused && !self.poisoned {
             self.module_work.letting.push(p);

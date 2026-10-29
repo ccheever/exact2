@@ -101,10 +101,12 @@ pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, Vec<u8>)]) 
         .iter()
         .filter_map(|(name, _)| {
             let resource = name.strip_prefix(Store::KEPT)?;
-            (!(0..plan.resources.len()).any(|i| {
-                (plan.resources[i].reader || kept_module(plan, i))
-                    && plan.str(plan.resources[i].name) == resource
-            }))
+            // The uploads' marks are no resource's answer (LLP 1016.000 D10).
+            (name != super::uploads::UPLOADS
+                && !(0..plan.resources.len()).any(|i| {
+                    (plan.resources[i].reader || kept_module(plan, i))
+                        && plan.str(plan.resources[i].name) == resource
+                }))
             .then(|| name.clone())
         })
         .collect()
@@ -331,7 +333,6 @@ impl<D: DataSource> Runner<D> {
                     kept_seed: true,
                     answered_for: None,
                     origin: 0,
-                    upload: false,
                 });
             }
         }
@@ -378,7 +379,6 @@ impl<D: DataSource> Runner<D> {
                 kept_seed: true,
                 answered_for: None,
                 origin: 0,
-                upload: false,
             });
             match ready {
                 true => self.refresh_next.push(i),
@@ -428,7 +428,7 @@ impl<D: DataSource> Runner<D> {
     /// Forget other kept answers, the longest first, until `len` more bytes
     /// under `name` keep the entries within [`KEPT_TOTAL_BYTES`]: a kept
     /// answer is a cache, which its resource fills again when it answers.
-    fn make_room(&mut self, name: &str, len: usize) {
+    pub(super) fn make_room(&mut self, name: &str, len: usize) {
         let mut others: Vec<(String, usize)> = self
             .store
             .kept_lengths()
@@ -436,6 +436,8 @@ impl<D: DataSource> Runner<D> {
             .filter(|(other, _)| other != name)
             .collect();
         let mut total = len + others.iter().map(|(_, n)| n).sum::<usize>();
+        // The uploads' marks count, and are never forgotten for an answer (LLP 1016.000 D10).
+        others.retain(|(other, _)| other != super::uploads::UPLOADS);
         others.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
         for (other, n) in others {
             if total <= KEPT_TOTAL_BYTES {

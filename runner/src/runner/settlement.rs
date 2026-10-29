@@ -435,16 +435,26 @@ impl<D: DataSource> Runner<D> {
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
                     let failed_for =
                         |f: &Vec<Value>| *f == args || (self.stale[i] && f == identity);
-                    // An upload's failure stands through a refresh (D10).
-                    let upload_failed = self.upload_failed(i)
+                    // @ref LLP 1016.000 D10 — an upload is asked once for its
+                    // arguments: in flight, ended or failed, nothing asks it
+                    // again at them, not a store write it read nor a refresh.
+                    let mark = self.upload_at(i, &args).cloned();
+                    // An upload's failure stands through a refresh.
+                    let upload_failed = matches!(mark, Some(super::UploadEnd::Failed(_)))
                         && self.failed_args[i].as_ref().is_some_and(failed_for);
                     if forced && !upload_failed
                         || self.failed_args[i].as_ref().is_some_and(|f| !failed_for(f))
                     {
                         self.failed_args[i] = None;
-                        self.failed_upload[i] = None;
                     }
                     let failed = self.failed_args[i].as_ref().is_some_and(failed_for);
+                    // On its way under a ticket kept for other arguments (the same
+                    // request, LLP 1054.000.000 D3): these arguments' again.
+                    if let Some(super::UploadEnd::Sent(t)) = &mark {
+                        if let Some(p) = self.pending.iter_mut().find(|p| p.ticket == *t) {
+                            p.args.clone_from(&args);
+                        }
+                    }
                     // The value may still answer older arguments while a
                     // request is in flight. Reuse follows the current ask;
                     // the standing value keeps its own provenance.
@@ -494,12 +504,7 @@ impl<D: DataSource> Runner<D> {
                     // write through Store, so this is the one dirtying point.
                     // Host facts always come from this candidate, never a baked
                     // or carried delivery answer (LLP 1030 D7).
-                    // @ref LLP 1016.000 D10 — an upload is asked once for its
-                    // arguments: in flight, ended or failed, nothing asks it
-                    // again at them, not a store write it read nor a refresh.
-                    let upload = states[i].as_ref().is_some_and(|s| s.upload)
-                        || self.uploading(i)
-                        || upload_failed;
+                    let upload = mark.is_some() || self.uploading(i);
                     let reuse = states[i]
                         .as_ref()
                         .filter(|_| !unknown)
@@ -545,9 +550,6 @@ impl<D: DataSource> Runner<D> {
                     // Whether what shows is a stand-in, not an answer (D4).
                     let mut placeholder =
                         reuse.is_some() && states[i].as_ref().is_some_and(|s| s.placeholder);
-                    // An upload's answer stays one only while it stands.
-                    let upload_answer =
-                        reuse.is_some() && states[i].as_ref().is_some_and(|s| s.upload);
                     // Every ResourceState was checked for this index in this
                     // Runner's immutable plan: settlement checks new values,
                     // boot rechecks carried/kept values, and fulfil checks replies.
@@ -640,7 +642,9 @@ impl<D: DataSource> Runner<D> {
                             let reconciling = self.reconciling.contains(&i);
                             self.reconciling.retain(|r| *r != i);
                             self.inspect_request(i);
-                            let asked = match self.query(i, &args) {
+                            // An upload's arguments answer as it ended (D10).
+                            let ledger = self.ledger_answer(i, mark.as_ref());
+                            let asked = match ledger.unwrap_or_else(|| self.query(i, &args)) {
                                 // A reconciling answer outside its shape fails
                                 // the resource too.
                                 Ok(Answer::Now(v)) if reconciling => {
@@ -932,7 +936,6 @@ impl<D: DataSource> Runner<D> {
                         kept_seed,
                         origin,
                         answered_for,
-                        upload: upload_answer,
                     });
                     self.inspected_success(i, generation);
                     settled_res[i] = true;

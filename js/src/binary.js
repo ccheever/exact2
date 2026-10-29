@@ -82,6 +82,7 @@
     if (upload !== true) return "exactUploadProgress is true or false";
     if (!stream) return "exactUploadProgress reports an upload's progress to its stream: give exactStream too";
     if (/^wss?:/i.test(String(url))) return "exactUploadProgress: a WebSocket sends no body";
+    if (/^[a-z][a-z0-9+.-]*:/i.test(String(url)) && !/^https?:/i.test(String(url))) return "exactUploadProgress: an upload is an http: or https: request";
     if (init.exactLongPoll !== undefined) return "exactUploadProgress: a long poll sends no body";
     if (method === "GET" || method === "HEAD") return "exactUploadProgress: a GET or HEAD request sends no body";
     return true;

@@ -12,6 +12,7 @@ import { answering, dropTimers, files as bodyFiles, SOCKET_AND_FETCH } from './t
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, drive, inflight, journal, Origin, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';
+import { requestKey } from './uploads.js';
 // Work an answer awaits that is no held fetch, counted on its answer (ts-fetch.js `answering.ordinary`, LLP 1016.000 D9).
 const ordinary = start => (answering.ordinary ?? (f => f()))(start);
 // What an answer's timers run on (ts-fetch.js `arm`).
@@ -438,7 +439,8 @@ export function install(data, mixed = false, modules = null) {
       throw new Error(SOCKET_AND_FETCH);
     }
     const effects = effectsOf(!mutation || !!(r && typeof r.then === 'function'));
-    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read, effects }; }
+    // An upload's request identity: the same request for newer arguments keeps it (rt.js, LLP 1016.000 D10).
+    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), upload: requestKey(call.stream), store: seen.read, effects }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
       call.seen = seen; // a read after an `await` makes a store reader too: rt.js looks when the answer lands (LLP 1146 §2.3)

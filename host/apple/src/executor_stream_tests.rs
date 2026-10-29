@@ -272,6 +272,17 @@ fn next(core: &Core, woke: &Receiver<()>) -> (u64, Outcome) {
     }
 }
 
+/// The next outcome but an upload's start (`UPLOAD_SENDING`), which comes
+/// before its transport opens and a later message may fold in (D4).
+fn after_start(core: &Core, woke: &Receiver<()>) -> (u64, Outcome) {
+    loop {
+        match next(core, woke) {
+            (_, Outcome::Message(m)) if m.upload_started() => {}
+            other => return other,
+        }
+    }
+}
+
 fn data(outcome: &Outcome) -> (&str, u32) {
     match outcome {
         Outcome::Message(m) => (m.data.as_str(), m.coalesced),
@@ -914,6 +925,8 @@ fn an_upload_tells_its_bytes_sent_then_its_reply_ends_it() {
     let (core, script, woke) = setup();
     core.run_owned(upload(1, "/upload", 4000), None).unwrap();
     let step = feed(&script, 0);
+    // It said it was going out before its transport opened.
+    assert!(matches!(next(&core, &woke), (1, Outcome::Message(m)) if m.upload_started()));
     for loaded in [1000, 2000, 4000] {
         step.send(Vec::new()).unwrap();
         let (ticket, outcome) = next(&core, &woke);
@@ -968,10 +981,10 @@ fn an_uploads_deadline_reaches_the_platform_a_second_later() {
     let mut timed = upload(1, "/upload-timed", 4000);
     timed.request.timeout_ms = Some(60_000);
     core.run_owned(timed, None).unwrap();
-    assert!(matches!(next(&core, &woke).1, Outcome::Response(r) if r.status == 201));
+    assert!(matches!(after_start(&core, &woke).1, Outcome::Response(r) if r.status == 201));
     core.run_owned(upload(2, "/upload-timed", 4000), None)
         .unwrap();
-    assert!(matches!(next(&core, &woke).1, Outcome::Response(r) if r.status == 201));
+    assert!(matches!(after_start(&core, &woke).1, Outcome::Response(r) if r.status == 201));
     assert_eq!(
         *script.timeouts.lock().unwrap(),
         [Some(Duration::from_millis(61_000)), None],
@@ -989,8 +1002,9 @@ fn an_uploads_bytes_sent_coalesce_while_the_runner_has_not_taken_them() {
     reported
         .recv_timeout(Duration::from_secs(5))
         .expect("the bytes sent were reported");
+    // The start and the first two counts fold into the newest.
     match next(&core, &woke).1 {
-        Outcome::Message(m) => assert_eq!((m.sent(), m.coalesced), (Some((4000, 4000)), 2)),
+        Outcome::Message(m) => assert_eq!((m.sent(), m.coalesced), (Some((4000, 4000)), 3)),
         other => panic!("expected the newest bytes sent, got {other:?}"),
     }
     feed(&script, 0).send(Vec::new()).unwrap();
@@ -1002,7 +1016,7 @@ fn an_upload_that_fails_midway_ends_with_its_failure() {
     let (core, _script, woke) = setup();
     core.run_owned(upload(1, "/upload-fails", 4000), None)
         .unwrap();
-    match next(&core, &woke).1 {
+    match after_start(&core, &woke).1 {
         Outcome::Message(m) => assert_eq!(m.sent(), Some((2000, 4000))),
         other => panic!("expected the bytes sent, got {other:?}"),
     }
@@ -1041,6 +1055,7 @@ fn letting_go_of_an_upload_midway_aborts_it() {
 fn an_empty_upload_tells_no_progress_and_ends_with_its_reply() {
     let (core, _script, woke) = setup();
     core.run_owned(upload(1, "/upload-empty", 0), None).unwrap();
+    assert!(matches!(next(&core, &woke), (1, Outcome::Message(m)) if m.upload_started()));
     assert!(matches!(next(&core, &woke).1, Outcome::Response(r) if r.status == 201));
 }
 
@@ -1149,6 +1164,45 @@ fn an_uploads_file_is_read_once_it_has_room() {
     );
 }
 
+/// LLP 1016.000 D10: a burst of uploads waits for room in the budget
+/// without taking the places the app's other streams need. An event stream
+/// opened before twenty uploads and one opened after them both open; the
+/// uploads go one at a time as each one's room comes back, and each ends
+/// with its reply.
+#[test]
+fn a_burst_of_uploads_leaves_other_streams_their_places() {
+    let (core, script, woke) = setup();
+    core.run_owned(stream(100, "/events", 1024), None).unwrap();
+    let before = feed(&script, 0);
+    for ticket in 1..=20 {
+        core.run_owned(upload(ticket, "/upload", 600 << 10), None)
+            .unwrap();
+    }
+    let mut going = feed(&script, 1);
+    core.run_owned(stream(101, "/events", 1024), None)
+        .expect("a stream after the burst has its place");
+    let after = feed(&script, 2);
+    assert_eq!(
+        core.shared.uploads.waiting(),
+        (19, (600 << 10) * super::COPIES)
+    );
+    for (fed, ticket) in [(&before, 100), (&after, 101)] {
+        fed.send(format!("id: {ticket}\ndata: {ticket}\n\n").into_bytes())
+            .unwrap();
+        while !matches!(next(&core, &woke), (t, Outcome::Message(_)) if t == ticket) {}
+    }
+    for ticket in 1..=20 {
+        for _ in 0..3 {
+            going.send(Vec::new()).unwrap();
+        }
+        while !matches!(next(&core, &woke), (t, Outcome::Response(_)) if t == ticket) {}
+        if ticket < 20 {
+            going = feed(&script, 2 + ticket as usize);
+        }
+    }
+    assert_eq!(core.shared.uploads.waiting(), (0, 0));
+}
+
 #[test]
 fn a_reply_that_lands_as_the_deadline_passes_stands() {
     use super::timed_out;
@@ -1225,6 +1279,7 @@ fn an_upload_through_urlsession_tells_its_progress_and_waits_out_a_slow_reply() 
     let end = loop {
         core.begin_pump();
         match core.drain().pop() {
+            Some((_, Outcome::Message(m), _)) if m.upload_started() => {}
             Some((_, Outcome::Message(m), _)) => sent.push(m.sent().expect("an upload's progress")),
             Some((_, end, _)) => break end,
             None => {

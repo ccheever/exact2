@@ -112,12 +112,14 @@ mod time;
 mod transport;
 #[cfg(test)]
 mod transport_tests;
+mod uploads;
 mod viewport;
 mod writes;
 pub use carry::Carried;
 pub use checkpoint::Checkpoint;
 pub use router::{routing, RouterChange, Routing};
 pub use split::{press_writes_router, StackSplit};
+pub use uploads::{UploadEnd, UploadMark};
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
@@ -188,8 +190,6 @@ struct ResourceState {
     /// for a compiled answer standing in for newer arguments until the
     /// source can answer. An overlay lays writes over it for these.
     answered_for: Option<Vec<Value>>,
-    /// An upload's (LLP 1016.000 D10): never asked again at these arguments.
-    upload: bool,
 }
 
 impl ResourceState {
@@ -233,6 +233,9 @@ struct PendingReq {
     stream: Option<StreamCount>,
     /// An upload's stream ([`Request::upload_progress`]): in flight until its reply.
     upload: bool,
+    /// The upload has begun to go out (`UPLOAD_SENDING`, or its first bytes
+    /// sent): a failure before that never reached the network (D10).
+    sent: bool,
     /// A stream's: the grant line that admits it (`state.streams`).
     grant: Option<String>,
     /// A topic its resource watches changed while it was in flight: its
@@ -371,9 +374,9 @@ pub struct Runner<D: DataSource> {
     forgot: bool,
     /// Failed arguments suppress another ask until they change or refresh.
     failed_args: Vec<Option<Vec<Value>>>,
-    /// The arguments an upload failed at (LLP 1016.000 D10), which nothing
-    /// asks again, `refresh` included, while `failed_args` holds them.
-    failed_upload: Vec<Option<Vec<Value>>>,
+    /// The uploads asked and how each stands (LLP 1016.000 D10): none is
+    /// asked again at its arguments.
+    uploads: uploads::Uploads,
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
@@ -805,7 +808,7 @@ impl<D: DataSource> Runner<D> {
             picked_count: 0,
             forgot: false,
             failed_args: Vec::new(),
-            failed_upload: Vec::new(),
+            uploads: Default::default(),
             failed_why: Vec::new(),
             overrun: Default::default(),
             deferred_edges: Vec::new(),
@@ -886,11 +889,16 @@ impl<D: DataSource> Runner<D> {
                         placeholder: false,
                         kept_seed: false,
                         answered_for: None,
-                        upload: false,
                         origin: 0,
                     })
             })
             .collect();
+        // @ref LLP 1016.000 D10 — the uploads asked, carried by resource name
+        // and arguments whatever the data module, or kept from the last launch.
+        runner.uploads = uploads::Uploads::starting(&match carried {
+            Some(c) => c.uploads.clone(),
+            None => uploads::Uploads::kept(&runner.store),
+        });
         // @ref LLP 1048.000 D6 — a document's answers seed their resources.
         // The device's own store is an input its render never had.
         let (seeded, note) = match seed {
@@ -921,7 +929,6 @@ impl<D: DataSource> Runner<D> {
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
         runner.watching = vec![Vec::new(); runner.plan.resources.len()];
         runner.failed_args = vec![None; runner.plan.resources.len()];
-        runner.failed_upload = vec![None; runner.plan.resources.len()];
         runner.overlays = vec![None; runner.plan.resources.len()];
         runner.failed_why = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];

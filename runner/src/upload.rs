@@ -10,11 +10,27 @@ use crate::request::{Message, Redirect, Request};
 /// Only an upload sends it.
 pub const UPLOAD_PROGRESS: &str = "exact:progress";
 
-/// The id an upload's progress message carries, which no server's event can
-/// have: an event stream's parser drops an id that holds NUL (HTML's `id`
-/// field), and a long poll's cursor holds no control character. So a
-/// server's event named `exact:progress`, on any other stream, is no upload's.
+/// The event of an upload's start: the host is handing its request to the
+/// transport. The runner notes it and no mapper sees it: an upload that
+/// fails before it (or before its first bytes sent) never reached the
+/// network, so it is not marked as asked and `refresh` asks it again.
+pub const UPLOAD_SENDING: &str = "exact:sending";
+
+/// The id an upload's messages carry, which no server's event can have: an
+/// event stream's parser drops an id that holds NUL (HTML's `id` field), and
+/// a long poll's cursor holds no control character. So a server's event
+/// named `exact:progress`, on any other stream, is no upload's.
 const PROGRESS_ID: &str = "\0";
+
+/// The scheme `url` names, if it names one (RFC 3986 §3.1): a relative URL
+/// names none.
+fn scheme(url: &str) -> Option<&str> {
+    let (scheme, _) = url.split_once(':')?;
+    let mut chars = scheme.chars();
+    (chars.next()?.is_ascii_alphabetic()
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')))
+    .then_some(scheme)
+}
 
 impl Request {
     /// An upload whose bytes sent are delivered as it goes (the field of
@@ -26,22 +42,23 @@ impl Request {
     }
 
     /// Why this request's upload progress is refused, if it is: not a
-    /// stream, a WebSocket, a long poll, a `GET` or `HEAD` (which send no
-    /// body), or a redirect other than followed, which a browser's
-    /// `XMLHttpRequest` cannot do.
+    /// stream, a WebSocket, another scheme than `http:` or `https:`, a long
+    /// poll, a `GET` or `HEAD` (which send no body), or a redirect other
+    /// than followed, which a browser's `XMLHttpRequest` cannot do.
     pub fn upload_progress_refusal(&self) -> Option<&'static str> {
-        let scheme = |s: &str| {
-            self.url
-                .get(..s.len())
-                .is_some_and(|u| u.eq_ignore_ascii_case(s))
-        };
+        let scheme = scheme(&self.url).map(str::to_ascii_lowercase);
         let method = |m: &str| self.method.eq_ignore_ascii_case(m);
         if !self.upload_progress {
             None
         } else if !self.stream || self.listen.is_some() {
             Some("exactUploadProgress reports an upload's progress to its stream: give exactStream too")
-        } else if scheme("ws:") || scheme("wss:") {
+        } else if matches!(scheme.as_deref(), Some("ws" | "wss")) {
             Some("exactUploadProgress: a WebSocket sends no body")
+        } else if scheme
+            .as_deref()
+            .is_some_and(|s| s != "http" && s != "https")
+        {
+            Some("exactUploadProgress: an upload is an http: or https: request")
         } else if self.long_poll.is_some() {
             Some("exactUploadProgress: a long poll sends no body")
         } else if method("GET") || method("HEAD") {
@@ -63,6 +80,20 @@ impl Message {
             data: format!("{{\"loaded\":{loaded},\"total\":{total}}}"),
             ..Message::default()
         }
+    }
+
+    /// An upload's start ([`UPLOAD_SENDING`]).
+    pub fn upload_start() -> Message {
+        Message {
+            event: UPLOAD_SENDING.into(),
+            id: PROGRESS_ID.into(),
+            ..Message::default()
+        }
+    }
+
+    /// Whether this is an upload's start ([`Message::upload_start`]).
+    pub fn upload_started(&self) -> bool {
+        self.event == UPLOAD_SENDING && self.id == PROGRESS_ID
     }
 
     /// The bytes sent and the body's length, when this is an upload's
@@ -115,6 +146,15 @@ mod tests {
             .upload_progress_refusal()
             .unwrap()
             .contains("GET or HEAD"));
+        for other in ["exact-native:", "ftp://example.test/up", "app:/data/up"] {
+            assert_eq!(
+                upload(other).upload_progress_refusal(),
+                Some("exactUploadProgress: an upload is an http: or https: request"),
+                "{other}"
+            );
+        }
+        // A relative URL names no scheme: its host resolves it, the web against the page.
+        assert_eq!(upload("/up").upload_progress_refusal(), None);
         let socket = upload("wss://example.test/up");
         assert!(socket
             .upload_progress_refusal()

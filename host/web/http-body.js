@@ -153,6 +153,8 @@ function upload(url, method, headers, body, limit, message, signal, admits) {
     xhr.onabort = () => end(failed(4, 'request aborted'));
     if (signal.aborted) return end(failed(4, 'request aborted'));
     signal.addEventListener('abort', abort, { once: true });
+    // It goes out now: a failure before this never reached the network (`exact:sending`, LLP 1016.000 D10).
+    message({ event: 'exact:sending', id: '\0', data: '', coalesced: 0, received: performance.now() });
     xhr.send(body);
   });
 }
@@ -393,6 +395,8 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // A long poll no host may run (LLP 1016.000 D8) is refused before anything else is tried: a native call, a socket.
   const pollRefusal = op.longPoll && longPollRefusal(op, method, body || bytes);
   if (pollRefusal) return failed(2, pollRefusal);
+  // An upload is an http: or https: request (LLP 1016.000 D10), whatever the scheme otherwise means here.
+  if (op.upload && /^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url)) return failed(2, /^wss?:/i.test(url) ? 'exactUploadProgress: a WebSocket sends no body' : 'exactUploadProgress: an upload is an http: or https: request');
   const native = url === 'exact-native:';
   const effective = scopedGrantSet(grantSet, op.scope), invalid = grantError(effective);
   const asset = method === 'GET' && !body && !bytes && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);

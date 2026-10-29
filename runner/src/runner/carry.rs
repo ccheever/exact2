@@ -34,6 +34,10 @@ pub struct Carried {
     /// The window's app modes, (axis, value) (LLP 1121 D5): an app's
     /// `setMode` or the agent's `prefer mode` outlives a reload.
     pub modes: Vec<(String, String)>,
+    /// The uploads asked and how each stands (LLP 1016.000 D10), whatever
+    /// the data module: none is sent again at its resource and arguments,
+    /// and one still on its way is cut off.
+    pub uploads: Vec<crate::UploadMark>,
 }
 
 impl<D: super::DataSource> super::Runner<D> {
@@ -92,6 +96,7 @@ impl<D: super::DataSource> super::Runner<D> {
             forgot_waiting: self.queued(),
             faults: (!self.faults.is_empty()).then(|| self.faults.spec()),
             modes: self.modes(),
+            uploads: self.uploads.0.clone(),
         }
     }
 }

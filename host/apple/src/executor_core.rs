@@ -508,9 +508,13 @@ impl Core {
         }
         let admitted = (|| {
             let (lane, charge, limit) = checked?;
-            // A stream starts at once, so it is charged its ceiling now.
+            // A stream starts at once, so it is charged its ceiling now; an
+            // upload waits for its place (`stream::Uploads`).
             let (full, charge) = if r.request.stream {
-                (state.streams >= STREAMS, limit)
+                (
+                    state.streams >= STREAMS && !r.request.upload_progress,
+                    limit,
+                )
             } else {
                 let streams = if lane == 1 { state.streams } else { 0 };
                 // Plain reads may wait in a larger, still ordered backlog:
@@ -565,7 +569,9 @@ impl Core {
         if r.request.stream {
             // Never queued behind held replies: a stream opens on its own
             // thread with its own transport, and reads there (LLP 1067 D3).
-            state.streams += 1;
+            // An upload takes its place and thread once its budget has room.
+            let upload = r.request.upload_progress;
+            state.streams += usize::from(!upload);
             let abort = AbortController::new();
             state.running.push(Running {
                 started: std::time::Instant::now(),
@@ -575,7 +581,7 @@ impl Core {
                 limit,
                 abort: Some(abort.clone()),
                 forgotten: false,
-                stream: true,
+                stream: !upload,
                 read: false,
                 terminal: false,
                 live: 0,
@@ -588,6 +594,10 @@ impl Core {
             let (shared, grants) = (self.shared.clone(), self.grants.clone());
             let (ticket, request, forced) = (r.ticket, r.request, r.forced);
             let host = self.stream_host.clone();
+            if upload {
+                stream::queue_upload(&shared, ticket, request, forced, grants, host, abort);
+                return Ok(());
+            }
             let spawned = std::thread::Builder::new()
                 .name(format!("exact-stream-{ticket}"))
                 .spawn({
@@ -661,6 +671,8 @@ impl Core {
         if has_ready(&state) {
             wake(&mut state);
         }
+        // A stream's place, which an upload waiting may take.
+        stream::place_freed(&self.shared, state, done.stream && !done.message);
         vec![(done.ticket, done.outcome, Some(done.elapsed_ms))]
     }
 
@@ -762,6 +774,8 @@ impl Core {
             }
         }
         stream::release(&self.shared, aborts);
+        // An upload let go while it waits ends unsent; the places freed may start others.
+        stream::forget_uploads(&self.shared, &held);
     }
 
     pub(super) fn ordered_idle(&self) -> bool {

@@ -96,6 +96,10 @@ fn mapped(op: &str, body: &[u8], wait: Duration) -> (Option<u32>, Vec<String>) {
             executor.wait(until);
             continue;
         };
+        // Its start, which the runner takes and no mapper sees (`UPLOAD_SENDING`).
+        if matches!(&outcome, Outcome::Message(m) if m.upload_started()) {
+            continue;
+        }
         let ended = !matches!(outcome, Outcome::Message(_));
         let Answer::Now(value) = m.parse(&mut s, "work", &a, outcome).unwrap() else {
             panic!("the mapper answers now")
@@ -177,6 +181,7 @@ fn an_upload_fetch_refuses_is_a_type_error_before_any_request() {
             "TypeError: exactUploadProgress: a long poll sends no body",
             "TypeError: exactUploadProgress: an upload follows its redirects",
             "TypeError: exactTimeout: a stream has no timeout",
+            "TypeError: exactUploadProgress: an upload is an http: or https: request",
         ],
         "{refused}"
     );

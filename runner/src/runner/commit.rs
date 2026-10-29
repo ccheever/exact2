@@ -25,7 +25,7 @@ pub(super) struct Checkpoint {
     store_readers: Vec<bool>,
     watching: Vec<Vec<String>>,
     failed_args: Vec<Option<Vec<Value>>>,
-    failed_upload: Vec<Option<Vec<Value>>>,
+    uploads: super::uploads::Uploads,
     failed_why: Vec<Option<crate::failure::Failure>>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
@@ -90,7 +90,7 @@ impl<D: DataSource> Runner<D> {
             store_readers: self.store_readers.clone(),
             watching: self.watching.clone(),
             failed_args: self.failed_args.clone(),
-            failed_upload: self.failed_upload.clone(),
+            uploads: self.uploads.clone(),
             failed_why: self.failed_why.clone(),
             failed_mut: self.failed_mut.clone(),
             refresh_next: self.refresh_next.clone(),
@@ -171,7 +171,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.watching = c.watching;
                 self.failed_args = c.failed_args;
-                self.failed_upload = c.failed_upload;
+                self.uploads = c.uploads;
                 self.ids.work.resources = c.resource_inspection;
                 self.failed_why = c.failed_why;
                 self.failed_mut = c.failed_mut;
@@ -861,7 +861,12 @@ impl<D: DataSource> Runner<D> {
                     p.inspection_generation =
                         self.ids.work.resources.get(i).map_or(0, |w| w.request);
                 }
-                let ticket = p.ticket;
+                let (ticket, upload) = (p.ticket, p.upload);
+                // An upload kept for newer arguments is asked at them too (D10).
+                if upload {
+                    let args = p.args.clone();
+                    self.upload_sent(target, &args, ticket);
+                }
                 // The newer arguments' causes join the request's (LLP
                 // 1133.035 D16 item 6).
                 self.note_kept(target, ticket);
@@ -908,6 +913,7 @@ impl<D: DataSource> Runner<D> {
             keepable: keepable.then(|| request.clone()),
             stream: sockets::stream_count(&request),
             upload: request.stream && request.upload_progress,
+            sent: false,
             grant: request
                 .stream
                 .then(|| {
@@ -933,6 +939,14 @@ impl<D: DataSource> Runner<D> {
             reask_at: None,
             reasks,
         });
+        if request.stream && request.upload_progress {
+            let args = self
+                .pending
+                .last()
+                .map(|p| p.args.clone())
+                .unwrap_or_default();
+            self.upload_sent(target, &args, ticket);
+        }
         self.requests.push(RequestOut {
             ticket,
             target: name,
@@ -1078,16 +1092,17 @@ impl<D: DataSource> Runner<D> {
         (self.pending.iter()).any(|p| p.target == Target::Resource(i) && p.upload)
     }
 
-    /// Whether an upload failed for resource `i` at the arguments its failure holds.
+    /// Whether resource `i`'s failure is an upload's, at the arguments it holds.
     pub(super) fn upload_failed(&self, i: usize) -> bool {
-        self.failed_upload[i].is_some() && self.failed_upload[i] == self.failed_args[i]
+        (self.failed_args[i].as_ref())
+            .is_some_and(|a| matches!(self.upload_at(i, a), Some(super::UploadEnd::Failed(_))))
     }
 
     /// Whether resource `i`'s answer is an upload's, in flight, ended or
     /// failed: nothing asks it again at its arguments (D10).
     pub(super) fn upload_stands(&self, i: usize) -> bool {
         self.uploading(i)
-            || self.resources[i].as_ref().is_some_and(|s| s.upload)
+            || (self.resources[i].as_ref()).is_some_and(|s| self.upload_at(i, &s.args).is_some())
             || self.upload_failed(i)
     }
 
@@ -1179,6 +1194,11 @@ impl<D: DataSource> Runner<D> {
             if self.listen_event(pos, m) {
                 return Ok(None);
             }
+            // An upload's start (LLP 1016.000 D10): noted; no mapper sees it.
+            if self.pending[pos].upload && m.upload_started() {
+                self.pending[pos].sent = true;
+                return Ok(None);
+            }
             return self.message(pos, outcome, &summary);
         }
         // A re-ask's wait was never sent (`overrun.rs`): only its invocation's end fails it.
@@ -1245,6 +1265,8 @@ impl<D: DataSource> Runner<D> {
             self.long_poll_replied(pos);
         }
         let p = &mut self.pending[pos];
+        // An upload's bytes sent: it has reached the network (D10).
+        p.sent |= p.upload;
         if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
             count.messages += 1;
             count.coalesced += u64::from(m.coalesced);
@@ -1293,6 +1315,7 @@ impl<D: DataSource> Runner<D> {
         }
         let name = self.target_name(p.target);
         let message = p.stream.is_some() && matches!(outcome, Outcome::Message(_));
+        let failed_end = matches!(outcome, Outcome::Failed { .. });
         let ty = match p.target {
             Target::Resource(i) => self.plan.resources[i].ty,
             Target::Mutation(m) => self.plan.mutations[m].ty,
@@ -1417,8 +1440,13 @@ impl<D: DataSource> Runner<D> {
                 self.revalidated(i, shown.as_ref(), &value);
                 self.stale[i] = false;
                 self.failed_args[i] = None;
-                self.failed_upload[i] = None;
                 self.keep_answer(i, &p.args, &value);
+                // An upload's end is the answer it stands on at its arguments;
+                // one that never reached the network is an ordinary answer (D10).
+                if p.upload && !message {
+                    let end = super::UploadEnd::Answered(value.clone());
+                    self.upload_over(p.ticket, p.sent || !failed_end, end);
+                }
                 if p.ask_again {
                     self.log(super::lines::asked_again(p.ticket, &name));
                     self.force_refresh(i);
@@ -1432,7 +1460,6 @@ impl<D: DataSource> Runner<D> {
                     kept_seed: false,
                     answered_for: None,
                     origin: p.origin,
-                    upload: p.upload,
                 });
                 self.inspected_success(i, p.inspection_generation);
             }

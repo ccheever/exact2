@@ -148,6 +148,7 @@ const inits = [
   [url, { ...post, exactUploadProgress: true, redirect: 'manual' }],
   [url, { ...post, exactTimeout: 30000 }],
   [url, { ...post, exactUploadProgress: true, exactTimeout: 0 }],
+  ['exact-native:', { ...post, exactUploadProgress: true }],
 ];
 export function answer(name, args) { return fetch(...inits[args[0]]); }
 `);
@@ -159,12 +160,12 @@ export function answer(name, args) { return fetch(...inits[args[0]]); }
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(root, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'").replaceAll("'../web/address-space.js'", "'./address-space.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), "import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(null);\n");
   for (const name of ['grant-admission.js', 'address-space.js', 'faults.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(root, 'host/web', name), resolve(dir, name));
-  for (const name of ['ts-fetch.js', 'ts-stream.js', 'ts-body-from.js', 'shape.js']) cpSync(resolve(root, 'host/web-js', name), resolve(dir, name));
+  for (const name of ['ts-fetch.js', 'ts-stream.js', 'ts-body-from.js', 'shape.js', 'uploads.js']) cpSync(resolve(root, 'host/web-js', name), resolve(dir, name));
   try {
     const ts = await import(pathToFileURL(resolve(dir, 'ts-data.js')).href), data = { q: [] };
     ts.install(data);
     const said = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 9; i++) {
       const r = data.answer('upload', [i], new Map());
       said.push(r.stream ? (await r.stream(() => {}, new AbortController())).error : await r.promise.then(() => 'answered', e => e.name + ': ' + e.message));
     }
@@ -177,6 +178,7 @@ export function answer(name, args) { return fetch(...inits[args[0]]); }
       'exactUploadProgress: an upload follows its redirects',
       'TypeError: exactTimeout: a stream has no timeout',
       'exactTimeout must be an integer number of milliseconds from 1 to 3600000',
+      'exactUploadProgress: an upload is an http: or https: request',
     ]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

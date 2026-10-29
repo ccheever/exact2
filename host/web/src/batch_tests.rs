@@ -511,6 +511,8 @@ fn an_upload_is_marked_and_refused_where_the_native_hosts_refuse_it() {
     manual.redirect = exact_runner::Redirect::Manual;
     let mut socket = upload.clone();
     socket.url = "wss://api.example/upload".into();
+    let mut native = upload.clone();
+    native.url = "exact-native:".into();
     let mut plain = upload.clone();
     plain.stream = false;
     for (refused, why) in [
@@ -523,6 +525,10 @@ fn an_upload_is_marked_and_refused_where_the_native_hosts_refuse_it() {
             "exactUploadProgress: an upload follows its redirects",
         ),
         (socket, "exactUploadProgress: a WebSocket sends no body"),
+        (
+            native,
+            "exactUploadProgress: an upload is an http: or https: request",
+        ),
         (
             plain,
             "exactUploadProgress reports an upload's progress to its stream: give exactStream too",

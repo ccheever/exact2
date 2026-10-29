@@ -25,8 +25,11 @@ use ibex2::stdlib::{
     fetch::{Sent, StreamingResponse},
     websocket::{Incoming, MessageSource},
 };
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
+pub(super) use upload::Uploads;
+pub(super) use upload::{forget as forget_uploads, freed as place_freed, queue as queue_upload};
+use upload::{progress, timed_out, COPIES};
 
 /// What a stream opened as.
 enum Opened {
@@ -46,7 +49,23 @@ pub(super) fn is_socket(url: &str) -> bool {
 
 /// A stream's own thread: it opens with a transport of its own (so it never
 /// waits behind held replies for a worker or a lease), then reads to the end.
+/// When a stream ends, an upload waiting may take its place (`upload.rs`).
 pub(super) fn run(
+    shared: &Arc<Shared>,
+    ticket: u64,
+    request: Request,
+    forced: bool,
+    grants: &str,
+    host: &dyn Fn() -> ibex2::host::Host,
+    abort: AbortController,
+) {
+    opened(shared, ticket, request, forced, grants, host, abort, None);
+    upload::start(shared);
+}
+
+/// [`run`]'s stream, an upload with its place in the upload budget.
+#[allow(clippy::too_many_arguments)]
+fn opened(
     shared: &Arc<Shared>,
     ticket: u64,
     mut request: Request,
@@ -54,6 +73,7 @@ pub(super) fn run(
     grants: &str,
     host: &dyn Fn() -> ibex2::host::Host,
     abort: AbortController,
+    mut held: Option<upload::Held>,
 ) {
     // Retirement aborts every stream, as it does every job.
     let _retiring = {
@@ -100,10 +120,6 @@ pub(super) fn run(
             Ok(b) if is_socket(&request.url) => open_socket(&b, request, &abort).map(|s| (s, b)),
             // A body from an app file, read as the stream opens (LLP 1108 D6 R2).
             Ok(b) => {
-                // An upload's body is held in its executor's budget from
-                // before its file is read until its exchange ends, which
-                // `open` reads whole.
-                let mut held = upload_room(shared, &request, &abort)?;
                 super::body::resolve(shared.roots_for(&request), grants, &mut request, &|| {
                     abort
                         .signal()
@@ -111,8 +127,15 @@ pub(super) fn run(
                         .then(|| failed(FailureKind::Aborted, "native request aborted"))
                 })
                 .and_then(|()| {
+                    // An upload's place in the budget, held until its
+                    // exchange ends (`open` reads it whole), is its body's.
                     if let Some(held) = held.as_mut() {
                         held.keep(request.body.len().saturating_mul(COPIES));
+                    }
+                    // It goes out now: what fails before this never reached
+                    // the network (`UPLOAD_SENDING`, D10).
+                    if request.upload_progress {
+                        message(shared, ticket, Message::upload_start());
                     }
                     open(Ok(&b), request, forced, &abort, sent)
                 })
@@ -122,6 +145,7 @@ pub(super) fn run(
         }
     }))
     .unwrap_or_else(|_| Err(failed(FailureKind::Aborted, "the stream opener panicked")));
+    drop(held);
     let passed = deadline.as_ref().is_some_and(Deadline::passed);
     let opened = opened.map_err(|end| timed_out(end, passed, timeout.unwrap_or(0)));
     match opened {
@@ -209,129 +233,6 @@ fn read_socket(
 /// data coalesces, and a log sees the gap and re-asks from its cursor.
 fn message(shared: &Shared, ticket: u64, message: Message) -> bool {
     deliver(shared, ticket, message, false)
-}
-
-/// An upload's end once its deadline may have passed: a failure after the
-/// deadline is the deadline's; a reply that landed as it passed stands, as a
-/// plain request's does (`execute`).
-pub(super) fn timed_out(end: Outcome, passed: bool, ms: u32) -> Outcome {
-    match end {
-        Outcome::Failed { .. } if passed => failed(
-            FailureKind::Timeout,
-            format!("the request timed out after {ms} ms"),
-        ),
-        end => end,
-    }
-}
-
-/// What an executor's upload streams hold in memory (LLP 1016.000 D10):
-/// each body, read from its file or given inline, and the platform's copy
-/// of it, from before a file is read until the exchange ends.
-#[derive(Default)]
-pub(super) struct Uploads {
-    held: Mutex<UploadsHeld>,
-    room: Condvar,
-}
-#[derive(Default)]
-struct UploadsHeld {
-    bytes: usize,
-    /// Uploads waiting for room, for the tests.
-    waiting: usize,
-}
-
-/// What an executor's uploads may hold at once, the platform's copies
-/// counted: 256 MiB, the four 64 MiB file bodies reads may hold at once
-/// (`executor_body.rs` `MAX_READERS`). An upload's own lane, 64 MiB, could
-/// not hold a 50 MB body beside Apple's copy of it.
-const UPLOAD_BYTES: usize = if cfg!(test) {
-    1 << 20
-} else {
-    super::body::MAX_READERS * exact_runner::MAX_BODY_FROM_BYTES as usize
-};
-
-/// The copies of an upload's body in memory while it goes out: the
-/// stream's, and on Apple URLSession's `NSData`. The portable transport
-/// sends from the stream's.
-pub(super) const COPIES: usize = if cfg!(target_vendor = "apple") { 2 } else { 1 };
-
-impl Uploads {
-    /// Room for `bytes`, waiting while other uploads hold too much, until
-    /// `stopped` says this one has ended. One upload alone always fits.
-    fn hold(&self, bytes: usize, stopped: &dyn Fn() -> bool) -> Option<Held<'_>> {
-        let mut held = self.held.lock().unwrap();
-        held.waiting += 1;
-        while held.bytes > 0 && held.bytes.saturating_add(bytes) > UPLOAD_BYTES {
-            if stopped() {
-                held.waiting -= 1;
-                return None;
-            }
-            held = (self
-                .room
-                .wait_timeout(held, Duration::from_millis(50))
-                .unwrap())
-            .0;
-        }
-        held.waiting -= 1;
-        held.bytes += bytes;
-        Some(Held(self, bytes))
-    }
-
-    /// Uploads waiting for room now, and the bytes held.
-    #[cfg(test)]
-    pub(super) fn waiting(&self) -> (usize, usize) {
-        let held = self.held.lock().unwrap();
-        (held.waiting, held.bytes)
-    }
-}
-
-/// An upload's place in its executor's [`Uploads`], given back when dropped.
-struct Held<'a>(&'a Uploads, usize);
-impl Held<'_> {
-    /// Keep only `bytes` of the place, once the body's size is known.
-    fn keep(&mut self, bytes: usize) {
-        if bytes < self.1 {
-            self.0.held.lock().unwrap().bytes -= self.1 - bytes;
-            self.1 = bytes;
-            self.0.room.notify_all();
-        }
-    }
-}
-impl Drop for Held<'_> {
-    fn drop(&mut self) {
-        self.0.held.lock().unwrap().bytes -= self.1;
-        self.0.room.notify_all();
-    }
-}
-
-/// An upload's room for its body: its length, or for a file not read yet
-/// the most a file body may be, which [`Held::keep`] lowers once it is
-/// read. An abort or the deadline while it waits ends it.
-fn upload_room<'a>(
-    shared: &'a Shared,
-    request: &Request,
-    abort: &AbortController,
-) -> Result<Option<Held<'a>>, Outcome> {
-    if !request.upload_progress {
-        return Ok(None);
-    }
-    let body = match request.body_from {
-        Some(_) => exact_runner::MAX_BODY_FROM_BYTES as usize,
-        None => request.body.len(),
-    };
-    let bytes = body.saturating_mul(COPIES);
-    (shared.uploads.hold(bytes, &|| abort.signal().aborted()))
-        .map(Some)
-        .ok_or_else(|| failed(FailureKind::Aborted, "native request aborted"))
-}
-
-/// An upload's progress: each count of the body's bytes sent that the
-/// transport reports is a message, which a newer one replaces while the
-/// runner has not taken it (D4).
-fn progress(shared: &Arc<Shared>, ticket: u64) -> Sent {
-    let shared = shared.clone();
-    Sent(Arc::new(move |loaded, total| {
-        message(&shared, ticket, Message::upload_progress(loaded, total));
-    }))
 }
 
 /// A long poll's reply that is no event (LLP 1016.000 D8): a message of the
@@ -650,6 +551,8 @@ pub(crate) mod listen;
 mod long_poll;
 #[path = "executor_socket.rs"]
 mod socket;
+#[path = "executor_upload.rs"]
+mod upload;
 
 #[cfg(test)]
 #[path = "executor_stream_tests.rs"]

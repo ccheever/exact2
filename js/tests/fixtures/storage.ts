@@ -455,6 +455,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
       [url, { exactStream, exactUploadProgress: true, exactLongPoll: { cursor: "since", from: "seq" } }],
       [url, { method: "POST", exactStream, exactUploadProgress: true, redirect: "manual" }],
       [url, { method: "POST", exactStream, exactTimeout: 30000 }],
+      ["exact-native:", { method: "POST", exactStream, exactUploadProgress: true }],
     ];
     for (const [to, init] of inits) {
       try { await fetch(to, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
