@@ -351,7 +351,7 @@ component MarkdownBlocks
       for block in document.blocks key=block.id
         column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16) direction=blockDirection(block.kind, block.dir)
           if block.kind == "code"
-            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="ui-monospace", codeSize=13, wrapDefault=true, canRun=false, source="", cite=noCite, ms=-1, me=-1)
+            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="Menlo, Consolas, \"Liberation Mono\", monospace", codeSize=13, wrapDefault=true, canRun=false, source="", cite=noCite, ms=-1, me=-1)
           else
             BlockBody(block=block, scope=document.id, prose=prose, fit=fit, chips=noChips(), wrapDefault=true, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite, ms=-1, me=-1)
 
@@ -564,10 +564,10 @@ component ChatRuns
   view
     for run in runs key=run.id
       if run.mono and (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
-        text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" font-family="ui-monospace" font-size="0.74375rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
+        text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
           FindParts(parts=run.findParts)
       if run.mono and not ((run.kind == "link" or run.kind == "link-start") and webLink(run.href))
-        text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.74375rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
+        text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
           FindParts(parts=run.findParts)
       if not run.mono
         // A mailto, irc or xmpp link or a fragment leaves its right-click to the shell, as the anchor's onContextMenu does.
@@ -675,7 +675,7 @@ component FlowRuns
         // words are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
         if run.mono and not inlineFile(run, chips) and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))
           box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) cursor=(run.kind == "link" and run.label != "" and not webLink(run.href) ? "pointer" : "auto") height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="ui-monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#18181b1a, #f5f5f51a)") color="light-dark(#18181b, #f5f5f5)"
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#18181b1a, #f5f5f51a)") color="light-dark(#18181b, #f5f5f5)"
               FindParts(parts=run.findParts)
         if inlineFile(run, chips)
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
@@ -732,7 +732,7 @@ component LinkRunWords
       text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
         FindParts(parts=run.findParts)
     else
-      text margin-top=top font-family="ui-monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)" text-decoration-line=(run.strike ? "line-through" : "none")
+      text margin-top=top font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)" text-decoration-line=(run.strike ? "line-through" : "none")
         FindParts(parts=run.findParts)
 
 // Whether a run starts its link: the run before it is not the same link's word or image.
@@ -776,7 +776,7 @@ component PrLinkRun
         box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
           TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
       if chip.detail == "commit"
-        text white-space="pre" flex-shrink=0 font-family="ui-monospace" font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
+        text white-space="pre" flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
           FindParts(parts=run.findParts)
       else
         text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
@@ -959,7 +959,7 @@ component TerminalContextChip
             text chip.tip flex=1 min-width=0 font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#18181b, #f5f5f5)"
             text chip.size font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
           scroll width="100%" max-height="20rem" background-color="light-dark(#f4f4f5, #ffffff0a)"
-            text chip.detail aria-label="Captured terminal output" tabindex=0 padding="0.75rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.125rem" white-space="pre" color="light-dark(#18181b, #f5f5f5)"
+            text chip.detail aria-label="Captured terminal output" tabindex=0 padding="0.75rem" box-sizing="border-box" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1.125rem" white-space="pre" color="light-dark(#18181b, #f5f5f5)"
 
 // FileChip / ImageChipButton / ThreadContextChip / a skill chip: glyph or
 // thumbnail, the (middle-truncated) name and, for attachments, the size.
@@ -1085,7 +1085,7 @@ component CodeBlock
               FileTypeIcon(token=hl.icon, size=14)
           else
             // extractFenceLanguage: a fence with no language is "text".
-            text (block.href != "" ? block.href : "text") font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#18181bb8, #f5f5f5b8)" line-clamp=1
+            text (block.href != "" ? block.href : "text") font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#18181bb8, #f5f5f5b8)" line-clamp=1
         row gap="0.125rem" align-items="center"
           Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
             button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
@@ -1162,7 +1162,7 @@ component MermaidBlock
       column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color="light-dark(#fafafa, #ffffff08)" overflow="hidden"
         row width="100%" height="1.875rem" padding-top="0.375rem" padding-right="0.375rem" padding-left="0.75rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.5rem"
           row min-width=0 height="1.5rem" align-items="center" gap="0.375rem"
-            text block.href font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#18181bb8, #f5f5f5b8)" line-clamp=1
+            text block.href font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#18181bb8, #f5f5f5b8)" line-clamp=1
           row gap="0.125rem" align-items="center" role="toolbar" aria-label="Code block actions"
             Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
               button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
@@ -1192,7 +1192,7 @@ component MermaidBlock
               if frame.retryable
                 button press=local("diagram-retry", scheme, block.text) testId=`mermaid-retry-${block.id}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
                   text "Retry" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
-            text block.text width="100%" margin-top="0.5rem" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafa, #ffffff08)" font-family="ui-monospace" font-size=12 line-height="16px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)"
+            text block.text width="100%" margin-top="0.5rem" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafa, #ffffff08)" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size=12 line-height="16px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)"
         else
           box position="relative" width="100%"
             MermaidFrameView(src=(scheme == "dark" ? diagram.srcDark : diagram.srcLight), frame=frame, width=0, height=0, placeholder=block.text, local=local, testId=`mermaid-frame-${block.id}`)
@@ -1382,7 +1382,7 @@ component CellRuns
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
             InlineFileChip(run=run, chip=chip, local=local)
         if run.mono and not inlineFile(run, chips)
-          text flex-shrink=0 font-family="ui-monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
+          text flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
             FindParts(parts=run.findParts)
         if not run.mono and run.kind == "file"
           FileChip(run=run)
@@ -1412,7 +1412,7 @@ component CellSizer
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
             FileChipFace(run=run, label=chip.label, icon=chip.icon)
         if run.mono and not inlineFile(run, chips)
-          text flex-shrink=0 font-family="ui-monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-width=1 border-style="solid" text-decoration-line=(run.strike ? "line-through" : "none")
+          text flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-width=1 border-style="solid" text-decoration-line=(run.strike ? "line-through" : "none")
             FindParts(parts=run.findParts)
         if not run.mono and run.kind == "file"
           FileChip(run=run)

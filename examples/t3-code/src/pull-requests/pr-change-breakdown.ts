@@ -49,7 +49,7 @@ export function breakdownLines(breakdown: Breakdown): BreakdownLine[] {
     .map((kind, index) => line(kind, KIND_LABELS[kind], breakdown[kind], index + 1));
 }
 
-/** A 12pt ui-monospace advance. */
+/** A 12pt advance of the mono stack, Menlo's. */
 export const MONO12 = 7.22;
 const LOADING = 'Loading breakdown';
 /**

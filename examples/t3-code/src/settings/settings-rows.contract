@@ -326,7 +326,7 @@ component CoreRowView
             if row.kind == "version"
               // The reference's `<h3>` holds the version too ("Version 0.0.45"): the heading says both, the value is not read twice.
               text "Version" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=3 aria-label=`Version ${row.value}` id=`paint-CoreRowView-2-${row.id}` data-paint="text" data-pick="text"
-              text row.value font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=pal.text aria-hidden=true id=`paint-CoreRowView-3-${row.id}` data-paint="text" data-pick="text"
+              text row.value font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=pal.text aria-hidden=true id=`paint-CoreRowView-3-${row.id}` data-paint="text" data-pick="text"
             else
               text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=3 id=`paint-CoreRowView-4-${row.id}` data-paint="text" data-pick="text"
             if row.info != "" and not row.info.startsWith("preview")
@@ -595,7 +595,7 @@ component CoreSlider
   derive ratio = row.max > row.min ? max(0, min(1, (shown - row.min) / (row.max - row.min))) : 0
   view
     row width=`${row.width / 16}rem` gap="0.75rem" align-items="center"
-      text `${label}${row.suffix}` font-family="ui-monospace" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text font-variant-numeric="tabular-nums" text-align="center" min-width=(row.suffix == " ms" ? "4rem" : "3rem") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=pal.output box-sizing="border-box" role="status" testId=`setting-${row.id}-value` id=`setting-${row.id}-value` data-paint="text secondary" data-pick="secondary"
+      text `${label}${row.suffix}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text font-variant-numeric="tabular-nums" text-align="center" min-width=(row.suffix == " ms" ? "4rem" : "3rem") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=pal.output box-sizing="border-box" role="status" testId=`setting-${row.id}-value` id=`setting-${row.id}-value` data-paint="text secondary" data-pick="secondary"
       box position="relative" width=trackWidth height="1.5rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1)
         box position="absolute" left=0 top="0.5625rem" width=trackWidth height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#71717b38, #a1a1a138)"
         box position="absolute" left=0 top="0.5625rem" width=(ratio * (trackWidth - rem) + 0.5 * rem) height="0.375rem" border-radius="0.1875rem" background-color=pal.accent testId=`setting-${row.id}-fill` id=`setting-${row.id}-fill` data-paint="accent" data-pick="accent"

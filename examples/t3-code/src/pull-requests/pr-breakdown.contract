@@ -73,5 +73,5 @@ component PrBreakdownGrid
         if item.key == "total"
           box grid-row=(item.row - 1) grid-column="1 / -1" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
         text item.label grid-row=item.row grid-column=1 font-size="0.75rem" line-height="1rem" white-space="nowrap" color=ink
-        text item.additions grid-row=item.row grid-column=2 text-align="right" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownAdd(diff)
-        text item.deletions grid-row=item.row grid-column=3 text-align="right" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownDel(diff)
+        text item.additions grid-row=item.row grid-column=2 text-align="right" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownAdd(diff)
+        text item.deletions grid-row=item.row grid-column=3 text-align="right" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=breakdownDel(diff)

@@ -56,4 +56,4 @@ component PrdDiffUnavailable
           text "Technical details" font-size="0.75rem" line-height="1rem" color=(overDetails ? pduInk() : pduMuted())
         if detailsOpen
           scroll width="100%" max-height="10rem" margin-top="0.75rem" padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f4f4f566, #ffffff0a)" testId="pull-request-code-technical-text"
-            text error width="100%" text-align="left" white-space="pre-wrap" overflow-wrap="anywhere" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=pduMuted() user-select="text"
+            text error width="100%" text-align="left" white-space="pre-wrap" overflow-wrap="anywhere" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=pduMuted() user-select="text"

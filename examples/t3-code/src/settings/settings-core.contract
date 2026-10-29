@@ -314,7 +314,7 @@ component CoreMark
     surface: string
   view
     box width="0.875rem" height="0.875rem" border-radius="0.21875rem" background-color=surface display="flex" align-items="center" justify-content="center" flex-shrink=0
-      text label font-family="ui-monospace" font-size="0.4375rem" font-weight=700 color=ink
+      text label font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.4375rem" font-weight=700 color=ink
 
 // SettingsSidebarNav (96fc7b9551): the modal's own nav column, w-60 with border-e on bg-sidebar. Search (role
 // combobox, `/` focuses it), then the section groups (SETTINGS_NAV_GROUPS: a heading or, without one, space alone)

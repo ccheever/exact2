@@ -33,8 +33,8 @@ component AttachmentCodeRow
     wrap: bool
   view
     row width="100%" align-items="flex-start"
-      text line.number width=gutter flex-shrink=0 padding-right="0.614375rem" box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
-      text flex=1 min-width=0 padding-left="0.4875rem" padding-right="0.4875rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+      text line.number width=gutter flex-shrink=0 padding-right="0.614375rem" box-sizing="border-box" text-align="right" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
+      text flex=1 min-width=0 padding-left="0.4875rem" padding-right="0.4875rem" box-sizing="border-box" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" line-height="1.25rem" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         for run in line.runs key=run.id
           text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax) font-weight=synWeight(run.syntax)
 
@@ -153,7 +153,7 @@ component NotebookPreview
                     row width="100%" padding="1rem" box-sizing="border-box"
                       image output.url aria-label=`${cell.aria} output` max-width="100%" max-height="22rem" object-fit="contain"
                   if output.kind == "text"
-                    text output.text width="100%" padding="1rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#18181b, #f5f5f5)"
+                    text output.text width="100%" padding="1rem" box-sizing="border-box" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#18181b, #f5f5f5)"
           if notebook.empty
             text "This notebook is empty." font-size="0.875rem" line-height="1.25rem" color=notebookMuted()
           if notebook.more != ""

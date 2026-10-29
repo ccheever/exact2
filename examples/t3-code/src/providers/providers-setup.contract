@@ -237,7 +237,7 @@ component ProviderAccountRow
           if account.deviceCode != ""
             row padding-top="0.5rem" padding-bottom="0.5rem" gap="0.25rem" align-items="baseline" flex-wrap="wrap" testId=`${idPrefix}provider-auth-device-code-${account.instanceId}`
               text "Enter code" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
-              text account.deviceCode font-family="ui-monospace" user-select="all" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+              text account.deviceCode font-family="Menlo, Consolas, \"Liberation Mono\", monospace" user-select="all" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
               text "in your browser." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
           if account.terminal
             for key in [account.flow] key=key

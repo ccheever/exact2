@@ -254,7 +254,7 @@ component ProvidersPanel
                           row width="100%" min-width=0 gap="0.5rem" align-items="center"
                             text row.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 flex-shrink=1
                             if row.version != ""
-                              text row.version font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" max-width="6rem" line-clamp=1 flex-shrink=0
+                              text row.version font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" max-width="6rem" line-clamp=1 flex-shrink=0
                             if row.update.show
                               ProviderVersionAdvisory(advisory=row.update, op=op)
                           row margin-top="0.125rem" gap="0.375rem" align-items="flex-start" width="100%"
@@ -343,7 +343,7 @@ component ProviderEditor
             text editor.title font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2 line-clamp=1
           row min-height="1.75rem" gap="0.375rem" align-items="center" justify-content="flex-end" flex-shrink=0
             if editor.version != ""
-              text editor.version font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="provider-editor-version"
+              text editor.version font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="provider-editor-version"
             if editor.update.show
               ProviderVersionAdvisory(advisory=editor.update, op=op)
             row gap="0.25rem" align-items="center" opacity=(writable ? 1 : 0.5)
@@ -547,9 +547,9 @@ component ProviderVariableRow
   derive value = valueEdited ? valueDraft : variable.value
   view
     row width="100%" min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" testId=`provider-variable-${variable.index}`
-      input value=name input=editName blur=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) submit=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField width="11rem" flex-shrink=0 font-family="ui-monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-name-${variable.index}` id=`field-provider-variable-name-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+      input value=name input=editName blur=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) submit=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField width="11rem" flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-name-${variable.index}` id=`field-provider-variable-name-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
       text "=" font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
-      input value=value input=editValue blur=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) submit=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) placeholder=(variable.redacted ? "Stored secret, enter a new value to replace" : "value") type=(variable.sensitive ? "password" : "text") aria-label=`Environment variable value ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-value-${variable.index}` id=`field-provider-variable-value-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+      input value=value input=editValue blur=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) submit=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) placeholder=(variable.redacted ? "Stored secret, enter a new value to replace" : "value") type=(variable.sensitive ? "password" : "text") aria-label=`Environment variable value ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-value-${variable.index}` id=`field-provider-variable-value-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
       button press=op("provider-env-sensitive", instance, `${variable.index}`, (variable.sensitive ? "false" : "true"), true) class=PvMicro aria-selected=variable.sensitive aria-label=`Mark environment variable ${variable.label} as sensitive` disabled=(not writable) testId=`provider-variable-sensitive-${variable.index}` title="" id=`provider-variable-sensitive-${variable.index}` data-focus-stop=(not writable ? "" : "enabled page")
         // f2cc80a7 MorphIcon LockOpen↔Lock: the shackle closes (morphicons' morph, shell-morph.contract).
         MorphLock(on=variable.sensitive, size=12, color="light-dark(#71717b, #a1a1a1)", weight=2, still=false)
@@ -657,7 +657,7 @@ component ProviderModelLine
         row id=`provider-model-name-${instanceId}-${model.slug}` min-width=0 overflow="hidden" gap="0.5rem" align-items="baseline" tabindex=0 hover=nameTip focus=nameTip(true) blur=nameTip(false) testId=`provider-model-name-${model.slug}`
           text model.name font-size="0.75rem" line-height="1rem" color=(model.hidden ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181be6, #f5f5f5e6)") line-clamp=1 max-width="100%" flex-shrink=0
           if model.showSlug
-            text model.slug font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" line-clamp=1 min-width=0
+            text model.slug font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" line-clamp=1 min-width=0
         if model.custom
           text "custom" flex-shrink=0 font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)"
       text model.capabilities font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)"
@@ -702,7 +702,7 @@ component ProviderCommandArgumentRow
   view
     // A row of ProviderSettingsForm's Arguments, as in Add provider: the mono field and the ghost-destructive remove.
     row width="100%" min-width=0 gap="0.375rem" align-items="center"
-      input value=value input=edit blur=op("provider-argument-value", instance, `${arg.index}`, value, true) submit=op("provider-argument-value", instance, `${arg.index}`, value, true) disabled=(not writable) aria-label=`Argument ${arg.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" testId=`provider-argument-${arg.index}` id=`field-provider-argument-${arg.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+      input value=value input=edit blur=op("provider-argument-value", instance, `${arg.index}`, value, true) submit=op("provider-argument-value", instance, `${arg.index}`, value, true) disabled=(not writable) aria-label=`Argument ${arg.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" testId=`provider-argument-${arg.index}` id=`field-provider-argument-${arg.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
       PvRemoveButton(label=`Remove argument ${arg.index + 1}`, buttonId=`provider-argument-remove-${arg.index}`, icon="x", size="micro", iconSize=16, disabled=(not writable), stop="enabled page", press=op("provider-argument-remove", instance, `${arg.index}`, "", true))
 
 // ProviderSettingsPanel's list row "Add provider": muted until hovered (hover:bg-muted/25 hover:text-foreground).

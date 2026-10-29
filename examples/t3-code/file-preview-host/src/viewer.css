@@ -20,7 +20,9 @@
   --warning-surface: light-dark(#fffbeb, color-mix(in srgb, var(--warning) 8%, transparent));
   --popover: light-dark(#fff, #111111);
   --font-sans: -apple-system, BlinkMacSystemFont, "Inter Variable", "Segoe UI", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  /* The reference's stack lands on Menlo in its renderer, which resolves neither ui-monospace nor "SF Mono" by name;
+     this page's WebKit draws SF Mono for ui-monospace, so the stack starts at Menlo. */
+  --font-mono: Menlo, Consolas, "Liberation Mono", monospace;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   background: var(--background);

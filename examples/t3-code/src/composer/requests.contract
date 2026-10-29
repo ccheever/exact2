@@ -109,7 +109,7 @@ component ApprovalBanner
               text approval.count font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #a1a1a1)" flex-shrink=0
           // A command wraps anywhere inside the composer, up to 10rem; an app's request wraps at words, up to 5rem.
           scroll max-height=(approval.mono ? "10rem" : "5rem") width="100%" min-width=0 testId=`approval-detail-${approval.id}`
-            text approval.detail font-size="0.75rem" line-height="1rem" letter-spacing=(approval.mono ? "-0.2px" : "0px") font-family=(approval.mono ? "ui-monospace" : "system-ui") white-space="pre-wrap" overflow-wrap=(approval.mono ? "anywhere" : "break-word") color="light-dark(#18181b, #f5f5f5)" aria-label="Command"
+            text approval.detail font-size="0.75rem" line-height="1rem" letter-spacing=(approval.mono ? "-0.2px" : "0px") font-family=(approval.mono ? "Menlo, Consolas, \"Liberation Mono\", monospace" : "system-ui") white-space="pre-wrap" overflow-wrap=(approval.mono ? "anywhere" : "break-word") color="light-dark(#18181b, #f5f5f5)" aria-label="Command"
           if reason != ""
             text reason font-size="0.6875rem" line-height="1rem" width="100%" min-width=0 overflow-wrap="break-word" color="light-dark(#71717a, #a1a1a1)" testId=`approval-reason-${approval.id}`
         if not compact

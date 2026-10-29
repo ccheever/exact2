@@ -25,6 +25,7 @@ import { activeRef } from '../terminal/terminal-drawer-view';
 import { serverStreamUrl, serverStreamFrame } from './server-browser-runtime';
 import { previewRuntimeTabId } from './browser-state';
 import { readWindowZoom } from './browser-viewport';
+import { DEFAULT_CODE_FONT } from '../appearance/settings-appearance';
 import { BrowserRecordings, PreviewCaptureFailure, type PreviewCaptureFailureStage, type RecordingArtifact, type RecordingBlob, type RecordingHost, type RecordingRecorder, type RecordingStream } from './browser-recording';
 import { isPreviewAnnotationPayload, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
 import { composerFieldOwner } from '../composer/auto-balance-owner';
@@ -59,7 +60,7 @@ export function annotationTheme(scheme: string): Record<string, string> {
     popover: dark ? '#171717' : '#ffffff', popoverForeground: dark ? '#f5f5f5' : '#18181b', primary: dark ? '#346bf1' : '#1b4ed8', primaryForeground: '#ffffff',
     muted: dark ? 'rgb(255 255 255 / 4%)' : 'rgb(0 0 0 / 4%)', mutedForeground: dark ? '#a1a1aa' : '#71717b', accent: dark ? 'rgb(255 255 255 / 4%)' : 'rgb(0 0 0 / 4%)',
     accentForeground: dark ? '#f5f5f5' : '#18181b', border: dark ? 'rgb(255 255 255 / 8%)' : 'rgb(0 0 0 / 8%)', input: dark ? 'rgb(255 255 255 / 10%)' : 'rgb(0 0 0 / 10%)',
-    ring: dark ? '#346bf1' : '#1b4ed8', fontSans: 'system-ui, sans-serif', fontMono: 'ui-monospace, monospace',
+    ring: dark ? '#346bf1' : '#1b4ed8', fontSans: 'system-ui, sans-serif', fontMono: DEFAULT_CODE_FONT,
   };
 }
 

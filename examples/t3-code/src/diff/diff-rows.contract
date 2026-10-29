@@ -159,14 +159,14 @@ component DiffFileHeader
       // right-aligned 4ch columns); any other file Pierre's own counts ("-d" then "+a"; diff.ts headerStat).
       if item.statAligned
         row gap="0.5rem" align-items="center" flex-shrink=0 role="group" aria-label=`${item.additions} additions, ${item.deletions} deletions` testId=`diff-stat-${item.path}`
-          text item.addText min-width="1.8rem" text-align="right" white-space="nowrap" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffStatInk(scheme, "add")
-          text item.delText min-width="1.8rem" text-align="right" white-space="nowrap" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffStatInk(scheme, "del")
+          text item.addText min-width="1.8rem" text-align="right" white-space="nowrap" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffStatInk(scheme, "add")
+          text item.delText min-width="1.8rem" text-align="right" white-space="nowrap" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffStatInk(scheme, "del")
       else
         row gap="0.5rem" align-items="center" flex-shrink=0 testId=`diff-stat-${item.path}`
           if item.delText != ""
-            text item.delText font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del")
+            text item.delText font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del")
           if item.addText != ""
-            text item.addText font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add")
+            text item.addText font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add")
 
 // The gutter carries the old (deletion) or new line number and a 4pt change bar. A press on the
 // number starts a selection that follows the pointer over the file's lines (Shift extends the

@@ -108,7 +108,7 @@ component StripPrTipRow
   view
     button press=open hover=hover role="link" aria-label=`${tip.number} ${tip.title}` testId=`composer-pr-tip-${tip.number}` width="100%" min-width=0 flex-shrink=0 gap="0.5rem" align-items="center" display="flex" flex-direction="row" padding-left=((4 + tip.depth * 12) * rem / 16) padding-right="0.25rem" padding-top="0.25rem" padding-bottom="0.25rem" border-width=0 border-radius="0.25rem" height="1.53125rem" box-sizing="border-box" background-color=(over ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") cursor="pointer" title=""
       PgIcon(name=tip.icon, size=12, color=stripTone(tip.state))
-      text tip.number flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)"
+      text tip.number flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)"
       text tip.title flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color="light-dark(#18181bbf, #f5f5f5bf)"
       if tip.stack != ""
         text tip.stack flex-shrink=0 padding-left="0.25rem" font-size="0.625rem" line-height="0.875rem" color="light-dark(#18181b, #f5f5f5)"

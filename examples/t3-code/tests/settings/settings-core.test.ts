@@ -21,7 +21,7 @@ import { scopedProviderPage } from '../../src/providers/providers-scope';
 import { worktreeRows } from '../../src/settings/settings-data';
 import { contractComponent, value } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
-import { appText } from '../support/app-files';
+import { appFiles, appText } from '../support/app-files';
 
 const provider = { instanceId: 'fixture', driver: 'codex', displayName: 'Exact fixture', enabled: true, installed: true, auth: { status: 'authenticated' }, status: 'ready',
   models: [{ slug: 'luna', name: 'GPT-5.6-Luna', isDefault: true, capabilities: { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', options: [{ id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium', isDefault: true }, { id: 'high', label: 'High' }] }] } },
@@ -796,6 +796,14 @@ describe('code font', () => {
     expect([single.title, single.label, single.options[0]!.label]).toEqual(['Monospace font', 'Menlo', 'Menlo']);
     // Every code view reads the look's codeFont: chat Markdown, diffs, file previews and inline documents.
     expect(appText('settings-appearance-look.ts')).toContain('codeFont: fontStack(prefs.fontFamilyCode, true)');
+  });
+  test('the other monospace text, Tailwind\'s font-mono there, takes the same stack; no view names ui-monospace, SF Mono here', () => {
+    // Each view writes the stack as a literal, which the compiler declares as one plan stack.
+    const contracts = appFiles().filter(name => name.endsWith('.contract')).map(name => appText(name));
+    const stacks = contracts.flatMap(text => [...text.matchAll(/"((?:[^"\\]|\\.)*Menlo(?:[^"\\]|\\.)*)"/g)].map(match => match[1]!.replaceAll('\\"', '"')));
+    expect(stacks.length).toBeGreaterThan(150);
+    expect([...new Set(stacks)]).toEqual([fontStack('', true)]);
+    expect(contracts.filter(text => text.includes('ui-monospace'))).toEqual([]);
   });
 });
 

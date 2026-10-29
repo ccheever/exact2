@@ -196,8 +196,8 @@ component GitChanges
       ShellIcon(name="file-diff", size=16, color="light-dark(#71717b, #a1a1a1)")
       text "Changes" flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
       row gap="0.375rem" align-items="center" flex-shrink=0
-        text details.git.changesAdd font-family="ui-monospace" font-size="0.75rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color=(details.insertions > 0 ? gitAdd(details.diffScheme) : "light-dark(#71717b, #a1a1a1)") testId="details-changes-add"
-        text details.git.changesDel font-family="ui-monospace" font-size="0.75rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color=(details.deletions > 0 ? gitDel(details.diffScheme) : "light-dark(#71717b, #a1a1a1)") testId="details-changes-del"
+        text details.git.changesAdd font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color=(details.insertions > 0 ? gitAdd(details.diffScheme) : "light-dark(#71717b, #a1a1a1)") testId="details-changes-add"
+        text details.git.changesDel font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color=(details.deletions > 0 ? gitDel(details.diffScheme) : "light-dark(#71717b, #a1a1a1)") testId="details-changes-del"
 
 // The dialogs, over the window.
 component GitLayers
@@ -449,9 +449,9 @@ component GitCommitDialog
                       for file in git.files key=file.path
                         GitCommitFile(file=file, editing=git.editing, openable=git.filesOpenable, scheme=scheme, local=local)
                   row justify-content="flex-end"
-                    text `+${git.selectedInsertions}` font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color=gitAdd(scheme)
-                    text "/" font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
-                    text `-${git.selectedDeletions}` font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color=gitDel(scheme)
+                    text `+${git.selectedInsertions}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" color=gitAdd(scheme)
+                    text "/" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+                    text `-${git.selectedDeletions}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" color=gitDel(scheme)
           column gap="0.25rem"
             text "Commit message (optional)" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
             box position="relative" width="100%" border-radius="0.5rem" background-color="light-dark(#ffffff, #ffffff07)"
@@ -478,14 +478,14 @@ component GitCommitFile
       if editing
         DialogCheckbox(checked=(not file.excluded), mixed=false, press=local("git-file", file.path, ""), label=`Include ${file.path}`, elementId="", testId=`git-commit-file-${file.path}`)
       button press=local("git-open-file", file.path, "") disabled=(not openable) cursor=(openable ? "pointer" : "default") testId=`git-commit-open-${file.path}` flex=1 min-width=0 padding=0 gap="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
-        text file.path flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color=(file.excluded ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)")
+        text file.path flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" color=(file.excluded ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)")
         if file.excluded
-          text "Excluded" flex-shrink=0 font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+          text "Excluded" flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
         else
           row flex-shrink=0
-            text `+${file.insertions}` font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color=gitAdd(scheme)
-            text " / " font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
-            text `-${file.deletions}` font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color=gitDel(scheme)
+            text `+${file.insertions}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" color=gitAdd(scheme)
+            text " / " font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
+            text `-${file.deletions}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" color=gitDel(scheme)
 
 // The default-branch confirmation: Abort, continue on this ref, or a feature ref.
 component GitConfirmDialog

@@ -326,8 +326,8 @@ component PaletteRowView
     else
       if row.kind == "line"
         button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy tabindex=-1 role="option" aria-selected=highlighted aria-label=`${row.arg}:${row.line}` testId=`palette-line-${row.index}` width="100%" height="1.75rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.75rem" border-width=0 border-radius=0 display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
-          text row.line width="2.5rem" flex-shrink=0 text-align="right" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)"
-          text flex=1 min-width=0 font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#18181b, #f5f5f5)" white-space="pre" overflow="hidden" text-overflow="ellipsis" text-align="left"
+          text row.line width="2.5rem" flex-shrink=0 text-align="right" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)"
+          text flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#18181b, #f5f5f5)" white-space="pre" overflow="hidden" text-overflow="ellipsis" text-align="left"
             for part in row.matchParts key=part.id
               text part.text color=synColor(part.cls) font-style=synSlant(part.cls) font-weight=synWeight(part.cls) background-color=(part.hit ? "light-dark(#1b4ed840, #346bf140)" : "#00000000")
       else
@@ -414,7 +414,7 @@ component PaletteToggle
   view
     button id=elementId press=press aria-label=label aria-checked=on role="switch" testId=testId width="2.4375rem" height="1.5rem" padding=0 border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" box-sizing="border-box" background-color=(on ? "light-dark(#ffffff, #ffffff13)" : "#00000000") box-shadow=(on ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center" data-focus-stop="enabled"
       column align-items="center"
-        text glyph font-family="ui-monospace" font-size="0.875rem" line-height=(underline ? "1rem" : "1.25rem") font-weight=500 color=(on ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+        text glyph font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height=(underline ? "1rem" : "1.25rem") font-weight=500 color=(on ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
         if underline
           box width="1.0625rem" height=2 border-radius=1 background-color=(on ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
 

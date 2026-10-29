@@ -531,9 +531,9 @@ test("Add provider's Arguments and Variables are rows whose add button is their 
   expect(source).toMatch(block('Variables', 'addVariable', 'variables', 12));
   expect(source).toMatch(/\n( +)for session in wizard\.sessions key=session\.key\n\1  column width="100%" gap="0\.25rem"\n\1    for field in wizard\.fields key=field\.key\n(\1      [^\n]*\n)+\1    if localAcp\n\1      \/\/[^\n]*\n\1      \/\/[^\n]*\n\1      column width="100%" box-sizing="border-box"[^\n]*testId="new-provider-arguments"/);
   // An argument row: its mono field and the ghost-destructive remove.
-  expect(source).toMatch(/input value=arg input=editArgument\(index\)[^\n]*font-family="ui-monospace"[^\n]*\n\s+PvRemoveButton\(label=`Remove argument \$\{index \+ 1\}`, buttonId=`new-provider-argument-remove-\$\{index\}`, icon="x", size="micro", iconSize=16, disabled=false, stop="enabled", press=removeArgument\(index\)\)/);
+  expect(source).toMatch(/input value=arg input=editArgument\(index\)[^\n]*font-family="Menlo, Consolas, \\"Liberation Mono\\", monospace"[^\n]*\n\s+PvRemoveButton\(label=`Remove argument \$\{index \+ 1\}`, buttonId=`new-provider-argument-remove-\$\{index\}`, icon="x", size="micro", iconSize=16, disabled=false, stop="enabled", press=removeArgument\(index\)\)/);
   // An instance's argument row is the same row (ProviderSettingsForm), centred.
-  expect(appText('providers.contract')).toMatch(/\n {4}row width="100%" min-width=0 gap="0\.375rem" align-items="center"\n {6}input value=value input=edit blur=op\("provider-argument-value"[^\n]*font-family="ui-monospace" font-size="0\.8125rem"[^\n]*\n {6}PvRemoveButton\(label=`Remove argument \$\{arg\.index \+ 1\}`/);
+  expect(appText('providers.contract')).toMatch(/\n {4}row width="100%" min-width=0 gap="0\.375rem" align-items="center"\n {6}input value=value input=edit blur=op\("provider-argument-value"[^\n]*font-family="Menlo, Consolas, \\"Liberation Mono\\", monospace" font-size="0\.8125rem"[^\n]*\n {6}PvRemoveButton\(label=`Remove argument \$\{arg\.index \+ 1\}`/);
 });
 
 // An instance's Arguments is the same SettingsRow, divided from the Runtime fields above it as a grouped SettingsGroup

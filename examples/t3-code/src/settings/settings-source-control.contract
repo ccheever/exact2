@@ -669,4 +669,4 @@ component DeviceVersionLine
   view
     row width="100%" gap="1.5rem" align-items="flex-start"
       text term font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" flex-shrink=0
-      text value font-family="ui-monospace" font-size="0.75rem" line-height="1rem" text-align="right" flex=1 min-width=0 overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)"
+      text value font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" text-align="right" flex=1 min-width=0 overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)"

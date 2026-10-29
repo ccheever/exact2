@@ -115,7 +115,7 @@ component ChipPopoverLayer
             text chip.label flex=1 min-width=0 font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#18181b, #f5f5f5)" testId="chip-popover-label"
             text chip.lines font-size="0.75rem" line-height="1rem" white-space="nowrap" flex-shrink=0 color="light-dark(#71717b, #a1a1a1)" testId="chip-popover-lines"
           scroll width="100%" max-height="20rem" background-color="light-dark(#fafafa, #ffffff08)"
-            text chip.description aria-label="Captured terminal output" tabindex=0 autofocus=true padding="0.75rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#18181b, #f5f5f5)" testId="chip-popover-output"
+            text chip.description aria-label="Captured terminal output" tabindex=0 autofocus=true padding="0.75rem" box-sizing="border-box" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#18181b, #f5f5f5)" testId="chip-popover-output"
       // ComposerReviewCommentDetails (rounded-lg border-border/70 bg-background/70 p-3, space-y-2): the file path and
       // "<section> · <range>", the comment, and the diff in an h-64 bordered box. The comment is ChatMarkdown and the
       // diff ReadOnlySourcePreview (highlighted, numbered) in the reference; here both are plain text.
@@ -128,7 +128,7 @@ component ChipPopoverLayer
             text chip.description font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" testId="chip-popover-description"
           if chip.diff != ""
             scroll width="100%" height="16rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafa, #ffffff08)"
-              text chip.diff aria-label="review.diff" padding="0.5rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.125rem" white-space="pre" testId="chip-popover-diff"
+              text chip.diff aria-label="review.diff" padding="0.5rem" box-sizing="border-box" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1.125rem" white-space="pre" testId="chip-popover-diff"
       // ComposerPreviewAnnotationDetails (rounded-lg border-border/70 bg-background/70): the crop (max-h-64 w-full
       // object-contain, border-b, bg-muted) or "Screenshot unavailable", then the summary (whitespace-pre-wrap px-3 py-2.5 text-sm).
       else if chip.kind == "preview-annotation"

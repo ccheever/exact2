@@ -196,8 +196,8 @@ component DiffToolbar
       // DiffPanel header: the stat shows with files to count, refresh with a git workspace, expand-all and the tree with files.
       if data.diffFiles.length > 0 or data.diffAdditions + data.diffDeletions > 0
         row gap="0.25rem" align-items="center" flex-shrink=0 margin-right="0.25rem" role="group" aria-label=`${data.diffAdditions} additions, ${data.diffDeletions} deletions`
-          text data.diffAdditionsText font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffStatInk(data.look.diff, "add")
-          text data.diffDeletionsText font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffStatInk(data.look.diff, "del")
+          text data.diffAdditionsText font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffStatInk(data.look.diff, "add")
+          text data.diffDeletionsText font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffStatInk(data.look.diff, "del")
       if data.diffCanRefresh
         DiffTool(icon="refresh", label=(data.diffLoading ? "Refreshing diff" : "Refresh diff"), pressed=false, toggle=false, radius=8, testId="diff-refresh", choose=command("diff-refresh", "", "", 0))
       if data.diffFiles.length > 0

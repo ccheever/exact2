@@ -121,7 +121,7 @@ component Checked
     row gap="0.1875rem" align-items="baseline"
       text label font-size="0.6875rem" line-height="1rem" color=(label == "Checking" ? "light-dark(#71717b80, #a1a1a180)" : "light-dark(#71717b99, #a1a1a199)")
       if value != ""
-        text value font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b99, #a1a1a199)"
+        text value font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b99, #a1a1a199)"
         text "ago" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b99, #a1a1a199)"
 
 // Button size icon-xs variant ghost-muted: reveal the server's logs folder.
@@ -152,7 +152,7 @@ component StatGrid
             text stat.label font-size="0.6875rem" font-weight=500 line-height="1rem" letter-spacing="0.06875rem" text-transform="uppercase" color="light-dark(#71717bb3, #a1a1a1b3)" line-clamp=1 min-width=0
             if stat.tip != ""
               StatInfo(label=stat.label, tip=stat.tip)
-          text stat.value font-family="ui-monospace" font-size="1.125rem" font-weight=600 line-height="1.75rem" margin-top="0.25rem" line-clamp=1 color=(stat.tone == "danger" ? "light-dark(#fb2c36, #fb414a)" : (stat.tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#18181b, #f5f5f5)")) testId=`diagnostics-stat-${stat.id}`
+          text stat.value font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="1.125rem" font-weight=600 line-height="1.75rem" margin-top="0.25rem" line-clamp=1 color=(stat.tone == "danger" ? "light-dark(#fb2c36, #fb414a)" : (stat.tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#18181b, #f5f5f5)")) testId=`diagnostics-stat-${stat.id}`
 
 component StatInfo
   inject

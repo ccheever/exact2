@@ -296,9 +296,9 @@ component WelcomeConnect
                 WelcomeCommand(command="npx t3 pair", copied=view.commandCopied, local=local)
                 row margin-top="0.5rem" flex-wrap="wrap" align-items="baseline"
                   text "Start T3 Code first, or run " font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
-                  text "npx t3 serve" font-family="ui-monospace" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)"
+                  text "npx t3 serve" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)"
                   text ". Add " font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
-                  text "--tailscale" font-family="ui-monospace" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)"
+                  text "--tailscale" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)"
                   text " to use your tailnet." font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
       if view.skipped != ""
         text view.skipped font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" margin-top="1rem" role="status" testId="welcome-skipped"
@@ -344,8 +344,8 @@ component WelcomeCommand
   view
     row width="100%" margin-top="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" gap="0.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f4f4f580, #ffffff04)" align-items="center" justify-content="space-between"
       row min-width=0 align-items="baseline"
-        text "$" margin-right="0.5rem" font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
-        text command font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1
+        text "$" margin-right="0.5rem" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+        text command font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1
       button id="welcome-copy-command" press=local("copy-command", "", command) hover=hover aria-label="Copy command" testId="welcome-copy-command" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 position="relative" title="" data-focus-stop="enabled"
         box testId=(copied > 0 and copied != welcomeCopyDone ? "welcome-copy-command-check" : "welcome-copy-command-icon")
           MorphCopyCheck(on=(copied > 0 and copied != welcomeCopyDone), size=14, color="light-dark(#71717b, #a1a1a1)", weight=2, still=still)

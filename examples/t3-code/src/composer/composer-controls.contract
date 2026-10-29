@@ -1054,7 +1054,7 @@ component NoticeRow
               row min-width=0 flex-shrink=1 gap="0.375rem" align-items="baseline" testId=`notice-title-${notice.id}`
                 text notice.title font-size="0.75rem" line-height="1.5rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap" flex-shrink=0
                 box position="relative" display="flex" min-width=0 flex-shrink=1 hover=hover("title")
-                  text notice.code aria-label=notice.tip font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="0.75rem" font-weight=500 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)" min-width=0 line-clamp=1
+                  text notice.code aria-label=notice.tip font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" font-weight=500 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)" min-width=0 line-clamp=1
                   TipBubble(label=notice.tip, side="top", align="start", offset=28, inset=0, shown=(over == "title"))
             else if notice.tip != ""
               box position="relative" display="flex" min-width=0 flex-shrink=1 hover=hover("title")

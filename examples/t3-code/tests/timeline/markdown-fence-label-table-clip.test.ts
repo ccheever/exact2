@@ -13,7 +13,7 @@ describe('code block label (extractFenceLanguage)', () => {
   });
   test('the toolbar shows that label', async () => {
     const source = await Bun.file(appPath('markdown.contract')).text();
-    expect(source).toContain('text (block.href != "" ? block.href : "text") font-family="ui-monospace"');
+    expect(source).toContain('text (block.href != "" ? block.href : "text") font-family="Menlo, Consolas, \\"Liberation Mono\\", monospace"');
   });
 });
 

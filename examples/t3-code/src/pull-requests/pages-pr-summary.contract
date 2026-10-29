@@ -453,7 +453,7 @@ component PrdLocation
     if card.location != ""
       row margin-top="0.5rem" min-width=0 align-items="center" gap="0.5rem" testId=`pull-request-comment-location-${card.id}`
         Tip(label=card.location, side="top", align="start", offset=20)
-          text card.location font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=prsMuted() line-clamp=1 min-width=0
+          text card.location font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=prsMuted() line-clamp=1 min-width=0
         if card.outdated
           text "Outdated" flex-shrink=0 font-size="0.75rem" line-height="1rem" color=prsMuted()
 

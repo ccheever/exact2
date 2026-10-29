@@ -891,7 +891,7 @@ component PrRowButton
           row height="1.25rem" min-width=0 align-items="center" gap="0.375rem"
             // PullRequestRow: the number carries the link; its right-click is pullRequestLinkContextMenu (Copy link, Open on <host>).
             box press=select(row.ref) contextmenu=linkMenuFor(row.linkMenu, row.linkOpenLabel) contextPopover="pr-link-menu" pointer-events="auto" flex-shrink=0 testId=`pr-number-${row.number}`
-              text `#${row.number}` font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
+              text `#${row.number}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
             text row.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#262626, #f5f5f5)" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1
             if row.checks != "" or row.review != ""
               row flex-shrink=0 align-items="center" gap="0.25rem"
@@ -909,8 +909,8 @@ component PrRowButton
               box press=select(row.ref) pointer-events="auto" cursor="pointer" flex-shrink=0 display="flex"
                 PrBreakdownStat(breakdown=row.breakdown, tipId=`pr-breakdown-${row.number}`, request=control("breakdown"))
                   row flex-shrink=0 align-items="baseline" gap="0.25rem"
-                    text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#007a55, #00d492)")
-                    text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+                    text row.additions font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#007a55, #00d492)")
+                    text row.deletions font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
           row height="1rem" min-width=0 align-items="center" gap="0.375rem" overflow="hidden"
             row align-items="center" gap="0.25rem" min-width="0.875rem" max-width="10rem" flex-shrink=1
               PrAvatar(avatar=row.avatar, initial=row.initial, size=14)

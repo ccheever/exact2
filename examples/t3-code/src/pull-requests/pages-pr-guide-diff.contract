@@ -99,9 +99,9 @@ component GuideDiffs
                   if not card.missing
                     row align-items="baseline" gap="0.25rem" aria-label=`${card.additions} additions, ${card.deletions} deletions`
                       if card.deletions > 0
-                        text `-${card.deletions}` font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del-count")
+                        text `-${card.deletions}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del-count")
                       if card.additions > 0
-                        text `+${card.additions}` font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add-count")
+                        text `+${card.additions}` font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add-count")
                     text `${card.removed ? "removed code, " : ""}showing ${card.shown} of ${card.total} diff lines` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1aa)"
                   button press=reveal(card.path) aria-label=`Open ${card.path} in Code` testId=`guide-open-code-${card.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
                     PgIcon(name="arrow-up-right", size=14, color="light-dark(#71717b, #a1a1aa)")

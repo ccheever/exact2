@@ -424,7 +424,7 @@ component PrdBaseBranch
           if actions.stacked
             box width="0.75rem" height="0.75rem" aria-label="Stacked pull request" flex-shrink=0
               PgIcon(name="layers", size=12, color="light-dark(#71717bb3, #a1a1a1b3)")
-          text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+          text base font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
 
 // PullRequestBaseFreshnessWarning's trigger: the amber base branch and mark. Pressed (or Return), it opens
 // the card as a popover; pointed at, the window's hover layer draws the same card under it (openOnHover
@@ -451,7 +451,7 @@ component PaFreshnessMark
       button id="pr-freshness-mark" popovertarget="pr-freshness" aria-label=actions.freshnessSummary testId="pull-request-base-freshness" height="1rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" min-width=0 cursor="help"
         if actions.stacked
           PgIcon(name="layers", size=12, color=paWarn())
-        text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+        text base font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
         PgIcon(name="triangle-alert", size=14, color=paWarn())
       // aria-modal: while it shows, its Escape closes it, not the Pull Requests page.
       // PopoverPopup align="start" side="bottom": 4 pt below the mark's start, flipping near an edge. The reference opens

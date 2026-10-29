@@ -505,7 +505,7 @@ component LinkedPrRowView
         PgIcon(name=(row.waiting ? "git-pull-request-arrow" : prStateIcon(row.state)), size=16, color=(row.waiting ? "light-dark(#71717b, #a1a1a1)" : prStateTone(row.state)))
       button id=`linked-pr-open-${row.number}` press=open pointerdown=down pointerup=up pan=drag panrelease=drop cursor="pointer" padding=0 border-width=0 background-color="#00000000" align-items="stretch" text-align="left" flex=1 min-width=0 display="flex" flex-direction="column" testId=`linked-pr-open-${row.number}`
         row min-width=0 align-items="center" gap="0.375rem"
-          text `#${row.number}` flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" aria-label=row.sourceLabel
+          text `#${row.number}` flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" aria-label=row.sourceLabel
           text row.title min-width=0 font-size="0.875rem" line-height="1.25rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#262626, #f5f5f5)"
           if row.open and (row.watching or row.checks != "" or row.review != "")
             row flex-shrink=0 align-items="center" gap="0.25rem"
@@ -523,8 +523,8 @@ component LinkedPrRowView
           if row.additions != ""
             PrBreakdownStat(breakdown=row.breakdown, tipId=`linked-pr-breakdown-${row.number}`, request=local("surface-pr-breakdown", "linked"))
               row flex-shrink=0 align-items="baseline" gap="0.25rem"
-                text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#007a55, #00d492)"
-                text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#fb2c36, #fb414a)"
+                text row.additions font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#007a55, #00d492)"
+                text row.deletions font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#fb2c36, #fb414a)"
         row min-width=0 height="1rem" align-items="center" gap="0.375rem" overflow="hidden"
           if row.stackSize > 0
             row flex-shrink=0 align-items="center" gap="0.125rem" aria-label=row.stackLabel
@@ -535,13 +535,13 @@ component LinkedPrRowView
               PrAvatar(avatar=row.avatar, initial=row.initial, size=14)
               text row.author min-width=0 font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
           if row.waiting
-            text `${row.host}/${row.repository}` min-width=0 font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.19 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
+            text `${row.host}/${row.repository}` min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" letter-spacing=-0.19 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
           else
-            text row.repository max-width="8rem" min-width=0 flex-shrink=1 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
+            text row.repository max-width="8rem" min-width=0 flex-shrink=1 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
             row min-width=0 align-items="center" gap="0.25rem" flex-shrink=1
-              text row.head min-width=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
-              text "→" flex-shrink=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
-              text row.base min-width=0 flex-shrink=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
+              text row.head min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
+              text "→" flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+              text row.base min-width=0 flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
           box flex=1 min-width=0
           if row.age != ""
             text row.age flex-shrink=0 font-size="0.6875rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"

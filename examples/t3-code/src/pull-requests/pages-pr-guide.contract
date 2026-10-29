@@ -234,7 +234,7 @@ component GuideTourNotes
             column flex=1 min-width=0 gap="0.125rem"
               row width="100%" min-width=0 flex-wrap="wrap" align-items="baseline" column-gap="0.5rem"
                 text note.title font-size="0.75rem" line-height="1rem" font-weight=500 color=pgtInk()
-                text `${note.path.split("/").slice(-1).join("")}:${note.line}` min-width=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color=pgtMuted() overflow="hidden" text-overflow="ellipsis" white-space="nowrap"
+                text `${note.path.split("/").slice(-1).join("")}:${note.line}` min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" color=pgtMuted() overflow="hidden" text-overflow="ellipsis" white-space="nowrap"
               for document in documents.filter((doc) => doc.id == note.bodyId) key=document.id
                 ChatMarkdown(document=document, local=local, code=code, env=env)
 
@@ -242,7 +242,7 @@ component GuideTourKey
   props
     label: string
   view
-    text label min-width="1rem" height="1rem" box-sizing="border-box" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0a)" font-family="ui-monospace" font-size="0.625rem" line-height="1rem" text-align="center" color=pgtMuted()
+    text label min-width="1rem" height="1rem" box-sizing="border-box" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0a)" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.625rem" line-height="1rem" text-align="center" color=pgtMuted()
 
 component GuideTourSpinner
   props

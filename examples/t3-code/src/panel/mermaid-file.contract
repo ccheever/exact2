@@ -38,7 +38,7 @@ component MermaidFileDiagram
           if frame.retryable
             button press=local("diagram-retry", scheme, diagram.code) testId=`${testId}-retry` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
               text "Retry" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
-        text diagram.code width="100%" margin-top="0.5rem" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)"
+        text diagram.code width="100%" margin-top="0.5rem" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)"
     else
       box position="relative" width="100%"
         MermaidFrameView(src=(scheme == "dark" ? diagram.srcDark : diagram.srcLight), frame=frame, width=0, height=0, placeholder=diagram.code, local=local, testId=`${testId}-frame`)
