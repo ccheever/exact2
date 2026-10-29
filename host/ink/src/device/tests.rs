@@ -176,6 +176,60 @@ fn device_loss_retry_deadlines_advance_and_back_off() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn consecutive_atlas_uploads(d: &mut impl Device) {
+    let mut atlas = Atlas::new([16, 8], Format::Alpha, 0, 1);
+    atlas.begin(d).unwrap();
+    let mut pixels = [73; 64];
+    let first = atlas.insert(d, vec![0], [8, 8], &pixels).unwrap();
+    pixels.fill(211);
+    let second = atlas.insert(d, vec![1], [8, 8], &pixels).unwrap();
+    pixels.fill(0);
+    assert_eq!(first.texture, second.texture);
+    let target = d.create_target(16, 8).unwrap();
+    let mut encoder = Encoder::new(16, 8);
+    for (x, entry) in [(0., first), (8., second)] {
+        let mut instance = Instance::new(Kind::Coverage, Brush::Solid, [x, 0., 8., 8.]);
+        instance.uv = entry.uv;
+        encoder
+            .push(
+                instance,
+                Bindings {
+                    path: entry.texture,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    d.render(&encoder.finish(), target, Some([0.; 4])).unwrap();
+    let result = d.readback(target).unwrap();
+    for (i, pixel) in result.chunks_exact(4).enumerate() {
+        let expected = if i % 16 < 8 { 73 } else { 211 };
+        assert!(
+            pixel.iter().all(|c| c.abs_diff(expected) <= 1),
+            "pixel {i}: {pixel:?}"
+        );
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn wgpu_draws_both_consecutive_atlas_uploads() {
+    consecutive_atlas_uploads(&mut super::wgpu::Wgpu::new().unwrap());
+}
+
+#[cfg(exact_ink_metal)]
+#[test]
+fn metal_draws_both_consecutive_atlas_uploads() {
+    consecutive_atlas_uploads(&mut super::metal::Metal::new().unwrap());
+}
+
+#[cfg(windows)]
+#[test]
+fn d3d11_draws_both_consecutive_atlas_uploads() {
+    consecutive_atlas_uploads(&mut super::d3d11::D3d11::new().unwrap());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn in_flight_storage(d: &mut impl Device) {
     let mut atlas = Atlas::new([16, 16], Format::Alpha, 0, 1);
     let mut pool = Pool::default();
