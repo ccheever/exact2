@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  contextId, contextLink, contextReferences, emptyText, entryIcon, expandCitations, fileLink, historyEntries, pathRows, promptLengthMessage,
-  recallablePrompt, scoreQueryMatch, skillChipLabels, skillRows, slashRows, threadRows,
+  contextId, contextLink, contextLinks, contextReferences, emptyText, entryIcon, expandCitations, fileLink, historyEntries, pathRows, promptLengthMessage,
+  recallablePrompt, replaceContextReferences, scoreQueryMatch, skillChipLabels, skillRows, slashRows, stripContextReferences, threadRows,
 } from '../../src/composer/composer-editor-menu';
 import { composerEditorView, editorLocal, messageContext, threadContextRecords, withMessageContext } from '../../src/composer/composer-editor';
 import { composerRichSource } from '../../src/composer/composer-rich-source';
@@ -251,6 +251,61 @@ describe('prompt length and history', () => {
       { id: '1', kind: 'user', body: 'fixture complete' }, { id: '2', kind: 'assistant', body: 'ok' },
       { id: '3', kind: 'user', body: 'again' }, { id: '4', kind: 'user', body: 'again' },
     ])).toEqual([{ id: '1', prompt: 'fixture complete' }, { id: '4', prompt: 'again' }]);
+  });
+});
+
+// collectComposerContextReferences' expression, and upstream's recall with it (recallableComposerPrompt's chip loop at
+// T3 Code 7c3b3b3605ef): what the one-pass reading must give.
+const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/[^\s)]{1,200})\)/g;
+const parses = (href: string) => { const parts = href.slice(16).split('/'); return parts.length === 2 && /^[a-z][a-z0-9-]{0,39}$/.test(parts[0]!) && /^[a-z0-9_-]{1,128}$/i.test(parts[1]!); };
+function upstreamRecallChips(text: string): string {
+  let prompt = text;
+  for (const match of [...text.matchAll(CONTEXT_LINK)].filter(each => parses(each[3]!)).reverse()) {
+    let start = match.index!, end = start + match[0].length;
+    if (prompt[end] === ' ') end += 1; else if (prompt[start - 1] === ' ') start -= 1;
+    prompt = prompt.slice(0, start) + prompt.slice(end);
+  }
+  return prompt.trim();
+}
+/** Prompts of links, near-links and their pieces, the same each run. */
+function corpus(count: number): string[] {
+  let seed = 0x1151;
+  const next = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 2 ** 32; };
+  const pieces = ['!', '[', ']', '(', ')', ' ', ' ', '\n', 'a', 'Ab', 't3-context://v1/', 'image/img_1', 'file/f-2', 'x/y/z', 'Thread/T', '](t3-context://v1/',
+    '[shot.png](t3-context://v1/image/img_1)', '![s](t3-context://v1/image/i)', '[A](t3-context://v1/thread/t_1)', ' [B](t3-context://v1/file/f)', '\t'];
+  return Array.from({ length: count }, () => Array.from({ length: Math.floor(next() * 24) }, () => pieces[Math.floor(next() * pieces.length)]).join(''));
+}
+
+describe('context links in one pass', () => {
+  const regexLinks = (text: string) => text.includes('](t3-context:') ? [...text.matchAll(CONTEXT_LINK)].map(match => ({ start: match.index!, end: match.index! + match[0].length,
+    image: match[1] === '!', label: match[2]!, href: match[3]! })) : [];
+  test('the same links as collectComposerContextReferences\' expression, its bounds included', () => {
+    const label = (n: number) => 'l'.repeat(n), href = (n: number) => `image/${'i'.repeat(n - 6)}`;
+    for (const text of [...corpus(4000), `[${label(512)}](t3-context://v1/image/i)`, `[${label(513)}](t3-context://v1/image/i)`,
+      `![a](t3-context://v1/${href(200)})`, `![a](t3-context://v1/${href(201)})`, '!![a](t3-context://v1/image/i)', '[a\nb](t3-context://v1/image/i)',
+      '[[a](t3-context://v1/image/i)', '[a](t3-context://v1/image/i x)', '[a](t3-context://v1/)', '[a](t3-context://v1/image/i\u00a0)']) {
+      expect(contextLinks(text)).toEqual(regexLinks(text));
+    }
+  });
+  test('recall, chip references and their replacement read as upstream\'s', () => {
+    for (const text of corpus(4000)) {
+      expect(recallablePrompt(text)).toBe(upstreamRecallChips(text.trim()));
+      expect(stripContextReferences(text)).toBe(text.replace(CONTEXT_LINK, (source, _image, _label, href: string) => parses(href) ? '' : source));
+      expect(replaceContextReferences(text, reference => `<${reference.kind}:${reference.label}>`))
+        .toBe(text.replace(CONTEXT_LINK, (source, _image, label: string, href: string) => parses(href) ? `<${href.slice(16).split('/')[0]}:${label.replace(/[[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) || href.slice(16).split('/')[0]}>` : source));
+    }
+    // A reference the expression matches but whose href names no context stays (parseComposerContextHref).
+    expect(recallablePrompt('see [a](t3-context://v1/x/y/z) now')).toBe('see [a](t3-context://v1/x/y/z) now');
+  });
+  // The expression took 110 ms here for each (500–600 ms a turn in the app); one pass takes under 5.
+  test('a 256,000-character line of `![` takes the history a few milliseconds, with a link after it too', () => {
+    const line = '!['.repeat(128_000), timed = (run: () => unknown) => { const start = performance.now(); run(); return performance.now() - start; };
+    for (const body of [line, `${line}](t3-context://v1/image/i) and [A](t3-context://v1/thread/t_1)`]) {
+      expect(timed(() => historyEntries([{ id: '1', kind: 'user', body }]))).toBeLessThan(30);
+      expect(timed(() => contextReferences(body))).toBeLessThan(30);
+      expect(timed(() => stripContextReferences(body))).toBeLessThan(30);
+    }
+    expect(recallablePrompt(line)).toBe(line);
   });
 });
 

@@ -263,18 +263,62 @@ export function contextLabel(label: string, kind: string): string {
 export function contextLink(kind: string, id: string, label: string): string {
   return `${kind === 'image' ? '!' : ''}[${contextLabel(label, kind)}](t3-context://v1/${kind}/${id})`;
 }
-const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/[^\s)]{1,200})\)/g;
+const CONTEXT_HREF = 't3-context://v1/';
+/** A `[label](t3-context://v1/…)` link of a prompt, an image's with `!` before it. */
+export type ContextLink = { start: number; end: number; image: boolean; label: string; href: string };
+/**
+ * The matches of CONTEXT_LINK, `(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/[^\s)]{1,200})\)`, leftmost first and
+ * none overlapping, found in one pass: the expression reads up to 512 characters after every `[`, so a long line of `![`
+ * held a turn for half a second. Each `[` reads where its label would end from `stop`, and each `]` its link once.
+ */
+export function contextLinks(text: string): ContextLink[] {
+  const links: ContextLink[] = [];
+  if (!text.includes('](t3-context:')) return links;
+  const n = text.length, stop = new Int32Array(n + 1); // the next `]` or line break at or after each index
+  stop[n] = n;
+  for (let at = n - 1; at >= 0; at--) stop[at] = text[at] === ']' || text[at] === '\n' ? at : stop[at + 1]!;
+  const ends = new Map<number, number>(); // by a `]`: the end of the link it closes, or -1
+  const linkEnd = (close: number): number => {
+    let end = ends.get(close);
+    if (end === undefined) {
+      end = -1;
+      if (text.startsWith(`](${CONTEXT_HREF}`, close)) {
+        const from = close + 2 + CONTEXT_HREF.length;
+        let at = from;
+        while (at < n && at - from < 200 && text[at] !== ')' && !/\s/.test(text[at]!)) at++;
+        if (at > from && text[at] === ')') end = at + 1;
+      }
+      ends.set(close, end);
+    }
+    return end;
+  };
+  for (let at = 0; at < n;) {
+    const image = text[at] === '!' && text[at + 1] === '[', open = image ? at + 1 : at;
+    if (text[open] === '[') {
+      const close = stop[open + 1]!, end = text[close] === ']' && close - open - 1 <= 512 ? linkEnd(close) : -1;
+      if (end > 0) {
+        links.push({ start: at, end, image, label: text.slice(open + 1, close), href: text.slice(close + 2, end - 1) });
+        at = end;
+        continue;
+      }
+    }
+    at++;
+  }
+  return links;
+}
+/** parseComposerContextHref: a link's kind and context id, or null where its href names none. */
+function contextTarget(href: string): { kind: string; id: string } | null {
+  const parts = href.slice(CONTEXT_HREF.length).split('/');
+  return parts.length === 2 && /^[a-z][a-z0-9-]{0,39}$/.test(parts[0]!) && CONTEXT_ID.test(parts[1]!) ? { kind: parts[0]!, id: parts[1]! } : null;
+}
 /** `kind/contextId` of every context reference in the prompt, first occurrence first. */
 export function contextReferences(text: string): Array<{ kind: string; id: string; label: string }> {
-  if (!text.includes('](t3-context:')) return [];
   const seen = new Set<string>(), out: Array<{ kind: string; id: string; label: string }> = [];
-  for (const match of text.matchAll(CONTEXT_LINK)) {
-    const parts = match[3]!.slice('t3-context://v1/'.length).split('/');
-    if (parts.length !== 2 || !/^[a-z][a-z0-9-]{0,39}$/.test(parts[0]!) || !CONTEXT_ID.test(parts[1]!)) continue;
-    const key = `${parts[0]}/${parts[1]}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ kind: parts[0]!, id: parts[1]!, label: contextLabel(match[2]!, parts[0]!) });
+  for (const link of contextLinks(text)) {
+    const target = contextTarget(link.href);
+    if (!target || seen.has(`${target.kind}/${target.id}`)) continue;
+    seen.add(`${target.kind}/${target.id}`);
+    out.push({ ...target, label: contextLabel(link.label, target.kind) });
   }
   return out;
 }
@@ -312,20 +356,18 @@ export function citationsToPlainText(prompt: string): string {
 }
 /** replaceComposerContextReferences: each context chip replaced by what `replace` makes of it (its label, for a draft row). */
 export function replaceContextReferences(prompt: string, replace: (reference: { kind: string; id: string; label: string; image: boolean }) => string): string {
-  if (!prompt.includes('](t3-context:')) return prompt;
-  return prompt.replace(CONTEXT_LINK, (source: string, image: string, label: string, href: string) => {
-    const parts = href.slice('t3-context://v1/'.length).split('/');
-    if (parts.length !== 2 || !/^[a-z][a-z0-9-]{0,39}$/.test(parts[0]!) || !CONTEXT_ID.test(parts[1]!)) return source;
-    return replace({ kind: parts[0]!, id: parts[1]!, label: contextLabel(label, parts[0]!), image: image === '!' });
-  });
+  let out = '', cursor = 0;
+  for (const link of contextLinks(prompt)) {
+    const target = contextTarget(link.href);
+    if (!target) continue;
+    out += prompt.slice(cursor, link.start) + replace({ ...target, label: contextLabel(link.label, target.kind), image: link.image });
+    cursor = link.end;
+  }
+  return cursor === 0 ? prompt : out + prompt.slice(cursor);
 }
 /** stripInlineContextReferences: the prompt without its context chips. */
 export function stripContextReferences(prompt: string): string {
-  if (!prompt.includes('](t3-context:')) return prompt;
-  return prompt.replace(CONTEXT_LINK, (source: string, _image: string, _label: string, href: string) => {
-    const parts = href.slice('t3-context://v1/'.length).split('/');
-    return parts.length === 2 && /^[a-z][a-z0-9-]{0,39}$/.test(parts[0]!) && CONTEXT_ID.test(parts[1]!) ? '' : source;
-  });
+  return replaceContextReferences(prompt, () => '');
 }
 /** expandAssistantCitationsForProvider: inline ids plus the quoted JSON block. */
 export function expandCitations(prompt: string): string {
@@ -365,14 +407,35 @@ export function recallablePrompt(text: string): string {
     if (cut === prompt.length) break;
     prompt = prompt.slice(0, cut).trimEnd();
   }
-  for (const match of [...prompt.matchAll(CONTEXT_LINK)].reverse()) {
-    let start = match.index!, end = start + match[0].length;
-    if (prompt[end] === ' ') end += 1; else if (prompt[start - 1] === ' ') start -= 1;
-    prompt = prompt.slice(0, start) + prompt.slice(end);
-  }
-  const trimmed = prompt.trim();
+  // Recall strips chips, whose records are absent: each with the space after it, else the one before.
+  const trimmed = withoutLinks(prompt, contextLinks(prompt).filter(link => contextTarget(link.href))).trim();
   if (trimmed === ATTACHMENT_ONLY || trimmed.startsWith('PLEASE IMPLEMENT THIS PLAN:\n')) return '';
   return trimmed;
+}
+/**
+ * `text` without `links` (ascending, apart), each taken out with one space beside it, the one after it else the one
+ * before, last first: upstream's loop of slices, which reads a space the later removals left. In one pass, the kept
+ * pieces gathered last first and a removal's space after it taken off the front of what is kept (`skip`).
+ */
+function withoutLinks(text: string, links: readonly ContextLink[]): string {
+  const pieces: string[] = [];
+  let cursor = text.length, skip = 0;
+  for (let index = links.length - 1; index >= 0; index--) {
+    let { start, end } = links[index]!;
+    const after = end < cursor ? text[end] : pieces.at(-1)?.[skip];
+    if (after === ' ') {
+      if (end < cursor) end += 1;
+      else if (++skip === pieces.at(-1)!.length) { pieces.pop(); skip = 0; }
+    } else if (text[start - 1] === ' ') start -= 1;
+    if (end < cursor) {
+      if (skip) { pieces.push(pieces.pop()!.slice(skip)); skip = 0; }
+      pieces.push(text.slice(end, cursor));
+    }
+    cursor = start;
+  }
+  if (skip) pieces.push(pieces.pop()!.slice(skip));
+  pieces.push(text.slice(0, cursor));
+  return pieces.reverse().join('');
 }
 /** Oldest first; consecutive duplicates collapse into the newest. */
 export function historyEntries(messages: Array<{ id: string; kind: string; body: string; attribution?: string }>): Array<{ id: string; prompt: string }> {
