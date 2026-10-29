@@ -9,6 +9,8 @@ import {mobileEditorSnapshot as snapshot,mobileEditorAction as action,mobileEdit
 import {mobileEditorOwner,mobileEditorCaptureIntent} from './composer-editor-owner';
 import {mobileComposerContextsHydrate,mobileComposerContextSendSnapshot,mobileComposerContextRead} from './composer-command-context';
 import {mobileComposerTarget} from './composer-target';
+import {mobileNewTaskDraftCreate,mobileNewTaskDraftBind} from './mobile-new-task-drafts';
+import {mobileEditorFilesSnapshot,mobileEditorFilesReady,mobileEditorFilesIntake} from './composer-file-runtime';
 import {formatComposerContextReference as reference} from './composer-editor-document';
 import {fleet} from './shared/settings-b-fleet';
 import {obj,type Obj} from './shared/domain';
@@ -112,6 +114,19 @@ async function fixture(count=1,text=Array.from({length:count},(_,i)=>token(i+1))
  return {client,target,route,presentation,native,storage,calls,writes,events,bytes,holds,intakes,pick:(rows:Obj[])=>{picked=copy(rows)},makeFile,view,event,send,mount,protect,read,disk:()=>copy(disk),
   beforeNative:(h:typeof nativeBefore)=>{nativeBefore=h},saveHook:(h:typeof saveHook)=>{saveHook=h},nativeHook:(h:typeof nativeHook)=>{nativeHook=h}};
 }
+
+test('a bound NewTask draft stays outside ordinary file runtime despite its ordinary target kind',async()=>{
+ const f=await fixture(0),before=await f.mount(),client=f.client;
+ client.threadId='';f.route.threadId='';
+ const draft=mobileNewTaskDraftCreate(client,{id:'file-runtime',origin:client.origin,environmentId:client.environmentId,
+  projectId:client.projectId,createdAt:'2026-10-29T02:00:00.000Z'});
+ expect(mobileNewTaskDraftBind(client,draft.key,'new-task-flow')).toBe(true);
+ expect(mobileComposerTarget(client)).toMatchObject({kind:'ordinary',key:draft.key,threadId:''});
+ const calls=f.calls.length;
+ f.view();expect(mobileEditorFilesSnapshot(client).ready).toBe(false);expect(mobileEditorFilesReady(client,before.admission)).toBe(false);
+ await expect(mobileEditorFilesIntake(client,before.admission,uuid(99),[],f.native)).rejects.toThrow();
+ expect(f.calls).toHaveLength(calls);
+});
 
 test('offline native ready stays noneditable until actual saved canonical hold, with no synthetic save',async()=>{
  const f=await fixture(),v=await f.mount();expect(v.files.ready).toBe(false);expect(v.files.needsPrepare).toBe(true);

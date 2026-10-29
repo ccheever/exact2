@@ -3,7 +3,7 @@
 import { mobileComposerFileScope } from './composer-file-scope';
 import type { DraftFile } from './shared/composer-editor-files';
 import type { ComposerMountedIdentity } from './composer-editor-state';
-import type { FileHoldTarget, HeldFile } from './composer-file-holds-io';
+import type { OrdinaryFileHoldTarget, HeldFile } from './composer-file-holds-io';
 import type { MobileMessageContext } from './mobile-new-task-context';
 import { mobileContextRecordValid } from './mobile-context-record';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
@@ -11,13 +11,13 @@ import type { Obj } from './shared/domain';
 
 export interface ComposerFileHistoryEntry { readonly file:DraftFile; readonly hold:HeldFile }
 export interface ComposerFileHistory {
-  readonly identity:ComposerMountedIdentity; readonly target:FileHoldTarget;
+  readonly identity:ComposerMountedIdentity; readonly target:OrdinaryFileHoldTarget;
   readonly revision:number; readonly closed:boolean; readonly entries:readonly ComposerFileHistoryEntry[];
 }
 export type ComposerFileHistoryAttachment = {readonly type:'image';readonly id:string}
   | {readonly type:'file';readonly file:DraftFile;readonly hold:HeldFile|null};
 export interface ComposerFileHistoryInput {
-  readonly identity:ComposerMountedIdentity; readonly target:FileHoldTarget;
+  readonly identity:ComposerMountedIdentity; readonly target:OrdinaryFileHoldTarget;
   readonly attachments:readonly ComposerFileHistoryAttachment[];
   readonly context:MobileMessageContext|undefined;
   /** Current IO-usable bindings, including historical entries. Shape cannot authenticate native authority. */
@@ -50,10 +50,11 @@ const identityFields=['owner','editorId','routeVisit','renderEpoch','mountId'];
 function identity(value:unknown):value is ComposerMountedIdentity {
   return plain(value)&&keys(value,identityFields)&&identityFields.every(key=>text(value[key]));
 }
-function scope(i:unknown,t:unknown):boolean {
-  return identity(i)&&mobileComposerFileScope(i.owner,t)!==null;
+function scope(i:unknown,t:unknown):{target:OrdinaryFileHoldTarget;generation:number}|null {
+  const decoded=identity(i)?mobileComposerFileScope(i.owner,t):null;
+  return decoded&&'threadId'in decoded.target?{target:decoded.target,generation:decoded.generation}:null;
 }
-function file(value:unknown,target:FileHoldTarget):value is DraftFile {
+function file(value:unknown,target:OrdinaryFileHoldTarget):value is DraftFile {
   if(!plain(value)||!uuid(value.id)||!integer(value.sizeBytes)||value.sizeBytes>50*1024*1024
     ||!['contextId','draftKey','environmentId','name','mimeType','source'].every(key=>text(value[key]))
     ||value.draftKey!==target.draftKey||value.environmentId!==target.environmentId||typeof value.attachmentId!=='string'
@@ -62,11 +63,11 @@ function file(value:unknown,target:FileHoldTarget):value is DraftFile {
   return Object.keys(value).every(key=>fields.includes(key))&&['videoWidth','videoHeight'].every(key=>!Object.hasOwn(value,key)
     ||typeof value[key]==='number'&&Number.isFinite(value[key])&&Number(value[key])>0);
 }
-function held(value:unknown,i:ComposerMountedIdentity,t:FileHoldTarget):value is HeldFile {
+function held(value:unknown,i:ComposerMountedIdentity,t:OrdinaryFileHoldTarget):value is HeldFile {
   if(!plain(value)||!keys(value,['request','receipt'])||!plain(value.request)||!plain(value.receipt))return false;
   const q=value.request,r=value.receipt;
   return keys(q,['op','action','generation','identity','requestId','target','file'])&&q.op==='composerFileHold'&&q.action==='acquire'
-    &&integer(q.generation)&&q.generation===mobileComposerFileScope(i.owner,t)?.generation&&uuid(q.requestId)
+    &&integer(q.generation)&&q.generation===scope(i,t)?.generation&&uuid(q.requestId)
     &&equal(q.identity,i)&&equal(q.target,t)&&file(q.file,t)&&q.file.source==='attached'
     &&keys(r,['identity','requestId','holdId','fileIdentity','id','sizeBytes'])&&equal(r.identity,i)
     &&r.requestId===q.requestId&&uuid(r.holdId)&&uuid(r.fileIdentity)&&r.id===q.file.id&&r.sizeBytes===q.file.sizeBytes;
@@ -76,8 +77,8 @@ function historyValid(value:unknown):value is ComposerFileHistory {
     ||!integer(value.revision)||typeof value.closed!=='boolean'||!Array.isArray(value.entries)||value.closed&&value.entries.length>0)return false;
   const ids=new Set<string>(),requests=new Set<string>();
   for(const entry of value.entries) {
-    if(!plain(entry)||!keys(entry,['file','hold'])||!file(entry.file,value.target as unknown as FileHoldTarget)||entry.file.source!=='attached'
-      ||!held(entry.hold,value.identity as ComposerMountedIdentity,value.target as unknown as FileHoldTarget)
+    if(!plain(entry)||!keys(entry,['file','hold'])||!file(entry.file,value.target as unknown as OrdinaryFileHoldTarget)||entry.file.source!=='attached'
+      ||!held(entry.hold,value.identity as ComposerMountedIdentity,value.target as unknown as OrdinaryFileHoldTarget)
       ||entry.hold.receipt.id!==entry.file.id||entry.hold.receipt.sizeBytes!==entry.file.sizeBytes||ids.has(entry.file.id)
       ||requests.has(entry.hold.request.requestId))return false;
     ids.add(entry.file.id);requests.add(entry.hold.request.requestId);

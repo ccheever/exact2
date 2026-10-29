@@ -8,6 +8,7 @@ import {localId} from './shared/composer-editor';
 import {fleet} from './shared/settings-b-fleet';
 import {queuedEditNative} from './queued-edit-state';
 import {mobileCacheCatalogIdentity} from './mobile-client-cache-catalog';
+import {mobileComposerFileScope} from './composer-file-scope';
 import {mobileComposerContextSendSnapshot} from './composer-command-context';
 import {mobileEditorOwner,mobileEditorContextTargetCurrent,mobileEditorPublishMounted,type EditorOwner} from './composer-editor-owner';
 import {mobileOutboxTransferCanonical as canonical} from './mobile-outbox-transfer-model';
@@ -43,8 +44,10 @@ function observe(client:T3Client):State|null {
   const catalog=mobileCacheCatalogIdentity(fleet.saved,owner.target.environmentId);
   if(!catalog||owner.signature!==JSON.stringify([owner.target.owner,owner.route.routeVisit,owner.route.editorId,catalog]))return null;
   const target={origin:owner.target.origin,environmentId:owner.target.environmentId,threadId:owner.target.threadId,draftKey:owner.target.key};
+  const scope=mobileComposerFileScope(owner.target.owner,target);
+  if(!scope||!('threadId'in scope.target)||scope.generation!==owner.target.generation)return null;
   const ledger=mobileFileHoldsCreate(identity(owner),owner.target.generation,target);
-  const s:State={incoming:new Map(),admission:owner.admission,owner,catalog,ledger,history:{identity:ledger.identity,target:ledger.target,revision:0,closed:false,entries:[]},
+  const s:State={incoming:new Map(),admission:owner.admission,owner,catalog,ledger,history:{identity:ledger.identity,target,revision:0,closed:false,entries:[]},
     seeded:false,attempt:0,attempted:'',message:'',releaseRevision:0};
   r.active=s;r.message='';changed(client);return s;
 }
@@ -58,7 +61,7 @@ function inspect(client:T3Client,s:State) {
   if(missing.length)return {ready:false,key,message:s.message||'Protecting saved files before editing…',snapshot,holds};
   if(s.history.entries.some(e=>!holds.some(h=>h.request.requestId===e.hold.request.requestId)))return {ready:false,key:'',message:'A file history hold is no longer usable.',snapshot,holds};
   if(!s.seeded){
-    const seeded=mobileComposerFileHistoryProject(s.history,{identity:s.ledger.identity,target:s.ledger.target,context:snapshot.context??undefined,
+    const seeded=mobileComposerFileHistoryProject(s.history,{identity:s.ledger.identity,target:s.history.target,context:snapshot.context??undefined,
       attachments:snapshot.attachmentIds.map(id=>{const file=snapshot.files.find(f=>f.id===id);return file?{type:'file' as const,file,hold:byId.get(id)??null}:{type:'image' as const,id}}),usableHolds:holds});
     if(seeded.status!=='ready'||seeded.unavailable.length)return {ready:false,key:'',message:'A referenced file is unavailable for Undo.',snapshot,holds};
     s.history=seeded.history;s.seeded=true;changed(client);

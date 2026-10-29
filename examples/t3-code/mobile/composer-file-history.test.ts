@@ -136,3 +136,16 @@ test('file holds, picker intake and history share ordinary owner scope admission
  expect(()=>mobilePickerIntakeRequest({op:'composerPickerIntake',action:'pick',generation:4,identity,
   operationId:uuid(77),target,document:{incarnation:'document',revision:0},source:'files',remaining:1,fileLimit:1024})).toThrow();
 });
+
+test('NewTask IO admission cannot create or dispose an ordinary history',()=>{
+ const independent={kind:'new-task' as const,origin:target.origin,environmentId:target.environmentId,
+  projectId:'project',draftKey:'new-task:history',createdAt:'2026-10-29T02:00:00.000Z'};
+ const mounted={...identity,owner:JSON.stringify(['ordinary',independent.origin,independent.environmentId,3,independent.draftKey,independent.createdAt])};
+ expect(create(mounted,3,independent).target).toEqual(independent);
+ expect(mobilePickerIntakeRequest({op:'composerPickerIntake',action:'pick',generation:3,identity:mounted,
+  operationId:uuid(90),target:independent,document:{incarnation:independent.createdAt,revision:0},source:'files',remaining:1,fileLimit:1024}).action).toBe('pick');
+ const raw:unknown={identity:mounted,target:independent,revision:0,closed:false,entries:[]};
+ const incoming:unknown={identity:mounted,target:independent,attachments:[],context:undefined,usableHolds:[]};
+ expect(project(raw as ComposerFileHistory,incoming as ComposerFileHistoryInput)).toEqual({status:'refused',reason:'invalid'});
+ expect(dispose(raw as ComposerFileHistory)).toEqual({status:'refused',reason:'invalid'});
+});

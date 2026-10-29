@@ -4,6 +4,7 @@ import { mobileComposerFileScope } from './composer-file-scope';
 import type { ComposerMountedIdentity } from './composer-editor-state';
 import type { FileHoldTarget } from './composer-file-holds-io';
 import type { ThreadSendTransferCompletion } from './thread-send-transfer-model';
+import type { MobileNewTaskDraft } from './mobile-new-task-drafts';
 import { mobileContextRecordValid } from './mobile-context-record';
 import type { Obj as JsonObj } from './shared/domain';
 import { ClientError, reply, type Native } from './shared/protocol';
@@ -14,7 +15,8 @@ interface PickerIntakeBase {op:'composerPickerIntake';generation:number;identity
 export interface PickerIntakePick extends PickerIntakeBase {
   action:'pick';target:FileHoldTarget;document:{incarnation:string;revision:number};source:'photos'|'files';remaining:number;fileLimit:number;
 }
-export interface PickerIntakePublication {after:ThreadSendTransferCompletion['after'];acceptedIds:string[];discardedIds:string[]}
+export type PickerIntakeNewTaskAfter=Omit<ThreadSendTransferCompletion['after'],'document'|'context'>&{record:MobileNewTaskDraft};
+export interface PickerIntakePublication {after:ThreadSendTransferCompletion['after']|PickerIntakeNewTaskAfter;acceptedIds:string[];discardedIds:string[]}
 export interface PickerIntakeFinish extends PickerIntakeBase {action:'finish';publication:PickerIntakePublication}
 export interface PickerIntakeObserve extends PickerIntakeBase {action:'status'|'cancel'}
 export type PickerIntakeRequest=PickerIntakePick|PickerIntakeFinish|PickerIntakeObserve;
@@ -48,33 +50,53 @@ function scope(v:unknown,i:ComposerMountedIdentity,generation:number):v is FileH
   return mobileComposerFileScope(i.owner,v)?.generation===generation;
 }
 function publication(v:unknown,i:ComposerMountedIdentity,generation:number):boolean {
-  if(!plain(v)||!keys(v,['after','acceptedIds','discardedIds'])||!plain(v.after)||!keys(v.after,['document','text','context','images','files','attachmentIds','attachmentOrder'])
+  if(!plain(v)||!keys(v,['after','acceptedIds','discardedIds'])||!plain(v.after)
     ||!Array.isArray(v.acceptedIds)||!Array.isArray(v.discardedIds)||!(v.acceptedIds as unknown[]).every(uuid)||!(v.discardedIds as unknown[]).every(uuid)
     ||new Set([...v.acceptedIds,...v.discardedIds]).size!==v.acceptedIds.length+v.discardedIds.length)return false;
-  const a=v.after,d=a.document,c=a.context;
-  if(!plain(d)||!keys(d,['origin','environmentId','threadId','draftKey','incarnation','revision','selection'])||!text(d.incarnation)||d.incarnation.length>128||!integer(d.revision)
-    ||typeof a.text!=='string'||a.text.length>1_000_000||!scope({origin:d.origin,environmentId:d.environmentId,threadId:d.threadId,draftKey:d.draftKey},i,generation))return false;
-  if(d.selection!==null&&(!plain(d.selection)||!keys(d.selection,['start','end'])||!integer(d.selection.start)||!integer(d.selection.end)||d.selection.start>d.selection.end||d.selection.end>a.text.length))return false;
-  if(c!==null&&(!plain(c)||!keys(c,['origin','environmentId','key','revision','text','context'])||c.origin!==d.origin||c.environmentId!==d.environmentId||c.key!==d.draftKey||!integer(c.revision)||c.text!==a.text))return false;
-  if(c!==null){
-    const context=(c as Obj).context;
-    if(!plain(context)||!keys(context,['version','records'])||context.version!==1||!Array.isArray(context.records))return false;
-    const seen=new Set<string>();
-    if(!context.records.every(r=>{if(!plain(r)||!mobileContextRecordValid(r as JsonObj)||seen.has(String(r.contextId)))return false;seen.add(String(r.contextId));return true}))return false;
-  }
+  const a=v.after;
+  if(typeof a.text!=='string'||a.text.length>1_000_000)return false;
+  let owner:FileHoldTarget;
+  if(keys(a,['document','text','context','images','files','attachmentIds','attachmentOrder'])){
+    const d=a.document,c=a.context;
+    if(!plain(d)||!keys(d,['origin','environmentId','threadId','draftKey','incarnation','revision','selection'])||!text(d.incarnation)||d.incarnation.length>128||!integer(d.revision))return false;
+    const target={origin:d.origin,environmentId:d.environmentId,threadId:d.threadId,draftKey:d.draftKey};
+    if(!scope(target,i,generation))return false;owner=target;
+    if(d.selection!==null&&(!plain(d.selection)||!keys(d.selection,['start','end'])||!integer(d.selection.start)||!integer(d.selection.end)||d.selection.start>d.selection.end||d.selection.end>a.text.length))return false;
+    if(c!==null&&(!plain(c)||!keys(c,['origin','environmentId','key','revision','text','context'])||c.origin!==d.origin||c.environmentId!==d.environmentId||c.key!==d.draftKey||!integer(c.revision)||c.text!==a.text))return false;
+    if(c!==null){
+      const context=(c as Obj).context;
+      if(!plain(context)||!keys(context,['version','records'])||!contextRecords(context))return false;
+    }
+  }else if(keys(a,['record','text','images','files','attachmentIds','attachmentOrder'])){
+    const r=a.record;
+    if(!plain(r)||!integer(r.revision)||r.choices!==null&&!plain(r.choices))return false;
+    const target={kind:'new-task',origin:r.origin,environmentId:r.environmentId,projectId:r.projectId,draftKey:r.key,createdAt:r.createdAt};
+    if(!scope(target,i,generation))return false;owner=target;
+    if(Object.hasOwn(r,'context')&&(!plain(r.context)||!contextRecords(r.context)||!Array.isArray(r.context.records)||r.context.records.length>200))return false;
+  }else return false;
   if(!Array.isArray(a.images)||!Array.isArray(a.files)||!Array.isArray(a.attachmentIds)||!a.attachmentIds.every(text))return false;
+  const attachmentIds=a.attachmentIds;
+  if('kind'in owner&&(!v.acceptedIds.every(id=>attachmentIds.includes(id))||v.discardedIds.some(id=>attachmentIds.includes(id))))return false;
   const ids=new Set<string>();
   const descriptor=(row:unknown):row is Obj=>{
     if(!plain(row)||!text(row.id)||ids.has(row.id)||!text(row.name)||!text(row.mimeType)||!integer(row.sizeBytes))return false;ids.add(row.id);return true;
   };
   if(!a.images.every(row=>descriptor(row)&&(!Object.hasOwn(row,'uploadId')||typeof row.uploadId==='string')&&(!Object.hasOwn(row,'source')||plain(row.source))))return false;
-  if(!a.files.every(row=>descriptor(row)&&row.draftKey===d.draftKey&&row.environmentId===d.environmentId&&text(row.contextId)
+  if(!a.files.every(row=>descriptor(row)&&row.draftKey===owner.draftKey&&row.environmentId===owner.environmentId&&text(row.contextId)
     &&typeof row.source==='string'&&['attached','pasted-text'].includes(row.source)&&typeof row.status==='string'&&['staged','ready'].includes(row.status)
     &&typeof row.attachmentId==='string'&&['videoWidth','videoHeight'].every(k=>!Object.hasOwn(row,k)||typeof row[k]==='number'&&Number.isFinite(row[k])&&row[k]>0)))return false;
   // Saved projection is not Send admission: unavailable historical image records, recovery
   // overflow and private files remain exact metadata and grant no new upload authority.
-  return a.attachmentIds.length===ids.size&&a.attachmentIds.every(id=>ids.delete(id))
-    &&(a.attachmentIds.length===0?a.attachmentOrder===null:JSON.stringify(a.attachmentIds)===JSON.stringify(a.attachmentOrder));
+  return attachmentIds.length===ids.size&&attachmentIds.every(id=>ids.delete(id))
+    &&(attachmentIds.length===0?a.attachmentOrder===null:JSON.stringify(attachmentIds)===JSON.stringify(a.attachmentOrder));
+}
+function contextRecords(context:Obj):boolean {
+  if(context.version!==1||!Array.isArray(context.records))return false;
+  const seen=new Set<string>();
+  return context.records.every(r=>{
+    if(!plain(r)||!mobileContextRecordValid(r as JsonObj)||seen.has(String(r.contextId)))return false;
+    seen.add(String(r.contextId));return true;
+  });
 }
 /** Plain, copied input only. No retained native/clock/current predicate. */
 export function mobilePickerIntakeRequest(raw:unknown):PickerIntakeRequest {
@@ -85,6 +107,7 @@ export function mobilePickerIntakeRequest(raw:unknown):PickerIntakeRequest {
       ||!keys(raw.document,['incarnation','revision'])||!text(raw.document.incarnation)||raw.document.incarnation.length>128||!integer(raw.document.revision)
       ||!['photos','files'].includes(String(raw.source))||typeof raw.source!=='string'||!integer(raw.remaining)||raw.remaining<1||raw.remaining>100
       ||!integer(raw.fileLimit)||raw.fileLimit>50*1024*1024||raw.source==='files'&&raw.fileLimit===0)throw fail();
+    if('kind'in raw.target&&raw.document.incarnation!==raw.target.createdAt)throw fail();
   }else if(raw.action==='finish'){
     if(!keys(raw,[...base,'publication'])||!publication(raw.publication,raw.identity,raw.generation))throw fail('The picker publication snapshot is invalid.');
   }else if(!['status','cancel'].includes(raw.action)||!keys(raw,base))throw fail();

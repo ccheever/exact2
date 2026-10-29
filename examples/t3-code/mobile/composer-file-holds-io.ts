@@ -1,4 +1,3 @@
-// Invocation-owned adapter for saved ordinary canonical file holds. No runtime activation.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { mobileComposerFileScope } from './composer-file-scope';
 import type { PickerIntakeProvenance } from './composer-picker-intake-io';
@@ -7,7 +6,11 @@ import type { DraftFile } from './shared/composer-editor-files';
 import { ClientError, reply, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
 
-export interface FileHoldTarget { origin:string; environmentId:string; threadId:string; draftKey:string }
+export interface OrdinaryFileHoldTarget { origin:string; environmentId:string; threadId:string; draftKey:string }
+export interface NewTaskFileHoldTarget {
+  kind:'new-task';origin:string;environmentId:string;projectId:string;draftKey:string;createdAt:string;
+}
+export type FileHoldTarget=OrdinaryFileHoldTarget|NewTaskFileHoldTarget;
 export interface FileHoldRequest {
   op:'composerFileHold'; action:'acquire'; generation:number; identity:ComposerMountedIdentity;
   requestId:string; target:FileHoldTarget; file:DraftFile;
@@ -90,7 +93,7 @@ function receipt(raw:unknown,request:FileHoldRequest):FileHoldReceipt {
   return copy(r as unknown as FileHoldReceipt);
 }
 export function mobileFileHoldsCreate(identity:ComposerMountedIdentity,generation:number,target:FileHoldTarget):FileHoldLedger {
-  if(!scopeValid(identity,generation,target))throw fail('Only a captured ordinary native editor can retain saved files.');
+  if(!scopeValid(identity,generation,target))throw fail('The captured attachment editor is unavailable.');
   return {identity:copy(identity),generation,target:copy(target),retired:false,revision:0,serial:0,entries:{}};
 }
 /** Caller uses existing localId() once, retains this plain reservation, then invokes acquire. */

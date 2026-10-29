@@ -82,3 +82,77 @@ test('retired issued acquisition remains cleanup-only and normal saved acquisiti
   const ordinary=create(identity,3,target),r=reserve(ordinary,saved,id(6));await acquire(ordinary,id(6),native(v=>{expect(v).toBe(r);return heldReply(v)}));
   expect(held(ordinary,id(6))?.request.file.id).toBe(file.id);
 });
+
+const newTarget={kind:'new-task' as const,origin:target.origin,environmentId:target.environmentId,projectId:'project',
+  draftKey:'new-task:picker',createdAt:'2026-10-29T02:00:00.000Z'};
+const newIdentity={...identity,owner:JSON.stringify(['ordinary',newTarget.origin,newTarget.environmentId,3,newTarget.draftKey,newTarget.createdAt])};
+const newPick={...pick,identity:newIdentity,target:newTarget,document:{incarnation:newTarget.createdAt,revision:2}};
+const newFile={...saved,draftKey:newTarget.draftKey};
+function newFinish(){return {...finish,identity:newIdentity,publication:{acceptedIds:[file.id],discardedIds:[],after:{
+  record:{key:newTarget.draftKey,origin:newTarget.origin,environmentId:newTarget.environmentId,projectId:newTarget.projectId,
+    createdAt:newTarget.createdAt,revision:3,choices:null,
+    context:{version:1,records:[{version:1,kind:'mention',contextId:'mention',label:'README',path:'README.md',extra:{retained:true}}]},
+    extension:{unknown:['keep',1]}},text:'🙂 @README',images:[],files:[clone(newFile)],attachmentIds:[file.id],attachmentOrder:[file.id]}}};}
+const newValue=(status='staged')=>({...value(status),identity:newIdentity});
+
+test('NewTask pick and full-record finish retain detached immutable input and raw saved extensions',async()=>{
+  const original=clone(newPick),owned=request(original);original.target.projectId='changed';original.document.revision=9;
+  expect(owned).toEqual(newPick);expect(Object.isFrozen(owned)).toBe(true);
+  expect((await invoke(owned,native(r=>{expect(r).toEqual(newPick);return answer(newValue())}),()=>true)).state).toBe('answered');
+  const raw=newFinish(),before=clone(raw),finished=request(raw);
+  raw.publication.after.record.extension.unknown.push('later');raw.publication.after.record.context.records[0]!.extra.retained=false;
+  expect(finished).toEqual(before);
+  if(finished.action!=='finish'||!('record'in finished.publication.after))throw Error('NewTask finish fixture');
+  expect(Object.isFrozen(finished.publication.after.record)).toBe(true);
+  expect(Object.isFrozen(finished.publication.after.record.context)).toBe(true);
+  expect((await invoke(finished,native(()=>answer(newValue('finished'))),()=>true)).state).toBe('answered');
+});
+for(const patch of [
+  {target:{...newTarget,threadId:'thread'}},{target:{...newTarget,kind:'other'}},{target:{...newTarget,projectId:''}},
+  {target:{...newTarget,createdAt:'other'}},{target:{...newTarget,createdAt:'x'.repeat(129)}},
+  {target:{...newTarget,draftKey:'new-task:pending-one'}},{target:{...newTarget,draftKey:'new-task:bad.key'}},
+  {generation:4},{document:{incarnation:'other',revision:2}},
+  {identity:{...newIdentity,owner:JSON.stringify(['ordinary',newTarget.origin,newTarget.environmentId,3,newTarget.draftKey])}},
+])test(`NewTask picker rejects foreign or hybrid capture ${JSON.stringify(patch)}`,()=>{expect(()=>request({...newPick,...patch})).toThrow()});
+
+test('NewTask finish preserves absent context and refuses malformed ownership, context and partitions',()=>{
+  const absent=newFinish(),record:Record<string,unknown>=absent.publication.after.record;delete record.context;
+  const parsed=request(absent);expect(parsed).toEqual(absent);
+  if(parsed.action!=='finish'||!('record'in parsed.publication.after))throw Error('NewTask finish fixture');
+  expect(Object.hasOwn(parsed.publication.after.record,'context')).toBe(false);
+  const cases:((value:Record<string,unknown>)=>void)[]=[
+    record=>{record.context=null},record=>{record.context={version:1,records:'bad'}},record=>{record.choices=[]},
+    record=>{record.projectId=''},record=>{record.createdAt='other'},record=>{record.key='new-task:pending-one'},
+    record=>{record.revision=-1},record=>{record.revision=true},
+    record=>{record.context={version:1,records:Array.from({length:201},(_,n)=>({version:1,kind:'mention',contextId:`c${n}`,label:'p',path:'p'}))}},
+    record=>{record.context={version:1,records:Array.from({length:2},()=>({version:1,kind:'mention',contextId:'same',label:'p',path:'p'}))}},
+  ];
+  for(const mutate of cases){const raw=newFinish();mutate(raw.publication.after.record);expect(()=>request(raw)).toThrow()}
+  const hybrid={...newFinish(),publication:{...newFinish().publication,after:{...newFinish().publication.after,document:finish.publication.after}}};
+  expect(()=>request(hybrid)).toThrow();
+  for(const publication of [
+    {...newFinish().publication,acceptedIds:[id(99)]},
+    {...newFinish().publication,acceptedIds:[],discardedIds:[file.id]},
+    {...newFinish().publication,discardedIds:[file.id]},
+    {...newFinish().publication,after:{...newFinish().publication.after,attachmentOrder:[]}},
+    {...newFinish().publication,after:{...newFinish().publication.after,files:[{...newFile,environmentId:'foreign'}]}},
+  ])expect(()=>request({...newFinish(),publication})).toThrow();
+});
+
+test('NewTask saved and issued holds retain their exact requests and retire late replies into cleanup',async()=>{
+  for(const issued of [false,true]){
+    const ledger=create(newIdentity,3,newTarget),requestId=id(issued?30:31),provenance=issued?{operationId:pick.operationId}:undefined;
+    const reserved=reserve(ledger,newFile,requestId,provenance),calls:unknown[]=[];let lost=true;
+    const io=native(r=>{calls.push(clone(r));if(lost)throw Error('lost reply');return heldReply(r)});
+    expect((await acquire(ledger,requestId,io)).phase).toBe('acquire-uncertain');lost=false;
+    expect((await acquire(ledger,requestId,io)).held?.request).toEqual(reserved);expect(calls[0]).toEqual(calls[1]);
+    const captured=calls[1] as Record<string,unknown>;
+    expect(captured.op).toBe(issued?'composerPickerIntake':'composerFileHold');
+    if(issued)expect(captured.request).toEqual(reserved);else expect(captured).toEqual(reserved);
+    const pendingLedger=create(newIdentity,3,newTarget),pendingId=id(issued?32:33);
+    reserve(pendingLedger,newFile,pendingId,provenance);const wait=deferred();let sent:unknown;
+    const pending=acquire(pendingLedger,pendingId,native(r=>{sent=r;return wait.promise}));retire(pendingLedger);
+    wait.resolve(heldReply(sent));expect((await pending).phase).toBe('release-needed');expect(held(pendingLedger,pendingId)).toBeNull();
+    expect((await release(pendingLedger,pendingId,native(r=>answer({status:'released',requestId:r.requestId})))).phase).toBe('released');
+  }
+});

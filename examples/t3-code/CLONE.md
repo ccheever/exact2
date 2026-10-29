@@ -295,7 +295,16 @@ issued holds, refused ownership changes, retirement, failed saves, terminal
 replay and cold cleanup for ordinary and NewTask drafts. All 3,871 mobile tests,
 strict TypeScript, boot, the Rust checks and the normal native build pass.
 Independent source review finds no introduced blocker. This verifies the native
-boundary; NewTask caller integration and system-picker activation remain open.
+boundary. App-owned TypeScript IO now accepts the same closed NewTask target
+and full saved-record publication through its existing picker and hold lifecycle.
+Ordinary history and runtime retain explicit thread-only admission. The focused
+suites pass 134 tests; all 3,886 mobile tests, strict TypeScript, boot and the normal
+native build pass. Removing the ordinary guard makes its new regression fail.
+Independent review finds no defect and passes 21 additional boundary assertions.
+The normal app imports the real 2 KB Markdown file, opens its preview, removes
+it, and restores an empty composer after restart. The environment and conversation
+remain available. Native NewTask producer integration and activation remain open;
+its textarea is unchanged. This IO unit is outside the delivered TestFlight build.
 
 A large-catalogue cold launch exposed a blank transcript, unready Send and a
 Hermes allocation failure. Composer preparation copied and fingerprinted command
