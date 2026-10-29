@@ -563,7 +563,16 @@ Owners as they free up (the lead's order).
    which the compiler can't require, is checked non-empty on every round library-gate cell and by the adopting
    copy's script. Its tone-by-state colours and three press scales are params over `actions.follow-*` tokens, its
    sizes tokens (theme2's sign-off: tokens, not per-size params). Stated limit: its label's font weight is fixed per
-   size (500 small, 600 tiny), since there is no weight token kind for an app to restyle it; its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
+   size (500 small, 600 tiny), since there is no weight token kind for an app to restyle it. Its primary tone is
+   Bluesky's literal (`actions.follow-fill = light-dark(#006aff, #0f73ff)` under fixed white
+   `actions.follow-ink`), not the platform accent (theme2's 2026-10-27 23:51 ruling: Apple's default accent under
+   white text would drop to 3.52:1 light and 3.23:1 dark). An app or a theme importer reaches it by setting
+   `actions.follow-fill` and `actions.follow-ink` by full name. The ruled import path, owned by dtool3 and not built
+   yet, is for its importer to map an imported accent there with an ink chosen for 4.5:1 (today the shadcn and
+   Astryx importers map an accent to `AccentColor` only), so an import doesn't recolour the primary until it lands. Listed, a pre-existing gap not fixed here: the dark default, white on `#0f73ff`,
+   is 4.27:1 (light, on `#006aff`, 4.66:1), under 4.5:1 for the 13 px weight-500 small label. The overlay tone is
+   fixed (the video feed's own dark theme) and the subtle shades (`primary_50`, `primary_600`) stay Bluesky's
+   literal values by choice, as before, rather than a `color-mix()` of the fill. Its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
    beside Bluesky's paths. Library-gate places it once per compiler-marked variant value (following, tone, size,
    shape) with each icon pattern and each tone and size following as samples.
    **Stage 15 B batch 2 (2026-10-27)** adds `@exact/cards`' **EmptyState** and `@exact/lists`' **MenuItem** and
