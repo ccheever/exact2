@@ -55,6 +55,11 @@ type Retirement = (Vec<(Target, String, Vec<Vec<u8>>)>, Vec<(String, Vec<u8>)>);
 struct OwnerQueue {
     sender: Sender<Job>,
     pending: Option<Arc<Mutex<Option<Retirement>>>>,
+    /// Turns dispatched whose job the host has not handed over yet, by token.
+    /// A retirement that lets one's call go takes it out, and its job is then
+    /// never sent: it would begin after the marker that let it go, and park
+    /// for good.
+    unqueued: HashSet<u64>,
 }
 
 impl OwnerQueue {
@@ -444,6 +449,7 @@ impl<D: DataSource + 'static> Placed<D> {
         self.owner = Some(Arc::new(Mutex::new(OwnerQueue {
             sender: jobs,
             pending: None,
+            unqueued: HashSet::new(),
         })));
         Ok(())
     }
@@ -813,7 +819,12 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                 .map(|f| (f.target, f.source.to_string(), encode_args(f.args)))
                 .collect();
             let snapshot = envelope::snapshot(store, &self.grants);
-            owner.lock().unwrap().forgotten((view, snapshot));
+            let mut queue = owner.lock().unwrap();
+            // A dispatched turn not yet handed over whose call is let go now
+            // is never sent: under the same lock as the marker, so it is
+            // either queued before the marker or not at all.
+            queue.unqueued.retain(|token| tokens.contains(token));
+            queue.forgotten((view, snapshot));
         } else if let Some(inner) = self.inner.as_mut() {
             inner.forgotten(store, in_flight);
         }
@@ -846,6 +857,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             } => (target, source, encode_args(&args), Some(outcome)),
         };
         let clock = store.clock_ms();
+        owner.lock().unwrap().unqueued.insert(token);
         Dispatch::Run(Work::Later(Box::new(move |reply| {
             let job = match outcome {
                 None => Job::Answer {
@@ -866,8 +878,12 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                     reply,
                 },
             };
-            // A closed channel drops the reply, which reports `Aborted`.
-            owner.lock().unwrap().turn(job);
+            // A closed channel drops the reply, which reports `Aborted`; so
+            // does a call let go before its job was handed over.
+            let mut queue = owner.lock().unwrap();
+            if queue.unqueued.remove(&token) {
+                queue.turn(job);
+            }
         })))
     }
 
@@ -1189,6 +1205,7 @@ mod tests {
         started: Sender<()>,
         release: std::sync::mpsc::Receiver<()>,
         views: Arc<Mutex<Vec<Vec<String>>>>,
+        answered: Arc<Mutex<Vec<String>>>,
     }
 
     impl DataSource for Hears {
@@ -1202,6 +1219,7 @@ mod tests {
             source: &str,
             _: &[Value],
         ) -> Result<Answer, DataError> {
+            self.answered.lock().unwrap().push(source.to_string());
             if source == "slow" {
                 self.started.send(()).unwrap();
                 self.release.recv().unwrap();
@@ -1229,6 +1247,7 @@ mod tests {
                 started: started_tx,
                 release: release_rx,
                 views: views.clone(),
+                answered: Default::default(),
             },
             Placement::Worker,
         );
@@ -1290,6 +1309,7 @@ mod tests {
                 started: started_tx,
                 release: release_rx,
                 views: views.clone(),
+                answered: Default::default(),
             },
             Placement::Worker,
         );
@@ -1337,6 +1357,71 @@ mod tests {
         }
         let views = views.lock().unwrap();
         assert_eq!(views.first(), Some(&vec!["read".to_string()]), "{views:?}");
+    }
+
+    /// A turn dispatched whose job the host hands over only after a
+    /// retirement let its call go is never sent: begun after the marker, it
+    /// would park on the owner for good.
+    #[test]
+    fn a_turn_handed_over_after_its_call_was_let_go_never_begins() {
+        let (started_tx, started_rx) = channel();
+        let (release_tx, release_rx) = channel();
+        let answered = Arc::new(Mutex::new(Vec::new()));
+        let mut placed = Placed::new(
+            Hears {
+                started: started_tx,
+                release: release_rx,
+                views: Default::default(),
+                answered: answered.clone(),
+            },
+            Placement::Worker,
+        );
+        placed.activate().unwrap();
+        let mut store = Store::new("", []);
+        let args = [Value::Number(1.0)];
+        let mut token = |placed: &mut Placed<Hears>, source: &str| {
+            let answer = placed.answer_for(Target::Resource(0), &mut store, source, &args);
+            match answer.unwrap() {
+                Answer::Later(request) => request.continuation.unwrap(),
+                _ => panic!("a worker answer"),
+            }
+        };
+        let empty = Store::new("", []);
+        let slow = token(&mut placed, "slow");
+        let first = send(placed.dispatch(slow, &empty));
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let read = token(&mut placed, "read");
+        let Dispatch::Run(Work::Later(turn)) = placed.dispatch(read, &empty) else {
+            panic!("an owner turn");
+        };
+        // Let go (nothing in flight), then its job is handed over.
+        placed.forgotten(&empty, &[]);
+        let (tx, reply) = channel();
+        turn(Reply::new(move |outcome| tx.send(outcome).unwrap()));
+        // Its reply is dropped unsent: `Aborted`, so the ticket ends.
+        let outcome = reply.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            matches!(
+                outcome,
+                Outcome::Failed {
+                    kind: exact_runner::FailureKind::Aborted,
+                    ..
+                }
+            ),
+            "{outcome:?}"
+        );
+        // A later turn, then the owner drains: `read` never began.
+        let barrier = token(&mut placed, "barrier");
+        let last = send(placed.dispatch(barrier, &empty));
+        release_tx.send(()).unwrap();
+        first.recv_timeout(Duration::from_secs(5)).unwrap();
+        last.recv_timeout(Duration::from_secs(5)).unwrap();
+        let answered = answered.lock().unwrap();
+        assert_eq!(
+            *answered,
+            ["slow", "barrier"],
+            "the let-go call began on the owner"
+        );
     }
 
     /// The coalescing's claim, checked: random retirements and turns, the
@@ -1399,10 +1484,12 @@ mod tests {
             let mut coalesced = OwnerQueue {
                 sender: coalesce_tx,
                 pending: None,
+                unqueued: HashSet::new(),
             };
             let mut ordered = OwnerQueue {
                 sender: order_tx,
                 pending: None,
+                unqueued: HashSet::new(),
             };
             let (mut parked_c, mut gone_c, mut ids_c) = (Vec::new(), Vec::new(), 0);
             let (mut parked_o, mut gone_o, mut ids_o) = (Vec::new(), Vec::new(), 0);
