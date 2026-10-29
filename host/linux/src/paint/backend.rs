@@ -61,6 +61,16 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
+    /// Only device removal invalidates a directly presenting device's resources.
+    #[cfg(windows)]
+    fn device_lost(&self) -> bool {
+        false
+    }
+    /// A skipped present needs another frame even when the app is otherwise idle.
+    #[cfg(windows)]
+    fn presentation_pending(&self) -> bool {
+        false
+    }
     /// Displayed-frame time since process creation, when the device exposes it.
     /// Explicit measurement only: this may wait for the compositor.
     #[cfg(windows)]
@@ -315,6 +325,14 @@ pub trait Backend {
 }
 
 impl super::Painter {
+    #[cfg(windows)]
+    pub(crate) fn device_lost(&self) -> bool {
+        self.backend.device_lost()
+    }
+    #[cfg(windows)]
+    pub(crate) fn presentation_pending(&self) -> bool {
+        self.backend.presentation_pending()
+    }
     #[cfg(windows)]
     pub(crate) fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
         self.backend.displayed_process_ms()

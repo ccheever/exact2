@@ -192,6 +192,7 @@ pub(crate) struct DirectWindow {
     pub(crate) window: exact_ink::device::d3d11::Window,
     pub(crate) recovering: bool,
     retry: exact_ink::device::Retry,
+    present_due: Option<std::time::Instant>,
     pub(crate) fallback: Option<(
         exact_ink::device::d3d11::D3d11,
         exact_ink::instance::TextureId,
@@ -203,6 +204,7 @@ impl DirectWindow {
             window,
             recovering: false,
             retry: Default::default(),
+            present_due: None,
             fallback: None,
         }
     }
@@ -250,8 +252,18 @@ impl DirectWindow {
         }
         if !self.recovering {
             let frame = p.frame_for(FrameTarget::Window);
+            self.present_due = p
+                .brush
+                .presentation_pending()
+                .then(|| now + std::time::Duration::from_millis(16));
+            if self.present_due.is_some() {
+                p.repaint();
+            }
             if p.last_frame_succeeded() {
                 self.retry = Default::default();
+                return frame;
+            }
+            if !p.brush.device_lost() {
                 return frame;
             }
             eprintln!("exact-ink: device lost; painting on the CPU through WARP composition");
@@ -315,11 +327,13 @@ impl DirectWindow {
 impl<D: DataSource> Presenter<D> {
     /// Next recovery attempt after a direct painter loses its device.
     pub fn painter_retry_deadline(&self) -> Option<std::time::Instant> {
-        self.surfaces
-            .direct_window
-            .as_ref()
-            .filter(|d| d.recovering)
-            .and_then(|d| d.retry.deadline())
+        self.surfaces.direct_window.as_ref().and_then(|d| {
+            if d.recovering {
+                d.retry.deadline()
+            } else {
+                d.present_due
+            }
+        })
     }
 }
 
@@ -331,6 +345,9 @@ mod tests {
 
     struct Lost;
     impl Backend for Lost {
+        fn device_lost(&self) -> bool {
+            true
+        }
         fn name(&self) -> &'static str {
             "ink"
         }

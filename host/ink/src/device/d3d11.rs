@@ -135,7 +135,8 @@ pub struct D3d11 {
     owner: Rc<()>,
     info: Info,
     composition: Option<composition::Composition>,
-    retiring_device: Option<(Box<D3d11>, u32)>,
+    presentation_pending: bool,
+    retiring_devices: Vec<(Box<D3d11>, u32)>,
 }
 
 impl D3d11 {
@@ -191,7 +192,8 @@ impl D3d11 {
             retired: Vec::new(),
             owner,
             composition: None,
-            retiring_device: None,
+            presentation_pending: false,
+            retiring_devices: Vec::new(),
             info,
         })
     }
@@ -454,6 +456,7 @@ impl Device for D3d11 {
         Ok(s)
     }
     fn resize_target(&mut self, id: TextureId, width: u32, height: u32) -> Result<TextureId> {
+        self.collect_presented_devices();
         let desc = self.texture(id)?.desc;
         if desc.format != Format::Rgba || desc.mipmapped {
             return Err(Error::Invalid("resize requires a target".into()));
@@ -618,6 +621,7 @@ impl Device for D3d11 {
         self.completed().map(|_| ())
     }
     fn trim(&mut self) -> Result<()> {
+        self.collect_presented_devices();
         self.wait(self.submitted)?;
         self.buffer = self.create_buffer(192)?;
         Ok(())
