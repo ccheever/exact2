@@ -47,7 +47,9 @@ actual hardware input, Root/outbox dispatch and connected app acceptance remain
 separate. The cloud session is shut down. Production Swift is unchanged.
 
 T3's EAS cloud host installs and opens the normal bundle and presents the initial
-environment form. It starts without the locally saved pairing. Connected cloud
+environment form. Host entry works, an invalid address shows an inline error,
+Back returns Home, and relaunch restores the empty Home. It starts without the
+locally saved pairing. Connected cloud
 flows and a cloud-reachable authorized server route remain unverified. The cloud
 session was shut down after this check. The local simulator's existing catalog
 and credentials remain intact. This integration is outside the delivered
@@ -77,8 +79,9 @@ These earlier implementation checkpoints are available on GitHub:
   launches through the repository driver in a fresh scratch store. Its
   onboarding help and invalid-link error work. All five members are registered
   as Cargo inputs, and editing each makes the native driver refuse the stale
-  build. Source bytes are restored exactly. The resulting rebuild is running;
-  rebuild completion and connected desktop UI remain unqualified. The five
+  build. Source bytes are restored exactly. The resulting rebuild succeeds;
+  the rebuilt bundle has no stale inputs and launches again. Connected desktop
+  UI remains unqualified. The five
   extraction commits end at `823073b67c`. Independent
   review finds no introduced P1 or P2 issue. It passes a fresh full-plan
   comparison, 560 desktop tests, 19 compiler members tests, caps and 11 fixture
@@ -104,7 +107,7 @@ The clone lockfile adds the three dependencies its updated path crates require.
 All 3,871 mobile tests, strict TypeScript, boot, Rust build/tests/Clippy/formatting,
 workspace compilation and the quick semantics comparison pass. The builder suite
 has 99 passing cases and one skip after two timeouts pass in a focused rerun.
-Caps still reports only the inherited desktop Contract violation. Independent
+Caps then reported only the inherited desktop Contract violation. Independent
 review finds no integration defect. The normal merged iPhone build restores the
 saved environment and conversation, receives `MAIN_SYNC_OK`, displays growing
 output from 416 to 818 characters, and stops with server-confirmed interruption.
@@ -115,8 +118,8 @@ build below. Full phone parity remains open.
 The latest main refresh merges without conflicts. Its symbol fixtures now register
 handwritten images with the runtime and supply its current browser hooks. All 31
 affected symbol, paint and list tests pass, including an independent rerun. Rust
-build/tests/Clippy/formatting, workspace and boot pass. Caps retains the desktop
-violation. The broader web run has 136 passes and two failures. Its cold-build
+build/tests/Clippy/formatting, workspace and boot pass. Caps then retained the desktop
+violation, now resolved above. The broader web run has 136 passes and two failures. Its cold-build
 timeout passes on rerun; the remaining motion check cannot link because the
 installed nightly's `rust-lld` cannot locate `libLLVM.dylib`. Three attempts stop
 at that toolchain error. Firefox is unavailable. The rebuilt normal iPhone app
@@ -350,7 +353,7 @@ The normal iPhone build restores an exact ordinary draft including an emoji;
 clearing survives another restart. A NewTask draft restores through Home's Unsent
 row, and confirmed discard survives restart. The saved environment and conversation
 remain available. No QA draft remains. Independent source review finds no
-correctness blocker. Caps still reports only the 2,994-line desktop Contract.
+correctness blocker. Caps then reported only the 2,994-line desktop Contract.
 NewTask retains its
 textarea. The exported native presentation remains unwired. Activation still
 requires producer integration, token projection, voice and paste ownership
@@ -495,7 +498,7 @@ tested conversation on its first tap and restores its transcript, environment
 and that reply. A separate 18-character draft also survives another restart
 with Send ready. Temporary diagnostics and the unsuccessful
 clock-argument experiment were removed. Strict TypeScript, all 3,720 mobile tests
-and the boot check pass. The desktop source cap remains the sole cap violation.
+and the boot check pass. The desktop source cap was then the sole cap violation.
 
 Terminal verification opens a real project shell, runs `pwd`, selects one output
 line, attaches it to the composer, sends it, and receives the requested provider
@@ -603,7 +606,7 @@ mobile tests and strict app TypeScript pass. These phone fixes are not in the PO
 The Apple host preserves pull-to-refresh for a short file that also scrolls
 horizontally. Its new regression assertions pass, and the native short-file drive
 and tvOS compile complete. Root build, tests, clippy, formatting, boot and workspace
-checks pass; caps still reports only the desktop Contract above. The full UIKit
+checks pass; caps then reported only the desktop Contract. The full UIKit
 run reports 2,134 passes, 17 failures and four skips. Failures include keyboard
 availability, native row alignment, HDR metadata and popover rendering. Source
 review finds that the failing fixtures omit refresh handlers or bypass the changed
@@ -612,11 +615,10 @@ A paired learned route still retains its learned marker.
 T3 Connect relay login remains unconfigured in the clone; direct pairing is the
 verified connection path.
 
-All six root repository checks pass at the mobile checkpoint. On the integrated
-PR, build, tests, Clippy, formatting, boot and workspace checks pass. Caps finds
-one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
-unchanged from the original PR head. A bounded extraction attempt made no changes;
-the desktop checkpoint needs broader integration. Keep the failure visible.
+All six root repository checks pass at the mobile checkpoint. Earlier integrated
+checks passed build, tests, Clippy, formatting, boot and workspace compilation,
+but caps rejected the inherited 2,994-line desktop Root. The five-member
+extraction above resolves that failure. Current caps passes.
 
 The full mobile suite passes 3,940 tests, strict app TypeScript passes, and the
 normal native simulator build succeeds. The actual Root event regression fails
@@ -667,8 +669,8 @@ Keep the complete one-to-one goal across these milestones.
    persistence and performance, and confirm an installable build and tester
    access. Complete the production build and TestFlight checkpoint below.
 
-Mobile selects its own Contract entry. The unfinished desktop Root extraction
-does not inherently block the first mobile build. Bring other checkpoint changes
+Mobile selects its own Contract entry. The desktop Root extraction is integrated.
+Bring other checkpoint changes
 into the working branch when a concrete build or behavior dependency needs them.
 
 ## Ship production builds at major checkpoints
