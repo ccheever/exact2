@@ -21,6 +21,8 @@ final class MarkupEditor: NSObject, MarkdownEditing {
     private(set) var directions = MarkupDirections()
     /// The `paragraphDirs` the last restyle placed.
     var paragraphDirs: String { directions.said }
+    /// The atoms the last restyle drew.
+    private(set) var atoms = MarkdownAtoms()
     func direction(at location: Int) -> NSWritingDirection { directions.direction(at: location) }
     /// The words each undo and redo step of the field's undo manager returns
     /// to, one set a step (LLP 1045 D11), and the set an undo or redo gives
@@ -138,6 +140,7 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         }
         let base = baseAttributes(look)
         plainAttributes = base
+        self.atoms = look.atoms
         let baseFont = base[.font] as! PlatformFont
         // Each line's base direction (LLP 1045 D11): the most common one is
         // every paragraph's, in the base style; runs that differ follow the rows.

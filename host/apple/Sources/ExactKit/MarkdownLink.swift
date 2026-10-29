@@ -51,6 +51,9 @@ package protocol MarkdownEditing: AnyObject {
     var plainAttributes: [NSAttributedString.Key: Any] { get }
     /// The `paragraphDirs` its last restyle drew (LLP 1045 D11).
     var paragraphDirs: String { get }
+    /// The node's `atoms`, `atomFaces` and `atomStyles` as its last restyle
+    /// drew them (LLP 1045.000 D2).
+    var atoms: MarkdownAtoms { get }
     /// The base direction of the line holding `location`, as drawn: an empty
     /// editor's placeholder takes its first line's (LLP 1045 D11).
     func direction(at location: Int) -> NSWritingDirection
@@ -207,10 +210,17 @@ extension NodeView {
     /// The field's own direction is right to left: its `direction`, else the
     /// document's. A Markdown editor's line without a word takes it (LLP 1045 D11).
     package var markdownRTL: Bool { (style["direction"]?.string ?? presenter?.documentDirection ?? "ltr") == "rtl" }
-    /// Restyle an editor whose lines the app gave new directions: a new
-    /// `paragraphDirs` changes no text, so no edit restyles it (LLP 1045 D11).
-    func restyleMarkupDirections() {
-        guard let editor = (textArea as? TextArea)?.markup, editor.paragraphDirs != props["paragraphDirs"] ?? "" else { return }
+    /// Restyle the editor when its props change what it draws but not its
+    /// text, changes that come with no edit and so with no edit's restyle:
+    /// new `paragraphDirs` (LLP 1045 D11), or new `atoms`, `atomFaces` or
+    /// `atomStyles`, such as a face that follows an upload while its source
+    /// stays (LLP 1045.000 D2). An unchanged prop is the very string the last
+    /// restyle kept, so comparing it returns at once.
+    func restyleMarkupProps() {
+        guard let editor = (textArea as? TextArea)?.markup else { return }
+        let drawn = editor.atoms
+        guard editor.paragraphDirs != props["paragraphDirs"] ?? "" || drawn.kinds != props["atoms"] ?? ""
+            || drawn.faces != props["atomFaces"] ?? "" || drawn.styles != props["atomStyles"] ?? "" else { return }
         restyleMarkup()
     }
 }
