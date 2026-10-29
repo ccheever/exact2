@@ -357,13 +357,28 @@
   @property --exact-press-factor { syntax: "<number>"; inherits: false; initial-value: 1; }
   @property --exact-scale { syntax: "<number>"; inherits: false; initial-value: 1; }
   /* LLP 1061 D7: the pressed paint. The input glue writes each painting node an important rule of its own, its
-     values written out, and eases its progress, `--exact-press-paint`, 0 to 1. Its pressed colours it reads here,
-     as sRGB (a token or light-dark resolved, any colour space). */
+     values written out, and eases its progress, `--exact-press-paint`, 0 to 1. It reads the node's pressed values
+     here: its opacities as numbers, its colours in each space a look beneath computes in (a token or light-dark
+     resolved, as these registered copies compute them; a scheme flip mid-press repaints from them). */
   @property --exact-press-paint { syntax: "<number>"; inherits: false; initial-value: 0; }
-  @property --exact-press-background-srgb { syntax: "<color>"; inherits: false; initial-value: transparent; }
-  @property --exact-press-color-srgb { syntax: "<color>"; inherits: false; initial-value: transparent; }
-  #exact-root [style*="--exact-press-background-color:"] { --exact-press-background-srgb: color-mix(in srgb, var(--exact-press-background-color) 100%, transparent); }
-  #exact-root [style*="--exact-press-color:"] { --exact-press-color-srgb: color-mix(in srgb, var(--exact-press-color) 100%, transparent); }
+  @property --exact-press-opacity-number { syntax: "<number>"; inherits: false; initial-value: 1; }
+  @property --exact-press-opacity-to-number { syntax: "<number>"; inherits: false; initial-value: 1; }
+  #exact-root [style*="--exact-press-opacity:"] { --exact-press-opacity-number: var(--exact-press-opacity); }
+  #exact-root [style*="--exact-press-opacity-to:"] { --exact-press-opacity-to-number: var(--exact-press-opacity-to); }
+  @property --exact-press-background-in-srgb { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-background-in-display-p3 { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-background-in-lab { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-background-in-lch { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-background-in-oklab { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-background-in-oklch { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  #exact-root [style*="--exact-press-background-color:"] { --exact-press-background-in-srgb: color-mix(in srgb, var(--exact-press-background-color) 100%, transparent); --exact-press-background-in-display-p3: color-mix(in display-p3, var(--exact-press-background-color) 100%, transparent); --exact-press-background-in-lab: color-mix(in lab, var(--exact-press-background-color) 100%, transparent); --exact-press-background-in-lch: color-mix(in lch, var(--exact-press-background-color) 100%, transparent); --exact-press-background-in-oklab: color-mix(in oklab, var(--exact-press-background-color) 100%, transparent); --exact-press-background-in-oklch: color-mix(in oklch, var(--exact-press-background-color) 100%, transparent); }
+  @property --exact-press-color-in-srgb { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-color-in-display-p3 { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-color-in-lab { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-color-in-lch { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-color-in-oklab { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  @property --exact-press-color-in-oklch { syntax: "<color>"; inherits: false; initial-value: transparent; }
+  #exact-root [style*="--exact-press-color:"] { --exact-press-color-in-srgb: color-mix(in srgb, var(--exact-press-color) 100%, transparent); --exact-press-color-in-display-p3: color-mix(in display-p3, var(--exact-press-color) 100%, transparent); --exact-press-color-in-lab: color-mix(in lab, var(--exact-press-color) 100%, transparent); --exact-press-color-in-lch: color-mix(in lch, var(--exact-press-color) 100%, transparent); --exact-press-color-in-oklab: color-mix(in oklab, var(--exact-press-color) 100%, transparent); --exact-press-color-in-oklch: color-mix(in oklch, var(--exact-press-color) 100%, transparent); }
   [data-scroll="true"] { overflow: auto; }
   /* LLP 1048.003 D4: `scroll document` — the page scrolls, not an inner
      scroller. Body and root grow with the content and the marked scroller is
