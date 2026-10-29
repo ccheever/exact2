@@ -1078,8 +1078,9 @@ required before S1.2 can be called complete.
 
 @ref LLP 1149 D7, D11, S1.3; 2026-10-29, `lane/ink-s1`, following
 `fe7a8c55fb`. The implementation is committed in `221593d2f8`, `a1b3a93560`
-and `1cc26abd77`. **S1.3 is not performance-qualified:** the required
-quiet measurement and allocation-level attribution remain open.
+and `1cc26abd77`. **S1.3 is not performance-qualified:** S1.3m collected
+the Ink-only series below, but no sample met G3's quiet rule. The quiet
+comparison and allocation-level attribution remain open.
 
 ### Handoff and image ownership
 
@@ -1123,38 +1124,106 @@ that copy; the rebuilt wgpu drive passes.
 
 ### Measurement
 
-**No S1.3 quiet measurement was obtained.** The wait lasted
-20.04 minutes, with 182 machine observations and no qualifying interval.
-Maximum 1/5/15-minute loads were 508.74/397.71/274.06;
-the final observation was 13.57/145.58/193.06.
-As many as 23 compiler processes were active. Neither the preserved
-before binary nor the final after binary was launched by G3. No focus attempt
-or retry occurred, so console availability is untested. Raw observations
-and the stop reason are `target/s1-3/measurement-quiet.jsonl` and
-`measurement-status.json`.
+**S1.3m, 2026-10-29: collected immediately, without a quiet wait.**
+Direct Metal ran from 10:51:42 to 10:54:36 PDT, then wgpu on Metal from
+10:54:36 to 10:57:30. Each device attempted five fling/rest samples and
+five additional cold-only launches, with one retake for a lost slot.
+Metal retained five fling/rest samples and four cold-only launches; wgpu
+retained four and five. Both therefore have nine retained startup timings.
 
-The before bundle was preserved before editing; the after bundle was built
-from `1cc26abd77` with direct Metal and the G3 probe. Both are under
-`target/s1-3/`, as `Before.app` and `After-final.app`; `binaries.json`
-records their hashes. The prepared driver uses G3's 800×768-point Ink content
-viewport and permits one attempt. It remains unrun.
+**None is quiet under G3's rule.** All 107 five-second machine observations
+had no compiler processes, and the maximum one- and five-minute loads were
+17.97 and 28.38. The fifteen-minute load remained above 30 throughout,
+falling from 84.11 to 59.84. The new columns are **loaded diagnostics**.
+Every retained process had `fair` thermal endpoints, Low Power Mode off,
+successful activation/frontmost-PID/key-window checks, and no recorded
+focus loss. Failed attempts are accounted for below.
 
-The table keeps the prior S1.2 diagnostic visible without treating it as a
-new paired baseline. That diagnostic predates the final S1.2 startup fixes
-and is not a qualified measurement of that final code.
+The measured release bundle is `target/s1-3/After-final.app`, built from
+`1cc26abd77` and unchanged at report commit `d4a699d10c`. Its executable
+SHA-256 is `3c93e0a2842a443163de0d6f827ff0de3788b1f21a8c819a033021ed331ae60f`;
+the linked probe's is
+`beda56484e995e07991eb931c3530235f10a8b0d1fa96c38e4714c291532ae04`.
+`target/s1-3/measure` uses G3's 800×768-point content viewport and one
+attempt per invocation; a fresh directory holds each retake. Every retained
+window measured 800×800 outer points at 2× on the same 120 Hz display.
+`G3_ONLY_INK=1` selected Ink alone, with `EXACT_INK_DEVICE=metal`, then
+`wgpu`. No app, renderer, driver or probe was rebuilt or changed.
 
-| Metric | Before: retained S1.2 scheduling diagnostic | After: S1.3 |
-|---|---:|---:|
-| Rest process / main-thread CPU, ms/s | 1.618 / 1.489 | Unmeasured |
-| Fling process / main-thread CPU, ms/s | 105.016 / 64.561 | Unmeasured |
-| Presented interval p50 / p95, ms | 8.33 / 16.67 | Unmeasured |
-| Late presented intervals/s | 12.33 | Unmeasured |
-| Peak fling footprint, MiB | 566.50 | Unmeasured |
+The new columns are **median (minimum–maximum)**, with an identical rounded
+range omitted. S1.1 gives the qualified direct-Metal G3 medians above.
+S1.2 is its single retained-scheduling diagnostic, which predates its final
+startup fixes and includes diagnostic logging. Neither earlier binary, nor the
+native or GPUI arm, was rerun. These columns are not a paired comparison.
 
-The native and GPUI G3 peak medians remain 226.81 and 399.34 MiB; neither
-arm was rerun. The requested 8.33 ms p95, lateness near GPUI's 0.66/s,
-rest CPU near 1.6 ms/s, and lower fling peak are **not established** for
-S1.3. No performance improvement is claimed.
+| Metric | S1.1 Metal baseline | S1.2 Metal diagnostic | After S1.3: Metal | After S1.3: wgpu |
+|---|---:|---:|---:|---:|
+| Presented interval p50, ms | 8.33 | 8.33 | 8.33 | 8.33 |
+| Presented interval p95, ms | 16.67 | 16.67 | 16.67 | 16.67 |
+| Presented interval p99, ms | 16.67 | 25.00 | 25.00 | 25.00 |
+| Late presented intervals/s | 12.12 | 12.33 | 11.34 (10.86–12.37) | 11.93 (10.78–12.59) |
+| Fling process CPU, ms/s | 569.06 | 105.016 | 105.34 (91.37–111.38) | 139.16 (128.31–155.98) |
+| Fling main-thread CPU, ms/s | 531.09 | 64.561 | 52.57 (44.18–54.57) | 61.24 (56.79–66.30) |
+| Rest process CPU, ms/s | 859.811 | 1.618 | 1.513 (1.438–12.294) | 1.930 (1.410–11.528) |
+| Rest main-thread CPU, ms/s | 859.744 | 1.489 | 1.429 (1.365–9.177) | 1.689 (1.297–8.851) |
+| Peak footprint during fling, MiB | 575.59 | 566.50 | 591.64 (589.24–597.39) | 594.45 (590.49–596.39) |
+| End-of-fling footprint, MiB | 225.95 | 223.91 | 245.75 (240.14–248.14) | 239.37 (237.58–241.80) |
+| End-of-rest footprint, MiB | 218.59 | 214.09 | 238.22 (235.80–239.94) | 231.56 (229.24–233.50) |
+| Cold to first presented drawable, ms | 375.42; 10 launches | — | 539.76 (437.61–985.03); 9 launches | 517.38 (460.58–587.84); 9 launches |
+
+Cold includes each retained fling process's startup, as G3 does. The
+additional cold-only slots alone measured **533.01 (437.61–591.34) ms**
+on Metal (four of five) and **538.11 (460.58–587.84) ms** on wgpu (five
+of five). In every retained process, the first presented drawable was also
+the first complete scene. Caches were retained: these are fresh processes,
+not empty application- or driver-cache launches. Failed startups are excluded
+from these timing distributions.
+
+The same G3 instrument reads `MTLDrawable.presentedTime`. Intervals join
+timestamps only within each recorded gesture window; quantiles use
+`floor(p × count)` on those intervals. Late means strictly over 12.5 ms,
+divided by the windows' combined durations. Metal supplied
+325–336 intervals over 4.541–4.684 gesture seconds per sample; wgpu supplied
+318–334 over 4.542–4.675 seconds. Each retained sample posted four
+106-event flings at the helper's nominal 8.33 ms period, with ten seconds
+of fling and ten at rest. Metal ended at 6172 points except one sample at
+6186; wgpu ended at 6172 throughout. CPU is not normalized by distance.
+
+**The cadence still does not hold 8.33 ms:** both devices have a 16.67 ms
+p95 and a 25.00 ms p99. The fling peak did not fall: Metal's median is
+16.05 MiB above S1.1 and 25.14 MiB above the S1.2 diagnostic; wgpu's is
+4.26 MiB above its own S1.1 median of 590.20 MiB. Unequal load conditions
+prevent attributing these differences to S1.3. Rest CPU medians remain
+low, with the high samples retained in the ranges. The quiet comparison
+remains outstanding.
+
+### S1.3m sample accounting
+
+All 26 process attempts remain under `target/s1-3m-20261029/`, including
+the eight rejected attempts. Slots 1–5 are fling/rest; 6–10 are cold-only.
+Activation and the key-window handshake preceded every launch sample and
+every posted gesture. There was one retake per failed slot, with collection
+continuing after a second failure.
+
+| Device and slot | First attempt | One retake |
+|---|---|---|
+| Metal fling 3 | Focus lost to Slack during rest | Retained |
+| Metal fling 5 | Focus lost to Zoom during rest | Retained |
+| Metal cold 10 | Focus lost to Slack at startup | Same loss; slot skipped |
+| wgpu fling 1 | Focus lost to Slack at startup | Retained |
+| wgpu fling 2 | Complete-frame timeout; focus losses also recorded | Retained |
+| wgpu fling 4 | Focus lost to Slack during fling | Complete-frame timeout with focus loss to Zoom; slot skipped |
+
+The two wgpu timeouts occurred after a first submission, at the probe's
+30-second complete-frame deadline. Their focus sidecars also record losses
+(Slack, Heavy list and cmux for slot 2; Zoom for slot 4's retake), so this
+series does not isolate a startup failure while continuously foreground.
+Metal had no complete-frame timeout. The missing Metal cold slot and wgpu
+fling slot were not replaced by further launches.
+
+`provenance.json`, per-attempt `command.json`, driver/app logs, focus
+sidecars, probe JSON and `quiet.jsonl` retain the inputs and failures;
+`summary.json` records the accepted paths, per-sample metrics and aggregates.
 
 ### Memory attribution and the next chunk
 
@@ -1230,3 +1299,16 @@ Full logs and screenshots are under `target/s1-3/`. `checks-test-retry.log`
 is the passing root run; `checks-linux-retry.log` is the controlled Linux
 rerun; `checks-ink-readback.log` follows the readback fix. Filtered-suite
 logs are named `checks-<suite>-metal.log`.
+
+S1.3m changes only this report. All 18 retained records passed the window,
+focus, thermal and power checks; the nine fling/rest records also passed
+gesture-count, phase-duration and monotonic-counter checks. The fixture's
+`messages.json` and all 104 bundled images match `data.sha256`.
+`git diff --check` and `bun scripts/caps.mjs` pass; the latter reports:
+
+```text
+All budgets within cap. 10 categories inspected.
+```
+
+The caps log is `target/s1-3m-20261029/caps.log`. The implementation test
+summaries above belong to S1.3; no code test suite was rerun for S1.3m.
