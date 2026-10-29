@@ -277,14 +277,18 @@ mixes). The pressed opacity is the property itself where the engine hands
 the glue its own number (computedStyleMap: Chromium, WebKit) and elsewhere
 (Firefox) a uniform mask, which multiplies as opacity does (WebKit clips a
 mask to the border box, a shadow with it, so it takes the number); an
-author's !important opacity is therefore above the press in Chromium and
-WebKit and not in Firefox. The pressed text colour is the property itself.
+author's inline !important opacity is therefore above the press in Chromium
+and WebKit and not in Firefox. The pressed text colour is the property itself.
 The node's transitions are left alone: the paint never starts, retargets or
 cancels one. One running on the background colour shows beneath the paint's
 layer; on the opacity or the text colour, the paint of that property waits
 until it ends. Where the node declares a transition on a property the paint
 writes, the paint at rest is exactly the look beneath (an opaque rgb()
-colour, the engine's own opacity number), or that property isn't painted.
+colour, the engine's own opacity number), or that property isn't painted;
+once written it is kept as it is for the press. The paint's layers shift
+the node's own background and mask lists with its images; where that would
+move them under a transition (a position or size list), that layer isn't
+painted.
 An authored change while held is a base change (LLP 1121 D8), which the
 paint lies over. A property cleared while held stops
 showing, and the shell's dim, when it then applies, is the press alone; the
