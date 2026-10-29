@@ -35,7 +35,7 @@ describe('a Settings page owns its scroller', () => {
       'settings-content-scroll': { x: 0, y: 60, width: 600, height: 600 },
     };
     const state: Env = { settingsOpen: true, settingsRoute: 'appearance', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
-      settingsFocusTarget: '', settingsJumpOpened: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '' };
+      settingsFocusTarget: '', settingsJumpOpened: '', settingsJumpWaits: 0, settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '' };
     const available = { available: true };
     // settingsCore answers for one jump target: its fold's reveal stop and the scope notice, if any.
     let core = { ready: true, route: 'appearance', sections: [{}], jumpTarget: '', jumpStop: '', notice: '' };
@@ -83,9 +83,10 @@ describe('a Settings page owns its scroller', () => {
     expect(scope().settingsJumpReady).toBe(false);
     core = { ...core, notice: '' };
     // A row under a closed Advanced fold is not drawn yet. The first pass focuses the fold's reveal stop, which opens it,
-    // and keeps the target; the pass after the open fold's layout (the task's key names the opened fold) scrolls to the
-    // row and focuses it, as AdvancedSettings opens the fold before the row mounts (AdvancedSettings.tsx:23). Here the
-    // fold ends a short page, so the stop sits below the window's edge and the row lower still.
+    // and keeps the target; the passes after it (every 50 ms, settingsJumpFold) wait for the open fold to draw the row,
+    // then scroll to the row and focus it, as AdvancedSettings opens the fold before the row mounts
+    // (AdvancedSettings.tsx:23). Here the fold ends a short page, so the stop sits below the window's edge and the row
+    // lower still.
     run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
     core = { ...core, jumpTarget: 'skills-in-slash-menu', jumpStop: 'settings-advanced-composer-reveal' };
     reveals = ['settings-advanced-composer-reveal'];
@@ -97,25 +98,27 @@ describe('a Settings page owns its scroller', () => {
     expect(state.settingsFocusTarget).toBe('skills-in-slash-menu');
     expect(state.settingsScrollTop).toBe(scrolled); // nothing scrolls to the stop
     expect(state.settingsJumpOpened).toBe(`skills-in-slash-menu|${scope().settingsPage}`);
+    run('focusSettingsTarget'); // the fold has not laid its rows out yet: the pass waits
+    expect([focused.length, state.settingsFocusTarget, state.settingsJumpWaits]).toEqual([1, 'skills-in-slash-menu', 1]);
     frames['skills-in-slash-menu'] = { x: 0, y: 1260, width: 600, height: 40 }; // the open fold's row
     run('focusSettingsTarget');
     expect(focused).toEqual(['settings-advanced-composer-reveal', 'skills-in-slash-menu']);
     expect(Math.floor(scope().settingsPageScrollTop as number)).toBe(1260 - 100 + 20 - 300); // the row's centre, not the stop's
     expect([state.settingsFocusTarget, state.settingsJumpOpened]).toEqual(['', '']);
-    // The fold already open: the same two passes, opening again is idempotent.
+    // The fold already open: the stop's focus (opening again is idempotent), then the row on the next pass.
     run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
     focused.length = 0;
     run('focusSettingsTarget');
     run('focusSettingsTarget');
     expect(focused).toEqual(['settings-advanced-composer-reveal', 'skills-in-slash-menu']);
-    // A fold that opens without drawing the row: the second pass lands on the stop and the jump ends there.
+    // A fold that has not drawn the row after twenty passes (a second) keeps the focus on its stop, and the jump ends.
     run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
     delete frames['skills-in-slash-menu'];
     focused.length = 0;
+    for (let pass = 0; pass < 21; pass++) run('focusSettingsTarget');
+    expect([focused, state.settingsFocusTarget]).toEqual([['settings-advanced-composer-reveal'], 'skills-in-slash-menu']);
     run('focusSettingsTarget');
-    run('focusSettingsTarget');
-    expect(focused).toEqual(['settings-advanced-composer-reveal', 'settings-advanced-composer-reveal']);
-    expect(state.settingsFocusTarget).toBe('');
+    expect([focused, state.settingsFocusTarget]).toEqual([['settings-advanced-composer-reveal', 'settings-advanced-composer-reveal'], '']);
     // A fold this page does not draw leaves the target as it is.
     run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
     frames['skills-in-slash-menu'] = { x: 0, y: 1260, width: 600, height: 40 };
@@ -140,7 +143,7 @@ describe('a Settings page owns its scroller', () => {
       'send-shortcut': box(900, 60),
     };
     const state: Env = { settingsOpen: true, settingsRoute: 'general', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
-      settingsFocusTarget: '', settingsJumpOpened: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '', keybindingQuery: '' };
+      settingsFocusTarget: '', settingsJumpOpened: '', settingsJumpWaits: 0, settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '', keybindingQuery: '' };
     const available = { available: true };
     let core = { ready: true, route: 'general', sections: [{}], jumpTarget: '', jumpStop: '', notice: '' };
     const scope = (): Env => {
@@ -194,8 +197,9 @@ describe('a Settings page owns its scroller', () => {
 
   test('the jump runs once its page is ready, not only on the one-second poll', async () => {
     const root = await source('app.contract');
-    // Again once a fold the jump opened is laid out (settingsJumpOpened), so the row it draws takes the jump.
-    expect(root).toContain('  task settingsJump when settingsJumpReady key=`${settingsFocusTarget}|${settingsPage}|${settingsJumpOpened}`\n    after(1, focusSettingsTarget)\n');
+    expect(root).toContain('  task settingsJump when settingsJumpReady key=`${settingsFocusTarget}|${settingsPage}`\n    after(1, focusSettingsTarget)\n');
+    // A fold the jump opened is waited for every 50 ms until it draws the row.
+    expect(root).toContain('  task settingsJumpFold when settingsJumpReady and settingsJumpOpened != "" key=settingsJumpOpened\n    every(50, focusSettingsTarget)\n');
     expect(lines(root, 'settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage')).toHaveLength(1);
     // Nothing but the jump and the page-left task writes the jump's page.
     expect(root.split('\n').filter(candidate => /^ {4,}settingsScrollPage = /.test(candidate))).toHaveLength(2);
