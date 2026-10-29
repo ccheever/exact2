@@ -219,7 +219,7 @@ final class RowCells {
         }
         // The selected row stays so under the screen it pushed, out of the
         // window, for its fade as that screen pops (`appearing`).
-        if let held = shown, presenter.views[held.row.id] !== held.row { drop() } else if let held = shown { held.ground.frame = held.row.frame }
+        if let held = shown, presenter.views[held.row.id] !== held.row { drop() } else if let held = shown { held.row.moveOrPlace { held.ground.frame = held.row.frame } }
         // The margins first, so a list's separators end at the one it now has.
         let moved = tell()
         for (id, list) in presenter.listViews where list.hasRowCells && (changed?.contains(id) != false || lines[id] == nil || moved.contains(id)) { draw(list) }

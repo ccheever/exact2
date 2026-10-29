@@ -303,7 +303,7 @@ extension NodeView {
         let group = glassGroupView ?? {
             let made = GlassGroupView(effect: nil)
             made.owner = self
-            made.frame = base.bounds
+            moveOrPlace(new: true) { made.frame = base.bounds }
             made.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             let children = base.subviews.filter { $0 is NodeView }
             GlassGroups.moving(in: self) {
@@ -317,7 +317,7 @@ extension NodeView {
         }()
         if group.superview !== base {
             GlassGroups.moving(in: self) { base.insertSubview(group, at: 0) }
-            group.frame = base.bounds
+            moveOrPlace(new: true) { group.frame = base.bounds }
         }
         if group.spacing != spacing {
             let effect = UIGlassContainerEffect()
@@ -366,7 +366,7 @@ extension NodeView {
         guard container != nil else { return glassSlot?.isolate(false) ?? false }
         let slot = glassSlot ?? {
             let made = GlassSlot(effect: nil)
-            made.frame = bounds
+            moveOrPlace(new: true) { made.frame = bounds }
             made.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             GlassGroups.moving(in: self) {
                 insertSubview(made, at: 0)

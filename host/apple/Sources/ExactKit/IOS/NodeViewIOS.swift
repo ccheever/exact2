@@ -25,6 +25,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var textRasterReady = false
     var textRasterFailed = false
     var textLayoutValid = false
+    /// The last frame showed it: Core Animation committed it in a window, not hidden (`Presenter.unshown`).
+    var showed = false
     /// What the host's own writers hid (a covered route, a tab a native control
     /// stands in for, a placement); a `display: none` box is hidden besides, as
     /// CSS removes it with its subtree, or its texts paint at its 0×0 frame's
@@ -107,7 +109,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // UIKit's setter walks the subtree's backdrop masks and accessibility
             // even when the value stands (a list hiding its hidden sections every batch).
             guard super.isHidden != hidden else { return }
-            super.isHidden = hidden; if !hidden { materializeAppearingGlass() }
+            super.isHidden = hidden; if !hidden { presenter?.shownAgain(self); materializeAppearingGlass() }
             if scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
@@ -693,7 +695,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
         if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
-        presenter?.videoVisibility?.changed()
+        presenter?.videoVisibility?.changed(); presenter?.unshown(self)
         if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush(); materializeJoiningGlass() }
         if window == nil, textRaster != nil { DispatchQueue.main.async { [weak self] in self?.dropTextRasterOffWindow() } }
     }
@@ -1238,7 +1240,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// same authored parent, which is no reparenting.
     static var containerMoves = 0
     package override func didMoveToSuperview() {
-        if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true) }
+        if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true); presenter?.unshown(self) } // a new parent: shown elsewhere
         super.didMoveToSuperview()
         Self.textGeometry &+= 1
         paintOrderMoved(); repaintFacesWhileDimmed() // as a move into or out of a control changes its face (TintDimmingIOS.swift)
@@ -1384,7 +1386,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         sv.alwaysBounceVertical = sv.scrollsY && !nested && (!fits || !carousel)
     }
 
+    /// Its parts move with its frame: in an animation UIKit has open only if the last frame showed it (`Presenter.moveOrPlace`).
     package override func layoutSubviews() {
+        if let presenter { presenter.moveOrPlace(self, layOutParts) } else { layOutParts() }
+    }
+    private func layOutParts() {
         if focusRing != nil { showFocusRing(true) }
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()

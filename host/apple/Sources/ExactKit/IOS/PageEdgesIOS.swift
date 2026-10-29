@@ -178,6 +178,10 @@ extension NodeView {
     /// the logical `scrollTop` (`scrollTopInset`) is kept across the change;
     /// a list following its end, or a virtualized list at its end, stays there.
     func setPageBand(_ band: UIEdgeInsets, inset own: UIEdgeInsets? = nil) {
+        // The scroller's frame, insets and offset move as one: inside an animation UIKit has open, only if the last frame showed it
+        moveOrPlace { bandScroll(band, inset: own) }
+    }
+    private func bandScroll(_ band: UIEdgeInsets, inset own: UIEdgeInsets?) {
         guard let sv = scrollView else { return }
         let own = own ?? band
         let end = { max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height) }
