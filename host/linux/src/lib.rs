@@ -97,9 +97,9 @@ pub mod vnc;
 mod wake;
 mod zone;
 
-/// Install the Windows event-loop wake for native work, images and text results.
+/// Install the window event-loop wake for native work, images and text results.
 /// Removing it at shutdown releases the event loop without stopping shared workers.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
     wake::install(waker);
 }

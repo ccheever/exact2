@@ -61,6 +61,14 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
+    /// Attach the benchmark carrier's retained AppKit layer.
+    #[cfg(target_os = "macos")]
+    fn attach_apple_layer(
+        &mut self,
+        _layer: exact_ink::device::apple::Layer,
+    ) -> Result<exact_ink::device::Info, String> {
+        Err("this painter cannot present to a CAMetalLayer".into())
+    }
     /// A lost device whose carrier can present CPU pixels without that device.
     fn lost_device_needs_cpu(&self) -> bool {
         false
@@ -334,6 +342,13 @@ pub trait Backend {
 }
 
 impl super::Painter {
+    #[cfg(target_os = "macos")]
+    pub(crate) fn attach_apple_layer(
+        &mut self,
+        layer: exact_ink::device::apple::Layer,
+    ) -> Result<exact_ink::device::Info, String> {
+        self.backend.attach_apple_layer(layer)
+    }
     pub(crate) fn lost_device_needs_cpu(&self) -> bool {
         self.backend.lost_device_needs_cpu()
     }

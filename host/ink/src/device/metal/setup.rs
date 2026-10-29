@@ -65,7 +65,10 @@ impl Pipelines {
     }
 }
 
-pub(super) fn pipelines(device: &ProtocolObject<dyn MTLDevice>) -> Result<Pipelines> {
+pub(super) fn pipelines(
+    device: &ProtocolObject<dyn MTLDevice>,
+    format: MTLPixelFormat,
+) -> Result<Pipelines> {
     let library = library(device)?;
     let vertex = library
         .newFunctionWithName(&NSString::from_str(VERTEX))
@@ -92,7 +95,13 @@ pub(super) fn pipelines(device: &ProtocolObject<dyn MTLDevice>) -> Result<Pipeli
             attribute.setBufferIndex(1);
         }
     }
-    let path = cache_path(device);
+    let path = cache_path(device).map(|p| {
+        if format == MTLPixelFormat::RGBA8Unorm {
+            p
+        } else {
+            p.with_extension("bgra.bin")
+        }
+    });
     let archive_desc = MTLBinaryArchiveDescriptor::new();
     if let Some(path) = path.as_ref().filter(|p| p.exists()) {
         archive_desc.setUrl(Some(&url(path)));
@@ -114,7 +123,7 @@ pub(super) fn pipelines(device: &ProtocolObject<dyn MTLDevice>) -> Result<Pipeli
         desc.setVertexDescriptor(Some(&vertex_layout));
         // SAFETY: attachment zero exists; RGBA8 is the device trait's target.
         let color = unsafe { desc.colorAttachments().objectAtIndexedSubscript(0) };
-        color.setPixelFormat(MTLPixelFormat::RGBA8Unorm);
+        color.setPixelFormat(format);
         color.setBlendingEnabled(blend);
         color.setSourceRGBBlendFactor(MTLBlendFactor::One);
         color.setSourceAlphaBlendFactor(MTLBlendFactor::One);

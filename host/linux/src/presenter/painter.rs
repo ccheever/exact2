@@ -254,6 +254,31 @@ fn ink_backend(ink: crate::ink::Ink) -> (Box<dyn Backend>, PainterInfo) {
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// Attach S1's benchmark carrier. Shipping Apple apps still use native views.
+    #[cfg(target_os = "macos")]
+    pub fn attach_apple_layer(
+        &mut self,
+        layer: exact_ink::device::apple::Layer,
+    ) -> Result<(), String> {
+        let info = self.brush.attach_apple_layer(layer)?;
+        self.painter.adapter = Some(format!("{} ({})", info.adapter, info.api));
+        self.painter.api = Some(info.api);
+        self.painter.shaders_ms = info.shaders_ms;
+        self.painter.cached = info.cached;
+        Ok(())
+    }
+
+    /// Submit a Mac benchmark window frame without requesting CPU pixels.
+    #[cfg(target_os = "macos")]
+    pub fn apple_window_frame(&mut self) -> Result<(), String> {
+        if self.frame_for(crate::paint::FrameTarget::Window).is_some() {
+            return Err("the benchmark carrier requires a presenting ink device".into());
+        }
+        if !self.last_frame_succeeded() {
+            return Err("ink frame failed".into());
+        }
+        Ok(())
+    }
     pub(crate) fn painter_state(&self) -> serde_json::Value {
         #[cfg(windows)]
         let recovery = self.surfaces.direct_window.as_ref();

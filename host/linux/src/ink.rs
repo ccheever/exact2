@@ -277,6 +277,14 @@ impl Ink {
 }
 
 impl Backend for Ink {
+    #[cfg(target_os = "macos")]
+    fn attach_apple_layer(
+        &mut self,
+        layer: exact_ink::device::apple::Layer,
+    ) -> std::result::Result<Info, String> {
+        self.device.attach_layer(layer).map_err(|e| e.to_string())?;
+        Ok(self.info().clone())
+    }
     #[cfg(windows)]
     fn displayed_process_ms(&self) -> std::result::Result<Option<f64>, String> {
         if let Selected::D3d11(device) = &self.device {
@@ -661,6 +669,25 @@ impl Backend for Ink {
         if target == FrameTarget::Geometry {
             Ok(None)
         } else {
+            #[cfg(target_os = "macos")]
+            if target == FrameTarget::Window && self.device.has_layer() {
+                if let Some(e) = &self.error {
+                    return Err(e.clone());
+                }
+                let result = (|| {
+                    while !self.groups.is_empty() {
+                        self.close_group()?;
+                    }
+                    let texture = self.flush()?;
+                    self.last_ms = (self.layer_ms, self.device.present(texture)?);
+                    Ok(())
+                })();
+                if self.accept(result).is_none() {
+                    return Err(self.error.clone().unwrap());
+                }
+                self.update_statistics();
+                return Ok(None);
+            }
             #[cfg(windows)]
             if target == FrameTarget::Window
                 && matches!(&self.device, Selected::D3d11(d) if d.has_window())

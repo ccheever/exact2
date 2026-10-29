@@ -15,6 +15,8 @@ use std::time::Instant;
 use web_time::Instant;
 
 mod cache;
+#[cfg(target_os = "macos")]
+mod present;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
 
@@ -45,6 +47,12 @@ struct BufferSlot {
 }
 
 pub struct Wgpu {
+    #[cfg(target_os = "macos")]
+    instance: ::wgpu::Instance,
+    #[cfg(target_os = "macos")]
+    adapter: ::wgpu::Adapter,
+    #[cfg(target_os = "macos")]
+    window: Option<present::Window>,
     device: ::wgpu::Device,
     queue: ::wgpu::Queue,
     pipeline: ::wgpu::RenderPipeline,
@@ -60,11 +68,35 @@ pub struct Wgpu {
     next_texture: u64,
     submitted: Submission,
     done: Arc<AtomicU64>,
-    pending: BTreeMap<u64, ::wgpu::SubmissionIndex>,
+    pending: BTreeMap<u64, Pending>,
     retired_textures: Vec<(Submission, Texture)>,
     retired_buffers: Vec<(Submission, ::wgpu::Buffer)>,
     info: Info,
     errors: Arc<Mutex<Option<Error>>>,
+}
+
+enum Pending {
+    Submitted(::wgpu::SubmissionIndex),
+    #[cfg(target_os = "macos")]
+    Present(std::sync::mpsc::Receiver<Result<::wgpu::SubmissionIndex>>),
+}
+
+impl Pending {
+    fn index(&mut self) -> Result<::wgpu::SubmissionIndex> {
+        #[cfg(target_os = "macos")]
+        if let Self::Present(receiver) = self {
+            *self = Self::Submitted(
+                receiver
+                    .recv()
+                    .map_err(|_| Error::DeviceLost("wgpu presentation stopped".into()))??,
+            );
+        }
+        match self {
+            Self::Submitted(index) => Ok(index.clone()),
+            #[cfg(target_os = "macos")]
+            Self::Present(_) => unreachable!(),
+        }
+    }
 }
 
 impl Wgpu {
@@ -271,6 +303,12 @@ impl Wgpu {
         upload(&queue, &white_alpha, [0, 0], [1, 1], &[255]);
         upload(&queue, &white_color, [0, 0], [1, 1], &[255; 4]);
         Ok(Self {
+            #[cfg(target_os = "macos")]
+            instance,
+            #[cfg(target_os = "macos")]
+            adapter,
+            #[cfg(target_os = "macos")]
+            window: None,
             device,
             queue,
             pipeline,
@@ -377,11 +415,19 @@ impl Wgpu {
 
     fn submit(&mut self, commands: ::wgpu::CommandBuffer) -> Result<Submission> {
         failure(&self.errors)?;
+        #[cfg(target_os = "macos")]
+        let index = if let Some(window) = &self.window {
+            let queue = self.queue.clone();
+            window.thread.call(move || queue.submit([commands]))?
+        } else {
+            self.queue.submit([commands])
+        };
+        #[cfg(not(target_os = "macos"))]
         let index = self.queue.submit([commands]);
         failure(&self.errors)?;
         self.submitted.0 += 1;
         let id = self.submitted;
-        self.pending.insert(id.0, index);
+        self.pending.insert(id.0, Pending::Submitted(index));
         let done = self.done.clone();
         self.queue.on_submitted_work_done(move || {
             done.fetch_max(id.0, Ordering::Release);
@@ -854,7 +900,11 @@ impl Device for Wgpu {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let polled = self.device.poll(::wgpu::PollType::Wait {
-                submission_index: self.pending.get(&submission.0).cloned(),
+                submission_index: self
+                    .pending
+                    .get_mut(&submission.0)
+                    .map(Pending::index)
+                    .transpose()?,
                 timeout: Some(std::time::Duration::from_secs(30)),
             });
             failure(&self.errors)?;

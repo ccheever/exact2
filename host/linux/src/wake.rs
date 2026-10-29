@@ -1,7 +1,70 @@
 //! Platform wake transport. Unix keeps pollable sockets; Windows posts the
 //! presenter's event-loop wake and retains one coalesced readiness bit.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub(crate) use std::os::unix::net::UnixStream as Stream;
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::{
+        io::{self, Read, Write},
+        os::{
+            fd::{AsRawFd, RawFd},
+            unix::net::UnixStream,
+        },
+        sync::{Arc, Mutex},
+    };
+    type Notify = Arc<dyn Fn() + Send + Sync>;
+    static NOTIFY: Mutex<Option<Notify>> = Mutex::new(None);
+    pub(crate) struct Stream(UnixStream);
+    impl Stream {
+        pub(crate) fn pair() -> io::Result<(Self, Self)> {
+            UnixStream::pair().map(|(a, b)| (Self(a), Self(b)))
+        }
+        pub(crate) fn set_nonblocking(&self, value: bool) -> io::Result<()> {
+            self.0.set_nonblocking(value)
+        }
+    }
+    impl AsRawFd for Stream {
+        fn as_raw_fd(&self) -> RawFd {
+            self.0.as_raw_fd()
+        }
+    }
+    impl Read for &Stream {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            (&self.0).read(bytes)
+        }
+    }
+    impl Write for &Stream {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let result = (&self.0).write(bytes);
+            if let Some(notify) = NOTIFY.lock().unwrap().clone() {
+                notify();
+            }
+            result
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            (&self.0).flush()
+        }
+    }
+    impl Read for Stream {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            (&*self).read(bytes)
+        }
+    }
+    impl Write for Stream {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            (&*self).write(bytes)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            (&*self).flush()
+        }
+    }
+    pub(crate) fn install(notify: Option<Notify>) {
+        *NOTIFY.lock().unwrap() = notify;
+    }
+}
+#[cfg(target_os = "macos")]
+pub(crate) use macos::{install, Stream};
 
 #[cfg(windows)]
 mod windows {

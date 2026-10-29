@@ -17,6 +17,8 @@ use std::{
 };
 
 mod mips;
+#[cfg(target_os = "macos")]
+mod present;
 mod setup;
 #[cfg(test)]
 mod tests;
@@ -55,6 +57,8 @@ pub struct Metal {
     owner: Rc<()>,
     error: Option<String>,
     info: Info,
+    #[cfg(target_os = "macos")]
+    window: Option<present::Window>,
 }
 
 impl Metal {
@@ -69,7 +73,7 @@ impl Metal {
             let adapter = device.name().to_string();
             let device_ms = start.elapsed().as_secs_f64() * 1000.;
             let start = Instant::now();
-            let pipelines = setup::pipelines(&device)?;
+            let pipelines = setup::pipelines(&device, MTLPixelFormat::RGBA8Unorm)?;
             let shaders_ms = start.elapsed().as_secs_f64() * 1000.;
             pipelines.save();
             let sampler = setup::sampler(&device, false)?;
@@ -119,6 +123,8 @@ impl Metal {
                     shaders_ms,
                     cached: pipelines.cached,
                 },
+                #[cfg(target_os = "macos")]
+                window: None,
             })
         })
     }
@@ -175,6 +181,16 @@ impl Metal {
         commands: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
     ) -> Submission {
         if let Some(commands) = &commands {
+            #[cfg(target_os = "macos")]
+            if let Some(window) = &self.window {
+                let command = present::Command(commands.clone());
+                if let Err(e) = window.thread.call(move || command.commit()) {
+                    self.error = Some(e.to_string());
+                }
+            } else {
+                commands.commit();
+            }
+            #[cfg(not(target_os = "macos"))]
             commands.commit();
         }
         self.submitted.0 += 1;
@@ -526,6 +542,10 @@ impl Device for Metal {
         self.readback_level(id, 0)
     }
     fn wait(&mut self, s: Submission) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &mut self.window {
+            window.wait()?;
+        }
         if s > self.submitted {
             return Err(Error::Invalid("unknown submission".into()));
         }
