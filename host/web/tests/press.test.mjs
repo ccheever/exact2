@@ -905,6 +905,43 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
 }, 60000);
 
 
+// Every engine: a press leaves a node's authored transitions on its painted properties as authored (same values,
+// same ends), and its paint shows once they have ended; released, the node's own look again. (Chrome alone showed
+// the bug, an earlier paint having it start the transitions toward opacity 1 and transparent; this pins the rest.)
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a press leaves the node's authored transitions as authored`, async () => {
+  const browser = await suiteBrowser(engine);
+  const page = await browser.newPage();
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}/unsaid`);
+    await page.waitForFunction(() => window.ready);
+    const seen = await page.evaluate(() => {
+      document.getElementById('exact-root').innerHTML = `<div id="t" data-exact-on="press" style="--exact-press-opacity:0.5;--exact-press-background-color:rgb(0, 0, 255);width:200px;height:60px;opacity:0.8;background-color:rgb(255, 255, 255);transition:opacity 1s linear, background-color 1s linear">T</div>`;
+      const el = document.getElementById('t'), r = el.getBoundingClientRect();
+      const pointer = type => el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + 20, clientY: r.y + 20 }));
+      const transitions = () => JSON.stringify(el.getAnimations().filter(a => a.transitionProperty).map(a => [a.transitionProperty, String(a.effect.getKeyframes().at(-1)[a.transitionProperty === 'opacity' ? 'opacity' : 'backgroundColor'])]).sort());
+      const look = () => { const s = getComputedStyle(el); return [Number(s.opacity).toFixed(2), s.backgroundColor]; };
+      getComputedStyle(el).opacity;
+      el.style.opacity = '0.6'; el.style.backgroundColor = 'rgb(255, 255, 0)';
+      getComputedStyle(el).opacity;
+      const before = transitions();
+      pointer('pointerdown');
+      getComputedStyle(el).opacity;
+      const pressed = transitions();
+      el.getAnimations().forEach(a => a.finish());
+      const painted = look();
+      pointer('pointerup');
+      el.getAnimations().forEach(a => a.finish());
+      return { before, pressed, painted, released: look() };
+    });
+    expect(seen.pressed).toBe(seen.before);
+    expect(JSON.parse(seen.before).map(([p]) => p)).toEqual(['background-color', 'opacity']);
+    expect(seen.painted[0]).toBe('0.30');
+    expect(seen.released[0]).toBe('0.60');
+  } finally {
+    await page.close();
+  }
+});
+
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press feedback respects buttons and the scroller that moves the target`, async () => {
   const browser = await suiteBrowser(engine);
   const page = await browser.newPage();
