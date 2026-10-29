@@ -8,7 +8,12 @@
 // loaded once (`symbol-roles.js`, the build's). Imported by an app's module
 // only when its plan draws a symbol, binds an image's source, or names an
 // `app:/` file (below).
-import { After, PropHooks, inflight, journal, clock, data } from "./rt.js";
+import { After, PropHooks, Hooks, inflight, journal, clock, data, onEnd } from "./rt.js";
+// The images a commit's pass visits (`refresh`): those built or adopted with a symbol or `app:/` source (rt.js `h`,
+// through `Hooks.image`) and those a binding gives one, each until the scope that built it ends. A set walked in
+// place of two document-wide queries a commit (LLP 1071.001 A7).
+const Images = new Set();
+const image = Hooks.image = e => { if (!Images.has(e)) { Images.add(e); onEnd(() => Images.delete(e)); } };
 
 let Table = {}, All = null; // every role: not asked for, loading, or loaded (true)
 let Pending = false;
@@ -45,6 +50,7 @@ const iconForm = name => {
   return [path, 1, box, path ? "" : rest, evenOdd];
 };
 const draw = (e, name) => {
+  image(e);
   // A form that is no icon draws nothing: no path, viewBox or rule.
   const form = name.startsWith("icon|") ? iconForm(name) : undefined;
   const [path, filled, box, file, evenOdd] = form === undefined ? Table[name] ?? [""] : form ?? ["", 0, "", "", 0];
@@ -123,7 +129,7 @@ function unsymbol(e) {
 let Files = null;
 const DATA_LIMIT = 1024 * 1024;
 function appSource(e, v) {
-  e.$app = v;
+  image(e); e.$app = v;
   if (e.getAttribute("data-app-src") !== v) e.setAttribute("data-app-src", v);
   inflight.n++;
   (Files ??= import(new URL("./picker-glue.js", import.meta.url).href).then(() => globalThis.exact.appURL))
@@ -135,9 +141,13 @@ function appSource(e, v) {
 // 1011 §3): its alpha masks the tint. A source that becomes a raster takes
 // the mask; one that becomes a symbol (or no tint) drops it.
 const TEMPLATE = ["mask-image", "mask-size", "mask-repeat", "mask-position", "mask-origin", "mask-clip", "object-position"];
-// (the class rules nest under the root's selector: walk nested rules.)
-const declares = (rules, sel) => [...rules].some(r => [sel, "& " + sel, "&" + sel].includes(r.selectorText) && r.style.getPropertyValue("--exact-tint") || r.cssRules && declares(r.cssRules, sel));
-const tinted = e => !!e.style.getPropertyValue("--exact-tint") || [...e.classList].some(c => [...document.styleSheets].some(sh => { try { return declares(sh.cssRules, "." + c); } catch { return false; } }));
+// The selectors whose rules declare `--exact-tint` (the class rules nest under the root's selector, as `& .c1`), read
+// from the sheets once, and again when a sheet is added (this module's own, a loaded piece's): the scan per image
+// built was 6% of a scrolling feed's task time (LLP 1071.001 A5).
+let Tints = null, Sheets = 0;
+const collect = (rules, into) => { for (const r of rules) { if (r.selectorText && r.style?.getPropertyValue("--exact-tint")) into.add(r.selectorText.replace(/^&\s*/, "")); if (r.cssRules) collect(r.cssRules, into); } };
+const tints = () => { const n = document.styleSheets.length; if (!Tints || n !== Sheets) { Sheets = n; Tints = new Set(); for (const sh of document.styleSheets) { try { collect(sh.cssRules, Tints); } catch {} } } return Tints; };
+const tinted = e => !!e.style.getPropertyValue("--exact-tint") || (e.classList.length > 0 && [...e.classList].some(c => tints().has("." + c)));
 function template(e, v) {
   if (e.localName !== "img" || !v || !tinted(e)) { if (e.$template) { for (const p of TEMPLATE) e.style.removeProperty(p); e.style.removeProperty("background-color"); e.$template = false; } return; }
   const fit = getComputedStyle(e).objectFit, size = { fill: "100% 100%", contain: "contain", cover: "cover", none: "auto" }[fit] ?? "var(--exact-tint-fit,contain)";
@@ -166,8 +176,13 @@ const inked = (e, ink) => {
   return ink.endsWith("1");
 };
 function refresh() {
-  for (const el of document.querySelectorAll("#exact-root img[data-app-src]")) if (el.$app === undefined) appSource(el, el.getAttribute("data-app-src"));
-  const symbols = [...document.querySelectorAll("#exact-root img[data-symbol-path]")];
+  if (typeof window === "undefined" || globalThis.__exactRender) return; // the render host's document answers no query and computes no style; the page's glue sizes its symbols
+  const symbols = [];
+  for (const el of Images) {
+    if (!el.isConnected) continue;
+    if (el.$app === undefined && el.hasAttribute("data-app-src")) appSource(el, el.getAttribute("data-app-src"));
+    if (el.hasAttribute("data-symbol-path")) symbols.push(el);
+  }
   for (const el of symbols) {
     const ink = el.getAttribute("data-symbol-ink");
     if (ink) el.toggleAttribute("data-symbol-color", inked(el, ink));

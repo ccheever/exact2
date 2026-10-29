@@ -41,7 +41,7 @@ export async function fixture(options = {}) {
     gpu_assets: () => '{"requests":[],"retired":[]}', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
   };
   const glue = readFileSync(process.env.R8A_GLUE_SOURCE || new URL('../glue.js', import.meta.url), 'utf8');
-  const applySource = glueDeclarations(glue, ['applyBatch', 'wakeLock', 'holdWake']);
+  const applySource = glueDeclarations(glue, ['applyBatch', 'wakeLock', 'holdWake', 'orientationLock', 'holdOrientation']);
   const operationSource = glueDeclarations(glue, ['apply']);
   const applyOperations = new Function('exact', 'views', 'globalThis', `
     let timelinesMoved = false;

@@ -38,7 +38,7 @@ test('authored tests use the configured compiler target and preserve compiler an
   const compiler = `#!${process.execPath}\nimport {readFileSync,writeFileSync} from 'node:fs';
 writeFileSync(process.env.COMPILER_TRACE, JSON.stringify(process.argv.slice(2)));
 if (readFileSync(process.argv[3], 'utf8') === 'refuse') { console.error('fixture.contract:7:3: invalid test step'); process.exit(2); }
-console.log('[]');\n`;
+console.log('{"tests":[],"properties":[]}');\n`;
   writeFileSync(join(tools, 'cargo'), `#!${process.execPath}\nimport {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve,dirname} from 'node:path'; import {spawnSync} from 'node:child_process';
 const bin=resolve(process.env.CARGO_TARGET_DIR,'debug/contract'), args=process.argv.slice(2);
@@ -56,7 +56,7 @@ catch(e) { console.error(e.message); process.exitCode=1; }
       writeFileSync(file, 'accept');
       const good = spawnSync(process.execPath, [runner], {cwd: dir, env, encoding:'utf8'});
       expect(good.status).toBe(0);
-      expect(JSON.parse(good.stdout)).toEqual({passed:0,failed:0,results:[]});
+      expect(JSON.parse(good.stdout)).toEqual({passed:0,failed:0,skipped:0,results:[]});
       expect(JSON.parse(readFileSync(trace, 'utf8'))).toEqual(['test', file]);
       writeFileSync(file, 'refuse');
       const bad = spawnSync(process.execPath, [runner], {cwd: dir, env, encoding:'utf8'});
@@ -851,7 +851,7 @@ test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal g
 // a link, as a click, after the key's handlers and unless one prevented it.
 test('a pressable that is no button activates by Enter or Space', () => {
   const h = inputFixture(); h.load(); let clicks = 0;
-  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, closest: () => null /* no disabled ancestor (LLP 1121 D8) */, click() { clicks++; }, toggleAttribute() {}, style: { getPropertyValue: () => '' }, addEventListener() {}, removeEventListener() {} }); // Space also shows the press (tests/press.test.mjs)
+  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, closest: () => null /* no disabled ancestor (LLP 1121 D8) */, click() { clicks++; }, toggleAttribute() {}, hasAttribute: () => false, style: { getPropertyValue: () => '' }, addEventListener() {}, removeEventListener() {} }); // Space also shows the press (tests/press.test.mjs)
   const key = (target, extra) => { const e = { key: 'Enter', target, preventDefault() { this.prevented = true; }, ...extra }; h.f.keyActivate(e); return e; };
   expect(key(pressable('div')).prevented).toBe(true);
   expect(key(pressable('div'), { key: ' ' }).prevented).toBe(true);

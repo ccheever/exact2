@@ -49,8 +49,16 @@ try {
     wrap(Document.prototype, 'createElement'); wrap(Document.prototype, 'querySelectorAll', 'doc.querySelectorAll'); wrap(Element.prototype, 'querySelectorAll', 'el.querySelectorAll'); wrap(Element.prototype, 'querySelector', 'el.querySelector');
     const gcs = window.getComputedStyle; window.getComputedStyle = function (...a) { C.getComputedStyle = (C.getComputedStyle ?? 0) + 1; return gcs.apply(this, a); };
     wrap(CSSStyleDeclaration.prototype, 'setProperty'); wrap(CSSStyleDeclaration.prototype, 'removeProperty'); wrap(Node.prototype, 'cloneNode');
-    let scrolls = 0, frames = 0; addEventListener('scroll', () => scrolls++, { capture: true, passive: true }); const raf = () => { frames++; requestAnimationFrame(raf); }; requestAnimationFrame(raf);
+    // Where the frame's first layout is forced: a layout read at the scroll event (before the runtime's handler) and at
+    // the frame's start (before its animation-frame callback) is free when layout is clean and costs a layout pass when
+    // something since the last frame dirtied it; `imgLoads` counts one such cause.
+    let scrolls = 0, frames = 0, scrollMs = 0, frameMs = 0, imgLoads = 0; const port = document.scrollingElement;
+    const timed = () => { const t = performance.now(); port.scrollTop; return performance.now() - t; };
+    addEventListener('scroll', e => { scrolls++; scrollMs += (() => { const t = performance.now(); e.target.scrollTop; return performance.now() - t; })(); }, { capture: true, passive: true });
+    addEventListener('load', e => { if (e.target instanceof HTMLImageElement) imgLoads++; }, true);
+    const raf = () => { frames++; frameMs += timed(); requestAnimationFrame(raf); }; C.startFrames = () => requestAnimationFrame(raf); // from the scroll phase: a frame loop of this script's own would be the rest phase's cost
     Object.defineProperty(C, 'scrollEvents', { get: () => scrolls, enumerable: true }); Object.defineProperty(C, 'rafFrames', { get: () => frames, enumerable: true });
+    Object.defineProperty(C, 'layoutMsAtScrollEvent', { get: () => Math.round(scrollMs), enumerable: true }); Object.defineProperty(C, 'layoutMsAtFrameStart', { get: () => Math.round(frameMs), enumerable: true }); Object.defineProperty(C, 'imgLoads', { get: () => imgLoads, enumerable: true });
   });
   // Phase 1: at rest (live mode's cost when the page is idle)
   let m0 = await metricsOf(cdp), n0 = await nodes();
@@ -64,6 +72,7 @@ try {
   summarize(rest, `rest ${seconds}s`);
   const counts = () => page.evaluate(() => JSON.parse(JSON.stringify(window.__c)));
   // Phase 2: scrolling
+  await page.evaluate(() => window.__c.startFrames());
   const c0 = await counts();
   m0 = await metricsOf(cdp); n0 = await nodes();
   const top0 = await list.evaluate(el => el.scrollTop);
