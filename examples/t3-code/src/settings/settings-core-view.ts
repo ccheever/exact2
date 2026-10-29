@@ -5,7 +5,7 @@ import type { Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { decodeClientPrefs, dividedSection, generalSections, memberFiles, resolveScope, restoreLabels, scopeRepresentative, scopeTarget, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
 export { scopeRepresentative }; // providers-scope.ts, source-control-view.ts
-import { appearanceSections, fontStack, modeTiles, palette } from '../appearance/settings-appearance';
+import { appearanceSections, fontStack, modeTiles, palette, SEPARATE_FONT_TARGETS } from '../appearance/settings-appearance';
 import { breadcrumbLabel, CORE_ROUTES, foldStopOf, scopeAvailable, searchTargetScope } from './settings-search';
 import { scopeNoticeGroups } from './settings-scope-notice';
 import type { CustomTheme } from '../appearance/settings-themes';
@@ -89,7 +89,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const deviceOnly = DEVICE_ONLY.has(route);
   // Worktrees' rows are the storage panel's to draw, between its own (settings-data.ts worktreeRows).
   if (active && CORE_ROUTES.has(route) && route !== 'appearance' && route !== 'worktrees' && (scope.kind !== 'unavailable' || deviceOnly)) sections = generalSections(client, context, route);
-  if (active && route === 'appearance') sections = appearanceSections(prefs, true, await installedFonts(client, native));
+  if (active && route === 'appearance') sections = appearanceSections(prefs, true, await installedFonts(client, native), target);
   const cli = active && route === 'about' ? await readCliCommand(client, native) : null;
   if (cli) sections = sections.length ? sections.map(section => section.id === 'about' ? { ...section, rows: [...section.rows, cli] } : section)
     : [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }];
@@ -107,10 +107,13 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const unavailableMessage = scope.kind === 'unavailable' ? scope.message
     // Providers shows the chosen environment's own connection (providers-scope.ts); the other routes read the focused one.
     : scope.kind === 'environment' && !(singleEnvironmentRoute(route) ? scope.connected : client.ready) ? `Reconnect ${scope.environmentLabel} to change its settings.` : '';
+  // A jump to a row that exists only with Separate fonts on asks for the setting (shell-members.contract writes it) and
+  // waits for it: the answer names the jump only once the setting reads on, as revealSettingsSearchTarget writes it first.
+  const separateFontsWanted = active && SEPARATE_FONT_TARGETS.includes(target) && !prefs.typographyAdvanced;
   return {
     ready: active, route, breadcrumb: breadcrumbLabel(route),
     // The search jump this answer is for, and the reveal stop of the fold its row sits under (settings-members.contract).
-    jumpTarget: target, jumpStop: foldStopOf(target), showScope: !deviceOnly, kind: scope.kind, message: deviceOnly ? '' : unavailableMessage, notice, noticeGroups,
+    jumpTarget: separateFontsWanted ? '' : target, jumpStop: foldStopOf(target), separateFontsWanted, showScope: !deviceOnly, kind: scope.kind, message: deviceOnly ? '' : unavailableMessage, notice, noticeGroups,
     environmentLabel: scope.environmentLabel, projectLabel: scope.projectLabel, projectMark: scope.projectMark, projectInk: scope.projectInk, projectSurface: scope.projectSurface,
     connective: scope.connective, // Every known environment, each with its own machine icon; a single-environment route drops "All environments".
     environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,

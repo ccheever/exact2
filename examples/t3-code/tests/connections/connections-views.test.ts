@@ -14,20 +14,22 @@ const source = readFileSync(appPath('src/connections/connections.contract'), 'ut
 const component = (name: string) => { const start = source.indexOf(`\ncomponent ${name}\n`); return source.slice(start, source.indexOf('\ncomponent ', start + 1)); };
 
 test('the real mount passes its route: Settings › Connections draws Environments, Sharing & access the rest', () => {
-  // app-settings.contract mounts the panel on the connections route and hands it that route as its `view`.
+  // app-settings.contract mounts the panel on both routes and hands it the route as its `view`.
   const settings = appText('app-settings.contract').split('\n'), at = settings.findIndex(text => text.includes('ConnectionsPanel(view='));
-  expect(settings.slice(0, at).reverse().find(text => text.trim().startsWith('if '))?.trim()).toBe('if settingsRoute == "connections"');
+  const mount = settings.slice(0, at).reverse().find(text => text.trim().startsWith('if '))!.trim().slice(3);
+  for (const route of ['connections', 'access']) expect(value(mount, { settingsRoute: route })).toBe(true);
+  expect(value(mount, { settingsRoute: 'providers' })).toBe(false);
   const viewArgument = /ConnectionsPanel\(view=([^,]+),/.exec(settings[at]!)![1]!;
   const view = value(viewArgument, { settingsRoute: 'connections' });
   expect(view).toBe('connections');
+  expect(value(viewArgument, { settingsRoute: 'access' })).toBe('access');
   const panel = contractComponent('connections.contract', 'ConnectionsPanel'), state = panel.state();
   const drawn = (marker: string, route: unknown) => panel.drawn(marker, state, { view: route, width: 800, error: '', page: { network: { visible: true, clientsVisible: true } } });
   for (const section of ['ThisAppSection(', 'ConnectionsEnvironments(']) {
     expect(drawn(section, view)).toBe(true);
     expect(drawn(section, 'access')).toBe(false);
   }
-  // The Sharing & access route (the settings task's) draws This machine and Authorized clients, and the
-  // connections route does not.
+  // The Sharing & access route draws This machine and Authorized clients, and the connections route does not.
   for (const section of ['ThisMachineSection(', 'AuthorizedClients(']) {
     expect(drawn(section, view)).toBe(false);
     expect(drawn(section, 'access')).toBe(true);

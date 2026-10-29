@@ -1,12 +1,10 @@
 // Settings › Integrations › Browser's default rows (MIT reference, see LICENSE-T3, T3 Code
-// 74541bab17: apps/web/src/components/settings/IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting,
-// BrowserAppearanceSetting, BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings,
-// BrowserAutoShowFloatingPreviewSetting, BrowserSearchEngineSetting). `view` is browser-defaults.ts `browserDefaultsView`; each write is
-// `restlocal:browser-defaults` with `key=…&value=…`. "Open links in" is browser-links.ts's row, between these two groups.
+// 74541bab17: apps/web/src/components/settings/IntegrationsSettings.tsx): the row and the viewport controls
+// (BrowserViewportSetting) the Browser page's tab defaults and recordings draw with (settings-source-control.contract),
+// and its Auto-show and Search engine rows (BrowserAutoShowFloatingPreviewSetting, BrowserSearchEngineSetting). `view`
+// is browser-defaults.ts `browserDefaultsView`; each write is `restlocal:browser-defaults` with `key=…&value=…`.
 use SelectOption from "../settings/settings-kit.contract"
-use SettingsSelect from "../settings/settings-kit.contract"
 use SettingsPageSelect from "../settings/settings-kit.contract"
-use SettingsSwitch from "../settings/settings-kit.contract"
 use SettingsPageSwitch from "../settings/settings-kit.contract"
 use SkPopup from "../settings/settings-kit.contract"
 use SkField from "../settings/settings-kit.contract"
@@ -81,32 +79,6 @@ component BdRow
         text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" max-width="36rem"
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" flex-wrap="wrap"
         children
-
-// Default browser viewport, zoom, appearance, and the recording rows.
-component BrowserTabDefaultRows
-  inject
-    rem: number
-  props
-    view: BrowserDefaultsView
-    local: action
-  action pick(key: string, value: string)
-    local("browser-defaults", `key=${key}&value=${encodeURIComponent(value)}`)
-  view
-    column width="100%" testId="browser-defaults"
-      BdRow(rowId="viewport", title="Default browser viewport", description="Tab size for you and agents. Fill fits the panel; other sizes show the device toolbar.", reset=view.viewportReset, resetLabel="default browser viewport", resetPress=pick("reset", "viewport"))
-        BdViewportSelect(label=view.viewportLabel, width=(176 * rem / 16), options=view.viewportOptions, choose=pick("viewport"))
-        if view.viewportSized
-          BdViewportSize(view=view, pick=pick)
-      BdRow(rowId="zoom", title="Default browser zoom", description="Page zoom applied to new browser tabs.", reset=view.zoomReset, resetLabel="default browser zoom", resetPress=pick("reset", "zoom"))
-        SettingsSelect(selectId="browser-default-zoom", label="Default browser zoom", valueLabel=view.zoomLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.zoomOptions, choose=pick("zoom"))
-      BdRow(rowId="appearance", title="Default browser appearance", description="The color scheme pages are told to prefer. System follows your OS setting.", reset=view.appearanceReset, resetLabel="default browser appearance", resetPress=pick("reset", "appearance"))
-        SettingsSelect(selectId="browser-default-appearance", label="Default browser appearance", valueLabel=view.appearanceLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.appearanceOptions, choose=pick("appearance"))
-      BdRow(rowId="frame-rate", title="Browser recording frame rate", description="Maximum recording rate. 30 fps saves CPU and storage; 60 fps is smoother.", reset=view.frameRateReset, resetLabel="browser recording frame rate", resetPress=pick("reset", "frame-rate"))
-        SettingsSelect(selectId="browser-recording-frame-rate", label="Browser recording frame rate", valueLabel=view.frameRateLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.frameRateOptions, choose=pick("frame-rate"))
-      BdRow(rowId="key-presses", title="Show key presses in recordings", description="Show pressed keys and shortcuts in new recordings. Password fields are excluded.", reset=false, resetLabel="", resetPress=pick("reset", "none"))
-        SettingsSwitch(checked=view.keyPresses, label="Show key presses in recordings", disabled=false, switchId="browser-recording-key-presses", toggle=pick("key-presses", view.keyPresses ? "false" : "true"))
-      BdRow(rowId="mouse-presses", title="Show mouse presses in recordings", description="Highlight mouse presses and held buttons in new recordings.", reset=false, resetLabel="", resetPress=pick("reset", "none"))
-        SettingsSwitch(checked=view.mousePresses, label="Show mouse presses in recordings", disabled=false, switchId="browser-recording-mouse-presses", toggle=pick("mouse-presses", view.mousePresses ? "false" : "true"))
 
 // BrowserViewportSetting's Select (ui/select.tsx size="sm", SelectPopup align="end": 278 wide at 16px, as measured in the
 // reference): Fill panel, Responsive, then a "Standard" SelectGroupLabel over the presets, each preset's size
@@ -219,12 +191,3 @@ component BrowserSearchEngineRow
             // Keyed by the stored text, so a commit the data module trimmed shows what it kept.
             for stored in [view.customSearchUrl] key=stored
               input data-focus-stop="enabled page" value=stored change=commit placeholder="https://example.com/search?q=%s" aria-label="Custom search URL" spellcheck="false" autocorrect="off" autocapitalize="none" maxlength=2048 testId="browser-custom-search-url" id="field-browser-custom-search-url" width="16rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" data-editable="yes"
-
-// Open pull requests in T3 Code (PullRequestLinksOpenInAppSetting, after Search engine; not a preview default, so never disabled).
-component PullRequestLinksRow
-  props
-    view: BrowserDefaultsView
-    local: action
-  view
-    BdRow(rowId="pull-request-links-open-in-app", title="Open pull requests in T3 Code", description="Clicking a pull request link opens it in T3 Code. Turn off to open pull request links like any other link, on GitHub or your git host.", reset=(not view.pullRequestLinksInApp), resetLabel="open pull requests in T3 Code", resetPress=local("browser-defaults", "key=reset&value=pull-request-links"))
-      SettingsSwitch(checked=view.pullRequestLinksInApp, label="Open pull requests in T3 Code", disabled=false, switchId="pull-request-links-open-in-app", toggle=local("browser-defaults", `key=pull-request-links&value=${view.pullRequestLinksInApp ? "false" : "true"}`))

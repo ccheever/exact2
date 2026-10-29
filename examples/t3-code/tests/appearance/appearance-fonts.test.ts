@@ -102,7 +102,7 @@ describe('installed font selection', () => {
     expect(look(client).promptFont).toBe('"Avenir Next", system-ui');
     expect(look(client).codeFont).toBe('\"Menlo\", ui-monospace');
     expect(look(client).terminalFont).toBe('Menlo');
-    await applyCoreSetting(client, native, 'typography-advanced:typographyAdvanced|||', 'true');
+    await applyCoreSetting(client, native, 'separate-fonts:typographyAdvanced|||', 'true'); // Typography's Separate fonts row
     expect(look(client).promptFont).toBe('\"Avenir Next\", system-ui');
     expect(look(client).terminalFont).toBe('');
   });

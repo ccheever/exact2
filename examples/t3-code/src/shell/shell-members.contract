@@ -6,6 +6,7 @@ use ChatCanvasView from "./chat-canvas.contract"
 use TerminalDrawerView from "../terminal/terminal.contract"
 use ClearedSiteData from "@exact/browser"
 use EmptyResult from "@exact/browser-automation"
+use Change from "../shared/shapes.contract"
 members T3Code
   state shellClock = 0
   state toastDismissed = ""
@@ -64,6 +65,24 @@ members T3Code
   action returnTitleFocus
     titleDialog = false
     focus("thread-title")
+  // revealSettingsSearchTarget, from Settings search and from TypographySection's effect alike: a jump to a row that
+  // exists only with Separate fonts on (Prompt font, Terminal font; settings-core-view.ts) turns the setting on, and the
+  // terminal reads it too. The jump waits until the page reads it on. The write has its own mutation, so a command in
+  // flight cannot drop it, and only one is out until the page reads the setting on.
+  state separateFontsSaving = false
+  mutation separateFontsSaved as shape Change queue refreshes data then separateFontsLanded
+  task separateFontsJump when settingsOpen and settingsCore.separateFontsWanted and not separateFontsSaving
+    after(1, separateFontsOn)
+  action separateFontsOn
+    if settingsOpen and settingsCore.separateFontsWanted and not separateFontsSaving
+      separateFontsSaving = true
+      send separateFontsSaved = command("device-setting", "typographyAdvanced", "true", 0)
+  action separateFontsLanded
+    settingsRefresh = settingsRefresh + 1
+  task separateFontsRead when separateFontsSaving and not settingsCore.separateFontsWanted
+    after(1, separateFontsDone)
+  action separateFontsDone
+    separateFontsSaving = false
   state annotationSendHandled = 0
   task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend
     after(1, annotationSendNow)
