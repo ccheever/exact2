@@ -118,9 +118,10 @@ impl PainterBoot {
         {
             return None;
         }
-        let force_warp = match std::env::var("EXACT_INK_DEVICE").as_deref() {
-            Ok("d3d11") => false,
-            Ok("warp") => true,
+        let device = std::env::var("EXACT_INK_DEVICE").ok();
+        let force_warp = match device.as_deref() {
+            None | Some("d3d11") => false,
+            Some("warp") => true,
             _ => return None,
         };
         Some(exact_ink::device::d3d11::Preparing::start(force_warp).map_err(|e| e.to_string()))

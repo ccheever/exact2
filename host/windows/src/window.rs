@@ -122,7 +122,7 @@ fn next_frame_deadline(deadline: Instant, started: Instant, period: Duration) ->
 
 fn direct_device(painter: exact_linux::presenter::PainterChoice, device: Option<&str>) -> bool {
     painter == exact_linux::presenter::PainterChoice::Ink
-        && matches!(device, Some("d3d11" | "warp"))
+        && matches!(device, None | Some("d3d11" | "warp"))
 }
 
 pub(super) fn run<D: DataSource + Default + 'static>(
@@ -1299,11 +1299,12 @@ mod tests {
     #[test]
     fn only_direct_ink_devices_prepare_asynchronously() {
         use exact_linux::presenter::PainterChoice::*;
-        assert!(!direct_device(Ink, None));
+        assert!(direct_device(Ink, None));
         assert!(!direct_device(Ink, Some("wgpu")));
         assert!(direct_device(Ink, Some("d3d11")));
         assert!(direct_device(Ink, Some("warp")));
         for painter in [Auto, Cpu, Gpu, Custom] {
+            assert!(!direct_device(painter, None));
             assert!(!direct_device(painter, Some("d3d11")));
         }
     }
