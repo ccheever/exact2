@@ -182,19 +182,23 @@ function driveScreens(copy, host, dir, env) {
     for (const [screen] of SCREENS) {
       const png = join(dir, `${host}-${scheme}-${screen}.png`);
       const wasm = host === 'web-wasm';
-      const args = [join(copy, 'exact.mjs'), 'agent', wasm ? 'web' : host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
+      // The web drives the side's dist as built (buildSide's, the agent checking its receipt), through the SDK's agent:
+      // the copy's `exact.mjs agent web` rebuilds the 9.5 MB app each drive (about 2.5 min a shot, 7 s this way).
+      const web = host.startsWith('web') ? [join(sdkOf(copy), 'scripts/agent.mjs'), 'web', '--app', /name: "([^"]+)"/.exec(readFileSync(join(copy, 'exact.mjs'), 'utf8'))[1]] : null;
+      const args = [...(web ?? [join(copy, 'exact.mjs'), 'agent', host]), '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
-      let r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+      const drive = { cwd: copy, env: { ...cloneWebEnv(env, wasm), ...(web ? { EXACT_APP_DIR: copy } : {}) } };
+      let r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), drive);
       // A drive that failed before any layout (the simulator refusing a
       // launch, say) is driven once more, and says so.
       let retried = '';
       if (!r.ok && !r.out.includes('"nodes"')) {
         retried = r.out.trim().split('\n').filter(l => /rror/.test(l)).slice(0, 1).join('').slice(0, 160) || 'no layout';
-        r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+        r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), drive);
       }
       // iOS's keyboard, where the shot needs it up: driven again while it is down.
-      const kb = host === 'ios' && KEYBOARD_UP.includes(screen) ? keyboardRedrive(ALLOW[screen].target, REFUSED, r, () => runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) })) : { r, down: false, keyboard: '' };
+      const kb = host === 'ios' && KEYBOARD_UP.includes(screen) ? keyboardRedrive(ALLOW[screen].target, REFUSED, r, () => runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), drive)) : { r, down: false, keyboard: '' };
       r = kb.r;
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
@@ -1461,7 +1465,10 @@ if (import.meta.main) {
   if (opts.screens.length) SCREENS.splice(0, SCREENS.length, ...SCREENS.filter(([n]) => opts.screens.includes(n)));
   RERUN_SCREENS.push(...opts.screens);
   if (opts.mode === 'baseline') {
-    const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS);
+    // Built first, into the before side's target, so the drives (the web's on its dist as built) shoot the copy as it is.
+    const built = buildSide(resolve(opts.copy), 'before');
+    if (built) { console.error(built); process.exit(1); }
+    const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS, { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', 'stage12-gate-before') });
     const bad = r.shots.filter(s => !s.ok);
     console.log(`baseline: ${r.shots.length - bad.length} of ${r.shots.length} screens; plan ${r.plan.sha ?? `FAILED (${r.plan.said})`}; ${join(opts.out, 'baseline.json')}`);
     for (const s of bad) console.log(`  FAILED ${s.host} ${s.scheme} ${s.screen}: ${s.said}`);
