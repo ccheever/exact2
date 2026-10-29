@@ -55,6 +55,55 @@ async function tagged(): Promise<{ text: string }> {
   return { text: `call ${call} ${await reply.text()}` };
 }
 
+// A write the app can abort (LLP 1146 D2): the first call to ask starts it,
+// beside the ordered lane, and its answer, let go while the POST is held, has
+// it kept. Its continuation's catch writes the store. `cancel` aborts it in a
+// reply's turn and answers outside its shape, refusing that turn's commit;
+// `cancelAwait` aborts it and awaits its end in the same answer.
+let cancelling: AbortController | null = null;
+let abortable: Promise<string> | null = null;
+
+async function writeOnce(url: string, store: Store, signal: AbortSignal): Promise<string> {
+  try {
+    const init = { method: 'POST', body: 'w', signal, exactIndependentHttp: { maxResponseBytes: 65536 } };
+    const reply = await fetch(url, init as RequestInit);
+    return await reply.text();
+  } catch (e) {
+    const name = (e as { name?: string }).name;
+    store.set(KEY, `aborted ${name}`);
+    return `aborted ${name}`;
+  }
+}
+
+async function write(n: unknown, url: unknown, store: Store): Promise<{ text: string }> {
+  if (!abortable) {
+    cancelling = new AbortController();
+    abortable = writeOnce(String(url), store, cancelling.signal);
+  }
+  return { text: `write ${n} ${await abortable}` };
+}
+
+async function cancel(n: unknown): Promise<unknown> {
+  if (Number(n) < 2 || !cancelling) return { text: 'idle' };
+  await fetch('https://outlive.test/ping');
+  cancelling.abort();
+  return { wrong: true };
+}
+
+async function cancelAwait(n: unknown): Promise<{ text: string }> {
+  if (Number(n) < 2 || !cancelling || !abortable) return { text: 'idle' };
+  cancelling.abort();
+  return { text: `awaited ${await abortable}` };
+}
+
+// Two writes, the second made before the first is awaited: the answer's
+// settle hands out the first, and the second stays unclaimed.
+async function twice(): Promise<{ text: string }> {
+  const first = fetch('https://outlive.test/first', { method: 'POST' });
+  const second = fetch('https://outlive.test/second', { method: 'POST' });
+  return { text: `${await (await first).text()} ${await (await second).text()}` };
+}
+
 function answer(source: string, args: unknown[], store: Store): unknown {
   switch (source) {
     case 'token': return { text: store.get(KEY) ?? 'none' };
@@ -63,12 +112,16 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case 'renewed': return renewed(args[0], store);
     case 'stands': return stands(store);
     case 'tagged': return tagged();
+    case 'write': return write(args[0], args[1], store);
+    case 'cancel': return cancel(args[0]);
+    case 'cancelAwait': return cancelAwait(args[0]);
+    case 'twice': return twice();
     default: throw Object.assign(new Error(source), { kind: 'UnknownSource' });
   }
 }
 (globalThis as any).exact = {
   abi: 1,
   appId: "test.outlive",
-  grants: "net.fetch https://outlive.test\nsecret.keep outlive.token\n",
+  grants: "net.fetch https://outlive.test\nnet.fetch local-network development\nsecret.keep outlive.token\n",
   answer,
 };
