@@ -389,7 +389,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       } else if (!transitioned(cs, "color")) out.push(`color: color-mix(in srgb, var(--exact-press-color) calc(${p} * 100%), ${cs.color}) !important`);
     }
     state.kept = next;
-    state.keptBase = { opacity: next.opacity ? String(held ?? base) : undefined, color: next.color ? cs.color : undefined };
+    // The look each kept declaration was written from: carried with it while it is kept (a re-read with it on sees
+    // the painted look, not that one), read now only where it was written now.
+    state.keptBase = { opacity: next.opacity ? (kept.opacity ? state.keptBase?.opacity : String(held ?? base)) : undefined, color: next.color ? (kept.color ? state.keptBase?.color : cs.color) : undefined };
     return [...out, ...Object.values(next)].join("; ");
   };
   // What a painting node shows, as the page can't read it from the node's computed style (the paint is on images):
