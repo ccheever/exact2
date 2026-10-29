@@ -1,7 +1,7 @@
 //! A compose target is sampled into a drawable; no window frame is read back.
 //! @ref LLP 1149 D2.7, D7, D11.
 use super::*;
-use crate::device::apple::{Layer, RenderLayer};
+use crate::device::apple::{trace_interval, trace_mark, trace_time, Layer, RenderLayer, Trace};
 use crate::present::Thread;
 use objc2::Message;
 use objc2_quartz_core::CAMetalDrawable;
@@ -31,12 +31,20 @@ struct Work {
     texture: Retained<ProtocolObject<dyn MTLTexture>>,
     command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
     benchmark: (bool, f32),
+    queued: f64,
 }
 // SAFETY: the retained texture is read on the ordered GPU queue, never mutated
 // by the worker; encoding and committing this command belong only to the worker.
 unsafe impl Send for Work {}
 impl Work {
     fn run(self, present: bool) -> Result<()> {
+        trace_interval(
+            c"handoff wait",
+            self.queued,
+            trace_time(),
+            f64::from(present),
+        );
+        let _trace = Trace::new(c"worker present");
         if !present {
             self.command.commit();
             return Ok(());
@@ -47,7 +55,16 @@ impl Work {
             .lock()
             .unwrap()
             .present(&self.texture, &self.command);
-        self.command.waitUntilCompleted();
+        {
+            let _trace = Trace::new(c"present completion wait");
+            self.command.waitUntilCompleted();
+        }
+        trace_interval(
+            c"gpu present",
+            self.command.GPUStartTime(),
+            self.command.GPUEndTime(),
+            0.,
+        );
         if self.command.status() == MTLCommandBufferStatus::Error {
             return Err(Error::DeviceLost(format!(
                 "window command failed: {:?}",
@@ -155,10 +172,12 @@ impl Upload {
         result
     }
     fn encode(&self) -> Result<()> {
+        let _trace = Trace::new(c"worker upload");
         let mut ring = self.ring.lock().unwrap();
         let slot = ring.next;
         let old = ring.slots[slot].take();
         if let Some((_, command)) = &old {
+            let _trace = Trace::new(c"staging wait");
             command.waitUntilCompleted();
             if command.status() == MTLCommandBufferStatus::Error {
                 return Err(Error::DeviceLost("image upload failed".into()));
@@ -166,6 +185,7 @@ impl Upload {
         }
         let stride = self.row.div_ceil(256) * 256;
         let length = stride * self.size[1] as usize;
+        trace_mark(c"staging bytes", length as f64);
         let buffer = match old {
             Some((buffer, _)) if buffer.length() >= length => buffer,
             _ => ring
@@ -250,6 +270,7 @@ impl Metal {
                 texture,
                 command: command.clone(),
                 benchmark: crate::device::apple::benchmark_scene(),
+                queued: trace_time(),
             };
             window
                 .pending
@@ -274,7 +295,11 @@ impl Renderer {
         }
         let transaction = self.layer.live_resize.load(Ordering::Acquire);
         self.layer.raw.setPresentsWithTransaction(transaction);
-        let Some(drawable) = self.layer.raw.nextDrawable() else {
+        let drawable = {
+            let _trace = Trace::new(c"nextDrawable");
+            self.layer.raw.nextDrawable()
+        };
+        let Some(drawable) = drawable else {
             // A hidden or closing window may have no drawable. Commit the empty
             // buffer so resource retirement and a later screenshot can complete.
             command.commit();
@@ -305,6 +330,7 @@ impl Renderer {
             command.presentDrawable(ProtocolObject::from_ref(&*drawable));
             command.commit();
         }
+        trace_mark(c"present committed", 0.);
         self.ring.retire(command);
         Ok(())
     }
@@ -318,6 +344,7 @@ fn encode(
     sampler: &ProtocolObject<dyn MTLSamplerState>,
     white: &ProtocolObject<dyn MTLTexture>,
 ) -> Result<()> {
+    let _trace = Trace::new(c"present encode");
     let pass = MTLRenderPassDescriptor::new();
     let attachment = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
     attachment.setTexture(Some(target));

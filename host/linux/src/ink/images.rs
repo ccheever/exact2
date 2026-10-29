@@ -91,6 +91,8 @@ impl Images {
 }
 
 fn upload(device: &mut impl Device, pixels: tiny_skia::PixmapRef<'_>) -> Result<TextureId> {
+    #[cfg(target_os = "macos")]
+    let _trace = exact_ink::device::apple::Trace::new(c"image upload");
     let texture = device.create_texture(TextureDesc {
         mipmapped: true,
         ..TextureDesc::rgba(pixels.width(), pixels.height())

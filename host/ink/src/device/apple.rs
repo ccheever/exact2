@@ -147,7 +147,9 @@ impl RenderLayer {
                 // A drawable can complete on the GPU without reaching the screen,
                 // including while the window's first layer transaction is pending.
                 // https://developer.apple.com/documentation/metal/mtldrawable/presentedtime
-                if unsafe { shown.as_ref().presentedTime() } == 0. {
+                let time = unsafe { shown.as_ref().presentedTime() };
+                trace_interval(c"presented", time, time, 0.);
+                if time == 0. {
                     retry.store(true, Ordering::Release);
                     wake();
                 }
@@ -182,6 +184,55 @@ pub fn wheel_phases() -> [u64; 2] {
 }
 
 type Callback = Box<dyn Fn() + Send + Sync>;
+
+/// Optional benchmark intervals on Core Animation's clock, shared with presentedTime.
+/// The linked probe owns storage; ordinary carriers do not collect anything.
+pub struct Trace(Option<(&'static core::ffi::CStr, f64)>);
+impl Trace {
+    pub fn new(name: &'static core::ffi::CStr) -> Self {
+        Self(trace_hook().map(|_| (name, trace_time())))
+    }
+}
+impl Drop for Trace {
+    fn drop(&mut self) {
+        if let Some((name, start)) = self.0 {
+            trace_interval(name, start, trace_time(), 0.);
+        }
+    }
+}
+type TraceHook = unsafe extern "C" fn(*const core::ffi::c_char, f64, f64, f64);
+fn trace_hook() -> Option<TraceHook> {
+    static HOOK: std::sync::OnceLock<Option<TraceHook>> = std::sync::OnceLock::new();
+    *HOOK.get_or_init(|| {
+        if std::env::var_os("G1_TRACE").is_none() {
+            return None;
+        }
+        // SAFETY: the optional benchmark probe exports this exact C signature.
+        unsafe {
+            let p = libc::dlsym(libc::RTLD_DEFAULT, c"g1_interval".as_ptr());
+            (!p.is_null()).then(|| std::mem::transmute::<*mut core::ffi::c_void, TraceHook>(p))
+        }
+    })
+}
+#[link(name = "QuartzCore", kind = "framework")]
+unsafe extern "C" {
+    fn CACurrentMediaTime() -> f64;
+}
+pub fn trace_time() -> f64 {
+    unsafe { CACurrentMediaTime() }
+}
+pub fn trace_interval(name: &'static core::ffi::CStr, start: f64, end: f64, value: f64) {
+    if let Some(hook) = trace_hook() {
+        unsafe { hook(name.as_ptr(), start, end, value) };
+    }
+}
+pub fn trace_mark(name: &'static core::ffi::CStr, value: f64) {
+    if trace_hook().is_some() {
+        let now = trace_time();
+        trace_interval(name, now, now, value);
+    }
+}
+
 #[link(name = "CoreVideo", kind = "framework")]
 unsafe extern "C" {
     fn CVDisplayLinkCreateWithActiveCGDisplays(out: *mut *mut std::ffi::c_void) -> i32;
@@ -219,6 +270,7 @@ impl DisplayLink {
             _: *mut u64,
             context: *mut std::ffi::c_void,
         ) -> i32 {
+            trace_mark(c"display callback", 0.);
             let callback = unsafe { &*context.cast::<Callback>() };
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback));
             0

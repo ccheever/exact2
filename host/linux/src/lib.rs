@@ -120,9 +120,11 @@ pub(crate) fn reader_driven() -> bool {
 /// Run `f` inside an atrace section on Android (Perfetto shows it on this
 /// thread); elsewhere just `f`.
 #[inline]
-pub(crate) fn traced<T>(_name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
+pub(crate) fn traced<T>(_name: &'static core::ffi::CStr, f: impl FnOnce() -> T) -> T {
     #[cfg(target_os = "android")]
     return android::trace(_name, f);
+    #[cfg(target_os = "macos")]
+    let _trace = exact_ink::device::apple::Trace::new(_name);
     #[cfg(not(target_os = "android"))]
     f()
 }

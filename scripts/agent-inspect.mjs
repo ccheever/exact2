@@ -831,9 +831,23 @@ export function renderTrace(t) {
     }
   } else if (t.frames) out.push('', renderPerf(t.frames));
   if (Array.isArray(t.traceEvents)) {
+    const ink = t.traceEvents.filter(e => e.cat === 'ink');
+    if (ink.length) {
+      out.push(`ink trace: ${t.presented?.length ?? 0} presented timestamps, ${ink.length} intervals/marks, ${t.dropped ?? 0} dropped; inclusive phases, not additive; idle gaps are not classified as late`);
+      const phases = new Map();
+      for (const e of ink) {
+        if (!(e.dur > 0)) continue;
+        const values = phases.get(e.name) ?? [];
+        values.push(e.dur / 1000); phases.set(e.name, values);
+      }
+      for (const [name, values] of phases) {
+        values.sort((a, b) => a - b);
+        out.push(`  ${name}: ${values.length} spans · total ${values.reduce((a, b) => a + b, 0).toFixed(3)} ms · p99 ${values[Math.floor(values.length * .99)].toFixed(3)} ms`);
+      }
+    }
     const cpu = t.traceEvents.filter(e => e.cat === 'world.cpu'), gpu = t.traceEvents.filter(e => e.cat === 'world.gpu');
     const frames = new Set(cpu.filter(e => e.name === 'frame').map(e => `${e.pid}:${e.args?.frame}`));
-    out.push(`world trace: ${cpu.filter(e=>e.name==='tick').length} ticks, ${cpu.length} CPU intervals under ${frames.size} submitted frames, ${gpu.length} GPU passes (independent GPU clock; joined by frame)`);
+    if (!ink.length || cpu.length || gpu.length) out.push(`world trace: ${cpu.filter(e=>e.name==='tick').length} ticks, ${cpu.length} CPU intervals under ${frames.size} submitted frames, ${gpu.length} GPU passes (independent GPU clock; joined by frame)`);
   }
   if (t.perf) out.push('', renderPerf(t.perf));
   if (t.hatches?.perf?.calls) out.push('', renderHatchPerf(t.hatches.perf));

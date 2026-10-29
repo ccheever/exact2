@@ -160,6 +160,16 @@ test('a late frame names its phases, and a trace no map fits names the host buil
   expect(text).toContain('no map here fits plan abababababab: pass --plan');
 });
 
+test('ink traces retain phase and coverage information without inventing frame joins', () => {
+  const text = renderTrace({ identity: { host: 'apple-painted' }, presented: [1, 2], dropped: 3,
+    traceEvents: [{ cat: 'ink', name: 'paint walk', dur: 1000 }, { cat: 'ink', name: 'paint walk', dur: 2000 },
+      { cat: 'ink', name: 'presented', dur: 0 }] });
+  expect(text).toContain('2 presented timestamps, 3 intervals/marks, 3 dropped');
+  expect(text).toContain('inclusive phases, not additive; idle gaps are not classified as late');
+  expect(text).toContain('paint walk: 2 spans · total 3.000 ms · p99 2.000 ms');
+  expect(text).not.toContain('world trace');
+});
+
 test('--plan finds plans with a map beside them in a directory, and refuses one with none', () => {
   const dir = mkdtempSync(join(tmpdir(), 'plan-'));
   mkdirSync(join(dir, 'bake', 'dev'), { recursive: true });

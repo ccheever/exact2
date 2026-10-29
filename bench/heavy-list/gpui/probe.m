@@ -22,6 +22,20 @@ static double tickSeconds;
 static atomic_size_t topItem;
 static _Atomic(float) topOffset;
 
+// Opt-in fixed storage; serializing a trace happens after the measured scroll.
+static struct { const char *name; double start, end, value; mach_port_t thread; } intervals[131072];
+static size_t intervalCount, intervalDropped;
+static BOOL tracing;
+static pthread_mutex_t traceLock = PTHREAD_MUTEX_INITIALIZER;
+void g1_interval(const char *name, double start, double end, double value) {
+    if (!tracing) return;
+    pthread_mutex_lock(&traceLock);
+    if (intervalCount < sizeof(intervals) / sizeof(intervals[0])) {
+        intervals[intervalCount++] = (typeof(intervals[0])){name, start, end, value, pthread_mach_thread_np(pthread_self())};
+    } else intervalDropped++;
+    pthread_mutex_unlock(&traceLock);
+}
+
 void g1_ready(int complete, size_t item, float offset) {
     atomic_store(&completeScene, complete != 0);
     topItem = item;
@@ -35,7 +49,7 @@ static id nextDrawable(id layer, SEL selector) {
     static IMP original;
     if (!original) original = class_getMethodImplementation([CAMetalLayer class], @selector(g1_originalDrawable));
     id<MTLDrawable> drawable = ((id (*)(id, SEL))original)(layer, selector);
-    BOOL ready = atomic_load(&completeScene);
+    BOOL ready = atomic_load(&completeScene) || getenv("G1_ALLOW_IMAGE_REFUSALS");
     if (drawable) [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
         double time = shown.presentedTime;
         if (time <= 0) return;
@@ -67,6 +81,28 @@ static void writeJSON(NSDictionary *data, NSString *path) {
         fprintf(stderr, "probe write: %s\n", error.description.UTF8String);
         exit(2);
     }
+}
+
+static void saveTrace(void) {
+    NSMutableArray *events = [NSMutableArray array];
+    pthread_mutex_lock(&traceLock);
+    for (size_t i = 0; i < intervalCount; i++) {
+        typeof(intervals[0]) e = intervals[i];
+        [events addObject:@{@"name": @(e.name), @"cat": @"ink", @"ph": @"X",
+            @"ts": @(e.start * 1e6), @"dur": @((e.end - e.start) * 1e6),
+            @"pid": @(getpid()), @"tid": @(e.thread), @"args": @{@"value": @(e.value)}}];
+    }
+    size_t dropped = intervalDropped;
+    pthread_mutex_unlock(&traceLock);
+    pthread_mutex_lock(&lock);
+    NSArray *times = [presented copy];
+    pthread_mutex_unlock(&lock);
+    NSDictionary *trace = @{@"identity": @{@"host": @"apple-painted", @"app": @"exact-heavylist",
+        @"trust": @"benchmark", @"pid": @(getpid()), @"savedAt": @([NSDate.date timeIntervalSince1970] * 1000)},
+        @"proxies": @{@"interval": @"MTLDrawable.presentedTime", @"phases": @"inclusive spans on CACurrentMediaTime; overlaps are not additive"},
+        @"traceEvents": events, @"presented": times, @"mainThread": @(mainThread), @"dropped": @(dropped)};
+    writeJSON(trace, [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"trace-pid-%d.json", getpid()]]);
+    writeJSON(trace, [output stringByAppendingString:@".trace.json"]);
 }
 
 static NSScrollView *scrollView(NSView *root) {
@@ -109,6 +145,7 @@ static NSData *signature(NSView *view) {
 @property double windowAt;
 @property dispatch_source_t signals;
 @property dispatch_source_t focusSignals;
+@property dispatch_source_t traceExit;
 @property dispatch_source_t memory;
 @property id wheelMonitor;
 @property NSUInteger wheels;
@@ -159,8 +196,10 @@ static NSData *signature(NSView *view) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1000000), dispatch_get_main_queue(), ^{ [self attach]; });
         return;
     }
-    [NSApp activate];
-    [self.window makeKeyAndOrderFront:nil];
+    if (!getenv("EXACT_AGENT_LIVE")) {
+        [NSApp activate];
+        [self.window makeKeyAndOrderFront:nil];
+    }
     self.windowAt = CACurrentMediaTime();
     self.ticks = [NSMutableArray array];
     self.coldPixels = [NSMutableArray array];
@@ -193,8 +232,16 @@ static NSData *signature(NSView *view) {
     dispatch_resume(self.signals);
     signal(SIGUSR1, SIG_IGN);
     self.focusSignals = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGUSR1, 0, dispatch_get_main_queue());
-    dispatch_source_set_event_handler(self.focusSignals, ^{ [self confirmFocus]; });
+    dispatch_source_set_event_handler(self.focusSignals, ^{ if (tracing && getenv("EXACT_AGENT_LIVE")) saveTrace(); else [self confirmFocus]; });
     dispatch_resume(self.focusSignals);
+    if (tracing) {
+        signal(SIGTERM, SIG_IGN);
+        self.traceExit = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, dispatch_get_main_queue());
+        dispatch_source_set_event_handler(self.traceExit, ^{ saveTrace(); exit(0); });
+        dispatch_resume(self.traceExit);
+    }
+    if (tracing) [@"benchmark probe" writeToFile:[NSTemporaryDirectory() stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"exact-trace-%d.ready", getpid()]] atomically:YES encoding:NSUTF8StringEncoding error:nil];
     writeJSON([self focusState], [output stringByAppendingString:@".window"]);
 }
 - (void)tick:(CADisplayLink *)link {
@@ -234,12 +281,15 @@ static NSData *signature(NSView *view) {
         }
         self.result[@"coldCriterion"] = @"first display-link snapshot within mean 1/255 of the settled 100x100 native layer snapshot at 2 s";
     } else {
-        self.result[@"coldCriterion"] = @"MTLDrawable.presentedTime for the first scene with all requested images loaded";
+        self.result[@"coldCriterion"] = getenv("G1_ALLOW_IMAGE_REFUSALS")
+            ? @"image-disabled control: first MTLDrawable.presentedTime; not a complete-scene startup measurement"
+            : @"MTLDrawable.presentedTime for the first scene with all requested images loaded";
     }
     self.result[@"coldMs"] = @((firstComplete - processStart) * 1000);
     self.result[@"preMainMs"] = @((loaded - processStart) * 1000);
     if (firstDrawable) self.result[@"firstDrawableMs"] = @((firstDrawable - processStart) * 1000);
     self.result[@"arm"] = arm;
+    self.result[@"imageRefusalsAllowed"] = @(getenv("G1_ALLOW_IMAGE_REFUSALS") != NULL);
     if (painted) {
         self.result[@"drawableCalls"] = @(atomic_load(&drawableCalls));
         self.result[@"mainThreadDrawableCalls"] = @(atomic_load(&mainThreadDrawableCalls));
@@ -297,6 +347,7 @@ static NSData *signature(NSView *view) {
         pthread_mutex_lock(&lock);
         self.result[@"presented"] = [presented copy];
         pthread_mutex_unlock(&lock);
+        if (tracing) writeJSON(self.result[@"fling"], [output stringByAppendingString:@".fling-data"]);
         self.ticks = nil; self.link.paused = YES;
         NSScrollView *scroll = scrollView(self.window.contentView);
         if (scroll) self.result[@"nativeOffsetEnd"] = @(scroll.contentView.bounds.origin.y);
@@ -305,6 +356,7 @@ static NSData *signature(NSView *view) {
         self.samples = [NSMutableArray arrayWithObject:self.start];
         self.phase = 2;
         writeJSON(self.start, [output stringByAppendingString:@".rest"]);
+        if (tracing) saveTrace();
     } else if (self.phase == 2) {
         self.result[@"rest"] = @{ @"start": self.start, @"end": usage(), @"peak": @(self.peak), @"samples": self.samples };
         self.result[@"thermalEnd"] = @(NSProcessInfo.processInfo.thermalState);
@@ -320,6 +372,7 @@ __attribute__((constructor)) static void initialize(void) {
     @autoreleasepool {
         const char *path = getenv("G1_OUTPUT");
         if (!path) return;
+        tracing = getenv("G1_TRACE") != NULL;
         loaded = CACurrentMediaTime();
         mach_timebase_info_data_t timebase;
         mach_timebase_info(&timebase);

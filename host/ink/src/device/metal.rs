@@ -285,6 +285,8 @@ impl Device for Metal {
         Ok(s)
     }
     fn create_texture(&mut self, desc: TextureDesc) -> Result<TextureId> {
+        #[cfg(target_os = "macos")]
+        let _trace = super::apple::Trace::new(c"texture allocate");
         if desc.width == 0 || desc.height == 0 || desc.width > 16384 || desc.height > 16384 {
             return Err(Error::Invalid("texture dimensions".into()));
         }
@@ -294,6 +296,11 @@ impl Device for Metal {
         let texture = autoreleasepool(|_| texture(&self.device, desc))?;
         let id = TextureId(self.next_texture);
         self.next_texture += 1;
+        #[cfg(target_os = "macos")]
+        super::apple::trace_mark(
+            c"texture bytes",
+            MTLResource::allocatedSize(&*texture.raw) as f64,
+        );
         self.textures.insert(id, texture);
         Ok(id)
     }
@@ -342,6 +349,8 @@ impl Device for Metal {
         Ok(self.texture(id)?.last)
     }
     fn generate_mips(&mut self, id: TextureId) -> Result<Submission> {
+        #[cfg(target_os = "macos")]
+        let _trace = super::apple::Trace::new(c"mips encode");
         autoreleasepool(|_| {
             self.completed()?;
             let t = self.texture(id)?;
@@ -420,6 +429,8 @@ impl Device for Metal {
         autoreleasepool(|_| {
             self.completed()?;
             let desc = self.texture(target)?.desc;
+            #[cfg(target_os = "macos")]
+            let _trace = super::apple::Trace::new(c"scene encode");
             if desc.format != Format::Rgba || desc.mipmapped {
                 return Err(Error::Invalid(
                     "render target must be single-level RGBA".into(),
@@ -563,6 +574,8 @@ impl Device for Metal {
         self.readback_level(id, 0)
     }
     fn wait(&mut self, s: Submission) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        let _trace = super::apple::Trace::new(c"main resource wait");
         if s > self.submitted {
             return Err(Error::Invalid("unknown submission".into()));
         }
@@ -594,7 +607,15 @@ impl Device for Metal {
         while let Some((&id, command)) = self.pending.first_key_value() {
             if let Some(command) = command {
                 match command.status() {
-                    MTLCommandBufferStatus::Completed => {}
+                    MTLCommandBufferStatus::Completed => {
+                        #[cfg(target_os = "macos")]
+                        super::apple::trace_interval(
+                            c"gpu command",
+                            command.GPUStartTime(),
+                            command.GPUEndTime(),
+                            id as f64,
+                        );
+                    }
                     MTLCommandBufferStatus::Error => {
                         let message = command
                             .error()
@@ -618,6 +639,11 @@ impl Device for Metal {
             .textures
             .remove(&id)
             .ok_or_else(|| Error::Invalid("retired texture".into()))?;
+        #[cfg(target_os = "macos")]
+        super::apple::trace_mark(
+            c"texture retired bytes",
+            MTLResource::allocatedSize(&*t.raw) as f64,
+        );
         self.retired_textures.push(t);
         self.completed().map(|_| ())
     }

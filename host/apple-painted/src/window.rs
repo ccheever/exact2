@@ -1,4 +1,4 @@
-use exact_ink::device::apple::{DisplayLink, Layer};
+use exact_ink::device::apple::{trace_mark, DisplayLink, Layer, Trace};
 use exact_linux::{
     app::{self, Config},
     Presenter,
@@ -33,6 +33,7 @@ pub enum Event {
 struct App<D: DataSource> {
     name: String,
     config: Config,
+    live: bool,
     proxy: EventLoopProxy<Event>,
     window: Option<Rc<Window>>,
     layer: Option<Layer>,
@@ -110,7 +111,8 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
             .and_then(|s| s.parse().ok())
             .unwrap_or(800.),
     );
-    if !config.agent {
+    let live = !config.agent || std::env::var_os("EXACT_AGENT_LIVE").is_some();
+    if live {
         config.clock_started = Some(started);
     }
     let events = match EventLoop::<Event>::with_user_event().build() {
@@ -128,6 +130,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
     let mut state = App::<D> {
         name: name.into(),
         config,
+        live,
         proxy,
         window: None,
         layer: None,
@@ -198,6 +201,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
     }
     fn draw(&mut self) -> Result<(), String> {
+        let _trace = Trace::new(c"carrier draw");
         if self.hidden {
             return Ok(());
         }
@@ -207,14 +211,14 @@ impl<D: DataSource + Default + 'static> App<D> {
         if let Some(layer) = &self.layer {
             layer.update();
         }
-        let now = if self.config.agent {
+        let now = if !self.live {
             p.host().now()
         } else {
             self.started.elapsed().as_secs_f64() * 1000.
         };
         let started = Instant::now();
         p.pump(now);
-        if !self.config.agent {
+        if self.live {
             p.animation_frame(now);
         }
         p.run_commands(D::default);
@@ -278,7 +282,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 return Err(warning);
             }
             p.host_mut().runner_mut().set_row_reuse(true);
-            if !self.config.agent {
+            if self.live {
                 p.set_live_clock(Some(exact_linux::presenter::wall_since(self.started)));
             }
             let proxy = self.proxy.clone();
@@ -296,6 +300,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             let pending = self.tick_pending.clone();
             let active = self.display_active.clone();
             let display = DisplayLink::new(move || {
+                trace_mark(c"display demand", f64::from(active.load(Ordering::Acquire)));
                 if active.load(Ordering::Acquire) && !pending.swap(true, Ordering::AcqRel) {
                     let _ = proxy.send_event(Event::Tick);
                 }
@@ -325,6 +330,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     fn user_event(&mut self, events: &ActiveEventLoop, event: Event) {
         match event {
             Event::Tick => {
+                trace_mark(c"display wake", 0.);
                 self.tick_pending.store(false, Ordering::Release);
                 if self.display_active.load(Ordering::Acquire) {
                     if let Some(window) = &self.window {
@@ -335,11 +341,18 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             Event::Wake => {}
             Event::Closed => events.exit(),
             Event::Request(line, reply) => {
+                let _trace = Trace::new(c"agent request");
                 if let Some(p) = &mut self.presenter {
                     let request: serde_json::Value =
                         serde_json::from_str(&line).unwrap_or_default();
                     if request["platform"] == true && request.get("wheel").is_some() {
                         let _ = reply.send(serde_json::json!({"error":"platform wheel placement is not available in the benchmark agent; use ordinary wheel operations or the G1 process-targeted driver"}).to_string());
+                        return;
+                    }
+                    if self.live && request["op"] == "tap" && request.get("wheel").is_some() {
+                        let answer = live_wheel(p, &request, &mut self.scrolling)
+                            .unwrap_or_else(|e| serde_json::json!({"error":e}));
+                        let _ = reply.send(answer.to_string());
                         return;
                     }
                     if request["op"] == "quit" {
@@ -393,7 +406,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         let Some(p) = &mut self.presenter else {
             return;
         };
-        let now = if self.config.agent {
+        let now = if !self.live {
             p.host().now()
         } else {
             self.started.elapsed().as_secs_f64() * 1000.
@@ -435,6 +448,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
             }
             WindowEvent::MouseWheel { delta, phase, .. } => {
+                let _trace = Trace::new(c"wheel input");
                 self.wheel_phases = exact_ink::device::apple::wheel_phases();
                 self.scrolling = self.wheel_phases != [0; 2]
                     && matches!(phase, TouchPhase::Started | TouchPhase::Moved);
@@ -452,6 +466,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 };
                 // AppKit already supplies momentum deltas; never synthesize a second fling.
                 p.wheel_at(x, y, -dx, -dy);
+                trace_mark(c"wheel dirty", f64::from(p.dirty()));
             }
             WindowEvent::KeyboardInput {
                 event,
@@ -506,12 +521,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         if self.layer.as_ref().is_some_and(Layer::retry_requested) {
             p.repaint();
         }
-        let now = if self.config.agent {
+        let now = if !self.live {
             p.host().now()
         } else {
             self.started.elapsed().as_secs_f64() * 1000.
         };
-        service(p, now, !self.config.agent, D::default);
+        service(p, now, self.live, D::default);
         // Offscreen metadata can finish after the last visible image. Submit a
         // complete scene for the probe even when that completion owes no damage.
         if std::env::var_os("G1_OUTPUT").is_some()
@@ -521,10 +536,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         {
             p.repaint();
         }
-        if !self.config.agent {
+        if self.live {
             p.admit_idle_timer(now);
         }
-        let active = !self.hidden && (p.dirty() || !self.config.agent && p.needs_animation_frame());
+        let active = !self.hidden && (p.dirty() || self.live && p.needs_animation_frame());
         self.display_active.store(active, Ordering::Release);
         if let Some(display) = &mut self.display {
             if let Err(e) = display.set_running(!self.hidden && (active || self.scrolling)) {
@@ -532,18 +547,33 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 return;
             }
         }
-        let wake = if self.config.agent {
-            None
-        } else {
-            p.wake_due_ms()
-        };
+        let wake = if !self.live { None } else { p.wake_due_ms() };
         events.set_control_flow(wake.map_or(ControlFlow::Wait, |due| {
             ControlFlow::WaitUntil(self.started + Duration::from_secs_f64(due.max(now) / 1000.))
         }));
     }
 }
 
+// Live drives leave damage for the display link; the headless agent reads pixels.
+fn live_wheel<D: DataSource>(
+    p: &mut Presenter<D>,
+    request: &serde_json::Value,
+    scrolling: &mut bool,
+) -> Result<serde_json::Value, &'static str> {
+    let pair = |v: &serde_json::Value| {
+        let v = v.as_array().filter(|v| v.len() == 2)?;
+        let pair = (v[0].as_f64()? as f32, v[1].as_f64()? as f32);
+        (pair.0.is_finite() && pair.1.is_finite()).then_some(pair)
+    };
+    let (dx, dy) = pair(&request["wheel"]).ok_or("wheel needs two finite deltas")?;
+    let (x, y) = pair(&request["at"]).ok_or("live wheel needs at:[x,y] in viewport points")?;
+    *scrolling = matches!(request["phase"].as_str(), Some("began" | "changed"));
+    p.wheel_at(x, y, dx, dy);
+    Ok(serde_json::json!({"wheel":[dx,dy],"clock":p.host().now(),"live":true}))
+}
+
 fn service<D: DataSource>(p: &mut Presenter<D>, now: f64, live: bool, data: impl FnMut() -> D) {
+    let _trace = Trace::new(c"carrier service");
     // Timers can expire without a frame. Leaving their deadline in the past
     // makes WaitUntil wake continuously even though the display link is stopped.
     if live {
@@ -559,6 +589,42 @@ fn service<D: DataSource>(p: &mut Presenter<D>, now: f64, live: bool, data: impl
 mod tests {
     use super::*;
     use exact_linux::presenter::PainterChoice;
+
+    #[test]
+    fn a_live_wheel_leaves_the_changed_scene_for_the_display_link() {
+        let plan = contract::compile("component App\n  view\n    scroll width=80 height=80 testId=\"rows\"\n      view width=80 height=800 background-color=\"red\"\n").unwrap().encode();
+        let (mut p, error) =
+            Presenter::boot_with(&plan, (), (80., 80.), 1., ".".into(), PainterChoice::Cpu)
+                .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.frame();
+        assert!(!p.dirty());
+        let before = p.host().now();
+        let mut scrolling = false;
+        live_wheel(
+            &mut p,
+            &serde_json::json!({"at":[40,40],"wheel":[0,20],"phase":"began"}),
+            &mut scrolling,
+        )
+        .unwrap();
+        assert!(
+            p.dirty(),
+            "input must not consume the window's pending frame"
+        );
+        assert!(scrolling);
+        assert_eq!(p.host().now(), before, "input must not advance the clock");
+        let rows = p.host().kernel().find_by_test_id("rows")[0];
+        let id = p.host().kernel().node_by_key(rows).unwrap().id;
+        assert_eq!(p.scroll_of(id).1, 20.);
+        live_wheel(
+            &mut p,
+            &serde_json::json!({"at":[40,40],"wheel":[0,0],"phase":"ended"}),
+            &mut scrolling,
+        )
+        .unwrap();
+        assert!(!scrolling);
+        assert!(live_wheel(&mut p, &serde_json::json!({"wheel":[0,20]}), &mut scrolling).is_err());
+    }
 
     #[test]
     fn a_timer_that_changes_no_pixels_advances_without_a_display_frame() {

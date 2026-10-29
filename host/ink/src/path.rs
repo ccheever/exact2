@@ -60,6 +60,8 @@ pub fn coverage(
     if let Some(entry) = atlas.get(&key) {
         return Ok(Some(Coverage { rect, entry }));
     }
+    #[cfg(target_os = "macos")]
+    let _trace = crate::device::apple::Trace::new(c"path raster");
     let ts = Transform::from_translate(-x, -y).pre_concat(transform);
     let new_mask =
         || Mask::new(size[0], size[1]).ok_or_else(|| Error::Invalid("path mask allocation".into()));
