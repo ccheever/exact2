@@ -71,8 +71,7 @@ extension ExactSession {
         canvases.loadIfNeeded()
         openNativeViews(drawnGeneration)
         drainSurfaceWorkNow()
-        frames.run(frames.motion || canvases.wantsFrames)
-        frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
+        frames.run(frames.hasWork)
         Owner.shared.releaseIdleStack() // after the data's batch: the deepest the boot goes
     }
 
@@ -92,7 +91,7 @@ extension ExactSession {
     public static let dataActivated = Notification.Name("ExactSessionDataActivated")
 
     /// The scene became active (iOS): the canvases follow.
-    public func becameActive() { frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) }
+    public func becameActive() { frames.run(frames.hasWork) }
 
     /// How many module events the session holds before its runner can (the
     /// runner then holds each event to its own bound).

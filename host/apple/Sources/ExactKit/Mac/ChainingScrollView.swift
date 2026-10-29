@@ -72,7 +72,7 @@ package final class ChainingScrollView: NSScrollView {
     private func followScrollerStyle() {
         // Region surfaces own their layout separately; this claim is for
         // ordinary overflow boxes, whose children the kernel lays out.
-        scrollerStyle = ExactEnv.agentMode || pointerOwner == nil ? .overlay : NSScroller.preferredScrollerStyle
+        scrollerStyle = ExactEnv.agentFreezes || pointerOwner == nil ? .overlay : NSScroller.preferredScrollerStyle
         tile()
         pointerOwner?.fitScroll()
     }
@@ -108,7 +108,7 @@ package final class ChainingScrollView: NSScrollView {
     /// is while a drive holds the frames for a person's own flings (`perf
     /// frames hold` under platform timing, LLP 1144 D1): momentum and rubber
     /// band included.
-    static var appliesAtOnce = ExactEnv.agentMode
+    static var appliesAtOnce = ExactEnv.agentFreezes
     /// The driver's trackpad gesture (`tap … wheel … fling|hold|release`,
     /// LLP 1142 D3) comes through the window server, whose gesture AppKit
     /// tracks as a person's, marked with this in `kCGEventSourceUserData`.

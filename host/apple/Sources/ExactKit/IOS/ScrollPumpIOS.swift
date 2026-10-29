@@ -208,7 +208,12 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         presenter?.stickies.scrolled(nil); scrolled(nil)
     }
     // The page's element reveals (`IntoView.swift`).
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { presenter?.elementScrolls.userScrolled(scrollView) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        presenter?.elementScrolls.userScrolled(scrollView)
+        if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
+    }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) } }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { presenter?.session?.frameHealth.endScroll(scrollView) }
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { presenter?.elementScrolls.revealEnded(scrollView) }
 
     func batchApplied() {

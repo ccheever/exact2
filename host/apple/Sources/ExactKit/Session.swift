@@ -370,6 +370,7 @@ public final class ExactSession {
     package let frames: Frames
     /// A session's presented frames (LLP 1079 D3); a production bake has one only while an app records.
     var sampler: FrameSampler?
+    let frameHealth = FrameHealth()
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
     var clockDue: Double?
@@ -383,7 +384,7 @@ public final class ExactSession {
     /// on the wall clock. Taking it over ends the first-frame rule (LLP
     /// 1003.001 D7): what waits for a frame starts there.
     public var clock: Double? {
-        didSet { runtime.liveClock(clock == nil); if oldValue == nil, let at = clock { apply(runtime.startOnFrame(false, at: at)) } }
+        didSet { if (oldValue == nil) != (clock == nil) { frameHealth.clockChanged(virtual: clock != nil) }; runtime.liveClock(clock == nil); if oldValue == nil, let at = clock { apply(runtime.startOnFrame(false, at: at)) } }
     }
     /// The runner's soonest timer, from the last batch (absent without timers).
     var timerDue: Double?
@@ -451,7 +452,7 @@ public final class ExactSession {
     /// Read when a session wires itself; tests set it to drive the
     /// asynchronous path on macOS.
     #if os(iOS) || os(tvOS)
-    nonisolated(unsafe) static var asyncFills = !ExactEnv.agentMode && ExactEnv.environment["EXACT_FILL_SYNC"] != "1"
+    nonisolated(unsafe) static var asyncFills = !ExactEnv.agentFreezes && ExactEnv.environment["EXACT_FILL_SYNC"] != "1"
     #else
     nonisolated(unsafe) static var asyncFills = false
     #endif
@@ -498,6 +499,7 @@ public final class ExactSession {
         natives.session = self
         frames.session = self
         sampler = FrameSampler.fromBoot(self)
+        frameHealth.attach(self)
         core.measure(with: text)
         installControlText()
         // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
@@ -651,7 +653,8 @@ public final class ExactSession {
                 if case .fill(let view) = next.kind { landedFill(view, stale: true) }
                 continue
             }
-            let batch = next.batch
+            var batch = next.batch
+            if batch.frameWorkTiming != nil { batch.frameWorkTiming?.landed = began }
             if case .advance = next.kind { applyUnlessEmpty(batch, timer: true) } else if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
                 apply(batch)
             }
@@ -843,7 +846,7 @@ public final class ExactSession {
         ExactEnv.stamp("runner + layout")
         let tApply = CACurrentMediaTime()
         if batch.error == nil {
-            sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
+            sampler?.reset(); frameHealth.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
             // A fresh boot over a running app (the dev menu's reload from the baked plan) starts the views over; the library already replaced its host.
             routerOp = nil
             generation += 1
@@ -956,7 +959,7 @@ public final class ExactSession {
         booted = true; app.liveBooted(self)
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
-        sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
+        sampler?.reset(); frameHealth.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
         appFileRoots = AppFiles.learn(runtime)
         apply(batch)
         treeIsIn()
@@ -1078,6 +1081,7 @@ public final class ExactSession {
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3), told to the sampler there was when it began while the session keeps it: a recording the batch starts makes a new one, and one it stops lets a production bake's go.
         let timed = sampler, began = CACurrentMediaTime()
         defer { if let timed, timed === sampler { timed.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0) }; if let q = batch.seq { natives.hatchClock.seq = q.1 }; logAlerts(batch.alerts); logJournal(batch.journal) }
+        defer { if outermost, frameHealth.enabled { frameHealth.applied(batch, began: began, flags: frameHealth.frameFlags(frames, session: self)) } }
         if batch.facts { app.scheduleStatus() } // the app's own `setMode` or `setRootFontSize` (LLP 1122 D4)
         // Each batch says what its turn left owed; batches apply in the owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
@@ -1116,7 +1120,7 @@ public final class ExactSession {
         frames.canvas2d = batch.canvas
         frames.tasks = batch.frames
         // The GPU module: after the first painted frame, only when a canvas exists.
-        if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
+        if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.hasWork) } }
         timerDue = batch.timerDueMs; timerLanding = batch.landing
         scheduleClock(due: batch.timerDueMs)
         if outermost {
@@ -1434,7 +1438,7 @@ public final class ExactSession {
         #if os(macOS)
         canvases.occlusionChanged()
         #endif
-        frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
+        frames.run(frames.hasWork)
     }
     #if os(iOS) || os(tvOS)
     /// A hardware keyboard's Tab (or Shift-Tab) when no node of this session
@@ -1458,6 +1462,7 @@ public final class ExactSession {
         clockTimer = nil
         frames.run(false)
         sampler?.stop(); releaseSampler()
+        frameHealth.destroy()
         DisplayPreferences.forget(preferenceObservers)
         PageFacts.forget(pageObservers)
         #if os(macOS)

@@ -1,10 +1,85 @@
 // `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
 // reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
-import { render, renderTrace, stateOp, tapRefusal, nextCommitTasks, settleBound, planLocators, perfDelta } from './agent-inspect.mjs';
+import { render, renderTrace, renderFrameHealthReport, renderFrameHealthMetrics, perfOp, stateOp, tapRefusal, nextCommitTasks, settleBound, planLocators, perfDelta } from './agent-inspect.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+test('bounded frame report and capture controls bypass legacy perf collection', async () => {
+  const asked = [];
+  const s = { op: async request => { asked.push(request); return { capture: true }; }, perf: () => { throw new Error('legacy sampler must stay off'); } };
+  await perfOp(s, ['frames', 'report']);
+  await perfOp(s, ['frames', 'capture', 'start', '120000']);
+  await perfOp(s, ['frames', 'capture', 'stop']);
+  expect(asked).toEqual([{ op: 'perf', frames: true, report: true }, { op: 'perf', frames: true, capture: 'start', durationMs: 120000 }, { op: 'perf', frames: true, capture: 'stop' }]);
+  for (const args of [['frames', 'report', 'all'], ['frames', 'capture', 'start', '120001'], ['frames', 'capture', 'stop', '5'], ['frames', 'capture', 'start', 'NaN']]) {
+    await expect(perfOp(s, args)).rejects.toThrow();
+  }
+});
+
+test('health windows use finalized cursors and preserve the source without starting legacy collection', async () => {
+  const requests = [], operations = [], cursor = { version: 1 };
+  const s = { op: async request => { requests.push(request); return { cursor }; }, perf: () => { throw new Error('legacy sampler'); } };
+  await perfOp(s, ['frames', 'health', 'scroll', 'during', 'tap list'], 'perf frames health scroll during "tap list"', async op => { operations.push(op); });
+  expect(operations).toEqual(['tap list']);
+  expect(requests).toEqual([{ op: 'perf', frames: true, health: true, source: 'scroll' }, { op: 'perf', frames: true, health: true, source: 'scroll', cursor }]);
+  const text = renderFrameHealthMetrics({ source: 'app', status: 'observing', callbacks: { count: '2', comparableIntervals: '1', perSecond: 120, p99BoundsNs: [8000000, 8500000] }, apply: { count: '1', targetOverruns: '0' } });
+  expect(text).toContain('120.00 callbacks/s');
+  expect(text).toContain('p99 8.00–8.50 ms');
+  expect(text).toContain('Presentation, input latency and GPU execution remain unobserved');
+  requests.length = 0;
+  const unobserved = { op: async request => {
+    requests.push(request);
+    if (requests.length === 1) { throw Object.assign(new Error('unobserved'), { reply: { error: 'native-scroll-unobserved' } }); }
+    return { cursor };
+  } };
+  await perfOp(unobserved, ['frames', 'health', 'scroll', 'during'], 'perf frames health scroll during "tap list"', async () => {});
+  expect(requests).toEqual(Array(2).fill({ op: 'perf', frames: true, health: true, source: 'scroll' }));
+  requests.length = 0;
+  await expect(perfOp(unobserved, ['frames', 'health', 'scroll'])).rejects.toThrow('unobserved');
+});
+
+test('Apple live windows use a host-side wait and release their lease on errors', async () => {
+  const requests = [], cursor = { version: 1 };
+  const s = { host: 'ios', op: async request => {
+    requests.push(request);
+    if (request.capture) return { capture: request.capture === 'start' };
+    if (request.cursor) throw new Error('disconnected');
+    return { available: true, cursor };
+  }, perf: () => { throw new Error('legacy sampler'); } };
+  await expect(perfOp(s, ['frames', 'live', '1'])).rejects.toThrow('disconnected');
+  expect(requests.map(request => request.capture ?? 'health')).toEqual(['health', 'start', 'health', 'stop']);
+  expect(requests.some(request => request.op === 'clock')).toBe(false);
+  await expect(perfOp(s, ['frames', 'live', '30001'])).rejects.toThrow();
+});
+
+test('compact reports expose measured stages and preserve unknown evidence', () => {
+  const report = { format: 'exact.frame-health/1', available: true, qualification: 'unqualified', scope: { armed: true },
+    retention: { overwrittenSinceClear: '7', expiredAtRead: 2 },
+    columns: ['sequence', 'capture', 'generation', 'age_ns', 'flags', 'target_offset_ns', 'period_ns', 'requested_period_ns', 'gap_ns', 'callback_ns',
+      'before_gap_ns', 'before_callback_ns', 'after_offset_ns', 'after_gap_ns', 'after_callback_ns',
+      'owner_queued_offset_ns', 'owner_began_offset_ns', 'owner_finished_offset_ns', 'main_landed_offset_ns',
+      'apply_began_offset_ns', 'apply_finished_offset_ns', 'work_target_offset_ns', 'operations'],
+    hitches: [['12', '1', '0', 1000000, 17, 8000000, 8000000, 8000000, 24000000, 1000000, 8000000, 500000, null, null, null,
+      -10000000, -9000000, -5000000, -3000000, -3000000, -1000000, 0, 40]] };
+  const text = renderFrameHealthReport(report);
+  expect(text).toContain('overwritten 7');
+  expect(text).toContain('last observed apply ended 1.000 ms before event');
+  expect(() => renderFrameHealthReport({ ...report, padding: 'x'.repeat(4000) })).toThrow();
+  expect(text).toContain('gap 24.000 ms / scheduled 8.000 ms');
+  expect(text).toContain('owner queue 1.000 ms · owner wall 4.000 ms · main wait 2.000 ms · apply 2.000 ms');
+  expect(text).toContain('following gap/work unknown / unknown');
+  expect(text).toContain('not causal attribution');
+  const powered = structuredClone(report);
+  powered.hitches[0][4] += 2 ** 23 + 2 ** 16 + 2 ** 33 + 2 ** 34 + 2 ** 36;
+  expect(renderFrameHealthReport(powered)).toContain('workload motion · thermal serious · low power true');
+  expect(renderFrameHealthReport({ ...report, time: { clamped: true } })).toContain('Timing values were clamped');
+  expect(renderTrace(report)).toBe(text);
+  expect(render('perf', report)).toBe(text);
+  expect(() => renderFrameHealthReport({ ...report, hitches: Array(17).fill(report.hitches[0]) })).toThrow();
+  expect(() => renderFrameHealthReport({ ...report, hitches: [['bad']] })).toThrow();
+});
 
 test('log rendering skips canvas error rows and preserves journal order', () => {
   const error = { canvas: 7, error: 'journal unavailable' };

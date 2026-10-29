@@ -1,0 +1,7 @@
+test "motion starts and stops"
+  expect tree has "frame-health-app"
+  expect state running == false
+  tap "motion-toggle"
+  expect state running == true
+  tap "motion-toggle"
+  expect state running == false

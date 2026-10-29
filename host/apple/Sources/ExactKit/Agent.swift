@@ -157,7 +157,9 @@ public final class Agent {
         // A slice building off main lands before the agent reads or acts
         // (LLP 1072 T9); under the agent slices are synchronous, so this is
         // for a carrier attached to an ordinary run.
-        ExactSession.drainAll()
+        let boundedFrameRead = op == "perf" && req["frames"] as? Bool == true
+            && (req["report"] as? Bool == true || req["health"] as? Bool == true || req["capture"] is String)
+        if !boundedFrameRead { ExactSession.drainAll() }
         let wanted = req["session"] as? String
         var target: ExactSession? = nil
         if let wanted {
@@ -181,6 +183,34 @@ public final class Agent {
         if session.state == .destroyed {
             Agent.reply(["error": "session \(session.label): destroyed (runtime \(session.runtime.rt): no such runtime)"])
             return
+        }
+        // The bounded recorder must not enable legacy samplers or wait for rendering work.
+        if op == "perf", req["frames"] as? Bool == true {
+            let selected = req["source"] as? String == "scroll" ? session.frameHealth.nativeHealth : session.frameHealth
+            if req["source"] as? String == "scroll", selected == nil {
+                Agent.reply(["format": FrameHealthMetrics.format, "available": false, "error": "native-scroll-unobserved", "reason": FrameHealth.nativeObserverAllowed ? "No native scroll has been observed. Reproduce a native drag on iOS/tvOS 18 or later." : "Native-scroll observation is experimental and disabled in release builds. Use a development build with iOS/tvOS 18 or later."])
+                return
+            }
+            if req["report"] as? Bool == true {
+                let output = Agent.out
+                asynchronous = true
+                session.frameHealth.agentReport(session: session, source: req["source"] == nil ? nil : selected) { data in
+                    defer { completed() }
+                    guard Agent.out === output else { return }
+                    Agent.raw(String(decoding: data, as: UTF8.self))
+                }
+                return
+            }
+            if req["health"] as? Bool == true || (!ExactEnv.agentFreezes && req["report"] == nil && req["capture"] == nil) {
+                if req["late"] != nil || req["live"] != nil {
+                    Agent.reply(["format": FrameHealthMetrics.format, "error": "use-bounded-frame-reader", "reason": "Use perf frames report for hitches, or the driver's perf frames live <ms> for a live window."])
+                } else { Agent.reply((selected ?? session.frameHealth).metrics(cursor: req["cursor"] as? [String: Any])) }
+                return
+            }
+            if let action = req["capture"] as? String {
+                Agent.reply(session.frameHealth.setAgentCapture(action, duration: req["durationMs"] as? Double ?? 60_000))
+                return
+            }
         }
         if req["widget"] != nil || req["activity"] != nil {
             #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
@@ -207,7 +237,7 @@ public final class Agent {
             return
         }
         // A release build measures for `perf` from the agent's first request.
-        session.measurePerf()
+        if !session.frameHealth.liveCapture, ExactEnv.agentFreezes || !ExactEnv.agentMode || op == "perf" { session.measurePerf(frameSampler: ExactEnv.agentFreezes || !ExactEnv.agentMode) }
         if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
         // `tap @t` / `type @t` answer a held device request in the library,
         // before any view is looked up (LLP 1069.007 D4).
@@ -342,6 +372,7 @@ public final class Agent {
             presenter.reportOrientationLock() // the scene's orientation now, after a turn
             var reply = session.agent(json)
             var nativeSections = stateSections()
+            nativeSections["frameHealthUI"] = session.frameHealth.uiReply()
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
             nativeSections["decorations"] = presenter.views.values.sorted { $0.id < $1.id }.compactMap { node -> [String: Any]? in
                 guard let decorations = (node.textArea as? TextArea)?.decorations else { return nil }
@@ -395,7 +426,9 @@ public final class Agent {
                 asynchronous = true
                 liveFrames(req) { reply in Agent.reply(reply); completed() }
             } else {
-                Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20, all: req["records"] as? Bool == true) ?? ["unavailable": true])
+                var frames = session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20, all: req["records"] as? Bool == true) ?? ["unavailable": true]
+                frames["health"] = session.frameHealth.reply(virtual: session.clock != nil)
+                Agent.reply(frames)
             }
         default:
             // The library's operations take the request without the
@@ -743,6 +776,9 @@ public final class Agent {
     /// clock waited on (LLP 1016.000 D9): `held` and `heldTargets`, as the
     /// web hosts' do. An error reply is left as it is.
     func clock(_ req: [String: Any]) -> [String: Any] {
+        if session.frameHealth.liveCapture {
+            return ["error": "Live frame capture requires the platform clock. Stop it with perf frames capture stop before using clock, held-clock or virtual-film operations.", "code": "frame-health-clock-takeover"]
+        }
         var out = clockStep(req)
         guard out["error"] == nil,
               let d = session.agent("{\"op\":\"held\"}").data(using: .utf8),
