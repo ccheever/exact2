@@ -32,7 +32,7 @@ pub fn set_custom_painter(name: &'static str, make: PainterFactory) {
 }
 impl PainterChoice {
     /// The baked `host.<platform>.painter`, or this host's existing default.
-    pub(crate) fn from_baked(compat: &str) -> Self {
+    pub fn from_baked(compat: &str) -> Self {
         #[derive(Default, serde::Deserialize)]
         struct Baked {
             painter: Option<String>,
@@ -242,59 +242,19 @@ fn ink_backend(ink: crate::ink::Ink) -> (Box<dyn Backend>, PainterInfo) {
 }
 
 impl<D: DataSource> Presenter<D> {
-    /// Replace WARP's swap chain with the same CPU picture on hardware.
-    /// Both chains share the window's visual. @ref LLP 1149 S2.3.
+    /// Install the device prepared before app boot, before any frame is drawn.
+    /// @ref LLP 1149 S2.4.
     #[cfg(windows)]
-    pub fn migrate_painter_window(
+    pub(crate) fn install_prepared_painter(
         &mut self,
-        mut device: exact_ink::device::d3d11::D3d11,
-        pixels: &tiny_skia::Pixmap,
+        preparing: exact_ink::device::d3d11::Preparing,
     ) -> Result<(), String> {
-        use exact_ink::device::Device;
-        let info = device.info();
-        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
-            eprintln!(
-                "exact-ink: startup device {:.3} ms, pipelines {:.3} ms, asynchronous",
-                info.device_ms, info.shaders_ms
-            );
-        }
-        let mut direct = self
-            .surfaces
-            .direct_window
-            .take()
-            .ok_or("no WARP composition")?;
-        let result = (|| {
-            let size = [pixels.width(), pixels.height()];
-            let target = device.create_target(size[0], size[1])?;
-            device.upload_texture(target, [0, 0], size, pixels.data())?;
-            device.attach_window(direct.window.clone(), size)?;
-            device.present(target)?;
-            device.retire_texture(target)?;
-            if let Some((previous, _)) = direct.fallback.take() {
-                device.retire_after_present(previous);
-            }
-            Ok::<_, exact_ink::device::Error>(())
-        })();
-        match result {
-            Ok(()) => {
-                let ink = crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(
-                    Box::new(device),
-                ));
-                let (backend, info) = ink_backend(ink);
-                self.brush.replace_backend(backend);
-                self.painter = info;
-                self.choice = PainterChoice::Ink;
-                direct.starting = false;
-            }
-            Err(ref error) => {
-                // Keep the populated WARP chain when replacement fails.
-                self.last_frame_succeeded = false;
-                self.host.log(format!("ink migration: {error}"));
-            }
-        }
-        self.surfaces.direct_window = Some(direct);
+        let (backend, info) = PainterBoot::finish_direct(preparing)?;
+        self.brush.replace_backend(backend);
+        self.painter = info;
+        self.choice = PainterChoice::Ink;
         self.repaint();
-        result.map_err(|e| e.to_string())
+        Ok(())
     }
 
     /// Boot the app under a viewport (points) at a device scale, with its

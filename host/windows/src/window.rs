@@ -129,6 +129,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     compat: &str,
     composed: exact_linux::Composed,
 ) -> i32 {
+    let started = Instant::now();
     if app::print_baked_receipt(compat) {
         return 0;
     }
@@ -140,6 +141,27 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         eprintln!("exact-windows: update-store delivery is not implemented; bake store level 0");
         return 1;
     }
+    let device = std::env::var("EXACT_INK_DEVICE").ok();
+    let painter = exact_linux::presenter::PainterChoice::from_env(
+        exact_linux::presenter::PainterChoice::from_baked(compat),
+    );
+    // Start before Config can load a plan and before the window or fonts exist.
+    // @ref LLP 1149 S2.4.
+    let windowed = std::env::var("EXACT_AGENT").as_deref() != Ok("1")
+        && std::env::var("EXACT_SMOKE").as_deref() != Ok("1")
+        && std::env::var("EXACT_SHOT").unwrap_or_default().is_empty()
+        && std::env::var("EXACT_DISPLAY").as_deref() != Ok("headless");
+    let preparing = if windowed && direct_device(painter, device.as_deref()) {
+        match exact_ink::device::d3d11::Preparing::start(device.as_deref() == Some("warp")) {
+            Ok(preparing) => Some(preparing),
+            Err(error) => {
+                eprintln!("exact-windows: {error}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
     // A distributed app locates data beside its executable, never in its caller's cwd.
     if std::env::var_os("EXACT_ASSETS").is_none() {
         if let Ok(exe) = std::env::current_exe() {
@@ -151,7 +173,6 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     if std::env::var_os("EXACT_GPU_RENDER").is_none() {
         std::env::set_var("EXACT_GPU_RENDER", "1");
     }
-    let started = Instant::now();
     // Windows has no toolkit under this painter, so it shows the web's
     // neutral look (LLP 1115.000 D17), in a window as in a headless run.
     app::show_neutral_look();
@@ -224,7 +245,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         config,
         window: None,
         surface: None,
-        preparing: None,
+        preparing,
         presenter: None,
         started,
         pointer: (0., 0.),
@@ -347,7 +368,6 @@ impl<D: DataSource + Default + 'static> App<D> {
         // A frame task can wake the loop from its own commit. Those wakes
         // must not advance the animation again before the next display tick.
         let continuous = self.frame_limit.is_some()
-            || self.preparing.is_some()
             || self
                 .presenter
                 .as_ref()
@@ -365,7 +385,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         };
         if self.measure_first_composition {
             // Read before submitting another frame; the compositor has had the
-            // intervening display period. Measurement must not delay migration.
+            // intervening display period. Omitted in the probe-free interval run.
             match p.displayed_process_ms() {
                 Ok(Some(ms)) => eprintln!(
                     "exact-windows: process to displayed first composition {ms:.3} ms (DXGI)"
@@ -442,40 +462,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         };
         let owned = exact_ink::device::d3d11::Window::from_owner(window.clone())
             .map_err(|e| e.to_string())?;
-        let prepared = (self.frames > 0)
-            .then(|| self.preparing.as_mut().map(|worker| worker.try_finish()))
-            .flatten();
-        let mut migrated = false;
-        match prepared {
-            Some(Ok(Some(device))) => {
-                self.preparing = None;
-                let pixels = p.frame();
-                if p.last_frame_succeeded() {
-                    self.caret.clear();
-                    if let Err(error) = p.migrate_painter_window(device, &pixels) {
-                        eprintln!(
-                            "exact-windows: migration: {error}; recovering through composition"
-                        );
-                    }
-                    migrated = true;
-                    eprintln!(
-                        "exact-windows: composition migration on frame {} at {:.3} ms",
-                        self.frames + 1,
-                        self.started.elapsed().as_secs_f64() * 1000.
-                    );
-                }
-            }
-            Some(Err(error)) => {
-                self.preparing = None;
-                eprintln!("exact-windows: device preparation: {error}; keeping CPU presentation");
-            }
-            _ => {}
-        }
-        let mut frame = if migrated {
-            None
-        } else {
-            p.window_frame(owned.clone())?
-        };
+        let mut frame = p.window_frame(owned.clone())?;
         let caret_rect = (self.focused && p.last_frame_succeeded())
             .then(|| p.caret_frame())
             .flatten();
@@ -485,8 +472,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             self.scale as f32,
             frame.clone(),
             frame_started,
-        ) && !migrated
-        {
+        ) {
             p.set_caret_visible(true);
             // A programmatic move while hidden starts a fresh visible phase.
             frame = p.window_frame(owned)?;
@@ -621,8 +607,10 @@ impl<D: DataSource + Default + 'static> App<D> {
             self.measured_first_screen = true;
         }
         self.frames += 1;
-        self.measure_first_composition =
-            self.frames == 1 && surface.is_none() && self.frame_limit.is_some();
+        self.measure_first_composition = self.frames == 1
+            && surface.is_none()
+            && self.frame_limit.is_some()
+            && std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() != Ok("off");
         if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
             eprintln!("exact-windows: frame {} at {:.3} ms, {}x{}, scale {}, painter {}, caret {}, paint {:.3} ms, present {:.3} ms",
                 self.frames, now, size.width, size.height, self.scale, p.painter.name,
@@ -750,24 +738,6 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             self.config.painter(),
             std::env::var("EXACT_INK_DEVICE").ok().as_deref(),
         );
-        let deferred = composition && std::env::var("EXACT_INK_DEVICE").as_deref() != Ok("warp");
-        let warp = if deferred {
-            let wake = self.proxy.clone();
-            match exact_ink::device::d3d11::Preparing::composition_startup(move || {
-                let _ = wake.send_event(crate::accessibility::Event::Wake);
-            }) {
-                Ok((warp, hardware)) => {
-                    self.preparing = Some(hardware);
-                    Some(warp)
-                }
-                Err(error) => {
-                    self.fail(events, error.to_string());
-                    return;
-                }
-            }
-        } else {
-            None
-        };
         let window = match events.create_window(
             Window::default_attributes()
                 .with_no_redirection_bitmap(composition)
@@ -815,8 +785,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             }
         }
         let mut direct = false;
-        let booted = if deferred {
-            app::boot_presenter_on_cpu::<D>(&mut self.config, viewport)
+        let booted = if let Some(preparing) = self.preparing.take() {
+            app::boot_presenter_with_device::<D>(&mut self.config, viewport, preparing)
         } else {
             app::boot_presenter::<D>(&mut self.config, viewport)
         };
@@ -832,20 +802,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                                     return;
                                 }
                             };
-                        let attached = if let Some(warp) = warp {
-                            warp.finish().map_err(|e| e.to_string()).and_then(|device| {
-                                use exact_ink::device::Device;
-                                eprintln!(
-                                    "exact-ink: WARP startup device {:.3} ms, pipelines {:.3} ms",
-                                    device.info().device_ms,
-                                    device.info().shaders_ms
-                                );
-                                p.start_composition(device, owned, [size.width, size.height])
-                                    .map(|()| true)
-                            })
-                        } else {
-                            p.attach_painter_window(owned, [size.width, size.height])
-                        };
+                        let attached = p.attach_painter_window(owned, [size.width, size.height]);
                         match attached {
                             Ok(attached) => direct = attached,
                             Err(e) => {

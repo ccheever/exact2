@@ -208,16 +208,21 @@ impl From<windows::core::Error> for Error {
 /// A synchronization proxy, not a swap-chain frame timestamp.
 #[cfg(windows)]
 pub fn compositor_sync_process_ms() -> Result<f64> {
+    unsafe { windows::Win32::Graphics::Dwm::DwmFlush()? };
+    process_ms()
+}
+
+/// Process age without waiting for presentation, for startup phase measurements.
+#[cfg(windows)]
+pub fn process_ms() -> Result<f64> {
     use windows::Win32::{
         Foundation::FILETIME,
-        Graphics::Dwm::DwmFlush,
         System::{
             SystemInformation::GetSystemTimePreciseAsFileTime,
             Threading::{GetCurrentProcess, GetProcessTimes},
         },
     };
     unsafe {
-        DwmFlush()?;
         let now = GetSystemTimePreciseAsFileTime();
         let (mut created, mut exited, mut kernel, mut user) = (
             FILETIME::default(),

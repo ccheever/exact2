@@ -191,7 +191,6 @@ impl<D: DataSource> Presenter<D> {
 pub(crate) struct DirectWindow {
     pub(crate) window: exact_ink::device::d3d11::Window,
     pub(crate) recovering: bool,
-    pub(crate) starting: bool,
     retry: exact_ink::device::Retry,
     pub(crate) fallback: Option<(
         exact_ink::device::d3d11::D3d11,
@@ -203,13 +202,12 @@ impl DirectWindow {
         Self {
             window,
             recovering: false,
-            starting: false,
             retry: Default::default(),
             fallback: None,
         }
     }
     fn frame<D: DataSource>(&mut self, p: &mut Presenter<D>) -> Option<Arc<Pixmap>> {
-        use crate::paint::{Backend, FrameTarget};
+        use crate::paint::FrameTarget;
         use exact_ink::device::Device;
         let now = std::time::Instant::now();
         let size =
@@ -218,13 +216,23 @@ impl DirectWindow {
         // Re-establish composition with a CPU frame before retrying hardware;
         // a real TDR can take DWM down along with the rendering device.
         if self.recovering && retry_due && self.fallback.is_some() {
-            let opened = crate::ink::Ink::new().and_then(|mut ink| {
-                self.fallback = None;
-                if !ink.attach_window(self.window.clone(), size)? {
-                    return Err("direct device unavailable".into());
+            let opened = (|| {
+                let mut device = exact_ink::device::d3d11::D3d11::open(
+                    std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("warp"),
+                )?;
+                let pixels = p.frame();
+                let target = device.create_target(size[0], size[1])?;
+                device.upload_texture(target, [0, 0], size, pixels.data())?;
+                device.attach_window(self.window.clone(), size)?;
+                device.present(target)?;
+                device.retire_texture(target)?;
+                if let Some((previous, _)) = self.fallback.take() {
+                    device.retire_after_present(previous);
                 }
-                Ok(ink)
-            });
+                Ok::<_, exact_ink::device::Error>(crate::ink::Ink::from_device(
+                    exact_ink::device::Selected::D3d11(Box::new(device)),
+                ))
+            })();
             if let Ok(ink) = opened {
                 let info = ink.info();
                 p.painter = crate::presenter::PainterInfo {
@@ -240,7 +248,7 @@ impl DirectWindow {
                 p.repaint();
             }
         }
-        if !self.recovering && !self.starting {
+        if !self.recovering {
             let frame = p.frame_for(FrameTarget::Window);
             if p.last_frame_succeeded() {
                 self.retry = Default::default();
@@ -289,16 +297,15 @@ impl DirectWindow {
             if let Err(e) = presented {
                 eprintln!("exact-ink: recovery present: {e}");
                 self.fallback = None;
-                self.starting = false;
                 self.recovering = true;
             } else {
                 p.last_frame_succeeded = true;
-                if !self.starting && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+                if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
                     eprintln!("exact-ink: CPU recovery frame presented through composition");
                 }
             }
         }
-        if retry_due && !self.starting {
+        if retry_due {
             self.retry.failed(std::time::Instant::now());
         }
         None
@@ -306,26 +313,6 @@ impl DirectWindow {
 }
 
 impl<D: DataSource> Presenter<D> {
-    /// The CPU painter's first frames go through WARP on the composition HWND.
-    pub fn start_composition(
-        &mut self,
-        mut device: exact_ink::device::d3d11::D3d11,
-        window: exact_ink::device::d3d11::Window,
-        size: [u32; 2],
-    ) -> Result<(), String> {
-        use exact_ink::device::Device;
-        let result = (|| {
-            device.attach_window(window.clone(), size)?;
-            let target = device.create_target(size[0], size[1])?;
-            let mut direct = DirectWindow::new(window);
-            direct.starting = true;
-            direct.fallback = Some((device, target));
-            self.surfaces.direct_window = Some(direct);
-            Ok::<_, exact_ink::device::Error>(())
-        })();
-        result.map_err(|e| e.to_string())
-    }
-
     /// Next recovery attempt after a direct painter loses its device.
     pub fn painter_retry_deadline(&self) -> Option<std::time::Instant> {
         self.surfaces
