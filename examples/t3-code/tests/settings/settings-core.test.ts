@@ -449,6 +449,25 @@ describe('navigation and search', () => {
     expect(core.sections.find(section => section.id === 'composer')!.advanced.map(row => row.id)).toEqual(['skills-in-slash-menu']);
     expect(await settingsCore(as(fake()), native, '', '', '', '', 'chat', 'send-shortcut', true)).toMatchObject({ jumpTarget: 'send-shortcut', jumpStop: '' });
   });
+  test('a jump to a separate font row draws those rows, asks for Separate fonts and waits until it reads on', async () => {
+    const typography = (core: Awaited<ReturnType<typeof settingsCore>>) => core.sections.find(section => section.id === 'typography')!;
+    const off = fake();
+    for (const target of ['prompt-font', 'terminal-font']) {
+      const core = await settingsCore(as(off), native, '', '', '', '', 'appearance', target, true);
+      // TypographySection's showAdvanced: the rows show at once, and the answer holds the jump until the write lands.
+      expect(core).toMatchObject({ jumpTarget: '', separateFontsWanted: true });
+      expect(typography(core).rows.map(row => row.id)).toEqual(['interface-font', 'prompt-font', 'code-font', 'terminal-font', 'word-wrap']);
+      expect(typography(core).advanced[0]).toMatchObject({ id: 'separate-fonts', checked: true });
+    }
+    // Closed Settings asks for nothing.
+    expect(await settingsCore(as(off), native, '', '', '', '', 'appearance', 'prompt-font', false)).toMatchObject({ separateFontsWanted: false });
+    await applyCoreSetting(as(off), native, 'separate-fonts:typographyAdvanced|||', 'true');
+    expect(await settingsCore(as(off), native, '', '', '', '', 'appearance', 'prompt-font', true)).toMatchObject({ jumpTarget: 'prompt-font', separateFontsWanted: false });
+    // Any other target is the jump's at once; Font smoothing lands under Typography's fold.
+    const smoothing = await settingsCore(as(fake()), native, '', '', '', '', 'appearance', 'font-smoothing', true);
+    expect(smoothing).toMatchObject({ jumpTarget: 'font-smoothing', jumpStop: 'settings-advanced-typography-reveal', separateFontsWanted: false });
+    expect(typography(smoothing).rows.map(row => row.id)).toEqual(['interface-font', 'code-font', 'word-wrap']);
+  });
 });
 
 describe('appearance', () => {
@@ -484,6 +503,9 @@ describe('appearance', () => {
     const advanced = appearanceSections(decodeClientPrefs({ typographyAdvanced: true, fontSizeTerminal: 14 }), true).at(-1)!.rows;
     expect(advanced.map(row => [row.title, row.info])).toEqual([['Interface font', ''], ['Prompt font', 'preview-prompt'], ['Code font', 'preview-code'], ['Terminal font', 'preview-terminal'], ['Word wrap', '']]);
     expect(advanced.find(row => row.id === 'terminal-font')!.amount).toBe(14);
+    // WordWrapRow's reset reads "word wrapping" (SettingResetButton label), not the row's title.
+    expect(advanced.find(row => row.id === 'word-wrap')).toMatchObject({ resetLabel: 'word wrapping', resettable: false });
+    expect(appearanceSections(decodeClientPrefs({ wordWrap: false }), true).at(-1)!.rows.find(row => row.id === 'word-wrap')).toMatchObject({ resetLabel: 'word wrapping', resettable: true });
     // A jump to a separate font row draws the separate rows with Separate fonts on (TypographySection showAdvanced).
     for (const target of ['prompt-font', 'terminal-font']) {
       const typography = appearanceSections(decodeClientPrefs({}), true, [], target).at(-1)!;

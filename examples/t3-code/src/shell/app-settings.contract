@@ -222,8 +222,6 @@ component SettingsWindow
       settingsEscapeHeld = settingsQuery != ""
     if k == "Enter" and settingsNavigation.firstRoute != "" and settingsNavigation.firstId.startsWith("search-result-legacy-")
       settingsLegacyOpen = true
-    if k == "Enter" and settingsNavigation.firstRoute != ""
-      revealSeparateFonts(settingsNavigation.firstTarget)
     coreSearchKeyRoot(k)
   action coreNavigate(route: string)
     settingsEscapeHeld = false
@@ -233,13 +231,7 @@ component SettingsWindow
     if id.startsWith("search-result-legacy-")
       settingsLegacyOpen = true
     modelAdding = ""
-    revealSeparateFonts(target)
     corePickRoot(route, target, scope, id)
-  // revealSettingsSearchTarget: the Prompt and Terminal font rows exist only with Separate fonts on, so a result that
-  // names one turns the setting on, and it stays on after the jump (the terminal reads it too).
-  action revealSeparateFonts(target: string)
-    if (target == "prompt-font" or target == "terminal-font") and not settingsCore.typographyAdvanced
-      coreChange("separate-fonts", "typographyAdvanced", "true")
   // The Providers page's `ui`: "model-adding" opens (the block's key) or closes ("") an "Add custom model" field;
   // "slug-focus" is its slug field taking ("true") or losing ("") the focus. A provider chosen in the list unmounts
   // the open field, as the reference's section does. The rest is the root's.

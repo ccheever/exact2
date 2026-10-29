@@ -234,10 +234,12 @@ describe("Shift+Tab from the first stop wraps to the page's last control (RouteF
     const [file, component, props] = pages[route]!;
     // The page's stops in tree order, named by their view line, as querySelectorAll names them by id.
     const stops = walkPage(file, component, props).controls.filter(pageMark).map(control => control.at);
-    const focused: string[] = [];
+    const focused: string[] = [], scrolled: string[] = [];
     guard.call('hold', {}, { guardId: 'route-modal-guard-start', targets: ['settings-search', 'settings-close'], popup: 'settings-modal', preventDefault() {}, stopPropagation() {},
-      focus: (id: string) => focused.push(id), querySelectorAll: (selector: string) => selector.includes('"page"') ? stops : ['settings-search', 'settings-close'] }, ['Tab', shiftTab]);
+      focus: (id: string) => focused.push(id), scrollIntoView: (id: string) => scrolled.push(id),
+      querySelectorAll: (selector: string) => selector.includes('"page"') ? stops : ['settings-search', 'settings-close'] }, ['Tab', shiftTab]);
     expect(focused).toEqual([stops.at(-1)]);
+    expect(scrolled).toEqual(focused); // and scrolls it into view, as the web's focus() does
     const line = appText(focused[0]!.split(':')[0]!).split('\n')[Number(focused[0]!.split(':')[1]) - 1]!;
     const owner = appText(focused[0]!.split(':')[0]!).split('\n').slice(0, Number(focused[0]!.split(':')[1])).reverse().find(text => text.startsWith('component '))!;
     expect(`${owner} ${line}`).toContain(last);

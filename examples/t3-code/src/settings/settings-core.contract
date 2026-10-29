@@ -218,6 +218,8 @@ shape SettingsCore
   // The search jump this answer is for (settingsFocusTarget) and the reveal stop of the fold its row sits under, '' for none.
   jumpTarget: string
   jumpStop: string
+  // The jump names a row that exists only with Separate fonts on, which is still off: the jump waits for it.
+  separateFontsWanted: bool
   ready: bool
   route: string
   breadcrumb: string
