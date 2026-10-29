@@ -257,7 +257,8 @@ const sources: Sources = {
     const route = mobileNewTaskEditorRouteFor(mobileClient, str(args[0]), str(args[1]));
     if (native?.available && route && (args[2] === 'workspace' || args[2] === 'interaction')) {
       const handle = letGoAware(mobileNative(native)), handles = mobileDraftRecoveryHandles(mobileClient, handle, nativeFiles(handle));
-      const result = await mobileNewTaskEditorAction(mobileClient, route, { kind: 'setting', name: args[2], value: str(args[4]) }, handles.native, handles.storage);
+      const result = await mobileNewTaskEditorAction(mobileClient, route, { kind: 'setting', name: args[2], value: str(args[4]),
+        preferences: { ready: args[6] === true, serialized: str(args[7]) }, interactionBlocked: args[8] === true }, handles.native, handles.storage);
       return { revision: mobileClient.revision, requestRoute: route.visit, nextLocation: '', message: result.message,
         alertTitle: '', submitted: false, environmentId: mobileClient.environmentId, projectId: mobileClient.projectId, threadId: '' };
     }

@@ -12,6 +12,7 @@ import { obj, str } from './shared/domain';
 import { collectComposerContextReferences } from './composer-editor-document';
 import { mobileNewTaskContextRead } from './mobile-new-task-context';
 import { fleet } from './shared/settings-b-fleet';
+import type { MobilePendingTaskPreferences } from './mobile-pending-task-draft';
 
 export type NewTaskDestination = 'model' | 'branch' | 'environment' | 'project' | 'back';
 export type NewTaskProducerIntent =
@@ -20,7 +21,8 @@ export type NewTaskProducerIntent =
   | { kind: 'remove'; source: 'remove-image' | 'remove-file'; id: string }
   | { kind: 'send'; alternate: boolean; now: number; preferences: { ready: boolean; serialized: string } }
   | { kind: 'voice'; label: string; owner: string }
-  | { kind: 'setting'; name: 'workspace' | 'interaction'; value: string };
+  | { kind: 'setting'; name: 'workspace' | 'interaction'; value: string;
+      preferences: MobilePendingTaskPreferences; interactionBlocked: boolean };
 export interface NewTaskProducerEffect {
   id: string; kind: 'navigate' | 'preview' | 'flow' | 'focus'; destination: string; flow: NewTaskFlowResult | null;
 }
@@ -75,7 +77,8 @@ export async function newTaskEditorProduce(client: MobileDraftClient, route: New
     }
     case 'setting': {
       const flow = await mobileNewTaskFlowAction(route.owner, route.visit, intent.name,
-        intent.name === 'interaction' ? target.owner : '', intent.value, native, storage, client);
+        intent.name === 'interaction' ? target.owner : '', intent.value, native, storage, client, fleet, 0,
+        intent.preferences, intent.interactionBlocked);
       return { ...base, message: flow.message, selection };
     }
     case 'voice': {

@@ -6,6 +6,7 @@ import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftNoteBranch, mobileNe
 import { mobileComposerTarget } from './composer-target';
 import { mobileVoiceAction, mobileVoiceSnapshot } from './voice-data';
 import { resetVoiceInputGlobalsForTests } from './voice-controller';
+import { mobileNewTask } from './new-task';
 
 for (const destination of ['model', 'branch', 'environment', 'project', 'back'] as const) test(`NewTask ${destination} saves and acknowledges the actual final source before navigation`, async () => {
   const f = await fixture(); picker(f);
@@ -62,6 +63,24 @@ test('preview refused after freeze resumes the newest saved source for further e
   await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
   expect((await action(f.client, f.route, { kind: 'observe', payload: event(f.identity, '🙂 continuing', 6, 'text') }, f.native, f.storage)).accepted).toBe(true);
   expect(obj(f.disk().drafts)[f.key]).toBe('🙂 continuing');
+});
+
+for (const policy of [
+  { ready: true, enabled: true, blocked: false, message: '', mode: 'plan' },
+  { ready: true, enabled: true, blocked: true, message: 'Wait for the current draft import to finish.', mode: undefined },
+  { ready: true, enabled: false, blocked: false, message: 'Plan mode is not available for this draft.', mode: undefined },
+  { ready: false, enabled: true, blocked: false, message: 'Plan mode is not available for this draft.', mode: undefined },
+]) test(`native Plan mode preserves preference and import policy ${JSON.stringify(policy)}`, async () => {
+  const f = await fixture(); picker(f);
+  f.resumeHook(async request => ({ ok: true, generation: request.generation, value: { event: {
+    ...event(f.identity, String(obj(request.document).value), 5, 'resumed'), selection: obj(request.document).selection,
+    operationId: request.operationId, operationRevision: request.operationRevision, receiptId: request.receiptId,
+  } } }));
+  const preferences = { ready: policy.ready, serialized: JSON.stringify({ ready: true, planModeEnabled: policy.enabled }) };
+  await action(f.client, f.route, { kind: 'setting', name: 'interaction', value: 'plan', preferences, interactionBlocked: policy.blocked }, f.native, f.storage);
+  expect(mobileNewTaskDraftStore(f.client).records[f.key]!.choices?.interactionMode).toBe(policy.mode);
+  expect(mobileNewTask('', f.client, undefined, preferences).interactionError).toBe(policy.message);
+  expect(view(f.client, f.route).kind).toBe('editing');
 });
 
 test('actual automatic branch metadata keeps native source admitted while an unrelated revision still fences it', async () => {
