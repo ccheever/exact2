@@ -31,4 +31,13 @@ bun test examples/t3-code/mobile/*.test.ts
 
 The native build runs the same generator before bundling the mobile viewers and baking the app. The generator installs its pinned packages and may fetch missing packages. Run it once while online to prepare an offline build. Generated tables are ignored by Git.
 
+Run the cache transport fixture from `examples/t3-code/mobile` on macOS:
+
+```sh
+swiftc -o /tmp/t3-cache-transport-tests modules/apple/T3MobileClientCache.swift modules/apple/T3MobileCacheTransport.swift tests/ClientCacheTransportTests.swift -lsqlite3
+/tmp/t3-cache-transport-tests
+```
+
+It uses the real SQLite store to check complete transfers, exact payload text, tickets, conditional deletion, expiry and restart. Its optional `--bridge <directory>` mode accepts one cache request per JSON line and returns one bridge reply per line.
+
 The app-local [LLP 1130](docs/1130-t3-code-ios.rfc.md) and its children record the design, source pins and verification limits. They remain Draft. These numbers are local to the app; the root `llp/1130-a-page-under-the-status-bar.rfc.md` is a different document. Their placement in the framework's root LLP corpus is not approved; the mobile documents and review records stay with this app.
