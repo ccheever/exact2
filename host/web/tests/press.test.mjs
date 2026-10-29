@@ -495,7 +495,9 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     // A tapped link of text keeps the browser's `:hover`, which underlines it only where a pointer hovers (neutral.css).
     await finger('touchStart', await centre('link'));
     await finger('touchEnd');
-    expect(await evaluate(`(() => { const el = document.getElementById('link'); return [matchMedia('(hover: hover)').matches, el.matches(':hover'), getComputedStyle(el).textDecorationLine].join(); })()`)).toBe('false,true,none');
+    // Chrome gives the tapped element `:hover` with the tap's gesture, which can come a frame or more after the
+    // touch's end on a loaded machine: wait frames for it (2 s at most), then read.
+    expect(await evaluate(`new Promise(ok => { const el = document.getElementById('link'), end = performance.now() + 2000, look = () => { if (el.matches(':hover') || performance.now() > end) ok([matchMedia('(hover: hover)').matches, el.matches(':hover'), getComputedStyle(el).textDecorationLine].join()); else requestAnimationFrame(look); }; look(); })`)).toBe('false,true,none');
     await evaluate(`window.vibrations = []; navigator.vibrate = ms => { vibrations.push(ms); at.vibrated = performance.now(); return true; }; document.getElementById('inner').style.setProperty('--exact-press-haptic', 'impact-medium')`);
     const vibrations = () => evaluate('vibrations.join()');
     await finger('touchStart', await centre('inner'));
