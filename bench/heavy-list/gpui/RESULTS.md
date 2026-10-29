@@ -1497,3 +1497,152 @@ image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered 
 ```
 
 Logs are in `target/s1-4/checks/`; carrier and reader logs are in `target/s1-4/`.
+
+## S1.5 — the input's gaps and GPUI's re-presentation
+
+**Prediction recorded before the rerun, 2026-10-29.** The driver supplies input
+slower than the display refreshes. Ink presents changed content; GPUI also
+re-presents unchanged content between inputs. The roughly 12 versus 0.66 late
+intervals/s therefore compares different kinds of cadence. This chunk changes
+the wheel driver and leaves the carrier's pacing and presentation untouched.
+
+### Trace join and counts
+
+`target/s1-5/analyze.py` re-derives the counts from
+`target/s1-4/g3-control/ink-1.json.trace.json` and
+`target/s1-4/g3-before/ink-1.json.trace.json`; its full output and per-pair
+attribution are `target/s1-5/analysis.txt` and `analysis.json`. Both traces
+report zero dropped events. Their SHA-256 hashes are, respectively,
+`4e6556449889bbc9bb0999ab7ad3190d02df88e03c2ebf22ab04cdc13f5665e2` and
+`8fa2243afbe3440ffa66dbebe878b6abce11d2d3e98dd6671f9034b405fe173d`.
+
+The k-th `presented`, `present committed` and `gpu present` events are joined
+**in file order**, including `presented.ts == 0` (never shown). No timestamp
+sort precedes the join. CAMetalLayer presents in commit order; GPU completion
+is `gpu present.ts + dur`. After joining, never-shown frames are removed from
+the displayed sequence. An interval counts only when both endpoints are inside
+one `inputWindows` entry in the sibling `ink-1.json`; late means over 12.5 ms.
+
+| Measurement | Control, newer marks | Before, normal images |
+|---|---:|---:|
+| Joined / shown / never shown | 348 / 333 / 15 | 357 / 340 / 17 |
+| Gesture seconds | 4.608089 | 4.541267 |
+| Shown intervals / late intervals | 328 / 55 | 335 / 54 |
+| Late intervals/s | 11.936 | 11.891 |
+| GPU end to shown time, minimum–maximum, ms | 15.828–55.116 | 15.659–27.166 |
+| GPU end to shown time in [15, 20) ms | 297 | 315 |
+| GPU end to shown time in [26, 28) ms | 21 | 16 |
+| GPU end to shown time ≥28 ms | 10 | 0 |
+
+These files do **not** reproduce the brief's 50 late control intervals or its
+35-frame 26–27 ms cluster. Every joined GPU command finishes before both its
+shown vsync and the preceding nominal refresh; GPU completion missing those
+vsyncs is not the cause. The control's longer presentation-latency tail remains
+unexplained. These diagnostic runs retain S1.4's focus-loss limitations.
+
+The control records 422 `wheel input` events and 421 gaps. Half-millisecond
+bins contain **340** gaps in [8.0, 8.5) ms and **64** in [16.5, 17.0) ms,
+not the brief's 328 and 63. Excluding the three between-gesture gaps leaves
+418 gaps averaging **9.573 ms**; all 421 average 19.956 ms. The driver's log
+reports `{"posted":106,"periodMs":8.33}` for each of four gestures (424 posts;
+422 input marks). It sleeps a full nominal period **after** each post, so
+posting cost and sleep overshoot accumulate. The delivered 8.33/16.67 ms grid
+is consistent with window-server delivery on the 120 Hz refresh: roughly one
+slot in seven has no new input. The trace measures delivery, not the posting
+cost and sleep overshoot separately.
+
+To attribute a late pair, its commit is associated with the latest handoff
+whose wait ended before that commit. The handoff's start is queue insertion
+after the main walk; the last input before that insertion identifies the
+frame's input. Using the last input before the commit instead can charge the
+next overlapping walk's input to this frame. **46 of 55** late pairs contain
+at least one ≥12 ms consecutive input gap between those frame inputs. The
+remaining **9 / 4.608089 s = 1.953/s** replace the brief's 6 / 50 and ~1.3/s
+as this prediction's empirical basis. This is input-gap attribution, not proof
+that every residual is a renderer stall.
+
+Of **122** `display demand` callbacks with nothing pending, **56** follow a
+draw after the latest input; the other **66** follow an input whose
+`wheel dirty` mark is zero. Those inputs required no content frame. This
+also differs from attributing all 66 callbacks solely to input gaps.
+
+### Why GPUI hides the input gaps
+
+In pinned **gpui 0.2.2**, `src/window.rs`'s `on_request_frame` closure
+(lines 1018–1067) sets `needs_present` while the window is active and its
+`last_input_timestamp` is less than one second old. Even with a clean
+invalidator, it calls `present()` (line 2007), which draws
+`rendered_frame.scene` again. Its comment gives the reason: “to prevent the
+display from underclocking the refresh rate.”
+
+The shared `MTLDrawable.presentedTime` instrument therefore counts GPUI's
+re-presentations during input gaps, whereas Ink's row counts changed content.
+The same timestamp instrument does not make those two rows content-cadence
+comparisons.
+
+### Driver and prediction
+
+`host/apple/wheel.swift` now selects the display under `request.screen` and
+posts at most one event from each `CVDisplayLink` output callback. The first
+event is queued before the link starts; the producer waits for its delivery
+before queuing another, so callback credits cannot accumulate into bursts.
+The phases, event fields, 100 ms travel, 0.95 momentum decay, half-point end
+and two-second cap stay. `periodMs` reports
+[`CVDisplayLinkGetActualOutputVideoRefreshPeriod`](https://developer.apple.com/documentation/corevideo/cvdisplaylinkgetactualoutputvideorefreshperiod(_:)),
+or the measured mean callback interval when Core Video supplies no period.
+The existing source-hash helper build needs no change.
+
+**Prediction, before the G3 rerun:**
+
+- With the driver paced by the display, ink's late intervals per gesture second fall from
+  ~12 to at most ~2 (the 9 unexplained of 55 is ~2.0/s; the display-link restart cases
+  S1.4 could not join are included); its presented intervals per ~4.5 s of gesture windows
+  rise from 300–339 to about GPUI's 464–490; p95 falls to 8.33 ms.
+- GPUI's and the native host's rows do not move beyond their ranges.
+- Ink's fling CPU per second rises in proportion to the frames it now draws (about
+  +40%); the comparison with GPUI must be read per frame as well as per second.
+
+### What remains
+
+The rerun cannot settle input-to-photon latency: the 26–27 ms cluster and
+the longer control tail are not a G3 column. There is no content-cadence
+instrument for GPUI. The rerun's cadence rows are comparable only during a
+gesture, when every tick has new input; unchanged re-presentations after
+input ends remain a different measurement.
+
+The rerun must report actual gesture-window duration alongside interval count:
+four fixed 106-event gestures get shorter when their input period falls from
+9.57 to 8.33 ms. The interval-count prediction is stated per ~4.5 seconds.
+
+One residual candidate is `about_to_wait`: when the gesture's events carry
+no phase, `scrolling` stays false and the carrier stops `CVDisplayLink`
+after each drawn frame. The before trace has **5 of 54** late pairs with
+only one display callback between commits (the brief said 5 of 53); the
+control has 8 of 55. This is consistent with a restart missing a period,
+and remains a candidate for after the rerun. No carrier change is made here.
+
+Posting requires an unlocked session. No fling or G3 rerun is performed in
+this chunk, and no dry-run mode is added. The orchestrator will run the posted
+fling with `G1_TRACE=1` when the display is free and check each input gap.
+
+### Validation
+
+All six checks pass, including fmt and caps' wasm32 check. The default-member
+tests and Linux tests used `RUST_TEST_THREADS=2`; Linux also used
+`EXACT_INK_DEVICE=metal EXACT_REQUIRED=1`. The full Linux run passed 1,576
+library tests and 293 integration tests, excluding child reruns. The existing
+`wheelHelper()` export in `scripts/agent-wheel.mjs` compiled the Swift helper
+successfully into `target/wheel-helper/3cb494cefbaf78cd/exact-wheel`.
+No posted-event timing is claimed from that build. Logs are in
+`target/s1-5/checks/`.
+
+```text
+paint: test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 8.20s
+borders: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 3.54s
+tint: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 3.26s
+backdrop: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 4.64s
+gradients: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 3.35s
+visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 6.09s
+materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 4.34s
+image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 3.56s
+```

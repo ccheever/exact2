@@ -1,6 +1,6 @@
 // The macOS driver's trackpad (LLP 1142 D3): a gesture's scroll-wheel events
-// posted to one process through the window server, paced a display period
-// apart, so AppKit tracks the gesture as a person's and runs its scrolling,
+// posted to one process through the window server, paced by a CVDisplayLink
+// on the target display, so AppKit tracks the gesture and runs its scrolling,
 // momentum and rubber band. `scripts/agent-wheel.mjs` builds and runs it with
 // one JSON argument, what the app's agent answered (`AgentMac.swift`):
 //   {"pid":P,"window":W,"point":[x,y],"screen":[x,y],"mark":M,
@@ -15,6 +15,7 @@
 //   release the zero-delta ended that lifts a held gesture
 // Posting needs the Accessibility grant of the terminal the driver runs in.
 import CoreGraphics
+import CoreVideo
 import Foundation
 
 struct Request: Decodable {
@@ -41,8 +42,60 @@ guard let place = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGEventSetWind
     fail("CGEventSetWindowLocation is not in this macOS")
 }
 
-let refresh = CGDisplayCopyDisplayMode(CGMainDisplayID())?.refreshRate ?? 0
-let period = 1 / (refresh > 0 ? refresh : 60)
+var display: CGDirectDisplayID = 0
+var count: UInt32 = 0
+guard CGGetDisplaysWithPoint(CGPoint(x: request.screen[0], y: request.screen[1]), 1, &display, &count) == .success, count == 1 else {
+    fail("no display under the wheel's screen point")
+}
+var created: CVDisplayLink?
+guard CVDisplayLinkCreateWithCGDisplay(display, &created) == kCVReturnSuccess, let link = created else {
+    fail("cannot create the wheel's display link")
+}
+
+final class Pacing {
+    let lock = NSLock()
+    let delivered = DispatchSemaphore(value: 0)
+    let measured = DispatchSemaphore(value: 0)
+    var pending: CGEvent?
+    var firstTick: Double?
+    var intervals = 0
+    var period = 0.0
+
+    func tick(_ link: CVDisplayLink, pid: Int32) {
+        let now = Double(CVGetCurrentHostTime()) / CVGetHostClockFrequency()
+        lock.lock()
+        defer { lock.unlock() }
+        if firstTick == nil { firstTick = now } else { intervals += 1 }
+        let previous = period
+        // Report Core Video's actual output period, or the mean callback interval
+        // if it is unavailable (never the display mode's nominal rate).
+        let actual = CVDisplayLinkGetActualOutputVideoRefreshPeriod(link)
+        if actual.isFinite && actual > 0 {
+            period = actual
+        } else if intervals > 0 {
+            period = (now - firstTick!) / Double(intervals)
+        }
+        if previous == 0 && period > 0 { measured.signal() }
+        if let event = pending {
+            pending = nil
+            event.postToPid(pid)
+            delivered.signal()
+        }
+    }
+}
+let pacing = Pacing()
+guard CVDisplayLinkSetOutputHandler(link, { link, _, _, _, _ in
+    pacing.tick(link, pid: request.pid)
+    return kCVReturnSuccess
+}) == kCVReturnSuccess else {
+    fail("cannot set the wheel's display callback")
+}
+let nominal = CVDisplayLinkGetNominalOutputVideoRefreshPeriod(link)
+guard nominal.timeValue > 0, nominal.timeScale > 0 else {
+    fail("the target display has no refresh period")
+}
+let period = Double(nominal.timeValue) / Double(nominal.timeScale)
+var running = false
 let source = CGEventSource(stateID: .hidSystemState)
 var posted = 0
 
@@ -62,16 +115,32 @@ func post(_ dx: Double, _ dy: Double, phase: Int64 = 0, momentum: Int64 = 0) {
     e.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
     e.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
     e.setIntegerValueField(.eventSourceUserData, value: request.mark)
-    e.postToPid(request.pid)
+    pacing.lock.lock()
+    pacing.pending = e
+    pacing.lock.unlock()
+    // Queue the first event before starting. Only the callback posts, at most
+    // once per tick; a delayed producer cannot accumulate catch-up posts.
+    if !running {
+        guard CVDisplayLinkStart(link) == kCVReturnSuccess else {
+            fail("cannot start the wheel's display link")
+        }
+        running = true
+    }
+    guard pacing.delivered.wait(timeout: .now() + 3) == .success else {
+        CVDisplayLinkStop(link)
+        fail("the wheel's display callback stopped")
+    }
     posted += 1
-    Thread.sleep(forTimeInterval: period)
 }
 
 let (dx, dy) = (request.wheel[0], request.wheel[1])
 switch request.form {
 case "fling", "hold":
-    let steps = max(2, Int((0.1 / period).rounded()))
     post(0, 0, phase: 128)
+    pacing.lock.lock()
+    let travelPeriod = pacing.period > 0 ? pacing.period : period
+    pacing.lock.unlock()
+    let steps = max(2, Int((0.1 / travelPeriod).rounded()))
     post(dx / Double(steps), dy / Double(steps), phase: 1)
     for _ in 1..<steps { post(dx / Double(steps), dy / Double(steps), phase: 2) }
     guard request.form == "fling" else { break }
@@ -89,4 +158,13 @@ case "release":
 default:
     fail("form is fling, hold or release, not \(request.form)")
 }
-print(#"{"posted":\#(posted),"periodMs":\#((period * 1000 * 100).rounded() / 100)}"#)
+// A one-event release may need a second callback to measure its fallback period.
+guard pacing.measured.wait(timeout: .now() + 3) == .success else {
+    CVDisplayLinkStop(link)
+    fail("the wheel's display link supplied no measured period")
+}
+CVDisplayLinkStop(link)
+pacing.lock.lock()
+let measuredPeriod = pacing.period
+pacing.lock.unlock()
+print(#"{"posted":\#(posted),"periodMs":\#((measuredPeriod * 1000 * 100).rounded() / 100)}"#)
