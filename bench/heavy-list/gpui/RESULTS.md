@@ -931,3 +931,144 @@ suite was rerun for this report-only change.
 ```text
 All budgets within cap. 10 categories inspected.
 ```
+
+## S1.2: idle and startup fixes; cadence and footprint remain open
+
+@ref LLP 1149 D7, D11, S1.2; 2026-10-29, `lane/ink-s1`, following
+`17f6bbccbc`. **S1.2 is incomplete.** The expired-timer spin is fixed and
+ten launches of the retained direct-Metal carrier presented a complete scene
+without a timeout. Presentation cadence and peak footprint still miss the
+requested targets. A quiet measurement of the final retained code remains
+outstanding; the quiet trial below used a pacing variant that was rejected.
+No three-arm G3 rerun was made.
+
+### Changes and evidence
+
+`host/apple-painted/src/window.rs` now delivers due live timers before
+choosing its next wait. Previously, a disabled periodic timer retained an
+expired deadline: `WaitUntil` repeatedly returned immediately without
+advancing the timer. The regression test checks that delivering this timer
+advances its deadline without damage or a frame, and leaves an agent's frozen
+clock alone. The display-link callback posts only when there is frame demand;
+idle turns use `Wait`, or `WaitUntil` for a future timer.
+
+The carrier leaves damage pending while a window frame is in flight.
+`host/ink/src/device/apple.rs` owns a single frame lease; the Metal and wgpu
+presentation workers release it after GPU completion and wake the carrier.
+Its unit test checks exclusivity, release on the worker and the wake.
+`device/metal.rs` no longer drains a window submission when waiting for an
+already completed submission, including submission zero. Drawable acquisition,
+presentation and completion waits remain on the render worker. The existing
+`finish_for(Window)` path already avoided pixel readback; screenshots still
+request `Pixels`. Both device arms passed a functional agent drive with a
+scroll and screenshot; direct Metal's screenshot was visually inspected.
+
+The startup failure was reproduced with images loaded and the last drawable's
+`presentedTime` equal to zero: GPU completion did not mean the drawable reached
+the screen. The presenter then had no damage to submit again. The direct-Metal
+path now observes each drawable's presented callback and requests another frame
+when it was discarded. This uses Apple's
+[presented-time contract](https://developer.apple.com/documentation/metal/mtldrawable/presentedtime).
+The unchanged probe observed the first complete presented scene in **10/10
+fresh launches**, with no timeout and no main-thread drawable acquisition.
+Those final launches ran during other compilation, so their durations are
+not qualified startup performance measurements. Their records are
+`target/s1-2/cold-retained/ink-{1..10}.json`.
+
+### Ink-only measurements and their limits
+
+The G3 instrument and 800×800-point outer window at 2× were retained, with
+`G3_ONLY_INK=1` and direct Metal. The following pair is one quiet baseline
+and one quiet trial, not a distribution. Four gestures and the ten-second
+fling/rest phases are unchanged. All 14 machine observations had no compilers;
+maximum 1/5/15-minute loads were 10.81/10.79/10.21. Both samples had nominal
+thermal endpoints, Low Power Mode off and no recorded focus loss.
+
+**The trial column is discarded code**, using a view CADisplayLink and drawing
+directly on its event. Its lower CPU does not establish the final carrier's
+cost: its pacing was worse. The retained code uses CVDisplayLink and the
+window's redraw event. Raw records are `target/s1-2/before-final/ink-1.json`,
+`after-final/ink-1.json` and `final-series-quiet.jsonl`; the directory name
+`after-final` does not denote the retained implementation.
+
+| Metric | S1.1 baseline | Discarded S1.2 trial |
+|---|---:|---:|
+| Rest process / main-thread CPU, ms/s | 858.854 / 858.811 | 1.578 / 1.486 |
+| Fling process / main-thread CPU, ms/s | 555.955 / 520.138 | 73.062 / 42.243 |
+| Presented interval p50 / p95 / p99, ms | 8.33 / 16.67 / 16.67 | 16.67 / 25.00 / 33.33 |
+| Late presented intervals/s | 11.00 | 36.13 |
+| Peak / end-of-fling footprint, MiB | 564.59 / 219.95 | 576.30 / 231.22 |
+| End-of-rest footprint, MiB | 212.89 | 222.67 |
+
+Intervals use G3's within-gesture calculation: 345 intervals over 4.545
+seconds for the baseline, 190 over 4.540 seconds for the rejected trial.
+Neither sample acquired drawables on the main thread.
+
+An earlier diagnostic of the retained CVDisplayLink scheduling approach
+reported rest CPU 1.618/1.489 ms/s, fling CPU 105.016/64.561 ms/s, presented
+p95 16.67 ms, 12.33 late intervals/s and peak footprint 566.50 MiB
+(`target/s1-2/flight-diagnostic-2/ink-1.json`). That build had diagnostic
+logging and preceded the discarded-drawable retry and final gesture guard;
+it is **not a qualified measurement of the final code**.
+
+Three pacing variants were examined: keeping CVDisplayLink running through
+the gesture and completion, drawing directly on the tick, and a view
+CADisplayLink requesting 120 Hz. The first was retained after the other two
+failed to improve cadence. Work stopped at the requested three-round limit.
+The next investigation is the completion/display-tick handoff: pending damage
+can wait for another pulse after the in-flight frame completes. Other builds
+subsequently drove machine load above 240; a final quiet before/after pair
+could not be collected. The requested 8.33 ms p95 is not established.
+
+### Peak footprint is unresolved
+
+The existing ImageIO path already decodes thumbnails with
+`kCGImageSourceThumbnailMaxPixelSize`. Temporary diagnostics found accounted
+image ownership within the roughly 64 MiB painter budget, about 34 MiB of
+current bitmap pixels, about 0.5 MiB of glyphs and no pooled layers. Metal's
+reported current resource allocation reached about 96 MiB. These counters
+do not explain the process peak: a live `vmmap` showed 341 MiB of owned,
+unmapped graphics memory during the transient.
+
+Isolated diagnostics also showed that a 100×100 Metal clear increased process
+footprint from about 4 MiB to 181 MiB. This identifies substantial driver cost,
+but does not attribute the whole carrier transient. Separately, decoding the
+large photos to 1536-pixel ImageIO thumbnails peaked near 100 MiB; the
+768-pixel case stayed near 16 MiB. Thus thumbnail decoding is not exonerated
+by its bounded retained pixels. Autorelease scoping and a simpler presentation
+shader did not reduce the measured carrier peak; the shader change was
+discarded. No decode-policy change is included, and no peak-memory improvement
+is claimed. Diagnostic logs, source and `vmmap` captures remain under
+`target/s1-2/`; temporary instrumentation is absent from the commit.
+
+### Validation
+
+The six repository checks passed: root build, tests, clippy and fmt, caps,
+boot, and workspace all-target compilation. Caps includes the wasm32 check.
+Ink and carrier all-target clippy also passed. Both release and development
+carrier builds passed. The agent drove the development carrier through
+`clock settle`, a 600-point wheel input, state and screenshot on direct Metal
+and wgpu (`target/s1-2/drive-metal-dev.log` and `drive-wgpu.log`).
+
+The final full Linux run used `RUST_TEST_THREADS=2 EXACT_INK_DEVICE=metal
+cargo test -p exact-linux --lib --tests --no-fail-fast`. Two preceding runs
+at default parallelism failed different wall-clock timeouts in networking
+and worker startup during heavy machine load. Those failures are not
+classified as known upstream failures. The third run passed, including every
+pinned suite (`paint`, `borders`, `tint`, `backdrop`, `gradients`, `visual`,
+`materials`) and `it::image`; no additional filtered runs are claimed.
+Verbatim summaries for Linux lib, `it`, `pinned`, Ink and carrier lib:
+
+```text
+test result: ok. 1575 passed; 0 failed; 20 ignored; 0 measured; 0 filtered out; finished in 130.71s
+test result: ok. 130 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.64s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 17.27s
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+```
+
+Complete logs are `target/s1-2/checks-*.log`; `checks-linux-final.log` is the
+passing Linux run, and `checks-ink.log` and `checks-carrier-all.log` supply
+the last two summaries. `QUEUE.md` records the unresolved cadence and memory
+work. The final quiet Ink-only comparison and the performance targets remain
+required before S1.2 can be called complete.

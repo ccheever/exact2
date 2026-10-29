@@ -1562,6 +1562,7 @@ dependencies = [
 name = "exact-ink"
 version = "0.1.0"
 dependencies = [
+ "block2 0.6.2",
  "bytemuck",
  "libc",
  "naga 30.0.1",

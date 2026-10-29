@@ -16,7 +16,7 @@ use std::{
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
     platform::macos::MonitorHandleExtMacOS,
@@ -50,6 +50,7 @@ struct App<D: DataSource> {
     frames: u64,
     paint_ms: f64,
     wheel_phases: [u64; 2],
+    scrolling: bool,
     benchmark_complete: bool,
 }
 
@@ -144,6 +145,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         frames: 0,
         paint_ms: 0.,
         wheel_phases: [0; 2],
+        scrolling: false,
         benchmark_complete: false,
     };
     if let Err(error) = events.run_app(&mut state) {
@@ -204,6 +206,9 @@ impl<D: DataSource + Default + 'static> App<D> {
         };
         if let Some(layer) = &self.layer {
             layer.update();
+            if layer.in_flight() {
+                return Ok(());
+            }
         }
         let now = if self.config.agent {
             p.host().now()
@@ -432,8 +437,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                     p.pointer_aux(bit, down, x, y, now);
                 }
             }
-            WindowEvent::MouseWheel { delta, .. } => {
+            WindowEvent::MouseWheel { delta, phase, .. } => {
                 self.wheel_phases = exact_ink::device::apple::wheel_phases();
+                self.scrolling = self.wheel_phases != [0; 2]
+                    && matches!(phase, TouchPhase::Started | TouchPhase::Moved);
                 let [x, y] = self
                     .layer
                     .as_ref()
@@ -478,6 +485,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 p.set_window_active(focused);
                 if !focused {
                     self.buttons = 0;
+                    self.scrolling = false;
                     let _ = p.pointer_lost(now);
                 }
             }
@@ -519,11 +527,15 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         if !self.config.agent {
             p.admit_idle_timer(now);
         }
+        let in_flight = self.layer.as_ref().is_some_and(Layer::in_flight);
         let active = !self.hidden
-            && (p.dirty() || !self.config.agent && (p.wants_display_frames() || p.host().motion()));
+            && !in_flight
+            && (p.dirty() || !self.config.agent && p.needs_animation_frame());
         self.display_active.store(active, Ordering::Release);
         if let Some(display) = &mut self.display {
-            if let Err(e) = display.set_running(active) {
+            if let Err(e) =
+                display.set_running(!self.hidden && (active || in_flight || self.scrolling))
+            {
                 self.fail(events, e);
                 return;
             }

@@ -542,12 +542,15 @@ impl Device for Metal {
         self.readback_level(id, 0)
     }
     fn wait(&mut self, s: Submission) -> Result<()> {
+        if s > self.submitted {
+            return Err(Error::Invalid("unknown submission".into()));
+        }
+        if s <= self.completed()? {
+            return Ok(());
+        }
         #[cfg(target_os = "macos")]
         if let Some(window) = &mut self.window {
             window.wait()?;
-        }
-        if s > self.submitted {
-            return Err(Error::Invalid("unknown submission".into()));
         }
         if s > self.done {
             // A CPU upload has no command buffer. Waiting on the latest earlier

@@ -13,9 +13,10 @@ swash = "0.2"
 [target.'cfg(target_vendor = "apple")'.dependencies]
 libc = "0.2"
 objc2 = "0.6.4"
+block2 = "0.6"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSError", "NSString", "NSURL", "NSProcessInfo"] }
 objc2-metal = { version = "0.3.2", default-features = false, features = [
-    "std", "MTLAllocation", "MTLBinaryArchive", "MTLBlitCommandEncoder", "MTLBuffer",
+    "std", "block2", "objc2-core-foundation", "MTLAllocation", "MTLBinaryArchive", "MTLBlitCommandEncoder", "MTLBuffer",
     "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLDevice", "MTLLibrary", "MTLDrawable",
     "MTLPixelFormat", "MTLRenderCommandEncoder", "MTLRenderPass", "MTLRenderPipeline",
     "MTLResource", "MTLSampler", "MTLTexture", "MTLTypes", "MTLVertexDescriptor",

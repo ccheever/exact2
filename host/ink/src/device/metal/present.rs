@@ -30,16 +30,26 @@ struct Work {
     renderer: std::sync::Arc<std::sync::Mutex<Renderer>>,
     texture: Retained<ProtocolObject<dyn MTLTexture>>,
     command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    _flight: crate::device::apple::Flight,
 }
 // SAFETY: the retained texture is read on the ordered GPU queue, never mutated
 // by the worker; encoding and committing this command belong only to the worker.
 unsafe impl Send for Work {}
 impl Work {
     fn run(self) -> Result<()> {
-        self.renderer
+        let result = self
+            .renderer
             .lock()
             .unwrap()
-            .present(&self.texture, &self.command)
+            .present(&self.texture, &self.command);
+        self.command.waitUntilCompleted();
+        if self.command.status() == MTLCommandBufferStatus::Error {
+            return Err(Error::DeviceLost(format!(
+                "window command failed: {:?}",
+                self.command.error()
+            )));
+        }
+        result
     }
 }
 
@@ -102,24 +112,27 @@ impl Metal {
     }
 
     pub fn present(&mut self, source: TextureId) -> Result<f64> {
-        let start = Instant::now();
-        let texture = self.texture(source)?.raw.clone();
-        let command = self.commands()?;
-        let window = self
-            .window
-            .as_mut()
-            .ok_or(Error::Unsupported("no Metal layer"))?;
-        window.wait()?;
-        let work = Work {
-            renderer: window.renderer.clone(),
-            texture,
-            command: command.clone(),
-        };
-        window.pending = Some(window.thread.send(move || work.run())?);
-        self.submitted.0 += 1;
-        self.pending.insert(self.submitted.0, Some(command));
-        self.textures.get_mut(&source).unwrap().last = self.submitted;
-        Ok(start.elapsed().as_secs_f64() * 1000.)
+        autoreleasepool(|_| {
+            let start = Instant::now();
+            let texture = self.texture(source)?.raw.clone();
+            let command = self.commands()?;
+            let window = self
+                .window
+                .as_mut()
+                .ok_or(Error::Unsupported("no Metal layer"))?;
+            window.wait()?;
+            let work = Work {
+                renderer: window.renderer.clone(),
+                texture,
+                command: command.clone(),
+                _flight: window._layer.begin_frame()?,
+            };
+            window.pending = Some(window.thread.send(move || work.run())?);
+            self.submitted.0 += 1;
+            self.pending.insert(self.submitted.0, Some(command));
+            self.textures.get_mut(&source).unwrap().last = self.submitted;
+            Ok(start.elapsed().as_secs_f64() * 1000.)
+        })
     }
 }
 
@@ -142,6 +155,7 @@ impl Renderer {
             self.layer.retry();
             return Ok(());
         };
+        self.layer.track(ProtocolObject::from_ref(&*drawable));
         if let Err(error) = encode(
             command,
             source,

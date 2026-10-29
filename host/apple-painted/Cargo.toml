@@ -6,14 +6,9 @@ license.workspace = true
 publish = false
 description = "Mac benchmark carrier for the painted presenter (LLP 1149 S1.1)"
 
-[lib]
-bench = false
-
 [[bin]]
 name = "exact-apple-painted"
 path = "src/main.rs"
-test = false
-bench = false
 
 [dependencies]
 exact-linux = { path = "../linux" }
