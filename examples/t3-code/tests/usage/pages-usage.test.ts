@@ -138,13 +138,15 @@ test("Shift+Tab from the Usage modal's first stop wraps to the page's last contr
   const last = usage.filter(line => /data-focus-stop=(\([^)]*"enabled page"\)|"enabled page")/.test(line)).at(-1)!;
   expect(last).toContain('scroll id="usage-period-scroll"');
   expect(last).toContain('aria-label="Usage breakdown by time" tabindex=0');
-  const guard = contractComponent('dialog-trap.contract', 'RouteFocusGuard'), focused: string[] = [];
+  const guard = contractComponent('dialog-trap.contract', 'RouteFocusGuard'), focused: string[] = [], scrolled: string[] = [];
   const listed = ['usage-environment', 'usage-provider', 'usage-period-1', 'usage-period-7', 'usage-period-30', 'usage-period-90', 'usage-metric-cost', 'usage-metric-tokens',
     'usage-metric-limits', 'usage-refresh', 'usage-breakdown-model', 'usage-breakdown-time', 'usage-period-scroll'];
   guard.call('hold', {}, { targets: ['usage-environment', 'close-usage'], popup: 'usage-modal', preventDefault() {}, stopPropagation() {},
-    querySelectorAll: (selector: string) => (selector.includes('"page"') ? listed : ['usage-environment', 'close-usage', ...listed]), focus: (id: string) => focused.push(id) },
+    querySelectorAll: (selector: string) => (selector.includes('"page"') ? listed : ['usage-environment', 'close-usage', ...listed]), focus: (id: string) => focused.push(id),
+    scrollIntoView: (id: string) => scrolled.push(id) },
     ['Tab', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: true }]);
   expect(focused).toEqual(['usage-period-scroll']);
+  expect(scrolled).toEqual(['usage-period-scroll']); // the Mac host's focus does not scroll, so the guard does
   // A disabled control is no stop; a popover's rows and the dialogs' buttons are not the page's.
   const stop = (marker: string) => lines.find(line => line.includes(marker))?.match(/data-focus-stop=(\([^)]*\)|"[^"]*")/)?.[1];
   expect(stop('id="usage-refresh"')).toBe('(busy ? "" : "enabled page")');

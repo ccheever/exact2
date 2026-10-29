@@ -273,11 +273,6 @@ component CoreSections
             row min-height="1.75rem" align-items="center" justify-content="space-between" padding-left="1rem" padding-right="1rem" id=`${section.id}-scroll-target`
               // SettingsSection's title is an `<h2>`, SettingsRow's an `<h3>` (settingsLayout.tsx).
               text section.title font-size="1rem" font-weight=600 line-height="1.5rem" color=pal.text role="heading" aria-level=2 id=`paint-CoreSections-2-${section.id}` data-paint="text" data-pick="text"
-              if section.id == "typography"
-                row gap="0.5rem" align-items="center"
-                  text "Advanced" font-size="0.875rem" line-height="1.25rem" color=pal.muted id=`paint-CoreSections-3-${section.id}` data-paint="mutedForeground" data-pick="mutedForeground"
-                  button press=change("typography-advanced", "typographyAdvanced", section.toggle ? "false" : "true") role="switch" aria-checked=section.toggle aria-label="Advanced Show advanced typography settings" disabled=busy class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(section.toggle ? pal.accent : pal.switchOff) testId="setting-typography-advanced" title="" id="setting-typography-advanced" data-paint=`${(section.toggle ? "accent" : "input")}` data-pick=((section.toggle ? "accent" : "input") != "" ? (section.toggle ? "accent" : "input") : "") data-focus-stop=(busy ? "" : "enabled page")
-                    box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=(section.toggle ? pal.thumb : pal.thumbOff) margin-left=(section.toggle ? "0.75rem" : "0px") box-shadow="0 1px 3px #0000000d" id=`paint-CoreSections-5-${section.id}` data-paint="canvas" data-pick="canvas"
           if not section.collapsible or legacyOpen
             column width="100%" border-radius="0.75rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card box-shadow="0 1px 2px #0000000d" box-sizing="border-box" id=`paint-CoreSections-6-${section.id}` data-paint="border surface" data-pick="surface"
               for row in section.rows key=row.id

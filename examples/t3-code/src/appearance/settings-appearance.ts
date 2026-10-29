@@ -183,7 +183,14 @@ export function fontStack(family: string, mono: boolean): string {
 
 // ── Appearance rows ────────────────────────────────────────────────────────
 const option = (value: string, label: string, selected: boolean) => ({ id: value, value, label, detail: '', icon: '', selected, disabled: false });
-export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, installed: InstalledFont[] = []): CoreSection[] {
+/** The rows that exist only with Separate fonts on (settingsSearch.ts ADVANCED_TYPOGRAPHY_TARGET_IDS). */
+export const SEPARATE_FONT_TARGETS: readonly string[] = ['prompt-font', 'terminal-font'];
+/**
+ * AppearanceSettingsPanel's Interface section and TypographySection, each ending with its Advanced fold. A search jump
+ * to a separate font row (`target`) draws the separate rows at once, as TypographySection's `showAdvanced` does; the
+ * pick turns the setting on (app-settings.contract corePick).
+ */
+export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, installed: InstalledFont[] = [], target = ''): CoreSection[] {
   const row = (key: keyof ClientPrefs, id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}) =>
     coreRow(id, title, description, kind, { checked: prefs[key] === true, value: String(prefs[key]), resettable: prefs[key] !== CLIENT_DEFAULTS[key], target: key, ...extra });
   const slider = (key: 'appearanceContrast' | 'glassOpacity' | 'panelAnimationDurationMs', min: number, max: number, step: number, suffix: string) =>
@@ -194,15 +201,18 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
   const interfaceRows: CoreRow[] = [
     row('appearanceContrast', 'setting-appearance-contrast', 'Contrast', 'Adjust the contrast of colors and borders across the interface.', 'slider', slider('appearanceContrast', 50, 200, 5, '%')),
     row('glassOpacity', 'setting-glass-opacity', 'Glass opacity', 'Higher values make menus, dialogs, and the composer more solid.', 'slider', slider('glassOpacity', 40, 100, 5, '%')),
-    ...(artworkVisible ? [row('environmentIdentificationMode', 'environment-identification', 'Environment identification', 'Choose how Dev and Nightly environments are identified.', 'select',
-      select('environmentIdentificationMode', [['artwork', 'Artwork'], ['pill', 'Version pill'], ['none', 'None']]))] : []),
-    row('persistComposerContextStrip', 'composer-context', 'Composer context', 'Keep branch and worktree controls below the composer after a thread starts.', 'switch'),
     row('chatWidth', 'chat-width', 'Chat width', 'Set how wide messages and the composer can grow on large screens.', 'select',
       select('chatWidth', [['comfortable', 'Comfortable (default)'], ['wide', 'Wide'], ['full', 'Full']], { comfortable: 'Comfortable', wide: 'Wide', full: 'Full' }[prefs.chatWidth])),
     row('mathRenderingEnabled', 'math-rendering', 'Render math', 'Typeset LaTeX math, such as $x^2$ or \\[x^2\\], in messages and Markdown previews. The composer keeps TeX source editable.', 'switch',
       { resetLabel: 'math rendering' }),
   ];
-  const motion = [row('panelAnimationDurationMs', 'panel-animations', 'Panel animations', 'Set how fast panels open and close.', 'slider', { ...slider('panelAnimationDurationMs', 0, 400, 25, ' ms'), info: 'preview' })];
+  const interfaceAdvanced: CoreRow[] = [
+    row('panelAnimationDurationMs', 'panel-animations', 'Panel animations', 'Set how fast panels open and close.', 'slider', { ...slider('panelAnimationDurationMs', 0, 400, 25, ' ms'), info: 'preview' }),
+    ...(artworkVisible ? [row('environmentIdentificationMode', 'environment-identification', 'Environment identification', 'Choose how Dev and Nightly environments are identified.', 'select',
+      select('environmentIdentificationMode', [['artwork', 'Artwork'], ['pill', 'Version pill'], ['none', 'None']]))] : []),
+    row('persistComposerContextStrip', 'composer-context', 'Composer context', 'Keep branch and worktree controls below the composer after a thread starts.', 'switch'),
+  ];
+  const separate = prefs.typographyAdvanced || SEPARATE_FONT_TARGETS.includes(target);
   const font = (familyKey: 'fontFamilySans' | 'fontFamilyCode' | 'fontFamilyComposer' | 'fontFamilyTerminal', sizeKey: 'fontSizeInterface' | 'fontSizeCode' | 'fontSizePrompt' | 'fontSizeTerminal',
     id: string, title: string, description: string, placeholder: string, min: number, max: number) =>
     row(familyKey, id, title, description, 'font', { value: prefs[familyKey], placeholder, amount: prefs[sizeKey], previewSize: familyKey === 'fontFamilySans' || familyKey === 'fontFamilyComposer' ? prefs.fontSizePrompt : prefs[sizeKey], value2: String(prefs[sizeKey]), label2: `${prefs[sizeKey]} px`, target: familyKey, suffix: sizeKey,
@@ -210,18 +220,22 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
       driver: fontStack(familyKey === 'fontFamilyComposer' && !prefs.fontFamilyComposer.trim() ? prefs.fontFamilySans : prefs[familyKey], familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal')
         ?? (familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal' ? 'ui-monospace' : 'system-ui'),
       status: '',
-      info: { 'interface-font': prefs.typographyAdvanced ? '' : 'preview-prompt', 'prompt-font': 'preview-prompt', 'code-font': prefs.typographyAdvanced ? 'preview-code' : 'preview-code-terminal', 'terminal-font': 'preview-terminal' }[id] ?? '',
+      info: { 'interface-font': separate ? '' : 'preview-prompt', 'prompt-font': 'preview-prompt', 'code-font': separate ? 'preview-code' : 'preview-code-terminal', 'terminal-font': 'preview-terminal' }[id] ?? '',
       options: fontFamilies(prefs[familyKey], familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal', placeholder, installed), label: prefs[familyKey].trim() || placeholder,
       resettable: prefs[familyKey] !== '' || prefs[sizeKey] !== CLIENT_DEFAULTS[sizeKey], options2: sizes(min, max).map(([value, label]) => option(value, label, value === String(prefs[sizeKey]))) });
   const typography = [
     font('fontFamilySans', 'fontSizeInterface', 'interface-font', 'Interface font', 'Everything outside code blocks and the terminal.', 'SF Pro', 12, 20),
-    ...(prefs.typographyAdvanced ? [font('fontFamilyComposer', 'fontSizePrompt', 'prompt-font', 'Prompt font', 'Only the box you write prompts in. Mono works well here.', prefs.fontFamilySans || 'SF Pro', 12, 20)] : []),
-    prefs.typographyAdvanced ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', 'SF Mono', 10, 18)
+    ...(separate ? [font('fontFamilyComposer', 'fontSizePrompt', 'prompt-font', 'Prompt font', 'Only the box you write prompts in. Mono works well here.', prefs.fontFamilySans || 'SF Pro', 12, 20)] : []),
+    separate ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', 'SF Mono', 10, 18)
       : font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Monospace font', 'Code blocks, diffs, file previews, and the terminal.', 'SF Mono', 10, 18),
-    ...(prefs.typographyAdvanced ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', 'SF Mono', 8, 20),
-      row('fontSmoothing', 'font-smoothing', 'Font smoothing', 'Use thinner grayscale text smoothing instead of the macOS default.', 'switch')] : []),
-    row('wordWrap', 'word-wrap', 'Word wrap', 'Wrap long lines in code blocks, tables, diffs, and file previews by default.', 'switch'),
+    ...(separate ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', 'SF Mono', 8, 20)] : []),
+    row('wordWrap', 'word-wrap', 'Word wrap', 'Wrap long lines in code blocks, tables, diffs, and file previews by default.', 'switch', { resetLabel: 'word wrapping' }),
   ];
-  return [{ id: 'appearance-interface', title: 'Interface', collapsible: false, rows: interfaceRows, toggle: false }, { id: 'motion', title: 'Motion', collapsible: false, rows: motion, toggle: false },
-    { id: 'typography', title: 'Typography', collapsible: false, rows: typography, toggle: prefs.typographyAdvanced }];
+  const typographyAdvanced: CoreRow[] = [
+    row('typographyAdvanced', 'separate-fonts', 'Separate fonts', 'Set the prompt, code, and terminal fonts separately instead of one monospace font.', 'switch',
+      { checked: separate, value: String(separate), resettable: false }),
+    row('fontSmoothing', 'font-smoothing', 'Font smoothing', 'Use thinner grayscale text smoothing instead of the macOS default.', 'switch'),
+  ];
+  return [{ id: 'appearance-interface', title: 'Interface', collapsible: false, rows: interfaceRows, toggle: false, advanced: interfaceAdvanced },
+    { id: 'typography', title: 'Typography', collapsible: false, rows: typography, toggle: false, advanced: typographyAdvanced }];
 }

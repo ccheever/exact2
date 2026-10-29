@@ -431,16 +431,17 @@ describe('post-created provider traversal follows the Sign in content', () => {
 describe('Settings\' and Usage\'s modal wraps Shift+Tab to the page\'s last control', () => {
   const guard = contractComponent('dialog-trap.contract', 'RouteFocusGuard');
   const enter = (page: string[]) => {
-    const focused: string[] = [];
+    const focused: string[] = [], scrolled: unknown[][] = [];
     guard.call('enter', {}, { targets: ['settings-search', 'close-settings'], popup: 'settings-dialog', stopPropagation() {},
       querySelectorAll: (selector: string) => selector.includes('dialog-focus') ? ['settings-dialog'] : selector.includes('"page"') ? page : ['settings-search', 'close-settings', ...page],
-      focus: (id: string) => focused.push(id) }, []);
-    return focused;
+      focus: (id: string) => focused.push(id), scrollIntoView: (...args: unknown[]) => scrolled.push(args) }, []);
+    return { focused, scrolled };
   };
-  test('the last page control, in tree order', () => {
-    expect(enter(['setting-theme', 'setting-font-size'])).toEqual(['setting-font-size']);
+  // The web's focus() scrolls what it focuses into view; the Mac host's does not, so the guard scrolls it.
+  test('the last page control, in tree order, scrolled into view', () => {
+    expect(enter(['setting-theme', 'setting-font-size'])).toEqual({ focused: ['setting-font-size'], scrolled: [['setting-font-size', { block: 'nearest' }]] });
   });
   test('the close button when the page has no controls', () => {
-    expect(enter([])).toEqual(['close-settings']);
+    expect(enter([])).toEqual({ focused: ['close-settings'], scrolled: [['close-settings', { block: 'nearest' }]] });
   });
 });

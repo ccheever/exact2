@@ -320,9 +320,6 @@ component SettingsWindow
                 // Worktrees: the scope sentence, then the storage panel with Start from remote and Submodules in its Creation section.
                 if settingsRoute == "worktrees"
                   StoragePanel(data=storageSettings, view="worktrees", busy=commandPending, error=modalError, rest=rest, restInput=restInput)
-                    for section in settingsCore.sections key=section.id
-                      for row in section.rows key=row.id
-                        CoreRowView(reduced=viewport.prefersReducedMotion, row=row, section=section.id, pal=settingsCore.palette, codePreview=settingsCore.codePreview, busy=commandPending, menu=settingsMenu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate)
                 if settingsRoute == "archived"
                   ArchivedPanel(data=archives, busy=commandPending, error=(restEditor == "" ? modalError : ""), menu=restMenu, raw=restRaw, open=restOpen, showMenu=restMenuOpen, close=restClose)
                 if settingsRoute == "open-source-licenses"
@@ -331,7 +328,7 @@ component SettingsWindow
                   DiagnosticsPanel(data=diagnostics, busy=commandPending, selectPeriod=selectDiagnosticPeriod, reload=refreshSettings, copy=copyDiagnostic, rest=rest, local=restLocal)
                 // Both panels get the content column's width: the sheet less its border, the 15rem nav and the scroller's sides,
                 // held to the 56rem cap less its 1.5rem sides (readable SettingsPageContainer).
-                if settingsRoute == "connections"
+                if settingsRoute == "connections" or settingsRoute == "access"
                   ConnectionsPanel(view=settingsRoute, page=connectionsPage, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
                 if settingsRoute == "providers"
                   ProvidersPanel(page=providerPage, scheme=scheme, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, addingUi=modelAddingUi, modelAdding=modelAddingLive)
