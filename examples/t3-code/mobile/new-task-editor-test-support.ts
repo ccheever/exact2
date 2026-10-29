@@ -1,4 +1,3 @@
-// Mock native IO at the NewTask source boundary; persistence uses MobileDraftClient bytes.
 import { expect } from 'bun:test';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { mobileNewTaskEditorAction as action, mobileNewTaskEditorRefresh as refresh, mobileNewTaskEditorView as view,

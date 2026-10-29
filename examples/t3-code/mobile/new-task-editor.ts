@@ -494,7 +494,17 @@ async function freeze(client: MobileDraftClient, owner: Ledger, entry: Entry,
     }
   }
 }
+async function releasePendingFiles(entry: Entry, native: Native, current: () => boolean): Promise<void> {
+  const holds = entry.holds;
+  if (!holds || holds.retired) return;
+  for (const hold of Object.values(holds.entries)) {
+    if (hold.desired !== 'release' || hold.phase === 'released') continue;
+    await mobileFileHoldRelease(holds, hold.request.requestId, native);
+    if (!current() || entry.holds !== holds) return;
+  }
+}
 async function continuePick(client: MobileDraftClient, owner: Ledger, entry: Entry, native: Native, storage: Files): Promise<void> {
+  await releasePendingFiles(entry, native, () => owner.entries.includes(entry));
   const work = entry.operation;
   if (!work || entry.problem) return;
   if (work.phase === 'frozen') {
@@ -597,7 +607,7 @@ function resumeMatches(work: FrozenPick, proof: ComposerEditorResume): boolean {
   const request = work.handback?.request, event = proof.snapshot;
   return !!request && proof.operationId === request.operationId && proof.operationRevision === request.operationRevision
     && proof.receiptId === request.receiptId && sameIdentity(event, request.identity)
-    && event.eventCount > work.receipt.event.eventCount && event.value === request.document.value
+    && event.eventCount === work.receipt.event.eventCount + 1 && event.value === request.document.value
     && equal(event.selection, request.document.selection);
 }
 function completeCycle(entry: Entry, work: FrozenPick, proof: ComposerEditorResume | null): void {
@@ -840,13 +850,7 @@ async function advanceFrozen(client: MobileDraftClient, owner: Ledger, entry: En
       else throw new ClientError('The attachment terminal outcome is still unresolved.');
       phase = work.continuation;
     }
-    if (phase.kind === 'terminal' && entry.holds && !entry.holds.retired) {
-      for (const hold of Object.values(entry.holds.entries)) {
-        if (hold.desired !== 'release' || hold.phase === 'released') continue;
-        await mobileFileHoldRelease(entry.holds, hold.request.requestId, native);
-        if (!current()) return;
-      }
-    }
+    if (phase.kind === 'terminal') await releasePendingFiles(entry, native, current);
   } catch (error) {
     if (letGo(error)) throw error;
     if (current()) entry.notice = error instanceof Error ? error.message : 'The attachment operation is retained.';

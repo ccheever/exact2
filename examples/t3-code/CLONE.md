@@ -670,6 +670,20 @@ malformed metadata, preserved images and shelf files, and persistence through an
 actual client reload. Evicted context payloads stay unresolved even if their file
 holds remain. All 3,995 mobile tests, strict application TypeScript and boot
 checks pass. Independent review reports no introduced findings, with 127 focused
-tests and 36 additional boundary probes passing. The helper is not wired into
-the native editor yet. Native NewTask activation, resume cycles and producer
-acceptance remain open; this prerequisite adds no TestFlight qualification.
+tests and 36 additional boundary probes passing. The inactive native NewTask
+owner now uses this publisher and implements picker resume and repeated receipt
+cycles in commits `85a636b2af` and `88e2c140cf`. Independent review reproduces two
+correctness defects: failed rejected-file release loses its retry path after
+resume, and a malformed resume proof can skip native event counts. Both are
+fixed with failing-before and passing-after regressions. Cleanup remains owned
+by the continuing hold ledger; resume requires the exact successor count.
+All 208 focused checks and 4,055 mobile tests pass, along with strict TypeScript
+and boot. Parent reruns the focused checks and builds the normal iPhone app. The saved LAN address is no longer
+reachable after the Mac's address changes; updating it through the app's existing
+form to the same environment at loopback restores connection. The normal app
+receives `RESUME_PREREQUISITE_OK` from the real provider and restores that reply,
+the environment and an empty composer after restart. This drive checks the
+existing active flow. Native IO in the new owner tests is mocked. The review's
+three redundant comments are removed. Actual native NewTask producer acceptance
+and the uncertain-finish metadata gate remain open. No TestFlight qualification
+is added.

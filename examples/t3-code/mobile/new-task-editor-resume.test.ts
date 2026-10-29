@@ -16,7 +16,6 @@ const id = (n: number) => `${String(n).padStart(8, '0')}-aaaa-4aaa-8aaa-aaaaaaaa
 const range = (value: string) => ({ start: value.length, end: value.length });
 const resumes = (f: Awaited<ReturnType<typeof fixture>>) => f.calls.filter(call => call.action === 'resume');
 
-// Native transitions are mocked here. Saves serialize the real MobileDraftClient into the fixture's disk bytes.
 async function cycleFixture(source = '🙂 replace here', selection = { start: 3, end: 10 }, initial: readonly PickerIntakeFile[] = [pickedFile]) {
   const f = await fixture(); continuation(f, initial);
   let count = 1, value = source, caret = selection, sequence = 0, files = initial;
@@ -255,7 +254,6 @@ for (const proof of ['reply', 'lost'] as const) test(`${proof} handback permits 
   if (proof === 'reply') await f.type('');
   else {
     await f.type('');
-    // Confirm native handback through its event, then start a second uncertain handback.
     await f.observe(f.proof()); f.files([]); await f.pick();
   }
   const final = f.retire(text), acks = f.calls.filter(call => call.action === 'acknowledge').length;
@@ -455,4 +453,40 @@ test('a let-go resume replays its exact request using fresh invocation IO', asyn
   await action(f.client, f.route, { kind: 'retry' }, native, f.storage);
   expect(resumes(f)[1]).toEqual(resumes(f)[0]); expect(calls.filter(call => call.action === 'resume')).toHaveLength(1);
   expect(view(f.client, f.route).editable).toBe(true); expect(intakeCalls(f, 'finish')).toHaveLength(1);
+});
+
+test('failed rejected-file cleanup remains retryable after successful handback', async () => {
+  const f = await cycleFixture('x'.repeat(1_000_000), { start: 0, end: 0 });
+  let attempts = 0;
+  f.holdHook(async request => {
+    if (request.action === 'release' && ++attempts === 1) {
+      throw Error('release unavailable');
+    }
+    return heldReply(request);
+  });
+  await f.pick();
+  expect(view(f.client, f.route).editable).toBe(true); expect(attempts).toBe(1);
+  const calls: Obj[] = [], native: Native = { available: true, watch() {}, later(request) {
+    calls.push(obj(request)); return f.native.later(request);
+  } };
+  await action(f.client, f.route, { kind: 'retry' }, native, f.storage);
+  expect(attempts).toBe(2);
+  const releases = f.calls.filter(call => call.action === 'release');
+  expect(releases[1]).toEqual(releases[0]); expect(calls.filter(call => call.action === 'release')).toHaveLength(1);
+  await f.reread(); expect(attempts).toBe(2); expect(resumes(f)).toHaveLength(1);
+  expect(view(f.client, f.route).editable).toBe(true); expect(f.disk().composerFiles).toEqual([]);
+});
+
+test('an impossible resume event-count jump cannot acknowledge or suppress legitimate later typing', async () => {
+  const f = await cycleFixture();
+  f.resumeHook(async request => {
+    const result = await f.nativeResume(request);
+    return { ...result, value: { event: { ...result.value.event, eventCount: 100 } } };
+  });
+  await f.pick(); expect(view(f.client, f.route).editable).toBe(false);
+  expect(config(view(f.client, f.route)).acknowledgedEventCount).toBe(2);
+  f.resumeHook(f.nativeResume); await f.reread(); expect(view(f.client, f.route).editable).toBe(true);
+  expect(config(view(f.client, f.route)).acknowledgedEventCount).toBe(3);
+  expect(await f.type('🙂 legitimate next edit')).toMatchObject({ accepted: true });
+  expect(obj(f.disk().drafts)[f.key]).toBe('🙂 legitimate next edit');
 });
