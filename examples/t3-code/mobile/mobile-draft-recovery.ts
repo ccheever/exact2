@@ -41,6 +41,9 @@ import { mobileNewTaskLaunchPrepare, mobileNewTaskLaunchBeforeRequest, mobileNew
 const PATH = 'app:/data/t3-code.json';
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 const hydrated = new WeakSet<object>();
+export function mobileDraftRecoveryHydrated(client: T3Client): boolean {
+  return client.preferencesLoaded && hydrated.has(client.local);
+}
 type Recovery = MobileQueuedEditSession & { recoveryKey?: string };
 const clone = (value: Obj): Obj => obj(JSON.parse(JSON.stringify(value)));
 /** App-owned extension serialized by shared persist; never a pretend shared context field. */

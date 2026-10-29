@@ -16,6 +16,7 @@ import { mobileVoiceObserveDraft } from './voice-data';
 // upstream 365aa87982 mobile pairing.ts and connection/platform.ts; shared reducers remain unchanged.
 // @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
+import { mobileNewTaskEditorRefresh } from './new-task-editor';
 import { mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
 import { mobilePendingInputCommand, mobilePendingInputRetry } from './pending-input';
@@ -198,7 +199,7 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   const fleetRevision = fleet.revision;
   mobileGitFeedbackObserve(mobileClient, now);
-  await mobileClient.refresh(native, storage);
+  await mobileNewTaskEditorRefresh(mobileClient, native, storage);
   mobileGitFeedbackObserve(mobileClient, now);
   // A disconnected foreground skips the shared client's event drain. Background
   // connection/config changes must still invalidate root outbox scheduling.

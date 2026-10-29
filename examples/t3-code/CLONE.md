@@ -206,11 +206,24 @@ comparison change. The Foundation protocol and operation suites pass 37 and 84
 checks. Independent source review finds no introduced blocker. The normal app
 using these native sources restores an ordinary draft exactly after restart.
 Clearing survives another restart, and the saved environment and conversation
-remain available. No QA draft remains. NewTask retains
-its textarea. Activation still requires the client-lifetime Root save drain and
-admission, producer integration, voice and paste ownership acceptance, and native
-node recreation after a factory refusal. Direct editor-object retry alone does
-not qualify recovery through the host.
+remain available. No QA draft remains. The client-lifetime Root refresh now watches
+and drains final editor sources after draft recovery hydrates. Its bounded owner
+captures each draft incarnation and native mount, publishes retired source once,
+saves through the existing preferences store, then acknowledges the exact native
+receipt. Detached routes and older transport generations retain their captured
+destination. Failed saves and uncertain acknowledgments retry with fresh IO;
+frozen operations and unknown sources stay retained. The 30 focused tests cover
+these transitions, and all 3,853 mobile tests, strict app TypeScript and boot pass.
+The normal iPhone build restores an exact ordinary draft including an emoji;
+clearing survives another restart. A NewTask draft restores through Home's Unsent
+row, and confirmed discard survives restart. The saved environment and conversation
+remain available. No QA draft remains. Independent source review finds no
+correctness blocker. Caps still reports only the 2,994-line desktop Contract.
+NewTask retains its
+textarea. The exported native presentation remains unwired. Activation still
+requires producer integration, token projection, voice and paste ownership
+acceptance, and native node recreation after a factory refusal. Direct
+editor-object retry alone does not qualify recovery through the host.
 
 A large-catalogue cold launch exposed a blank transcript, unready Send and a
 Hermes allocation failure. Composer preparation copied and fingerprinted command

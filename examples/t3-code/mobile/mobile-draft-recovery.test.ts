@@ -1,6 +1,6 @@
 import { mobilePendingTaskEditorsSnapshot, mobilePendingTaskEditorKey, type MobilePendingTaskMarker } from './mobile-pending-task-state';
 import { expect, test } from 'bun:test';
-import { MobileDraftClient, mobileAdoptRecoveredDraft, mobileDraftRecoveryHandles, mobileRecoveredDraftMarker,
+import { MobileDraftClient, mobileAdoptRecoveredDraft, mobileDraftRecoveryHandles, mobileDraftRecoveryHydrated, mobileRecoveredDraftMarker,
   mobileRecoveredMessageContext, mobileRetireRecoveredDraft } from './mobile-draft-recovery';
 import { obj, arr, type Obj } from './shared/domain';
 import type { Files, Native } from './shared/protocol';
@@ -32,6 +32,26 @@ function recovery(overrides: Partial<MobileQueuedEditSession> = {}): MobileQueue
     projectId: 'p', generation: 3, session: 'epoch-one', revision: 2, runId: 'run', messageId: 'message', text: 'Recovered',
     context: { version: 1, records: [] }, attachments: [], existingAttachments: [], saving: false, ...overrides };
 }
+test('recovery admission waits for app-owned hydration of the current local document', async () => {
+  const sharedOnly = setup();
+  await sharedOnly.client.refresh(sharedOnly.native, sharedOnly.storage);
+  expect(sharedOnly.client.preferencesLoaded).toBe(true);
+  expect(mobileDraftRecoveryHydrated(sharedOnly.client)).toBe(false);
+
+  const restored = setup();
+  expect(mobileDraftRecoveryHydrated(restored.client)).toBe(false);
+  await restored.load();
+  expect(mobileDraftRecoveryHydrated(restored.client)).toBe(true);
+  restored.client.local = { ...restored.client.local };
+  expect(mobileDraftRecoveryHydrated(restored.client)).toBe(false);
+
+  const firstLaunch = setup('');
+  await firstLaunch.load();
+  expect(mobileDraftRecoveryHydrated(firstLaunch.client)).toBe(true);
+  const unsupported = setup({ version: 2 });
+  await unsupported.load();
+  expect(mobileDraftRecoveryHydrated(unsupported.client)).toBe(false);
+});
 test('actual shared load restores all supported image MIME before first native presentation or persistence', async () => {
   const images = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].map((mimeType, i) => ({ id: `${i + 1}`.repeat(8) + '-1111-4111-8111-111111111111', mimeType, sizeBytes: 10, name: `image-${i}` }));
   const f = setup({ version: 1, snapshotDrafts: { 'e:t': images } }), original = f.native.later; let presented: unknown;
