@@ -334,7 +334,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     const path = new URL(request.url).pathname;
     if (path === '/') return new Response(html, { headers: { 'content-type': 'text/html' } });
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
-    for (const dir of ['host/web-js', 'host/web']) {
+    for (const dir of ['host/web-js', 'host/web', 'host']) {
       const module = Bun.file(resolve(ROOT, dir, path.slice(1)));
       if (await module.exists()) return new Response(module);
     }
