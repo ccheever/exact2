@@ -4,6 +4,7 @@
 use FieldPlaceholder from "../shared/field-placeholder.contract"
 use LucideCloud from "../settings/settings-icons.contract"
 use LucideX from "../settings/settings-icons.contract"
+use PvRemoveButton from "../settings/providers-kit.contract"
 use HostButton from "./settings-a-hosts.contract"
 use HostField from "./settings-a-hosts.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
@@ -60,7 +61,9 @@ component EasSpinner
       svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
         path d="M21 12a9 9 0 1 1-6.219-8.56"
 
-// Button size sm, variant ghost or ghost-destructive.
+// Button size sm, variant ghost or ghost-destructive (ui/button.tsx): the foreground's ink, or the muted one for
+// ghost-destructive; hovered, the accent behind it and ghost-destructive's ink destructive. A :hover block cannot set
+// `color`, so the button keeps its hover in state; its :active block is the pressed accent.
 component EasGhostButton
   props
     label: string
@@ -68,9 +71,15 @@ component EasGhostButton
     disabled: bool
     press: action
     buttonId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  derive lit = over and not disabled
   view
-    button id=buttonId press=press disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : "enabled page")
-      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(destructive ? "light-dark(#dc2626, #f87171)" : "light-dark(#18181b, #f5f5f5)") white-space="nowrap"
+    button id=buttonId press=press hover=hover disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : "enabled page")
+      :active
+        background-color="light-dark(#f4f4f5, #ffffff0a)"
+      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(destructive ? (lit ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)") : "light-dark(#18181b, #f5f5f5)") white-space="nowrap"
 
 // SettingsRow "EAS Simulator" over `easDeviceHosts` (serverScoped; its inheritance button is the slot), with the host list as its children.
 component EasDeviceHostsRow
@@ -207,8 +216,7 @@ component EasHostDialog
               row flex=1 min-width=0 height="2rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" box-shadow="0 1px 2px #0000000a" align-items="center" padding-left="0.6875rem" padding-right="0.6875rem"
                 input id="eas-host-token" type="password" value=(tokenKind == "new" ? tokenValue : "") input=editToken submit=submitDraft placeholder=(tokenKind == "saved" ? "Stored secret, enter a new value to replace" : "Optional") class=FieldPlaceholder disabled=busy aria-label="Expo access token" autocomplete="off" spellcheck="false" autocorrect="off" testId="eas-host-token" flex=1 min-width=0 height="1.875rem" padding=0 position="relative" top="0.40625rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.875rem" color="light-dark(#18181b, #f5f5f5)" data-editable="yes"
               if tokenKind != "cleared"
-                button press=clearToken aria-label="Clear access token" testId="eas-host-token-clear" width="1.75rem" height="1.75rem" padding=0 flex-shrink=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-                  LucideX(size=14, color="light-dark(#dc2626, #f87171)")
+                PvRemoveButton(label="Clear access token", buttonId="eas-host-token-clear", icon="x", size="sm", iconSize=14, disabled=false, stop="", press=clearToken)
           row width="100%" align-items="center" justify-content="space-between" gap="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" testId="eas-host-account"
             text (account == "signed-in" or account == "failed" ? editor.accountMessage : (account == "checking" ? "Checking the Expo account…" : "Check the Expo account before choosing a project.")) role="status" flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="eas-host-account-status"
             button press=check disabled=(busy or account == "checking") testId="eas-host-check" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow=(busy or account == "checking" ? "none" : "0 1px 2px #0000000d") opacity=(busy or account == "checking" ? 0.64 : 1)
