@@ -334,7 +334,10 @@ pub fn project(
     // with a bound row keeps its text too: the row may make it lay out
     // other than a block, and so does a button whose parent has one (its
     // height may come to be the parent's).
-    let repeated = each_rows(plan, sites);
+    let mut repeated = vec![false; plan.nodes.len()];
+    for i in each_rows(plan, sites) {
+        repeated[i] = true;
+    }
     let bound = |i: usize, only_text: bool| {
         plan.nodes
             .get(i)
@@ -360,7 +363,7 @@ pub fn project(
     let may_fold: Vec<bool> = (0..plan.nodes.len())
         .map(|i| {
             plan.nodes.get(i).unwrap().handlers.len == 0
-                && !repeated.contains(&i)
+                && !repeated[i]
                 && !bound(i, true)
                 && parents[i].is_some_and(|p| {
                     let button = NodeType::from_wire(plan.nodes.get(p).unwrap().node_type)
@@ -469,12 +472,14 @@ pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
 /// while it has a value: written as its binding is, a CSS-wide clear
 /// included; `none` takes it away, as the runner clears the written bit,
 /// and the next node up decides (symbols.js `inked`). A colour only a state
-/// look sets (`:hover`) does not count.
+/// look sets (`:hover`) does not count. `modes`: whether the plan has modes
+/// ([`crate::modes::active`]).
 fn symbol_color(
     plan: &Plan,
     kernel: &Kernel,
     parents: &[Option<usize>],
     i: usize,
+    modes: bool,
 ) -> Option<(Vec<(usize, Ink)>, bool)> {
     let view = |i: usize| -> ViewId { i as u32 + 1 };
     let rows = |i: usize| {
@@ -505,7 +510,6 @@ fn symbol_color(
     // A mode boundary (a pin or a scheme, LLP 1121 D7) writes again a row
     // it does not set when the one around read a token: an implied row, no
     // author's, which `says` stops at (modes.js `apply`, `$xs`).
-    let modes = crate::modes::active(plan);
     let mut writers = Vec::new();
     let mut at = Some(i);
     while let Some(j) = at {
@@ -555,12 +559,13 @@ fn symbol_marks(
     out: &mut [Option<Parts>],
 ) {
     let mut writers = Vec::new();
+    let modes = crate::modes::active(plan);
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts.as_mut().filter(|p| p.tag == "img") else {
             continue;
         };
         parts.props.remove("data-symbol-color");
-        match symbol_color(plan, kernel, parents, i) {
+        match symbol_color(plan, kernel, parents, i, modes) {
             Some((up, true)) if up.is_empty() => {
                 parts
                     .props

@@ -369,16 +369,16 @@ pub fn map_name(id: StyleId, attribute: bool, container: bool, bases: bool) -> S
 /// takes (`style::theme::admits`; a name of another kind stands, for the
 /// browser to refuse, as the kernel leaves it), as its CSS, or its
 /// property's `var()` where the page declares one (`props`, name to
-/// property) and the row is no SVG attribute. `None` when the plan keeps
-/// no such token.
+/// property; `types`, the type tokens' [`type_properties`]) and the row is
+/// no SVG attribute. `None` when the plan keeps no such token.
 pub fn map(
     plan: &Plan,
     props: &[(String, String)],
+    types: &[(String, StyleId, String)],
     id: StyleId,
     attribute: bool,
     container: bool,
 ) -> Option<String> {
-    let types = type_properties(plan, crate::modes::every_token());
     let pairs: Vec<String> = plan
         .theme
         .iter()
