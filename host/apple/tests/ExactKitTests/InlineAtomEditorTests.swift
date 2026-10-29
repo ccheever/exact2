@@ -549,12 +549,12 @@ final class InlineAtomReaderTests: XCTestCase {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
         let runs = MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: faces))
         let atom = try XCTUnwrap(runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
-        XCTAssertEqual(atom.text, "\u{202F}A\u{00A0}quote\u{202F}")
+        XCTAssertEqual(atom.text, "\u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F}", "one box in a left-to-right line")
         XCTAssertNotNil(atom.background)
         XCTAssertNotEqual(atom.backgroundBox, 0)
         XCTAssertEqual(atom.backgroundRadii.count, 4)
         XCTAssertFalse(atom.decoration.contains("underline"))
-        XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}A\u{00A0}quote\u{202F} now")
+        XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F} now")
         // Without atoms the same source is its link text, as before.
         XCTAssertEqual(MarkupRuns.expand(source, base: base, color: nil).map(\.text).joined(), "Ask Quote now")
     }
@@ -576,33 +576,57 @@ final class InlineAtomReaderTests: XCTestCase {
         XCTAssertEqual(light.background, [4, 5, 6, 255], "an empty face colour keeps the kind's")
     }
 
-    /// D4: a pill's label follows its line in the reader, and one whose face
-    /// pins a direction is isolated in it, as the web's box takes its `dir`.
-    func testAReaderPillIsIsolatedInTheDirectionItsFacePins() throws {
+    /// D4: the reader isolates a pill's label in the direction its face
+    /// pins, else in its lines' (its node's `direction`), as the web's box
+    /// takes its `dir` or its line's.
+    func testAReaderPillIsIsolatedInItsFacesDirectionElseItsLines() throws {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
-        let label = { (direction: String) -> String? in
+        let label = { (direction: String, rtl: Bool) -> String? in
             let face = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"","backgroundColor":"","direction":"\##(direction)"}]"##
-            return MarkupRuns.expand(source, base: base, color: nil, atoms: MarkdownAtoms(kinds: kinds, faces: face))
+            return MarkupRuns.expand(source, base: base, color: nil, atoms: MarkdownAtoms(kinds: kinds, faces: face, rtl: rtl))
                 .first { $0.href.hasPrefix(MarkupRuns.atomScheme) }?.text
         }
-        XCTAssertEqual(label(""), "\u{202F}A\u{00A0}quote\u{202F}", "its line's direction")
-        XCTAssertEqual(label("ltr"), "\u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F}")
-        XCTAssertEqual(label("rtl"), "\u{202F}\u{2067}A\u{00A0}quote\u{2069}\u{202F}")
-        // Laid out in a right-to-left line: `notes…` in the line's direction
-        // draws its ellipsis at the line's start, on the left; pinned left to
-        // right, after its word, on the right.
-        let ellipsisAfterWord = { (direction: String) -> Bool in
-            let face = ##"[{"source":"[Quote](t3-citation:1)","label":"notes…","icon":"","title":"","color":"","backgroundColor":"","direction":"\##(direction)"}]"##
-            let text = MarkupRuns.expand(source, base: base, color: nil, atoms: MarkdownAtoms(kinds: kinds, faces: face))
-                .first { $0.href.hasPrefix(MarkupRuns.atomScheme) }?.text ?? ""
+        let (lri, rli) = ("\u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F}", "\u{202F}\u{2067}A\u{00A0}quote\u{2069}\u{202F}")
+        XCTAssertEqual(label("", false), lri, "a left-to-right line's")
+        XCTAssertEqual(label("", true), rli, "a right-to-left line's")
+        XCTAssertEqual(label("ltr", true), lri, "pinned")
+        XCTAssertEqual(label("rtl", false), rli, "pinned")
+    }
+
+    /// D4: laid out in a right-to-left line, a reader's pill is one box,
+    /// as the web's and the Apple editor's are: beside text of the other
+    /// direction, `שלום hello @x כאן` draws `כאן [abc] hello שלום`, pinned or
+    /// not; and a neutral at its label's start and end reads in the pill's
+    /// direction, `.abc!` in the line's and `!abc.` pinned left to right.
+    func testAReaderPillIsOneBoxInItsLine() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let mention = #"[{"name":"mention","prefix":"@"}]"#
+        // Each of `marks`' left edge, `@x` labelled `label` in a right-to-left node.
+        let lefts = { (label: String, direction: String, marks: [Character]) -> [CGFloat] in
+            let face = ##"[{"source":"@x","label":"\##(label)","icon":"","title":"","color":"","backgroundColor":"","direction":"\##(direction)"}]"##
+            let text = MarkupRuns.expand("שלום hello @x כאן", base: base, color: nil, atoms: MarkdownAtoms(kinds: mention, faces: face, rtl: true))
+                .map(\.text).joined()
             let paragraph = NSMutableParagraphStyle()
             paragraph.baseWritingDirection = .rightToLeft
             let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.paragraphStyle: paragraph]))
-            let utf16 = Array(text.utf16), at = { (c: Character) in CTLineGetOffsetForStringIndex(line, utf16.lastIndex(of: c.utf16.first!)!, nil) }
-            return at("…") > at("n")
+            var left: [Int: CGFloat] = [:]
+            for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                let n = CTRunGetGlyphCount(run)
+                var indices = [CFIndex](repeating: 0, count: n), positions = [CGPoint](repeating: .zero, count: n)
+                CTRunGetStringIndices(run, CFRange(location: 0, length: n), &indices)
+                CTRunGetPositions(run, CFRange(location: 0, length: n), &positions)
+                for (i, p) in zip(indices, positions) { left[i] = p.x }
+            }
+            let utf16 = Array(text.utf16)
+            return marks.map { left[utf16.firstIndex(of: $0.utf16.first!)!] ?? .nan }
         }
-        XCTAssertFalse(ellipsisAfterWord(""), "the line's direction")
-        XCTAssertTrue(ellipsisAfterWord("ltr"), "pinned left to right")
+        for direction in ["", "ltr"] {
+            let x = lefts("abc", direction, ["a", "h"])
+            XCTAssertLessThan(x[0], x[1], "\(direction.isEmpty ? "the line's" : direction): the pill left of `hello`")
+        }
+        let follows = lefts("!abc.", "", ["!", "a", "."]), pinned = lefts("!abc.", "ltr", ["!", "a", "."])
+        XCTAssertTrue(follows[2] < follows[1] && follows[1] < follows[0], "the line's: `.abc!`, \(follows)")
+        XCTAssertTrue(pinned[0] < pinned[1] && pinned[1] < pinned[2], "pinned: `!abc.`, \(pinned)")
     }
 
     /// A face's colour in a wide space keeps it on its run and box, as a

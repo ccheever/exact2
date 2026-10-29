@@ -216,7 +216,8 @@ for (const engine of engines) {
   }, 60000);
 
   // LLP 1045.000 D4: the reader's pill too follows its line's direction, its
-  // icon first, unless its face pins one.
+  // icon first, unless its face pins one; a collapsed `rangeFrame` at a
+  // pill's start is the edge its line's direction puts first, pinned or not (D7).
   engineTest[engine](`${engine}: in a right-to-left reader a pill's icon is on the right, unless its face pins left to right`, async () => {
     const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
       const path = new URL(request.url).pathname;
@@ -242,6 +243,15 @@ for (const engine of engines) {
       expect(await iconOnTheRight(follows)).toBe(true);
       expect(await pinned.evaluate(b => getComputedStyle(b).direction)).toBe('ltr');
       expect(await iconOnTheRight(pinned)).toBe(false);
+      // Each pill's start is its right edge and its end its left, as the line runs.
+      const edges = (box, s, e) => box.evaluate((b, [s, e]) => {
+        const text = document.getElementById('text'), r = b.getBoundingClientRect();
+        return [exact.atoms.rangeFrame(text, s, s).left, exact.atoms.rangeFrame(text, e, e).left, r.left, r.right].map(Math.round);
+      }, [s, e]);
+      for (const [box, s, e] of [[follows, 5, 20], [pinned, 23, 34]]) {
+        const [start, end, left, right] = await edges(box, s, e);
+        expect([start, end]).toEqual([right, left]);
+      }
     } finally { await context.close(); server.stop(true); }
   }, 60000);
 

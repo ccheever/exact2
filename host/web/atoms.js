@@ -116,7 +116,8 @@ export function rangeFrame(el, start, end) {
     const s = Number(box.dataset.atomStart), e = Number(box.dataset.atomEnd), r = box.getBoundingClientRect();
     if (start === end) {
       if (start !== s && start !== e) continue;
-      const rtl = getComputedStyle(box).direction === 'rtl', x = (start === s) !== rtl ? r.left : r.right;
+      // The line's direction, not the pill's own, which its face may pin.
+      const rtl = getComputedStyle(box.parentElement).direction === 'rtl', x = (start === s) !== rtl ? r.left : r.right;
       return new DOMRect(x, r.top, 0, r.height);
     }
     if (!(s < end && start < e)) continue;

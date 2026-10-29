@@ -157,7 +157,8 @@ extension NodeView {
             // Every piece is in the node's ink, or a share of it: one kind.
             var base = textRun("")
             base.fixedInk = style["text_color"]?.fixesInk == true
-            let atoms = MarkdownAtoms(kinds: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", styles: props["atomStyles"] ?? "", dark: night, contrast: contrast == true)
+            let atoms = MarkdownAtoms(kinds: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", styles: props["atomStyles"] ?? "", dark: night, contrast: contrast == true,
+                                      rtl: style["direction"]?.string == "rtl")
             // Resolve a link piece's ink by the link's tint (`linked`) where the ink names the tint, and
             // an atom's too where the node handles its press (`atompress`)
             let row = style["text_color"], atomsAct = handlers.contains("atompress")

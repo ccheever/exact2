@@ -487,7 +487,8 @@ public final class HeadlessSession {
             if node.props["markup"] == "markdown" {
                 let source = TextStyle.run(node.props["text"] ?? node.inline.map(\.text).joined(),
                                            style: node.style, defaultSize: rootFontSize)
-                markdown = core.text.presentation?.markdown(core.text, source: source, atoms: node.props["atoms"] ?? "", faces: node.props["atomFaces"] ?? "")
+                markdown = core.text.presentation?.markdown(core.text, source: source, atoms: node.props["atoms"] ?? "", faces: node.props["atomFaces"] ?? "",
+                                                            rtl: node.style["direction"]?.string == "rtl")
                 if markdown == nil { core.text.refusedMarkdown = id }
             }
             nodes[id]?.textLines = HeadlessLines(node: node, engine: core.text, language: language,
