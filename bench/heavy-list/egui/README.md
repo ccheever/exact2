@@ -50,7 +50,8 @@ The live label is static and `BENCH_LIVE=1` is refused.
   fallback faces. A missing primary file is logged and leaves egui's bundled
   Ubuntu Light/Hack defaults. Font bytes are not bundled. Egui's HarfRust
   shaping and glyph rasterization differ from Core Text; metrics, fallback,
-  emoji and script rendering need visual qualification in G4b.
+  emoji and script rendering need visual qualification in G4b. The top capture
+  has different line breaks and smaller emoji than the retained GPUI capture.
 - Inline code is SF Mono at SPEC's 15 points, rather than GPUI's Menlo at 16.
   Paragraphs remain one wrapping rich-text flow. Reaction digits use equal
   width cells in the same semibold font, since this text API exposes no
@@ -60,6 +61,9 @@ The live label is static and `BENCH_LIVE=1` is refused.
   equal layout work. Egui renders only rows intersecting the viewport; GPUI
   also premeasures an 800-point margin. Textures remain cached for the process
   lifetime. No native row accessibility labels are exposed by this painter.
+- The top capture's photos appear more saturated than the retained GPUI
+  capture despite using the same ImageIO decoder and data. Color presentation
+  is not qualified as equivalent; G4b must inspect this alongside text parity.
 - JSON parsing, font loading, workers and caches count toward the app. Native
   Exact's first rows are baked into its plan. The painted arms' drawable
   milestone differs from the native probe's settled layer-snapshot milestone.
