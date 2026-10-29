@@ -857,7 +857,8 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     expect(await look('painted')).toBe('0.6 rgb(255, 255, 255) rgb(0, 0, 0)');
     await evaluate(`{ const el = document.getElementById('painted'); el.style.opacity = '0.8'; el.style.transition = ''; }`);
-    await evaluate(`{ const el = document.getElementById('inked'); el.style.transition = 'background-color 1s linear'; el.style.backgroundColor = 'rgb(0, 255, 0)'; }`);
+    // (Paused at once, so the waits below can't outlast it on a loaded machine.)
+    await evaluate(`{ const el = document.getElementById('inked'); el.style.transition = 'background-color 1s linear'; el.style.backgroundColor = 'rgb(0, 255, 0)'; getComputedStyle(el).backgroundColor; el.getAnimations().forEach(a => a.pause()); }`);
     await mouse('mousePressed', inked);
     await evaluate(`{ const el = document.getElementById('inked'); el.style.setProperty('--exact-press-background-color', 'rgb(0, 0, 255)'); }`);
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
@@ -951,7 +952,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a press
         const same = after.length === before.length && after.every(a => before.includes(a)) && ends(after) === beforeEnds;
         // Never toward the initial values: every transition after the press still runs to the authored opacity and
         // to an opaque colour.
-        const toAuthored = after.every(a => a.transitionProperty === 'opacity' ? String(a.effect.getKeyframes().at(-1).opacity) === '0.6' : !/rgba\(0, 0, 0, 0\)|\/ 0\)/.test(String(a.effect.getKeyframes().at(-1).backgroundColor)));
+        const toAuthored = after.length > 0 && after.every(a => a.transitionProperty === 'opacity' ? String(a.effect.getKeyframes().at(-1).opacity) === '0.6' : !/rgba\(0, 0, 0, 0\)|\/ 0\)/.test(String(a.effect.getKeyframes().at(-1).backgroundColor)));
         el.getAnimations().forEach(a => a.finish());
         // A property left out while its transition ran is added when it ends (its finish, a microtask, then a frame).
         await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
@@ -965,10 +966,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a press
         await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
         return { same, toAuthored, count: before.length, painted, released: Number((globalThis.exact?.pressShown?.(el) ?? getComputedStyle(el)).opacity).toFixed(2), rules: document.adoptedStyleSheets.reduce((n, sheet) => n + sheet.cssRules.length, 0) };
       }, [from, to, paused]);
-      // The same animations, untouched, over an rgb() look beneath. Over oklch() and lab(), Chrome runs a colour
-      // transition in oklab and the glue can only name its end in that space, so Chrome may restart it toward an end
-      // that paints the same (a limit, said in the glue): still never toward the initial values.
-      expect([from, paused, from.startsWith('rgb') || engine !== 'chromium' ? seen.same : true, seen.toAuthored, seen.count]).toEqual([from, paused, true, true, 2]);
+      // The same animations, untouched, over every look beneath (the paint writes no background-color).
+      expect([from, paused, seen.same, seen.toAuthored, seen.count]).toEqual([from, paused, true, true, 2]);
       expect([from, ...seen.painted]).toEqual([from, '0.30', true]);
       expect([from, seen.released, seen.rules]).toEqual([from, '0.60', 0]);
     }
@@ -986,6 +985,98 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a press
       return seen;
     });
     expect(half).toMatch(/^rgba\(0, 0, 255, 0\.(49\d*|50\d*)\)$/); // (8-bit: 0.498 or 0.502)
+  } finally {
+    await page.close();
+  }
+}, 60_000);
+
+// Every engine: a node that declares transitions on the properties the paint writes (opacity, text colour; the
+// pattern `transition: all` gives) sees none started by the press, its turn or its release: the paint eases in and
+// out on its own progress, and the node's text colour is painted exactly from its rgb() look.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a press, held or released, starts none of the node's declared transitions`, async () => {
+  const browser = await suiteBrowser(engine);
+  const page = await browser.newPage();
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}/unsaid`);
+    await page.waitForFunction(() => window.ready);
+    const seen = await page.evaluate(async () => {
+      document.getElementById('exact-root').innerHTML = `<div id="d" data-exact-on="press" style="--exact-press-opacity:0.5;--exact-press-color:rgb(255, 0, 0);--exact-press-background-color:rgb(0, 0, 255);width:200px;height:60px;opacity:0.8;color:rgb(0, 0, 0);background-color:rgb(255, 255, 255);transition:all 1s linear">D</div>`;
+      const el = document.getElementById('d'), r = el.getBoundingClientRect();
+      const frame = () => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+      const pointer = type => el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + 20, clientY: r.y + 20 }));
+      const transitions = () => el.getAnimations().filter(a => a.transitionProperty).map(a => a.transitionProperty).sort().join();
+      await frame();
+      pointer('pointerdown');
+      getComputedStyle(el).opacity;
+      const down = transitions();
+      el.getAnimations().forEach(a => a.finish());
+      await frame();
+      const held = exact.pressShown(el), heldTransitions = transitions();
+      // A turn of the look beneath while held (a class change the glue re-reads).
+      el.className = 'turned';
+      getComputedStyle(el).opacity;
+      await frame();
+      const turned = transitions();
+      pointer('pointerup');
+      getComputedStyle(el).opacity;
+      const up = transitions();
+      el.getAnimations().forEach(a => a.finish());
+      await frame();
+      const s = getComputedStyle(el);
+      return { down, held: [held.opacity, held.color], heldTransitions, turned, up, released: [s.opacity, s.color, transitions()] };
+    });
+    expect([engine, seen.down, seen.heldTransitions, seen.turned, seen.up]).toEqual([engine, '', '', '', '']);
+    expect([engine, ...seen.held]).toEqual([engine, '0.4', 'rgb(255, 0, 0)']);
+    expect([engine, ...seen.released]).toEqual([engine, '0.8', 'rgb(0, 0, 0)', '']);
+  } finally {
+    await page.close();
+  }
+}, 60_000);
+
+// Every engine: the paint's layer shifts the node's own per-layer lists with its images (each image keeps its
+// position and size), sets its own where the node has none, leaves a position or size list alone under a
+// transition of it (the layer isn't painted), and a luminance mask of the node's doesn't turn the paint's mask
+// (Chromium without computedStyleMap: the mask path) into one that hides it; a delayed colour transition
+// (`0s 1s`) counts as declared, so a colour that can't be written exactly isn't painted.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the paint's layer keeps the node's own layer lists`, async () => {
+  const browser = await suiteBrowser(engine);
+  const page = await browser.newPage({ viewport: { width: 300, height: 200 } });
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}/unsaid`);
+    await page.waitForFunction(() => window.ready);
+    const seen = await page.evaluate(async (engine) => {
+      if (engine === 'chromium') Element.prototype.computedStyleMap = undefined;
+      document.body.style.background = 'rgb(255, 255, 255)';
+      const press = '--exact-press-background-color:rgb(0, 0, 255);--exact-press-opacity:0.5';
+      document.getElementById('exact-root').innerHTML = `
+        <div id="two" data-exact-on="press" style="${press};width:60px;height:20px;background-image:linear-gradient(red, red), linear-gradient(lime, lime);background-position:left, right;background-size:10px 10px;background-repeat:no-repeat">2</div>
+        <div id="sized" data-exact-on="press" style="${press};width:60px;height:20px;background-size:10px 10px">S</div>
+        <div id="moving" data-exact-on="press" style="${press};width:60px;height:20px;background-image:linear-gradient(red, red);background-position:left;transition:background-position 1s">M</div>
+        <div id="lum" data-exact-on="press" style="${press};position:fixed;left:100px;top:100px;width:60px;height:40px;background-color:rgb(255, 255, 255);mask-image:linear-gradient(white, white);mask-mode:luminance">L</div>
+        <div id="late" data-exact-on="press" style="--exact-press-color:rgb(255, 0, 0);width:60px;height:20px;color:oklch(0.5 0.1 200);transition:color 0s 1s">C</div>`;
+      const pointer = (el, type) => { const r = el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + 5, clientY: r.y + 5 })); };
+      const out = {};
+      for (const id of ['two', 'sized', 'moving', 'late']) {
+        const el = document.getElementById(id);
+        pointer(el, 'pointerdown'); el.getAnimations().forEach(a => a.finish());
+        const cs = getComputedStyle(el);
+        let depth = 0, layers = 1; for (const c of cs.backgroundImage) { if (c === '(') depth++; else if (c === ')') depth--; else if (c === ',' && !depth) layers++; }
+        out[id] = { images: cs.backgroundImage === 'none' ? 0 : layers, position: cs.backgroundPosition, size: cs.backgroundSize, color: cs.color };
+        pointer(el, 'pointerup'); el.getAnimations().forEach(a => a.finish());
+      }
+      const lum = document.getElementById('lum');
+      pointer(lum, 'pointerdown'); lum.getAnimations().forEach(a => a.finish());
+      out.lum = getComputedStyle(lum).maskMode;
+      return out;
+    }, engine);
+    const { width, data } = decodePng(await page.screenshot());
+    const at = (x, y) => [...data.slice((y * width + x) * 4, (y * width + x) * 4 + 3)];
+    expect([engine, seen.two.images, seen.two.position.split(', ').length, seen.two.position.endsWith('0% 50%, 100% 50%'), seen.two.size.endsWith('10px 10px, 10px 10px')]).toEqual([engine, 3, 3, true, true]);
+    expect([engine, seen.sized.images, seen.sized.size]).toEqual([engine, 1, 'auto']);
+    expect([engine, seen.moving.images]).toEqual([engine, 1]);
+    expect([engine, seen.late.color]).toEqual([engine, 'oklch(0.5 0.1 200)']);
+    // The luminance-masked node still shows (the pressed blue, faded, over the page's white), not hidden.
+    expect([engine, at(130, 120)[0] < 250, at(130, 120)[2] > 200]).toEqual([engine, true, true]);
   } finally {
     await page.close();
   }
