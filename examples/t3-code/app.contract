@@ -501,7 +501,7 @@ component T3Code
   mutation terminalTicketChanged as shape Change queue refreshes data // a terminal page's socket ticket (terminal-frames.ts)
   mutation fileCommentChanged as shape Change queue refreshes data // the Files preview's line comments (chatLocal)
   mutation lineDragChanged as shape Change queue refreshes data // a diff gutter drag's press, moves and release, each in turn
-  mutation frameReported as shape Change queue refreshes data // each Mermaid and math page's report, in turn (chatLocal)
+  mutation frameReported as shape Change queue refreshes data // each Mermaid and math page's report and each sound's start and stop, in turn (chatLocal)
   mutation terminalChanged as shape Change queue refreshes data then terminalCompleted // the drawer's ops, its pages' messages in turn
   action terminalCompleted
     match terminalChanged
@@ -1069,7 +1069,7 @@ component T3Code
       send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
     else if op == "pr-code-drag" or op == "pr-code-begin"
       send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab's gutter drags and "+", in turn
-    else if op == "diagram-frame" or op == "math-frame"
+    else if op == "diagram-frame" or op == "math-frame" or op == "audio-playing"
       send frameReported = command(`chatlocal:${op}`, id, value, 0)
     else if op == "link-open" and value.startsWith("#")
       send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // fragmentOpened
