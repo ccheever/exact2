@@ -367,6 +367,17 @@ file, restores it after restart and opens its preview again. Removing the test
 file restores an empty composer through another restart. The environment and
 conversation remain available. This checkpoint is outside the TestFlight build.
 
+Picker completion, queued claim retirement and abandoned provider cleanup now
+announce the existing Root notification topic independently of the original
+reply. Module liveness guards late announcements. Status reads and terminal
+replays stay silent. The native fixture passes 172 checks, including retirement
+ordering, main-thread delivery, shutdown silence and abandonment settlement.
+All 3,940 mobile tests, boot and the normal build pass. Independent source review
+finds no introduced blocker. The normal app cancels a picker, opens the next
+picker, imports and previews the real Markdown file, then removes it and returns
+to an empty usable composer. The native NewTask view remains inactive pending
+its producer integration. This checkpoint is outside the TestFlight build.
+
 Two normal NewTask Files drives return to Choose project after selection or
 Cancel. The typed draft survives in Unsent, but the selected file is not retained.
 An instrumented Cancel drive returns correctly with the authored route and native
@@ -512,7 +523,7 @@ one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
 unchanged from the original PR head. A bounded extraction attempt made no changes;
 the desktop checkpoint needs broader integration. Keep the failure visible.
 
-The full mobile suite passes 3,822 tests, strict app TypeScript passes, and the
+The full mobile suite passes 3,940 tests, strict app TypeScript passes, and the
 normal native simulator build succeeds. The actual Root event regression fails
 with `QueueFull` on the former eager-send action and passes with coalesced text.
 

@@ -16,6 +16,7 @@ import UIKit
     private final class Disk: @unchecked Sendable {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("file-holds-" + UUID().uuidString)
         var failBefore = false, failAfter = false, failPreferences = false, saves = 0
+        var pickerAnnouncements = 0, pickerAnnouncementsOnMain = true
         let entered = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0)
         var pause = false
         func replace(_ bytes: Data, _ url: URL) throws {
@@ -53,7 +54,9 @@ import UIKit
     }
     private func fixture(newTask: Bool = false) throws -> Fixture {
         let disk = Disk(), coordinator = T3MobileQueuedEdit(root: disk.root, replace: disk.replace)
-        let registry = T3MobileComposerFileHolds(coordinator: coordinator), id = UUID().uuidString.lowercased()
+        let registry = T3MobileComposerFileHolds(coordinator: coordinator, pickerChanged: {
+            disk.pickerAnnouncements += 1; disk.pickerAnnouncementsOnMain = disk.pickerAnnouncementsOnMain && Thread.isMainThread
+        }), id = UUID().uuidString.lowercased()
         let key = newTask ? "new-task:picker" : "env:thread", created = "2026-10-29T02:00:00.000Z"
         let file: [String: Any] = ["id": id, "contextId": "file-context", "draftKey": key, "environmentId": "env",
             "name": "note.txt", "mimeType": "text/plain", "sizeBytes": 5, "source": "attached", "status": "staged", "attachmentId": ""]
@@ -239,9 +242,13 @@ import UIKit
         refuses("\(newTask) failed durable preference replace cannot finish") { _ = try f.coordinator.performPicker(completion, claim: nil) }
         check(op.status == "staged", "\(newTask) failed save keeps exact issued operation")
         f.disk.failPreferences = false
-        check(try f.coordinator.performPicker(completion, claim: nil)["status"] as? String == "finished", "\(newTask) retired operation adopts exact saved publication")
+        var announcements = 0
+        check(try f.coordinator.performPicker(completion, claim: nil, changed: { announcements += 1 })["status"] as? String == "finished", "\(newTask) retired operation adopts exact saved publication")
+        check(announcements == 1, "\(newTask) finishing announces its actual issued-state transition")
         var newer = saved; newer["drafts"] = [key: "newer text"]; try save(f, newer)
-        check(try f.coordinator.performPicker(completion, claim: nil)["status"] as? String == "finished", "\(newTask) lost finish reply replays after newer edits")
+        check(try f.coordinator.performPicker(completion, claim: nil, changed: { announcements += 1 })["status"] as? String == "finished", "\(newTask) lost finish reply replays after newer edits")
+        _ = try f.coordinator.performPicker(follow("status"), claim: nil, changed: { announcements += 1 })
+        check(announcements == 1, "\(newTask) terminal replay and status do not cause a refresh loop")
         refuses("\(newTask) finished partition cannot change") { _ = try f.coordinator.performPicker(finish(after, partition: ([], accepted + discarded)), claim: nil) }
         refuses("\(newTask) finished adoption cannot cancel") { _ = try f.coordinator.performPicker(follow("cancel"), claim: nil) }
         let fresh = T3MobileQueuedEdit(root: f.disk.root); _ = try fresh.releaseAttachments()
@@ -250,6 +257,32 @@ import UIKit
         check(!FileManager.default.fileExists(atPath: f.disk.root.appendingPathComponent("composer-files").appendingPathComponent(discard["id"] as! String).path), "\(newTask) cold cleanup removes discarded file")
     }
     func run() async -> [String: Any] {
+        await attempt("picker retirement announcement") {
+            let f = try fixture(); defer { cleanup(f) }
+            f.port.destroy()
+            check(f.disk.pickerAnnouncements == 0, "Retirement cannot announce before its queued coordinator cleanup")
+            await idle(f)
+            check(f.disk.pickerAnnouncements == 1 && f.disk.pickerAnnouncementsOnMain, "Settled retirement announces once on main without an original reply")
+            f.port.destroy(); await idle(f)
+            check(f.disk.pickerAnnouncements == 1, "Duplicate retirement does not announce again")
+        }
+        await attempt("closed picker silence") {
+            let f = try fixture(); defer { cleanup(f) }
+            f.registry.destroy(); await idle(f)
+            check(f.disk.pickerAnnouncements == 0, "A closed controller suppresses its queued retirement announcement")
+        }
+        await attempt("picker abandonment completion") {
+            let f = try fixture(); defer { cleanup(f) }
+            let identity = f.port.composerIdentity!, operationId = UUID().uuidString.lowercased()
+            let request = try T3PickerRequest(["op": "composerPickerIntake", "action": "pick", "operationId": operationId,
+                "generation": 1, "identity": identity.json, "target": f.request["target"]!,
+                "document": ["incarnation": "thread-incarnation", "revision": 0], "source": "files", "remaining": 1, "fileLimit": 100])
+            let (operation, _, _) = try f.coordinator.beginPicker(request, claim: T3ComposerFileClaim(identity: identity))
+            await withCheckedContinuation { continuation in f.coordinator.abandonPicker(operation) { continuation.resume() } }
+            let status = try T3PickerRequest(["op": "composerPickerIntake", "action": "status", "operationId": operationId,
+                "generation": 1, "identity": identity.json])
+            check(try f.coordinator.performPicker(status, claim: nil)["status"] as? String == "cancelled", "Abandonment completion runs after cancellation has settled")
+        }
         await attempt("basic") {
             let f = try fixture(); defer { cleanup(f) }
             let first = await perform(f), again = await perform(f)

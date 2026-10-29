@@ -126,7 +126,8 @@ final class T3MobileModule: ExactModule {
     private let scheduledControls: T3MobileScheduledControls
     private let scheduledNavigation = T3MobileScheduledNavigation()
     private let voice: T3MobileVoice
-    private lazy var composerFileHolds = T3MobileComposerFileHolds(coordinator: queuedEdits)
+    private lazy var composerFileHolds = T3MobileComposerFileHolds(coordinator: queuedEdits,
+        pickerChanged: { [weak self] in self?.context.changed("t3.notify") })
     private let composerOperations: T3MobileComposerOperations
     private let composerPaste = T3MobileComposerPaste()
     let terminal: T3MobileTerminal

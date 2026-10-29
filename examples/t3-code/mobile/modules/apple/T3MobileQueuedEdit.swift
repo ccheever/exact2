@@ -1444,19 +1444,22 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     func completePicker(_ operation: T3PickerOperation, error: String) throws -> [String: Any] {
         try locked { var value = try store(); return try pickerIntakes.complete(operation, error: error, queue: &value, save: save) }
     }
-    func abandonPicker(_ operation: T3PickerOperation) {
+    func abandonPicker(_ operation: T3PickerOperation, completion: @escaping @Sendable () -> Void) {
         DispatchQueue.global(qos: .utility).async { [self] in
+            defer { completion() }
             let captured = operation.request
             let raw: [String: Any] = ["op": "composerPickerIntake", "action": "cancel", "operationId": captured.operationId, "generation": captured.generation, "identity": captured.identity.json]
             if let request = try? T3PickerRequest(raw) { _ = try? performPicker(request, claim: operation.claim) }
         }
     }
-    func performPicker(_ request: T3PickerRequest, claim: T3ComposerFileClaim?) throws -> [String: Any] {
+    func performPicker(_ request: T3PickerRequest, claim: T3ComposerFileClaim?, changed: () -> Void = {}) throws -> [String: Any] {
         try locked {
             guard let operation = try pickerIntakes.operation(request, claim: claim) else {
                 return ["operationId": request.operationId, "identity": request.identity.json,
                         "status": "absent", "files": [T3PickerObject](), "error": ""]
             }
+            let previousStatus = operation.status
+            defer { if operation.status != previousStatus { changed() } }
             if request.action == "hold" {
                 guard let claim, let object = request.object["request"] as? [String: Any], object["op"] as? String == "composerFileHold",
                       Set(object.keys) == Set(["op", "action", "generation", "identity", "requestId", "target", "file"]) else { throw T3PickerRequest.error("The issued file hold is invalid.") }

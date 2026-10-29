@@ -49,7 +49,7 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
         done?(["ok": true, "generation": generation, "value": value])
     }
     func destroy() {
-        if let issuedStage { issuedStage.coordinator.abandonPicker(issuedStage.operation) }
+        issuedStage?.abandon()
         serial += 1
         picker?.dismiss(animated: false)
         finish(error: "The attachment picker was closed.")
@@ -255,7 +255,7 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
         if results.isEmpty { finish() } else { load(0, []) }
     }
     private func discard(_ files: [[String: Any]], issued: T3PickerStage? = nil) {
-        if let issued { issued.coordinator.abandonPicker(issued.operation); return }
+        if let issued { issued.abandon(); return }
         for file in files {
             guard let id = file["id"] as? String, UUID(uuidString: id) != nil else { continue }
             try? FileManager.default.removeItem(at: (file["kind"] as? String == "image" ? drafts : staged).appendingPathComponent(id))

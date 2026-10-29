@@ -108,8 +108,12 @@ final class T3MobileComposerFileHolds {
     private var entries: [ObjectIdentifier: Entry] = [:]
     private let coordinator: T3MobileQueuedEdit
     private let queue = DispatchQueue(label: "t3.composer-file-holds", qos: .utility)
+    private let pickerChanged: () -> Void
     private var alive = true
-    init(coordinator: T3MobileQueuedEdit) { self.coordinator = coordinator }
+    init(coordinator: T3MobileQueuedEdit, pickerChanged: @escaping () -> Void = {}) {
+        self.coordinator = coordinator; self.pickerChanged = pickerChanged
+    }
+    private func announcePicker() { if alive { pickerChanged() } }
     func whenIdle(_ completion: @escaping () -> Void) {
         queue.async { DispatchQueue.main.async(execute: completion) }
     }
@@ -129,7 +133,10 @@ final class T3MobileComposerFileHolds {
     }
     private func retire(_ claim: T3ComposerFileClaim) {
         claim.end()
-        queue.async { [coordinator] in coordinator.endFileHoldOwner(claim) }
+        queue.async { [weak self, coordinator] in
+            coordinator.endFileHoldOwner(claim)
+            DispatchQueue.main.async { self?.announcePicker() }
+        }
     }
     func perform(_ object: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         retireMissingPorts()
@@ -173,6 +180,7 @@ final class T3MobileComposerFileHolds {
             if ["pick", "hold"].contains(request.action) {
                 guard matches.count == 1, let entry = matches.first, pickerEligible(entry) else { throw T3PickerRequest.error("The captured picker editor is unavailable.") }
             }
+            let announce: @Sendable () -> Void = { [weak self] in DispatchQueue.main.async { self?.announcePicker() } }
             queue.async { [coordinator] in
                 do {
                     if request.action == "pick" {
@@ -181,9 +189,10 @@ final class T3MobileComposerFileHolds {
                         DispatchQueue.main.async {
                             if !opened { reply(["ok": true, "generation": generation, "value": value]); return }
                             guard self.alive, claim.live, self.entries.values.contains(where: { $0.claim === claim && self.pickerEligible($0) }) else {
-                                coordinator.abandonPicker(operation); failed(T3PickerRequest.error("The picker editor is no longer active.")); return
+                                coordinator.abandonPicker(operation, completion: announce)
+                                failed(T3PickerRequest.error("The picker editor is no longer active.")); return
                             }
-                            attachments.pickIssued(request.object, stage: .init(coordinator: coordinator, operation: operation)) { raw in
+                            attachments.pickIssued(request.object, stage: .init(coordinator: coordinator, operation: operation, settled: announce)) { raw in
                                 let value = raw["value"] as? [String: Any]
                                 var problems = [value?["error"] as? String, (raw["error"] as? [String: Any])?["message"] as? String].compactMap { $0 }.filter { !$0.isEmpty }
                                 let skipped = (value?["files"] as? [[String: Any]] ?? []).filter { $0["id"] == nil }
@@ -192,13 +201,13 @@ final class T3MobileComposerFileHolds {
                                 self.queue.async {
                                     do {
                                         let value = try coordinator.completePicker(operation, error: message)
-                                        DispatchQueue.main.async { reply(["ok": true, "generation": generation, "value": value]) }
-                                    } catch { DispatchQueue.main.async { failed(error) } }
+                                        announce(); DispatchQueue.main.async { reply(["ok": true, "generation": generation, "value": value]) }
+                                    } catch { announce(); DispatchQueue.main.async { failed(error) } }
                                 }
                             }
                         }
                     } else {
-                        let value = try coordinator.performPicker(request, claim: claim)
+                        let value = try coordinator.performPicker(request, claim: claim, changed: announce)
                         DispatchQueue.main.async {
                             if request.action == "cancel" { attachments.cancelIssued(operationId: request.operationId, identity: request.identity) }
                             reply(["ok": true, "generation": generation, "value": value])

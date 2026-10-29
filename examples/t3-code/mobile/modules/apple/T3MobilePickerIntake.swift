@@ -104,6 +104,8 @@ final class T3PickerOperation: @unchecked Sendable {
 struct T3PickerStage: @unchecked Sendable {
     let coordinator: T3MobileQueuedEdit
     let operation: T3PickerOperation
+    let settled: @Sendable () -> Void
+    func abandon() { coordinator.abandonPicker(operation, completion: settled) }
     func write(_ bytes: Data, metadata: T3PickerObject) throws -> T3PickerObject { try coordinator.stagePicker(operation, bytes: bytes, metadata: metadata) }
 }
 
