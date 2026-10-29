@@ -166,7 +166,7 @@ fn a_refused_commit_puts_back_a_call_an_equal_one_replaced() {
     let mut module = Module::loaded(
         TAGGED_HBC.to_vec(),
         "test.outlive",
-        "net.fetch https://outlive.test\nsecret.keep outlive.token\n",
+        "net.fetch https://outlive.test\nnet.fetch local-network development\nsecret.keep outlive.token\n",
     )
     .unwrap();
     module.set_budget_ms(f64::INFINITY);
@@ -205,7 +205,7 @@ fn a_refused_commit_puts_back_a_call_an_equal_one_replaced() {
 fn a_refused_commit_puts_back_only_the_first_of_several_equal_calls() {
     use exact_plan::Value;
     use exact_runner::{Answer, DataSource, InFlight, Store, Target};
-    let grants = "net.fetch https://outlive.test\nsecret.keep outlive.token\n";
+    let grants = "net.fetch https://outlive.test\nnet.fetch local-network development\nsecret.keep outlive.token\n";
     let mut m = Module::loaded(TAGGED_HBC.to_vec(), "test.outlive", grants).unwrap();
     m.set_budget_ms(f64::INFINITY);
     m.bind(&contract::compile(TAGGED).expect("the fixture's Contract compiles"));
