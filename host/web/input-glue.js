@@ -179,10 +179,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
     if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
-    // when the browser clicks it. A press it declares shows meanwhile, as under
-    // a pointer: a native button's highlight, a `-exact-press-scale`, a pressed paint. (The
-    // unsaid dim needs nothing here: it is the browser's own `:active`.)
-    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || declaresPress(el))) return keyed(el);
+    // when the browser clicks it. Its press shows meanwhile, as under a pointer:
+    // the unsaid dim, a native button's highlight, a `-exact-press-scale`, a pressed paint.
+    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el)) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
     if (el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a disabled box takes no press by key either (LLP 1121 D8)
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
@@ -190,36 +189,24 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     el.click();
     if (event.key === " " && !surface(el)) keyed(el);
   });
-  // @ref LLP 1115.000 D6 — the unsaid dim (index.html) is CSS's while the
-  // press holds; on release it holds at least 0.1 s from the press and fades
-  // back over 0.2 s, ease-out, as the iOS host's does (PressFeedback.swift
-  // `dimHold`, `dimFade`), so a quick tap still flashes. The innermost
-  // pressable showing the dim's 65% is the one dimmed: a finger's
-  // `data-pressed` still holds at the release, read in capture; a mouse's
-  // `:active` has gone by then (Chrome sets it before `pointerdown`'s
-  // listeners and clears it before `pointerup`'s), so it is read at the press.
-  // The agent's clock skips it.
+  // Hold the default dim for at least 0.1 s after it appears, then fade over 0.2 s (LLP 1115.000 D6;
+  // PressFeedback.swift `dimHold`, `dimFade`). Only animate a node that showed the dim; immediate cancellation
+  // and the agent's clock skip the fade.
   const DIM = { opacity: "0.65", hold: 100, fade: 200 };
-  const dimStarts = new WeakMap(), dimFades = new WeakMap(), dimmedAtPress = new WeakSet();
-  const pressable = at => at?.closest?.('button, a[data-view][href], [data-exact-on~="press"]');
-  const fadeDim = el => {
-    if (agentMode || !el || !root.contains(el)) return;
-    if (getComputedStyle(el).opacity !== DIM.opacity && !dimmedAtPress.has(el)) return;
-    dimmedAtPress.delete(el);
-    const hold = Math.max(0, (dimStarts.get(el) ?? 0) + DIM.hold - performance.now());
-    dimFades.get(el)?.cancel();
-    // No closing keyframe: the fade ends at whatever lies beneath the dim.
-    dimFades.set(el, el.animate([{ opacity: DIM.opacity }, { opacity: DIM.opacity, offset: hold / (hold + DIM.fade), easing: "ease-out" }], { duration: hold + DIM.fade }));
+  const dimStarts = new WeakMap(), dimFades = new WeakMap();
+  const markPressed = (el, down, now = false) => {
+    if (down !== el.hasAttribute("data-pressed")) {
+      if (down) {
+        dimFades.get(el)?.cancel();
+        dimStarts.set(el, performance.now());
+      } else if (!now && !agentMode && el.isConnected && getComputedStyle(el).opacity === DIM.opacity) {
+        const hold = Math.max(0, (dimStarts.get(el) ?? 0) + DIM.hold - performance.now());
+        // No closing keyframe: the fade ends at whatever lies beneath the dim.
+        dimFades.set(el, el.animate([{ opacity: DIM.opacity }, { opacity: DIM.opacity, offset: hold / (hold + DIM.fade), easing: "ease-out" }], { duration: hold + DIM.fade }));
+      }
+    }
+    el.toggleAttribute("data-pressed", down);
   };
-  root.addEventListener("pointerdown", e => {
-    const el = pressable(e.target);
-    if (!el) return;
-    dimFades.get(el)?.cancel();
-    dimStarts.set(el, performance.now());
-    if (e.pointerType === "mouse" && getComputedStyle(el).opacity === DIM.opacity) dimmedAtPress.add(el);
-    else dimmedAtPress.delete(el);
-  }, true);
-  for (const type of ["pointerup", "pointercancel"]) addEventListener(type, e => fadeDim(pressable(e.target)), true);
   // @ref LLP 1115.000 D6 — a pressable covering the window is a surface (a
   // scrim that closes a sheet, a viewer that toggles its bars) and shows no
   // press, as on iOS (PressFeedback.swift `platformPressDims`). CSS cannot
@@ -231,22 +218,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const r = el.getBoundingClientRect(), page = document.documentElement;
     return el.toggleAttribute("data-exact-surface", r.width >= page.clientWidth && r.height >= page.clientHeight * .9);
   };
-  // Space held on a pressable this piece presses by key shows its press (its
-  // `-exact-press-scale` and pressed paint, else the shell's dim) until the key comes up or the
-  // focus leaves, as the browser holds a `<button>` `:active` under Space; so
-  // does a `<button>` whose press is declared.
-  // The press a key holds, which leaving the window or the page ends too.
+  // Hold keyboard feedback until Space lifts, focus leaves, or the window or page loses the press
   let keyHold = null;
   const keyed = el => {
     const up = (e, now = false) => {
       if (e?.type === "keyup" && e.key !== " ") return;
-      if (!now) fadeDim(el);
       showPress(el, false, now);
       removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
       if (keyHold === up) keyHold = null;
     };
     keyHold?.(null, true);
-    dimStarts.set(el, performance.now());
     showPress(el, true);
     up.el = el;
     keyHold = up;
@@ -273,7 +254,6 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
   // LLP 1121 D8), eased from what shows at the press, a hover look's included.
   const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
-  const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
   const paints = new Map();
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
   // Start the ease toward `state.to` from where it shows, over `duration`,
@@ -339,7 +319,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const native = el.matches("button[data-button-style]");
     const eased = native && !down && !now && !agentMode && el.hasAttribute("data-pressed");
     const running = eased ? new Set(el.getAnimations({ subtree: true })) : null;
-    el.toggleAttribute("data-pressed", down);
+    markPressed(el, down, now);
     if (native && down) {
       // Flush the pressed style so a tap released before the next frame still shows its highlight (LLP 1061 D2)
       el.removeAttribute("data-exact-released");
@@ -575,39 +555,117 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return true;
   };
   addEventListener("keydown", () => { if (focusLook(deepFocus()) && !keyTurned()) requestAnimationFrame(keyTurned); }, true);
-  const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
+  // Delay touch and pen feedback only where a scroll can move the target. A quick tap flashes on release;
+  // a scroll cancels it before it shows (UIKit's `delaysContentTouches`, LLP 1061 D2).
+  const TOUCH_DELAY = 150;
+  const scrolled = new WeakMap();
+  const touchScroll = el => {
+    const since = performance.now() - TOUCH_DELAY;
+    let delay = false, moving = false;
+    for (let node = el; node; node = node.parentNode ?? node.host) {
+      if (!(node instanceof Element)) {
+        continue;
+      }
+      const style = getComputedStyle(node);
+      delay ||= /auto|scroll|overlay/.test(style.overflowY) && node.scrollHeight > node.clientHeight
+        || /auto|scroll|overlay/.test(style.overflowX) && node.scrollWidth > node.clientWidth;
+      moving ||= scrolled.get(node) > since;
+      // Stop at a bar that stays in place while an outer scroller moves
+      if (style.position === 'fixed' || style.position === 'sticky') {
+        return { delay, moving };
+      }
+    }
+    const page = document.scrollingElement;
+    delay ||= page.scrollHeight > page.clientHeight || page.scrollWidth > page.clientWidth;
+    moving ||= scrolled.get(document) > since;
+    return { delay, moving };
+  };
+  document.addEventListener("scroll", e => {
+    scrolled.set(e.target, performance.now());
+    if (press?.touch && touchScroll(press.el).moving) {
+      release();
+    }
+  }, { capture: true, passive: true });
+  const inside = (p, e) => { const [l, t, r, b] = p.box; return e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b; };
+  // Only mark a mouse-held link without a `press` handler: it dims unless it declares feedback, in which case
+  // it shows nothing (LLP 1121's `lower-state-dead` lint). Buttons and touch presses show authored feedback.
+  const showHeld = (p, down, now = false) => p.dimOnly ? markPressed(p.el, down, now) : showPress(p.el, down, now);
+  // Play the haptic when feedback appears, where `navigator.vibrate` is available (LLP 1077 D14)
+  const begin = p => {
+    // Discard delayed feedback if the target became unavailable before its timer fired
+    if (!p.el.isConnected || p.el.closest(DISABLED) || inertAncestor(p.el)) {
+      if (press === p) {
+        press = null;
+      }
+      return false;
+    }
+    showHeld(p, true);
+    if (p.haptic) {
+      navigator.vibrate?.(p.haptic);
+    }
+    return true;
+  };
+  // Keep a quick tap's feedback through its ease-in without releasing a later press on the same node
+  const lifts = new Map();
+  const unlift = (el, now = false) => {
+    const p = lifts.get(el);
+    lifts.delete(el);
+    clearTimeout(p.lift);
+    if (press?.el !== el || press.delay) showHeld(p, false, now);
+  };
+  // `lifted`: the pointer came up inside the box, so a tap still waiting out the delay shows its press now.
+  const release = (now = false, lifted = false) => {
+    const p = press;
+    press = null;
+    if (!p) return;
+    if (!p.delay) return showHeld(p, false, now);
+    clearTimeout(p.delay);
+    if (!lifted) return;
+    if (!begin(p)) {
+      if (lifts.has(p.el)) {
+        unlift(p.el);
+      }
+      return;
+    }
+    clearTimeout(lifts.get(p.el)?.lift);
+    p.lift = setTimeout(() => unlift(p.el), EASE.duration);
+    lifts.set(p.el, p);
+  };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
     surface(e.target);
-    // A finger holds the unsaid dim too (index.html): a touch's `:active` is the engine's choice, which Safari makes
-    // only for an element with a touch listener ("Safari Web Content Guide", Handling Events) and Chrome only after a
-    // tap gesture a synthesized touch never makes.
-    const touch = e.pointerType === "touch";
-    const el = e.target.closest?.(touch ? "[data-exact-on~=press],button,a[data-view][href]" : "[data-exact-on~=press],button[data-button-style]");
-    if (!el || !root.contains(el) || el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a box says `disabled` (LLP 1121 D8)
-    // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
-    // `navigator.vibrate` where the browser has it (not desktop, not iOS
-    // Safari), with `haptic()`'s two lengths (workout F4).
+    // The innermost pressable takes the press under every pointer; the shell's dim reads this mark, not `:active`
+    // (index.html). A field, or a link that is no view's, in a pressable takes it from it.
+    const el = e.target.closest?.("[data-exact-on~=press],button,a[href],input,select,textarea");
+    if (!el?.matches("[data-exact-on~=press],button,a[data-view][href]") || !root.contains(el) || el.closest(DISABLED)) return; // a box says `disabled` (LLP 1121 D8)
+    const touch = e.pointerType === "touch" || e.pointerType === "pen";
+    const scroll = touch && !agentMode ? touchScroll(el) : {};
+    if (scroll.moving) return;
     const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
-    if (haptic && haptic !== "none") navigator.vibrate?.(haptic === "selection" ? 5 : 12);
-    if (!(declaresPress(el) || el.matches("button[data-button-style]") || touch)) return;
     const r = unpressedBox(el);
-    press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
-    showPress(el, true);
+    const p = press = {
+      el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom], touch,
+      haptic: haptic && haptic !== "none" ? (haptic === "selection" ? 5 : 12) : 0,
+      dimOnly: !touch && el.matches('a:not([data-exact-on~=press])'),
+    };
+    if (scroll.delay) p.delay = setTimeout(() => { if (press !== p) return; p.delay = 0; begin(p); }, TOUCH_DELAY);
+    else begin(p);
   }, true);
   document.addEventListener("pointermove", e => {
     if (e.pointerId !== press?.id) return;
     // The button came up where this document did not hear it (outside the window).
     if (e.buttons === 0) return release();
-    const [l, t, r, b] = press.box;
-    showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
+    // Inside the delay the browser decides: a scroll cancels the touch, a tap lifts it.
+    if (press.delay) return;
+    showHeld(press, inside(press, e));
   }, true);
-  for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
+  document.addEventListener("pointerup", e => { if (e.pointerId === press?.id) release(false, inside(press, e)); }, true);
+  document.addEventListener("pointercancel", e => { if (e.pointerId === press?.id) release(); }, true);
   // Leaving the page, the window or the tab may take the release with it, as the pointer dispatch below assumes: the
   // press, a key's too, ends at once. A gesture that claims the contact (motion-glue's swipe) ends the press as it
   // claims it, as a pan cancels a touch.
-  const leave = () => { release(true); keyHold?.(null, true); };
+  const leave = () => { release(true); for (const el of lifts.keys()) unlift(el, true); keyHold?.(null, true); };
   addEventListener("blur", e => { if (e.target === window) leave(); });
   addEventListener("pagehide", leave);
   document.addEventListener("visibilitychange", () => { if (document.hidden) leave(); });

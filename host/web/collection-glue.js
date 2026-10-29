@@ -72,7 +72,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   // Nor while a smooth correction animates (LLP 1070.000 §11).
   const velocity = s => !authored(s) && s.animating == null && s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
   function sample(s) {
-    const A = AXES[s.axis], time = now(), at = s.port[A.offset], t = s.travel;
+    const A = AXES[s.axis], time = now(), at = s.offset, t = s.travel;
     if (s.clampAt === at) { s.travel = { at, time, velocity: 0 }; return; }
     // A step longer than the port is a jump, not travel: nothing to lead.
     if (!t || Math.abs(at - t.at) > s.port[A.client]) { s.travel = { at, time, velocity: 0 }; return; }
@@ -121,6 +121,9 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     }
     return doc.scrollingElement;
   };
+  // Keep Safari's vertical rubber-band travel out of collection corrections; the browser owns that motion
+  const scrollOffset = (port, axis, at = port[AXES[axis].offset]) => axis === 'y'
+    ? Math.max(0, Math.min(at, Math.max(0, port.scrollHeight - port.clientHeight))) : at;
   // The port's start edge (viewport px) and its size on each axis.
   const viewport = (port, A) => port === doc.scrollingElement
     ? { start: 0, main: doc.documentElement[A.client], cross: doc.documentElement[A.crossClient] }
@@ -131,9 +134,10 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   function geometry(s) {
     if (!s.el.isConnected || !s.el.getClientRects().length) return null;
     const A = AXES[s.axis], css = getComputedStyle(s.el), port = viewport(s.port, A), leading = number(css[A.padStart]);
+    const at = s.port[A.offset], bounce = at - scrollOffset(s.port, s.axis, at);
     const origin = s.el.getBoundingClientRect()[A.start] + s.el[A.clientStart] + leading
-      - (s.el === s.port ? s.port[A.offset] : 0);
-    return { raw: port.start - origin, portMain: port.main, portCross: port.cross,
+      - (s.el === s.port ? at : 0);
+    return { raw: port.start - origin - bounce, portMain: port.main, portCross: port.cross,
       cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]), padding: [leading, number(css[A.padEnd])] };
   }
   const dimensionsOf = g => `${g.portCross},${g.portMain},${g.cross}`;
@@ -202,7 +206,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     place(s, s.port[AXES[s.axis].offset], false);
   }
   function scrollChanged(s) {
-    const A = AXES[s.axis], at = s.port[A.offset];
+    const A = AXES[s.axis], at = scrollOffset(s.port, s.axis);
     if (at === s.offset) return false;
     if (s.animating != null) {
       s.offset = at; s.animationMoved = true;
@@ -437,7 +441,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         if (s && BigInt(snapshot.revision) < BigInt(s.snapshot.revision)) continue;
         if (!s) {
           s = { el, port, axis, snapshot, rows: [], valid: false, observed: new Map(), budget: 2, travel: null, perRow: null, lastRows: 1, jump: null,
-            sequence: BigInt(snapshot.scrollSequence), offset: port[AXES[axis].offset],
+            sequence: BigInt(snapshot.scrollSequence), offset: scrollOffset(port, axis),
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
           // A smooth correction's ticks are never sampled as travel.
           s.scrolled = () => { const animated = s.animating != null, changed = scrollChanged(s); if (!animated) sample(s); if (changed) enqueue(s, true); };
