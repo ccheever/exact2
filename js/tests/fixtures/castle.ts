@@ -164,11 +164,16 @@ async function holding(id: string, method: string): Promise<Session> {
     await fetch(`https://api.castle.xyz/held/${id}`, { method, body: method === "GET" ? undefined : id, signal: controller.signal });
     return { ok: true, username: id, error: "fetched" };
   } catch (e) {
+    // It rejects with its signal's reason, as Fetch does: that very value, or
+    // an AbortError for a bare abort().
+    if (e !== controller.signal.reason) return { ok: false, username: id, error: `not its reason: ${(e as Error).name}` };
+    if (e instanceof DOMException) return { ok: false, username: id, error: `aborted: ${e.name}` };
     return { ok: false, username: id, error: `aborted: ${(e as Error).message}` };
   }
 }
-function abortHeld(id: string): Session {
-  held.get(id)?.abort(new Error("by the app"));
+function abortHeld(id: string, bare?: boolean): Session {
+  if (bare) held.get(id)?.abort();
+  else held.get(id)?.abort(new Error("by the app"));
   return { ok: true, username: id, error: "aborting" };
 }
 // Aborted, it falls back to another fetch of its own: the abort, answered
@@ -211,6 +216,7 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "reused": return reused();
     case "holding": return holding(text(args, 0), text(args, 1));
     case "abortHeld": return abortHeld(text(args, 0));
+    case "abortBare": return abortHeld(text(args, 0), true);
     case "withdrawn": return withdrawn();
     case "fallingBack": return fallingBack(text(args, 0));
     case "saveQuietly": return saveQuietly(text(args, 0));
