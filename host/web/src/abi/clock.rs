@@ -6,6 +6,55 @@ use super::Bridge;
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// Move the clock: `mode` 0 fires every timer due (the wall clock), 1
+    /// stops after a timer that sends (the agent's jump), 2 lands only the
+    /// `then`s already armed, the clock unmoved (an agent's input's end).
+    pub fn advance(&mut self, now_ms: f64, mode: u32) -> u32 {
+        if mode >= 4 {
+            return self.timer_waits(now_ms, mode);
+        }
+        let out = match self.host.as_mut() {
+            // The `then`s an agent's input settled (Runner::land_then).
+            Some(h) if mode == 2 => {
+                let a = h.runner_mut().land_then();
+                h.advanced(a)
+            }
+            Some(h) if mode == 1 => h.advance_until_request(now_ms),
+            Some(h) => h.advance(now_ms),
+            None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
+        };
+        self.emit(out)
+    }
+
+    pub(super) fn timer_waits(&mut self, cutoff: f64, mode: u32) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map(|h| {
+                if mode == 4 {
+                    h.runner_mut().hold_waits(exact_runner::WaitKinds::ALL);
+                    return h.advance(cutoff);
+                }
+                if mode == 8 {
+                    let a = h.runner_mut().complete_frame_tasks(cutoff);
+                    return h.advanced(a);
+                }
+                let a = h.runner_mut().release_waits(
+                    exact_runner::WaitKinds::from_bits((mode >> 8) as u8),
+                    cutoff,
+                );
+                let continuing = a.continuing;
+                let mut batch = h.advanced(a.advanced);
+                if continuing {
+                    batch.pop();
+                    batch.push_str(",\"waitContinue\":true}");
+                }
+                batch
+            })
+            .unwrap_or_else(|| "{\"ops\":[]}".into());
+        self.emit(out)
+    }
+
     /// Requests the agent waits on, including turns parked inside a source.
     /// Declared holds and streams after their first message keep the runner's exemptions.
     pub fn requests_pending(&self) -> u32 {
@@ -53,6 +102,7 @@ impl<D: DataSource> Bridge<D> {
             .live_clock
             .map(|now| Box::new(now) as Box<dyn FnMut() -> f64>);
         if let Some(h) = self.host.as_mut() {
+            h.runner_mut().hold_waits(exact_runner::WaitKinds::ALL);
             h.runner_mut().set_live_clock(sample);
         }
     }

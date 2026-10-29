@@ -655,7 +655,7 @@ impl<D: DataSource> Host<D> {
     /// Next Contract timer deadline in the runner's clock domain.
     /// @ref LLP 1043.000 §3 D8 — the display loop sleeps until useful work.
     pub fn timer_due_ms(&self) -> Option<f64> {
-        self.runner.timer_due_ms()
+        self.runner.timer_wake_ms()
     }
 
     /// Whether a jump to `to` has work to land first: a timer due by then, or
@@ -992,7 +992,7 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
-    fn advanced(&mut self, a: exact_runner::Advanced) -> (Option<String>, bool) {
+    pub(crate) fn advanced(&mut self, a: exact_runner::Advanced) -> (Option<String>, bool) {
         self.now_ms = a.now_ms.max(self.now_ms);
         let error = a.error.map(|e| format!("{e:?}"));
         self.commit_effects(&a.receipts, error)

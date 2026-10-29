@@ -14,6 +14,10 @@ use std::fmt::Write as _;
 pub(super) fn timers(em: &mut Em<'_>, body: &mut String) -> Result<(), String> {
     let plan = em.plan;
     let top = Scope::default();
+    if plan.timers.iter().any(|t| t.wait != 0) {
+        let install = em.uses.rt("timerWaits");
+        let _ = write!(body, "{install}();");
+    }
     for t in plan.timers.iter() {
         let name = serde_json::to_string(plan.str(t.name)).unwrap();
         if t.gated || t.keyed {
@@ -27,8 +31,14 @@ pub(super) fn timers(em: &mut Em<'_>, body: &mut String) -> Result<(), String> {
             let gated = em.uses.rt("gated");
             let _ = write!(
                 body,
-                "{gated}({},a_{},{},{},()=>{gate},{key},{name});",
-                t.interval_ms, t.action.0, t.once as u8, t.frame as u8
+                "{gated}({},a_{},{},{},()=>{gate},{key},{name},{},{},{});",
+                t.interval_ms,
+                t.action.0,
+                t.once as u8,
+                t.frame as u8,
+                t.wait,
+                t.max_ms,
+                t.tolerance_ms
             );
             continue;
         }
@@ -41,8 +51,8 @@ pub(super) fn timers(em: &mut Em<'_>, body: &mut String) -> Result<(), String> {
         let every = em.uses.rt("every");
         let _ = write!(
             body,
-            "{every}({},a_{},{},{name});",
-            t.interval_ms, t.action.0, t.once as u8
+            "{every}({},a_{},{},{name},{},{},{});",
+            t.interval_ms, t.action.0, t.once as u8, t.wait, t.max_ms, t.tolerance_ms
         );
     }
     Ok(())

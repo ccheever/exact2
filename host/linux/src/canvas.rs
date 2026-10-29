@@ -179,6 +179,9 @@ pub mod presence;
 #[path = "canvas/time.rs"]
 pub mod time;
 #[cfg(target_os = "android")]
+#[path = "canvas/timers.rs"]
+mod timers;
+#[cfg(target_os = "android")]
 pub use device::{configure, window, Told};
 #[cfg(target_os = "android")]
 #[path = "canvas/jni.rs"]
@@ -1352,7 +1355,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.animating()
     }
-    /// Whether another frame is wanted at the next vsync.
+    /// Whether another display frame is wanted.
     pub fn animating(&self) -> bool {
         // A moved paint owes a paint: the frame after scrolling stops.
         self.p.dirty()

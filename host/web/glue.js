@@ -106,12 +106,12 @@ async function loadRust() {
   await rustLoading;
 }
 // @ref LLP 1043.000 §3 D7/D8 — optional executor, absent from ordinary boots.
-let textflow = null, flowLoading = null, flowContexts = [], flowDue = null, flowLanding = false, flowFrames = false, present = timestamp => send(wasm.exact_frame(timestamp - t0)); // an animation frame (LLP 1073 D5)
+let textflow = null, flowLoading = null, flowContexts = [], flowDue = null, flowLanding = false, flowFrames = false, flowWaits = [], flowTolerance = 0, present = timestamp => send(flowWaits.length ? wasm.exact_advance(timestamp - t0, 8) : wasm.exact_frame(timestamp - t0)); // an animation frame (LLP 1073 D5)
 function flowBatch(batch) {
   const op = batch.ops?.find(op => op.op === "textflow");
   if (op) flowContexts = op.contexts;
-  flowDue = batch.timer_due_ms ?? null; flowLanding = !!batch.landing; flowFrames = !!batch.frames; // `landing`: a data module's timer the last step released is still out
-  ticker?.update(flowDue, flowFrames);
+  flowDue = batch.timer_due_ms ?? null; flowLanding = !!batch.landing; flowFrames = !!batch.frames; flowWaits = batch.waits ?? []; flowTolerance = batch.timer_tolerance_ms ?? 0;
+  ticker?.update(flowDue, flowFrames, flowWaits, flowTolerance);
   if (textflow) { textflow.afterBatch(batch); return; }
   if (!flowContexts.length || flowLoading) return;
   ticker?.dispose(); ticker = null;
@@ -119,10 +119,10 @@ function flowBatch(batch) {
   flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(async create => {
     if (generation !== incarnation) return;
     const controller = await create({ views, agentMode, log, now,
-      advance: () => { followOffset(now()); send(wasm.exact_advance(now(), 0)); }, present });
+      advance: () => { followOffset(now()); send(wasm.exact_advance(now(), 0)); }, present, admitTimers: (kinds, cutoff) => { const batch = JSON.parse(readOut(wasm.exact_advance(cutoff, 16 | kinds << 8))); applyBatch(batch); return batch; } });
     if (generation !== incarnation) { controller.dispose(); return; }
     textflow = controller;
-    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue, frames: flowFrames });
+    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue, frames: flowFrames, waits: flowWaits, timer_tolerance_ms: flowTolerance });
   });
   flowLoading.catch(error => { if (generation === incarnation) log(`textflow module: ${error}`); });
 }
@@ -1256,7 +1256,7 @@ let ticker = null, timerFactory = null, toldOffset = null;
 const followOffset = at => { const [epoch, offset] = reportTime(at); if (wasm.exact_set_time && offset !== toldOffset) { toldOffset = offset; applyBatch(JSON.parse(readOut(wasm.exact_set_time(epoch, offset)))); } };
 function startClock() {
   if (timerFactory && !agentMode && !textflow && !flowLoading) {
-    ticker ??= timerFactory({ now, advance: time => { followOffset(time); send(wasm.exact_advance(time, 0)); }, present }); ticker.update(flowDue, flowFrames);
+    ticker ??= timerFactory({ now, advance: time => { followOffset(time); send(wasm.exact_advance(time, 0)); }, present, release: (kinds, cutoff) => { const batch = JSON.parse(readOut(wasm.exact_advance(cutoff, 16 | kinds << 8))); applyBatch(batch); return batch; } }); ticker.update(flowDue, flowFrames, flowWaits, flowTolerance);
   }
 }
 function activateData() {

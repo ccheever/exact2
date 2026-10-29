@@ -77,18 +77,10 @@ pub struct Bridge<D: DataSource> {
     cold_share: Option<(exact_runner::share_in::Claimed, bool)>,
     /// The host's live clock while it owns time, kept for every boot (`set_live_clock`)
     live_clock: Option<LiveClockFn>,
+    wait_kinds: u8,
+    native_timers: bool,
     input: Vec<u8>,
     output: Vec<u8>,
-}
-
-struct PreparedHost<D: DataSource> {
-    host: Host<D>,
-    batch: String,
-    bindings: Option<ibex2::host::Bindings>,
-    hooks: Hooks,
-    module: bool,
-    let_go: bool,
-    carried_from: Option<exact_runner::Carried>,
 }
 
 fn not_booted() -> String {
@@ -133,6 +125,8 @@ impl<D: DataSource> Bridge<D> {
             launch_facts: exact_runner::time::Launch::NONE,
             cold_share: None,
             live_clock: None,
+            wait_kinds: 0,
+            native_timers: false,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -529,6 +523,8 @@ impl<D: DataSource> Bridge<D> {
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
+        let native_timers = self.native_timers;
+        let wall = self.live_clock;
         let ctx = hooks.ctx;
         let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
@@ -550,6 +546,10 @@ impl<D: DataSource> Bridge<D> {
                 self.links.clone(),
                 fonts.map(|callback| (callback, fonts_ctx)),
                 move |runner| {
+                    if native_timers {
+                        runner.use_native_timers(true);
+                        runner.set_live_clock(wall.map(preferences::sampler));
+                    }
                     if let Some(callback) = fonts {
                         let stacks = runner.runtime_font_stacks();
                         install_fonts(runner.plan(), &stacks, callback, fonts_ctx);
@@ -858,6 +858,8 @@ impl<D: DataSource> Bridge<D> {
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
+        let native_timers = self.native_timers;
+        let wall = self.live_clock;
         let ctx = hooks.ctx;
         let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
@@ -879,6 +881,10 @@ impl<D: DataSource> Bridge<D> {
                 self.links.clone(),
                 fonts.map(|callback| (callback, fonts_ctx)),
                 move |runner| {
+                    if native_timers {
+                        runner.use_native_timers(true);
+                        runner.set_live_clock(wall.map(preferences::sampler));
+                    }
                     if let Some(callback) = fonts {
                         let stacks = runner.runtime_font_stacks();
                         install_fonts(runner.plan(), &stacks, callback, fonts_ctx);
@@ -1228,12 +1234,6 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Whether the display drives frame tasks (LLP 1073 D4).
-    pub fn present_frames(&mut self, on: bool) {
-        if let Some(h) = self.host.as_mut() {
-            h.present_frames(on);
-        }
-    }
-
     /// A presented display frame (LLP 1073 D5).
     pub fn frame(&mut self, now_ms: f64) -> u32 {
         let out = self
@@ -1465,6 +1465,7 @@ fn escape(s: &str) -> String {
 pub type Cell<D> = RefCell<Bridge<D>>;
 
 mod boot;
+use boot::PreparedHost;
 mod colors;
 mod preparation;
 mod registry;

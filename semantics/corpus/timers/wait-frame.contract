@@ -1,0 +1,18 @@
+component App
+  state count = 0
+  state seen = 0
+  action tick
+    count = count + 1
+    seen = performanceNow()
+  task t mount
+    after(49, tick, wait=frame)
+  view
+    text `${count}`
+
+test "wait-frame"
+  clock +49
+  expect state count == 0
+  clock +1
+  expect state count == 1
+  clock +1
+  expect state seen == 50

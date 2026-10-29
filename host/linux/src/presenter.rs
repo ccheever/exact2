@@ -161,6 +161,11 @@ pub struct Presenter<D: DataSource> {
     last_wheel: Option<ViewId>,
     /// The display's clock while it owns time, given to every host (`clock.rs`)
     live_clock: Option<clock::Wall>,
+    native_timers: bool,
+    timers_hidden: bool,
+    clock_generation: u64,
+    timer_observations: Option<(bool, bool, bool)>,
+    idle_timer_retry: bool,
     pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
     painted: bool,
@@ -530,6 +535,11 @@ impl<D: DataSource> Presenter<D> {
             dirty: true,
             deferred_collections: None,
             live_clock: None,
+            native_timers: false,
+            timers_hidden: false,
+            clock_generation: 0,
+            idle_timer_retry: false,
+            timer_observations: cfg!(target_os = "android").then_some((false, false, true)),
             scheme: (None, false),
             device: None,
             text_scale: 1.0,
@@ -1426,27 +1436,6 @@ impl<D: DataSource> Presenter<D> {
         let e = self.host.set_delivery_from_compat(json);
         let after = self.after_commit();
         e.or(after)
-    }
-
-    /// The runner's clock (timers), from the presenter's loop.
-    pub fn advance(&mut self, now_ms: f64) -> Option<String> {
-        let (e, paint) = self.host.advance_effects(now_ms);
-        self.dirty |= paint;
-        let after = self.finish_commit();
-        self.hatch_timers(now_ms);
-        let ends = self.deliver_scroll_ends();
-        e.or(after).or(ends)
-    }
-
-    /// A display frame for the frame tasks (LLP 1073 D5): timers due by
-    /// `now_ms`, then every frame task once at it.
-    pub fn animation_frame(&mut self, now_ms: f64) -> Option<String> {
-        let (e, paint) = self.host.frame(now_ms);
-        self.dirty |= paint;
-        let after = self.finish_commit();
-        self.hatch_presented(now_ms);
-        let ends = self.deliver_scroll_ends();
-        e.or(after).or(ends)
     }
 
     /// A motion frame.

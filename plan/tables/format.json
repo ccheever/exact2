@@ -465,6 +465,9 @@
     {
       "name": "timers",
       "fields": [
+        { "name": "wait", "codec": "u8" },
+        { "name": "max_ms", "codec": "u32" },
+        { "name": "tolerance_ms", "codec": "u32" },
         {
           "name": "interval_ms",
           "codec": "u32"

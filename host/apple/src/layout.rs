@@ -12,6 +12,29 @@ pub(super) mod separator;
 pub(super) const DERIVED_PROPS: [&str; 3] = ["fitScale", "flexGrows", "textOffset"];
 
 impl<D: DataSource> Host<D> {
+    /// Configure support, admit one batch, or run the frame tasks after admission.
+    pub fn timer_waits(&mut self, kinds: u8, cutoff: f64, mode: u32) -> String {
+        let kinds = exact_runner::WaitKinds::from_bits(kinds);
+        if mode == 0 {
+            self.runner.hold_waits(kinds);
+            let mut batch = Batch::new();
+            self.state_onto(&mut batch);
+            return self.write(batch, None);
+        }
+        if mode == 2 {
+            let a = self.runner.complete_frame_tasks(cutoff);
+            return self.advanced(a);
+        }
+        let admitted = self.runner.release_waits(kinds, cutoff);
+        let continuing = admitted.continuing;
+        let mut out = self.advanced(admitted.advanced);
+        if continuing {
+            out.pop();
+            out.push_str(",\"waitContinue\":true}");
+        }
+        out
+    }
+
     /// Writes `batch` for the presenter; every batch with ops is written
     /// here. From a failed layout until one settles, whatever turn made the
     /// batch, its layout geometry is taken out, including what an earlier
@@ -51,6 +74,12 @@ impl<D: DataSource> Host<D> {
     pub(super) fn state_onto(&self, batch: &mut Batch) {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
+        if self.runner.uses_native_timers() {
+            batch.native_timers = Some(self.runner.native_timers());
+        }
+        if self.runner.plan().timers.iter().any(|t| t.wait != 0) {
+            batch.waits = Some(self.runner.waits());
+        }
         batch.seq = self.runner.seq_range();
         batch.alerts = self.runner.take_alerts();
         batch.journal = self.runner.take_journal();

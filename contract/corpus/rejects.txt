@@ -1934,3 +1934,193 @@ component A
   view
     iframe "https://example.com" partition="work" apple.inactiveSchedulingPolicy="sometimes"
 ---
+
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=bogus)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=frame + 1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=0)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=-1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=1.5)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=4294967296)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=count)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=frame, wait=idle)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=1, max=2)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, max=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=frame, max=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=update, max=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=-1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=1.5)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=4294967296)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=count)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=1, tolerance=2)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=1, wait=frame)
+  view
+    text "timer"

@@ -291,15 +291,15 @@ const AGENT_ADMITTED = true;
 /** Whether the agent drives this page (or a render does): the clock is then the driver's. */ export const agentMode = () => !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
 /** A timer: `every(ms, action, once)`, due from mount; `i` its plan order, which breaks ties (schedule.js inserts by it). */
 let Order = 0; export const order = () => Order++, Tasks = []; // every task, for the agent's `state.tasks`
-export function every(ms, action, once, name) {
-  clock.timers.push({ due: clock.now + ms, ms, action, once, name, i: Order++ }); Tasks.push(clock.timers.at(-1));
+export function every(ms, action, once, name, wait = 0, max = 0, tolerance = 0) {
+  clock.timers.push({ due: clock.now + ms, ms, action, once, name, wait, max, tolerance, i: Order++ }); Tasks.push(clock.timers.at(-1));
   if (!clock.agent) drive();
 }
 // A frame task (LLP 1073): once per presented frame, never caught up; on the
 // agent's seekable clock, a virtual frame every 1000/60 ms after it last fired.
 // The kth virtual frame after `base`, the product first, as the runner's
 // `virtual_frame`: sixty frames are exactly a second.
-const vf = (base, k) => base + k * 1000 / 60; Object.assign(Link, { clock, every, commit, journal }); // (for lazy chunks: rt-link.js)
+const vf = (base, k) => base + k * 1000 / 60; Object.assign(Link, { clock, every, commit, journal, advance, drive, wall: () => performance.now() - start, nextMutation: () => Mutations.reduce((due, m) => Math.min(due, m.due ?? Infinity, m.next ?? Infinity), Infinity), fireTimer: t => fire(t.action), busy: () => !!Writes, poisoned: () => Poisoned, pauseTimers: () => { clearTimeout(driving); globalThis.cancelAnimationFrame?.(painting); driving = painting = 0; } }); // (for lazy chunks: rt-link.js)
 /** `every(frame, action)`. */
 export function frames(action, name) {
   clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action, name, i: Order++ }); Tasks.push(clock.timers.at(-1));
@@ -313,25 +313,25 @@ export function frames(action, name) {
  * alone, at `to` = now, as an agent's input ends (Runner::land_then; trivia F3). */
 export function advance(to, wall, stop, timers = true) {
   if (!Number.isFinite(to)) return say(`refused advance: NonFiniteClock (${to})`), journal.at(-1);
-  let fired = 0, stopped = false;
+  if (Poisoned) return say("refused advance: Poisoned"), journal.at(-1); to = Link.timerWait?.cutoff(to, wall) ?? to; let fired = 0, stopped = false;
   for (;;) {
-    let next = null, then = null, head = null;
-    // A hatch's instant (hatches.js, LLP 1075.003.000.001 §2.4) and an answer's timer (ts-fetch.js) come after the timers and frame tasks due at the same time.
-    if (timers && !clock.stopped) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due || t.due === next.due && (next.hatch || next.data) && !t.hatch && !t.data)) next = t;
+    let next = null, then = null, head = null; const execution = t => Link.timerWait?.execution(t, wall) ?? t.due, priority = t => t.hatch || t.data ? 2 : t.wait === 4 ? 1 : 0;
+    // Run authored tasks before hatch and data callbacks due at the same time
+    if (timers && !clock.stopped) for (const t of clock.timers) if (execution(t) <= to && !(wall && t.frame) && (!next || execution(t) < execution(next) || execution(t) === execution(next) && (priority(t) < priority(next) || priority(t) === priority(next) && t.due < next.due))) next = t;
     // An answer's `then` goes before a timer due at the same time: the answer landed first; a queue's `next` between them (LLP 1092 D3).
-    for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
-    for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= next.due) && (!then || m.next < then.due)) head = m;
+    for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= execution(next))) then = m;
+    for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= execution(next)) && (!then || m.next < then.due)) head = m;
     if (head) then = null;
     if (!next && !then && !head) break;
     if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
     // On the wall clock (the timers RFC, D2, D3) a repeat that missed beats fires once, its firing consumed first; each callback observes the clock as it runs and as it ends, and what it arms takes its place; a repeat's next beat is the first of its phase after the end, unless its callback dropped it, or re-armed it (a gate's step) from there.
-    const at = head ? head.next : then ? then.due : next.due, repeat = wall && !head && !then && !next.once && !next.frame && !next.hatch, gen = next?.gen;
+    const at = head ? head.next : then ? then.due : next.due, repeat = (wall || next?.wait) && !head && !then && !next.once && !next.frame && !next.hatch, gen = next?.gen;
     if (head) clock.now = Math.max(clock.now, head.next);
     else if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
-    else { clock.now = wall ? Math.max(clock.now, next.due) : next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : repeat ? beatAfter(at, next.ms, Math.max(clock.now, to)) : next.due + next.ms; }
-    const due = next?.due, sample = () => { if (wall) clock.now = Math.max(clock.now, performance.now() - start); }; sample(); Instant = wall ? at : null; const ok = fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action); Instant = null; sample();
-    if (repeat && clock.timers.includes(next)) next.due = next.gen === gen && next.due === due ? beatAfter(at, next.ms, Math.max(clock.now, to)) : clock.now + next.ms; if (ok !== true) return journal.at(-1);
-    if (head || then || !next.hatch && !next.data) fired++; // a hatch's instant is no commit: it has its own caps; nor is an answer's timer (ts-fetch.js)
+    else { clock.now = wall ? Math.max(clock.now, execution(next)) : execution(next); if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : repeat ? beatAfter(at, next.ms, Math.max(clock.now, wall ? to : clock.now)) : next.due + next.ms; }
+    if (!head && !then && !next.hatch && !next.data) { const counts = clock.timerFirings ??= Array(7).fill(0); counts[next.frame ? 6 : wall && next.wait ? 5 : next.wait ?? 0]++; } const due = next?.due, sample = () => { if (wall) clock.now = Math.max(clock.now, performance.now() - start); }; sample(); Instant = wall ? (next?.wait ? clock.now : at) : null; const ok = fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action); Instant = null; sample();
+    if (repeat && clock.timers.includes(next)) next.due = next.gen === gen && next.due === due ? beatAfter(at, next.ms, Math.max(clock.now, wall ? to : clock.now)) : clock.now + next.ms; if (ok !== true) return journal.at(-1);
+    if (head || then || !next.hatch && !next.data) { fired++; } // Hatch and data callbacks have their own limits
     if (stop?.()) { stopped = true; break; }
   }
   if (!stopped) clock.now = Math.max(clock.now, to);
@@ -343,26 +343,26 @@ export function advance(to, wall, stop, timers = true) {
 function fire(f) { for (const c of Clocked) c(); Timing = true; try { return f(); } finally { Timing = false; } }
 let driving = 0, start = 0, painting = 0;
 export function drive() {
-  clearTimeout(driving);
+  clearTimeout(driving); if (clock.agent || Poisoned) return;
   let next = Infinity;
-  for (const t of [...(clock.stopped ? [] : clock.timers), ...Mutations]) if (!t.frame && t.due < next) next = t.due; // no timer while a wake runs unseen (wakes.js)
+  for (const t of [...(clock.stopped ? [] : clock.timers), ...Mutations]) if (!t.frame) next = Math.min(next, Link.timerWait?.wake(t) ?? t.due + (t.tolerance ?? 0)); // no timer while a wake runs unseen (wakes.js)
   for (const m of Mutations) if (m.next < next) next = m.next;
   if (!isFinite(next)) return;
-  driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));
+  const token = Link.timerWait?.generation(); driving = setTimeout(() => { if (clock.agent || token !== Link.timerWait?.generation()) return; advance(performance.now() - start, true); Link.timerWait?.check(); drive(); }, Math.min(2147483647, Math.max(0, next - (performance.now() - start))));
 }
 // Presented frames: before each paint, timers due by the frame's time, then
 // every frame task once at it (Runner::frame).
 export function paint() {
   if (painting || typeof requestAnimationFrame !== "function") return;
-  painting = requestAnimationFrame(function frame(ts) {
-    painting = 0;
+  const token = Link.timerWait?.generation(); painting = requestAnimationFrame(function frame(ts) {
+    if (Poisoned || token !== Link.timerWait?.generation()) return; painting = 0;
     if (clock.agent || !clock.timers.some(t => t.frame)) return;
     painting = requestAnimationFrame(frame);
     advance(Math.max(clock.now, ts - start), true);
-    const at = clock.now, rev = Rev, ticket = Ticket;
+    Link.timerWait?.check(true); const at = clock.now, rev = Rev, ticket = Ticket;
     NowRead = false;
     // A frame task's commit may arm or drop one (a gate, LLP 1092 D10): each armed at the frame's start fires once.
-    for (const t of clock.timers.filter(t => t.frame).sort((a, b) => !!a.hatch - !!b.hatch)) if (clock.timers.includes(t)) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
+    for (const t of clock.timers.filter(t => t.frame).sort((a, b) => !!a.hatch - !!b.hatch)) if (clock.timers.includes(t)) { t.base = at; t.k = 1; t.due = vf(at, 1); (clock.timerFirings ??= Array(7).fill(0))[6]++; fire(t.action); }
     // Frames whose tasks changed nothing and read no clock would change
     // nothing again until state does: the loop parks until a commit writes
     // (skipping a frame that would commit nothing is unobservable).
@@ -1489,11 +1489,11 @@ let LocaleSlot = null;
 export const resolvedLocale = () => LocaleSlot ? (table(LocaleSlot()) ?? Texts[0])[0] : "";
 export function language(slot) {
   LocaleSlot = slot;
-  // As the host's first `set_place`: the table the viewer's locale reads,
-  // written to the slot, and `exactTime` answered again, in one commit.
+  // Set the locale slot and refresh exactTime in one commit, as the host's first set_place does
   commit(() => { W(slot, locale()); for (const r of Resources) if (r.source === "exactTime") R(r); }, "place");
   if (typeof document !== "object" || !document.documentElement) return;
   effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
 }
 export * from "./router.js"; import { routerValid } from "./router.js"; // the router (LLP 1038), its own file
 export { queues, gated } from "./schedule.js"; // queued sends and gated tasks (LLP 1092), their own file
+export { timerWaits } from "./timer-waits.js";

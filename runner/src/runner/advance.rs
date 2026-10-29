@@ -13,6 +13,12 @@ mod data_timers;
 pub(super) struct Clock {
     /// The host presents frames: frame tasks fire only at `frame` (LLP 1073 D4)
     pub(super) presenting: bool,
+    pub(super) native_timers: bool,
+    pub(super) waits: WaitKinds,
+    pub(super) admission: Option<f64>,
+    pub(super) admitting: bool,
+    pub(super) takeover: Option<f64>,
+    frame_turn: Option<(f64, std::collections::VecDeque<usize>)>,
     pub(super) sample: Option<Box<dyn FnMut() -> f64>>,
     /// The scheduling instant of the callback running, which the `then`s and
     /// queue `next`s it arms inherit (D2)
@@ -67,7 +73,7 @@ impl<D: DataSource> Runner<D> {
     /// ([`Runner::present_frames`]; LLP 1073 D3). That is a seek clock; a
     /// live one is [`Runner::set_live_clock`]'s.
     pub fn advance_timed(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, false, true)
+        self.advance_within(self.seek_cutoff(now_ms), false, true)
     }
 
     /// Give the runner the host's live clock, or `None` (the default) for a
@@ -81,6 +87,14 @@ impl<D: DataSource> Runner<D> {
     /// callback cancelled stays cancelled and one it rekeyed starts from that
     /// completion (D3). Virtual frames restart from the completion too.
     pub fn set_live_clock(&mut self, sample: Option<Box<dyn FnMut() -> f64>>) {
+        if sample.is_none() && self.clock_live() {
+            self.sample();
+            self.clock.takeover = Some(self.now_ms);
+        } else if sample.is_some() {
+            self.clock.takeover = None;
+        }
+        self.clock.admission = None;
+        self.clock.frame_turn = None;
         self.clock.sample = sample;
     }
 
@@ -108,6 +122,9 @@ impl<D: DataSource> Runner<D> {
     /// Before a commit: sample the clock, and keep when it started.
     pub(super) fn start_commit(&mut self) {
         self.sample();
+        if self.clock.admitting {
+            self.clock.instant = Some(self.now_ms);
+        }
         if !self.clock.arrived {
             self.clock.started = self.now_ms;
         }
@@ -154,21 +171,101 @@ impl<D: DataSource> Runner<D> {
         if (a.error.is_some() && !next_refused) || !self.wants_frames() {
             return a;
         }
+        let tail =
+            self.frame_tasks_with_limit(now_ms, TIMER_FIRE_LIMIT.saturating_sub(a.receipts.len()));
+        a.receipts.extend(tail.receipts);
+        a.error = tail.error;
+        a.now_ms = tail.now_ms;
+        a
+    }
+
+    /// Run only the frame tasks, after a host has applied an admission turn.
+    pub fn frame_tasks(&mut self, now_ms: f64) -> Advanced {
+        self.frame_tasks_with_limit(now_ms, TIMER_FIRE_LIMIT)
+    }
+
+    /// Finish a presented frame, continuing its remaining tasks after recoverable refusals.
+    /// Hosts apply the collected commits together, as they do for [`Runner::frame`].
+    pub fn complete_frame_tasks(&mut self, now_ms: f64) -> Advanced {
+        let mut result = self.frame_tasks(now_ms);
+        while self.clock.frame_turn.is_some()
+            && !self.poisoned
+            && now_ms.is_finite()
+            && now_ms <= MAX_CLOCK_MS
+        {
+            let tail = self.frame_tasks(now_ms);
+            result.receipts.extend(tail.receipts);
+            result.now_ms = tail.now_ms;
+            result.error = result.error.or(tail.error);
+        }
+        result
+    }
+
+    fn frame_tasks_with_limit(&mut self, now_ms: f64, limit: usize) -> Advanced {
+        let mut a = Advanced {
+            receipts: Vec::new(),
+            now_ms: self.now_ms,
+            error: None,
+            stopped_on_request: false,
+        };
+        if self.poisoned {
+            a.error = Some(RunnerError::Poisoned);
+            return a;
+        }
+        if !now_ms.is_finite() || now_ms > MAX_CLOCK_MS {
+            a.error = Some(if now_ms.is_finite() {
+                RunnerError::ClockOutOfRange
+            } else {
+                RunnerError::NonFiniteClock
+            });
+            return a;
+        }
+        if !self.clock_live() {
+            self.now_ms = self.now_ms.max(now_ms);
+        }
         let at = self.now_ms;
-        // The frame tasks armed as the frame starts fire, once each: one a
-        // task's commit arms keeps the virtual frame its gate step set, and
-        // one it drops is skipped (LLP 1092 D10), as the web's `paint`
-        // snapshots them (b6 review A3).
-        let armed: Vec<usize> = (0..self.plan.timers.len())
-            .filter(|&i| self.plan.timers[i].frame && self.timers[i].armed)
-            .collect();
-        for i in armed {
+        // Snapshot armed tasks so a task armed by this frame waits for its next frame
+        if self
+            .clock
+            .frame_turn
+            .as_ref()
+            .is_none_or(|(at, _)| *at != now_ms)
+        {
+            let armed = (0..self.plan.timers.len())
+                .filter(|&i| self.plan.timers[i].frame && self.timers[i].armed)
+                .collect();
+            self.clock.frame_turn = Some((now_ms, armed));
+        }
+        while self
+            .clock
+            .frame_turn
+            .as_ref()
+            .is_some_and(|(_, pending)| !pending.is_empty())
+        {
+            if a.receipts.len() == limit {
+                a.error = Some(RunnerError::TimerFireLimit {
+                    limit: TIMER_FIRE_LIMIT,
+                });
+                a.now_ms = self.now_ms;
+                return a;
+            }
+            let i = self
+                .clock
+                .frame_turn
+                .as_mut()
+                .unwrap()
+                .1
+                .pop_front()
+                .unwrap();
             if !self.timers[i].armed {
                 continue;
             }
             self.timers[i].base = at;
             self.timers[i].k = 1;
             self.timers[i].next_ms = super::virtual_frame(at, 1);
+            if !self.ids.work.sites.is_empty() {
+                self.ids.work.timer_firings[6] += 1;
+            }
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
             match self.scheduled(at, |r| r.traced_action("task", action, Vec::new(), &[])) {
@@ -190,6 +287,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        self.clock.frame_turn = None;
         a.now_ms = self.now_ms;
         a
     }
@@ -201,7 +299,7 @@ impl<D: DataSource> Runner<D> {
     /// send would drop it. An agent's clock jump advances this way (LLP
     /// 1012); on the wall clock, replies land between ticks by themselves.
     pub fn advance_until_request(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, true, true)
+        self.advance_within(self.seek_cutoff(now_ms), true, true)
     }
 
     /// The `then` of every answer already landed, each its own commit, with
@@ -239,11 +337,27 @@ impl<D: DataSource> Runner<D> {
         self.land_then()
     }
 
+    fn seek_cutoff(&self, now_ms: f64) -> f64 {
+        if self.clock.sample.is_none() && now_ms.is_finite() {
+            self.clock.takeover.map_or(now_ms, |at| now_ms.max(at))
+        } else {
+            now_ms
+        }
+    }
+
     /// [`Self::advance_steps`] with the wakes (LLP 1133.017 D6): a wake's
     /// deadline within the advance expires it there, after the work due
     /// before it, and what the wakes can deliver is delivered after. No
     /// timer fires while a wake runs unseen.
     fn advance_within(&mut self, now_ms: f64, until_request: bool, timers: bool) -> Advanced {
+        if self.poisoned {
+            return Advanced {
+                receipts: Vec::new(),
+                now_ms: self.now_ms,
+                error: Some(RunnerError::Poisoned),
+                stopped_on_request: false,
+            };
+        }
         let unseen = self.wake_stops_timers();
         let deadline = self
             .wake_deadline()
@@ -330,24 +444,37 @@ impl<D: DataSource> Runner<D> {
                 .iter()
                 .enumerate()
                 .filter(|_| timers)
-                .filter(|(i, t)| t.next_ms <= now_ms && (frames || !self.plan.timers[*i].frame))
+                .filter(|(i, _)| frames || !self.plan.timers[*i].frame)
+                .map(|(i, _)| (i, self.timer_execution(i)))
+                .filter(|(_, at)| *at <= now_ms)
                 .min_by(|(ia, a), (ib, b)| {
-                    a.next_ms.partial_cmp(&b.next_ms).unwrap().then(ia.cmp(ib))
-                })
-                .map(|(i, t)| (i, t.next_ms));
+                    a.total_cmp(b)
+                        .then_with(|| {
+                            (self.plan.timers[*ia].wait == 4)
+                                .cmp(&(self.plan.timers[*ib].wait == 4))
+                        })
+                        .then_with(|| {
+                            self.timers[*ia]
+                                .next_ms
+                                .total_cmp(&self.timers[*ib].next_ms)
+                        })
+                        .then(ia.cmp(ib))
+                });
             // A sequence's end is a timer after every task (LLP 1125 D2): its
             // index is the last; its own wake (a fill, the count-in's end)
             // comes after everything due at the same time (D3).
-            let wake = Some(self.transport.wake_due()).filter(|at| timers && *at <= now_ms);
+            let wake = Some(self.seek_cutoff(self.transport.wake_due()))
+                .filter(|at| timers && *at <= now_ms);
             let before_wake = |at: f64| wake.is_none_or(|w| at <= w);
             // An answer's own timer (`data_timers.rs`): what is due before it
             // goes first, and so does what is due with it; nothing later does,
             // so the clock never goes back to it.
             let data_at = self
                 .data_timer_due_ms()
+                .map(|at| self.seek_cutoff(at))
                 .filter(|at| timers && *at <= now_ms);
             let before_data = |at: f64| data_at.is_none_or(|data| at <= data);
-            let ended = Some(self.transport.ended_due())
+            let ended = Some(self.seek_cutoff(self.transport.ended_due()))
                 .filter(|at| timers && *at <= now_ms && before_wake(*at) && before_data(*at))
                 .filter(|at| due.is_none_or(|(_, timer)| *at < timer));
             let due = due.filter(|(_, at)| ended.is_none() && before_wake(*at));
@@ -605,7 +732,11 @@ impl<D: DataSource> Runner<D> {
                         stopped_on_request: false,
                     };
                 }
-                self.now_ms = if live { self.now_ms.max(at) } else { at };
+                self.now_ms = if live {
+                    self.now_ms.max(at)
+                } else {
+                    self.seek_cutoff(at)
+                };
                 let Some(action) = self.transport_end() else {
                     continue;
                 };
@@ -652,7 +783,11 @@ impl<D: DataSource> Runner<D> {
                 // Nothing else is due by the transport's own wake: no action,
                 // no commit, no receipt.
                 if let Some(at) = wake {
-                    self.now_ms = if live { self.now_ms.max(at) } else { at };
+                    self.now_ms = if live {
+                        self.now_ms.max(at)
+                    } else {
+                        self.seek_cutoff(at)
+                    };
                     self.sample();
                     self.transport_wake(self.now_ms);
                     continue;
@@ -669,59 +804,11 @@ impl<D: DataSource> Runner<D> {
                     stopped_on_request: false,
                 };
             }
-            let row = &self.plan.timers[i];
-            let (once, frame, interval) = (row.once, row.frame, row.interval_ms as f64);
-            // On a live clock a repeat fires once for every beat it missed,
-            // and a virtual frame once for every frame (D2): its firing is
-            // consumed before its callback, so a refused commit (whose
-            // checkpoint keeps this) still consumes it.
-            let coalesce = live && !once;
-            // A one-shot timer is spent: an infinite deadline is never due
-            // and never reported (`timer_due_ms`), so it keeps no host awake.
-            let next_ms = if once {
-                f64::INFINITY
-            } else if coalesce && frame {
-                self.timers[i].base = self.now_ms.max(now_ms);
-                self.timers[i].k = 1;
-                super::virtual_frame(self.timers[i].base, 1)
-            } else if coalesce {
-                beat_after(at, interval, self.now_ms.max(now_ms))
-            } else if frame {
-                self.timers[i].k = self.timers[i].k.saturating_add(1);
-                super::virtual_frame(self.timers[i].base, self.timers[i].k)
-            } else {
-                at + interval
-            };
-            if !once && (!next_ms.is_finite() || next_ms <= at) {
-                return Advanced {
-                    receipts,
-                    now_ms: self.now_ms,
-                    error: Some(RunnerError::ClockDidNotAdvance { timer: i }),
-                    stopped_on_request: false,
-                };
-            }
-            self.now_ms = if live { self.now_ms.max(at) } else { at };
-            self.timers[i].next_ms = next_ms;
-            let instance = self.timers[i].key.clone();
-            let action = self.plan.timers[i].action;
+            let nominal = self.timers[i].next_ms;
             let was_poisoned = self.poisoned;
             let ticket = self.next_ticket;
-            let result = self.scheduled(at, |r| r.traced_action("task", action, Vec::new(), &[]));
-            // D3: its next beat follows its callback's completion, unless the
-            // callback cancelled it; one it rekeyed starts from there.
-            let done = self.now_ms;
-            let t = &mut self.timers[i];
-            if coalesce && t.armed {
-                let same = t.key == instance && t.next_ms == next_ms;
-                t.next_ms = if frame {
-                    (t.base, t.k) = (done, 1);
-                    super::virtual_frame(done, 1)
-                } else if same {
-                    beat_after(at, interval, done.max(now_ms))
-                } else {
-                    done + interval
-                };
-            }
+            let action = self.plan.timers[i].action;
+            let result = self.fire_timer(i, nominal, at, if live { now_ms } else { at }, false);
             match result {
                 Ok(receipt) => receipts.push(Timed {
                     at_ms: self.now_ms,
@@ -836,7 +923,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Run a callback scheduled at `at`; on a live clock what it arms takes
     /// its place (D2).
-    fn scheduled<T>(&mut self, at: f64, run: impl FnOnce(&mut Self) -> T) -> T {
+    pub(super) fn scheduled<T>(&mut self, at: f64, run: impl FnOnce(&mut Self) -> T) -> T {
         self.clock.instant = self.clock.sample.is_some().then_some(at);
         let result = run(self);
         self.clock.instant = None;
@@ -847,7 +934,7 @@ impl<D: DataSource> Runner<D> {
 /// The first beat of a timer's phase (beats at `beat + k·interval`) strictly
 /// after `t`, and after `beat`. The division can round the count either way,
 /// so it is corrected until beat k is after `t` and beat k − 1 is not.
-fn beat_after(beat: f64, interval: f64, t: f64) -> f64 {
+pub(super) fn beat_after(beat: f64, interval: f64, t: f64) -> f64 {
     let mut k = (((t - beat) / interval).floor() + 1.0).max(1.0);
     while k > 1.0 && beat + (k - 1.0) * interval > t {
         k -= 1.0;
