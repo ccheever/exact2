@@ -839,6 +839,24 @@ bitmap child in the composition window stays black); S2.7 changes the approach: 
 fallback presents through WARP's composition swap chain, which exists as the recovery
 transport, and the jump list leaves the boot path.
 
+**S2.7, 2026-10-28** (`lane/ink-s2` at `b346631509`): the bounded wait's fallback presents the
+CPU painter's frames through WARP's composition swap chain and the hardware swap chain takes
+over on the shared visual (forced: WARP ready within 100 ms of host entry, its first present
+back at 134.7 ms; ordinary launches never open WARP); the bitmap child is gone; the jump
+list runs after first pixel, and the 300 ms tail with it: Shelf's first screen by the DWM
+proxy is now 131.4 ms on `softbuffer` and 134.8 on composition at 1024×720 (+2.6%), 142.2 and
+140.5 at 1920×1080 (−1.2%), fresh cache, ten interleaved launches; the retained-cache
+medians pass the same 10% gate; a refused Mica shows the platform's opaque window colour
+(LLP 1095's), tested by injection. **The orchestrator's reading of D15**: the relative gate
+holds (within 10% of the platform's painter, no late frames); the absolute 100 ms p50 is not
+met by either painter (the displayed first screen 148 to 158 ms on composition, the
+`softbuffer` proxy 131 to 142), and D15 as the panel wrote it says a baseline already past
+the budget makes further regression an explicit trade, which a −1.2% to +2.6% change is not:
+the remaining debt is the app's boot, written phase by phase in `MEASUREMENTS.md` S2.7 for
+LLP 1030's and the host's owners, and the `gpu-dev` build is not the shipped profile. The
+default therefore stands, and the branch lands after a review of S2.6 and S2.7's failure
+paths. Unqualified: a driver-cache-cold launch; lock and unlock.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
@@ -850,8 +868,16 @@ bundles: cold start from `ri_proc_start_abstime` to GPUI's first presented drawa
 the same milestone and are reported as such; a display-link sampler for frame intervals and
 late frames; `proc_pid_rusage` for CPU and footprint). Its `RESULTS.md` records the
 non-comparables and the inspected screenshots. The series itself was refused by its own
-preflight because other lanes were compiling on this Mac; it runs quiet after the landing
-(G1m), and the tables are empty until then.
+preflight because other lanes were compiling on this Mac, then by the locked screen, then
+by focus loss (Chrome, Ocho) during the flings; four runs kept three clean pairs of five
+(`c237d4a22a`), which are **diagnostic, not the verdict**: fling CPU 89 ms/s for GPUI against
+121 for the native Apple host; rest CPU 5.1 against 1.1 (the immediate-mode redraw LLP 1148
+F2 named); peak fling footprint 398 against 224 MiB; cold milestones 338 against 597 ms by
+two different instruments (GPUI's first presented drawable; the native host's first settled
+layer snapshot), so not a comparison; frame smoothness not rankable (display-link cadence on
+the native arm). The driver now activates its target and verifies the key window before
+each sample. The full series (five pairs, ten cold launches each) needs three minutes of an
+untouched desktop and is run on Charlie's word; ink joins at G3.
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
