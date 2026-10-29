@@ -441,6 +441,16 @@ reads `mode` and `isSymbolicLink`; `fs_more.rs` adds `lstat`, `readlink`,
 shutdown releases them all. The process lines are exact2's own and never
 reach `grant.rs`. Replay on a refresh.
 
+## Local patch 25, `AbortSignal.any`'s argument as Web IDL converts it
+
+`bindings/abort.js`'s `AbortSignal.any` converts its argument as Web IDL
+converts a sequence (https://webidl.spec.whatwg.org/#create-sequence-from-iterable):
+it reads the iterator method, `next` and each step's `value` once, calls the
+iterator method and `next` with `Reflect.apply`, refuses a step result that is
+not an object, and converts each value as it is yielded, so a value that is not
+a signal throws `TypeError` before the iterator is asked for the next. exact2's
+`js/tests/it/pure.rs` compares it with Chrome's. Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

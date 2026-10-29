@@ -95,6 +95,25 @@ export function exercise(source: string): string {
     order.push('sync');
     return new Promise<string>(done=>queueMicrotask(()=>done(JSON.stringify(order)))) as unknown as string;
   }
+  if(source==='abortAny') {
+    // `AbortSignal.any`'s argument as Web IDL converts a sequence: its iterator method, `next` and each `value` read
+    // once, each value converted as it is yielded; a step result that is not an object refused
+    const signal=new AbortController().signal, said=(f:()=>unknown)=>{try{f();return 'made';}catch(e){return (e as Error).name+(e instanceof TypeError?'':': '+(e as Error).message);}};
+    let reads=0;
+    const once={get [Symbol.iterator](){reads++;return reads===1?function*(){yield signal;}:undefined;}};
+    function* lateThrow(){yield {} as AbortSignal;throw new Error('after the bad value');}
+    const badStep={[Symbol.iterator]:()=>({next:()=>1})};
+    let nexts=0,n=0;
+    const nextOnce={[Symbol.iterator]:()=>({get next(){nexts++;return ()=>({done:n++>0,value:signal});}})};
+    let gets=0;
+    const valueOnce={[Symbol.iterator]:()=>{let k=0;return {next:()=>k++?{done:true}:{done:false,get value(){gets++;return signal;}}};}};
+    // An iterator method and a `next` with a `call` of their own, which a conversion must not use (defined, as data
+    // code's prototypes are frozen)
+    const ownCall={[Symbol.iterator]:()=>({next:Object.defineProperty(()=>({done:true}),'call',{value:()=>({done:false,value:{}})})})};
+    const methodCall={[Symbol.iterator]:Object.defineProperty(function*(){yield signal;},'call',{value:()=>1})};
+    return JSON.stringify([said(()=>AbortSignal.any(once as unknown as AbortSignal[])),reads,said(()=>AbortSignal.any(lateThrow())),said(()=>AbortSignal.any(badStep as unknown as AbortSignal[])),
+      said(()=>AbortSignal.any(nextOnce as unknown as AbortSignal[])),nexts,said(()=>AbortSignal.any(valueOnce as unknown as AbortSignal[])),gets,said(()=>AbortSignal.any(ownCall as unknown as AbortSignal[])),said(()=>AbortSignal.any(methodCall as unknown as AbortSignal[]))]);
+  }
   if(source==='abort') {
     // A fetch's `signal`, before and after the request starts; the reply of
     // the aborted one is never awaited.
