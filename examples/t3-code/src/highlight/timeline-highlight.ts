@@ -15,7 +15,19 @@ export function highlight(text: string, language: string, maxLineLength = 0): To
 }
 
 /** Every fenced code block of a message with its tokens, matched in Contract by its text. */
-type Highlighted = { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] };
+type Highlighted = { id: string; code: string; icon: string; tokens: CodeToken[] };
+/** A token as markdown.contract CodeToken draws it: with `at`, where it starts in its code (UTF-16 units). */
+export type CodeToken = { id: string; text: string; cls: string; at: number };
+
+/** `tokens` with their ids and offsets. */
+export function codeTokens(tokens: readonly Token[]): CodeToken[] {
+  let at = 0;
+  return tokens.map((token, index) => {
+    const placed = { id: String(index), text: token.text, cls: token.cls, at };
+    at += token.text.length;
+    return placed;
+  });
+}
 /** A message's blocks once all have their tokens, with each block's code and language: the answer paints them again. */
 const cache = new Map<string, { blocks: Highlighted[]; painted: [string, string][] }>();
 export function messageCodeBlocks(markdownText: string): Highlighted[] {
@@ -33,8 +45,7 @@ export function messageCodeBlocks(markdownText: string): Highlighted[] {
     if (blocks.some(block => block.code === code)) continue;
     const tokens = highlight(code, language);
     painted.push([code, language]);
-    blocks.push({ id: String(blocks.length), code, icon: languageIconToken(language),
-      tokens: tokens.map((token, index) => ({ id: String(index), text: token.text, cls: token.cls })) });
+    blocks.push({ id: String(blocks.length), code, icon: languageIconToken(language), tokens: codeTokens(tokens) });
   }
   // Blocks still waiting for their tokens are asked again next time.
   if (highlightDeferrals !== deferrals) return blocks;

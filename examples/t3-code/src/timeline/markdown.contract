@@ -95,6 +95,10 @@ shape CodeToken
   id: string
   text: string
   cls: string
+  // Where the token starts in its block's code, in UTF-16 units (find and citation marks). It is counted once in
+  // TypeScript: summed here per token, it took N + 2k list steps for the k-th of N tokens, past the runner's 65,536
+  // an evaluation (runner/src/vm.rs MAX_LIST_STEPS) in a block of about 20,000 tokens, which poisoned the runner.
+  at: number
 shape CodeHighlight
   id: string
   code: string
@@ -159,10 +163,9 @@ fn citeOffset(blocks: ChatBlock[], code: CodeHighlight[], blockId: string): numb
 // or code span of a block laid out word by word (FlowRuns) after the runs before it; a whole block's text at its start.
 fn citeRunOffset(blocks: ChatBlock[], code: CodeHighlight[], blockId: string, runId: string): number = runId == "" ? 0 : runId == "code" ? blocks.filter((b) => b.id == blockId).map((b) => citeCodeLabel(b, code) != "" ? `${citeCodeLabel(b, code)}\n` : "").join("").length : blocks.filter((b) => b.id == blockId).map((b) => b.runs.slice(0, max(0, b.runs.map((r) => r.id).indexOf(runId))).map((r) => r.text).join("")).join("").length
 fn noChips(): ChipView[] = []
-// Where run `id` starts in its block's text (the runs before it), and where token `id` starts in
-// its code; with the cited text's [start, end) in the same offsets (`ms`, `me`; -1 when nothing is marked there).
+// Where run `id` starts in its block's text (the runs before it); with the cited text's [start, end) in the same
+// offsets (`ms`, `me`; -1 when nothing is marked there). A code token carries its own offset (CodeToken `at`).
 fn runAt(runs: ChatRun[], id: string): number = runs.slice(0, max(0, runs.map((r) => r.id).indexOf(id))).map((r) => r.text).join("").length
-fn tokenAt(tokens: CodeToken[], id: string): number = tokens.slice(0, max(0, tokens.map((t) => t.id).indexOf(id))).map((t) => t.text).join("").length
 fn citeMarks(ms: number, me: number, at: number, size: number): bool = ms >= 0 and me > at and ms < at + size
 
 // Occurrence ids come from the same parsed blocks/runs that draw the images. Shared URLs keep separate entries.
@@ -1109,20 +1112,20 @@ component CodeBlock
             for token in hl.tokens key=token.id
               if ms < 0
                 text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
-                  FindToken(value=token.text, at=tokenAt(hl.tokens, token.id), parts=block.findParts)
+                  FindToken(value=token.text, at=token.at, parts=block.findParts)
               else
                 text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
-                  MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
+                  MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
               for token in hl.tokens key=token.id
                 if ms < 0
                   text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
-                    FindToken(value=token.text, at=tokenAt(hl.tokens, token.id), parts=block.findParts)
+                    FindToken(value=token.text, at=token.at, parts=block.findParts)
                 else
                   text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
-                    MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
+                    MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
 // MarkdownMermaidCodeBlock (74541bab17): a closed ```mermaid fence draws its diagram with
 // no card, centred and fit to the lane, under the code header's actions ("Show code" left of Copy);
 // "Show code" turns it back into the code block, where "Show diagram" sits left of

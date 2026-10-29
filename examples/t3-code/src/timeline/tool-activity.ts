@@ -1,6 +1,6 @@
 // T3 Code 9c161462c9 packages/shared/src/toolActivity.ts (MIT, LICENSE-T3).
 import { obj } from '../client/domain';
-import { highlight } from '../highlight/timeline-highlight';
+import { codeTokens, highlight } from '../highlight/timeline-highlight';
 import { toolCallLines } from './timeline-item-detail';
 const trimmed = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : undefined;
 export function isJavaScriptReplTool(toolName: unknown): boolean {
@@ -23,5 +23,5 @@ export function replToolTitle(toolName: unknown, input: unknown, retainedTitle?:
 export function replArguments(toolName: unknown, input: unknown) {
   if (!isJavaScriptReplTool(toolName)) return [];
   return (toolCallLines({ args: input }).args ?? []).map(([key, value], index) => ({ id: String(index), key, text: value,
-    tokens: key === 'code' ? highlight(value, 'typescript').map((token, id) => ({ id: String(id), ...token })) : [] }));
+    tokens: key === 'code' ? codeTokens(highlight(value, 'typescript')) : [] }));
 }

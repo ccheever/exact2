@@ -26,7 +26,7 @@ import { latestUnheldRun } from './worktree-card-run';
 import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, runTurnEnded, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
 import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, liveThoughtLine, thoughtText, threadReadLabel, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
-import { messageCodeBlocks } from '../highlight/timeline-highlight';
+import { codeTokens, messageCodeBlocks } from '../highlight/timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
 import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, isSentSvg, messageAttachments, noteChipPreviewFailed, svgPreviewFailed, withoutSoundReferences } from './timeline-attachments';
@@ -462,7 +462,7 @@ const keyedLabel = (row: Row, label: string): Activity => ({ id: `${row.id}\u000
 const entryCode = (entries: WorkEntry[], client: T3Client): InspectorCode[] => entries.flatMap(entry => {
   if (entry.questionAnswer) return [questionHistory(entry.id, entry.questionAnswer)];
   if (entry.itemType === 'command_execution' && turnItemIsOpen(client, entry.id)) return [{ id: entry.id, code: '', icon: 'shell',
-    tokens: shellCommand(str(entry.item.input)).map((token, index) => ({ id: String(index), ...token })) }];
+    tokens: codeTokens(shellCommand(str(entry.item.input))) }];
   // An open thought's trace is ChatMarkdown, whose fences are highlighted as a message's are.
   if (entry.itemType === 'reasoning' && turnItemIsOpen(client, entry.id)) return messageCodeBlocks(str(entry.detail)).map(block => ({ ...block, id: `${entry.id}:${block.id}` }));
   return [];

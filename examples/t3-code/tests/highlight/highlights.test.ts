@@ -98,6 +98,6 @@ describe('line records become tokens', () => {
     const blocks = messageCodeBlocks(markdown);
     expect(blocks.map(block => block.code)).toEqual(['const a = 1;', 'plain']);
     expect(blocks[0]!.tokens.map(token => token.cls)).toEqual(['kw', 'var', 'op', 'num', 'punct']);
-    expect(blocks[1]!.tokens).toEqual([{ id: '0', text: 'plain', cls: '' }]);
+    expect(blocks[1]!.tokens).toEqual([{ id: '0', text: 'plain', cls: '', at: 0 }]);
   });
 });
