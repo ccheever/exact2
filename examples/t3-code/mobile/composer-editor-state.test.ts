@@ -231,3 +231,22 @@ test('R2 normal event cannot claim the exact terminal count with a conflicting s
   expect(observe(pending,{...outcome,pendingCommand:outcome}).accepted).toBe(true);
   expect(observe(pending,{kind:'text',eventCount:2,value:'C',pendingCommand:outcome}).accepted).toBe(true);
 });
+
+test('NewTask resume proof decodes separately from ordinary native observations', () => {
+  const proof = { owner: 'owner', editorId: 'editor', routeVisit: 'visit', renderEpoch: 'epoch', mountId: 'mount',
+    kind: 'resumed', eventCount: 4, value: '🙂 source', selection: { start: 3, end: 9 }, composing: false, focused: true,
+    operationId: '11111111-1111-4111-8111-111111111111', operationRevision: 1,
+    receiptId: '22222222-2222-4222-8222-222222222222' };
+  for (const input of [proof, JSON.stringify(proof)]) {
+    expect(editor.mobileComposerEditorDecodeResume(input)).toMatchObject({ operationId: proof.operationId,
+      operationRevision: 1, receiptId: proof.receiptId, snapshot: { kind: 'text', value: proof.value, selection: proof.selection } });
+    expect(editor.mobileComposerEditorDecodeEvent(input)).toBeNull();
+  }
+  for (const patch of [{ kind: 'text' }, { composing: true }, { operationId: 'bad' }, { receiptId: '' },
+    { operationRevision: 0 }, { operationRevision: 1.5 }, { eventCount: 0 }, { eventCount: Infinity },
+    { selection: { start: 0, end: 10 } }, { selection: null }, { focused: 'true' }, { mountId: '' },
+    { pendingCommand: null }, { commandId: 'command' }, { commandRevision: 1 }, { reason: '' }, { alternate: false }]) {
+    expect(editor.mobileComposerEditorDecodeResume({ ...proof, ...patch })).toBeNull();
+  }
+  expect(editor.mobileComposerEditorDecodeResume('{')).toBeNull();
+});

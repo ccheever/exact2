@@ -145,6 +145,10 @@ export interface ComposerCommandTerminal {
   value: string; selection: ComposerEditorSelection; composing: boolean; focused: boolean; reason: string;
 }
 export interface ComposerEditorDocument { value: string; selection: ComposerEditorSelection }
+export interface ComposerEditorResume {
+  readonly operationId: string; readonly operationRevision: number; readonly receiptId: string;
+  readonly snapshot: ComposerEditorEvent;
+}
 export interface ComposerEditorCommand extends ComposerMountedIdentity {
   commandId: string; commandRevision: number;
   expected: ComposerEditorDocument & {eventCount:number};
@@ -227,6 +231,20 @@ export function mobileComposerEditorDecodeEvent(input:unknown):ComposerEditorEve
 function commandTerminal(event:ComposerEditorEvent):ComposerCommandTerminal {
   return {kind:event.kind as ComposerCommandTerminal['kind'],commandId:event.commandId!,commandRevision:event.commandRevision!,
     eventCount:event.eventCount,value:event.value,selection:copyRange(event.selection),composing:event.composing,focused:event.focused,reason:event.reason!};
+}
+
+/** Resume is evidence for the NewTask owner, never an ordinary editor event. */
+export function mobileComposerEditorDecodeResume(input: unknown): ComposerEditorResume | null {
+  let value = input;
+  if (typeof value === 'string') { try { value = JSON.parse(value); } catch { return null; } }
+  const raw = record(value), uuid = (v: unknown): v is string => typeof v === 'string'
+    && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
+  if (!raw || raw.kind !== 'resumed' || !uuid(raw.operationId) || !uuid(raw.receiptId)
+    || !count(raw.operationRevision) || raw.operationRevision === 0 || raw.composing !== false
+    || ['pendingCommand', 'commandId', 'commandRevision', 'reason', 'alternate'].some(key => Object.hasOwn(raw, key))) return null;
+  const snapshot = mobileComposerEditorDecodeEvent({ ...raw, kind: 'text' });
+  return snapshot && snapshot.eventCount > 0
+    ? { operationId: raw.operationId, operationRevision: raw.operationRevision, receiptId: raw.receiptId, snapshot } : null;
 }
 
 /** A new renderEpoch is required for each native remount. Repeated admission
