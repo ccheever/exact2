@@ -14,7 +14,7 @@ import { integrationRows } from '../../src/settings/source-control-view';
 // The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
 afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
-import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from '../../src/appearance/settings-appearance';
+import { appearanceSections, defaultCodeFamily, fontStack, mix, modeTiles, palette, themeCards, themeRoles } from '../../src/appearance/settings-appearance';
 import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from '../../src/settings/settings-search';
 import { settingsCore } from '../../src/settings/settings-core-view';
 import { scopedProviderPage } from '../../src/providers/providers-scope';
@@ -775,6 +775,22 @@ describe('model picker shortcut presses', () => {
     expect(idle.commandPending).toBe(false);
     root.call('selectModel', idle, scope, ['gpt-6', 'codex', false]);
     expect([sent, idle.commandPending]).toEqual([[['cclocal:picker-provider-key', 'codex', '', 0], ['model', 'gpt-6', 'codex', 0]], true]);
+  });
+});
+
+// The reference's code font as its renderer draws it: Chromium resolves neither ui-monospace nor "SF Mono" by name, so
+// DEFAULT_CODE_FONT_STACK lands on Menlo on macOS (a CDP probe of the reference renders its --font-mono in Menlo-Regular).
+describe('code font', () => {
+  test("the default code font and its label are the reference's as drawn: Menlo here", () => {
+    expect([fontStack('', true), fontStack('', false)]).toEqual(['Menlo, Consolas, "Liberation Mono", monospace', 'system-ui']);
+    expect([defaultCodeFamily([]), defaultCodeFamily([{ family: 'Consolas', monospace: true }]), defaultCodeFamily([{ family: 'SF Mono', monospace: true }, { family: 'Menlo', monospace: true }])])
+      .toEqual(['Menlo', 'Consolas', 'Menlo']);
+    const rows = appearanceSections(decodeClientPrefs({ typographyAdvanced: true }), true).at(-1)!.rows.filter(row => row.id === 'code-font' || row.id === 'terminal-font');
+    expect(rows.map(row => [row.label, row.options[0]!.label, row.driver])).toEqual([['Menlo', 'Menlo', 'Menlo, Consolas, "Liberation Mono", monospace'], ['Menlo', 'Menlo', 'Menlo, Consolas, "Liberation Mono", monospace']]);
+    const single = appearanceSections(decodeClientPrefs({}), true).at(-1)!.rows.find(row => row.id === 'code-font')!;
+    expect([single.title, single.label, single.options[0]!.label]).toEqual(['Monospace font', 'Menlo', 'Menlo']);
+    // Every code view reads the look's codeFont: chat Markdown, diffs, file previews and inline documents.
+    expect(appText('settings-appearance-look.ts')).toContain('codeFont: fontStack(prefs.fontFamilyCode, true)');
   });
 });
 

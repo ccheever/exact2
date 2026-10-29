@@ -169,6 +169,14 @@ export function modeTiles(mode: string, prefs: Pick<ClientPrefs, 'themeLight' | 
 const SYSTEM_FONTS: Record<string, string> = { 'sf pro': 'system-ui', 'sf pro text': 'system-ui', '-apple-system': 'system-ui',
   'sf pro rounded': 'ui-rounded', 'new york': 'ui-serif', 'sf mono': 'ui-monospace' };
 const GENERIC_FONTS = new Set(['system-ui', 'ui-sans-serif', 'sans-serif', 'ui-serif', 'serif', 'ui-rounded', 'ui-monospace', 'monospace']);
+// The reference's code font (DEFAULT_CODE_FONT_STACK under its --font-mono) as its renderer draws it: Chromium resolves
+// neither ui-monospace nor "SF Mono" and "SFMono-Regular" by name, so on macOS the stack lands on Menlo (Consolas or
+// Liberation Mono elsewhere). The native host would draw SF Mono for those, so the default starts at Menlo.
+export const DEFAULT_CODE_FONT = 'Menlo, Consolas, "Liberation Mono", monospace';
+/** resolveDefaultFamilyLabel(DEFAULT_CODE_FONT_STACK): the first of those families installed here, Menlo when none reads. */
+export function defaultCodeFamily(installed: InstalledFont[]): string {
+  return ['Menlo', 'Consolas', 'Liberation Mono'].find(family => installed.some(font => font.family.toLowerCase() === family.toLowerCase())) ?? 'Menlo';
+}
 export function fontFamilies(selected: string, mono: boolean, defaultLabel: string, installed: InstalledFont[] = []) {
   const current = selected.trim();
   const named = installed.map(({ family }) => ({ id: family, value: family, label: family, detail: fontStack(family, mono),
@@ -177,7 +185,7 @@ export function fontFamilies(selected: string, mono: boolean, defaultLabel: stri
 }
 export function fontStack(family: string, mono: boolean): string {
   const name = family.trim().replace(/^["']|["']$/g, ''), key = name.toLowerCase();
-  if (!key) return mono ? 'ui-monospace' : 'system-ui';
+  if (!key) return mono ? DEFAULT_CODE_FONT : 'system-ui';
   return SYSTEM_FONTS[key] ?? (GENERIC_FONTS.has(key) ? key : `${JSON.stringify(name)}, ${mono ? 'ui-monospace' : 'system-ui'}`);
 }
 
@@ -226,9 +234,9 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
   const typography = [
     font('fontFamilySans', 'fontSizeInterface', 'interface-font', 'Interface font', 'Everything outside code blocks and the terminal.', 'SF Pro', 12, 20),
     ...(separate ? [font('fontFamilyComposer', 'fontSizePrompt', 'prompt-font', 'Prompt font', 'Only the box you write prompts in. Mono works well here.', prefs.fontFamilySans || 'SF Pro', 12, 20)] : []),
-    separate ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', 'SF Mono', 10, 18)
-      : font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Monospace font', 'Code blocks, diffs, file previews, and the terminal.', 'SF Mono', 10, 18),
-    ...(separate ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', 'SF Mono', 8, 20)] : []),
+    separate ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', defaultCodeFamily(installed), 10, 18)
+      : font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Monospace font', 'Code blocks, diffs, file previews, and the terminal.', defaultCodeFamily(installed), 10, 18),
+    ...(separate ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', defaultCodeFamily(installed), 8, 20)] : []),
     row('wordWrap', 'word-wrap', 'Word wrap', 'Wrap long lines in code blocks, tables, diffs, and file previews by default.', 'switch', { resetLabel: 'word wrapping' }),
   ];
   const typographyAdvanced: CoreRow[] = [

@@ -35,7 +35,7 @@ export interface ProviderHost {
   setupTarget?(instanceId: string): string;
 }
 type Row = { id: string; instance: Obj; driver: string; isDefault: boolean; isDirty: boolean };
-export type AcpAgent = { id: string; name: string; description: string; link: string; icon: string; iconUrl: string; version: string; distribution: string; added: boolean };
+export type AcpAgent = { id: string; name: string; description: string; link: string; website: string; repository: string; icon: string; iconUrl: string; version: string; distribution: string; added: boolean };
 const ENV_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const settingsOf = (host: ProviderHost) => obj(host.config.settings);
 const liveProviders = (host: ProviderHost) => arr(host.config.providers);
@@ -360,7 +360,7 @@ export function refreshAcpRegistry(host: ProviderHost, query: string): void { ac
 /** AcpRegistrySearchStep's results: the agents T3 Code ships first-class are left out, the configured ones marked added. */
 function acpRegistryView(answer: Obj[], configured: string[]) {
   const agents: AcpAgent[] = answer.filter(agent => !FIRST_CLASS_REGISTRY_AGENT_IDS.has(str(agent.id))).map(agent => ({ id: str(agent.id), name: str(agent.name), description: str(agent.description),
-    link: str(agent.website) || str(agent.repository), icon: str(agent.icon), version: str(agent.version), distribution: str(agent.distribution),
+    link: str(agent.website) || str(agent.repository), website: str(agent.website), repository: str(agent.repository), icon: str(agent.icon), version: str(agent.version), distribution: str(agent.distribution),
     iconUrl: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: 'acpRegistry', agentId: str(agent.id), iconUrl: str(agent.icon) || undefined }) ?? '',
     added: configured.includes(str(agent.id)) }));
   return { ready: true, error: '', agents, status: `${agents.length} compatible ${agents.length === 1 ? 'agent' : 'agents'} found.` };
@@ -487,7 +487,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     const agentId = str(input.key || input.agentId).trim();
     if (!agentId) throw new ClientError('Select an ACP or configure one manually.');
     const result = await host.rpc(native, 'server.prepareAcpRegistryAgent', { agentId }, true);
-    const agent: AcpAgent = acpLastAgents.find(candidate => candidate.id === agentId) ?? { id: agentId, name: str(input.value) || agentId, description: '', link: '', icon: '', iconUrl: '', version: '', distribution: '', added: false };
+    const agent: AcpAgent = acpLastAgents.find(candidate => candidate.id === agentId) ?? { id: agentId, name: str(input.value) || agentId, description: '', link: '', website: '', repository: '', icon: '', iconUrl: '', version: '', distribution: '', added: false };
     acpPrepared = { serial: wizardSerial, agent: { ...agent, id: str(result.agentId) || agentId, version: str(result.version) || str(agent.version), distribution: str(result.distribution) || str(agent.distribution) } };
     return '';
   }

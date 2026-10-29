@@ -357,6 +357,36 @@ test('Add provider: an agent added before Enter manually or Local ACP command is
   expect(appText('providers-scope.ts')).toContain("dialog, target, Number(args[11]) || 0);");
 });
 
+// ProviderCommandArguments and ProviderEnvironmentSection: SettingsRows whose control is the outline sm add button with
+// its plus, top right, and whose rows sit below at mt-3 space-y-2 pb-2, inset as the field rows are.
+test("Add provider's Arguments and Variables are rows whose add button is their control, the rows below", () => {
+  const source = appText('providers-wizard.contract');
+  const block = (title: string, add: string, rows: string) => new RegExp('\\n( +)column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0\\.75rem" padding-bottom="0\\.75rem" testId="[^"]+"\\n'
+    + '\\1  row width="100%" gap="2rem" align-items="center"\\n\\1    column flex=1 min-width=0 gap="0\\.25rem"\\n\\1      text "' + title + '"[^\\n]*\\n\\1      text [^\\n]*\\n'
+    + '\\1    button press=' + add + ' class=PvOutline[^\\n]*\\n\\1      PvIcon\\(name="plus"[^\\n]*\\n\\1      text "[^"]+"[^\\n]*\\n'
+    + '\\1  if ' + rows + '\\.length > 0\\n\\1    column width="100%" min-width=0 gap="0\\.5rem" margin-top="0\\.75rem" padding-bottom="0\\.5rem"\\n');
+  expect(source).toMatch(block('Arguments', 'addArgument', 'commandArgs'));
+  expect(source).toMatch(block('Variables', 'addVariable', 'variables'));
+  // An argument row: its mono field and the ghost-destructive remove.
+  expect(source).toMatch(/input value=arg input=editArgument\(index\)[^\n]*font-family="ui-monospace"[^\n]*\n\s+button press=removeArgument\(index\) class=PvMicro[^\n]*\n\s+PvIcon\(name="x", size=12, color="light-dark\(#e7000b, #ff6467\)"\)/);
+});
+
+// The Identity card links Docs to the agent's website and Source to its repository, each only when the registry gives
+// it (AddProviderInstanceDialog); the search row's About link is the website, else the repository (aboutUrl).
+test("Add provider's agent card shows Docs for a website and Source for a repository", async () => {
+  const card = contractComponent('providers-wizard.contract', 'AcpAgentCard');
+  const links = (website: string, repository: string) => {
+    const scope = { agent: { id: 'amp-acp', name: 'Amp', version: '0.10.0', distribution: 'binary', website, repository } };
+    return [card.drawn('text "Docs"', {}, scope), card.drawn('text "Source"', {}, scope)];
+  };
+  expect([links('', 'https://github.com/x/amp-acp'), links('https://amp.dev', ''), links('https://amp.dev', 'https://github.com/x/amp-acp')]).toEqual([[false, true], [true, false], [true, true]]);
+  const server = new FakeServer();
+  server.registry = [...server.registry, { id: 'amp-acp', name: 'Amp', version: '0.10.0', description: 'ACP wrapper for Amp', website: null, repository: 'https://github.com/x/amp-acp', icon: '', distribution: 'binary' }];
+  await acpRegistry(server, native, '', false, []);
+  const amp = (await acpRegistry(server, native, 'amp', true, [])).agents.find(entry => entry.id === 'amp-acp')!;
+  expect([amp.link, amp.website, amp.repository]).toEqual(['https://github.com/x/amp-acp', '', 'https://github.com/x/amp-acp']);
+});
+
 test('ACP registry search and prepare fill the identity step without installing during search', async () => {
   const server = new FakeServer();
   expect(await acpRegistry(server, native, '', false, [])).toMatchObject({ ready: false, agents: [] });

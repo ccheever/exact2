@@ -54,7 +54,9 @@ shape AcpAgent
   id: string
   name: string
   description: string
-  link: string
+  link: string // the search row's About link: the website, else the repository (AcpRegistrySearchStep aboutUrl)
+  website: string
+  repository: string
   icon: string
   iconUrl: string
   version: string
@@ -136,6 +138,22 @@ component MultipleAccountsNote
       text flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
         text `We do not recommend managing multiple ${name} accounts in T3 Code. `
         text "More info" href="https://github.com/pingdotgg/t3code/blob/main/docs/user/faq.md#can-i-add-a-bunch-of-accounts-for-one-provider" color="light-dark(#71717b, #a1a1a1)" text-decoration-line="underline"
+
+// The prepared agent's card on the Identity step (AddProviderInstanceDialog): Docs for its website, Source for its
+// repository.
+component AcpAgentCard
+  props
+    agent: AcpAgent
+  view
+    row width="100%" gap="0.75rem" padding-bottom="0.75rem" margin-bottom="1rem" align-items="flex-start" justify-content="space-between" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)"
+      column flex=1 min-width=0
+        text agent.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" line-clamp=1
+        text `v${agent.version} · ${agent.distribution}` font-size="0.75rem" line-height="1rem" margin-top="0.125rem" color="light-dark(#71717b, #a1a1a1)"
+      row flex-shrink=0 gap="0.5rem"
+        if agent.website != ""
+          text "Docs" href=agent.website font-size="0.6875rem" color="light-dark(#71717b, #a1a1a1)" aria-label=`Open documentation for ${agent.name} (${agent.id})`
+        if agent.repository != ""
+          text "Source" href=agent.repository font-size="0.6875rem" color="light-dark(#71717b, #a1a1a1)" aria-label=`Open source for ${agent.name} (${agent.id})`
 
 // ENVIRONMENT_VARIABLE_NAME_PATTERN (ProviderInstanceCard.tsx): /^[a-zA-Z_][a-zA-Z0-9_]*$/.
 fn envNameValid(name: string): bool = name != "" and not "0123456789".includes(name.slice(0, 1)) and name.split("").filter((c) => not "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_".includes(c)).length == 0
@@ -351,19 +369,26 @@ component AddProviderDialog
                           if not localAcp or field.key == "source" or field.key == "commandPath"
                             WizardFieldRow(field=field, local=localAcp, value=(field.index == 0 ? f0 : (field.index == 1 ? f1 : (field.index == 2 ? f2 : (field.index == 3 ? f3 : f4)))), set=setField)
                     if localAcp
-                      column gap="0.5rem"
-                        text "Arguments" font-size="0.875rem" font-weight=500
-                        text "One literal argument per row, in launch order." font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)"
-                        for arg, index in commandArgs key=index
-                          row gap="0.5rem"
-                            input value=arg input=editArgument(index) aria-label=`Argument ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 testId=`new-provider-argument-${index}` id=`field-new-provider-argument-${index}` data-editable="yes" data-focus-stop="enabled"
-                            button press=removeArgument(index) class=PvIconButton aria-label=`Remove argument ${index + 1}` title=""
-                              PvIcon(name="x", size=12, color="light-dark(#71717b, #a1a1a1)")
-                        button press=addArgument class=PvOutline testId="new-provider-add-argument" id="new-provider-add-argument" data-focus-stop="enabled"
-                          text "Add argument" font-size="0.8125rem"
+                      // ProviderCommandArguments: a SettingsRow whose control is the outline sm Add argument, with the rows
+                      // below it (mt-3 space-y-2 pb-2), each a mono field and its ghost-destructive remove.
+                      column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" testId="new-provider-arguments"
+                        row width="100%" gap="2rem" align-items="center"
+                          column flex=1 min-width=0 gap="0.25rem"
+                            text "Arguments" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
+                            text "One literal argument per row, in launch order." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
+                          button press=addArgument class=PvOutline testId="new-provider-add-argument" id="new-provider-add-argument" data-focus-stop="enabled"
+                            PvIcon(name="plus", size=12, color="light-dark(#71717b, #a1a1a1)")
+                            text "Add argument" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+                        if commandArgs.length > 0
+                          column width="100%" min-width=0 gap="0.5rem" margin-top="0.75rem" padding-bottom="0.5rem"
+                            for arg, index in commandArgs key=index
+                              row width="100%" min-width=0 gap="0.375rem" align-items="center"
+                                input value=arg input=editArgument(index) aria-label=`Argument ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" testId=`new-provider-argument-${index}` id=`field-new-provider-argument-${index}` data-editable="yes" data-focus-stop="enabled"
+                                button press=removeArgument(index) class=PvMicro aria-label=`Remove argument ${index + 1}` testId=`new-provider-argument-remove-${index}` title="" id=`new-provider-argument-remove-${index}` data-focus-stop="enabled"
+                                  PvIcon(name="x", size=12, color="light-dark(#e7000b, #ff6467)")
                       // ProviderEnvironmentSection for the local command: rows of name, value (hidden while sensitive, the default)
                       // and the lock; a row whose name is blank is left out when the instance is added.
-                      column width="100%" gap="0.5rem" testId="new-provider-variables"
+                      column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" testId="new-provider-variables"
                         row width="100%" gap="2rem" align-items="center"
                           column flex=1 min-width=0 gap="0.25rem"
                             text "Variables" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
@@ -371,18 +396,19 @@ component AddProviderDialog
                           button press=addVariable class=PvOutline disabled=busy testId="new-provider-add-variable" id="new-provider-add-variable" data-focus-stop=(busy ? "" : "enabled")
                             PvIcon(name="plus", size=12, color="light-dark(#71717b, #a1a1a1)")
                             text "Add variable" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
-                        for variable, index in variables key=index
-                          row width="100%" min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" testId=`new-provider-variable-${index}`
-                            input value=variable.name input=editVariableName(index) blur=commitVariables submit=commitVariables placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${index + 1}` autocorrect="off" spellcheck="false" class=PvField width="11rem" flex-shrink=0 font-family="ui-monospace" font-size="0.8125rem" testId=`new-provider-variable-name-${index}` id=`field-new-provider-variable-name-${index}` data-editable="yes" data-focus-stop="enabled"
-                            text "=" font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
-                            input value=variable.value input=editVariableValue(index) blur=commitVariables submit=commitVariables placeholder="value" type=(variable.sensitive ? "password" : "text") aria-label=`Environment variable value ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" testId=`new-provider-variable-value-${index}` id=`field-new-provider-variable-value-${index}` data-editable="yes" data-focus-stop="enabled"
-                            Tip(label=(variable.sensitive ? "Sensitive, stored separately" : "Plain text"), side="top", align="center", offset=24)
-                              button press=toggleVariableSensitive(index) class=PvMicro aria-pressed=variable.sensitive aria-label=(variable.name != "" ? `Mark environment variable ${variable.name} as sensitive` : `Mark environment variable ${index + 1} as sensitive`) testId=`new-provider-variable-sensitive-${index}` title="" id=`new-provider-variable-sensitive-${index}` data-focus-stop="enabled"
-                                MorphLock(on=variable.sensitive, size=12, color="light-dark(#71717b, #a1a1a1)", weight=2, still=false)
-                            button press=removeVariable(index) class=PvMicro aria-label=(variable.name != "" ? `Remove environment variable ${variable.name}` : `Remove environment variable ${index + 1}`) testId=`new-provider-variable-remove-${index}` title="" id=`new-provider-variable-remove-${index}` data-focus-stop="enabled"
-                              PvIcon(name="x", size=12, color="light-dark(#e7000b, #ff6467)")
                         if variables.length > 0
-                          text "Sensitive values are stored separately and never returned to the app." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+                          column width="100%" min-width=0 gap="0.5rem" margin-top="0.75rem" padding-bottom="0.5rem"
+                            for variable, index in variables key=index
+                              row width="100%" min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" testId=`new-provider-variable-${index}`
+                                input value=variable.name input=editVariableName(index) blur=commitVariables submit=commitVariables placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${index + 1}` autocorrect="off" spellcheck="false" class=PvField width="11rem" flex-shrink=0 font-family="ui-monospace" font-size="0.8125rem" testId=`new-provider-variable-name-${index}` id=`field-new-provider-variable-name-${index}` data-editable="yes" data-focus-stop="enabled"
+                                text "=" font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
+                                input value=variable.value input=editVariableValue(index) blur=commitVariables submit=commitVariables placeholder="value" type=(variable.sensitive ? "password" : "text") aria-label=`Environment variable value ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" testId=`new-provider-variable-value-${index}` id=`field-new-provider-variable-value-${index}` data-editable="yes" data-focus-stop="enabled"
+                                Tip(label=(variable.sensitive ? "Sensitive, stored separately" : "Plain text"), side="top", align="center", offset=24)
+                                  button press=toggleVariableSensitive(index) class=PvMicro aria-pressed=variable.sensitive aria-label=(variable.name != "" ? `Mark environment variable ${variable.name} as sensitive` : `Mark environment variable ${index + 1} as sensitive`) testId=`new-provider-variable-sensitive-${index}` title="" id=`new-provider-variable-sensitive-${index}` data-focus-stop="enabled"
+                                    MorphLock(on=variable.sensitive, size=12, color="light-dark(#71717b, #a1a1a1)", weight=2, still=false)
+                                button press=removeVariable(index) class=PvMicro aria-label=(variable.name != "" ? `Remove environment variable ${variable.name}` : `Remove environment variable ${index + 1}`) testId=`new-provider-variable-remove-${index}` title="" id=`new-provider-variable-remove-${index}` data-focus-stop="enabled"
+                                  PvIcon(name="x", size=12, color="light-dark(#e7000b, #ff6467)")
+                            text "Sensitive values are stored separately and never returned to the app." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
                     if attempted and selectionError != ""
                       text selectionError font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="acp-selection-error"
                 else
@@ -430,12 +456,7 @@ component AddProviderDialog
             if shownStep == 1
               column width="100%" gap="0.25rem" min-height=(isAcp ? "18rem" : "0px")
                 for agent in wizard.prepared key=agent.id
-                  row width="100%" gap="0.75rem" padding-bottom="0.75rem" margin-bottom="1rem" align-items="flex-start" justify-content="space-between" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)"
-                    column flex=1 min-width=0
-                      text agent.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" line-clamp=1
-                      text `v${agent.version} · ${agent.distribution}` font-size="0.75rem" line-height="1rem" margin-top="0.125rem" color="light-dark(#71717b, #a1a1a1)"
-                    if agent.link != ""
-                      text "Docs" href=agent.link font-size="0.6875rem" color="light-dark(#71717b, #a1a1a1)" aria-label=`Open documentation for ${agent.name} (${agent.id})`
+                  AcpAgentCard(agent=agent)
                 WizardRow(title="Label", description="Shown in the provider list.", status="")
                   input value=shownLabel input=ui("label") placeholder="e.g. Work" aria-label="Label" class=PvField width="14rem" testId="new-provider-name" autocorrect="off" id="field-new-provider-name" data-editable="yes" data-focus-stop="enabled"
                 WizardRow(title="Instance ID", description="Letters, digits, '-', or '_'.", status=(attempted ? wizard.idError : ""))
