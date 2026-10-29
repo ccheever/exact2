@@ -136,13 +136,49 @@ export function fileLinkTarget(href: string, root: string): string {
   return parts.join('/') || '/';
 }
 
-const MARKDOWN_LINK = /!?\[([^\]\n]*)\]\((?:<[^>\n]*>|[^\s)]*)\)/g;
+/**
+ * `text` with each Markdown link or image read as its label, as MessagesTimeline.logic.ts reads it by replacing
+ * `/!?\[([^\]\n]*)\]\((?:<[^>\n]*>|[^\s)]*)\)/g` with `$1`: a `[` or `![`, a label to the first `]` on its line, then
+ * `(`, an `<…>` target or one with no space, and `)`. Where each part ends is found once for the whole text, so a line of
+ * many unclosed `[` or `![` reads in linear time, where the expression read on to the line's end from each.
+ */
+export function markdownLinkLabels(text: string): string {
+  if (!text.includes('](')) return text;
+  const ends = (pattern: RegExp) => Array.from(text.matchAll(pattern), match => match.index);
+  const labelEnds = ends(/[\]\n]/g), angleEnds = ends(/[>\n]/g), plainEnds = ends(/[\s)]/g);
+  // The first of `at` that is `from` or after, or -1.
+  const next = (at: number[], from: number) => {
+    let low = 0, high = at.length;
+    while (low < high) { const middle = (low + high) >> 1; if (at[middle]! < from) low = middle + 1; else high = middle; }
+    return low < at.length ? at[low]! : -1;
+  };
+  let out = '', copied = 0;
+  for (let at = text.indexOf('['); at >= 0;) {
+    const close = next(labelEnds, at + 1);
+    let end = -1;
+    if (close >= 0 && text[close] === ']' && text[close + 1] === '(') {
+      if (text[close + 2] === '<') {
+        const angle = next(angleEnds, close + 3);
+        if (angle >= 0 && text[angle] === '>' && text[angle + 1] === ')') end = angle + 2;
+      }
+      if (end < 0) {
+        const plain = next(plainEnds, close + 2);
+        if (plain >= 0 && text[plain] === ')') end = plain + 1;
+      }
+    }
+    if (end < 0) { at = text.indexOf('[', at + 1); continue; }
+    out += text.slice(copied, at > copied && text[at - 1] === '!' ? at - 1 : at) + text.slice(at + 1, close);
+    copied = end;
+    at = text.indexOf('[', end);
+  }
+  return out + text.slice(copied);
+}
 /**
  * shouldCollapseUserMessage (MessagesTimeline.logic.ts): past 600 characters or 8 lines of what
  * the reader sees, where a link counts as its label and a quote as its chip's label.
  */
 export function shouldCollapseUserMessage(text: string): boolean {
-  const linkLabels = (segment: string) => segment.replace(MARKDOWN_LINK, '$1');
+  const linkLabels = markdownLinkLabels;
   let visible = '', cursor = 0;
   for (const match of text.matchAll(COMPOSER_CITATION)) {
     const citation = parseAssistantCitationHref(match[1]!);

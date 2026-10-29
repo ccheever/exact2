@@ -168,7 +168,7 @@ export function markdownImages(text: string): { alt: string; src: string; href: 
   for (const line of text.split('\n')) {
     const trimmed = line.trim(), match = IMAGE_LINE.exec(trimmed);
     if (!match) continue;
-    const span = imageSpan(trimmed, 0);
+    const span = lineMarks(trimmed).imageSpan(0);
     if (span && span.end !== trimmed.length - 1) continue;
     let src = match[2]!.trim();
     const cut = src.search(/["']/);
@@ -185,43 +185,69 @@ function inlineTarget(inside: string): string {
   if (cut >= 0) target = target.slice(0, cut).trim();
   return target.replace(/^<+/, '').replace(/>+$/, '');
 }
-/** `![alt](inside)` at `at`: the `]` and the `)` that close it (markdown_media.rs image_span). */
-function imageSpan(line: string, at: number): { close: number; end: number } | null {
-  const close = line.indexOf(']', at + 2);
-  if (close < 0 || line[close + 1] !== '(') return null;
-  let depth = 0;
-  for (let index = close + 1; index < line.length; index++) {
-    if (line[index] === '(') depth++;
-    else if (line[index] === ')' && --depth === 0) return { close, end: index };
-  }
-  return null;
-}
-const leading = (text: string, marker: string) => { let count = 0; while (text[count] === marker) count++; return count; };
+const leading = (text: string, marker: string, from = 0) => { let end = from; while (text[end] === marker) end++; return end - from; };
 /** The run href of an image inside a line of text (markdown_media.rs IMAGE_MARK). */
 export const INLINE_IMAGE = 't3-image:';
-/** markdown_media.rs code_span_end: where the code span whose backticks start at `at` ends (unclosed: its backticks). */
-function codeSpanEnd(line: string, at: number): number {
-  const run = leading(line.slice(at), '`');
-  let from = at + run;
-  for (;;) {
-    const found = line.indexOf('`'.repeat(run), from);
-    if (found < 0) return at + run;
-    const length = leading(line.slice(found), '`');
-    if (length === run) return found + run;
-    from = found + length;
-  }
+/** The index of the first of the ascending `positions` that is `from` or after (`positions.length` with none). */
+function firstFrom(positions: number[], from: number): number {
+  let low = 0, high = positions.length;
+  while (low < high) { const middle = (low + high) >> 1; if (positions[middle]! < from) low = middle + 1; else high = middle; }
+  return low;
 }
-/** markdown_media.rs starts_link_text: the `[` at `open` starts a link's text (its matching `]` is followed by `(`). */
-function startsLinkText(line: string, open: number): boolean {
-  for (let at = open + 1, depth = 1; at < line.length;) {
+/**
+ * One line's brackets, parentheses and backtick runs, each found once (markdown_media.rs LineMarks), so each `![`, `[`
+ * and run of backticks it holds is read in constant time: a line of many unclosed `![` or `(`, or of images inside an
+ * unclosed link's text, reads in linear time, where reading on from each to the line's end did not.
+ */
+function lineMarks(line: string) {
+  const opens: number[] = [], closes: number[] = [], unclosed: number[] = [], brackets: number[] = [];
+  // The `)` that balances the `(` at each position, every parenthesis counted, as an image's destination counts them.
+  const parens = new Map<number, number>();
+  // The start of each run of backticks, by its length.
+  const ticks = new Map<number, number[]>();
+  // Whether the `[` at each position starts a link's text: its matching `]`, escapes and code spans aside, is followed by `(`.
+  const linkTexts = new Map<number, boolean>();
+  for (let at = 0; at < line.length;) {
+    const character = line[at];
+    if (character === '`') {
+      const run = leading(line, '`', at), starts = ticks.get(run);
+      if (starts) starts.push(at);
+      else ticks.set(run, [at]);
+      at += run;
+      continue;
+    }
+    if (character === '[') opens.push(at);
+    else if (character === ']') closes.push(at);
+    else if (character === '(') unclosed.push(at);
+    else if (character === ')') { const open = unclosed.pop(); if (open !== undefined) parens.set(open, at); }
+    at++;
+  }
+  // markdown_media.rs code_span_end: past the next run of as many backticks, or, with none, past its own run, which is
+  // then text.
+  const codeSpanEnd = (at: number) => {
+    const run = leading(line, '`', at), starts = ticks.get(run) ?? [], next = starts[firstFrom(starts, at + run)];
+    return next === undefined ? at + run : next + run;
+  };
+  for (let at = 0; at < line.length;) {
     const character = line[at];
     if (character === '\\') at += 2;
-    else if (character === '`') at = codeSpanEnd(line, at);
-    else if (character === '[') { depth++; at++; }
-    else if (character === ']') { if (--depth === 0) return line[at + 1] === '('; at++; }
+    else if (character === '`') at = codeSpanEnd(at);
+    else if (character === '[') brackets.push(at++);
+    else if (character === ']') { const open = brackets.pop(); if (open !== undefined) linkTexts.set(open, line[at + 1] === '('); at++; }
     else at++;
   }
-  return false;
+  return {
+    codeSpanEnd,
+    /** `![alt](inside)` at `at`: the first `]` after its `![`, followed by a `(` whose `)` balances it. */
+    imageSpan(at: number): { close: number; end: number } | null {
+      const close = closes[firstFrom(closes, at + 2)];
+      const end = close !== undefined && line[close + 1] === '(' ? parens.get(close + 1) : undefined;
+      return close !== undefined && end !== undefined ? { close, end } : null;
+    },
+    /** Whether a `[` lies from `from` up to `to`. */
+    opensWithin: (from: number, to: number) => (opens[firstFrom(opens, from)] ?? to) < to,
+    startsLinkText: (open: number) => linkTexts.get(open) === true,
+  };
 }
 export type InlineImage = { alt: string; src: string; href: string; linked: boolean };
 /**
@@ -244,19 +270,19 @@ export function markdownInlineImages(text: string): InlineImage[] {
     const first = trimmed[0] ?? '';
     if ((first === '`' || first === '~') && leading(trimmed, first) >= 3) { fence = { marker: first, width: leading(trimmed, first) }; continue; }
     if (!line.includes('![')) continue;
-    const opened: number[] = [];
+    const marks = lineMarks(line), opened: number[] = [];
     let at = 0;
     while (at < line.length) {
       const character = line[at];
       if (character === '\\') at += 2;
-      else if (character === '`') at = codeSpanEnd(line, at);
+      else if (character === '`') at = marks.codeSpanEnd(at);
       else if (character === '[') { opened.push(at); at++; }
       else if (character === ']') { opened.pop(); at++; }
       else if (character === '!' && line[at + 1] === '[') {
-        const span = imageSpan(line, at);
-        if (!span || line.slice(at + 2, span.close).includes('[')) { at++; continue; }
+        const span = marks.imageSpan(at);
+        if (!span || marks.opensWithin(at + 2, span.close)) { at++; continue; }
         const src = inlineTarget(line.slice(span.close + 2, span.end));
-        const linked = opened.length > 0 && startsLinkText(line, opened[opened.length - 1]!);
+        const linked = opened.length > 0 && marks.startsLinkText(opened[opened.length - 1]!);
         if (!src.startsWith('t3-context://')) out.push({ alt: line.slice(at + 2, span.close), src, href: `${INLINE_IMAGE}${markdownImageHref(src)}`, linked });
         at = span.end + 1;
       } else at++;
