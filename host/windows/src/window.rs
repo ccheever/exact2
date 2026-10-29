@@ -456,13 +456,16 @@ impl<D: DataSource + Default + 'static> App<D> {
         // moments this turn's commits and the window's new size caused; an
         // overlay published here is in the frame painted below.
         p.hatch_turn();
+        let prepared_at = frame_started.elapsed().as_secs_f64() * 1000.;
         p.poll_images();
         // The OS draws the desktop cursor; this presenter's arrow is for DRM.
         p.set_pointer(None);
         if self.frames > 0 {
             p.sync_surfaces();
         }
+        let images_at = frame_started.elapsed().as_secs_f64() * 1000.;
         p.tick(now);
+        let tick_at = frame_started.elapsed().as_secs_f64() * 1000.;
         self.caret.advance(frame_started);
         p.set_caret_visible(self.caret.visible());
         if self.frames == 0 {
@@ -564,6 +567,8 @@ impl<D: DataSource + Default + 'static> App<D> {
             self.cursor = cursor;
         }
         let present_ms = present.elapsed().as_secs_f64() * 1000. + direct_present_ms;
+        let presented_at = frame_started.elapsed().as_secs_f64() * 1000.;
+        let render_ms = p.last_frame_ms().map_or(0., |(render, _)| render);
         self.present_ms += present_ms;
         if let Some(previous) = self.previous_frame.replace(frame_started) {
             let sample = (
@@ -647,10 +652,13 @@ impl<D: DataSource + Default + 'static> App<D> {
                 self.caret.visible(), paint_ms, present_ms);
         }
         p.first_pixel();
+        let activated_at = frame_started.elapsed().as_secs_f64() * 1000.;
         if let Some(access) = &mut self.accessibility {
             access.sync(p, window, &self.name);
         }
+        let accessible_at = frame_started.elapsed().as_secs_f64() * 1000.;
         self.ime.sync(window, p);
+        let ime_at = frame_started.elapsed().as_secs_f64() * 1000.;
         if let Some(target) = self.first_tap.take() {
             let keys = p.host().kernel().find_by_test_id(&target);
             if keys.len() != 1 {
@@ -662,6 +670,10 @@ impl<D: DataSource + Default + 'static> App<D> {
             p.tap(id)?;
         }
         p.sync_surfaces();
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            eprintln!("exact-windows: phases {} prepare {prepared_at:.3}, images {images_at:.3}, tick {tick_at:.3}, presented {presented_at:.3}, activated {activated_at:.3}, accessibility {accessible_at:.3}, ime {ime_at:.3}, surfaces {:.3} ms from frame start; render {render_ms:.3} ms",
+                self.frames, frame_started.elapsed().as_secs_f64() * 1000.);
+        }
         if repaint_owed || p.dirty() {
             p.repaint();
             window.request_redraw();
