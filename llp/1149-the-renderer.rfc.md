@@ -559,12 +559,11 @@ its manifest, per platform as the manifest is shaped: `host.windows.painter: "in
 painter it has today (the CPU painter on Windows, vello or the CPU painter on Linux, the
 Canvas host or vello on Android). `EXACT_PAINTER=ink|gpu|cpu` overrides it for the agent,
 the smoke and tests, as it does today. Nothing shipped changes when the renderer lands.
-**On Windows, ink's device defaults to wgpu with the `softbuffer` present at the first
-landing**; the DirectX 11 composition path of S0 C6 stays behind `EXACT_INK_DEVICE=d3d11`
-until S2 proves it on a desktop (the second blind code review, Sol and Muse, both asked for
-this: resize and occlusion on the composition swap chain, caret blink and the RichEdit spike
-were not product-ready at `e83558a4d6`; `llp/reviews/` records nothing for code reviews, the
-lane's `target/review-*.md` holds them, and C6f's commit names each finding's disposition). On Apple the native host stays the default — what an
+**On Windows, ink defaults to DirectX 11 composition**, with `EXACT_INK_DEVICE=wgpu` as
+the override: S2.5's ten interleaved launches per size on the NucBox have zero first-second
+host frame intervals over 25 ms versus softbuffer's zero at 1024×720 and two at 1920×1080, with
+first-screen startup medians +4.74% and −2.46% respectively (`host/ink/MEASUREMENTS.md`).
+On Apple the native host stays the default — what an
 author leaves unsaid is the platform's (LLP 1115) — and an app chooses the painted presenter
 in its manifest, per platform as the manifest is shaped: `host.macos.presenter: "painted"`,
 `host.ios.presenter: "painted"` (`scripts/app.schema.json`; the native host is the absent
