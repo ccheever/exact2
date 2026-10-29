@@ -135,13 +135,17 @@ describe('a chip\'s face is its pill', () => {
   const face = (patch: Env) => ({kind: 'mention', label: 'README.md', suffix: '', icon: 'at-sign', fileToken: '', imageId: '', available: true,
     interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ...patch});
   test('label and suffix, the kind\'s SF Symbol, and the tooltip', () => {
-    expect(fns.composerAtomFace({source: '@README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc', title: 'README.md',
-      color: '', backgroundColor: ''});
+    expect(fns.composerAtomFace({kind: 'mention', source: '@README.md', path: 'README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc',
+      title: 'README.md', color: '', backgroundColor: '', direction: 'ltr'});
     expect(fns.composerAtomFace({source: '[x](t3-context://v1/terminal/a)', face: face({kind: 'terminal', label: 'Terminal', suffix: 'lines 1-4', icon: 'square-terminal', tip: ''})}))
       .toMatchObject({label: 'Terminal lines 1-4', icon: 'symbol:sf/apple.terminal', title: ''});
     // A citation's tooltip says how its comment opens; the preview's citation has no comment.
     expect(fns.composerAtomFace({source: '[q](t3-citation://v1/e/t/m)', face: face({kind: 'citation', label: 'the quote', icon: 'quote', tip: 'the quote', comment: true})}))
       .toMatchObject({icon: 'symbol:sf/quote.opening', title: 'the quote\n⌥-click to comment'});
+  });
+  test('a file mention keeps its icon before its path in a right-to-left line; the other chips follow their line', () => {
+    expect(fns.composerAtomFace({kind: 'mention', source: '[plan.md](docs/plan.md)', path: 'docs/plan.md', face: face({label: 'plan.md'})}).direction).toBe('ltr');
+    for (const kind of ['skill', 'context', 'citation']) expect(fns.composerAtomFace({kind, source: 'x', face: face({kind})}).direction).toBe('');
   });
   test('a document chip takes its type\'s accent over its kind\'s paint (documentIconColorForFileName)', () => {
     const paint = (chip: Env) => { const {color, backgroundColor} = fns.composerAtomFace(chip); return [color, backgroundColor]; };

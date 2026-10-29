@@ -1,6 +1,6 @@
 // A draft image uploads as it joins the draft, three at once, each in an upload resource whose stream tells the bytes it
 // has sent (composer-uploads.ts; attachmentUploadQueue.ts at T3 Code 7c3b3b3605ef).
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import { adoptAppFiles } from '../../src/media/save-file';
 import { retryDraftUpload, runDraftUploads, settleUploads, uploadBlock, uploadSource, uploadTable, type UploadEvent } from '../../src/composer/composer-uploads';
@@ -31,12 +31,12 @@ function fixture(count: number, supported = true) {
   return { client, images, requests };
 }
 
-/** The fetch an upload resource makes: its URL and init, and its mapper. */
+/** The fetch an upload resource makes: its URL and init, and its mapper. This file's tests alone see the stand-in. */
 const fetched: Array<{ url: string; init: Obj }> = [];
 const realFetch = globalThis.fetch;
-globalThis.fetch = (async (url: string, init: Obj) => { fetched.push({ url, init }); return new Promise(() => {}); }) as unknown as typeof fetch;
+beforeAll(() => { globalThis.fetch = (async (url: string, init: Obj) => { fetched.push({ url, init }); return new Promise(() => {}); }) as unknown as typeof fetch; });
+afterAll(() => { globalThis.fetch = realFetch; });
 afterEach(() => { fetched.length = 0; });
-process.on('exit', () => { globalThis.fetch = realFetch; });
 const stream = (slot: number, client: T3Client, table = uploadTable(client)) => {
   const at = [table.u0, table.u1, table.u2][slot]!;
   uploadSource(client, slot, at.id, at.attachmentId);
