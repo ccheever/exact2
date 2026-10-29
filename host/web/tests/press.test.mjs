@@ -495,7 +495,9 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     // A tapped link of text keeps the browser's `:hover`, which underlines it only where a pointer hovers (neutral.css).
     await finger('touchStart', await centre('link'));
     await finger('touchEnd');
-    expect(await evaluate(`(() => { const el = document.getElementById('link'); return [matchMedia('(hover: hover)').matches, el.matches(':hover'), getComputedStyle(el).textDecorationLine].join(); })()`)).toBe('false,true,none');
+    // Chrome gives the tapped element `:hover` with the tap's gesture, which can come a frame or more after the
+    // touch's end on a loaded machine: wait frames for it (2 s at most), then read.
+    expect(await evaluate(`new Promise(ok => { const el = document.getElementById('link'), end = performance.now() + 2000, look = () => { if (el.matches(':hover') || performance.now() > end) ok([matchMedia('(hover: hover)').matches, el.matches(':hover'), getComputedStyle(el).textDecorationLine].join()); else requestAnimationFrame(look); }; look(); })`)).toBe('false,true,none');
     await evaluate(`window.vibrations = []; navigator.vibrate = ms => { vibrations.push(ms); at.vibrated = performance.now(); return true; }; document.getElementById('inner').style.setProperty('--exact-press-haptic', 'impact-medium')`);
     const vibrations = () => evaluate('vibrations.join()');
     await finger('touchStart', await centre('inner'));
@@ -733,6 +735,9 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await settle();
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     await settle();
+    // The paint's end, waited for in frames as above: on a loaded machine the release's ease can have finished
+    // while its finish event, sent with a frame, has not come yet, and the paint still shows.
+    expect(await evaluate(`new Promise(ok => { const end = performance.now() + 2000, look = () => { const on = document.getElementById('painted').hasAttribute('data-exact-painting'); if (!on || performance.now() > end) ok(on); else requestAnimationFrame(look); }; look(); })`)).toBe(false);
     expect(await look('painted')).toBe('0.6 rgb(255, 255, 0) rgb(0, 0, 0)');
     await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = ''; el.style.backgroundColor = 'rgb(255, 255, 255)'; el.style.opacity = '0.8'; }`);
     expect(await ink('label')).toBe('rgb(0, 0, 0)');

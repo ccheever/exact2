@@ -54,7 +54,8 @@ final class PresentedText: TextPresentation {
         if r.fixedInk, r.color != nil { a[.exactFixedInk] = true }
         // A centred stroke over the fill: Core Text's negative width,
         // in percent of the run's size (LLP 1077 D7). Each run's own.
-        if let st = r.stroke, st.count == 5, st[0] > 0, r.size > 0 {
+        // Its colour four channels, or nine in its own space (a wide colour, or a dimmed face's grey past white).
+        if let st = r.stroke, st.count == 5 || st.count == 10, st[0] > 0, r.size > 0 {
             a[.strokeWidth] = -st[0] / Double(r.size) * 100
             a[.strokeColor] = TextEngine.color(Array(st[1...]))
         }

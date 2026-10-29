@@ -1249,6 +1249,10 @@ export function wholeProgram(kind, profile) {
  * `check` runs `cargo check`: the build scripts (the bake) and the receipt,
  * with no linked product (delivery's web bake, host/web/build.mjs --bake).
  * `options.kind` overrides the crate kind the platform implies. */
+/** What an app's bake watches besides its sources (its asset roots that exist, whether a backend origin is chosen); unset, a missing one stays an input where the app holds its build output, and every build reruns the script and relinks (bake/src/receipt/watch.rs). Every baking build passes it. `app`: its `dir`, `manifest`. */
+export const bakeWatchEnv = app => ({ EXACT_ASSET_ROOTS: ['assets', 'deck', ...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root => (root === 'assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir, 'art')))) || existsSync(resolve(app.dir, root))).join(','), EXACT_BACKEND_SELECTION: existsSync(resolve(app.dir, '.exact/backend-origin')) ? 'present' : 'absent' });
+/** The dev loop's bake driver (host/web/dev.mjs): an app's `<app>-dev` bin (`devBin`), else `exact-dev`, on host-dev (seconds after an edit, not release's minute), with `bakeWatchEnv` (nothing rebuilt when nothing changed): its cargo args before `--`, cwd and env over `env`. */
+export const devBinRun = (app, devBin, env) => ({ args: ['run', '-q', ...(devBin ? injectedProfiles(app) : []), '--profile', HOST_DEV, '-p', devBin ? app.crate('web') : 'exact-web', '--bin', devBin ?? 'exact-dev'], cwd: devBin ? app.workspace : ROOT, env: { ...env, ...bakeWatchEnv(app) } });
 export function buildBake(app, platform, target, options = {}) {
   // `kind` names another crate for the platform's cohort: Android's Canvas host bakes as Linux from `<app>-android`.
   const kind=options.kind??platformCrateKind(app.dir,platform), apple=['apple','ios','macos','tvos'].includes(kind);
@@ -1286,7 +1290,7 @@ export function buildBake(app, platform, target, options = {}) {
   for(const {pkg,unit} of selected) {
     const profile = (gpuPackage(pkg) ? options.gpuProfile : null) ?? options.profile ?? (platform === 'web' ? 'web' : 'release');
     // The GPU bake can create the first asset directory (for a typed level).
-    env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(','); env.EXACT_BACKEND_SELECTION=existsSync(resolve(app.dir,'.exact/backend-origin')) ? 'present' : 'absent';
+    Object.assign(env, bakeWatchEnv(app));
     // The app's own web artifact builds std for size; a GPU crate keeps the toolchain's std.
     const sized=platform==='web'&&!gpuPackage(pkg);
     // An Apple app's crate is an rlib to Cargo, so `--workspace` builds type-check it without

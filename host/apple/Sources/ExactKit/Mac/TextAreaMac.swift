@@ -445,7 +445,7 @@ extension NodeView {
         guard let f = textArea else { return }
         configureMarkup()
         writeValue(props["value"] ?? "", into: f)
-        restyleMarkupDirections()
+        restyleMarkupProps()
         restyleDecorations()
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled

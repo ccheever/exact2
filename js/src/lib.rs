@@ -230,8 +230,7 @@ struct HostState {
     /// Door ops answered as an older host's door answers them (tests).
     refused_ops: Vec<u32>,
     /// The socket operations the answer or mapper call being made handed
-    /// over (op 14), by the prelude's ticket for each socket's stream (LLP
-    /// 1016.000 D7).
+    /// over (op 14), by the prelude's ticket for each socket's stream (LLP 1016.000 D7).
     socket_ops: Vec<(u64, exact_runner::SocketOp)>,
     /// The socket operations a turn of an answer sent as it made them (op
     /// 17; the amendment of 2026-10-18), by the same ticket.
@@ -325,6 +324,10 @@ pub struct Module {
     waiters: Vec<u64>,
     /// Deliveries and new answers so far: what a waiting answer waits for.
     progress: u64,
+    /// Overlays whose answer was encoded for the module's `exact.overlay`.
+    overlays_encoded: u64,
+    /// Whether the module had an `exact.overlay` when it loaded.
+    has_overlay: bool,
     budget_ms: f64,
     turn_time: TurnTime,
     max_heap: u32,
@@ -409,6 +412,8 @@ impl Module {
             streams: Vec::new(),
             waiters: Vec::new(),
             progress: 0,
+            overlays_encoded: 0,
+            has_overlay: true,
             budget_ms: DEFAULT_BUDGET_MS,
             turn_time: TurnTime::default(),
             max_heap: DEFAULT_MAX_HEAP,
@@ -527,8 +532,7 @@ impl Module {
     }
 
     /// Create the runtime, evaluate the prelude and the bytecode, and check
-    /// that the module speaks this ABI and is the app the bake said it is.
-    /// Idempotent.
+    /// that the module speaks this ABI and is the app the bake said it is. Idempotent.
     pub fn load(&mut self) -> Result<(), String> {
         if self.engine.is_some() {
             return Ok(());
@@ -551,7 +555,7 @@ impl Module {
         if engine.string("grants")?.trim() != self.grants.trim() {
             return Err("exact-js: the module's grants differ from what the bake recorded".into());
         }
-        self.engine = Some(engine);
+        self.install(engine);
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
         if took_ms > SLOW_LOAD_MS {
             self.logs.push(format!(
@@ -593,8 +597,16 @@ impl Module {
         // host that cannot parse the grants holds none of them.
         ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&module.grants))
             .map_err(|e| format!("exact-js: app.ts `grants`: {e}"))?;
-        module.engine = Some(engine);
+        module.install(engine);
         Ok(module)
+    }
+
+    /// `load`'s and `inspect`'s last step: the overlay is decided once, here, alike (a failed read keeps it asked).
+    fn install(&mut self, mut engine: Watched) {
+        self.has_overlay = engine
+            .call("__exact_has_overlay", ["", "", ""])
+            .map_or(true, |t| !t.is_empty());
+        self.engine = Some(engine);
     }
 
     fn load_engine(&mut self) -> Result<Watched, String> {
@@ -738,6 +750,11 @@ impl Module {
     /// Whether an engine is up.
     pub fn is_loaded(&self) -> bool {
         self.engine.is_some()
+    }
+
+    /// How many overlays were encoded for the module's `exact.overlay` (none without one).
+    pub fn overlays_encoded(&self) -> u64 {
+        self.overlays_encoded
     }
 
     /// The per-turn budget in milliseconds (its own time, `turn.rs`); a turn
@@ -1103,8 +1120,7 @@ impl Module {
 
     /// The module's `overlay` for `source(args)`: `answer` with `writes`
     /// laid over it, called synchronously with no answer current and every effect
-    /// refused. `None` when the module exports none or it returns
-    /// `undefined`.
+    /// refused. `None` when the module exports none or it returns `undefined`.
     fn overlay(
         &mut self,
         source: &str,
@@ -1118,6 +1134,11 @@ impl Module {
         let Some(sig) = self.sigs.get(source) else {
             return Err(DataError::UnknownSource(source.to_string()));
         };
+        // A module loaded with no `exact.overlay` shows the answer (`{tag:4}`): nothing is encoded for it.
+        if !self.has_overlay {
+            return Ok(None);
+        }
+        self.overlays_encoded += 1;
         let json = |value: &Value, shape: &Shape| {
             to_json(value, shape)
                 .map_err(|_| DataError::BadArguments(format!("`{source}`'s overlay input")))

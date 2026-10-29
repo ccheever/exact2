@@ -9,7 +9,7 @@ async function browserTest(run) {
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
     if (path === '/assets/given.html' || path === '/deck/given.htm' || path === '/other/given.html') return new Response(GIVEN_PAGE, { headers: { 'content-type': 'text/html' } });
     const name = path.slice(1);
-    for (const dir of ['host/web-js', 'host/web']) {
+    for (const dir of ['host/web-js', 'host/web', 'host']) {
       const file = Bun.file(resolve(dir, name));
       if (await file.exists()) return new Response(file);
     }

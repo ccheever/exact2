@@ -76,7 +76,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
 
 // The real prelude and host turns, with storage backends that land at once.
 // `done` closes either placement even when an answer is still parked.
-async function moduleRealm(script, { placement = 'worker', key = 'k' } = {}) {
+async function moduleRealm(script, { placement = 'worker', key = 'k', top = '' } = {}) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-worker-storage-')), captured = {};
   const saved = Object.fromEntries(['fetch', 'document', 'location', 'exact'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   let realm;
@@ -103,7 +103,8 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     const bytes = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: 'net.fetch https://api.castle.test', answer(source, args, store, storage) {
   const read = path => storage.fs.readFile(path).then(bytes => new TextDecoder().decode(bytes));
   ${script}
-} };`);
+} };
+${top}`);
     const sha = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
     globalThis.fetch = async url => { const r = new Response(String(url).endsWith('module-prelude.js') ? prelude : String(url).endsWith('module-binary.js') ? binary : 'never'); Object.defineProperty(r, 'url', { value: 'http://127.0.0.1/x' }); return r; };
     globalThis.location = { href: 'http://127.0.0.1/', origin: 'http://127.0.0.1' };
@@ -132,6 +133,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
       ask: source => glue.run(glue.call(request('answer', source)).continuation),
       resume: source => glue.run(glue.call(request('resume', source, { outcome: { response: { status: 200, headers: [], body: 'fresh' } } })).continuation),
       forget: inFlight => glue.call({ op: 'forget', id: realm.id, inFlight: inFlight.map(s => request('answer', s)) }),
+      overlay: source => glue.call({ op: 'overlay', id: realm.id, source, args: [], answer: [], writes: [] }),
     };
   } catch (error) { done(); throw error; }
 }
@@ -294,3 +296,22 @@ for (const placement of ['main', 'worker']) {
     } finally { w.done(); }
   }, 20000);
 }
+
+// A getter on `exact.overlay` runs inside the overlay's guard (prelude.js `__exact_overlay`, LLP 1054): on the
+// page realm an answer's call stays current between its tasks, so before the first read moved under the guard a
+// getter could `store.set` through a store it kept into that outstanding answer. Both reads refuse it now.
+test('a writing getter on exact.overlay is refused on both of the overlay\'s reads (main)', async () => {
+  const w = await moduleRealm(`if (source === 'arm') { globalThis.kept = store; return fetch('https://api.castle.test/feed').then(r => r.text()); }
+  return globalThis.tries.join('\\n');`, { placement: 'main', top: `globalThis.tries = [];
+Object.defineProperty(exact, 'overlay', { get() {
+  if (globalThis.kept) { try { globalThis.kept.set('x', 'y'); globalThis.tries.push('ran'); } catch (e) { globalThis.tries.push('throws ' + e.message); } }
+  return (source, args, answer) => answer.concat(['overlaid']);
+} });` });
+  try {
+    expect((await w.ask('arm')).tag).toBe(1); // its fetch out: the answer is outstanding, its store kept
+    expect(w.overlay('items')).toMatchObject({ tag: 0, value: ['overlaid'] });
+    const tries = (await race(w.ask('tries'))).value.split('\n');
+    expect(tries).toHaveLength(2);
+    for (const line of tries) expect(line).toStartWith('throws store.set() is unavailable in an overlay');
+  } finally { w.done(); }
+}, 20000);

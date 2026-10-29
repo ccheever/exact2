@@ -17,6 +17,18 @@ final class TextPaintTests: XCTestCase {
             letterSpacing: 0, background: background)
     }
 
+    /// A stroke in a colour of its own space (its width, then nine numbers: a wide colour, or a dimmed
+    /// face's grey past white) is painted in that colour, as a four-channel one is
+    func testAStrokeInItsOwnSpaceIsPainted() throws {
+        var wide = run("Wide")
+        wide.stroke = [2, 255, 255, 255, 255, 0, 1.2, 1.2, 1.2, 1]
+        let attributed = engine.attributed(Spec(runs: [wide], align: 0, lineClamp: 0, color: [0, 0, 0, 255]))
+        XCTAssertEqual(try XCTUnwrap(attributed.attribute(.strokeWidth, at: 0, effectiveRange: nil) as? Double), -2 / 16 * 100, accuracy: 1e-9)
+        let colour = try XCTUnwrap(attributed.attribute(.strokeColor, at: 0, effectiveRange: nil) as? PlatformColor)
+        let extended = try XCTUnwrap(colour.cgColor.converted(to: CGColorSpace(name: CGColorSpace.extendedSRGB)!, intent: .defaultIntent, options: nil)?.components)
+        XCTAssertEqual(Double(extended[0]), 1.2, accuracy: 0.001, "in extended sRGB, past white")
+    }
+
     /// Premultiplied RGBA, rows top-down, at scale 1, painted y-down as a view does.
     private func paint(_ p: Paragraph, _ spec: Spec, size: CGSize) -> (bytes: [UInt8], width: Int, height: Int) {
         let width = Int(size.width), height = Int(size.height)

@@ -6,7 +6,8 @@ use contract::DataSource;
 fn main() {
     contract::rerun_if_changed(std::path::Path::new("../app.contract"));
     println!("cargo:rerun-if-changed=../app.json");
-    println!("cargo:rerun-if-changed=../assets");
+    // (The asset roots are watched by the bake, `exact_bake::compatibility_id`, as they exist: a missing one
+    // named here was a missing input, rebuilding this crate on every build.)
     println!("cargo:rerun-if-changed=../data");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../../../Cargo.lock");

@@ -250,17 +250,14 @@ const KNOWN_LOSS: &[&str] = &[
     "controlTextChanged()",
     "deliverySync()",
     "designRows(_:)",
-    "fulfillSurface(_:kind:body:now:)",
     "hostGo(_:now:)",
     "midi(_:)",
     "navigate(_:_:now:)",
     "picked(_:_:now:)",
     "preferExtension(_:)",
-    "regionComplete(_:)",
     "setModes(_:check:)",
     "share(_:now:)",
     "storeChanged(retryOnly:)",
-    "surfaceRecord(_:_:)",
     "textReady(index:generation:revision:)",
 ];
 
