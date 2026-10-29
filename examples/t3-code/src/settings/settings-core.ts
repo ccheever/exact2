@@ -722,8 +722,8 @@ export function serverValue(key: string, raw: string, context: ServerContext, pa
       if (!(raw in BACKGROUND)) throw new ClientError('Advanced background activity needs one environment.');
       return { schemaVersion: 1, profile: raw, overrides: {} };
     case 'addProjectBaseDirectory': if (raw.length > 4096) throw new ClientError('Use a shorter directory.'); return raw.trim();
-    // TrimmedString: the field saves its text without surrounding whitespace.
-    case 'threadTitleInstructions': if (raw.length > 4096) throw new ClientError('Use shorter instructions.'); return raw.trim();
+    // TrimmedString, of any length: the field saves its text without surrounding whitespace.
+    case 'threadTitleInstructions': return raw.trim();
     case 'idleCompaction': if (!IDLE_COMPACTION_MODES.some(([mode]) => mode === raw)) throw new ClientError('Choose a supported idle compaction mode.'); return raw;
     case 'defaultModelSelection': case 'textGenerationModelSelection': return modelValue(raw, part, key, context);
     default: return bool();

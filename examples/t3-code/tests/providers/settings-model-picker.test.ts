@@ -14,6 +14,7 @@ import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { toasts } from '../../src/shell/toast';
 import { settingsFailure } from '../../src/shell/shell-commands';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const badge = () => ({ providerBadge: '', providerBadgeColor: '' });
 const capabilities = { projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
@@ -166,5 +167,21 @@ describe('keyboard', () => {
     expect(jumps('default-model:|||')).toEqual([['modelPicker.jump.1', 'gpt-6-astra', 'codex']]);
     expect(jumps('default-model:|env-a||')).toEqual([['modelPicker.jump.1', 'gpt-5.6-luna', 'codex'], ['modelPicker.jump.2', 'gpt-6-astra', 'codex']]);
     expect(keyboardDispatch(c, [], 'codex', '', { ...context, modelPickerOpen: false, modelTarget: 'default-model:|||' }).some(item => item.command.startsWith('modelPicker'))).toBe(false);
+  });
+  // ModelPickerContent onWindowKeyDown: ⇧⌘↑/⇧⌘↓ (modelPicker.previousProvider/nextProvider, mod+shift+arrowup/down) move
+  // along the tab rail, wrapping, and the dispatch's button for each presses providerByKey with that tab.
+  test("⇧⌘↑/⇧⌘↓ in the open picker are buttons whose press picks the tab before or after the current one", () => {
+    const c = client();
+    const tab = (key: string, command: string) => ({ command, shortcut: { key, modKey: true, metaKey: false, ctrlKey: false, altKey: false, shiftKey: true }, whenAst: pickerOpen });
+    (c.config as Obj).keybindings = [tab('arrowup', 'modelPicker.previousProvider'), tab('arrowdown', 'modelPicker.nextProvider')];
+    const context = { composerFocus: true, editableFocus: true, turnRunning: false, modelPickerOpen: true, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false, settingsRoute: '' };
+    const tabs = (browse: string) => keyboardDispatch(c, [], browse, '', context).filter(item => item.kind === 'provider');
+    expect(tabs('codex').map(item => [item.chord, item.target])).toEqual([['Meta+Shift+ArrowUp', 'favorites'], ['Meta+Shift+ArrowDown', 'claudeAgent']]);
+    expect(tabs('favorites').map(item => [item.chord, item.target])).toEqual([['Meta+Shift+ArrowUp', 'cursor'], ['Meta+Shift+ArrowDown', 'codex']]);
+    const dispatch = contractComponent('settings-shortcuts.contract', 'ShortcutDispatch');
+    const button = 'ShortcutButton(item=item, press=providerByKey(item.target))';
+    const scope = { item: tabs('codex')[1]!, providerByKey: (target: string) => ['providerByKey', target] };
+    expect(dispatch.drawn(button, {}, scope)).toBe(true);
+    expect(dispatch.callArguments(button, {}, scope).press).toEqual(['providerByKey', 'claudeAgent']);
   });
 });

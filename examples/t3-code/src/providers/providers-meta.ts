@@ -10,7 +10,9 @@ export type DriverField = {
 };
 export type Driver = {
   id: string; label: string; enabledByDefault: boolean; defaultSlot: boolean;
-  fields: DriverField[]; env: DriverField[]; legacyDefault: Obj | null; modelPlaceholder: string; color: string;
+  fields: DriverField[]; env: DriverField[]; legacyDefault: Obj | null; color: string;
+  /** ProviderModelsSection's CUSTOM_MODEL_PLACEHOLDER_BY_KIND: the custom model field's placeholder; a driver without one shows none. */
+  modelPlaceholder?: string;
   /** `false` lists the provider under Add provider's "Show more" instead of up front. */
   featured?: boolean;
   /** A badge beside the provider's name in Add provider. */
@@ -59,11 +61,11 @@ export const DRIVERS: Driver[] = [
     acpRegistryAgentIds: ['cursor'],
     legacyDefault: { enabled: false, customModels: [] }, fields: [],
     env: [field('CURSOR_API_KEY', 'Cursor API key', 'Optional. Overrides browser sign-in for this provider.', 'Paste API key', { control: 'password' })] },
-  { id: 'grok', label: 'Grok', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', modelPlaceholder: 'model-slug',
+  { id: 'grok', label: 'Grok', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)',
     acpRegistryAgentIds: ['grok-build'],
     legacyDefault: { enabled: false, binaryPath: 'grok', customModels: [] }, env: [], fields: [binary('Path to the Grok CLI binary.', 'grok')] },
   // packages/provider-fx: listed under Add provider's Show more.
-  { id: 'fx', label: 'fx', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', modelPlaceholder: 'model-slug', featured: false,
+  { id: 'fx', label: 'fx', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', featured: false,
     legacyDefault: { enabled: false, binaryPath: 'fx', customModels: [] }, env: [], fields: [binary('Path to the fx binary. All fx instances on this machine share its fx login.', 'fx')] },
   { id: 'opencode', label: 'OpenCode', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#211E1E, #F1ECEC)', modelPlaceholder: 'openai/gpt-5',
     acpRegistryAgentIds: ['opencode', 'opencode-v2'],
@@ -71,7 +73,7 @@ export const DRIVERS: Driver[] = [
     fields: [binary('Path to the OpenCode binary.', 'opencode'),
       field('serverUrl', 'Server URL', 'Leave blank to let T3 Code spawn the server when needed.', 'http://127.0.0.1:4096'),
       field('serverPassword', 'Server password', 'Stored separately on the host.', 'Optional', { control: 'password' })] },
-  { id: 'antigravity', label: 'Antigravity', enabledByDefault: false, defaultSlot: true, color: '#5b87bf', modelPlaceholder: 'model-slug',
+  { id: 'antigravity', label: 'Antigravity', enabledByDefault: false, defaultSlot: true, color: '#5b87bf',
     acpRegistryAgentIds: ['antigravity-acp'],
     legacyDefault: { enabled: false, authMethod: 'oauth-personal', apiKey: '', gcpProject: '', gcpLocation: '', binaryPath: '', customModels: [] }, env: [],
     fields: [field('authMethod', 'Sign-in method', 'Google accounts use your subscription; API keys and Agent Platform bill usage.', '', { control: 'select', options: ANTIGRAVITY_AUTH_METHODS }),
@@ -79,7 +81,7 @@ export const DRIVERS: Driver[] = [
       field('gcpProject', 'GCP project', 'Required for Gemini Enterprise. Agent Platform uses it when no API key is set.', 'my-project-id'),
       field('gcpLocation', 'GCP location', 'Region for Gemini Enterprise or Agent Platform.', 'us-central1'),
       field('binaryPath', 'Binary path', 'Custom ACP executable. Leave empty to select automatically.', 'Automatic', { persist: true })] },
-  { id: 'muse', label: 'Muse Code', enabledByDefault: false, defaultSlot: true, color: '#0081fb', modelPlaceholder: 'model-slug',
+  { id: 'muse', label: 'Muse Code', enabledByDefault: false, defaultSlot: true, color: '#0081fb',
     legacyDefault: { enabled: false, binaryPath: 'muse', customModels: [] }, env: [],
     fields: [binary('Path to the Muse Code binary on this environment. Sign in with muse login on that host.', 'muse')] },
   { id: 'pi', label: 'Pi', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', modelPlaceholder: 'anthropic/claude-sonnet-5',
@@ -87,7 +89,7 @@ export const DRIVERS: Driver[] = [
     legacyDefault: { enabled: false, binaryPath: 'pi', launchArgs: '', customModels: [] }, env: [],
     fields: [binary('Path to the Pi coding agent binary.', 'pi'),
       field('launchArgs', 'Launch arguments', 'Additional CLI arguments passed to pi --mode rpc on session start.')] },
-  { id: 'acpRegistry', label: 'ACP Registry', enabledByDefault: true, defaultSlot: false, color: 'light-dark(#000000, #ffffff)', modelPlaceholder: 'model-slug',
+  { id: 'acpRegistry', label: 'ACP Registry', enabledByDefault: true, defaultSlot: false, color: 'light-dark(#000000, #ffffff)',
     legacyDefault: null, env: [],
     fields: [field('source', 'ACP source', 'Install a registry agent or run a command on this environment.', 'registry', { control: 'select', options: [{ value: 'registry', label: 'ACP Registry' }, { value: 'local', label: 'Local command' }] }),
       field('agentId', 'Registry agent ID', "Agent identifier from the official ACP Registry, for example 'devin'.", 'devin', { persist: true }),

@@ -7,6 +7,9 @@ import type { Native } from '../../src/client/protocol';
 import { appPath, appText } from '../support/app-files';
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
+import { PROVIDER_DISPLAY_NAMES } from '../../src/providers/provider-updates';
+import { searchSettings } from '../../src/settings/settings-search';
+import { DRIVER_MARKS } from '../../tools/generate/icon-marks.mjs';
 
 const legacy = () => ({
   codex: { enabled: false, binaryPath: 'codex', homePath: '', shadowHomePath: '', launchArgs: '', customModels: [] },
@@ -172,11 +175,34 @@ test('Local ACP command: the entry after Enter manually opens the local configur
   expect(source).toContain('text (localAcp ? "Local ACP command" : "Enter manually")');
   expect(source).toContain('text (localAcp ? `Run an installed ACP executable on ${wizard.environment}.` : "Enter an official registry ID and any local executable or auth override.")');
   expect(source).toContain('summary=(shownStep > 0 ? (isAcp ? (localAcp ? "Local ACP command" : wizard.label) : wizard.driverLabel) : "")');
-  // The window's half: configured by hand, labelled "Local ACP" (handleLocalAcpConfiguration).
+  // isLocalAcp needs the hand configuration: back on the registry search, the draft's local source is not the local command.
+  expect(source).toContain('derive localAcp = wizard.driver == "acpRegistry" and manual and f0 == "local"');
+  // Enter manually, a registry agent's Add and a provider picked after the ACP Registry clear its draft.
+  expect(source).toContain('button press=manualEntry class=PvGhost');
+  expect(source).toContain('button press=prepareAgent(agent.id, agent.name) class=PvOutline');
+  expect(source.split('WizardDriverOption(driver=driver, manual=manual, ui=pickDriver)').length).toBe(3);
+  const drafted = (): Obj => ({ f0: 'local', f1: '', f2: 'dsh', f3: '', f4: '', commandArgs: ['--acp'], variables: [{ name: 'A', value: 'b', sensitive: true }] });
+  const fields = (draft: Obj) => [draft.f0, draft.f1, draft.f2, draft.f3, draft.f4, draft.commandArgs, draft.variables];
+  const sent: unknown[][] = [];
+  const props = (driver: string) => ({ wizard: { driver }, ui: (...args: unknown[]) => sent.push(['ui', ...args]), op: (...args: unknown[]) => sent.push(['op', ...args]) });
+  const manual = drafted(), prepared = drafted(), left = drafted(), codex = drafted();
+  dialog.call('manualEntry', manual, props('acpRegistry'), []);
+  dialog.call('prepareAgent', prepared, props('acpRegistry'), ['devin', 'Devin']);
+  dialog.call('pickDriver', left, props('acpRegistry'), ['driver', 'codex']);
+  dialog.call('pickDriver', codex, props('codex'), ['driver', 'claudeAgent']);
+  const cleared = ['', '', '', '', '', [], []];
+  expect([fields(manual), fields(prepared), fields(left), fields(codex)]).toEqual([cleared, cleared, cleared, fields(drafted())]);
+  expect(sent).toEqual([['ui', 'manual', 'true'], ['op', 'acp-prepare', '', 'devin', 'Devin', true], ['ui', 'driver', 'codex'], ['ui', 'driver', 'claudeAgent']]);
+  // The root's half: configured by hand, labelled "Local ACP" (handleLocalAcpConfiguration).
   const root = contractComponent('app.contract', 'T3Code');
   const window: Obj = { modalError: 'x', providerSelected: '', wizardManual: false, wizardLabel: '', wizardLabelSet: false, wizardIdSet: true, providerDialog: 'add' };
   root.call('providerUi', window, {}, ['local', '']);
   expect([window.wizardManual, window.wizardLabel, window.wizardLabelSet, window.wizardIdSet]).toEqual([true, 'Local ACP', true, false]);
+  // The window's half starts the attempt over (setHasAttemptedSubmit(false)).
+  const attempt: Obj = { wizardAttempted: true };
+  contractComponent('app-window.contract', 'T3Window').call('providerUi', attempt, { wizardStep: 0, wizardManual: false, providerWizard: { idError: '' },
+    providerUiRoot: () => {}, min: Math.min, max: Math.max }, ['local', '']);
+  expect(attempt.wizardAttempted).toBe(false);
   // The add: a blank row is left out, a bad name refuses it.
   const server = new FakeServer();
   const add = (input: Obj) => runProviderOp(server, native, 'provider-add', '', JSON.stringify({ driver: 'acpRegistry', label: 'Local ACP', fields: { source: 'local', commandPath: 'dsh' }, commandArgs: ['--acp'], ...input }));
@@ -298,6 +324,53 @@ test("a Claude instance's own idle compaction: a select after Auto-compact after
   const count = writes(server).length;
   await op('default');
   expect(writes(server)).toHaveLength(count);
+});
+
+// ProviderModelsSection's custom model field: CUSTOM_MODEL_PLACEHOLDER_BY_KIND names five drivers' slugs, and every
+// other driver's field has no placeholder (ProviderModelsSection.tsx:20-26,411).
+test("the custom model field shows its driver's placeholder, and none for fx or Grok", () => {
+  const server = new FakeServer();
+  server.settings.providerInstances = { ...obj(server.settings.providerInstances), fx_work: { driver: 'fx', enabled: true }, grok_work: { driver: 'grok', enabled: true } };
+  server.config = server.snapshot();
+  const placeholder = (id: string) => providerPage(server, id, 0).editors[0]!.modelPlaceholder;
+  expect([placeholder('exact_fixture'), placeholder('fx_work'), placeholder('grok_work')]).toEqual(['gpt-6.7-codex-ultra-preview', '', '']);
+});
+
+// packages/provider-fx: its client icon in Grok's ink, its entry in PROVIDER_DISPLAY_NAMES (model.ts), and the search terms.
+test('fx: its mark, its display name and the search terms that find it', () => {
+  const mark = contractComponent('provider-icons-kit.contract', 'DriverMark');
+  const props = { driver: 'fx', size: 16, initials: 'FX', icon: '' };
+  expect([mark.drawn('FxDriverMark(size=size)', {}, props), mark.drawn('text initials', {}, props)]).toEqual([true, false]);
+  expect(DRIVER_MARKS.FxDriverMark).toMatch(/^<svg viewBox="166\.241 0 155\.861 156" [^>]*color="light-dark\(#0F0F0F, #F5F5F5\)">/);
+  expect(PROVIDER_DISPLAY_NAMES.fx).toBe('fx');
+  expect(searchSettings('fx', { connected: true, autoSettle: true, scopeKind: 'environment' }).map(item => item.id)).toEqual(expect.arrayContaining(['providers', 'provider-update-checks']));
+});
+
+// ProviderSettingsSelect in Add provider's Config step, as on the instance's editor: a select, not a row of radios.
+test("a provider's select field is a Select in Add provider and on the instance's editor", () => {
+  const field = { key: 'authMethod', label: 'Sign-in method', description: '', placeholder: '', control: 'select', index: 2,
+    options: [{ value: 'google', label: 'Google account', selected: true }, { value: 'agent-platform', label: 'Agent Platform (Vertex AI)', selected: false }] };
+  const wizardRow = contractComponent('providers-wizard.contract', 'WizardFieldRow');
+  const scope = { local: false, field, value: '', set: (index: number) => ['set', index], SelectOption: (args: Obj) => args };
+  expect(wizardRow.drawn('SettingsSelect(selectId=`new-provider-${field.key}`', {}, scope)).toBe(true);
+  expect(wizardRow.callArguments('SettingsSelect(selectId=`new-provider-${field.key}`', {}, scope)).toMatchObject({ selectId: 'new-provider-authMethod', valueLabel: 'Google account', choose: ['set', 2] });
+  const ops: unknown[][] = [];
+  contractComponent('providers.contract', 'ProviderConfigField').call('pick', {}, { instance: 'antigravity', field, op: (...args: unknown[]) => ops.push(args) }, ['agent-platform']);
+  expect(ops).toEqual([['provider-field', 'antigravity', 'authMethod', 'agent-platform', true]]);
+  expect(appText('providers.contract')).not.toContain('role="radiogroup" aria-label=field.label');
+});
+
+// Providers › Advanced's core rows (CompactIdleThreadsRow) follow Health check interval; their edits go, scoped, through
+// the root's settings command as the core pages' do.
+test('Providers › Advanced draws its core rows and sends their edits to the settings scope through the root', () => {
+  const ops: unknown[][] = [];
+  contractComponent('providers.contract', 'ProvidersPanel').call('coreChange', {}, { page: { writeScope: 'env1||' }, op: (...args: unknown[]) => ops.push(args) }, ['compact-idle-threads', 'value', 'off']);
+  expect(ops).toEqual([['settings-core', 'compact-idle-threads:value|env1||', '', 'off', true]]);
+  expect(appText('providers.contract')).toMatch(/\n {12}for row in page\.advanced key=row\.id\n {14}CoreRowView\(reduced=still, row=row, section="provider-advanced", [^\n]*change=coreChange,/);
+  const commands: unknown[][] = [];
+  contractComponent('app.contract', 'T3Code').call('providerOp', { commandPending: false }, { settingsCommand: (...args: unknown[]) => commands.push(args), providerPage: { environment: 'env1', projectIds: '' } },
+    ['settings-core', 'compact-idle-threads:value|env1||', '', 'off', true]);
+  expect(commands).toEqual([['settings-core', 'compact-idle-threads:value|env1||', 'off']]);
 });
 
 test('default-slot upsert resets the legacy mirror; reset removes the explicit slot', async () => {

@@ -85,6 +85,7 @@ members T3Code
     settingsOpen = true
     settingsRoute = "general"
     settingsFocusTarget = "" // a jump left from the last visit; a caller that jumps sets its own after this
+    settingsJumpOpened = ""
     settingsMenu = ""
     settingsMachine = ""
     settingsProjectKey = ""
@@ -94,27 +95,31 @@ members T3Code
   // The search jump's target page has its data: the jump scrolls once that page is laid out (the list is settings-search.ts
   // CORE_ROUTES, the pages drawn from settings-core's sections, less Worktrees, whose rows the storage panel draws), the
   // settings answer is for this target (its fold), and no scope notice stands in for the page (SettingsScopeBoundary: the
-  // jump lands once a scope that has the row is chosen).
-  derive settingsJumpReady = settingsOpen and settingsFocusTarget != "" and ((settingsRoute != "maintenance" and settingsRoute != "worktrees") or storageSettings.available) and (settingsRoute != "archived" or archives.available) and (settingsRoute != "diagnostics" or diagnostics.available) and (settingsRoute != "keybindings" or bindings.available) and (settingsRoute != "scheduled-tasks" or scheduled.available) and (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "providers" or providerPage.available) and (settingsRoute != "projects" or projectsSettings.ready) and (not settingsFocusTarget.startsWith("keybinding-") or keybindingQuery == "") and ((settingsRoute != "browser" and settingsRoute != "devices") or integrations.available) and (not ["general", "appearance", "chat", "diffs", "threads", "maintenance", "about", "labs"].includes(settingsRoute) or (settingsCore.ready and settingsCore.route == settingsRoute and settingsCore.sections.length > 0)) and settingsCore.jumpTarget == settingsFocusTarget and settingsCore.notice == ""
-  // A jump lands on the row or section its target names (SettingsRow's own id, settings-search.ts searchTarget). A target
-  // a fold names (an Advanced fold's `targetIds`, a source control host's details) opens the fold first, as
+  // jump lands once a scope that has the row is chosen). Providers' answer is the open page's once it names an
+  // environment: the one it gives while the page is closed has none, and no Advanced rows.
+  derive settingsJumpReady = settingsOpen and settingsFocusTarget != "" and ((settingsRoute != "maintenance" and settingsRoute != "worktrees") or storageSettings.available) and (settingsRoute != "archived" or archives.available) and (settingsRoute != "diagnostics" or diagnostics.available) and (settingsRoute != "keybindings" or bindings.available) and (settingsRoute != "scheduled-tasks" or scheduled.available) and (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "providers" or (providerPage.available and providerPage.environment != "")) and (settingsRoute != "projects" or projectsSettings.ready) and (not settingsFocusTarget.startsWith("keybinding-") or keybindingQuery == "") and ((settingsRoute != "browser" and settingsRoute != "devices") or integrations.available) and (not ["general", "appearance", "chat", "diffs", "threads", "maintenance", "about", "labs"].includes(settingsRoute) or (settingsCore.ready and settingsCore.route == settingsRoute and settingsCore.sections.length > 0)) and settingsCore.jumpTarget == settingsFocusTarget and settingsCore.notice == ""
+  // A jump lands on the row or section its target names (SettingsRow's own id, settings-search.ts searchTarget), once
+  // the row is drawn, as the reference lands from the row's ref when it mounts (useSettingsSearchTarget). A target a
+  // fold names (an Advanced fold's `targetIds`, a source control host's details) opens the fold first, as
   // AdvancedSettings opens it before the row mounts: the first pass focuses the fold's reveal stop, which opens it
   // (settings-advanced.contract), and keeps the target; the passes after it wait for the open fold to draw the row, then
   // scroll to the row and focus it, as scrollAndFocusSettingsTarget lands on the row once the panel has its height. A
-  // fold that has not drawn the row after a second keeps the focus on its stop. A fold not drawn here leaves the target
-  // as it is. The scroll centres what scrollAndFocusSettingsTarget centres (settingsLayout.tsx): a section's header, its
+  // row that is not drawn yet is waited for the same way. A fold that has not drawn the row after a second keeps the
+  // focus on its stop, and a row not drawn by then is landed on as it is. A fold not drawn here leaves the target as it
+  // is. The scroll centres what scrollAndFocusSettingsTarget centres (settingsLayout.tsx): a section's header, its
   // `<id>-scroll-target`, else the target itself.
-  state settingsJumpOpened = "" // `<target>|<page>` whose fold the jump has opened
-  state settingsJumpWaits = 0 // the passes since, while the fold has not drawn the row
+  state settingsJumpOpened = "" // `<target>|<page>` once the jump's first pass has run; a new jump, or leaving one, clears it
+  state settingsJumpWaits = 0 // the passes since, while the row is not drawn
   action focusSettingsTarget
     if settingsJumpReady
       let stop = settingsCore.jumpStop != "" and querySelectorAll("[data-focus-stop~=\"reveal\"]").includes(settingsCore.jumpStop) ? settingsCore.jumpStop : ""
       let drawn = frame(settingsFocusTarget).height > 0
-      if stop != "" and settingsJumpOpened != `${settingsFocusTarget}|${settingsPage}`
-        focus(stop)
+      if settingsJumpOpened != `${settingsFocusTarget}|${settingsPage}` and (stop != "" or not drawn)
+        if stop != ""
+          focus(stop)
         settingsJumpOpened = `${settingsFocusTarget}|${settingsPage}`
         settingsJumpWaits = 0
-      else if stop != "" and not drawn and settingsJumpWaits < 20
+      else if not drawn and settingsJumpWaits < 20
         settingsJumpWaits = settingsJumpWaits + 1
       else
         let target = stop != "" and not drawn ? stop : settingsFocusTarget
@@ -125,7 +130,8 @@ members T3Code
         settingsFocusTarget = ""
         settingsJumpOpened = ""
   // As scrollToSettingsTarget runs once the hash target mounts: a native `after(1, …)` runs after the layout the
-  // change made. A fold the jump opened is waited for every 50 ms, a second at most; the poll below is a backstop.
+  // change made. A fold the jump opened, or a row not drawn yet, is waited for every 50 ms, a second at most; the poll
+  // below is a backstop.
   task settingsJump when settingsJumpReady key=`${settingsFocusTarget}|${settingsPage}`
     after(1, focusSettingsTarget)
   task settingsJumpFold when settingsJumpReady and settingsJumpOpened != "" key=settingsJumpOpened
@@ -139,6 +145,7 @@ members T3Code
     keybindingQuery = ""
   action editSettingsQuery(value: string)
     settingsFocusTarget = ""
+    settingsJumpOpened = ""
     settingsQuery = value
     settingsResultIndex = 0
   action deviceSetting(id: string, value: string)
@@ -179,6 +186,7 @@ members T3Code
     settingsRoute = route
     providerLinkTarget = "" // a route reached without a provider link names no instance
     settingsFocusTarget = "" // a jump belongs to its page, as the reference's hash does
+    settingsJumpOpened = ""
     if route == "diagnostics" and settings.environmentId != ""
       settingsMachine = settings.environmentId
       settingsProjectKey = ""
@@ -191,6 +199,7 @@ members T3Code
     settingsRoute = route
     providerLinkTarget = ""
     settingsFocusTarget = target
+    settingsJumpOpened = ""
     settingsQuery = ""
     settingsMenu = ""
     modalError = ""
@@ -208,6 +217,7 @@ members T3Code
       settingsRoute = settingsNavigation.firstRoute
       providerLinkTarget = ""
       settingsFocusTarget = settingsNavigation.firstTarget
+      settingsJumpOpened = ""
       settingsQuery = ""
       settingsMenu = ""
       modalError = ""

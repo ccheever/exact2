@@ -128,6 +128,71 @@ describe('a Settings page owns its scroller', () => {
     expect(focused).toEqual(['skills-in-slash-menu']);
   });
 
+  test('a jump left before it lands opens its fold again next time; Providers waits for the open page, and every jump for its row', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const text = appText('app.contract');
+    const derive = (name: string) => text.match(new RegExp(`^  derive ${name} = (.+)$`, 'm'))![1]!;
+    const focused: string[] = [];
+    const box = (y: number, height: number) => ({ x: 0, y, width: 600, height });
+    const frames: Record<string, ReturnType<typeof box>> = { 'settings-content-column': box(100, 2000), 'settings-content-scroll': { x: 0, y: 60, width: 600, height: 600 },
+      'settings-advanced-composer-reveal': box(1200, 1) };
+    const state: Env = { settingsOpen: true, settingsRoute: 'general', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
+      settingsFocusTarget: '', settingsJumpOpened: '', settingsJumpWaits: 0, settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '' };
+    const available = { available: true };
+    let core = { ready: true, route: 'chat', sections: [{}], jumpTarget: 'skills-in-slash-menu', jumpStop: 'settings-advanced-composer-reveal', notice: '' };
+    let providerPage = { available: true, environment: '' };
+    const scope = (): Env => {
+      const env: Env = { ...state, settingsCore: core, storageSettings: available, archives: available, diagnostics: available, bindings: available, scheduled: available,
+        sourceControl: available, integrations: available, providerPage, projectsSettings: { ready: true }, max: Math.max, floor: Math.floor,
+        frame: (id: string) => frames[id] ?? box(0, 0), focus: (id: string) => focused.push(id), querySelectorAll: () => ['settings-advanced-composer-reveal'] };
+      for (const name of ['settingsPage', 'settingsPageScrollTop', 'settingsJumpReady']) env[name] = value(derive(name), env);
+      return env;
+    };
+    const run = (action: string, args: unknown[] = []) => root.call(action, state, scope(), args);
+    // The first pass opens the fold; leaving the page before the row is drawn starts the next jump to it over, so it
+    // opens the fold of the page drawn then (closed again) instead of waiting for a row that never comes.
+    run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
+    run('focusSettingsTarget');
+    expect([focused, state.settingsJumpOpened]).toEqual([['settings-advanced-composer-reveal'], `skills-in-slash-menu|${scope().settingsPage}`]);
+    run('coreNavigate', ['general']);
+    expect(state.settingsJumpOpened).toBe('');
+    run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
+    run('focusSettingsTarget');
+    expect(focused).toEqual(['settings-advanced-composer-reveal', 'settings-advanced-composer-reveal']);
+    // Every write of the jump's target, its landing too, clears the pass it had reached: a new query, Settings opened
+    // again, a page, a result picked by press or Return, a toast's or the palette's link to a row.
+    for (const file of ['settings-members.contract', 'shell-members.contract', 'palette-members.contract']) {
+      const body = appText(file).split('\n');
+      const writes = body.flatMap((line, at) => /^\s+settingsFocusTarget = /.test(line) ? [[line.trim(), body[at + 1]!.trim().startsWith('settingsJumpOpened = ""')]] : []);
+      expect(writes.length).toBeGreaterThan(0);
+      expect(writes.filter(([, clears]) => !clears)).toEqual([]);
+    }
+    // Providers' answer while the page was closed is available too, with no environment and no Advanced rows: the
+    // jump waits for the open page's.
+    run('corePick', ['providers', 'compact-idle-threads', '', '']);
+    core = { ...core, route: 'providers', jumpTarget: 'compact-idle-threads', jumpStop: '' };
+    expect(scope().settingsJumpReady).toBe(false);
+    providerPage = { available: true, environment: 'env1' };
+    expect(scope().settingsJumpReady).toBe(true);
+    // A row not drawn yet is waited for, every 50 ms (settingsJumpFold), then scrolled to and focused.
+    focused.length = 0;
+    run('focusSettingsTarget');
+    run('focusSettingsTarget');
+    expect([focused, state.settingsFocusTarget, state.settingsJumpWaits]).toEqual([[], 'compact-idle-threads', 1]);
+    frames['compact-idle-threads'] = box(1500, 60);
+    run('focusSettingsTarget');
+    expect([focused, state.settingsFocusTarget, state.settingsJumpOpened]).toEqual([['compact-idle-threads'], '', '']);
+    expect(Math.floor(state.settingsScrollTop as number)).toBe(1500 - 100 + 30 - 300);
+    // One never drawn is landed on as it is after a second.
+    delete frames['compact-idle-threads'];
+    run('corePick', ['providers', 'compact-idle-threads', '', '']);
+    focused.length = 0;
+    for (let pass = 0; pass < 21; pass++) run('focusSettingsTarget');
+    expect([focused, state.settingsFocusTarget]).toEqual([[], 'compact-idle-threads']);
+    run('focusSettingsTarget');
+    expect([focused, state.settingsFocusTarget]).toEqual([['compact-idle-threads'], '']);
+  });
+
   test("a section's result centres the section's header, as scrollAndFocusSettingsTarget does; a row's centres the row", () => {
     const root = contractComponent('app.contract', 'T3Code');
     const text = appText('app.contract');
@@ -198,7 +263,7 @@ describe('a Settings page owns its scroller', () => {
   test('the jump runs once its page is ready, not only on the one-second poll', async () => {
     const root = await source('app.contract');
     expect(root).toContain('  task settingsJump when settingsJumpReady key=`${settingsFocusTarget}|${settingsPage}`\n    after(1, focusSettingsTarget)\n');
-    // A fold the jump opened is waited for every 50 ms until it draws the row.
+    // A fold the jump opened, or a row not drawn yet, is waited for every 50 ms until the row is drawn.
     expect(root).toContain('  task settingsJumpFold when settingsJumpReady and settingsJumpOpened != "" key=settingsJumpOpened\n    every(50, focusSettingsTarget)\n');
     expect(lines(root, 'settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage')).toHaveLength(1);
     // Nothing but the jump and the page-left task writes the jump's page.

@@ -17,6 +17,7 @@ afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from '../../src/appearance/settings-appearance';
 import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from '../../src/settings/settings-search';
 import { settingsCore } from '../../src/settings/settings-core-view';
+import { scopedProviderPage } from '../../src/providers/providers-scope';
 import { worktreeRows } from '../../src/settings/settings-data';
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
@@ -285,6 +286,16 @@ describe('writes through the command', () => {
     const context = contextOf({ compactIdleThreads: false, idleCompaction: 'onReturn' });
     const mixed = idleCompactionRow({ ...context, targets: [context.targets[0]!, { ...context.targets[0]!, environmentId: 'env2', settings: { compactIdleThreads: true } }] });
     expect(view(mixed)).toEqual(['Mixed', false, 'mixed', [[false, false], [false, false], [false, true]]]);
+  });
+  // CompactIdleThreadsRow (SettingsPanels.tsx:1441) ends Providers › Advanced: the open page's answer builds it and
+  // names the scope its edits write to, with the environment the route resolved when none was chosen.
+  test("Providers' open page builds Compact idle threads and names its write scope; the closed page's answer has neither", async () => {
+    const page = async (active: boolean) => await scopedProviderPage(as(fake({ compactIdleThreads: true })), null, ['', active, 0, 0, '', '', '', '']) as Obj;
+    const open = await page(true), closed = await page(false);
+    expect([closed.environment, closed.writeScope, closed.advanced]).toEqual(['', '', []]);
+    expect([open.environment, open.writeScope]).toEqual(['env1', 'env1||']);
+    expect((open.advanced as Obj[]).map(row => [row.id, row.label, row.divider, row.description])).toEqual([['compact-idle-threads', 'Before the cache expires (beta)', true,
+      'When to compact an idle Claude thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude provider can override this.']]);
   });
   test("restore lists and resets the Browser defaults (getChangedBrowserSettingLabels)", async () => {
     // Settings › Integrations › Browser's rows are device-local: listed and reset with no environment connected.
@@ -685,26 +696,83 @@ describe('thread title instructions field', () => {
     expect(row.drawn('row flex-shrink=0 min-width="10rem"', {}, scope('textarea'))).toBe(false);
     expect(appText('src/settings/settings-rows.contract')).toContain('        for key in [`${row.mixed}:${row.value}`] key=key\n          CoreTextArea(rowId=row.id,');
   });
+  test("its row: ThreadTitleInstructionsSettings' text and placeholders, a reset once set or Mixed, and a project's own value", () => {
+    const rowOf = (settings: Obj, project = '', other?: Obj) => {
+      const client = as(fake(settings));
+      const context = serverContext(client, resolveScope(client, project ? 'env1' : '', project, ''), new Map());
+      const scoped = other ? { ...context, targets: [context.targets[0]!, { ...context.targets[0]!, environmentId: 'env2', settings: other }] } : context;
+      const row = generalSections(client, scoped, 'threads').flatMap(section => [...section.rows, ...(section.advanced ?? [])]).find(entry => entry.id === 'thread-title-instructions')!;
+      return [row.description, row.placeholder, row.resettable, row.value, row.inheritance];
+    };
+    const text = 'Appended to the prompt for new and regenerated thread titles.', placeholder = 'Keep titles to a few words. Lead with the main subject.';
+    expect(rowOf({})).toEqual([text, placeholder, false, '', 'environment']);
+    expect(rowOf({ threadTitleInstructions: 'Lead with the ticket.' })).toEqual([text, placeholder, true, 'Lead with the ticket.', 'environment']);
+    expect(rowOf({ threadTitleInstructions: 'Short.' }, '', { threadTitleInstructions: 'Long.' })).toEqual([text, 'Mixed. Enter instructions to apply to all selected targets.', true, '', 'mixed']);
+    // A project scope's own setting (PROJECT_SCOPED), not the environment's: it inherits until the project sets one.
+    expect(rowOf({}, 'repo')).toEqual([text, placeholder, false, '', 'inherited']);
+  });
+  test('it saves instructions of any length, trimmed (TrimmedString)', () => {
+    const context = serverContext(as(fake()), resolveScope(as(fake()), '', '', ''), new Map());
+    expect(serverValue('threadTitleInstructions', ` ${'a'.repeat(5000)}\n`, context)).toBe('a'.repeat(5000));
+  });
+  test("its row ends 0.25rem below the field, which keeps the reference's pb-3.5 under it", () => {
+    const row = contractComponent('settings-rows.contract', 'CoreRowView');
+    const bottom = (kind: string, info = '') => row.attribute('column hover=rowHover', 'padding-bottom', {}, { row: { kind, info, options2: [], layerGroups: [], inheritance: '' } });
+    expect([bottom('textarea'), bottom('text'), bottom('font', 'preview-prompt')]).toEqual(['0.25rem', '0.75rem', '0.25rem']);
+    const field = contractComponent('settings-rows.contract', 'CoreTextArea');
+    expect([field.attribute('column width="100%" max-width="42rem"', 'padding-bottom', {}, {}), field.attribute('column width="100%" max-width="42rem"', 'max-width', {}, {})]).toEqual(['0.875rem', '42rem']);
+  });
 });
 
 // ModelPickerContent onWindowKeyDown: a tab or a model picked by its shortcut is selected, then announced
 // (composer-controls-commands.ts announcePickerShortcut).
 describe('model picker shortcut presses', () => {
-  test('⇧⌘↑/⇧⌘↓ and ⌘1–9 select as a click does, then send the announcement', () => {
+  test('⇧⌘↑/⇧⌘↓ and ⌘1–9 select as a click does, then announce through the root', () => {
     const dispatch = contractComponent('settings-shortcuts.contract', 'ShortcutDispatch');
     const calls: unknown[][] = [];
     const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
     const scope = { selectProvider: record('selectProvider'), selectModel: record('selectModel'), command: record('command'), pickerAnnounce: record('pickerAnnounce') };
     dispatch.call('providerByKey', {}, scope, ['favorites']);
     dispatch.call('modelByKey', {}, scope, ['claude-opus-5', 'claude']);
-    expect(calls).toEqual([['selectProvider', 'favorites'], ['command', 'cclocal:picker-provider-key', 'favorites', '', 0],
+    expect(calls).toEqual([['selectProvider', 'favorites'], ['pickerAnnounce', 'cclocal:picker-provider-key', 'favorites', ''],
       ['selectModel', 'claude-opus-5', 'claude', false], ['pickerAnnounce', 'cclocal:picker-model-key', 'claude-opus-5', 'claude']]);
-  });
-  test("a model's announcement has a mutation of its own, as its pick sends `changed`", () => {
-    const root = appText('app.contract');
-    expect(root).toContain('  action pickerAnnounce(op: string, id: string, value: string)\n    send localChanged = command(op, id, value, 0)\n');
-    expect(root).toContain('\n  provide\n    interacted\n    pickerAnnounce\n');
+    expect(appText('app.contract')).toContain('\n  provide\n    interacted\n    pickerAnnounce\n');
     expect(appText('settings-shortcuts.contract')).toContain('component ShortcutDispatch\n  inject\n    pickerAnnounce: action\n');
+  });
+  // ModelPickerContent's announce blocks nothing (ModelPickerContent.tsx:779-795).
+  test('an announcement waits for no command and refreshes only the shell: quick presses are each announced, and a pick right after is sent', () => {
+    expect(appText('app.contract')).toContain('\n  mutation pickerAnnounced as shape Change queue refreshes shell //');
+    const root = contractComponent('app.contract', 'T3Code');
+    const sent: unknown[][] = [];
+    const scope = { command: (...args: unknown[]) => { sent.push(args); return {}; }, focus: () => {}, catalog: { multiple: false } };
+    // Two quick ⇧⌘↓ while another command is in flight: both are announced, and the command keeps its guard.
+    const busy: Obj = { commandPending: true };
+    root.call('pickerAnnounce', busy, scope, ['cclocal:picker-provider-key', 'codex', '']);
+    root.call('pickerAnnounce', busy, scope, ['cclocal:picker-provider-key', 'claudeAgent', '']);
+    expect([sent, busy.commandPending]).toEqual([[['cclocal:picker-provider-key', 'codex', '', 0], ['cclocal:picker-provider-key', 'claudeAgent', '', 0]], true]);
+    // ⇧⌘↓, then Return before its announcement is answered: the pick is sent.
+    sent.length = 0;
+    const idle: Obj = { commandPending: false, modelTarget: { id: '' }, pendingModal: '', modelsOpen: true, taskModelPick: '' };
+    root.call('pickerAnnounce', idle, scope, ['cclocal:picker-provider-key', 'codex', '']);
+    expect(idle.commandPending).toBe(false);
+    root.call('selectModel', idle, scope, ['gpt-6', 'codex', false]);
+    expect([sent, idle.commandPending]).toEqual([[['cclocal:picker-provider-key', 'codex', '', 0], ['model', 'gpt-6', 'codex', 0]], true]);
+  });
+});
+
+describe('paints', () => {
+  // SettingsSidebarNav's "/" Kbd is ui/kbd.tsx's: the foreground at 7% under muted text, the page's paint, not the sidebar's.
+  test('the search field\'s "/" chip paints as the foreground', () => {
+    const nav = contractComponent('settings-core.contract', 'SettingsNav');
+    expect(nav.attribute('id=`paint-SettingsNav-5-${route}`', 'data-paint', {}, {})).toBe('text');
+  });
+  // ui/combobox.tsx ComboboxItem: highlighted bg-foreground/[0.09], selected bg-foreground/[0.06].
+  test("the font picker's rows fill with the palette's option highlight, else its selection", () => {
+    const picker = contractComponent('settings-a-fonts.contract', 'FontFamilyPicker');
+    const families = [{ id: 'sf', label: 'SF Pro', value: '', selected: true }, { id: 'inter', label: 'Inter', value: 'Inter', selected: false }];
+    const fill = (cursor: string, family: Obj) => picker.attribute('role="option" aria-selected=family.selected', 'background-color', { query: '', cursor },
+      { families, family, pal: { optionHighlight: 'highlight', optionSelected: 'selected' } });
+    expect([fill('inter', families[1]!), fill('inter', families[0]!), fill('sf', families[0]!), fill('-', families[1]!)]).toEqual(['highlight', 'selected', 'highlight', '#00000000']);
   });
 });
 

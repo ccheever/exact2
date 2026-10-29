@@ -460,6 +460,7 @@ component T3Code
   mutation inlineDocumentChanged as shape Change queue refreshes data
   mutation secretAnswered as shape Change queue refreshes data then dispatchTimelineReads
   mutation localChanged as shape Change refreshes data
+  mutation pickerAnnounced as shape Change queue refreshes shell // the model picker's shortcut announcements (pickerAnnounce)
   // A pull request surface's remembered tab (prSetTab); queued, so quick tab presses land in order.
   mutation prTabSaved as shape Change queue
   // A drop on the chat column or a legacy row, a paste into the composer, or Attach files' picks (composer-controls-attach.ts
@@ -967,11 +968,12 @@ component T3Code
       send changed = command(modelTarget.id == "" ? "model" : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
       modelsOpen = additive and modelTarget.id == "" and catalog.multiple
       focus(additive and modelTarget.id == "" and catalog.multiple ? "model-search" : (modelTarget.id == "" ? "composer" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`))
-  // ModelPickerContent announces a model its ⌘1–9 shortcut picked (composer-controls-commands.ts announcePickerShortcut). The
-  // pick's own command is `changed`'s (selectModel above), so the announcement has a mutation of its own; the shortcut
-  // press calls it after the pick (settings-shortcuts.contract modelByKey).
+  // ModelPickerContent announces the tab or model its shortcut picked (composer-controls-commands.ts
+  // announcePickerShortcut), and its announce blocks nothing: the announcement waits for no command in flight and
+  // refreshes only the shell, whose live regions speak it, so a quick second press is announced too and a pick right
+  // after is not refused. Each send runs in turn (`queue`). settings-shortcuts.contract calls it after the pick.
   action pickerAnnounce(op: string, id: string, value: string)
-    send localChanged = command(op, id, value, 0)
+    send pickerAnnounced = command(op, id, value, 0)
   state taskModelPick = "" // the open scheduled task editor's picked `instance:model`, until it closes
   action pickModel(row: string, context: string)
     openModels()

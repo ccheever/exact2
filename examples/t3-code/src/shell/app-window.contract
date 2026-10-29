@@ -859,7 +859,7 @@ component T3Window
   state wizardAttempted = false
   action providerUi(what: string, value: string)
     let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
-    if what == "open" or what == "driver" or what == "manual"
+    if what == "open" or what == "driver" or what == "manual" or what == "local"
       wizardAttempted = false
     if what == "step" and wizardStep <= 1 and target > 1 and providerWizard.idError != ""
       wizardAttempted = true

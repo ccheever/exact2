@@ -218,7 +218,7 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
     }),
     modelSummary: `${models.length} model${models.length === 1 ? '' : 's'}${favoriteCount > 0 ? ` · ${favoriteCount} favorite${favoriteCount === 1 ? '' : 's'}` : ''}${hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ''}`,
     bulkLabel: builtIn.length ? (builtIn.every(entry => hiddenSet.has(entry.model.slug)) ? 'Enable all' : 'Disable all') : '',
-    modelPlaceholder: meta?.modelPlaceholder || 'model-slug', canAddModel: row.driver !== 'antigravity',
+    modelPlaceholder: meta?.modelPlaceholder ?? '', canAddModel: row.driver !== 'antigravity',
   };
 }
 

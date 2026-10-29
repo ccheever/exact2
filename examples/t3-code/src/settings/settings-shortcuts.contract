@@ -44,11 +44,11 @@ component ShortcutDispatch
     copy: action
     confirm: action
   // ModelPickerContent onWindowKeyDown: a tab or model picked by its shortcut is announced, as the focus stays in the
-  // search field (composer-controls-commands.ts announcePickerShortcut). A model's pick sends `changed` itself, so its
-  // announcement goes by the root's pickerAnnounce, a mutation of its own.
+  // search field (composer-controls-commands.ts announcePickerShortcut), through the root's pickerAnnounce, which
+  // waits for no other command.
   action providerByKey(target: string)
     selectProvider(target)
-    command("cclocal:picker-provider-key", target, "", 0)
+    pickerAnnounce("cclocal:picker-provider-key", target, "")
   action modelByKey(target: string, provider: string)
     selectModel(target, provider, false)
     pickerAnnounce("cclocal:picker-model-key", target, provider)
