@@ -1,7 +1,8 @@
 //! T3 Code's Rust data source: the chat Markdown (`renderMarkdown`, `renderPullRequestMarkdown`,
-//! `renderFileMarkdown`), composed with the app's TypeScript module by `mixed`. Each host links
-//! it, and each host's bake runs it.
+//! `renderFileMarkdown`) and the code colours' lexers (`highlightCode`), composed with the app's TypeScript
+//! module by `mixed`. Each host links it, and each host's bake runs it.
 
+mod highlights;
 mod markdown;
 
 pub use markdown::{mixed, Data, Markdown};

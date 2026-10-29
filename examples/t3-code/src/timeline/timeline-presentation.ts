@@ -26,7 +26,7 @@ import { latestUnheldRun } from './worktree-card-run';
 import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, runTurnEnded, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
 import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, liveThoughtLine, thoughtText, threadReadLabel, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
-import { messageCodeBlocks } from '../highlight/timeline-highlight';
+import { codeTokens, messageCodeBlocks } from '../highlight/timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
 import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, isSentSvg, messageAttachments, noteChipPreviewFailed, svgPreviewFailed, withoutSoundReferences } from './timeline-attachments';
@@ -462,9 +462,9 @@ const keyedLabel = (row: Row, label: string): Activity => ({ id: `${row.id}\u000
 const entryCode = (entries: WorkEntry[], client: T3Client): InspectorCode[] => entries.flatMap(entry => {
   if (entry.questionAnswer) return [questionHistory(entry.id, entry.questionAnswer)];
   if (entry.itemType === 'command_execution' && turnItemIsOpen(client, entry.id)) return [{ id: entry.id, code: '', icon: 'shell',
-    tokens: shellCommand(str(entry.item.input)).map((token, index) => ({ id: String(index), ...token })) }];
+    tokens: codeTokens(shellCommand(str(entry.item.input), 'data')) }];
   // An open thought's trace is ChatMarkdown, whose fences are highlighted as a message's are.
-  if (entry.itemType === 'reasoning' && turnItemIsOpen(client, entry.id)) return messageCodeBlocks(str(entry.detail)).map(block => ({ ...block, id: `${entry.id}:${block.id}` }));
+  if (entry.itemType === 'reasoning' && turnItemIsOpen(client, entry.id)) return messageCodeBlocks(str(entry.detail), 'data', `reasoning:${entry.id}`).map(block => ({ ...block, id: `${entry.id}:${block.id}` }));
   return [];
 });
 
@@ -525,7 +525,7 @@ function present(row: Row, context: PresentContext): Message {
     case 'plan': {
       const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
-        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown), chips: withFileLinkMenus(context.client, messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id)),
+        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown, 'data', `plan:${row.id}`), chips: withFileLinkMenus(context.client, messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id)),
         diagrams: messageDiagrams(markdown),
         copied: view.copies.get(row.id)?.nonce ?? 0 };
     }
@@ -549,12 +549,12 @@ function present(row: Row, context: PresentContext): Message {
       if (row.entry.role === 'assistant') {
         const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads);
         return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)),
-          meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
+          meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text, 'data', `message:${row.id}`),
           diagrams: messageDiagrams(text) };
       }
       if (context.workflow && context.workflow.messageId === str(item.messageId)) {
         const opening = workflowOpeningMessage(context.workflow, { agents: [], providers: context.providers, threads: context.threads }, threadFindView(context.client).highlight);
-        return { ...common, ...opening, code: messageCodeBlocks(opening.body) };
+        return { ...common, ...opening, code: messageCodeBlocks(opening.body, 'data', `opening:${row.id}`) };
       }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
       // An automation's prompt reads its context references as their labels (AutomationMessageRow's UserMessageBody).
@@ -571,7 +571,7 @@ function present(row: Row, context: PresentContext): Message {
       if ((automation || agent) && context.findEntry === row.id) view.open.add(foldKey);
       // A file with a chip in the prose needs no standalone row (images always show); an automation's prompt shows none.
       return { ...common, kind: 'user', title: automation ? 'Automation' : agent ? senderTitle : 'You', summary, body: text, revert: row.revert,
-        images: automation ? [] : attached.images, attachFiles: automation ? [] : attached.attachFiles.filter(file => !chipped.has(file.id)), audio: automation ? [] : attached.audio, chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text),
+        images: automation ? [] : attached.images, attachFiles: automation ? [] : attached.attachFiles.filter(file => !chipped.has(file.id)), audio: automation ? [] : attached.audio, chips, code: messageCodeBlocks(text, 'data', `message:${row.id}`), diagrams: messageDiagrams(text),
         collapsible: !automation && !agent && shouldCollapseUserMessage(text),
         // A queued message that was sent reads as any other; only a steer keeps its marker.
         intent: intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',

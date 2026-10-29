@@ -8,8 +8,7 @@ use CorePalette from "../settings/settings-core-shared.contract"
 use FontDiffLine, FontDiffPreview from "../shared/shapes.contract"
 use DiffGlyph from "../diff/diff-glyphs.contract"
 use diffInk from "./settings-appearance-look.contract"
-use synColor from "../timeline/markdown.contract"
-use synSlant from "../timeline/markdown.contract"
+use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
 
 // CodeFontPreview: the sample patch's file diff. The header is @pierre/diffs' default
 // (16pt side padding, 1lh + 3 gaps tall, the change icon, the path in the interface font,
@@ -51,4 +50,4 @@ component FontDiffRow
         text line.number width="100%" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" text-align="right" font-variant-numeric="tabular-nums" color=(line.tone == "deletion" ? diffInk(scheme, "del") : line.tone == "addition" ? diffInk(scheme, "add") : "light-dark(#565656, #9d9d9d)")
       text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
         for segment in line.segments key=segment.id
-          text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax) background-color=(segment.mark ? diffInk(scheme, line.tone == "deletion" ? "del-mark" : "add-mark") : "#00000000")
+          text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax) font-weight=synWeight(segment.syntax) background-color=(segment.mark ? diffInk(scheme, line.tone == "deletion" ? "del-mark" : "add-mark") : "#00000000")

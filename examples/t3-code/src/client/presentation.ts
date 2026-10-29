@@ -2,7 +2,6 @@ import { updateEverythingView } from '../sidebar/update-everything';
 import { legacySidebarSnapshot } from '../sidebar/legacy-sidebar-view';
 import { timelineReadsNeeded } from '../timeline/timeline-prepare';
 import { projectCloneBlock } from '../shell/project-clones-live';
-import { highlightPending } from '../highlight/shiki-highlight';
 import { markdownSkills } from '../timeline/message-chips';
 import { workspaceValues } from '../composer/composer-workspace-snapshots';
 import { workspaceCwd } from '../composer/composer-editor';
@@ -204,7 +203,6 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     serverUpdate: serverUpdateView(client), // server-update-notices.ts: the offline timers' episodes, the details dot, the update confirmation
     look: look(client),
     ...tableMenuSnapshot(client), // a table's Copy popup over every layer
-    highlightPending: highlightPending(), // last, after every code text above asked for its tokens
   };
 }
 

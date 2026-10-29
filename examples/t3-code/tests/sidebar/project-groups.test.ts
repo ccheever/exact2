@@ -3,7 +3,7 @@ import { groupLabel, projectDisplayNames, heroGroups } from '../../src/sidebar/p
 import { alertClip, anchorFrame, textMeasure, SIDEBAR_PROBES } from '../../src/shared/laid-out-widths';
 import { cardScripts } from '../../src/details/project-scripts';
 import { rowTips, bubbleWidth } from '../../src/sidebar/sidebar-tips';
-import { highlight } from '../../src/highlight/timeline-highlight';
+import { highlighted } from '../support/highlights-fixture';
 import { probeKey } from '../../src/composer/composer-menus';
 import { EnvironmentFleet } from '../../src/connections/settings-b-fleet';
 import { fleet } from '../../src/connections/settings-b-fleet';
@@ -100,12 +100,11 @@ describe('the card script row (ProjectScriptsControl, panel)', () => {
 });
 
 describe('Markdown source colour', () => {
-  test('list markers take the heading ink; bold and code spans after them keep theirs', () => {
-    expect(highlight('- one\n  * two\n3. **three** `x`', 'md')).toEqual([
-      // Shiki's markdown grammar (shiki-highlight.ts); 'tag' and 'flag' paint as 'heading' and 'bold' did,
-      // and a code span's backticks are punctuation (#636363) around its green text.
-      { text: '-', cls: 'tag' }, { text: ' one\n  ', cls: '' }, { text: '*', cls: 'tag' }, { text: ' two\n', cls: '' },
-      { text: '3.', cls: 'tag' }, { text: ' ', cls: '' }, { text: '**three**', cls: 'flag' }, { text: ' ', cls: '' }, { text: '`', cls: 'punct' }, { text: 'x', cls: 'str' }, { text: '`', cls: 'punct' }]);
-    expect(highlight('**not a list**', 'md')).toEqual([{ text: '**not a list**', cls: 'flag' }]);
+  test('list markers are punctuation grey; bold and code spans after them keep their styles', () => {
+    // @pierre/highlights' markdown lexer: punctuation.list_marker, emphasis.strong (weight 700), a code span a string.
+    expect(highlighted('- one\n  * two\n3. **three** `x`', 'md')).toEqual([
+      { text: '- ', cls: 'punct' }, { text: 'one\n', cls: '' }, { text: '  ', cls: '' }, { text: '* ', cls: 'punct' }, { text: 'two\n', cls: '' },
+      { text: '3. ', cls: 'punct' }, { text: '**three**', cls: 'strong' }, { text: ' ', cls: '' }, { text: '`x`', cls: 'str' }]);
+    expect(highlighted('**not a list**', 'md')).toEqual([{ text: '**not a list**', cls: 'strong' }]);
   });
 });

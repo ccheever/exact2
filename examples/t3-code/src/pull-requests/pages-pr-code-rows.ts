@@ -136,8 +136,12 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
     file.hunks.forEach((hunk, hunkIndex) => {
       const oldStart = hunk.oldStart + (hunk.deletionCount === 0 ? 1 : 0), newStart = hunk.newStart + (hunk.additionCount === 0 ? 1 : 0);
       hidden(newStart - newNext, hunkIndex, newNext, newStart - oldStart, false);
-      const { stacked, split } = hunkRows(hunk, file.path, true);
-      (input.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
+      // Past the row limit nothing more is drawn: the hunk only counts, and its sides ask the lexers for nothing.
+      if (rows >= (input.finding ? 100_000 : ROW_LIMIT)) rows += hunk.lines.length;
+      else {
+        const { stacked, split } = hunkRows(hunk, file.path, true, 'prDetail');
+        (input.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
+      }
       oldNext = oldStart + hunk.deletionCount; newNext = newStart + hunk.additionCount;
     });
     // Partial patches can hydrate trailing context before its count is known, as the Diff panel does.

@@ -1,6 +1,6 @@
-//! The app's generated sources (grammar tables, icon data, morph plans, test vectors) are built, not
+//! The app's generated sources (the code colours' lexers, icon data, morph plans, test vectors) are built, not
 //! committed: `tools/generate/generate.mjs` writes them, and names its inputs and outputs to Cargo
-//! (`rerun-if-changed`). It runs here because this crate embeds one of them (`pierre-icons.tsv`)
+//! (`rerun-if-changed`). It runs here because this crate embeds two of them (`pierre-icons.tsv`, `highlights.wasm`)
 //! and every host's bake, which reads the rest, runs after this crate is built.
 //!
 //! A build for a named target (`--target`, as `host/apple/build.mjs` builds) compiles this crate

@@ -47,7 +47,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "composerWorkspace",
             "refreshComposerWorkspace",
             "refreshTimelineReads",
-            "highlightSlice",
+            "highlightAsk",
+            "highlightStore",
             "composerBranches",
             "acpRegistry",
             "connectionsPage",
@@ -107,6 +108,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "renderQuestionMarkdown",
             "renderPullRequestMarkdown",
             "renderFileMarkdown",
+            "highlightCode",
         ],
     )
     .expect("T3 presentation sources have distinct owners")
@@ -119,6 +121,9 @@ impl DataSource for Markdown {
     }
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        if source == "highlightCode" {
+            return Ok(crate::highlights::highlight_code(args));
+        }
         // Pull requests, their comments, Files and sent attachments share this Markdown parse.
         if source != "renderMarkdown"
             && source != "renderQuestionMarkdown"

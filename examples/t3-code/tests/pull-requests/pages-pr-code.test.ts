@@ -15,6 +15,8 @@ import { renderablePatch } from '../../src/pull-requests/pages-pr-code-logic';
 import { composerReplyEvent } from '../../src/composer/composer-replies';
 import { presentTimeline } from '../../src/pull-requests/pages-pr-timeline';
 import { codeRows, type RowsInput } from '../../src/pull-requests/pages-pr-code-rows';
+import { ROW_LIMIT } from '../../src/diff/diff';
+import { highlightDeferrals, resetHighlights } from '../../src/highlight/highlights';
 import { PR_REFRESH_KEY, prRefreshEvent } from '../../src/pull-requests/pages-pr-refresh';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -541,6 +543,18 @@ describe('hidden lines (createPullRequestDiffFileContentsLoader)', () => {
       input.files = [{ ...parsed.files[0]!, status }];
       expect(rows().some(item => item.kind === 'gap')).toBe(false);
     }
+  });
+  test('hunks past the row limit only count: their sides ask the lexers for nothing', () => {
+    const hunk = (k: number) => [`@@ -${k * 10 + 1},7 +${k * 10 + 1},7 @@`, ` a${k}`, ` b${k}`, ` c${k}`, `-let old${k} = ${k};`, `+let new${k} = ${k};`, ` d${k}`, ` e${k}`, ` f${k}`].join('\n');
+    const parsed = renderablePatch(`diff --git a/rows.ts b/rows.ts\n--- a/rows.ts\n+++ b/rows.ts\n${Array.from({ length: 600 }, (_, k) => hunk(k)).join('\n')}\n`, false);
+    if (parsed?.kind !== 'files') throw new Error('Expected a parsed patch.');
+    const input: RowsInput = { files: parsed.files, layout: 'stacked', foldOverride: 'expanded', toggled: new Set(), viewedMark: () => '', omitted: new Map(),
+      annotations: () => ({ threads: [], pending: [], draft: null }), selection: null, contents: {}, contentsKey: path => path, expansions: {} };
+    const deferrals = highlightDeferrals;
+    expect(codeRows(input).truncated).toBe(true);
+    // Eight rows a hunk: the first 500 fill the 4,000 rows, and only their two sides ask for tokens.
+    expect(highlightDeferrals - deferrals).toBe(2 * ROW_LIMIT / 8);
+    resetHighlights();
   });
   test('keeps concurrent diff file reads on different hosts separate', () => {
     const parsed = renderablePatch(sourcePatch, false), file = parsed?.kind === 'files' ? parsed.files.find(entry => entry.path === 'src/strings.js')! : null;

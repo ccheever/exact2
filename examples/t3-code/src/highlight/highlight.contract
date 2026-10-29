@@ -1,7 +1,26 @@
-// The background highlighter turn's reply (shiki-highlight.ts highlightSlice).
-// A long code text paints with the heuristic colours first; the root's highlightPump task runs
-// highlightSlice turns of at most 50 ms while data or shell reports highlightPending, and refreshes
-// each whose answer is not in flight when a text's Shiki tokens are done (app.contract highlightStepped).
-shape HighlightStep
+// The highlighter's pump (app.contract highlightStep): the texts waiting for their tokens (highlights.ts
+// highlightAsk), the lexers' line records for them (data/src/highlights.rs highlightCode), and whether storing those
+// gave a text its tokens (highlightStore).
+shape HighlightRequest
+  id: number
+  // The lexer (highlights-tables.ts LEXER_IDS).
+  language: number
+  // The lexers' document for a long text or a streaming block, 0 for a text lexed whole.
+  doc: number
+  // Where `text` goes in the document, in UTF-16 units: 0 starts it, its length appends.
+  from: number
+  text: string
+shape HighlightAsk
+  requests: HighlightRequest[]
+  pending: bool
+shape HighlightRecords
+  id: number
+  // The line the records start at, their offsets counted from its start; -1 when the document has lines left to lex,
+  // -2 when it must start again, -3 when the lexers trapped (the text paints plain).
+  line: number
+  records: number[]
+shape HighlightCoded
+  results: HighlightRecords[]
+shape HighlightStored
   finished: bool
   pending: bool

@@ -7,8 +7,7 @@ use findPaint from "../timeline/thread-find.contract"
 use DiffItem from "../shared/shapes.contract"
 use FindDiffSegment from "./diff-find.contract"
 use diffInk from "../appearance/settings-appearance-look.contract"
-use synColor from "../timeline/markdown.contract"
-use synSlant from "../timeline/markdown.contract"
+use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
 use PgIcon from "../shared/pages-icons.contract"
 use DiffGlyph from "./diff-glyphs.contract"
 use DiffCommentCard, DiffDraftCard from "./diff-comments.contract"
@@ -25,9 +24,6 @@ fn diffStatInk(scheme: string, role: string): string = scheme == "blue-orange" ?
 // deleted take the darker light tokens, the dark added one success-foreground; modified is a muted blue (light: info
 // 50% with muted-foreground; dark: info at 65%), muted under blue-orange, which spends blue on additions.
 fn diffChangeInk(scheme: string, status: string): string = status == "added" ? (scheme == "blue-orange" ? diffInk(scheme, "add") : "light-dark(#007a55, #00d492)") : status == "deleted" ? (scheme == "blue-orange" ? diffInk(scheme, "del") : "light-dark(#c10007, #ff2e3f)") : (scheme == "blue-orange" ? "light-dark(#71717b, #a1a1a1a6)" : "light-dark(#435cb1, #51a2ffa6)")
-// A heading's `+b` (diff.ts diffLineTokens): weight 700, and the class without it for its colour and slant.
-fn diffBold(cls: string): bool = cls.endsWith("+b")
-fn diffSyn(cls: string): string = cls.endsWith("+b") ? cls.slice(0, -2) : cls
 fn diffSel(role: string): string = role == "row" ? "light-dark(#eff7fd, #0f151a)" : role == "gutter" ? "light-dark(#f0f7fd, #10151a)" : role == "number" ? "light-dark(#20649e, #72b6ff)" : "#009fff"
 
 component DiffTool
@@ -245,7 +241,7 @@ component DiffCell
           box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffInk(scheme, "del-bar") background-image=`repeating-linear-gradient(to bottom, ${diffInk(scheme, "del")} 0 1px, transparent 1px 2px)`
       text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-family=family font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         for segment in segments key=segment.id
-          text segment.text background-color=(segment.find == 0 and segment.mark ? diffInk(scheme, tone == "deletion" ? "del-mark" : "add-mark") : findPaint(segment.find)) color=(segment.find >= 2 ? "#171717" : synColor(diffSyn(segment.syntax))) font-style=synSlant(diffSyn(segment.syntax)) font-weight=(diffBold(segment.syntax) ? 700 : 400)
+          text segment.text background-color=(segment.find == 0 and segment.mark ? diffInk(scheme, tone == "deletion" ? "del-mark" : "add-mark") : findPaint(segment.find)) color=(segment.find >= 2 ? "#171717" : synColor(segment.syntax)) font-style=synSlant(segment.syntax) font-weight=synWeight(segment.syntax)
       // The empty side of a split run: Pierre's [data-gutter-buffer] flat and its [data-content-buffer] hatched, 45° stripes
       // rising to the right in the buffer colour (CDP, 1e2ecbd975: #f8f8f8 / #131313; stripes #e6e6e6 / #1d1d1d over the
       // code surface). Pierre paints one repeating-linear-gradient over the whole run, 2px stripes in 8px tiles. Here a

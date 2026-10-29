@@ -73,7 +73,7 @@ export async function entryView(_client: T3Client, owner: string, entry: ViewerE
     const url = await picture(`entry:${owner}`, `${entry.path}:${entry.data.length}`, entry.data, extension);
     return { ...base, preview: url ? 'image' : 'error', url, message: url ? '' : 'Unable to load image.' };
   }
-  const lines = codeLines(entry.path, entry.text);
+  const lines = codeLines(entry.path, entry.text, 'shell');
   return { ...base, preview: 'code', lines, gutter: sourceGutter(lines.length), truncatedNote: entry.truncated ? 'Preview limited to the first 1 MB.' : '' };
 }
 
@@ -118,7 +118,7 @@ export async function notebookView(client: T3Client, owner: string, notebook: Vi
     if (document) markdownSource.push({ id: document, kind: 'notebook', title: '', body: cell.source });
     const source = cell.kind !== 'markdown' && cell.source.trim() ? cell.source : '';
     const extension = cell.kind === 'code' ? (NOTEBOOK_SOURCE_EXTENSIONS[notebook.language] ?? notebook.language) : 'txt';
-    const lines = source ? codeLines(`cell.${extension}`, source) : [];
+    const lines = source ? codeLines(`cell.${extension}`, source, 'shell') : [];
     const outputs: NotebookOutputView[] = [];
     for (const [at, output] of cell.outputs.entries()) {
       const outputId = `${index}-${at}`;
@@ -148,7 +148,7 @@ export async function notebookView(client: T3Client, owner: string, notebook: Vi
     markdown: {
       markdownSource, md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text: markdown }, '', [], `notebook:${owner}`, { thread: false }, client)) },
       // No diagram: the cells' Mermaid fences are text (data/src/markdown_inert.rs).
-      code: messageCodeBlocks(markdown), diagrams: [],
+      code: messageCodeBlocks(markdown, 'shell', `notebook:${owner}`), diagrams: [],
     },
   };
 }

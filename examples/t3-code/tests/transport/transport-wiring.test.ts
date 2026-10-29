@@ -25,7 +25,7 @@ describe('app.contract', () => {
 
   test('every answer that may wait on a server reply has the tick publish the table as it starts and ends; nothing polls', () => {
     // The platform's facts, the Rust Markdown renderer, the highlight pump and the transport's own sources ask no server.
-    const exempt = new Set(['promptLinkPage', 'promptLinksReady', 'wallTime', 'viewport', 'page', 'delivery', 'markdown', 'questionMarkdown', 'traceMarkdown', 'prMarkdown', 'filesMarkdown', 'highlightSliced', 'transportInbox', 'transportPumped', 'serverBrowserLive', 'serverBrowserMiniLive', 'serverBrowserChanged', 'serverBrowserMaintained', 'serverBrowserMiniMaintained']);
+    const exempt = new Set(['promptLinkPage', 'promptLinksReady', 'wallTime', 'viewport', 'page', 'delivery', 'markdown', 'questionMarkdown', 'traceMarkdown', 'prMarkdown', 'filesMarkdown', 'highlightAsked', 'highlightCoded', 'highlightStored', 'transportInbox', 'transportPumped', 'serverBrowserLive', 'serverBrowserMiniLive', 'serverBrowserChanged', 'serverBrowserMaintained', 'serverBrowserMiniMaintained']);
     // Shared field delivery can wait on an app edit, never a server reply;
     // source projection, intent and accepted-input ACKs are local too.
     // A pull request surface's remembered tab (prTabSaved) is the panel model's, as local as these.

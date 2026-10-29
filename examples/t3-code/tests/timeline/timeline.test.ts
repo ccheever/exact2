@@ -203,6 +203,8 @@ describe('thought traces', () => {
     const thought = () => rows(value).find(row => row.activities?.some(activity => activity.id === key('think')))!;
     expect(thought().code).toEqual([]);
     await chatLocal(value, native, 'item-detail', key('think'), 'open');
+    thought();
+    (await import('../support/highlights-fixture')).settleHighlights(); // the fence waits for the lexers (highlights.ts)
     const [block] = thought().code!;
     expect(block).toMatchObject({ id: `${key('think')}:0`, code: 'const answer = 42;' });
     expect(block!.tokens.some(token => token.text.includes('const') && token.cls !== '')).toBeTrue();

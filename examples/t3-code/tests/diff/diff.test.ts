@@ -1,18 +1,20 @@
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { snapshot } from '../../src/client/presentation';
-import { parsePatch, wordMarks, diffSnapshot, turnSummaries, hunkRows } from '../../src/diff/diff';
+import { parsePatch, wordMarks, diffSnapshot, turnSummaries, hunkRows, ROW_LIMIT } from '../../src/diff/diff';
+import { highlightDeferrals, resetHighlights } from '../../src/highlight/highlights';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
+import { settleHighlights } from '../support/highlights-fixture';
 
 const turnPatch = 'diff --git a/fixture-result.md b/fixture-result.md\nindex 1..2 100644\n--- a/fixture-result.md\n+++ b/fixture-result.md\n@@ -1,3 +1,3 @@\n # Exact T3 fixture\n \n-Completed run 35c7a0ce.\n+Completed run 151596fd.\n';
 const treePatch = 'diff --git a/README.md b/README.md\ndeleted file mode 100644\n--- a/README.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-# T3\n-Isolated\ndiff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1 @@\n+export {}\ndiff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n@@ -40,2 +40,3 @@\n forty\n+fortyone\n end\n';
 
-function harness() {
+function harness(turn = turnPatch) {
   const calls: Obj[] = [];
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
-    if (request.op === 'request' && request.method === 'orchestration.getTurnDiff') return { ok: true, generation: 1, value: { diff: turnPatch } };
+    if (request.op === 'request' && request.method === 'orchestration.getTurnDiff') return { ok: true, generation: 1, value: { diff: turn } };
     if (request.op === 'request' && request.method === 'review.getDiffPreview') return { ok: true, generation: 1, value: { cwd: '/repo', sources: [
       { kind: 'working-tree', diff: '', truncated: true }, { kind: 'branch-range', diff: treePatch, truncated: false }] } };
     return { ok: true, generation: 1, value: {} };
@@ -70,7 +72,10 @@ describe('diff panel', () => {
     // The served panel marks changed words with Pierre's "word-alt" despite DiffPanel's `lineDiffType: "none"` (9c161462c9 oracle).
     expect(opened.diffItems[3]!.segments.map((segment: Obj) => segment.mark)).toEqual([false, true, false]);
     expect(opened.diffItems[1]!.gutter).toBe(33.3);
-    expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['tag+b']); // Shiki's heading ink, bold
+    // The lines paint plain until the lexers answer (highlights.ts); then the heading is `title` (bold, synWeight).
+    expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['']);
+    settleHighlights();
+    expect(snapshot(client).diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['title']);
   });
   test('a file change’s Open diff (turn-diff) opens the panel on that run’s turn and file (onOpenTurnDiff)', async () => {
     const { client, command, calls } = harness();
@@ -110,6 +115,16 @@ describe('diff panel', () => {
     await command('diff-scope', '', 'turn:gone');
     expect(snapshot(client).diffError).toBe('That turn is no longer available.');
   });
+  test('hunks past the row limit only count: their sides ask the lexers for nothing', async () => {
+    const hunk = (k: number) => [`@@ -${k * 10 + 1},7 +${k * 10 + 1},7 @@`, ` a${k}`, ` b${k}`, ` c${k}`, `-let old${k} = ${k};`, `+let new${k} = ${k};`, ` d${k}`, ` e${k}`, ` f${k}`].join('\n');
+    const { client, command } = harness(`diff --git a/rows.ts b/rows.ts\n--- a/rows.ts\n+++ b/rows.ts\n${Array.from({ length: 600 }, (_, k) => hunk(k)).join('\n')}\n`);
+    await command('checkpoint-diff', 'rows.ts', '', 1);
+    const deferrals = highlightDeferrals;
+    expect(snapshot(client).diffTruncated).toBe(true);
+    // Eight rows a hunk: the first 500 fill the 4,000 rows, and only their two sides ask for tokens.
+    expect(highlightDeferrals - deferrals).toBe(2 * ROW_LIMIT / 8);
+    resetHighlights();
+  });
   test('the hidden range before a later hunk is labeled, and turns sort newest first', async () => {
     const { client, command } = harness();
     await command('diff'); await command('diff-view', 'reveal', 'a.ts');
@@ -137,16 +152,18 @@ test('a replaced line pair projects word-alt segments on both sides, stacked and
 });
 
 test('a Markdown list marker paints punctuation grey; the heading keeps its ink, bold', () => {
-  const [file] = parsePatch(['diff --git a/notes/plan.md b/notes/plan.md', '--- a/notes/plan.md', '+++ b/notes/plan.md', '@@ -0,0 +1,5 @@',
-    '+# Plan', '+1. Write the outline.', '+  - Who reviews', '+3 is a number.', '+#hashtag', ''].join('\n'));
-  const syntax = hunkRows(file!.hunks[0]!, file!.path).stacked.map(row => row.segments.filter(segment => segment.text.trim() !== '')[0]!);
-  // @pierre/highlights' `markup.heading` is weight 700: an ATX heading's tokens carry `+b`; `#hashtag` is no heading.
-  expect(syntax.map(segment => [segment.text, segment.syntax])).toEqual([['# Plan', 'tag+b'], ['1.', 'punct'], ['-', 'punct'], ['3 is a number.', ''], ['#hashtag', '']]);
-  // Outside Markdown a `#` line is code.
-  const [script] = parsePatch(['diff --git a/run.sh b/run.sh', '--- a/run.sh', '+++ b/run.sh', '@@ -0,0 +1,1 @@', '+# comment', ''].join('\n'));
-  expect(hunkRows(script!.hunks[0]!, script!.path).stacked[0]!.segments.some(segment => segment.syntax.endsWith('+b'))).toBe(false);
-  // Inside a fenced block a `#` line is the fence language's comment, not a heading.
-  const [fenced] = parsePatch(['diff --git a/README.md b/README.md', '--- a/README.md', '+++ b/README.md', '@@ -0,0 +1,3 @@', '+```sh', '+# install the tools', '+```', ''].join('\n'));
-  const comment = hunkRows(fenced!.hunks[0]!, fenced!.path).stacked[1]!.segments.filter(segment => segment.text.trim() !== '');
-  expect(comment.map(segment => [segment.text, segment.syntax])).toEqual([['# install the tools', 'com']]);
+  // @pierre/highlights' markdown lexer: a heading is `title` (weight 700, synWeight), a list marker punctuation.
+  const rowsOf = (patch: string[]) => {
+    const [file] = parsePatch(patch.join('\n'));
+    hunkRows(file!.hunks[0]!, file!.path);
+    settleHighlights();
+    return hunkRows(file!.hunks[0]!, file!.path).stacked.map(row => row.segments.filter(segment => segment.text.trim() !== '').map(segment => [segment.text, segment.syntax]));
+  };
+  expect(rowsOf(['diff --git a/notes/plan.md b/notes/plan.md', '--- a/notes/plan.md', '+++ b/notes/plan.md', '@@ -0,0 +1,5 @@',
+    '+# Plan', '+1. Write the outline.', '+  - Who reviews', '+3 is a number.', '+#hashtag', ''])).toEqual([[['# Plan', 'title']], [['1. ', 'punct'], ['Write the outline.', '']],
+    [['- ', 'punct'], ['Who reviews', '']], [['3 is a number.', '']], [['#hashtag', '']]]);
+  // Outside Markdown a `#` line is code; inside a fenced block it is the fence language's comment, not a heading.
+  expect(rowsOf(['diff --git a/run.sh b/run.sh', '--- a/run.sh', '+++ b/run.sh', '@@ -0,0 +1,1 @@', '+# comment', ''])).toEqual([[['# comment', 'com']]]);
+  expect(rowsOf(['diff --git a/README.md b/README.md', '--- a/README.md', '+++ b/README.md', '@@ -0,0 +1,3 @@', '+```sh', '+# install the tools', '+```', ''])[1])
+    .toEqual([['# install the tools', 'com']]);
 });

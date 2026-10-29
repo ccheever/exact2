@@ -10,6 +10,7 @@ import { paletteView } from '../../src/palette/palette-view';
 import { keyboardDispatch, visit, favoriteEditor } from '../../src/shell/keyboard-dispatch';
 import { toasts } from '../../src/shell/toast';
 import { contractComponent } from '../support/contract-action-fixture';
+import { settleHighlights } from '../support/highlights-fixture';
 
 const NOW = Date.parse('2026-10-03T12:00:00.000Z');
 const binding = (key: string, command: string, extra: Obj = {}): Obj => ({ command, shortcut: { key, modKey: true, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...extra } });
@@ -296,7 +297,9 @@ describe('file picker and content search', () => {
   });
   test('content results group by file with line numbers and marks', async () => {
     expect(lineParts('# Exact T3 fixture', [{ start: 11, end: 18 }]).map(part => [part.text, part.hit])).toEqual([['# Exact T3 ', false], ['fixture', true]]);
-    expect(lineParts('# Exact T3 fixture', [{ start: 11, end: 18 }], 'fixture-result.md').map(part => [part.text, part.hit, part.cls])).toEqual([['# Exact T3 ', false, 'tag'], ['fixture', true, 'tag']]); // Shiki's heading ink
+    lineParts('# Exact T3 fixture', [], 'fixture-result.md');
+    settleHighlights(); // the line waits for the lexers (highlights.ts); a heading is `title`
+    expect(lineParts('# Exact T3 fixture', [{ start: 11, end: 18 }], 'fixture-result.md').map(part => [part.text, part.hit, part.cls])).toEqual([['# Exact T3 ', false, 'title'], ['fixture', true, 'title']]);
     expect(fileRows([{ kind: 'file', path: 'docs/a.md' }, { kind: 'file', path: 'src/b.ts' }], '').map(entry => entry.icon)).toEqual(['file-md', 'file']);
     const rows = contentRows([{ path: 'fixture-result.md', lineNumber: 1, lineContent: '# Exact T3 fixture', matchRanges: [{ start: 11, end: 18 }] }]);
     expect(rows.map(entry => entry.kind)).toEqual(['file-header', 'line']);

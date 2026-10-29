@@ -21,6 +21,7 @@ import { messageTime } from '../timeline/timeline-presentation';
 import { lineTokens, overlay } from '../highlight/timeline-diff-syntax';
 import { wordAltMarks } from '../appearance/settings-font-previews'; // Pierre's word-alt marks, ported
 import type { Token } from '../highlight/timeline-highlight';
+import type { HighlightView } from '../highlight/highlights';
 import { utilityPlacement, type LineDrag } from './diff-line-drag';
 
 /** `baseRef`: the Changes scope's comparison target, null for Automatic (diffPanelStore's branch selection). `reveal`: a turn's
@@ -251,34 +252,16 @@ export function wordMarks(before: string, after: string): [Segment[], Segment[]]
 /** A drawn line: its tone and number, and the line it is on each side (0 for none), for line selection and comments. */
 export type Row = { tone: string; number: string; segments: Segment[]; oldLine: number; newLine: number };
 export const plain = (text: string): Segment[] => [{ id: '0', text, mark: false, syntax: '' }];
-/** A Markdown list item's marker: the reference highlights with @pierre/highlights (d228f1f2c8 #23178), whose
- *  pierre themes paint `punctuation.list_marker` in the punctuation grey; the pierre Shiki themes give it the heading ink. */
-const LIST_MARKER = /^\s*([-*+]|\d+[.)])\s*$/;
-/** An ATX heading line, which @pierre/highlights draws in weight 700 (`markup.heading`); its tokens carry `+b`
- *  (diff-rows.contract diffBold), as `+i` marks an italic one. */
-const HEADING_LINE = /^ {0,3}#{1,6}(?:\s|$)/;
-function diffLineTokens(lines: readonly string[], path: string): Token[][] {
-  const tokens = lineTokens(lines, path);
-  if (!/\.(md|mdx|markdown)$/i.test(path)) return tokens;
-  return tokens.map((line, index) => {
-    // Both rules read the first token's class, the heading ink: a `#` comment in a fenced block is that language's comment.
-    const first = line.findIndex(token => token.text.trim() !== '');
-    if (first < 0 || (line[first]!.cls !== 'tag' && line[first]!.cls !== 'heading')) return line;
-    if (HEADING_LINE.test(lines[index] ?? '')) return line.map(token => ({ ...token, cls: `${token.cls}+b` as unknown as Token['cls'] }));
-    if (!LIST_MARKER.test(line[first]!.text)) return line;
-    return line.map((token, at) => at === first ? { ...token, cls: 'punct' } : token);
-  });
-}
 /**
  * One hunk as stacked rows and split pairs; the pull request Code tab draws the same rows (pages-pr-code-rows.ts).
  * With `marks`, each deletion and the addition at its index in a change block carry word-alt marks (wordAltMarks).
  */
-export function hunkRows(hunk: Hunk, path: string, marks = false): { stacked: Row[]; split: { left: Row; right: Row }[] } {
+export function hunkRows(hunk: Hunk, path: string, marks = false, view: HighlightView | null = null): { stacked: Row[]; split: { left: Row; right: Row }[] } {
   const stacked: Row[] = [], split: { left: Row; right: Row }[] = [];
   const empty: Row = { tone: 'empty', number: '', segments: [], oldLine: 0, newLine: 0 };
   // Each side is highlighted as one text (timeline-diff-syntax.ts).
   const oldSide = hunk.lines.filter(line => line.kind !== 'addition'), newSide = hunk.lines.filter(line => line.kind !== 'deletion');
-  const oldTokens = diffLineTokens(oldSide.map(line => line.text), path), newTokens = diffLineTokens(newSide.map(line => line.text), path);
+  const oldTokens = lineTokens(oldSide.map(line => line.text), path, view), newTokens = lineTokens(newSide.map(line => line.text), path, view);
   const syntax = new Map<Line, { old: Token[]; next: Token[] }>();
   oldSide.forEach((line, at) => syntax.set(line, { old: oldTokens[at] ?? [], next: [] }));
   newSide.forEach((line, at) => syntax.set(line, { old: syntax.get(line)?.old ?? [], next: newTokens[at] ?? [] }));
@@ -465,8 +448,12 @@ export function diffSnapshot(client: T3Client, now: number) {
       const oldCount = hunk.lines.filter(line => line.kind !== 'addition').length, newCount = hunk.lines.filter(line => line.kind !== 'deletion').length;
       const oldStart = hunk.oldStart + (oldCount === 0 ? 1 : 0), newStart = hunk.newStart + (newCount === 0 ? 1 : 0);
       hidden(newStart - newNext, hunkIndex, newNext, newStart - oldStart);
-      const { stacked, split } = hunkRows(hunk, file.path, true);
-      (state.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
+      // Past the row limit nothing more is drawn: the hunk only counts, and its sides ask the lexers for nothing.
+      if (rows >= (state.find.open ? 100_000 : ROW_LIMIT)) rows += hunk.lines.length;
+      else {
+        const { stacked, split } = hunkRows(hunk, file.path, true, 'data');
+        (state.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
+      }
       oldNext = oldStart + oldCount; newNext = newStart + newCount;
     });
     // After the last hunk: counted once the contents are in. Before that, a changed file of a git source (Pierre's
