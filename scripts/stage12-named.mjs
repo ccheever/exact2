@@ -67,12 +67,13 @@ export function wholeLayout(out) {
     .findLast(o => Array.isArray(o?.nodes) && o.viewport) ?? null;
 }
 
-/** `named`'s entries for `screen` (theirs or every screen's, `*`), each with
+/** `named`'s entries for `screen` (theirs or every screen's, `*`) on `host`, each with
  * its box in a drive's whole layout: [x, y, w, h] in whole points (a shot
  * is a pixel a point), clipped to the viewport, or null where the layout
  * doesn't show its target. */
-export function namedOf(named, screen, out) {
-  const mine = named.filter(n => n.screen === screen || n.screen === '*');
+export function namedOf(named, screen, out, host = null) {
+  // An entry may name its hosts (`hosts`), where its change is that host's alone (the Mac's taller panel).
+  const mine = named.filter(n => (n.screen === screen || n.screen === '*') && (!n.hosts || n.hosts.includes(host)));
   if (!mine.length) return [];
   const layout = wholeLayout(out);
   return mine.map(n => {
