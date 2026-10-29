@@ -1,0 +1,67 @@
+component TimerTest
+  state policy = 0
+  state ticks = 0
+  state running = false
+  state second = false
+  state quiet = false
+  state recording = false
+  derive shown = quiet ? 0 : ticks
+  action choose(value: number)
+    if recording
+      stopTrace_EXPERIMENTAL()
+    policy = value
+    ticks = 0
+    running = false
+    second = false
+    recording = not quiet
+    if not quiet
+      startTrace_EXPERIMENTAL()
+  action start
+    running = true
+  action stagger
+    second = true
+  action tick
+    ticks = ticks + 1
+  action toggleQuiet
+    if recording
+      stopTrace_EXPERIMENTAL()
+    recording = false
+    quiet = not quiet
+  action save
+    if recording
+      stopTrace_EXPERIMENTAL()
+    recording = false
+  task restart when not running
+    after(1, start)
+  task offset when running and not second
+    after(25, stagger)
+  task preciseFirst when running and policy == 0
+    every(250, tick)
+  task preciseSecond when running and second and policy == 0
+    every(250, tick)
+  task tolerantFirst when running and policy == 1
+    every(250, tick, tolerance=40)
+  task tolerantSecond when running and second and policy == 1
+    every(250, tick, tolerance=40)
+  task scrollFirst when running and policy == 2
+    every(250, tick, wait=scrollend)
+  task scrollSecond when running and second and policy == 2
+    every(250, tick, wait=scrollend)
+  task updateFirst when running and policy == 3
+    every(250, tick, wait=update)
+  task updateSecond when running and second and policy == 3
+    every(250, tick, wait=update)
+  view
+    column height="100%" padding=12 gap=8 wakelock="screen"
+      row gap=6
+        button "Precise" press=choose(0) testId="timer-precise"
+        button "Tolerant" press=choose(1) testId="timer-tolerant"
+        button "Scroll" press=choose(2) testId="timer-scroll"
+        button "Update" press=choose(3) testId="timer-update"
+      row gap=12
+        button (quiet ? "Show count" : "Hide count") press=toggleQuiet testId="timer-quiet"
+        button "Save trace" press=save testId="timer-save"
+        text `Ticks: ${shown}` testId="timer-count" font-variant-numeric="tabular-nums"
+      scroll flex=1 min-height=0 testId="timer-list"
+        for item in range(300) key=item
+          text `Row ${item}: ${shown}` height=36 font-variant-numeric="tabular-nums"

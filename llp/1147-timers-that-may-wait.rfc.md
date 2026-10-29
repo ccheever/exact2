@@ -1,12 +1,12 @@
 # LLP 1147: Timers that may wait for a frame, an update, a scroll's end or idle
 
 **Type:** RFC
-**Status:** Draft, 2026-10-27. Reviews: `llp/reviews/rfc-2026-10-27-1147-*`. The scope expansion in D9 needs Charlie's waiver under `rules/DEFERRED.md`.
-**Systems:** Contract syntax and lowering (`every`, `after`: `wait=`, `max=`); Plan (`timers.wait`, `timers.max_ms`); Runner (held timers, `Runner::waits`, `Runner::release`, `Runner::frame`, takeover); Lean semantics and `contract-difftest`; JS web target (`host/web-js/rt.js`, `schedule.js`); Apple host (`SessionClock.swift`, `SessionClockTimer.swift`, `ScrollEnd.swift`, `IOS/FrameClockIOS.swift`); Android (`Owner.kt`, `ExactView.kt`, `Scrolling.kt`); Linux and Windows painted hosts (`display.rs`, `window.rs`); terminal host (`term/unix.rs`)
+**Status:** Implementation, 2026-10-28. Requested by the user, including wake tolerance.
+**Systems:** Contract syntax and lowering (`every`, `after`: `wait=`, `max=`, `tolerance=`); Plan (`timers.wait`, `timers.max_ms`, `timers.tolerance_ms`); Runner (held timers, `Runner::waits`, `Runner::release_waits`, `Runner::frame_tasks`, takeover); Lean semantics and `contract-difftest`; JS web target (`host/web-js/rt.js`, `schedule.js`); Apple host (`NativeTaskTimers.swift`, `SessionClock.swift`, `SessionClockTimer.swift`, `ScrollEnd.swift`, `IOS/FrameClockIOS.swift`); Android (`Owner.kt`, `ExactView.kt`, `Scrolling.kt`); Linux and Windows painted hosts (`display.rs`, `window.rs`); terminal host (`term/unix.rs`)
 **Author:** Claude (Opus 5.5)
-**Implementer:** none yet. This document proposes; it specifies nothing until it has one.
+**Implementer:** Codex, 2026-10-28.
 **Date:** 2026-10-27
-**Related:** `issues/20261027-timers-cannot-wait-for-a-frame.md` (the evidence and platform facts this builds on); LLP 1073 (`every(frame, …)`, virtual frames); LLP 1092 D7–D10 (gated tasks); LLP 1043.000 ruling 5 (hosts advance near deadlines on the display frame); LLP 1072 (work off the main thread); LLP 1144 (measuring a fling)
+**Related:** `issues/20261027-timers-cannot-wait-for-a-frame.md` (the evidence and platform facts this builds on); LLP 1073 (`every(frame, …)`, virtual frames); LLP 1092 D7–D10 (gated tasks); LLP 1043.000 ruling 5 (explicit frame work); LLP 1072 (work off the main thread); LLP 1144 (measuring a fling)
 
 ## Summary
 
@@ -19,7 +19,7 @@ This RFC adds `wait=` to `every` and `after`, and `max=` to bound the wait for
 
 | `wait=` | Admission condition, once the deadline is reached | Waiting bound |
 |---|---|---|
-| none (the default) | ordinary timer processing | — |
+| none (the default) | the native timer callback on Apple and Windows; ordinary timer processing on other hosts | — |
 | `frame` | the first frame callback at or after the deadline, before Exact's frame tasks | 100 ms |
 | `update` | a frame callback when the host observes frame demand; immediate admission when it observes none | 100 ms |
 | `scrollend` | no observed scroll activity in the session | `max=`, or no bound |
@@ -29,18 +29,19 @@ The bound is measured from the nominal deadline. Reaching it ends the intentiona
 wait; it does not guarantee execution by that time. D2 defines the admission
 conditions, exceptions and limits. D3 defines the caps, and D5 defines behavior on the
 seekable clock. Timers remain precise by default: they acquire no intentional wait
-unless the author requests one.
+unless the author requests one. `tolerance=MS` instead permits the OS to delay a wake
+within a late-firing window. On iOS and macOS, ordinary millisecond tasks map directly
+to Foundation timers, with or without tolerance. The Windows carrier uses native
+thread-pool timers. The OS owns their wake scheduling; explicit `wait=` tasks use the
+admission rules below.
 
 ## 1. The problem
 
-Apple processes due timers from display-link callbacks, common-mode `Timer` callbacks,
-and `advanceIfDue` after a batch lands. `SessionClockTimer.wake` normally uses the
-display link when the nearest deadline is within eight 60 Hz frame periods (about 133
-ms), and a main-thread `Timer` otherwise. A hidden session, or one whose recent timer
-advances changed nothing shown, can use the `Timer` even for a near deadline. An armed
-frame task keeps the display link running. These paths can process timers during
-scrolling. The main thread waits synchronously for the runner in `Owner.sync` and
-applies the returned batch.
+An ordinary timer's action can change the UI during scrolling. Earlier Apple hosts
+also advanced millisecond timers from display-link callbacks when a deadline was near.
+D11 replaces that heuristic with direct native timers on iOS and macOS. A display link
+runs only for explicit frame work; `wait=` lets an author request an admission point
+when the callback's work should depend on frames, scrolling or idle.
 
 On the JS web target, `drive()` schedules non-frame timers with `setTimeout`. An
 active `paint()` frame loop also advances due timers before its frame tasks. There is
@@ -52,8 +53,8 @@ Messages on an iPhone Duo simulator, `every(250, poll)` ran six times in each 1.
 sampling window after a fling, always in a display-link frame's batch. Four of the
 five late frames in those windows immediately followed a timer beat's frame and
 included a wait on the runtime (§5). The traces do not establish that the beat caused
-the wait. An app has no way to request that a timer wait until scrolling ends or join
-a frame being produced for another reason.
+the wait. These observations motivate explicit waits for scrolling to end or a frame
+being produced for another reason.
 
 Waiting does not make a batch longer than a frame fit in one. That needs batches that
 do not block the main thread, which LLP 1072 began for list rows.
@@ -107,8 +108,8 @@ signals each host observes.
 sampled time is at or after the deadline, before that frame's frame tasks (LLP 1073 D2
 runs timers first, then frame tasks). When the host knows it runs no frames, because
 the page is hidden, the app is in the background or there is no display, it admits the
-firing at its deadline, as `SessionClockTimer.wake` already treats a hidden session. A
-frame callback does not promise that a frame is presented.
+firing at its deadline through a timer wake. A frame callback does not promise that a
+frame is presented.
 
 **`update`.** **Frame demand** is the host's evidence that frames are being made for a
 reason other than this wait: Exact's own frame work (motion, frame tasks, a held
@@ -245,7 +246,10 @@ from an end time (`endsAt - now`, `docs/recipes/timers.md`) needs no change.
 is armed, separated by its interval. After a waiting firing runs, the next nominal
 deadline is the first beat strictly after callback completion on a live clock, or
 strictly after its execution time on the seekable clock. The live-clock calculation
-uses `beat_after`, as it does for a late precise timer.
+uses `beat_after`, as it does for a late precise timer. For a repeating native timer,
+the OS owns the physical repeat schedule and missed-beat handling. Runner may
+mirror the next nominal beat for inspection and clock takeover; that calculation does
+not reset the native timer's fire date.
 
 Beats reached while the firing waits or its callback runs are coalesced into that one
 invocation. They do not produce a backlog. A key change establishes a new schedule
@@ -255,9 +259,10 @@ under the gated-task rule below.
 has one **cutoff**, the clock sampled when it starts, and runs in this order:
 
 1. **Ordinary work first.** The runner runs the ordinary work due by the cutoff, as an
-   advance does: precise timers, `then` and `next`, polls, and firings whose caps have
-   passed. A gate one of them turns false drops a held firing (below). The host
-   applies that batch before anything else in the turn.
+   advance does: timers owned by the runner, `then` and `next`, polls, and firings whose
+   caps have passed. Independent native timers belong to their OS callbacks (D11) and
+   are not drained by an admission turn. A gate ordinary work turns false drops a
+   held firing (below). The host applies that batch before anything else in the turn.
 2. **Then eligible waits.** Once no ordinary work due by the cutoff remains, the host
    determines which wait kinds are eligible from its observations after applying the
    ordinary batches. The runner processes held firings of those kinds whose nominal
@@ -356,7 +361,10 @@ clock's times (D5) do not depend on it.
 **The runner holds; the host admits.** On a live clock, an advance holds a due firing
 whose wait the host implements, unless its cap has already made it ordinary due work.
 
-`timer_due_ms()` returns the earliest ordinary deadline or cap. Every armed firing
+`timer_due_ms()` returns the earliest deadline or cap owned by the runner. A task
+whose live wake belongs to an independent native timer is excluded; its OS callback
+runs that task alone through `fire_native_timer`. The batch carries native timer
+instances separately, including an empty list to cancel them. Every armed firing
 whose wait the host implements contributes its cap from arming onward, whether or not
 it is held. An uncapped firing contributes no cap. Thus an uncapped held firing cannot
 hide another firing's cap. The host schedules a wake for the reported deadline;
@@ -374,15 +382,14 @@ host reads it where it reads `timer_due_ms` and `wants_frames`, and the batch ca
 it. A `frame` deadline tells the host to ask for one frame once it passes; the others
 tell it which signal to watch.
 
-**`Runner::release(kinds, cutoff) -> Admitted` and `Runner::frame(kinds, cutoff)`.**
+**`Runner::release_waits(kinds, cutoff) -> Admitted` and `Runner::frame_tasks(cutoff)`.**
 These calls implement D4's admission turn.
 
 For a turn with held firings to consider, ordinary work due by `cutoff` runs first. If
 any runs, the call returns its batch with `continue` and admits no held firing. The
 host applies the batch, recomputes the eligible kinds and resumes with the same
 cutoff. Once that ordinary work is exhausted, the runner processes held firings of the
-supplied kinds in D4's order. `Runner::frame` runs the frame tasks after the admission
-turn.
+supplied kinds in D4's order. After applying the admission turn, the host calls `Runner::frame_tasks` for the frame tasks.
 
 An `idle` call supplies `idle` alone and admits at most one firing. The host makes it
 last, after applying the preceding batches and sampling D2's condition.
@@ -398,7 +405,8 @@ therefore retains its existing behavior.
 
 The host samples the idle condition from its activity, demand and batch state.
 `timer_due_ms()` supplies the runner-deadline part of the fifth term; the host also
-accounts for its scheduled frames.
+accounts for its scheduled frames and the nominal deadlines of its native timers.
+This observation does not reschedule a native wake.
 
 **Rollback.** Held firings, their deadlines and caps are runner state, saved in the
 checkpoint a commit makes and restored on rollback, as timers already are
@@ -406,7 +414,8 @@ checkpoint a commit makes and restored on rollback, as timers already are
 not run it twice.
 
 **The agent's takeover.** When the agent takes the clock (`set_live_clock(None)`), the
-host first stops its turns, then the runner samples the live clock once, *R*, no
+host first stops its turns and invalidates its native timers and pending deliveries,
+then the runner samples the live clock once, *R*, no
 earlier than its current time. At the first seek, every outstanding firing of an armed
 timer whose nominal deadline is at or before *R* has execution time *R*. This includes
 held firings, precise firings and waiting firings whose nominal-deadline wakes were
@@ -441,12 +450,17 @@ the document, and the visual viewport, seen through listeners on
 `window.visualViewport`, whose events have it as their target (CSSOM View's [event
 summary](https://drafts.csswg.org/cssom-view/#event-summary)). An embedded document's
 scrollers belong to its own session, if it has one. Gesture holds, from passive
-listeners that never delay scrolling: a touch from its `touchstart` to the `touchend`
+listeners that cannot cancel the event's default action: a touch from its
+`touchstart` to the `touchend`
 or `touchcancel` for that touch, since a browser that takes over a pan cancels the
 pointer while the finger stays down ([Pointer
 Events](https://www.w3.org/TR/pointerevents3/#suppressing-a-pointer-event-stream)); a
 mouse or pen pointer from `pointerdown` to `pointerup` or `pointercancel`; a `wheel`
-until 100 ms after its last event. Movement tracking starts at a scroller's first
+until 100 ms after its last event. Passivity lets asynchronous scrolling begin
+without waiting for the listener's cancellation decision ([DOM §2.8](https://dom.spec.whatwg.org/#observing-event-listeners));
+it gives no guarantee that callback work runs outside scrolling. The observer records
+activity, and the timer scheduler applies D2's admission condition. Movement tracking
+starts at a scroller's first
 `scroll`, which establishes its initial observed position and movement time. Tracking
 ends on `scrollend`, disconnection, or D2's quiet-period fallback. Removal during
 movement produces no `scrollend` in the probes (§5).
@@ -547,6 +561,16 @@ observer of UI updates; `UIUpdateLink` arrived in iOS and tvOS 18. Their demand 
 Exact's own frame work and scrolling, so an update that only a gesture recognizer
 causes on a still screen is not demand there.
 
+When native UI updates supply the opportunity and Exact has no frame work of its own,
+the asynchronous Apple host admits in the callback and posts the owner job after the
+current main-thread turn. Its publications retain owner order; a continuation samples
+observations again at the original cutoff. Clock takeover and session replacement
+invalidate queued submissions and discard pending cutoffs and continuations from the
+old generation. Exact's own frame callbacks retain their ordering barrier. This avoids
+waiting for action evaluation and layout inside `UIUpdateLink`; it promises no earlier
+presentation of the resulting batch. Ordinary native task timers keep their OS objects
+and authored tolerance.
+
 **Android's reports.** Exact runs on its own thread (`Owner`) by default, and the main
 thread draws, scrolls, samples the plan's animations (`ExactView`'s sampler; the
 engine keeps no clock busy for an animation a host lowers,
@@ -565,9 +589,7 @@ which can already be stale (D2). With `owner=0`, a comparison mode that runs Exa
 the main thread, `ExactView`'s `turn` and the main looper stand in for `Owner`'s, and
 no report is needed.
 
-**Hosts awaiting implementation.** Until their implementation in §4's stage 3, the
-wasm web host used by games and its text-flow executor declare no supported waits.
-Their `wait=` timers therefore use precise scheduling (D6).
+All built-in hosts, including the wasm web host and its text-flow executor, declare support for the four waits. An embedding host that declares none retains D6's precise live fallback.
 
 Android does not yet emit `scrollend`; its wait uses the scrolling state named in the
 table. Linux already tracks and delivers scroll completion for nodes with `scrollend`
@@ -604,15 +626,10 @@ for browser support, caniuse's
 `wait=scrollend` for a tick that refreshes what a list shows and `wait=idle` for saves
 and housekeeping, says what D2's limits mean for each, and points a clock display to a
 live `time`, which needs no task. `contract vocab every` lists the words. The agent's
-`state.tasks` (LLP 1092 D10) reports whether a firing is held and its cap, if any.
+`state.taskTiming` reports nominal deadlines, wait kinds, held state, active caps and wake tolerance; `state.tasks` retains its next-deadline map.
 `perf … during` counts timer batches by admission kind, including caps.
 
-Apple currently suppresses automatic timer advancement in agent mode, including
-`--timing platform`: `SessionClock.scheduleClock` arms no timer wake, and `fireClock`
-returns. Explicit seeks still execute timers. Consequently, LLP 1144's fling report
-does not currently measure live timer batches on Apple (§5). Before that report is
-used for §4's comparison, platform timing must leave the app's timers running on the
-live clock.
+Apple leaves automatic timer advancement running with `--timing platform`; an agent that freezes the clock suppresses automatic wakes. This lets LLP 1144's fling report observe live timer batches. The traces in §5 predate that change.
 
 ### D9. Scope
 
@@ -627,7 +644,7 @@ nothing on Status at Lexy revision `8ec5ef8`. The candidate consumers are Excord
 `traffic` task (`every(2500, trafficTick)`) and Messages' `network` task (`every(250,
 poll)`), whose work can affect a scrolled list.
 
-The waiver request follows §4's device comparison of precise and waiting timers. The
+The user requested implementation on 2026-10-27 and explicitly added wake tolerance on 2026-10-28. The
 Messages baseline in §5 shows timer work during flings and an association with later
 frame delays on a loaded simulator. It does not yet establish the effect of changing
 the admission point.
@@ -767,6 +784,96 @@ the runner's commits with what the host observed at each:
 - The terminal and the painted Linux and Windows hosts: their wait points in their
   existing host tests, `scrollend` at the deadline on the terminal.
 
+### D11. Wake tolerance and native scheduling
+
+`tolerance=MS` accepts a literal whole number from 0 through 4,294,967,295. Zero
+requests no intentional delay. Positive tolerance and `wait=` are alternatives;
+`every(frame, …)` rejects positive tolerance. The plan carries `timers.tolerance_ms`,
+a `u32`. Tolerance preserves nominal deadlines, repeat phases and seekable-clock time.
+
+**iOS and macOS use Foundation directly.** Each ordinary `every(ms, …)` or
+`after(ms, …)` instance has one `Timer`, including zero-tolerance tasks. The same
+adapter serves tvOS. Its lifecycle is:
+
+1. Arm with `Timer(fire:interval:repeats:block:)` and add it to the main run loop's
+   common modes. Convert the initial runner deadline to a fire date once.
+2. Set `Timer.tolerance` to the full authored tolerance, converted to seconds.
+3. Forward that timer's callback to the existing session owner. Deliver only its
+   task. Keep a repeating native timer across deliveries and unrelated batches.
+4. Invalidate it on the same run-loop thread when its gate closes, its key changes,
+   the plan reloads, the agent takes the clock or the session is destroyed. Reject
+   queued callbacks and completions belonging to the old instance.
+
+A timer instance is identified by the session generation, task row and arming
+generation. Its interval, tolerance and repeat mode are fixed until it is replaced.
+Native timer object identity distinguishes pending deliveries from a replacement;
+the adapter needs no separate serial counter. A one-shot invalidates itself after
+its callback. A repeating timer reschedules itself. Foundation owns coalescing,
+tolerance limits, repeat phase and missed beats; see Apple's
+[Timer](https://developer.apple.com/documentation/foundation/timer) and
+[tolerance](https://developer.apple.com/documentation/foundation/timer/tolerance)
+contracts. The adapter relies on these contracts rather than implementing them again.
+
+**Windows uses native thread-pool timers.** Each ordinary task maps to
+`CreateThreadpoolTimer` and `SetThreadpoolTimerEx`. The latter receives a relative due
+time in 100 ns units, the authored `u32` period (zero for a one-shot), and the full
+`tolerance_ms` as `msWindowLength`. A worker callback posts only its own task to the
+window thread. Repeats keep the same native handle. Cancellation deactivates its
+instance, disarms it, joins callbacks with `WaitForThreadpoolTimerCallbacks`, then
+closes it; queued window messages retain a safe, inactive token. Reload and clock
+takeover also change the carrier generation, checked before runner entry. See
+[SetThreadpoolTimerEx](https://learn.microsoft.com/en-us/windows/win32/api/threadpoolapiset/nf-threadpoolapiset-setthreadpooltimerex)
+and [callback cancellation](https://learn.microsoft.com/en-us/windows/win32/api/threadpoolapiset/nf-threadpoolapiset-waitforthreadpooltimercallbacks).
+
+Windows' native timer clock and the runner's monotonic clock have different
+resolution. A callback that precedes its runner deadline remains pending until that
+deadline, using the event loop's wait without requesting a frame. This prevents a
+one-shot callback from being discarded by the runner's no-early-firing guard. The
+native handle, period and full tolerance stay unchanged. Cancellation also removes
+this pending delivery and its deadline. See Microsoft's [timer
+accuracy](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/timer-accuracy).
+
+Exact does not intersect native timer windows, pick a shared wake, subtract elapsed
+lateness from tolerance, adjust one timer when another is armed, or recreate a repeat
+to choose its next wake. A timer with 100 ms tolerance retains that request when
+another timer with 50 ms tolerance is added. Inputs, frame callbacks, admission turns
+and other timers do not pull in its action. Live order follows OS callback delivery
+and handoff to the owner; a shared nominal-deadline order is not imposed on independent
+native timers.
+
+Owner handoff retains at most one pending delivery per native timer. Apple's
+handoff serializes execution and preserves callback order. Foundation callbacks do
+not fire before their scheduled date, so
+the Apple adapter needs no deadline heap, tolerance budget or early-firing recovery
+loop. Deterministic tests drive valid callbacks and cancellation boundaries without
+simulating OS violations or requiring
+physical callbacks to arrive at exact times.
+
+An ordinary timer never adds display-link demand, even with zero tolerance or after a
+callback changes the UI. `every(frame, …)` and `wait=frame` explicitly request frames;
+`wait=update` can join existing frame demand without creating any. Internal deadlines
+and explicit admission waits keep their own scheduler. Seeks use D5 and do not emulate
+Foundation's coalescing choices.
+
+**Hosts without an integrated native tolerance backend.** The existing fallback
+starts a shared window at the earliest ordinary deadline and ends it at the least of
+every armed timer's deadline plus its tolerance and every internal deadline. It wakes
+at that end; another wake may process tolerant timers once due. This fallback applies
+only where a host does not use a native per-timer tolerance API. A host using such an
+API delegates wake coalescing to the OS and does not add the shared-window policy.
+Linux retains that fallback and polls directly to its resulting deadline. Proximity
+to a deadline does not introduce intermediate wakes at the display's cadence. Windows
+also processes internal deadlines, asynchronous replies and platform commands without
+requesting a redraw unless presentation changes. A hidden Windows carrier admits
+frame waits through its timer turn and suspends frame demand; ordinary native timers
+remain independent.
+
+Neither tolerance nor a waiting cap guarantees execution by its endpoint under load
+or suspension. Device energy savings require measurements. Tests cover API mapping,
+independent timer lifetimes and callbacks, unchanged native repeats, cancellation,
+rekeying, reload, takeover and the absence of implicit frame demand. Window-intersection
+tests apply to the fallback; exact-clock tests apply to the seekable scheduler.
+
 ## 3. Not proposed
 
 **Waiting by default.** An app may need a precise timer, and a default that moves an
@@ -781,23 +888,23 @@ immediately. Neither case promises that the batch fits in a frame.
 has been told; D2 defines the waits by that and names the limits, rather than claiming
 more.
 
-**Tolerance for power.** Letting the system coalesce wakes, through Apple's
-`Timer.tolerance`, Windows' `SetCoalescableTimer` or Linux's timer slack, is a
-separate change with its own measurements. Mapping a waiting firing's deadline-to-cap
-window to such an API is outside this RFC's implementation plan.
-
 **Combined waits** (`wait=scrollend` then `frame`), **computed waits**, and **per-node
 or per-scroller waits** (wait for this list's scroll only).
 
 **Background wakeups.** A timer does not run while the platform suspends the app, and
 nothing here changes that.
 
+**Deferred qualification (user request, 2026-10-28).** Actual energy-savings
+measurements, including iPhone battery and full-app Mac power measurements, and
+timer qualification with GPU rendering. Timer correctness, cancellation, admission
+instrumentation, `update` performance and Windows JavaScript qualification remain
+in scope.
+
 ## 4. Plan
 
 1. Contract syntax and lowering; plan fields and validation; runner holding, caps,
-   turns and takeover; `Runner::hold_waits`, `Runner::waits`, `Runner::release` and
-   the extended `Runner::frame`; and D10's compiler, plan, semantics and runner tests.
-   Hosts still declare no supported waits, so live timers retain precise scheduling.
+   turns and takeover; `Runner::hold_waits`, `Runner::waits`, `Runner::release_waits` and
+   `Runner::frame_tasks`; and D10's compiler, plan, semantics and runner tests.
 2. The JS web target and Apple, with D10's host tests. Implement `frame`, `scrollend`
    and `idle` on their supported versions. Implement `update` first through
    `UIUpdateLink` on iOS and tvOS 18 and later, then through D7's JS and older-Apple
@@ -812,9 +919,17 @@ Before stage 2 lands, the change is measured on an iPhone, in an app whose tick
 changes the scrolled list: flings across a tick's deadline with the timer precise,
 then with `wait=scrollend` and `wait=update`, comparing late frames, timer admission
 points and the measured runtime and application work associated with those frames. LLP
-1144's fling report can measure it once its platform timing runs the app's timers on
-the wall's clock, which on Apple it does not (D8); until then the measurement runs
-without the agent, as `experiments/timer-wait-points/compiled/fling-free.mjs` does.
+1144's fling report can measure it with platform timing (D8); `experiments/timer-wait-points/compiled/fling-free.mjs` also runs without the agent. The implementation has deterministic coverage; §5 reports physical iPhone fling measurements. The physical traces now retain each firing's nominal deadline, admission cutoff and commit clock, together with before/after per-site work counters. The owner-queue handoff removes the measured excess `update` hitching (§5). Actual energy-savings measurements and GPU qualification remain deferred by the user (2026-10-28).
+
+Native Linux qualification ran on 2026-10-28 in an Ubuntu 24.04 ARM64 VM. `cargo test --locked --offline -p exact-runner -p exact-linux -p exact-terminal --lib --tests --no-fail-fast` passes with two existing failures excluded: `materials_checkbox_and_filled_button_take_its_size_and_colours` expects a 24 by 24 checkbox but receives 38 by 22, and `incremental::every_app_plan_updates_incrementally_exactly_as_it_does_in_full` requires commits from the unsupported geofencing fixture. The sizing failure reproduces at base revision `7c77a3717d` on macOS; the geofencing failure reproduces at that revision in the Linux VM. The revised Linux deadline polling and shared native delivery also pass the complete host unit suite with only that checkbox baseline excluded. The timer tests use controlled clocks and observations, including hidden non-UI state, command delivery, idle admission near a native deadline, reload, takeover and hidden carriers.
+
+Windows qualification ran in a Windows 11 Pro ARM64 VM, build 26300. Native ARM64 runner unit, integration and surface-record tests pass with the same geofencing test excluded. The `x86_64-pc-windows-gnu` binaries, linked with LLVM LLD 22.1.6 and running through Windows' x64 emulation, pass the wait and tolerance suite, the shared presenter's clock and scroll-observation tests, and the Windows host's unit suite. The revised host unit suite also passes natively as `aarch64-pc-windows-gnullvm`, including a real thread-pool callback and cancellation. A bounded CPU-painted native ARM64 window completes all four waits and a tolerant timer. A second native fixture delivers a clipboard command from an unbound state update, then arms a dependent callback and verifies that callback while the window is minimized. These Windows builds use `EXACT_JS_ENGINE=stub`. The ARM64 cross-link uses the Windows import archive directly, LLVM's archive tool for native objects, and real `sin`/`cos` implementations for MinGW's missing `sincos` entry points; it uses no timer API substitutes. Those adapter and CPU-window runs use stub JavaScript; the separate real-Hermes qualification below closes the timer-specific JavaScript gap. GPU qualification remains deferred by the user (2026-10-28).
+
+The follow-up Windows JavaScript qualification uses the pinned real Hermes lean engine in an MSVC `x86_64-pc-windows-msvc` integration binary under the ARM64 VM's x64 emulation. Precise timers, tolerance, all four waits, gate cancellation and restart each refresh a real bytecode resource. The lean-engine identity test and explicit-input/async-interleaving test also pass. The [results](../experiments/timer-wait-points/compiled/results/windows-hermes-timers.json) retain the engine, binary and app-local Microsoft C++ runtime identities. This qualifies the timer/JavaScript seam, not native ARM64 Hermes or GPU rendering.
+
+The broader Windows regression run is not green. The geofencing failure, `a_blur_that_opens_another_dialog_keeps_the_newer_surface` in both dialog suites, and access violations in the backdrop and raster-tint tests reproduce at the base revision in the same VM. The shared-host unit run also ends in an access violation on both revisions; its held-device-request test fails in the current parallel run but passes in isolation on both revisions. These failures do not occur in the focused timer tests or the CPU-painted window fixture.
+
+The Apple per-task timer revision passes deterministic lifecycle and owner-queue tests in macOS XCTest and on an iOS 27.1 simulator; both synchronous and asynchronous owner delivery are exercised. ExactKit also compiles for tvOS. The revised Runner passes its unit, integration and surface-record suites in the Linux VM and its integration suite natively in the Windows ARM64 VM, with the previously reproduced geofencing baseline test excluded from both integration runs. Repository gates and the quick Rust/JS/Lean differential corpus pass. These checks establish scheduling and cancellation behavior; they do not measure device energy use or physical frame deadlines.
 
 ## 5. Measured
 
@@ -823,6 +938,67 @@ D2 and D7 on 2026-10-27, Pacific time. The directory's `README.md` gives the met
 The browser and plain UIKit probes isolate platform behavior; the compiled Messages
 probe measures Exact's existing timer scheduling. These experiments supply the
 evidence below. D10 defines regression tests for the proposed implementation.
+
+**Windows native timer accuracy**, measured in the ARM64 VM on 2026-10-28. Ten
+batches arm 64 independent one-shot thread-pool timers each, with zero tolerance and
+deadlines 10 to 54.1 ms after the batch's clock sample. The callback samples the same
+QPC-backed `Instant` used for arming, before sending to the owner. Six of the 640
+callbacks precede their monotonic deadlines; the earliest is 0.758 ms early. This
+supports D11's retained-delivery guard. It does not establish a bound on Windows
+timer error. Deterministic tests cover retention, exact boundary delivery and
+cancellation without depending on physical timing.
+
+**Mac native timer wakeups**, measured on 2026-10-28 on an Apple M5 Pro Mac mini
+(`Mac17,16`, macOS 27.2 build 26B123). An optimized command-line probe uses the
+production `NativeTaskTimers` and `SessionClockTimer` adapters with eight 100 ms
+repeats, initially staggered by 10 ms. Each callback drains the owner queue and
+updates the logical next deadline, retaining the native repeat. Four 8-second
+intervals use tolerance 0, 40, 40 and 0 ms. Process interrupt wakeups come from
+`proc_pid_rusage`; elapsed time comes from system uptime.
+
+| Authored tolerance | Callbacks in each interval | Process interrupt wakeups |
+|---|---|---|
+| 0 ms | 632, 632 | 594, 627 |
+| 40 ms | 632, 632 | 164, 164 |
+
+The mean interrupt wakeup count fell from 610.5 to 164, about 73%, with the same
+callback count. This isolates the native adapter; it runs no Runner, UI or scrolling
+work, and the shared Mac remained busy. Package-idle wakeups were zero throughout.
+A second probe collected kernel energy counters but suffered stalls and unequal
+callback counts, so it does not establish energy savings. Actual energy-savings
+measurements, including iPhone battery and full-app Mac power measurements, are
+deferred by the user (2026-10-28); the iPhone frame comparison follows.
+
+**iPhone process wakeups**, measured on 2026-10-28 on an iPhone 15 Pro
+(`iPhone16,1`, iOS 27.0.1 build 24A446) with Xcode 27.1. The
+[minimal Exact fixture](../experiments/timer-wait-points/compiled/README.md#iphone-process-wakeups)
+has two 250 ms native repeats staggered by 25 ms, with no timer-driven UI changes,
+networking or app storage. Development frame sampling is disabled. Four
+30-second Activity Monitor recordings use tolerance 0, 40, 40 and 0 ms;
+their sampled process idle-wakeup rates are 8.237, 4.084, 4.112 and 8.161/s.
+The observed wakeup rates are consistent with OS coalescing in that workload;
+they establish neither battery savings nor equal callback counts. Power-metric
+collection was unsuccessful. The linked method records the plan hashes, counter
+extraction and measurement limits.
+
+**iPhone flings**, measured on the same phone and app build. Physical XCTest
+executes three fast down/up swipe pairs per pass, in precise, `scrollend`, `update`,
+`update`, `scrollend`, precise order. All six recordings have actual dragging and
+deceleration on the fixture's list at a median 8.34 ms display period, with no
+recording drops. The counter changes all 300 row labels. During glides, the precise
+passes report 47.10 and 51.82 ms of hitch time per second; `scrollend` reports 8.54
+and 8.37; `update` reports 279.30 and 284.92. `scrollend` moves work out of the glide,
+while `update` has substantially more hitching in this workload. Its second pass's
+late frames include 3.88 s in the host's runtime phase, versus 0.020 s in the second
+precise pass; that phase includes waiting on the runner and kernel layout.
+This identifies a cost without establishing its cause. The
+[method and results](../experiments/timer-wait-points/compiled/README.md#iphone-flings)
+separate glide time from rest and policy changes, account for retained late-frame
+limits, and name the instrumentation still missing. XCTest asserts gesture
+execution, not a frame-lateness bound; these measurements support no general
+performance claim for every wait policy.
+
+**Apple owner-queue admission**, on the same physical fixture. Keeping synchronous owner calls inside the UI-update callback produced 279.30 and 284.92 ms/s of glide hitch time; an instrumented eligibility-only guard still produced 280.72 and 273.66. Posting the owner job after the UI turn produces 50.84 and 47.98, versus precise controls of 42.67 and 44.74. Both final `update` passes admit 148 measured firings through kind 2, with no cap fallback or duplicate nominal firing. The first precise pass and both `update` passes each evaluate the row-text site 44,700 times in their observation window. Retained late-frame runtime-phase time drops to 72.67 and 93.43 ms from the baseline's 3.90 and 3.88 seconds. The [method and results](../experiments/timer-wait-points/compiled/README.md#owner-queue-admission-and-timing-evidence) include admission and commit-clock timing distributions, per-site work, controls and measurement limits. These are observations from short passes on one device, not a general frame deadline or energy guarantee.
 
 **Browsers**, through Playwright on Chromium 156.0.8078.4, Firefox 157.0 and WebKit
 27.2 (`web/probe.mjs`, `web/results/<engine>.json`):

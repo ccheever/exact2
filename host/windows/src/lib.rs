@@ -34,6 +34,8 @@ mod pads;
 #[cfg(windows)]
 mod placement;
 #[cfg(windows)]
+mod timers;
+#[cfg(windows)]
 mod url;
 #[cfg(windows)]
 mod wheel;

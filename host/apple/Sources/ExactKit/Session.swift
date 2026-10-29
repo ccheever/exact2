@@ -374,17 +374,20 @@ public final class ExactSession {
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
     var clockDue: Double?
-    /// The last two timer advances changed nothing the presenter shows,
-    /// and no batch has applied since (`scheduleClock`).
-    var timersQuiet: Bool { quietTimerAdvances >= 2 }
-    private(set) var quietTimerAdvances = 0
     /// An advance of a deadline already due is running (`advanceIfDue`)
     var advancingDue = false
+    lazy var taskTimers = NativeTaskTimers(now: { [weak self] in self?.now() ?? 0 }, ready: { [weak self] in self?.deliverNativeTimer() })
+    lazy var timerAdmissions = TimerAdmissions(session: self)
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
     /// on the wall clock. Taking it over ends the first-frame rule (LLP
     /// 1003.001 D7): what waits for a frame starts there.
     public var clock: Double? {
-        didSet { if (oldValue == nil) != (clock == nil) { frameHealth.clockChanged(virtual: clock != nil) }; runtime.liveClock(clock == nil); if oldValue == nil, let at = clock { apply(runtime.startOnFrame(false, at: at)) } }
+        didSet {
+            if (oldValue == nil) != (clock == nil) { frameHealth.clockChanged(virtual: clock != nil) }
+            taskTimers.cancel(); timerAdmissions.takeover(); runtime.liveClock(clock == nil)
+            if oldValue == nil, let at = clock { apply(runtime.startOnFrame(false, at: at)) }
+            if oldValue != nil, clock == nil, state == .ready { apply(runtime.advance(now: now())) }
+        }
     }
     /// The runner's soonest timer, from the last batch (absent without timers).
     var timerDue: Double?
@@ -483,6 +486,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         let runtime = Runtime()
+        runtime.useNativeTimers(true)
         PresenceKeychain.install(); LocalNetworkFact.install() // before the first boot reads the backend (LLP 1133.010 D6), the fact (LLP 1133.036 D8)
         if ActivityLibrary.packaged { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
@@ -655,7 +659,7 @@ public final class ExactSession {
             }
             var batch = next.batch
             if batch.frameWorkTiming != nil { batch.frameWorkTiming?.landed = began }
-            if case .advance = next.kind { applyUnlessEmpty(batch, timer: true) } else if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
+            if case .advance = next.kind { applyUnlessEmpty(batch) } else if !(changesNothing(batch) && clockUnchanged(batch)) {
                 apply(batch)
             }
             if case .reply = next.kind {
@@ -707,7 +711,7 @@ public final class ExactSession {
             // A report inside the built window commits nothing: while a list
             // moves that is most frames. Skip the presenter's finalization
             // pass for it, unless the clock or the motion it reports is news.
-            if changesNothing(batch) && batch.timerDueMs == timerDue { return }
+            if changesNothing(batch) && clockUnchanged(batch) { return }
             apply(batch)
         }
         presenter.onClose = { [unowned self] id in apply(runtime.dialogClose(id, now: now())) }
@@ -938,6 +942,7 @@ public final class ExactSession {
         runtime.setProfileResolver(app.resolver)
         core.measure(with: text)
         installControlText()
+        taskTimers.resume()
     }
 
     func commit(_ candidate: Prepared, batch: Batch) -> Batch {
@@ -1015,8 +1020,7 @@ public final class ExactSession {
     /// before its handler ran is reconciled by the pass (a refused tab), and
     /// the agent's clock seeks native animations through it. Slices published
     /// before it land first (T4), and it is asked again (a fling's fills).
-    /// `timer`: a clock advance's, which `timersQuiet` counts.
-    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false, timer: Bool = false) {
+    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
         guard !batch.busy, !batch.held else { return }
         guard !applying else { apply(batch); return }
         if !landing, ownerInFlight, hasPublished {
@@ -1025,10 +1029,10 @@ public final class ExactSession {
             guard state != .destroyed else { return }
         }
         guard !fillInFlight, !tickInFlight, !advanceInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { apply(batch); return }
+        updateTimerState(batch)
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0); logAlerts(batch.alerts); logJournal(batch.journal)
         if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
-        if timer { quietTimerAdvances = min(quietTimerAdvances + 1, 2) }
         timerDue = batch.timerDueMs; timerLanding = batch.landing
         scheduleClock(due: batch.timerDueMs)
         // What the pass did that a scroll moves (`scrolledWithoutPass`).
@@ -1045,7 +1049,7 @@ public final class ExactSession {
             let (id, dark) = pendingViewDark.removeFirst()
             let batch = runtime.viewScheme(id, dark: dark)
             // Appearance already changed natively; retain its transaction accounting without rescheduling.
-            if !ownerInFlight, changesNothing(batch), batch.timerDueMs == timerDue {
+            if !ownerInFlight, changesNothing(batch), clockUnchanged(batch) {
                 sampler?.batch(batch.seq, ms: 0)
                 if let q = batch.seq { natives.hatchClock.seq = q.1 }
             } else { apply(batch) }
@@ -1066,7 +1070,6 @@ public final class ExactSession {
     package func apply(_ batch: Batch) {
         guard state != .destroyed, !batch.busy, !batch.held else { return }
         appliedBatches += 1
-        quietTimerAdvances = 0
         // A slice the owner committed before this batch applies first (T4).
         if !applying, !landing, ownerInFlight, hasPublished {
             // What the landed slices leave owed is asked after this batch,
@@ -1119,6 +1122,7 @@ public final class ExactSession {
         frames.spatial = batch.spatial
         frames.canvas2d = batch.canvas
         frames.tasks = batch.frames
+        updateTimerState(batch)
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.hasWork) } }
         timerDue = batch.timerDueMs; timerLanding = batch.landing
@@ -1458,7 +1462,7 @@ public final class ExactSession {
         waiting.forEach { $0.cancelled?() }
         generation += 1
         cancelAuthSessions()
-        clockTimer?.invalidate()
+        taskTimers.cancel(); clockTimer?.invalidate(); timerAdmissions.takeover()
         clockTimer = nil
         frames.run(false)
         sampler?.stop(); releaseSampler()

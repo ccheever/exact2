@@ -14,11 +14,9 @@ import java.io.File
 import java.nio.ByteOrder
 import java.nio.IntBuffer
 
-/**
- * The heavy list as exact2 lays it out and Android's Canvas draws it (LLP 1076 §3.3). exact2 runs on the main thread
- * and hands over an op stream (host/linux/src/canvas.rs); rows are RenderNodes, recorded on a worker thread (async=0:
- * on the main thread), kept until exact2 frees them; a scroller's rows are one node that a scroll frame exact2 does
- * not paint only translates.
+/** Canvas reader for exact2's op stream (host/linux/src/canvas.rs; LLP 1076 §3.3).
+ * Rows are RenderNodes recorded on a worker (async=0: main) and retained until freed.
+ * A scroll frame translates the scroller's row group without repainting it.
  */
 class ExactView(context: Context, private val live: Boolean, private val onFirst: () -> Unit) : View(context) {
     /** Keys and text input reach the app (the activity's [ExactActivity.input]); see [Keys]. */
@@ -29,8 +27,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     internal var fields: Fields? = null
     /** The app's bars, over this view ([Bars], LLP 1115.001 D11): told with the stream they belong to. */
     internal var bars: Bars? = null
-    /** What exact2 tells of the accessibility tree ([Access], LLP 1115.001 D13), handed on with the stream it came
-     * with; and, where exact2 runs on this thread (owner=0), whether a service is on and it is asked at all. */
+    /** Delivers the stream's accessibility tree ([Access], LLP 1115.001 D13); owner=0 also checks service availability. */
     internal var access: ((IntArray) -> Unit)? = null
     private var accessible = false
     private var accessAgain = false
@@ -40,8 +37,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     /** The row whose body [ingest] is in (0: none), and the elements the unrowed stream names. */
     private val flatAlpha = (context as Activity).intent.getStringExtra("flatalpha") != "0"
     private var ingestRow = 0
-    /** Where the last stream drew each row (its top, the stream's pixels) and in which scroller's group (0: none),
-     * for [rowShows]. */
+    /** Each row's top in stream pixels and scroller group (0: none), used by [rowShows]. */
     private val rowTop = android.util.SparseIntArray()
     private val rowGroup = android.util.SparseIntArray()
     private var ingestGroup = 0
@@ -51,8 +47,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     /** Each kept row's recorded height (px). */
     private val rowTall = android.util.SparseIntArray()
 
-    /** Whether [row] is in the view or within a third of it (a frame of the fastest fling), where the last stream and
-     * its scroller's move since put it (true when the stream did not draw it: unknown). */
+    /** Shows rows within a margin of one third of the view after pending scrolls; undrawn rows count as visible. */
     private fun rowShows(row: Int): Boolean {
         // Sparse arrays of ints (a top as its float's bits): a stream names every row it draws, and a HashMap boxed
         // each key and value (two entries a row a stream).
@@ -134,6 +129,20 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private fun asking() { Native.requests()?.let(asked) }
     /** exact2's own thread, when it has one ([Owner]); null: exact2 runs here, on the main thread. */
     internal var owner: Owner? = null
+        set(value) { field = value; value?.timerReader(this) }
+    private var timerTouch = false
+    private var timerApplied = 0L
+    private var timerIdlePosted = false
+    internal fun timerReport() {
+        val o = owner
+        if (o != null) o.timerReport(this, timerTouch || scrolling.timerActive, samplerPosted, timerApplied)
+        else if (started && Native.timerObservation(timerTouch || scrolling.timerActive, samplerPosted, false, false)) pump()
+    }
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) timerTouch = true
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) timerTouch = false
+        return try { super.dispatchTouchEvent(event) } finally { timerReport() }
+    }
     /** Scrolls sent to the owner that no published stream includes yet, and the feed's group with its translation in
      * the last stream: the group is drawn that far moved, less what the owner has yet to apply. */
     private var mainSeq = 0
@@ -516,12 +525,14 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         var any = false
         var painted = false
         var allQuiet = true
+        var publication = timerApplied
         var move: Owner.Pub? = null
         while (true) {
             val next = o.queue.peek() ?: break
             if (next.ops != null && natives?.prepare(next.ops, structure) { post { publish() } } == false) break
             val p = o.queue.poll() ?: break
             any = true
+            publication = p.publication
             // The fields first: the stream that came with them draws their nodes.
             p.fields?.let { fields?.told(it) }
             p.bars?.let { bars?.told(it) }
@@ -552,6 +563,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         if (coverTrace && painted) traceNewRows()
         moved = !painted
         quiet = painted && allQuiet && move == null
+        timerApplied = publication
+        timerReport()
         return any
     }
 
@@ -1034,6 +1047,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         val moving = layers.sample(at)
         ticker?.invalidate()
         if (moving) playLayers()
+        timerReport()
     }
     private var samplerPosted = false
     /** latesample=0: layers sampled at the frame's vsync always, to compare. */
@@ -1048,6 +1062,14 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         asking()
         if (!running) return
         wakes?.sync()
+        if (!timerIdlePosted && Native.timerHeld() and 16 != 0) {
+            timerIdlePosted = true
+            android.os.Looper.myQueue().addIdleHandler {
+                timerIdlePosted = false
+                if (Native.timerObservation(timerTouch || scrolling.timerActive, samplerPosted, false, true)) pump()
+                false
+            }
+        }
         if (Native.animating() && !turnPosted) { turnPosted = true; android.view.Choreographer.getInstance().postFrameCallback(turn) }
         var due = Native.nextDue()
         // A moved paint is owed a paint once scrolling pauses: each step pushes this back.

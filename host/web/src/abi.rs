@@ -951,23 +951,6 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Move the clock: `mode` 0 fires every timer due (the wall clock), 1
-    /// stops after a timer that sends (the agent's jump), 2 lands only the
-    /// `then`s already armed, the clock unmoved (an agent's input's end).
-    pub fn advance(&mut self, now_ms: f64, mode: u32) -> u32 {
-        let out = match self.host.as_mut() {
-            // The `then`s an agent's input settled (Runner::land_then).
-            Some(h) if mode == 2 => {
-                let a = h.runner_mut().land_then();
-                h.advanced(a)
-            }
-            Some(h) if mode == 1 => h.advance_until_request(now_ms),
-            Some(h) => h.advance(now_ms),
-            None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
-        };
-        self.emit(out)
-    }
-
     /// A presented frame (LLP 1073 D5).
     pub fn frame(&mut self, now_ms: f64) -> u32 {
         let out = match self.host.as_mut() {

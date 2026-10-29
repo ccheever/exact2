@@ -73,6 +73,7 @@ final class IdleTickTests: XCTestCase {
     func testAnEmptyScrollBatchBehindAPublishedSliceLandsItAndSkipsThePass() throws {
         let session = ExactApp.shared.makeSession(label: "idle-behind-slice")
         defer { session.destroy() }
+        session.clock = 0
         let due = session.now() + 250
         session.publishTickForTests(wireBatch([["op": "props", "id": 1, "set": ["testId": "x"]]]))
         XCTAssertTrue(session.tickInFlight)

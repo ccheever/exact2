@@ -347,7 +347,7 @@ function paintContent(span, fragment, state, lineHeight) {
   span.dataset.hyphen = String(fragment.hyphenated);
 }
 
-export function createTextFlow({ views, request, advance, present, agentMode, log = console.error,
+export function createTextFlow({ views, request, advance, present, admitTimers = null, agentMode, log = console.error,
   now = () => globalThis.exact?.now?.() ?? performance.now(),
   raf = requestAnimationFrame, cancel = cancelAnimationFrame, delay = setTimeout, clearDelay = clearTimeout }) {
   const shapes = new Map(), states = new Map(), calibration = new Map(), autoHeightWarned = new Set();
@@ -388,7 +388,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
     if (!fontsReady || disposed) return;
     for (const s of pinned) if (s.rendered || !pending) unpin(s);
   }
-  const clock = createTimerScheduler({ now, advance, present, agentMode, paint: onFrame, raf, cancel, delay, clearDelay });
+  const clock = createTimerScheduler({ now, advance, present, release: admitTimers, agentMode, paint: onFrame, raf, cancel, delay, clearDelay });
   const observer = new ResizeObserver(() => invalidate());
   const observed = new Set();
   const wake = () => { if (!disposed) clock.requestFrame(); };
@@ -791,7 +791,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
       const op = batch.ops?.find(op => op.op === 'textflow');
       if (op) { contexts = op.contexts; reconcile(); }
       for (const s of states.values()) if (batch.ops?.some(op => op.op === 'style' && s.meetingIds?.has(op.id))) s.geometry = null;
-      clock.update(batch.timer_due_ms, batch.frames);
+      clock.update(batch.timer_due_ms, batch.frames, batch.waits, batch.timer_tolerance_ms);
       if (batch.ops?.some(op => ['style', 'props', 'create', 'destroy', 'children', 'textflow'].includes(op.op))) {
         const onlyExclusions = batch.ops.every(op => op.op === 'style' && contexts.some(c => c.exclusions.includes(op.id)));
         invalidate(!onlyExclusions);

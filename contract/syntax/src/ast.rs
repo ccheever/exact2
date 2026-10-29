@@ -753,6 +753,8 @@ pub struct Task {
     pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
     pub timer: (Expr, String, Span),
+    /// Named scheduling options, validated by lowering.
+    pub options: Vec<(String, Expr, Span)>,
     /// Where.
     pub span: Span,
 }

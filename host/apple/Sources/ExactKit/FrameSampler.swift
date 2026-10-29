@@ -24,9 +24,9 @@ import AppKit
 /// wrong under ProMotion), at the callback an interval starts from;
 /// `missed = round(interval / period) − 1`.
 final class FrameSampler: NSObject {
-    /// Whether this binary measures on its own: not a production bake, which
-    /// measures only while an app records.
-    static let measured = !ExactEnv.productionBake
+    /// Keep automatic sampling off for production bakes and power profiling
+    /// (`EXACT_SAMPLE_FRAMES=0`); explicit recordings still work.
+    static let measured = !ExactEnv.productionBake && ExactEnv.environment["EXACT_SAMPLE_FRAMES"] != "0"
     /// Whether it measures from boot: a development build, or one the agent
     /// launched. A release build starts at the first ask (`measurePerf`).
     static let atBoot = !ExactEnv.releaseBuild || ExactEnv.agentFreezes
@@ -120,6 +120,7 @@ final class FrameSampler: NSObject {
     /// `stopTrace_EXPERIMENTAL`, and the scroller a person moved last, read where each
     /// turn ends, apart from what a held fling reads (`tracked`).
     final class Recording {
+        var work: [String: Any] = [:]
         var records: [Record] = []
         var dropped = 0
         /// The scrollers the recording followed, in the order it took them:

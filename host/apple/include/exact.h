@@ -681,10 +681,19 @@ uint32_t exact_pan_sample(ExactRuntime rt, uint32_t first, double x, double y, d
 double exact_pan_velocity(ExactRuntime rt, uint32_t axis, double t);
 /* The runner's clock: timers. Nonzero until_request stops after a timer that
  * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
+/* Timer waits: mode 0 declares support, 1 admits, 2 runs frame tasks. */
+uint32_t exact_timer_waits(ExactRuntime rt, uint32_t kinds, double cutoff, uint32_t mode);
+/* Delegate ordinary live timers to per-task native timers. Batches carry
+ * nativeTimers with each instance's original deadline, interval and tolerance. */
+uint32_t exact_native_timers(ExactRuntime rt, uint32_t enabled);
+/* Deliver only this timer instance. A cancelled generation cannot fire a replacement. */
+uint32_t exact_fire_native_timer(ExactRuntime rt, uint32_t index, uint64_t generation, double now_ms);
 uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t mode);
 /* @ref LLP 1073 D5: a presented display frame — timers due by now_ms, then
  * every frame task once at it. The batch says "frames" while one wants it. */
 uint32_t exact_frame(ExactRuntime rt, double now_ms);
+/* Frame tasks after timer admission, preserving the presentation target. */
+uint32_t exact_admitted_frame(ExactRuntime rt, double target_ms, double wall_ms);
 /* @ref LLP 1003.001 D5: exact_frame at the target now_ms, the wall at wall_ms
  * stopping the motion engine's input clock. */
 uint32_t exact_frame_at(ExactRuntime rt, double now_ms, double wall_ms);

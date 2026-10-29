@@ -444,3 +444,22 @@ fn a_reask_due_after_an_answers_timer_waits_for_it() {
     seek(&mut r, 1000.);
     assert_eq!(result(&r, "result"), said("a after 450"));
 }
+
+#[test]
+fn takeover_releases_an_overdue_answer_timer_without_rewinding() {
+    use std::{cell::Cell, rc::Rc};
+    let mut r = runner();
+    let wall = Rc::new(Cell::new(0.0));
+    let sample = wall.clone();
+    r.set_live_clock(Some(Box::new(move || sample.get())));
+    r.act("sleep", vec![Value::str("takeover"), Value::Number(50.)])
+        .unwrap();
+    pump(&mut r);
+    assert_eq!(r.data_timer_due_ms(), Some(50.));
+    wall.set(100.);
+    r.set_live_clock(None);
+    assert_eq!(r.now_ms(), 100.);
+    seek(&mut r, 100.);
+    assert_eq!(r.now_ms(), 100.);
+    assert_ne!(result(&r, "result"), Value::NONE);
+}

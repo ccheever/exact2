@@ -469,7 +469,11 @@ component App
 The first press yields `1/2`. Writing `doubled = count * 2` instead would use the
 old count and yield `1/0`. The same snapshot rule applies inside nested branches
 and to locals declared after a state assignment. The compiler warns of such a read
-(`analyze-read-after-assign`), naming the line that assigned the slot.
+(`analyze-read-after-assign`), naming the line that assigned the slot, and of a
+send and an assignment of one nonqueued mutation on one path
+(`analyze-send-assigned`): the assignment forgets the request in flight and keeps
+its value, whichever comes first, so a retry hides the old result while
+`pending(m)` instead, and a logout sends through a mutation of its own.
 
 A local is immutable, block-scoped, and visible only after its declaration. It
 cannot shadow an in-scope name. Two disjoint arms may declare the same local name.
@@ -516,12 +520,13 @@ component App
 ```
 
 Because the callee sees the starting state, a slot its caller assigned first
-would be stale behind the call, and the compiler refuses that read
-(`analyze-call-stale-read`): `sel = next` then `follow()`, where `follow` reads
-`sel`. Pass the value it should see instead: `follow(next)` for the new one, or
-a `let` bound before the assignment for the old one. Two calls that each read and
-write one slot (`move(1, 0)` then `move(0, 1)`) are refused the same way: both
-read the starting cell, and the last write wins. Calls in exclusive branches
+is stale behind the call, and the compiler warns of that read as it does in the
+action's own body (`analyze-read-after-assign`, naming both frames): `sel = next`
+then `follow()`, where `follow` reads `sel`. Pass the value it should see instead:
+`follow(next)` for the new one, or a `let` bound before the assignment for the
+old one. Two calls that each read and write one slot (`move(1, 0)` then
+`move(0, 1)`) are named the same way: both read the starting cell, and the last
+write wins. Calls in exclusive branches
 (`if k == "ArrowUp" …` then `if k == "ArrowDown" …`) are separate paths.
 
 A derive is not mutable storage, an async effect, or a timer. Derive cycles are
@@ -3655,7 +3660,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `selected.title` when optional | Exhaustive `match selected` |
 | `press={() => save()}` | `press=save` or `press=save(captured)` |
 | Copying an action's statements into another | Call it: `arrive(path)`; the callee runs in the same commit |
-| A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
+| A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-read-after-assign`) |
 | `button press=add` with no child, or only an `image "symbol:…"` (`lower-button-unlabelled`) | Its words in it (`text "Add"`), or `aria-label="Add"` on a symbol-only button |
 | A `button` inside a `button`, as a React Native `Pressable` in another (`lower-nested-button`): a press is the inner one's alone, but the outer's accessible name reads both ("Note Listen") | A `row` of the outer's content as one `button` (`flex=1`) and the inner one beside it |
 | A heading at the top of a route's content that says its `header` heading again, which shows twice under the iOS bar (`lower-title-twice`) | Drop it; the bar's title names the screen. A heading below names a section: `text "Results" role="heading" aria-level=2` |
