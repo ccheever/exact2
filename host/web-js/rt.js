@@ -17,7 +17,7 @@ let Media = null; export function useMedia(m) { Media = m; } // and media.js onl
 //   compiled ones; a source not ready keeps the value and asks again when it
 //   is; a later answer lands in its own commit, if its ticket is current;
 // - timers fire on a clock the host moves (`advance`), each at its own time.
-let Listener = null, Owner = null, Queue = [], FocusQueue = [], Flushing = false, Rev = 0;
+let Listener = null, Owner = null, Queue = [], FocusQueue = [], Flushing = false, Rev = 0, LateStore = false; // `LateStore`: a store write outside a commit (module work, a let-go answer's code) owes a commit of its own (LLP 1146 D2)
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
 function node(fn, v, effect) {
   const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
@@ -156,8 +156,8 @@ export function W(s, v) { Writes.push([s.n, v]); }
 export function C(name, args) { Commands.push([name, args, Origin.now()]); Rev++; } export const Origin = { now: () => "app" }; // who caused the commit (modules.js, LLP 1133.002 D12), taken as a command is queued, so a deferred tail runs it under its own commit's origin
 /** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */
 export function R(r) { Refresh.push(r.r ?? r); }
-/** A topic its resource watched changed while ticket `t` was in flight (`t.again`, ts-data.js `changed`, LLP 1016.002 D4): its reply landed or failed, so the resource is asked again. */
-const again = t => { if (t.again) { t.again = false; say(`${t.r.name}: asked again, a watched topic changed while ticket ${t.id} was in flight`); R(t.r); } };
+/** What its resource reads (a watched topic, ts-data.js `changed`, LLP 1016.002 D4; the store, `lateReaders`) changed while ticket `t` was in flight (`t.again`): its reply landed or failed, so the resource is asked again. */
+const again = t => { if (t.again) { t.again = false; say(`${t.r.name}: asked again, what it reads changed while ticket ${t.id} was in flight`); R(t.r); } }, openEnded = t => !!(t.stream || t.req?.stream || t.req?.longPoll || t.call?.held > 0), reads = r => r.store || !!r.ticket?.call?.seen?.read, lateReaders = () => { for (const r of Resources) if (reads(r) && r.ticket && !openEnded(r.ticket)) r.ticket.again = true; }, lateIdle = () => { for (const r of Resources) if (reads(r) && (!r.ticket || openEnded(r.ticket))) R(r); }; // a store write outside a commit asks every store reader again (one whose answer has read the store so far, landed or not), a failed one too, as the runner's commit after a module turn does (LLP 1146 D2): one in flight once its reply lands, marked before that commit's checkpoint so a refusal keeps the mark, and one whose request may never land (a stream, a long poll, a held fetch) now
 /** Pull every derive and resource in plan order: the settlement pass. */
 function settle() { for (const n of Settle) fresh(n); }
 /** One commit: `f` runs; its writes, sends and refreshes land; settlement
@@ -386,7 +386,7 @@ export const Store = {
   map: new Map(), writes: [], pending: new Map(), dirty: false,
   get(k) { return this.map.get(k); },
   // Keeping what is already kept is no write, as the runner's `Store::set`.
-  set(k, v) { if (v != null && this.map.get(k) === v) return; if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; Rev++; },
+  set(k, v) { if (v != null && this.map.get(k) === v) return; if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); if (Writes) this.dirty = true; Rev++; if (!Writes && !LateStore) { LateStore = true; queueMicrotask(() => { LateStore = false; Store.persist(); lateReaders(); recommit(lateIdle, "a store write outside a commit"); }); } }, // kept now, whatever that commit's settlement does; the commit asks the store's readers again
   save() { return [new Map(this.map), this.writes.length]; },
   restore([m, n]) { this.map = m; this.writes.length = n; this.dirty = false; },
   persist() { const p = Kept("secret"); for (const [k, v] of this.writes.splice(0)) this.pending.set(k, { v, warned: false }); for (const [k, entry] of this.pending) try { entry.v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, entry.v); this.pending.delete(k); } catch (e) { if (!entry.warned) { entry.warned = true; say(`store ${k} failed: ${e}`); } } },
@@ -476,10 +476,10 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     r.value = v; r.settled = a; r.origin = origin; Inspections.take(r, generation);
   };
   const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
-    if (p.req) { if (o.more) { const n = { id: ++Ticket, name, owner: r, args: t.args, req: p.req, r, origin: t.origin, generation: t.generation }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
+    if (t.call?.seen?.read || p.store) r.store = t.read = true; if (p.req) { if (o.more) { const n = { id: ++Ticket, name, owner: r, args: t.args, req: p.req, r, origin: t.origin, generation: t.generation }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
     if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin, t.generation); r.failed = null; r.error = r.code = r.reason = undefined; if (!o.more) r.ticket = null; again(t);
     W(pend, !!(o.more && t.ctl?.upload)); W(fail, null); W(ver, ver.n.v + 1); // an upload is pending until its reply
-  }, "it keeps its last value", (error, code, reason) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); });
+  }, "it keeps its last value", (error, code, reason) => { if (t.call?.seen?.read || t.read || data.threwRead?.()) r.store = true; r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); });
   const m = memo(() => Ov.shown(r, (() => {
     ver();
     const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
@@ -498,6 +498,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     let ans; Inspections.begin(r);
     try { ans = ask(source, a, name); Out.push(...(ans?.effects ?? [])); } // what its source sent on a socket goes once this commit stands (LLP 1016.000 D7, amended 2026-10-18)
     catch (e) {
+      if (data.threwRead?.()) r.store = true;
       if (e instanceof Refusal) throw e;
       if (e.refuse && !reconciling) throw new Failed(`resource ${name}: ${e.message}`);
       return fails(a, String(e?.message ?? e), failureCode(e), failureReason(e)); // its newest ask failed: an older one in flight is let go
@@ -614,8 +615,8 @@ export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null || attrs?.["data-exact-looks"] != null) input(); // (a look snaps by its edges too, LLP 1121 D8)
   if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); if (tag === "button") oneActivation(e); return e; }
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
-  if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) if (NOT_DOM.test(k)) e["$" + k] = attrs[k]; else e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
+  if (cls !== 0) e.setAttribute("class", "c" + cls); // `bits`, below: the paint facts the compiler wrote, kept as paint.js `facts` reads them rather than read back from the attribute names; a bound fact's `P` clears them (LLP 1071.001 A6)
+  let bits = 0; if (attrs) { for (const k in attrs) if (NOT_DOM.test(k)) e["$" + k] = attrs[k]; else { e.setAttribute(k, rel(k, attrs[k])); if (k === "data-exact-f" || k.startsWith("data-exact-f-")) bits |= Number(attrs[k]); } if ("data-scrolldocument" in attrs) Docs.add(e); if (tag === "img" && ("data-symbol-source" in attrs || "data-app-src" in attrs)) Hooks.image?.(e); } if (Paint) e.$paintFacts = bits;
   if (text !== 0) e.textContent = text;
   if (tag === "iframe") frame(e, attrs?.["data-app-src"]);
   if (tag === "button") oneActivation(e);
@@ -654,7 +655,7 @@ function adopt(p, tag, cls, attrs) {
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
   if (attrs?.["data-exact-own-isolation"] === undefined && !e.hasAttribute("data-exact-own-isolation") && !e.hasAttribute("data-exact-policy") && e.style.isolation) e.style.removeProperty("isolation");
   if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (NOT_DOM.test(k)) e["$" + k] = v; else if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); }
+  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (NOT_DOM.test(k)) e["$" + k] = v; else if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); if (tag === "img" && ("data-symbol-source" in attrs || "data-app-src" in attrs)) Hooks.image?.(e); }
   Paint?.list(e); return e;
 }
 function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
@@ -827,9 +828,7 @@ export { gridValue } from "./grid.js";
 // A row's CSS text: authored blanks declare nothing; internal custom properties may carry an empty token (text-style presence); `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11); a bound `-exact-hairline` is the sheet's one device pixel, as css.rs writes a literal one (LLP 1115.000 D10.3); a layout region is its safe area (LLP 1123 D10).
 import { regions } from "./regions.js"; import "./said.js"; const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : !String(v).trim() && !prop.startsWith("--") ? null : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : regions(String(v)); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
 function css(e, prop, unit, v, rendered) {
-  // The value this binding last wrote: the same again writes nothing (each
-  // write was two style mutations, for every dynamic row of every row a
-  // list update touched).
+  // The value this binding last wrote: the same again writes nothing (a write restyles and repaints the node, for every dynamic row a list update touched).
   const last = e.$css ??= {}, t = cssText(prop, unit, v);
   if (last[prop] === t) return;
   last[prop] = t;
@@ -841,9 +840,11 @@ function css(e, prop, unit, v, rendered) {
     if (t == null ? !now : same(now) === (normal(prop, t) || "unset")) return;
   }
   if (t == null) return e.style.removeProperty(prop);
-  e.style.removeProperty(prop);
-  e.style.setProperty(prop, t);
-  if (!e.style.getPropertyValue(prop) && !prop.startsWith("--")) { e.style.setProperty(prop, "unset"); say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`); }
+  // A value the browser took before (`Normal`, read back after its first write) is written once; one it refused falls to `unset` at once. Only a value not yet seen pays the remove before the write that lets the read-back tell a refusal from an earlier value (LLP 1071.001 A8).
+  const k = prop + "\0" + t, known = prop.startsWith("--") || Normal.get(k);
+  if (known) return e.style.setProperty(prop, t);
+  if (known === undefined) { e.style.removeProperty(prop); e.style.setProperty(prop, t); const got = same(e.style.getPropertyValue(prop)); Normal.set(k, got); if (Normal.size > 4096) Normal.clear(); if (got) return; }
+  e.style.setProperty(prop, "unset"); say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
 }
 /** `S` for a row that can reference an element (`url(#…)`): an authored id
  * names the node the kernel's `resolve_id` would, the nearest in the tree
@@ -869,8 +870,8 @@ export function Sr(e, prop, unit, f) {
 }
 export { svgTransform, svgGeometry } from "./svg-transform.js"; export { ds, x_querySelectorAll } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
 import { backdropValue as backdropCss } from "./backdrop.js"; export const backdropValue = (v, report = true) => backdropCss(v, report ? why => say(`unset backdrop-filter: ${why}`) : undefined);
-/** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
- * write on a node the motion piece holds (motion.js). */
+/** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's write on a node the motion piece holds
+ * (motion.js); `image(e)` an image built or adopted with a symbol or `app:/` source (symbols.js). */
 export const Hooks = {};
 /** `S` on a node the motion engine follows (`mo`): while a hold owns it, a
  * write goes to the authored style the hold restores. */

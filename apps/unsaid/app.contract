@@ -272,7 +272,7 @@ component Unsaid
                   text `Go to row ${target == 60 ? 150 : 60}`
               list id="rows" virtualized=true flex=1 min-height=0 width="100%" overflow-x="hidden" estimated-item-height=56 scrollTop=top testId="rows"
                 for i in rows key=i
-                  column width="100%"
+                  column press=pick(i) disabled=(i < 2) role=(i > 1 ? "button" : "group") tabindex=(i > 1 ? 0 : -1) width="100%" testId=`row-${i}`
                     if i == 0
                       scroll width="100%" height=120 overflow-x="scroll" overflow-y="hidden" testId="strip"
                         row display="flex" gap=8 height="100%"
@@ -284,8 +284,7 @@ component Unsaid
                         for n in lines key=n
                           text `Nested line ${n}` padding=12
                     if i > 1
-                      button press=pick(i) width="100%" height=56 box-sizing="border-box" text-align="start" testId=`row-${i}`
-                        text `Row ${i}`
+                      text `Row ${i}` height=56 display="flex" align-items="center"
       // The top layer's surfaces, declared once at the root: two confirmations
       // (the label is the title, the text the message, Cancel the closing
       // button with no `press`) and the menu every invoker above names.

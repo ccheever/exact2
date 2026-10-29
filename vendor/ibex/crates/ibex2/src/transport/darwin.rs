@@ -254,7 +254,7 @@ impl Transport for DarwinTransport {
             last_reused: self.last_reused.clone(),
         };
         let (mut status, mut headers, mut error) = (0, std::ptr::null_mut(), std::ptr::null_mut());
-        // An upload's progress (Exact patch 22): each change URLSession's
+        // An upload's progress (Exact patch 23): each change URLSession's
         // `didSendBodyData` makes before the headers is told here, on this
         // thread, and the wait goes on.
         let total = body.len() as u64;

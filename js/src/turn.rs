@@ -4,8 +4,11 @@
 //! works. Under CPU load the calling thread is taken off the core mid-turn;
 //! a wall-clock budget refused a turn of 60 ms of work that read 247 ms, and
 //! the resource kept its old value. Still post hoc, as before: the budget
-//! never ends a turn, an interrupt does (LLP 1048.000 D10).
+//! never ends a turn, an interrupt does (LLP 1048.000 D10). A test times
+//! turns on a ticking clock instead ([`Module::set_turn_step`]).
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// How many budgets of wall time a turn may take, whatever its CPU time, before it is refused:
@@ -13,10 +16,16 @@ use std::time::{Duration, Instant};
 /// CPU here, and stays bounded.
 pub(crate) const WALL_BACKSTOP_BUDGETS: f64 = 10.0;
 
-/// A turn's start on both clocks.
+/// What a module's turns are timed on: this thread's clocks, or a test's
+/// ticking clock, in nanoseconds, and its step.
+#[derive(Default)]
+pub(crate) struct TurnTime(Option<(Arc<AtomicU64>, u64)>);
+
+/// A turn's start on both clocks, or on the ticking one.
 pub(crate) struct TurnClock {
     wall: Instant,
     cpu: Option<Duration>,
+    ticking: Option<(Arc<AtomicU64>, u64)>,
 }
 
 /// What a turn took.
@@ -28,15 +37,67 @@ pub(crate) struct Took {
     pub(crate) cpu: bool,
 }
 
+impl crate::Module {
+    /// Times every turn on a clock that moves `step` as each turn starts, and
+    /// at no other time: each turn takes one step, of its own time and of
+    /// wall, and the steps add up across turns, spending the time a snapshot
+    /// had to its deadline when it was prepared; real time spends none of it.
+    /// What a budget or a deadline allows a turn then depends on the steps,
+    /// not on how fast the machine runs the test (docs/testing.md); the
+    /// runner's own checks of a deadline still read the wall clock, a bound
+    /// only for a hanging test. A worker's instance gets a clock of its own.
+    #[doc(hidden)]
+    pub fn set_turn_step(&mut self, step: Duration) {
+        self.turn_time = TurnTime(Some((Arc::default(), step.as_nanos() as u64)));
+    }
+
+    /// The budget of a turn that starts at `started`: the module's own, or the
+    /// time left to a snapshot's deadline; on the ticking clock, what the
+    /// snapshot had when it was prepared less the turns' steps.
+    pub(crate) fn turn_budget_ms(&self, started: Instant) -> f64 {
+        let Some((deadline, given)) = self.snapshot_deadline else {
+            return self.budget_ms;
+        };
+        match self.turn_time.elapsed_ms() {
+            Some(ticked) => (given.as_secs_f64() * 1e3 - ticked).max(0.0),
+            None => deadline.saturating_duration_since(started).as_secs_f64() * 1e3,
+        }
+    }
+}
+
+impl TurnTime {
+    /// What the turns so far took on the ticking clock; none on this thread's clocks.
+    fn elapsed_ms(&self) -> Option<f64> {
+        (self.0.as_ref()).map(|(now, _)| now.load(Ordering::SeqCst) as f64 / 1e6)
+    }
+
+    /// A clock of the same kind, its own: what a worker's instance is timed on.
+    pub(crate) fn fresh(&self) -> TurnTime {
+        TurnTime(self.0.as_ref().map(|(_, step)| (Arc::default(), *step)))
+    }
+}
+
 impl TurnClock {
-    pub(crate) fn start() -> TurnClock {
+    pub(crate) fn start(time: &TurnTime) -> TurnClock {
         TurnClock {
             cpu: thread_cpu(),
             wall: Instant::now(),
+            ticking: time
+                .0
+                .as_ref()
+                .map(|(now, step)| (now.clone(), now.fetch_add(*step, Ordering::SeqCst))),
         }
     }
 
     pub(crate) fn took(&self) -> Took {
+        if let Some((now, started)) = &self.ticking {
+            let ms = (now.load(Ordering::SeqCst) - started) as f64 / 1e6;
+            return Took {
+                own_ms: ms,
+                wall_ms: ms,
+                cpu: false,
+            };
+        }
         let wall_ms = self.wall.elapsed().as_secs_f64() * 1e3;
         match (self.cpu, thread_cpu()) {
             (Some(a), Some(b)) => Took {
@@ -209,8 +270,24 @@ mod tests {
     }
 
     #[test]
+    fn a_ticking_clock_times_each_turn_one_step_and_adds_them_up() {
+        let time = TurnTime(Some((Arc::default(), 60_000_000)));
+        let first = TurnClock::start(&time);
+        std::thread::sleep(Duration::from_millis(5));
+        assert_eq!(first.took().own_ms, 60.0);
+        assert_eq!(first.took().wall_ms, 60.0);
+        // A clock kept from an earlier turn reads the steps since.
+        let second = TurnClock::start(&time);
+        assert_eq!(second.took().own_ms, 60.0);
+        assert_eq!(first.took().own_ms, 120.0);
+        let fresh = time.fresh();
+        assert_eq!(TurnClock::start(&fresh).took().own_ms, 60.0);
+        assert!(TurnClock::start(&TurnTime::default()).ticking.is_none());
+    }
+
+    #[test]
     fn this_threads_cpu_clock_counts_work_and_not_sleep() {
-        let clock = TurnClock::start();
+        let clock = TurnClock::start(&TurnTime::default());
         std::thread::sleep(Duration::from_millis(60));
         let slept = clock.took();
         assert!(slept.wall_ms >= 60.0);
@@ -218,7 +295,7 @@ mod tests {
             assert!(slept.own_ms < 30.0, "{} ms of CPU asleep", slept.own_ms);
         }
         // Work until the clock reads 20 ms of its own, however long the machine takes to give it.
-        let clock = TurnClock::start();
+        let clock = TurnClock::start(&TurnTime::default());
         let mut x = 0u64;
         while clock.took().cpu && clock.took().own_ms < 20.0 && clock.took().wall_ms < 30_000.0 {
             x = std::hint::black_box(x.wrapping_mul(6364136223846793005).wrapping_add(1));

@@ -11,10 +11,11 @@ use ibex2::{
     },
 };
 use std::{
+    collections::BTreeMap,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Condvar, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -38,13 +39,21 @@ pub(crate) struct Session {
     pub context: Arc<Context>,
     alive: Arc<AtomicBool>,
     wait: Duration,
+    /// A test's hold on compressions (`Module::hold_compressions`).
+    hold: Option<SessionHold>,
 }
 
 impl Session {
     /// A storage session under `grants`: the app's directories where the
     /// host configured them, and always the documents the person chose
     /// (`doc:`, LLP 1069.010 D1), which need none, as a Rust source's do.
-    pub fn open(grants: &str, wait: Duration, owner: u64) -> Result<Self, String> {
+    pub fn open(
+        grants: &str,
+        wait: Duration,
+        owner: u64,
+        hold: Option<Arc<Gate>>,
+    ) -> Result<Self, String> {
+        let hold = hold.map(SessionHold::new);
         let grants = GrantSet::parse(grants).map_err(|e| e.to_string())?;
         let context = Context::new(grants);
         context
@@ -62,13 +71,14 @@ impl Session {
         // unsupported before reading the source (LLP 1069.002 A1.3).
         if exact_data::image::available() {
             context
-                .set_image_codec(Arc::new(ImageCodec), image_limits())
+                .set_image_codec(Arc::new(ImageCodec { hold: hold.clone() }), image_limits())
                 .map_err(|e| e.to_string())?;
         }
         Ok(Self {
             context: Arc::new(context),
             alive: Arc::new(AtomicBool::new(true)),
             wait,
+            hold,
         })
     }
 
@@ -123,6 +133,7 @@ impl Session {
         let context = self.context.clone();
         let alive = self.alive.clone();
         let wait = self.wait;
+        let hold = self.hold.clone();
         // Capture only work visible to this owner-thread turn. A retired
         // waiter can never discover or cancel a later generation's jobs.
         let work = context.image_work().handles();
@@ -152,7 +163,13 @@ impl Session {
                 if !live() {
                     return retired_outcome();
                 }
-                if Instant::now() >= deadline {
+                // Held compressions outlast any wait: with nothing else in
+                // flight, and no completion ready (one is queued before its
+                // work leaves the count), the wait has run out.
+                let held = hold.as_ref().map_or(0, SessionHold::held);
+                let only_held =
+                    held > 0 && context.in_flight() <= held && !context.wait(Duration::ZERO);
+                if only_held || Instant::now() >= deadline {
                     let mut abandoned = false;
                     let mut committed = false;
                     for handle in &work {
@@ -284,7 +301,9 @@ fn documents(path: &str, owner: u64) -> Result<DocumentLease, DocumentError> {
 /// The platform's image codec ([`exact_data::image`]), as ibex2's
 /// (`fs.compressImage`, LLP 1069.002 A1; `fs.transformImage`, LLP 1133.019
 /// D14): the one a Rust source's storage requests run too.
-pub(crate) struct ImageCodec;
+pub(crate) struct ImageCodec {
+    hold: Option<SessionHold>,
+}
 /// A transform's output side bounds the service; `compressImage`'s own
 /// `maxDimension` is the codec's to check (8192).
 fn image_limits() -> fs_image::WorkLimits {
@@ -307,6 +326,9 @@ impl fs_image::ImageCodec for ImageCodec {
         request: fs_image::ImageRequest,
         control: &fs_image::WorkControl,
     ) -> Result<fs_image::CompressedImage, ibex2::boundary::HostError> {
+        if let Some(hold) = &self.hold {
+            hold.enter();
+        }
         let call = request.call();
         exact_data::image::encode_request(
             bytes,
@@ -350,6 +372,95 @@ pub(crate) fn reaches_documents(grants: &str) -> bool {
         matches!(words.next(), Some("fs.read" | "fs.write"))
             && words.next().is_some_and(|p| p.starts_with("doc:"))
     })
+}
+
+impl crate::Module {
+    /// Holds each image compression or transform at its start, from the
+    /// next [`crate::Module::load`], until the hold is released or dropped.
+    /// Meanwhile a storage wait with only held work in flight runs out at
+    /// once, as it would were the work longer than the wait: a test of
+    /// giving up gives up while the work runs, however fast the codec and
+    /// the machine (docs/testing.md).
+    #[doc(hidden)]
+    pub fn hold_compressions(&mut self) -> CompressionHold {
+        let gate = Arc::new(Gate::default());
+        self.compression_hold = Some(gate.clone());
+        CompressionHold(gate)
+    }
+}
+
+/// A test's hold on the module's compressions ([`crate::Module::hold_compressions`]).
+#[doc(hidden)]
+pub struct CompressionHold(Arc<Gate>);
+
+impl CompressionHold {
+    /// Lets every held compression, and each that starts later, run.
+    pub fn release(&self) {
+        let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.released = true;
+        state.held.clear();
+        self.0.changed.notify_all();
+    }
+}
+
+impl Drop for CompressionHold {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct Gate {
+    state: Mutex<Held>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct Held {
+    /// The compressions held now, by session.
+    held: BTreeMap<u64, usize>,
+    sessions: u64,
+    released: bool,
+}
+
+/// One storage session's part of a hold: its compressions are counted apart
+/// from those an earlier session of the module left held.
+#[derive(Clone)]
+struct SessionHold {
+    gate: Arc<Gate>,
+    session: u64,
+}
+
+impl SessionHold {
+    fn new(gate: Arc<Gate>) -> Self {
+        let session = {
+            let mut state = gate.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.sessions += 1;
+            state.sessions
+        };
+        Self { gate, session }
+    }
+
+    /// Waits until the hold is released.
+    fn enter(&self) {
+        let mut state = self.gate.state.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.released {
+            *state.held.entry(self.session).or_default() += 1;
+        }
+        while !state.released {
+            state = self
+                .gate
+                .changed
+                .wait(state)
+                .unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    /// This session's compressions held now.
+    fn held(&self) -> usize {
+        let state = self.gate.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.held.get(&self.session).copied().unwrap_or(0)
+    }
 }
 
 impl Drop for Session {
@@ -397,5 +508,41 @@ mod tests {
         kept::end(9140);
         exact_data::documents::forget(9140);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod hold_tests {
+    use super::{CompressionHold, Gate, SessionHold};
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
+
+    /// A compression an earlier session left held counts for no later one,
+    /// whose wait it would otherwise end (a module reloaded under a hold).
+    #[test]
+    fn a_hold_counts_each_session_s_compressions_apart() {
+        let gate = Arc::new(Gate::default());
+        let (old, new) = (
+            SessionHold::new(gate.clone()),
+            SessionHold::new(gate.clone()),
+        );
+        let held = std::thread::spawn({
+            let old = old.clone();
+            move || old.enter()
+        });
+        let hang = Instant::now() + Duration::from_secs(30);
+        while old.held() == 0 {
+            assert!(
+                Instant::now() < hang,
+                "the compression never entered the hold"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(new.held(), 0);
+        CompressionHold(gate).release();
+        held.join().unwrap();
+        assert_eq!(old.held(), 0);
     }
 }

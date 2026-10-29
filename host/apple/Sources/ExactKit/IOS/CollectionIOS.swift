@@ -162,10 +162,11 @@ extension CollectionHost {
         }
         if horizontal { target.x += CGFloat(delta) } else { target.y += CGFloat(delta) }
         if scroll.isTracking || scroll.isDragging || scroll.isDecelerating {
-            // Past the end under a finger or a fling, the runner's anchor,
-            // taken at the end it clamps to, asks for the end: that is UIKit's
-            // rubber band coming back on its own. Corrected each report, a
-            // fling stopped dead at the end (r27's tasks list).
+            // Past the end under a finger or a fling, a correction back toward
+            // the end that stays past it is UIKit's rubber band coming back on
+            // its own.
+            // Corrected each report, a fling stopped dead at the end (r27's
+            // tasks list).
             let end = horizontal ? scroll.contentSize.width + insets.right - scroll.bounds.width
                 : scroll.contentSize.height + insets.bottom - scroll.bounds.height
             let at = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y, to = horizontal ? target.x : target.y

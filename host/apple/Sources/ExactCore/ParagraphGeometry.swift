@@ -17,6 +17,21 @@ extension TextEngine {
         return width.map { justified(line, source: source, range: range, width: $0) } ?? line
     }
 
+    /// What a line's trailing white space adds to its width that CSS does
+    /// not count (CSS Text 3 §4.1.3): collapsible spaces at a line's end are
+    /// removed; under `pre-wrap` (`whiteSpace` 1) preserved ones hang, wholly
+    /// at a soft wrap or the paragraph's end and, before a forced break, as
+    /// far as they would not fit in `room`; under `pre` (4) they count.
+    package static func uncountedTrailingWidth(_ line: CTLine, whiteSpace: Int, source: NSAttributedString, room: CGFloat) -> CGFloat {
+        if whiteSpace == 4 { return 0 }
+        let trailing = CGFloat(CTLineGetTrailingWhitespaceWidth(line))
+        guard whiteSpace == 1 else { return trailing }
+        let range = CTLineGetStringRange(line), end = range.location + range.length, text = source.string as NSString
+        guard end > 0, end <= text.length, let last = Unicode.Scalar(text.character(at: end - 1)),
+              CharacterSet.newlines.contains(last) else { return trailing }
+        return min(trailing, max(0, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - room))
+    }
+
     package static func inkedSoftHyphen(_ line: CTLine, source: NSAttributedString, range: CFRange) -> CTLine {
         let end = range.location + range.length
         guard range.length > 0, end <= source.length,

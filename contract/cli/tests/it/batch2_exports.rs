@@ -36,8 +36,8 @@ component App
     n = n + 1
   view
     column
-      EmptyState(id="chat-empty", icon="symbol:info", title="", message="Say hi to someone", button="New chat", buttonLabel="", buttonIcon="", press=press)
-      EmptyState(id="list-empty", icon="", title="No lists", message="Lists you make show here.", button="", buttonLabel="", buttonIcon="", press=press)
+      EmptyState(id="chat-empty", icon="symbol:info", iconSize="large", tone="label", title="", message="Say hi to someone", button="New chat", buttonLabel="", buttonIcon="", buttonTone="primary", press=press)
+      EmptyState(id="list-empty", icon="", iconSize="medium", tone="medium", title="No lists", message="Lists you make show here.", button="", buttonLabel="", buttonIcon="", buttonTone="secondary", press=press)
       MenuGroup()
         MenuItem(id="pin", label="Pin to your profile", icon="symbol:pin", destructive=false, first=true, pick=press)
         MenuItem(id="delete", label="Delete post", icon="symbol:trash", destructive=true, first=false, pick=press)

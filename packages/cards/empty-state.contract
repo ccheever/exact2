@@ -1,21 +1,34 @@
 // What a list or a screen shows with nothing in it (the clone's ChatEmpty,
 // ListEmpty and GraphEmpty; Bluesky's EmptyState): an optional icon and
 // title, the message, and an optional button. Every text is the app's, an
-// empty one leaving its piece out; the button is Bluesky's primary small
-// button (Button.tsx: padding 8 by 14, gap 5, text_sm at 500, a 16-point
-// icon in a 17-point box pulled 2, its height its content's), drawn here, so there is no slot.
+// empty one leaving its piece out; the button is Bluesky's small button
+// (Button.tsx: padding 8 by 14, gap 5, text_sm at 500, a 16-point icon in a
+// 17-point box pulled 2, its height its content's), drawn here, so there is
+// no slot. Its variants are the ones Bluesky's calls pass: `iconSize` its
+// 2xl, 3xl (the default) and 4xl, 32, 48 and 64 points in a 64-point box;
+// `tone` the message's colour, contrast_high (the default), contrast_medium
+// (the lists' and Bookmarks'), or the text colour, which the chats give the
+// icon too; `buttonTone` primary or secondary (Bookmarks' Go home).
 component EmptyState
   params
     iconInk: color = "cards.empty-icon" control = "token" group = "Color" priority = 3 label = "Icon"
     titleInk: color = "cards.empty-title" control = "token" group = "Color" priority = 2 label = "Title"
+    labelIconInk: color = "cards.empty-icon-label" control = "token" group = "Color" priority = 3 label = "Icon, label tone"
     messageInk: color = "cards.empty-message" control = "token" group = "Color" priority = 2 label = "Message"
+    mediumMessageInk: color = "cards.empty-message-medium" control = "token" group = "Color" priority = 3 label = "Message, medium tone"
+    labelMessageInk: color = "cards.empty-message-label" control = "token" group = "Color" priority = 3 label = "Message, label tone"
     buttonFill: color = "cards.empty-button" control = "token" group = "Color" priority = 1 label = "Button"
     buttonInk: color = "cards.empty-button-ink" control = "token" group = "Color" priority = 3 label = "Button text"
+    secondaryButtonFill: color = "cards.empty-button-secondary" control = "token" group = "Color" priority = 2 label = "Secondary button"
+    secondaryButtonInk: color = "cards.empty-button-secondary-ink" control = "token" group = "Color" priority = 3 label = "Secondary button text"
   props
     // Names its testId, and its button's `<id>-button`.
     id: string
     // An image source (a `symbol:` name or an icon token), or "" for none.
     icon: string
+    // Bluesky's 3xl, 48 points, first: the default.
+    iconSize: enum<"medium", "small", "large">
+    tone: enum<"high", "medium", "label">
     title: string
     message: string
     // The button's text, or "" for no button; its accessible label, ""
@@ -23,6 +36,7 @@ component EmptyState
     button: string
     buttonLabel: string
     buttonIcon: string
+    buttonTone: enum<"primary", "secondary">
     press: action
   parts
     surface: space
@@ -37,13 +51,21 @@ component EmptyState
       padding-left="cards.empty-pad"
       padding-right="cards.empty-pad"
       padding-bottom="cards.empty-top"
+      // Bluesky's icon box is 64 points whatever the icon's size.
       if icon != ""
-        image icon part="icon"
-          width="cards.empty-icon-size"
-          height="cards.empty-icon-size"
-          object-fit="contain"
-          aria-hidden=true
-          color="param.iconInk"
+        box part="icon"
+          width="cards.empty-icon-box"
+          height="cards.empty-icon-box"
+          display="flex"
+          align-items="center"
+          justify-content="center"
+          image icon
+            width=(iconSize == "small" ? "cards.empty-icon-small" : (iconSize == "large" ? "cards.empty-icon-large" : "cards.empty-icon-medium"))
+            height=(iconSize == "small" ? "cards.empty-icon-small" : (iconSize == "large" ? "cards.empty-icon-large" : "cards.empty-icon-medium"))
+            flex-shrink=0
+            object-fit="contain"
+            aria-hidden=true
+            color=(tone == "label" ? "param.labelIconInk" : "param.iconInk")
       if title != ""
         text title part="title"
           padding-top="cards.empty-gap"
@@ -59,7 +81,7 @@ component EmptyState
         line-height="cards.empty-message-line"
         font-weight=500
         text-align="center"
-        color="param.messageInk"
+        color=(tone == "medium" ? "param.mediumMessageInk" : (tone == "label" ? "param.labelMessageInk" : "param.messageInk"))
       if button != ""
         button part="button"
           testId=`${id}-button`
@@ -75,7 +97,7 @@ component EmptyState
           padding-left="cards.empty-button-pad"
           padding-right="cards.empty-button-pad"
           border-radius="cards.empty-button-corner"
-          background-color="param.buttonFill"
+          background-color=(buttonTone == "secondary" ? "param.secondaryButtonFill" : "param.buttonFill")
           -exact-press-scale="cards.empty-button-press"
           // Bluesky's ButtonIcon: the icon centred in a box, pulled toward the
           // pill's edge by its negative margins (as FollowButton's).
@@ -93,9 +115,9 @@ component EmptyState
                 flex-shrink=0
                 object-fit="contain"
                 aria-hidden=true
-                color="param.buttonInk"
+                color=(buttonTone == "secondary" ? "param.secondaryButtonInk" : "param.buttonInk")
           text button
             font-size="cards.empty-button-size"
             line-height="cards.empty-button-line"
             font-weight=500
-            color="param.buttonInk"
+            color=(buttonTone == "secondary" ? "param.secondaryButtonInk" : "param.buttonInk")

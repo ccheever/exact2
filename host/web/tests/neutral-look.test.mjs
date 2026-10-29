@@ -309,6 +309,13 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // The unsaid hover: a wash over a pressable nobody styled, and a link in running text underlines.
       await page.hover('#pressable');
       expect([at('hover'), await page.evaluate(() => css('pressable', 'backgroundImage') !== 'none')]).toEqual([at('hover'), true]);
+      // None over a box that says `disabled`, nor over a pressable in one.
+      await page.evaluate(() => document.getElementById('pressable').insertAdjacentHTML('afterend', '<div data-exact-on="press" disabled id="pressable-off" style="width:120px;height:40px">off <span data-exact-on="press" id="pressable-in">in</span></div>'));
+      await page.hover('#pressable-off', { position: { x: 100, y: 30 } });
+      const off = await page.evaluate(() => css('pressable-off', 'backgroundImage'));
+      await page.hover('#pressable-in');
+      expect([at('disabled hover'), off, await page.evaluate(() => css('pressable-in', 'backgroundImage'))]).toEqual([at('disabled hover'), 'none', 'none']);
+      await page.evaluate(() => document.getElementById('pressable-off').remove());
       // A button its author filled washes in its own ink, at the filled button's share (LLP 1129 D1).
       await page.hover('#filled');
       const wash = await page.evaluate(() => [rgba(css('filled', 'backgroundImage').match(/rgba?\([^)]*\)|color\([^)]*\)/)[0]), color('filled')]);
@@ -435,16 +442,18 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('windowed rows'), await page.evaluate(() => ['spacer', 'cell-a', 'cell-b', 'cell-c'].map(separator))]).toEqual([at('windowed rows'), [null, LINE_BETWEEN, null, null]]);
       expect([at('no mark'), await page.evaluate(() => separator('none-1'))]).toEqual([at('no mark'), null]);
       // A row that presses: the hover's wash, a stronger one while held (never the dim), the ring inside the row.
+      // Held is the input glue's mark (press.test.mjs drives the glue), written here as it writes it.
+      const hold = (id, down) => page.evaluate(([id, down]) => document.getElementById(id).toggleAttribute('data-pressed', down), [id, down]);
       await page.hover('#row-2');
       const hovered = await page.evaluate(() => css('row-2', 'backgroundImage'));
-      await page.mouse.down();
+      await hold('row-2', true);
       const pressed = await page.evaluate(() => [css('row-2', 'backgroundImage'), css('row-2', 'opacity')]);
-      await page.mouse.up();
+      await hold('row-2', false);
       expect([at('row press'), hovered !== 'none', pressed[0] !== 'none' && pressed[0] !== hovered, pressed[1]]).toEqual([at('row press'), true, true, '1']);
       await page.hover('#none-1');
-      await page.mouse.down();
+      await hold('none-1', true);
       expect([at('no mark press'), await page.evaluate(() => css('none-1', 'opacity'))]).toEqual([at('no mark press'), '0.65']);
-      await page.mouse.up();
+      await hold('none-1', false);
       await page.keyboard.press('Tab');
       expect([at('row focus'), await page.evaluate(() => { const row = document.getElementById('row-2'); row.focus(); return [row.matches(':focus-visible'), css('row-2', 'outlineOffset'), css('row-2', 'outlineStyle') !== 'none']; })])
         .toEqual([at('row focus'), [true, '-2px', true]]);
@@ -953,3 +962,67 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: authore
     }
   } finally { await browser.close(); }
 }, 90000);
+
+
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a primary row press fills the cell and hides only platform separators`, async () => {
+  const browser = await suiteBrowser(engine);
+  const page = await browser.newPage();
+  try {
+    await page.setContent(withLook(shell).match(/<style>[\s\S]*?<\/style>/)[0] + `
+      <div id="exact-root">
+        <div data-listrows="true" style="width:300px">
+          <div id="previous" style="height:40px">Previous</div>
+          <div id="cell" data-listitemkey="a"><button id="primary" data-exact-on="press" style="width:100%;height:56px">Row</button></div>
+          <div id="next" style="height:40px">Next</div>
+          <div id="accessory-cell" data-listitemkey="b"><div id="accessory-row" data-exact-on="press"><button id="accessory" data-exact-on="press">Follow</button></div></div>
+          <div id="card-cell" data-listitemkey="c"><button id="card" data-exact-on="press" data-exact-said="background-color" style="background-color:white;width:100%;height:56px">Card</button></div>
+          <div id="native-cell"><button id="native" data-button-style="filled">Native accessory</button></div>
+          <div id="authored-cell"><button id="authored" data-exact-on="press" style="--exact-press:0.9">Authored feedback</button></div>
+          <div id="outer-cell"><div data-listrows="true"><div id="nested" data-exact-on="press" style="height:40px">Nested row</div></div></div>
+          <div id="shadow" data-exact-said="box-shadow" style="box-shadow:inset 0 -2px red;height:40px">Authored shadow</div>
+          <div id="after-shadow" data-exact-on="press" style="height:40px">After shadow</div>
+        </div>
+      </div>`);
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      const seen = await page.evaluate(() => {
+        const el = id => document.getElementById(id);
+        const background = id => getComputedStyle(el(id)).backgroundImage;
+        const shadow = id => getComputedStyle(el(id)).boxShadow;
+        el('primary').setAttribute('data-pressed', '');
+        const cell = { width:el('cell').getBoundingClientRect().width, child:el('primary').getBoundingClientRect().width,
+          fill:background('cell'), childFill:background('primary'), separator:shadow('cell'), above:shadow('previous'), below:shadow('next') };
+        el('primary').removeAttribute('data-pressed');
+        const restored = [shadow('cell'), shadow('previous')];
+        el('native').setAttribute('data-pressed', ''); const native = background('native-cell'); el('native').removeAttribute('data-pressed');
+        el('authored').setAttribute('data-pressed', ''); const authored = background('authored-cell'); el('authored').removeAttribute('data-pressed');
+        el('nested').setAttribute('data-pressed', ''); const nested = [background('nested'), background('outer-cell')]; el('nested').removeAttribute('data-pressed');
+        const own = shadow('shadow'); el('after-shadow').setAttribute('data-pressed', '');
+        const kept = shadow('shadow'); el('after-shadow').removeAttribute('data-pressed');
+        el('accessory').setAttribute('data-pressed', '');
+        const accessory = [background('accessory'), background('accessory-row'), shadow('accessory-cell'), shadow('next')];
+        el('accessory').removeAttribute('data-pressed');
+        el('card').setAttribute('data-pressed', '');
+        const card = [background('card'), background('card-cell'), shadow('card-cell'), shadow('accessory-cell')];
+        el('card').removeAttribute('data-pressed');
+        return {cell, restored, native, authored, nested, own, kept, accessory, card};
+      });
+      expect([colorScheme, seen.cell.width, seen.cell.child]).toEqual([colorScheme, 300, 300]);
+      expect(seen.cell.childFill).toStartWith('linear-gradient(');
+      expect([seen.cell.fill, seen.cell.separator, seen.cell.above]).toEqual(['none', 'none', 'none']);
+      expect(seen.cell.below).not.toBe('none');
+      expect(seen.restored.every(value => value !== 'none')).toBe(true);
+      expect([seen.native, seen.authored, seen.nested[1]]).toEqual(['none', 'none', 'none']);
+      expect(seen.nested[0]).toStartWith('linear-gradient(');
+      expect(seen.kept).toBe(seen.own);
+      for (const control of [seen.accessory, seen.card]) {
+        expect(control[0]).toStartWith('linear-gradient(');
+        expect(control[1]).toBe('none');
+        expect(control.slice(2).every(value => value !== 'none')).toBe(true);
+      }
+    }
+  } finally {
+    await page.close();
+    await browser.close();
+  }
+}, 30000);

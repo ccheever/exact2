@@ -69,7 +69,7 @@
   var reporting = 0, hooked = false;
   var timers = binary.timers(timerOwner, function () { return host(21, "", ""); }, journal, function (callback) {
     return (reporting > 0 || !hooked) && callback.name === "bound onUnhandled";
-  });
+  }, function (signal) { try { return abortHooks ? abortHooks.own(signal).sources : null; } catch (e) { return null; } });
   var tracker = global.HermesInternal;
   if (tracker && typeof tracker.enablePromiseRejectionTracker === "function") {
     tracker.enablePromiseRejectionTracker({
@@ -437,7 +437,8 @@
   // `claimed` once a settle has handed the executor its request, `release`
   // ends its watch on `signal`.
   var pending = new Map(), currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
-  global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; } }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
+  var work = global.__exact_module_work({ host: host, live: function (c) { return !!c && c !== background && !c.stream && !c.module && c.status === "pending" && !c.replied && !c.letGo; } }); delete global.__exact_module_work; // work that outlives its answer (LLP 1146 D2, binary.js): an adopted fetch's reply reaches its let-go answer in a module turn; `route` keeps a live answer's async step in its own turn
+  global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; }, route: work.route }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
   // A fetch's `signal` is watched through Ibex's own abort hooks natively,
   // which run before any listener and so cannot be stopped by one; a
   // browser realm's signal is the browser's, watched by a listener, and
@@ -567,10 +568,10 @@
   function request(url, init, listen) {
     if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
     var call = currentCall;
-    // A continuation running as an answer already given still fetches: the
-    // next answer to settle claims the request (see `settle`).
+    // Refused with no answer running, and below in a let-go answer's continuation, as no answer waits for the reply
+    // (where the web lets it run; a request with effects already sent runs to its end, LLP 1146 D2, §2.4).
     if (!call) {
-      var refused = new Error("fetch() called outside an answer: it was never run. Start a fetch inside an answer");
+      var refused = new Error(work.inModuleTurn() ? "fetch() called from a plain .then callback a let-go answer's request settled: it was never run. Await that result in an async function, which resumes in its own answer's turn" : "fetch() called outside an answer: it was never run. Start a fetch inside an answer");
       if (global.console) global.console.error(refused.message);
       return Promise.reject(refused);
     }
@@ -660,8 +661,10 @@
       catch (e) { return Promise.reject(new TypeError("fetch: init.signal is not an AbortSignal")); }
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
-    var left = stream ? undefined : timers.left(signal), timed = left !== undefined && !(timeout <= left); // an `AbortSignal.timeout`'s time left: the host's deadline
-    if (timed) timeout = Math.min(left, 3600000);
+    // An `AbortSignal.timeout`'s time left is the host's deadline, unless an earlier `exactTimeout` is; past the
+    // longest a request waits (an hour), the hour is, and the signal does not abort when it passes.
+    var left = stream ? undefined : timers.left(signal), timed = left !== undefined && !(timeout < left);
+    if (timed) { timeout = Math.min(left, 3600000); timed = left <= 3600000; }
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && (!!listen || /^wss?:/i.test(String(url)));
@@ -677,7 +680,7 @@
       pending.set(ticket, p);
       // The caller's abort also makes its socket handle stale (D7); the
       // stream itself runs until the runner lets its ticket go.
-      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) reject(signal.reason); });
+      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) { if (p.module) work.landed(); reject(signal.reason); } }); // an adopted fetch aborted is retired here; its reply finds nothing
     });
   }
   // A local listener (LLP 1133.005 D1): a resource's answer, as `fetch(url, {exactStream})` is, whose events
@@ -1112,7 +1115,7 @@
     var due = timers.wait(call), later = due === undefined || due > timers.now();
     if (moduleWide) {
       var unclaimed;
-      pending.forEach(function (p, ticket) { if (unclaimed === undefined && !p.claimed && !p.stream) unclaimed = ticket; });
+      pending.forEach(function (p, ticket) { if (unclaimed === undefined && !p.claimed && !p.stream && !p.module) unclaimed = ticket; });
       if (unclaimed !== undefined) return claim(call, unclaimed);
       var left = false;
       // Never the background's: only its own round holds the storage
@@ -1121,7 +1124,7 @@
       if (left) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
       // Another answer's work may settle it before its timer: whichever comes first asks it again (not on a
       // worker, which runs one turn to its end and so cannot wait on another's).
-      if (!final && (due === undefined || moving && later) && (pending.size || storing.size || yielded)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true, timer: due });
+      if (!final && (due === undefined || moving && later) && (pending.size || storing.size || yielded || work.outstanding())) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true, timer: due });
     } else if (due === undefined && moving && !final && background.storage > 0) {
       // The page's realm runs one answer at a time, but background work
       // goes on beside it: an answer awaiting it parks and is asked again
@@ -1160,7 +1163,7 @@
     initializing = false;
     var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", answer: mutation === "answer", sync: false, socketOps: null, epoch: gcEpoch() };
     var result;
-    currentCall = call;
+    currentCall = call; work.setTurn(call);
     try {
       // Null only where no module can be (a page with no page module). Else an
       // object; whether a module is linked is the device's fact, not the
@@ -1272,7 +1275,8 @@
   // (ledger F12). A fetch it makes then is refused: no one wants its reply.
   global.__exact_forget = function (id) {
     var call = calls.get(Number(id));
-    if (!call) return "";
+    if (!call) return ""; call.letGo = true; // a fetch, yield or timer it makes from here is refused
+    var moved = work.forgot(call); // its steps waiting for its own turn run in the let-go chain, with no store (LLP 1146 D2)
     // A released resource's socket handle is stale from now on (D7).
     if (call.socket) { call.socket.state = 3; if (call.socket.close) call.socket.close(); }
     // Not a fetch another answer has since claimed: that one waits on it.
@@ -1280,15 +1284,15 @@
     for (var i = 0; i < call.tickets.length; i++) {
       var p = pending.get(call.tickets[i]);
       // A stream's promise never settles (LLP 1016.000), ended or let go.
-      if (p && p.call === call) { settled(call.tickets[i]); if (!p.stream) dropped.push(p); }
+      if (p && p.call === call && !p.module) { settled(call.tickets[i]); if (!p.stream) dropped.push(p); }
     }
     // Rejected now, run at the next drain with no answer current.
     dropped.forEach(function (p) {
       p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
     });
-    var rejected = dropped.length + endYields(call, new DOMException("the answer was let go", "AbortError")) ? " rejected" : "";
+    var rejected = dropped.length + endYields(call, new DOMException("the answer was let go", "AbortError")) + moved ? " rejected" : "";
     timers.drop(call);
-    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
+    if (call.storage > 0 && !call.lost) return "storage" + rejected;
     call.replied = true;
     calls.delete(call.id); cleanUp();
     return rejected.trim();
@@ -1387,7 +1391,7 @@
   };
   // A background round delivers with the background current: what its
   // completion's reaction issues is the background's too.
-  global.__exact_enter_background = function () { currentCall = background; };
+  global.__exact_enter_background = function () { currentCall = background; work.setTurn(null); };
   // A compression whose wait gave up, and whose right to write the waiter
   // took away (LLP 1069.002 A1.5): it can write nothing now, so it is
   // failed and the queue moves on. Any other operation whose wait ran out
@@ -1421,8 +1425,8 @@
   // The answer a timer belongs to (binary.js `timers`), or the refusal.
   function timerOwner(api) {
     if (overlaying) throw inOverlay(api);
-    if (inMapper || !currentCall || currentCall === background || currentCall.replied)
-      throw new Error(api + " is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value)");
+    if (inMapper || !currentCall || currentCall === background || currentCall.replied || currentCall.letGo)
+      throw new Error(api + " is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go)");
     return currentCall;
   }
   // A timer's turn: the answer's earliest callback due by the runner's clock `at` runs in the drain that follows;
@@ -1430,13 +1434,15 @@
   global.__exact_timer = function (id, at, due) { var call = calls.get(Number(id)); if (call) { currentCall = call; timers.fire(call, at, due === "due"); } };
   // A yielded answer's new turn: its yields resolve in the drain that follows.
   global.__exact_yielded = function (id) { var call = calls.get(Number(id)); if (call) { currentCall = call; endYields(call); } };
+  global.__exact_turn = function (id) { var t = id === "module" ? work.MODULE : id ? calls.get(Number(id)) || null : null; currentCall = t === work.MODULE ? null : t; work.setTurn(t); }; global.__exact_module_discarded = function () { work.runDiscarded(); }; // the executor's turns (js/src/module_work.rs): the turn's call is current, so a plain `.then` reaction runs as it (LLP 1146 D2)
+  global.__exact_adopt = function (id, ticket) { var p = pending.get(Number(ticket)); if (!p || p.stream || p.module || p.call !== calls.get(Number(id))) return ""; p.module = true; work.adopted(); return "adopted"; }; // a let-go call's fetch with effects the runner keeps (LLP 1146 D2): forgetting the call leaves it in flight, unclaimed and outstanding, until its reply reaches the call's continuation in a module turn
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;
     var o = JSON.parse(outcomeJson);
     // The continuation runs in the drain that follows, and a fetch it
     // makes belongs to this call.
-    currentCall = p.call;
+    currentCall = p.module ? null : p.call; if (p.module) work.landed(); // an adopted fetch's: its let-go call's steps run as it (the async helper), a plain reaction as no answer
     // Its `AbortSignal.timeout`'s deadline passed on the host: the signal aborts.
     if (o.failed && o.failed.kind === "Timeout" && p.timed) timers.expire(p.signal);
     // A browser realm's abort listener can be stopped by an earlier one;

@@ -314,7 +314,7 @@ fn not_modified_representation_length_does_not_count_against_body_limit() {
     server.join().unwrap();
 }
 
-/// An upload's progress (Exact patch 22): URLSession's `didSendBodyData`
+/// An upload's progress (Exact patch 23): URLSession's `didSendBodyData`
 /// reaches the request's hook while the body goes out, before the headers,
 /// rising to the whole.
 #[test]

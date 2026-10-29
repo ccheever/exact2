@@ -26,7 +26,8 @@ impl<D: DataSource> Presenter<D> {
         self.apply_reports(reports)
     }
 
-    /// A source's first picture sends its `load` to an image that hears it
+    /// A source's first picture sends its `load`, and a failure for good its
+    /// `error` with the reason, to an image that hears it
     /// (LLP 1011 §4) and is still that node showing that source, assigned
     /// that time, as it is sent: since it landed, input, a timer or an
     /// earlier load's action may have changed any of them. It is sent with
@@ -50,10 +51,15 @@ impl<D: DataSource> Presenter<D> {
                     && (u64::from(n.key.index) | (u64::from(n.key.generation) << 32)) == event.key
                     && n.props.str(PropId::ImageSource) == Some(event.source.as_str())
             }) && self.images.assignment(event.id) == Some(event.assignment);
-            if !same || !(self.host.runner().handlers_of(event.id)).contains(&EventKind::Load) {
+            // Its `load`, or its `error` with the reason (as Apple sends it).
+            let (kind, sent) = match event.error {
+                None => (EventKind::Load, Event::Load),
+                Some(message) => (EventKind::Error, Event::Media(EventKind::Error, message)),
+            };
+            if !same || !(self.host.runner().handlers_of(event.id)).contains(&kind) {
                 continue;
             }
-            let sent = self.host.dispatch_now(event.id, Event::Load);
+            let sent = self.host.dispatch_now(event.id, sent);
             let after = self.after_commit();
             if let Some(error) = sent.or(after) {
                 self.host.log(error);

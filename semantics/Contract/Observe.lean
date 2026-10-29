@@ -92,7 +92,7 @@ structure Ran where
   action : String
   out : Outcome
 
-/-- `dispatch` with the action it reached; argument evaluation is not a commit. -/
+/-- `dispatch` with the action attempted, including a refusal of its arguments. -/
 def dispatchTrace (p : Program) (o : Oracle) (c : Config) (target : String) (event : String)
     (payload : Option Value) : (Config × Outcome) × List Ran :=
   if c.poisoned then ((c, .refused (.refused "poisoned")), []) else
@@ -108,7 +108,7 @@ def dispatchTrace (p : Program) (o : Oracle) (c : Config) (target : String) (eve
                          resources := c.settled.resources, rows := rowSlots c.store n.rows,
                          now := c.now }
       match evalList fuel env false n.locals args with
-      | .error e => ((c, .refused e), [])
+      | .error e => ((c, .refused e), [⟨"handler", a, .refused (.refused ("arguments refused: " ++ why e))⟩])
       | .ok vs =>
         let result := runAction p o c a (vs ++ payload.toList) n.rows
         (result, [⟨"handler", a, result.2⟩])
@@ -298,6 +298,13 @@ def ScriptEvent.event : ScriptEvent → Option Event
   | .other t e v => .some (.other t e v)
   | .land => .none
 
+def ScriptEvent.label (e : ScriptEvent) : String :=
+  match e.event with
+  | .some event => event.label
+  | .none => "land"
+
+#guard ScriptEvent.land.label == "land"
+
 def ScriptEvent.ofEvent : Event → ScriptEvent
   | .tap t => .tap t
   | .change t s => .change t s
@@ -349,7 +356,7 @@ def runScript (p : Program) (o : Oracle) (events : List ScriptEvent) : List Stri
         (authored.label, step p o c ev, twin, ran)
       | .none =>
         let (result, ran) := land p o c
-        ("land", result, result, ran)
+        (e.label, result, result, ran)
     let (c', out) := result
     acc := acc ++ checkedLines p label result twin before ran
     c := c'

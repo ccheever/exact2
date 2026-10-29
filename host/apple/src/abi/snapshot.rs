@@ -90,25 +90,39 @@ impl<D: DataSource> Bridge<D> {
         receipt: &[u8],
         module: &[u8],
     ) -> u32 {
+        if !remaining_ms.is_finite() || remaining_ms <= 0.0 || remaining_ms > 900.0 {
+            return self.invalid();
+        }
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs_f64(remaining_ms / 1000.0);
+        self.entry_timeline_module_until(now, deadline, receipt, module)
+    }
+    /// The same until `deadline`, not within WidgetKit's 900 ms: a test of
+    /// admission bounds only a hang.
+    #[doc(hidden)]
+    pub fn entry_timeline_module_until(
+        &mut self,
+        now: f64,
+        deadline: std::time::Instant,
+        receipt: &[u8],
+        module: &[u8],
+    ) -> u32 {
         if receipt.len() > 1 << 20
             || module.len() > 32 << 20
             || receipt.is_empty() != module.is_empty()
-            || !remaining_ms.is_finite()
-            || remaining_ms <= 0.0
-            || remaining_ms > 900.0
         {
-            return self.emit(
-                serde_json::json!({"error":"invalid snapshot input or expired deadline"})
-                    .to_string(),
-            );
+            return self.invalid();
         }
         let Ok(text) = std::str::from_utf8(receipt) else {
             return self
                 .emit(serde_json::json!({"error":"invalid snapshot module receipt"}).to_string());
         };
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs_f64(remaining_ms / 1000.0);
         self.entry_timeline_until(now, deadline, text, module)
+    }
+    fn invalid(&mut self) -> u32 {
+        self.emit(
+            serde_json::json!({"error":"invalid snapshot input or expired deadline"}).to_string(),
+        )
     }
     fn entry_timeline_until(
         &mut self,

@@ -271,7 +271,7 @@ fn portable_request_timeout_bounds_waiting_for_headers_and_body() {
     }
 }
 
-/// An upload's progress (Exact patch 22): the portable transport tells each
+/// An upload's progress (Exact patch 23): the portable transport tells each
 /// read ureq takes of the body, rising to the whole, and frames the body by
 /// its length.
 #[test]

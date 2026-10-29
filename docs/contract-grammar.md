@@ -669,6 +669,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "key" STRING [ "down" | "up" | "for" NUMBER ]
                   | "copy" | "cut" | "paste" STRING ) NL
               | "pick" STRING ( STRING { STRING } | "cancel" ) NL
+              | "authorize" [ "cancel" ] NL           (* the held sign-in, against the app's server (oauth recipe) *)
               | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
               | "clock" "until" "state" IDENT { "." ( IDENT | NUMBER ) } "==" scalar "within" NUMBER NL
                                                      (* real time, the clock frozen, until it holds *)

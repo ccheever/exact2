@@ -220,7 +220,7 @@ char *dup_utf8(NSString *value) {
   [exchange.condition unlock];
 }
 // An upload's progress: the bytes written so far, which a headers wait that
-// asked for them returns (Exact patch 22).
+// asked for them returns (Exact patch 23).
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
     didSendBodyData:(int64_t)bytesSent totalBytesSent:(int64_t)totalBytesSent
     totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
@@ -370,7 +370,7 @@ void *ibex2_darwin_http_start(void *session_handle, const char *method,
 }
 // `inout_sent`, when not null, is the body's bytes sent as the caller last saw
 // them: a change before the headers returns 2 with the bytes sent now, so the
-// caller can report an upload's progress and call again (Exact patch 22).
+// caller can report an upload's progress and call again (Exact patch 23).
 int ibex2_darwin_http_headers(void *handle, int *out_status,
     char **out_headers, char **out_error, int64_t *inout_sent) {
   @autoreleasepool {

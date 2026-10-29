@@ -364,7 +364,15 @@ refuses a tool's, a wake's or a package event's reach to the local network
 while the person has not decided. Without a gate nothing changes. Replay on a
 refresh.
 
-## Local patch 22, an upload's bytes sent
+## Local patch 22, a composed signal's sources
+
+`bindings/abort.js`'s view of a signal (`inspect`, the hooks' `own`) names the
+signals `AbortSignal.any` composed it of (`sources`, a copy; null for one not
+composed), so exact2's data runtime gives a fetch carrying a composed signal
+the earliest `AbortSignal.timeout` among them as its deadline (exact2 LLP 1146
+§2.1). Nothing else reads it. Replay on a refresh.
+
+## Local patch 23, an upload's bytes sent
 
 `stdlib/fetch.rs` gives `Request` an optional `sent` hook (`Sent`), told
 `(loaded, total)` as the body goes out and `(total, total)` by the time the

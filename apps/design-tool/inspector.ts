@@ -41,6 +41,32 @@ const lowered = (r: any) => !r.editable?.rung && UNPLACED.test(String(r.editable
  * longhand puts the side first (`border-top-left-radius`). */
 export const rowName = (name: string) => CSS[name] ?? name.replace(/^border_(width|style|color|radius)_(.+)$/, 'border_$2_$1').replace(/_/g, '-');
 
+// Rows whose number is a length, in points or CSS pixels: shown at most 3 decimals. Any other number (an opacity,
+// a scale, a zoom, a miter limit, a numeric line-height, which multiplies) keeps every decimal its value needs.
+const LENGTH = /(^|-)(width|height|size|padding|margin|gap|radius|top|left|right|bottom|inset|spacing|indent|offset|basis|dashoffset|translate|perspective|shift)(-|$)|^(x|y|cx|cy|r|rx|ry)$/;
+/** A row's number as the panel shows it: a 32-bit float the plan carries, widened to a double, is the shortest
+ * decimal that is still that float (19.700000762939453 is 19.7); a true double is as JavaScript prints it; a length
+ * is at most 3 decimals (16.006250381469727 is 16.006). Only the shown text: an edit sends the row's own source
+ * text, never this. */
+export const shownNumber = (n: number, length = false) => {
+  if (!Number.isFinite(n)) return n;
+  let shortest = n;
+  // (An integer a 32-bit int holds, a z-index or an order, is as written: snapping it to a float could change it.)
+  if (Math.fround(n) === n && !(Number.isInteger(n) && n >= -(2 ** 31) && n < 2 ** 31)) {
+    // By significant digits, so any magnitude shortens; a digit either side of the rounded one too, as the float's
+    // nearest short decimal can sit on the far side of a rounding boundary.
+    const e = Math.floor(Math.log10(Math.abs(n)));
+    search: for (let p = 1; p <= 9; p++) {
+      const t = Number(n.toPrecision(p)), step = 10 ** (e - p + 1);
+      for (const c of [t, t - step, t + step].map(c => Number(c.toPrecision(p)))) if (Math.fround(c) === n) { shortest = c; break search; }
+    }
+  }
+  return length && !Number.isInteger(shortest) ? Number(shortest.toFixed(3)) : shortest;
+};
+/** A row's value as text, its numbers shown by `shownNumber`. */
+export const shownValue = (name: string, value: unknown) => typeof value === 'string' ? value
+  : JSON.stringify(value, (_k, v) => typeof v === 'number' ? shownNumber(v, LENGTH.test(name) && !/opacity|line-height|percent/.test(name)) : v);
+
 /** The build's facts a selection was made under: a reload (its status
  * gone, then told again), a pin, a mode or scheme, a new plan or design
  * moves them. */
@@ -112,7 +138,7 @@ export function selectionView(s: Selected | null, stale: string, read: Axis[] | 
   const row = (r: any) => ({
     // Nothing sets it (its initial value): the Inspector folds it behind a count, unless it is the row being edited.
     initial: r.source === 'initial' || lowered(r),
-    name: r.state ? `:${r.state} ${ACTIVE[String(r.name)] ?? rowName(String(r.name))}` : rowName(String(r.name)), value: typeof r.value === 'string' ? r.value : JSON.stringify(r.value),
+    name: r.state ? `:${r.state} ${ACTIVE[String(r.name)] ?? rowName(String(r.name))}` : rowName(String(r.name)), value: shownValue(ACTIVE[String(r.name)] ?? rowName(String(r.name)), r.value),
     source: r.source && typeof r.source === 'object' ? `${r.state ? `:${r.state} part at ` : ''}${partAt(r.source)}` : `${SOURCES[r.source] ?? String(r.source)}${r.source === 'inherited' && r.fromAt?.line != null ? ` from ${r.fromAt.component ?? 'a node'} (${String(r.fromAt.file).split('/').pop()}:${r.fromAt.line})` : r.source === 'inherited' && r.from != null ? ` from #${r.from}` : ''}${r.origin ? ` (${r.origin})` : ''}${r.token?.implied ? ' · a mode boundary' : ''}`,
     rung: usable ? String(r.editable?.rung ?? '') : '', token: usable ? String(r.editable?.token ?? r.editable?.link ?? '') : '',
     param: usable ? String(r.editable?.param ?? '') : '', short: usable ? String(r.editable?.short ?? r.editable?.param ?? '') : '',

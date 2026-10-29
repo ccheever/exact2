@@ -11,8 +11,8 @@ import XCTest
 /// development check of what Exact owns. UIKit synthesizes no touches for a
 /// unit test; a bar item is driven as a tap drives it, by its action.
 final class NavigationBarIOSTests: XCTestCase {
-    private var window: UIWindow?
-    private var sessions: [ExactSession] = []
+    var window: UIWindow?
+    var sessions: [ExactSession] = []
 
     override func tearDown() {
         // An attempt that never reached its replay (an exception ended it) still reports what it held.
@@ -24,14 +24,6 @@ final class NavigationBarIOSTests: XCTestCase {
         window?.isHidden = true
         window = nil
         super.tearDown()
-    }
-
-    private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-
-    private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
-        XCTAssertTrue(done(), what)
     }
 
     private static func responder(in view: UIView?) -> UIView? {
@@ -102,41 +94,6 @@ final class NavigationBarIOSTests: XCTestCase {
         act()
         settle(step) { ended }
         return cancelled
-    }
-
-    /// The fixture booted in a window, its module's hatches connected or not.
-    private func fixture(_ label: String, module: Bool) throws -> ExactSession {
-        let env = ProcessInfo.processInfo.environment
-        let path = try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")
-        let plan = try Data(contentsOf: URL(fileURLWithPath: path))
-        let session = ExactApp.shared.makeSession(label: label)
-        sessions.append(session)
-        let view = ExactView(session: session)
-        let host = UIViewController()
-        // In the test host's scene when it has one: UIKit presents a sheet
-        // only from a window a scene holds.
-        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
-        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        host.view.addSubview(view)
-        self.window = window
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
-        view.frame = host.view.bounds
-        view.layoutIfNeeded()
-        if module {
-            session.natives.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"], "build.mjs --test --ios builds the fixture's module"))
-        }
-        until("fixture route and native work ready") {
-            session.presenter.navigation.primaryNavigation?.topViewController is RouteController &&
-                !Agent(session: session).nativeInFlight()
-        }
-        return session
-    }
-
-    private func node(_ session: ExactSession, _ testId: String) throws -> NodeView {
-        try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == testId }, "no \(testId)")
     }
 
     private func journal(_ session: ExactSession) -> String { session.agent(#"{"op":"logs","since":0}"#) }
@@ -851,6 +808,19 @@ final class NavigationBarIOSTests: XCTestCase {
         let invoker = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "menu-item" })
         let refusal = session.presenter.navigation.activateChrome(invoker)?["error"] as? String
         XCTAssertTrue(refusal?.hasPrefix("unsupported: bar item") == true, "\(refusal ?? "nil")")
+        // A change only to whether the invoker is available is made on the
+        // item in place, as UIKit's own `isEnabled` is: the menu stays.
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(invoker.id), "set": ["accessibilityDisabled": "true"]]]))
+        let kept = try XCTUnwrap((top.navigationItem.leftBarButtonItems ?? []).first { $0.accessibilityLabel == "More" })
+        XCTAssertTrue(kept === more, "the item is kept")
+        XCTAssertTrue(kept.menu === menu && kept.accessibilityTraits.contains(.notEnabled), "and its menu, the item spoken unavailable")
+        // Any other change keeps the item and makes its menu again, whose
+        // rows read through the button's view as it is now.
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(pop.id), "set": ["accessibilityLabel": "Other actions"], "clear": []]]))
+        let retitled = try XCTUnwrap((top.navigationItem.leftBarButtonItems ?? []).first { $0.accessibilityLabel == "More" })
+        XCTAssertTrue(retitled === more, "the item is kept")
+        XCTAssertEqual(retitled.menu?.title, "Other actions", "its menu is made again")
+        XCTAssertNil(retitled.action, "UIKit still opens the menu on a tap")
     }
 
     /// LLP 1021 D3: only a menu-shaped popover is a bar item's pull-down. An
@@ -1068,6 +1038,47 @@ final class NavigationBarIOSTests: XCTestCase {
         session.presenter.apply(wireBatch([["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "false"]]]))
         let restored = try XCTUnwrap(top.navigationItem.rightBarButtonItems?.first { $0.accessibilityLabel == "Compose" })
         XCTAssertFalse(restored.accessibilityTraits.contains(.notEnabled))
+        XCTAssertTrue(restored === item, "the control keeps its item, changed in place, so its glass animates the change")
+    }
+
+    /// A control made unavailable in place, then available again in the
+    /// batch that retitles its route, shows the change: its kept item is
+    /// compared with what it last showed, not with what it was made for.
+    func testAKeptItemChangedInPlaceFollowsTheNextProjection() throws {
+        let session = try fixture("kept-item-in-place", module: false)
+        let button = try node(session, "compose-home")
+        let heading = try XCTUnwrap(session.presenter.views.values.first { $0.props["text"] == "Fixture" })
+        let top = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController)
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "true"]]]))
+        let item = try XCTUnwrap(top.navigationItem.rightBarButtonItems?.first { $0.accessibilityLabel == "Compose" })
+        XCTAssertTrue(item.accessibilityTraits.contains(.notEnabled))
+        session.presenter.apply(wireBatch([
+            ["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "false"]],
+            ["op": "props", "id": Int(heading.id), "set": ["text": "Retitled"], "clear": []]]))
+        XCTAssertEqual(top.navigationItem.title, "Retitled", "the batch projects the header again")
+        let shown = try XCTUnwrap(top.navigationItem.rightBarButtonItems?.first { $0.accessibilityLabel == "Compose" })
+        XCTAssertTrue(shown === item, "the item is kept")
+        XCTAssertFalse(shown.accessibilityTraits.contains(.notEnabled), "it is spoken available again")
+    }
+
+    /// A share pressed from a bar item presents from that item, so the sheet
+    /// grows out of the button (iOS 26's zoom transition).
+    func testAShareFromABarItemPresentsFromTheItem() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "a share sheet presents from a scene's window") }
+        let session = try fixture("bar-share", module: false, plan: "BAR_SHARE")
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        nav.view.layoutIfNeeded()
+        let share = try node(session, "share-home")
+        let item = try XCTUnwrap(nav.topViewController?.navigationItem.rightBarButtonItems?.first { $0.accessibilityIdentifier == "share-home" })
+        XCTAssertTrue(session.presenter.navigation.shownBarItem(share.id) === item, "the control's item in the bar that shows")
+        // The item's press runs the control's `share(…)`, which the runner asks the session for
+        UIApplication.shared.sendAction(try XCTUnwrap(item.action), to: item.target, from: item, for: nil)
+        let shown = { self.window?.rootViewController?.presentedViewController as? UIActivityViewController }
+        until("the press presents the sheet", 30) { shown() != nil }
+        let sheet = try XCTUnwrap(shown())
+        defer { sheet.dismiss(animated: false) }
+        XCTAssertTrue((sheet.popoverPresentationController?.sourceItem as AnyObject?) === item)
+        if #available(iOS 26.0, *) { XCTAssertNotNil(sheet.preferredTransition, "it grows out of the button") }
     }
 
     func testARIAUnavailableHeaderTabCarriesStateToTitleSegment() throws {
@@ -1370,6 +1381,7 @@ final class NavigationBarIOSTests: XCTestCase {
             XCTAssertEqual(items[1].width, 0)
             XCTAssertEqual(items[4].width, 0)
         } else { XCTAssertEqual(items.count, 4) }
+        XCTAssertTrue(NavigationHost.same(presenter.navigation.barItems(shape, route), items), "the same groups keep their items and the spaces between them")
         for button in buttons { header.container.addSubview(button) }
         let plain = buttons.map { HeaderShape.Item($0) }
         XCTAssertNotEqual(shape[0].source, plain[0].source, "regrouping invalidates the projected bar")

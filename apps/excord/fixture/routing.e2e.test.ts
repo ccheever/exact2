@@ -22,7 +22,7 @@ const DM = '1191168914239782912';
 const built = existsSync(resolve(DIST, '.exact-build.json'))
   && readFileSync(resolve(DIST, '.exact-build.json'), 'utf8').includes('com.exact.excord');
 
-let fixture: ReturnType<typeof startFixture>, server: Server, browser: any, base = '', pages = 0;
+let fixture: ReturnType<typeof startFixture>, server: Server, browser: any, base = '', pages = 0, fixtureOrigin = '';
 beforeAll(async () => {
   if (!built) return;
   const { serveBuildTree } = await import(resolve(ROOT, 'host/web/serve.mjs'));
@@ -32,6 +32,7 @@ beforeAll(async () => {
   const { backendOriginSelection } = await import(resolve(ROOT, 'js/bake/src/typescript.mjs'));
   const selected = backendOriginSelection(resolve(ROOT, 'apps/excord'));
   if (!selected) throw new Error('Excord has no selected fixture origin');
+  fixtureOrigin = selected.origin;
   fixture = startFixture({ port: Number(new URL(selected.origin).port), world: 'transcript', resetOnIdentify: true });
   const pinned = await bootedGeneration(DIST);
   leaseGeneration(DIST, pinned);
@@ -647,5 +648,173 @@ test.skipIf(!built)('with scrollend, a send from history settles only at its scr
     expect([settled >= held, settled >= 0 && seen[settled].ends > before]).toEqual([true, true]);
     expect([s.settling, s.away]).toEqual([false, false]);
     expect(await atEnd(a, s)).toEqual([true, true]);
+  } finally { await a.close(); }
+}, 120_000);
+
+// The fixture's `message` injection into #general: its id from the control door's answer, then the clock until
+// the app has the row.
+async function arrive(a: Awaited<ReturnType<typeof app>>, control: (body: object) => Promise<Response>) {
+  const answer = await control({ what: 'message' });
+  expect(answer.ok).toBe(true);
+  const id = (await answer.json()).dispatches.find((d: any) => d.t === 'MESSAGE_CREATE').d.id as string;
+  for (let i = 0; i < 20 && !(await a.bag()).win.rows.some((r: any) => r.id === id); i++) {
+    await a.data();
+    await a.plus(100, true);
+  }
+  await a.settle();
+  await a.plus(1000, true);
+  await a.data();
+  await a.settle();
+  expect((await a.bag()).win.rows.some((r: any) => r.id === id)).toBe(true);
+  return id;
+}
+
+// A restore that gives up: the saved place's row was deleted while the reader was away, so the window around the
+// place's anchor (here reaching the live end) cannot place it, and the list stays at its end. The reader is at the end,
+// live: a message arriving there is followed and acknowledged, as at any end. Web only: the deletion is the fixture's
+// own, by its control door, in a channel not on screen.
+test.skipIf(!built)('a restore that gives up at the live end leaves the reader live: an arrival is followed and read', async () => {
+  const a = await app();
+  const control = (body: object) => fetch(`${fixtureOrigin}/control/inject`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channel_id: GENERAL, ...body }) });
+  try {
+    await a.plus(1500, true);
+    await a.settle();
+    await a.tap('channel-general');
+    await a.data();
+    await a.settle();
+    await a.tap('mark-read');
+    const tree = await a.step({ op: 'tree' });
+    const transcript = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'transcript');
+    await a.step({ op: 'tap', id: transcript.id, into: { key: '1562755578936174328' } });
+    await a.step({ op: 'clock', land: true });
+    await a.data();
+    await a.settle();
+    let s = await a.bag();
+    const saved = s.topKey, ids = s.win.rows.map((r: any) => r.id);
+    expect([s.away, saved, ids.indexOf(saved) >= 0]).toEqual([true, '1562755578936174328', true]);
+    await a.back();
+    await a.settle();
+    // The saved row goes (the fixture deletes the message three above the one it is given).
+    expect((await control({ what: 'delete-above', near: ids[ids.indexOf(saved) + 3] })).ok).toBe(true);
+    await a.data();
+    await a.settle();
+    await a.tap('channel-general');
+    await a.data();
+    await a.settle();
+    s = await a.bag();
+    // Given up: no target, the window the live tail's, the list at its end.
+    expect([s.target, s.win.hasAfter, s.away, s.win.rows.some((r: any) => r.id === saved)]).toEqual(['', false, false, false]);
+    expect(await atEnd(a, s)).toEqual([true, true]);
+    // A message arrives at the end: its own row on screen, followed, and read up to it.
+    const arrived = await arrive(a, control);
+    s = await a.bag();
+    expect([s.anchor, s.chan.unread, s.lastKey, s.chan.lastRead]).toEqual(['', 0, arrived, arrived]);
+    expect(await atEnd(a, s)).toEqual([true, true]);
+  } finally { await a.close(); }
+}, 120_000);
+
+// The other branch: a restore that gives up in a window of older history (`hasAfter`), the saved row deleted while the
+// reader was away. The reader is in history, not live: the place's anchor stays, and the window's next older page
+// (F1's lead) lands with the reader's row where it was.
+test.skipIf(!built)('a restore that gives up in older history keeps its anchor, and the next page lands in place', async () => {
+  const a = await app();
+  const control = (body: object) => fetch(`${fixtureOrigin}/control/inject`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channel_id: GENERAL, ...body }) });
+  try {
+    await a.plus(1500, true);
+    await a.settle();
+    await a.tap('channel-general');
+    await a.data();
+    await a.settle();
+    await a.tap('mark-read');
+    const tree = await a.step({ op: 'tree' });
+    const transcript = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'transcript');
+    await a.step({ op: 'tap', id: transcript.id, into: { key: '1562624645306263268' } });
+    await a.step({ op: 'clock', land: true });
+    await a.settle();
+    // A reply's original far back: the window is its own run around it, away from the live end.
+    await a.tap('reply-to-1562624645306263268');
+    await a.data();
+    await a.settle();
+    await a.plus(3000);
+    await a.data();
+    await a.settle();
+    let s = await a.bag();
+    const saved = s.topKey, anchor = s.anchor, ids = s.win.rows.map((r: any) => r.id);
+    expect([s.away, s.win.hasAfter, ids.indexOf(saved) >= 3]).toEqual([true, true, true]);
+    await a.back();
+    await a.settle();
+    expect((await control({ what: 'delete-above', near: ids[ids.indexOf(saved) + 3] })).ok).toBe(true);
+    await a.data();
+    await a.settle();
+    await a.tap('channel-general');
+    await a.data();
+    await a.settle();
+    s = await a.bag();
+    // Given up in older history: no target, the saved row gone, the anchor kept.
+    expect([s.target, s.win.hasAfter, s.anchor, s.win.rows.some((r: any) => r.id === saved)]).toEqual(['', true, anchor, false]);
+    const first = s.win.firstId, row = s.win.rows[1].key;
+    // Reading back to the window's top asks its next older page; it lands, and the reader's row stays put.
+    const list = (await a.step({ op: 'tree' })).nodes.find((n: any) => !n.inactive && n.props?.testId === 'transcript');
+    await a.step({ op: 'tap', id: list.id, into: { key: row } });
+    await a.step({ op: 'clock', land: true });
+    await a.data();
+    await a.settle();
+    await a.plus(3000);
+    await a.data();
+    await a.settle();
+    s = await a.bag();
+    expect([s.win.firstId !== first, s.win.hasAfter, s.topKey]).toEqual([true, true, row]);
+  } finally { await a.close(); }
+}, 120_000);
+
+// A give-up with the reader still in history: the open channel chosen again in the sidebar (wide) after its saved
+// row was deleted while it stayed open. Its window reaches the live end, but the list was not remounted and the
+// reader is where they were, off the end: the anchor stays, and an arrival is neither followed nor read.
+test.skipIf(!built)('a restore given up in the open channel, reader off the end, keeps its anchor: an arrival waits', async () => {
+  const a = await app('/', { width: 1100, height: 760 });
+  const control = (body: object) => fetch(`${fixtureOrigin}/control/inject`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channel_id: GENERAL, ...body }) });
+  try {
+    await a.plus(1500, true);
+    await a.settle();
+    await a.tap('channel-general');
+    await a.data();
+    await a.settle();
+    await a.tap('mark-read').catch(() => undefined);
+    const tree = await a.step({ op: 'tree' });
+    const list = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'transcript');
+    await a.step({ op: 'tap', id: list.id, into: { key: '1562755578936174328' } });
+    await a.step({ op: 'clock', land: true });
+    await a.data();
+    await a.settle();
+    // Another channel beside the list, then #general again: its place restored.
+    await a.tap('channel-random');
+    await a.data();
+    await a.settle();
+    await a.tap('channel-general');
+    await a.data();
+    await a.settle();
+    let s = await a.bag();
+    const saved = '1562755578936174328', anchor = s.anchor, ids = s.win.rows.map((r: any) => r.id);
+    expect([s.topKey, s.away, s.target]).toEqual([saved, true, '']);
+    // The saved row goes while the channel is open.
+    expect((await control({ what: 'delete-above', near: ids[ids.indexOf(saved) + 3] })).ok).toBe(true);
+    await a.data();
+    await a.settle();
+    // #general chosen again in the sidebar: the saved place asked again, its row gone, the restore gives up in place.
+    await a.tap('channel-general');
+    await a.data();
+    await a.settle();
+    s = await a.bag();
+    expect([s.chan.name, s.target, s.win.hasAfter, s.win.rows.some((r: any) => r.id === saved), s.endGap > 0.5])
+      .toEqual(['general', '', false, false, true]);
+    expect(s.anchor).toBe(anchor);
+    const top = s.topKey, unread = s.chan.unread;
+    // An arrival at the end: not followed (the reader's row stays), not read (counted).
+    const arrived = await arrive(a, control);
+    s = await a.bag();
+    expect([s.anchor, s.topKey, s.chan.unread, s.lastKey]).toEqual([anchor, top, unread + 1, arrived]);
   } finally { await a.close(); }
 }, 120_000);

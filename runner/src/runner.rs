@@ -16,6 +16,8 @@ pub mod faults;
 mod field;
 mod fonts;
 pub mod foresee;
+mod in_flight;
+mod module_work;
 mod trace;
 pub use field::{FieldSelection, InputDetails, SelectionDirection};
 mod host_kinds;
@@ -234,6 +236,11 @@ struct PendingReq {
     /// A topic its resource watches changed while it was in flight: its
     /// reply lands, then the resource is asked again (LLP 1016.002 D4).
     ask_again: bool,
+    /// Module work wrote the store while it was in flight, leaving this store
+    /// revision: until another write, its answer stands (LLP 1146 §2.3).
+    module_again: Option<u64>,
+    /// May change its server ([`crate::Request::has_effects`]): kept when let go (LLP 1146 D2).
+    effects: bool,
     /// The sequence when its answer was first asked; its later rounds keep
     /// it. Only an answer asked after a write landed retires that write.
     origin: u64,
@@ -383,6 +390,8 @@ pub struct Runner<D: DataSource> {
     next_ticket: u64,
     /// The module's background work's round, when one is out (LLP 1097 D5).
     background: background::Background,
+    /// Module work's requests in flight (LLP 1146 D2).
+    module_work: module_work::ModuleWork,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
     /// Second edges waiting for the first action's async targets to settle,
@@ -592,64 +601,6 @@ impl<D: DataSource> Runner<D> {
         .map(Runner::linking_every_device)
     }
 
-    /// Everything a reload keeps.
-    pub fn carry(&self) -> Carried {
-        Carried {
-            router: self.carry_router(),
-            data_revision: self.data.revision().map(str::to_owned),
-            keeps_answers: self.keeping.on,
-            slots: self
-                .plan
-                .slots
-                .iter()
-                .zip(&self.slots)
-                .filter(|(s, _)| s.owner.is_none())
-                .map(|(s, v)| (self.plan.str(s.name).to_string(), v.clone()))
-                .collect(),
-            panels: self.carry_panels(),
-            resources: self
-                .plan
-                .resources
-                .iter()
-                .zip(&self.resources)
-                .enumerate()
-                // A request in flight or a placeholder shown until the
-                // source is ready is not an answer to carry, nor one a
-                // write affects: the replacement runner asks it.
-                .filter(|(i, _)| !self.pending_res[*i] && !self.stale[*i] && !self.written(*i))
-                .filter(|(_, (_, s))| s.as_ref().is_none_or(|s| !s.placeholder))
-                .filter_map(|(_, (r, s))| {
-                    s.as_ref().map(|s| {
-                        (
-                            self.plan.str(r.name).to_string(),
-                            self.plan.str(r.source).to_string(),
-                            s.args.clone(),
-                            s.value.get(&self.plan).clone(),
-                        )
-                    })
-                })
-                .collect(),
-            store_readers: self
-                .plan
-                .resources
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| self.store_readers[*i])
-                .map(|(_, resource)| {
-                    (
-                        self.plan.str(resource.name).to_string(),
-                        self.plan.str(resource.source).to_string(),
-                    )
-                })
-                .collect(),
-            now_ms: self.now_ms,
-            store: self.store.snapshot(),
-            forgot_waiting: self.queued(),
-            faults: (!self.faults.is_empty()).then(|| self.faults.spec()),
-            modes: self.modes(),
-        }
-    }
-
     #[allow(clippy::too_many_arguments)] // the host boot facts
     fn boot_inner(
         links: RunnerLinks,
@@ -845,6 +796,7 @@ impl<D: DataSource> Runner<D> {
             queues: Default::default(),
             next_ticket: 1,
             background: Default::default(),
+            module_work: Default::default(),
             picked_count: 0,
             forgot: false,
             failed_args: Vec::new(),
@@ -939,12 +891,11 @@ impl<D: DataSource> Runner<D> {
             _ => (vec![false; runner.plan.resources.len()], String::new()),
         };
         let device_state = matches!(seed, Seed::Checkpoint(_)) && runner.has_app_store();
-        // Store-reading resources when the data source is not ready (a
-        // TypeScript module before its host loads it, LLP 1027 D4): the
-        // answer kept from the last launch seeds the first frame if its
-        // identifying arguments still match and its value still fits; the compiled
-        // empty-store placeholder is the fallback (settlement); either way
-        // the resource is asked again at `data_ready`.
+        // Store-reading resources when the data source is not ready (a TypeScript module before
+        // its host loads it, LLP 1027 D4): the answer kept from the last launch seeds the first
+        // frame if its identifying arguments still match and its value still fits; the compiled
+        // empty-store placeholder is the fallback (settlement); either way the resource is asked
+        // again at `data_ready`.
         let ready = runner.data.ready();
         runner.keeping.on = !private && (!ready || carried.is_some_and(|c| c.keeps_answers));
         runner.stale = vec![false; runner.plan.resources.len()];
@@ -994,6 +945,9 @@ impl<D: DataSource> Runner<D> {
             })
             .collect();
         runner.gate_step()?;
+        // No commit's end follows the boot's settlement: what it did here.
+        runner.hear_forgotten();
+        runner.keep_sent(false);
         runner.transport_stood();
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);

@@ -5,6 +5,7 @@
 mod active_route;
 mod app_module;
 mod canvas2d;
+mod failed_readers;
 mod flow_agent;
 mod font_axes;
 mod font_keyframes;
@@ -14,6 +15,7 @@ mod frames_agent;
 mod height_binding;
 mod incremental;
 mod keep_mounted;
+mod keep_sent;
 mod launch_stand_in;
 mod list_layout;
 mod listen;

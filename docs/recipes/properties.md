@@ -38,17 +38,18 @@ can make a line counted only. The [grammar](../contract-grammar.md#authored-test
 defines each form.
 
 Run `bun exact.mjs contract verify app.contract`. It delivers test prefixes, explores
-controls and searches 20 walks of up to 40 new events. Set `--walks`, `--steps` and
+controls and searches 20 walks of up to 40 chosen events, plus automatic clock
+advances. Set `--walks`, `--steps` and
 `--walk-seed` to reproduce another search; `--confirm` sets how many walks Lean
 confirms, alongside delivered tests, explore and shrunk findings. Without `lake`,
 or with `--runner-only`, the runner still searches. `--js` also runs the scripts
 on the web JS target and checks `always` there.
 
-The receipt gives the reproduction command, app/test/embedding digests, scripts
+The receipt gives the command, app/test/embedding digests, scripts
 delivered or stopped, steps, stores, action coverage, property results, refusals,
 timings and which evaluators ran. A property can be held, false, counted only or
-not exercised. Suggestions describe what the search observed; they are not proofs
-and are not written into your tests. Keep the receipt unchanged in your diary;
+not exercised. Suggestions describe observations, not proofs; they do not edit tests.
+Keep the receipt unchanged in your diary;
 its digests tell a reader when the sources have moved.
 
 “In the semantics' world” means seeded source answers arrive synchronously and
@@ -57,8 +58,9 @@ clock. Reloads, late answers and host inputs are outside that world. A property
 about a mutation result is therefore about the seeded answer, and a successful
 search establishes only what those scripts observed.
 
-`bun exact.mjs test web` (or `test ios`) checks `always` after authored inputs and
-clock steps on that host, including tests that use failed fetches and reloads.
+`bun exact.mjs test web` (or `test ios`) checks `always` at boot, after inputs and
+reloads, and after every clock step,
+including automatic test-clock advances.
 `bun exact.mjs verify` runs the device checks and then `contract verify`, and either
 failure fails the command. Device and headless JS runs report how many `after`,
 frame, command and `never refuses` lines they leave unchecked: neither exposes

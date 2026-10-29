@@ -55,6 +55,11 @@ its time counts too.
   long on a fast machine and too short on a slow one. Some ways to wait for
   events are:
   - Rust: a channel, a condition variable, a count to observe.
+  - The TypeScript executor (`exact-js`): `Module::set_turn_step` times each
+    turn as one step of a clock that moves at no other time;
+    `exact_render::expire_renders` brings render deadlines to now;
+    `Module::hold_compressions` holds compressions until released, and a
+    storage wait with only held work in flight runs out at once.
   - Swift: an expectation fulfilled by the callback, or a run-loop pass that
     returns once work has run: `RunLoop.main.run(mode: .default, before:)`.
     `RunLoop.main.run(until:)` waits out its whole slice; on a loaded Mac a

@@ -90,7 +90,7 @@ beforeAll(async () => {
     return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
   } });
   if (process.platform === 'darwin') {
-    const stub = `struct Style { var string: String? }
+    const stub = `struct Style { var string: String?; func length(basis: CGFloat) -> CGFloat? { nil } }
 class NodeView { var style: [String:Style] = [:]; func number(_ name: String) -> CGFloat { 0 } }
 `;
     // The page is 1200 tall when scrolled; the viewport is the layer.

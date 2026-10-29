@@ -2,7 +2,9 @@
 //! names the repair, and the same walk yielding every few thousand items goes
 //! on in new turns, each with a budget of its own, asked again with no work
 //! and no clock (`Dispatch::Again`): inline, on a worker, and through the
-//! runner. The budget is the default 100 ms, as an app has it.
+//! runner. The budget is the default 100 ms, as an app has it, and turns are
+//! timed on a ticking clock (`Module::set_turn_step`): what the budget allows
+//! depends on the step, not on how the machine schedules the test.
 
 #![cfg(exact_js_engine)]
 
@@ -15,10 +17,13 @@ use std::time::Duration;
 
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/walk.hbc"));
 const APP: &str = "test.walk";
-/// Items enough that one turn over all of them is several times the budget.
+/// Items to walk, in one turn or in `YIELDS` + 1.
 const N: u32 = 12_000_000;
-/// Yields per walk: each turn is a small fraction of the budget.
+/// Yields per walk.
 const YIELDS: u32 = 300;
+/// What each turn takes on the ticking clock: within the budget, which the
+/// turns of a yielding walk are far over together.
+const TURN: Duration = Duration::from_millis(60);
 
 const SRC: &str = r#"
 component App
@@ -53,8 +58,9 @@ fn plan() -> Plan {
     contract::compile(SRC).expect("the fixture's Contract compiles")
 }
 
-fn module() -> Module {
+fn module(turn: Duration) -> Module {
     let mut m = Module::new(HBC.to_vec(), APP, "");
+    m.set_turn_step(turn);
     m.bind(&plan());
     m.load().expect("the fixture loads");
     m
@@ -96,7 +102,7 @@ fn walk(m: &mut Module, n: u32, every: u32) -> (Result<Value, DataError>, u32) {
 
 #[test]
 fn a_turn_over_the_budget_fails_and_names_scheduler_yield() {
-    let mut m = module();
+    let mut m = module(Duration::from_millis(150));
     let (answer, turns) = walk(&mut m, N, 0);
     let Err(DataError::Overrun(message)) = answer else {
         panic!("one turn over all of it is over the budget: {answer:?}");
@@ -111,7 +117,7 @@ fn a_turn_over_the_budget_fails_and_names_scheduler_yield() {
 
 #[test]
 fn the_same_walk_yielding_goes_on_in_new_turns_each_with_its_own_budget() {
-    let mut m = module();
+    let mut m = module(TURN);
     let (answer, turns) = walk(&mut m, N, N / YIELDS);
     assert_eq!(answer, Ok(Value::str(&expected(N, YIELDS))));
     assert_eq!(turns, YIELDS + 1);
@@ -120,7 +126,7 @@ fn the_same_walk_yielding_goes_on_in_new_turns_each_with_its_own_budget() {
 
 #[test]
 fn a_yield_outside_an_answer_goes_on_and_post_task_refuses() {
-    let mut m = module();
+    let mut m = module(TURN);
     let mut s = Store::new("", []);
     let Ok(Answer::Now(at_load)) = m.answer(&mut s, "atLoad", &[]) else {
         panic!("answered now");
@@ -136,6 +142,7 @@ fn a_yield_outside_an_answer_goes_on_and_post_task_refuses() {
 #[test]
 fn a_worker_resumes_its_yields_on_its_owner() {
     let mut unplaced = Module::new(HBC.to_vec(), APP, "");
+    unplaced.set_turn_step(TURN);
     unplaced.bind(&plan());
     let mut placed = unplaced.placed(Placement::Worker);
     placed.activate().unwrap();
@@ -163,11 +170,15 @@ fn a_worker_resumes_its_yields_on_its_owner() {
 }
 
 fn runner() -> Runner<Module> {
-    let baked = contract::bake(plan(), Module::loaded(HBC.to_vec(), APP, "").unwrap())
+    let mut baking = Module::loaded(HBC.to_vec(), APP, "").unwrap();
+    baking.set_turn_step(TURN);
+    let baked = contract::bake(plan(), baking)
         .expect("bake asks the walks of nothing, which answer at once");
+    let mut module = Module::loaded(HBC.to_vec(), APP, "").unwrap();
+    module.set_turn_step(TURN);
     Runner::boot(
         baked,
-        Module::loaded(HBC.to_vec(), APP, "").unwrap(),
+        module,
         Kernel::with_monospace(),
         Default::default(),
         "/",

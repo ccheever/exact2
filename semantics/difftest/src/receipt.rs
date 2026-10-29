@@ -45,6 +45,9 @@ impl Identity {
 }
 #[derive(Default)]
 pub(crate) struct Delivery {
+    pub settle_bounds: usize,
+    pub mutation_events: usize,
+    pub mutation_bounds: usize,
     pub whole: usize,
     pub partial: Vec<String>,
     pub skipped: Vec<String>,
@@ -114,6 +117,10 @@ impl Receipt<'_> {
             id.app, id.tests, id.embedding, id.commit
         );
         println!("  scripts: {} tests delivered ({} whole; {} in part: {}; {} skipped: {}), 1 explored, {} walks", d.whole+d.partial.len(), d.whole, d.partial.len(), names(&d.partial), d.skipped.len(), names(&d.skipped), d.walks);
+        println!(
+            "  delivery: {} settle bounds; {} test-clock advances, {} bounds",
+            d.settle_bounds, d.mutation_events, d.mutation_bounds
+        );
         println!("  steps: {} ({} with more than one commit; {} poisoned; {} with a commit the trace leaves out); stores: empty, {} seeded", c.steps, c.multiple, c.poisoned, c.omitted, d.stores);
         let declared: BTreeSet<_> = self
             .plan
@@ -172,7 +179,7 @@ impl Receipt<'_> {
         println!("  properties: {held} held, {false_} false, {counted} counted only, {idle} not exercised{}", if details.is_empty() { String::new() } else { format!(" ({})", details.join("; ")) });
         let count = |class| c.classes.get(class).copied().unwrap_or(0);
         println!("  refusals: {} of the app's own (above); {} of class T; {} of the world's; {} limit; {} poisoned; {} cycle; {} value; {} unclassified", count("app"), count("type"), count("world"), count("limit"), count("poisoned"), count("cycle"), count("value"), count("unclassified"));
-        println!("  world: seeded oracle answering at once and never failing; tap, type, land and clock events only; no reload, no late answer, no host input");
+        println!("  world: seeded oracle answering at once and never failing; tap, type, land and clock events only; no reload, no late answer, no host input; {}", crate::settle::HOST_WORLD);
         let cost = format!(
             "runner {:.3}s; semantics {:.3}s; shrink candidates: {} runner, {} two-engine",
             self.runner_seconds, s.seconds, self.candidates, s.candidates

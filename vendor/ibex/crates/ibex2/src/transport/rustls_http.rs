@@ -506,7 +506,7 @@ impl BodySource for Source {
         result
     }
 }
-/// An upload's body as ureq takes it (Exact patch 22): each read is told to
+/// An upload's body as ureq takes it (Exact patch 23): each read is told to
 /// the request's `sent` hook. ureq writes what it read to the socket before
 /// it reads again, so the count leads the wire by at most one output buffer.
 struct Counted<'a> {

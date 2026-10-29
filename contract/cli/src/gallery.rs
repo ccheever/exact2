@@ -956,11 +956,18 @@ fn source(
                 let args =
                     args(p.component, file, shapes, compiler, inert, &c.values).unwrap_or_default();
                 let _ = writeln!(s, "          {}({})", c.component, args.join(", "));
+                // A slot's sample: a tinted block that says so, so a component whose slot is its
+                // whole content (a menu's group) shows something inside its frame (stage 15 D4
+                // batch 3 #1).
                 if p.component.slot {
                     let _ = writeln!(
                         s,
-                        "            box testId={} width=24 height=24",
+                        "            column testId={} min-width=24 min-height=24 background-color=\"-exact-fill\" align-items=\"center\" justify-content=\"center\"",
                         literal(&format!("{id}-slot"))
+                    );
+                    let _ = writeln!(
+                        s,
+                        "              text \"slot\" font=\"-exact-caption2\" color=\"-exact-secondary-label\""
                     );
                 }
             }

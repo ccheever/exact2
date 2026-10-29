@@ -254,7 +254,7 @@ pub struct Request {
     /// The platform transport's own request timeout. A caller that needs the
     /// whole exchange bounded also aborts its signal (LLP 0068.000 §4).
     pub timeout: Option<std::time::Duration>,
-    /// Told the body's bytes as they are sent (Exact patch 22).
+    /// Told the body's bytes as they are sent (Exact patch 23).
     pub sent: Option<Sent>,
 }
 

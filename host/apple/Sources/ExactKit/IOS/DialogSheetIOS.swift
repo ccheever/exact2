@@ -69,7 +69,8 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     #endif
 
     override func loadView() {
-        let view = UIView()
+        // Keeping its tint undimmed for the dialog's nodes (`RestsTint`)
+        let view = RestingTintView()
         #if os(tvOS)
         view.backgroundColor = .white
         #else
@@ -484,7 +485,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         if cancelled || entry.notifyClose { dialog.queueDialogClose() }
         if cancelled, live(dialog), dialog.handlers.contains("cancel") {
             if let onCancel { onCancel(dialog.id) }
-            else if let session = presenter.session { session.apply(session.runtime.pickerCancel(dialog.id, now: session.now())) }
+            else if let session = presenter.session { session.applyInput(session.runtime.pickerCancel(dialog.id, now: session.now())) }
         }
     }
 
