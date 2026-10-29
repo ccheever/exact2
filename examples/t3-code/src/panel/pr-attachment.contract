@@ -235,7 +235,7 @@ component AttachmentBody
             for frame in [att.viewer] key=frame.id
               ViewerFrame(frame=frame, scheme=scheme, sheet=sheet, message=viewerSaid, posted=viewerPosted, pick=viewerPicked, label=att.name, testId="attachment-viewer")
           if att.entry.open
-            ArchiveEntryBody(entry=att.entry, wrap=att.wrap, testId="attachment-entry")
+            ArchiveEntryBody(entry=att.entry, wrap=att.wrap, expand=local("surface-linked-att-entry-image-open", att.id, ""), testId="attachment-entry")
       if att.preview == "notebook"
         NotebookPreview(notebook=att.notebook, documents=documents, code=att.code, diagrams=att.diagrams, env=att.md, urls=att.mdUrls, copiedText=att.codeCopied, copiedNonce=att.codeCopyNonce, wrap=att.wrap, scheme=scheme, local=local, act=notebookAct, testId="attachment-notebook")
       if att.preview == "code"

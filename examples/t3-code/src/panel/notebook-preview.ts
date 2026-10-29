@@ -86,6 +86,8 @@ function notebookOf(owner: string) {
   return state;
 }
 export function forgetNotebook(owner: string): void { notebookState.delete(owner); pictures.delete(`entry:${owner}`); }
+/** The media cache file of the archive entry's picture `owner` shows, or ''. */
+export function entryPicture(owner: string): Promise<string> { return pictures.get(`entry:${owner}`)?.page ?? Promise.resolve(''); }
 
 /** NotebookPreview's projection: the shown cells, their Markdown documents and code, and the outputs' frames. */
 export async function notebookView(client: T3Client, owner: string, notebook: ViewerNotebook): Promise<{ view: NotebookView; markdown: NotebookMarkdown }> {

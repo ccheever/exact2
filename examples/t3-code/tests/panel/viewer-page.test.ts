@@ -9,6 +9,9 @@ import type { Obj } from '../../src/client/domain';
 import { attachmentLocal, attachmentOp, attachmentView, forgetPreview, type AttachmentMeta, type PreviewSource } from '../../src/panel/attachment-surface';
 import { newFrame, postBytes, postToViewer, viewerFrameId, viewerFrameView, viewerMessage, viewerPick } from '../../src/panel/viewer-frames';
 import { memoryAppFiles, serveAssets } from '../support/asset-server';
+import { linkedViews } from '../../src/panel/pr-attachment-surfaces';
+import { imagePreviewView } from '../../src/timeline/timeline-attachments';
+import { toasts } from '../../src/shell/toast';
 
 const native = { available: true } as Native;
 function client(list: AttachmentMeta[], calls: Obj[] = []) {
@@ -123,6 +126,18 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
     await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', text: 'again' })}`, log.id, 0);
     expect(calls.filter(call => call.op === 'copyText')).toEqual([{ op: 'copyText', text: 'whole file' }]);
     expect((await attachmentView(c, native, log, 1500)).copyLabel).toBe('Copied');
+    // A stream whose URL was refused keeps Copy contents, which says it has nothing to copy yet and asks nothing later.
+    const refused = client([log]);
+    (refused as unknown as { rpc: () => Promise<never> }).rpc = async () => { throw new Error('Reconnect to the environment and try again.'); };
+    const failed = await attachmentView(refused, native, log, 1000);
+    expect([failed.preview, failed.canCopy]).toEqual(['error', true]);
+    await attachmentLocal(refused, native, 'copy', log.id, 0);
+    expect(toasts(refused).map(toast => [toast.title, toast.description])).toEqual([['Could not copy file', 'Wait for the file to finish loading before copying.']]);
+    (refused as unknown as { rpc: unknown }).rpc = c.rpc;
+    await attachmentLocal(refused, native, 'retry', log.id, 0);
+    await attachmentView(refused, native, log, 1000);
+    await attachmentLocal(refused, native, 'viewer:{"type":"boot"}', log.id, 0);
+    expect((await attachmentView(refused, native, log, 1000)).viewer.posts).toEqual([]);
   });
 
   test('a CSV past 1 MB streams as a table, and its toggle shows the source; Try again mounts the viewer afresh', async () => {
@@ -194,6 +209,21 @@ describe('what the page hands back (NotebookPreview, ArchiveFile)', () => {
     expect([first.notebook.cells.length, first.notebook.more]).toEqual([20, 'Show more cells (25 remaining)']);
     await attachmentLocal(c, native, 'viewer-more', meta.id, 0);
     expect((await attachmentView(c, native, meta, 1000)).notebook.more).toBe('Show more cells (5 remaining)');
+    // Try again, and the tab shown again after another surface, mount the preview afresh: the page parses the notebook
+    // again, and twenty cells show.
+    await attachmentLocal(c, native, 'retry', meta.id, 0);
+    expect((await attachmentView(c, native, meta, 1000)).preview).toBe('viewer');
+    await attachmentLocal(c, native, `viewer:${JSON.stringify(many)}`, meta.id, 0);
+    expect((await attachmentView(c, native, meta, 1000)).notebook.more).toBe('Show more cells (25 remaining)');
+    const tab = { id: `attachment:${meta.id}`, kind: 'attachment' as const, path: meta.name, line: 0, reveal: 0, attachment: meta };
+    await linkedViews(c, native, tab, true, 1000);
+    await attachmentLocal(c, native, `viewer:${JSON.stringify(many)}`, meta.id, 0);
+    await attachmentLocal(c, native, 'viewer-more', meta.id, 0);
+    expect((await linkedViews(c, native, tab, true, 1000)).attachment.notebook.more).toBe('Show more cells (5 remaining)');
+    await linkedViews(c, native, null, true, 1000);
+    expect((await linkedViews(c, native, tab, true, 1000)).attachment.preview).toBe('viewer');
+    await attachmentLocal(c, native, `viewer:${JSON.stringify(many)}`, meta.id, 0);
+    expect((await linkedViews(c, native, tab, true, 1000)).attachment.notebook.more).toBe('Show more cells (25 remaining)');
     // An image output that is not a picture's data URL shows nothing: it would load with no press.
     const remote = { ...notebook, cells: [{ kind: 'code', source: 'x', outputs: [{ kind: 'image', text: 'https://attacker.example/p.png' }, { kind: 'image', text: 'data:text/html;base64,PGI+' }] }] };
     await attachmentLocal(c, native, `viewer:${JSON.stringify(remote)}`, meta.id, 0);
@@ -211,6 +241,12 @@ describe('what the page hands back (NotebookPreview, ArchiveFile)', () => {
     await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'entry', path: 'assets/logo.png', view: 'image', data: Buffer.from('png').toString('base64') })}`, meta.id, 0);
     const image = await attachmentView(c, native, meta, 1000);
     expect([image.entry.preview, image.entry.url.startsWith('app:/cache/media-preview/entry-'), new TextDecoder().decode(files.get(image.entry.url))]).toEqual(['image', true, 'png']);
+    // The picture's press opens the expanded image dialog on that file; its Save and Copy image have no URL to fetch.
+    expect(imagePreviewView(c).imagePreviewId).toBe('');
+    await attachmentLocal(c, native, 'entry-image-open', meta.id, 0);
+    const dialog = imagePreviewView(c);
+    expect([dialog.imagePreviewId, dialog.imagePreviewName, dialog.imagePreviewReturn, JSON.parse(dialog.imagePreviewSource).src])
+      .toEqual([image.entry.url, 'assets/logo.png', 'attachment-entry-image-zoom', null]);
     await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'entry', path: 'bin/tool.bin', view: 'failure', message: 'Only UTF-8 text and images can be opened inside an archive.' })}`, meta.id, 0);
     expect((await attachmentView(c, native, meta, 1000)).entry).toMatchObject({ preview: 'error', message: 'Only UTF-8 text and images can be opened inside an archive.' });
     await attachmentLocal(c, native, 'viewer:{"type":"entry-closed"}', meta.id, 0);

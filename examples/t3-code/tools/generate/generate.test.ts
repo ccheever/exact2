@@ -57,6 +57,20 @@ test('the generator pins its packages at the integrity values the reference lock
   }
 });
 
+// A prebuilt file carries its dependencies' code (jszip.min.js holds pako, lie, immediate and setimmediate), so the
+// viewer page's notices follow each shipped package's production dependencies, as the reference's
+// third-party-licenses.ts does; a type-only package ships nothing.
+test("the viewer page carries the notice of each package it ships and of each that one depends on to run", async () => {
+  const { productionDependencies } = await import('./gen-file-preview.mjs');
+  const dir = (name: string) => join(import.meta.dir, 'node_modules', name);
+  const walked: Map<string, string> = productionDependencies(new Map([['jszip', dir('jszip')], ['dompurify', dir('dompurify')]]));
+  expect(['jszip', 'pako', 'lie', 'immediate', 'setimmediate', 'dompurify'].filter(name => !walked.has(name))).toEqual([]);
+  expect(walked.has('@types/trusted-types')).toBe(false);
+  const { outputs } = await import('./generate.mjs');
+  const notices = (await outputs()).files.map(({ file }: { file: string }) => file).filter(file => /assets\/file-preview\/vendor\/licen[cs]e-/i.test(file));
+  expect(['pako', 'lie', 'immediate', 'setimmediate'].filter(name => !notices.some(file => file.toLowerCase().includes(`-${name}`)))).toEqual([]);
+}, 120_000);
+
 // The Mermaid page's pele (assets/mermaid/vendor/) draws the diagram kinds the Mermaid build it replaced drew, the
 // fixtures of the transcript, Files and attachment tests among them, and the math page's KaTeX typesets.
 test('the vendored pele renders the fixtures the Mermaid build rendered, and the vendored KaTeX typesets', async () => {

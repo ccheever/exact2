@@ -32,14 +32,14 @@ import { letGo } from '../client/let-go';
 import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
 import { FILE_TEXT_PREVIEW_MAX_BYTES, filePreviewDelimiter, filePreviewKind, maskMarkdownFrontmatter, officePreviewKind, type FilePreviewKind } from './file-preview-kind';
 import { emptyViewerFrame, newFrame, postBytes, requestCopy, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames'; // the viewer page
-import { emptyEntry, emptyNotebook, entryView, forgetNotebook, notebookOutputMessage, notebookView, showMoreCells, type EntryView, type NotebookView } from './notebook-preview'; // what the page hands back
+import { emptyEntry, emptyNotebook, entryPicture, entryView, forgetNotebook, notebookOutputMessage, notebookView, showMoreCells, type EntryView, type NotebookView } from './notebook-preview'; // what the page hands back
 import { appFiles } from '../media/save-file';
 import { stagedPath } from './attachment-files';
 import { foldedText } from '../composer/composer-editor-files';
 import { openExternal } from '../client/external-open';
 import { mermaidFile } from './mermaid-file'; // a Mermaid file's diagram
 import { FONT_REFUSED, fontPage, fontPageKept, forgetFontPage } from './font-preview'; // a font's specimen
-import { openInlineDocumentImage } from '../timeline/timeline-attachments'; // the expanded image dialog
+import { openCachedImage, openInlineDocumentImage } from '../timeline/timeline-attachments'; // the expanded image dialog
 
 export type AttachmentMeta = { id: string; name: string; mimeType: string; sizeBytes: number };
 type Content = { text: string; truncated: boolean };
@@ -248,7 +248,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     canRender: !!renderedMode, rendered, renderLabel: renderedToggleLabel(renderedMode, rendered),
     renderIcon: rendered ? 'code' : renderedMode === 'table' ? 'table' : 'eye',
     showWrap: showsRawText, wrap: client.local.clientSettings.wordWrap !== false,
-    canCopy: !!content || (streamsText && !failure), copyLabel: copied ? 'Copied' : content?.truncated ? 'Copy preview' : 'Copy contents', copied,
+    canCopy: !!content || streamsText, copyLabel: copied ? 'Copied' : content?.truncated ? 'Copy preview' : 'Copy contents', copied,
     canSave: !!state.url, saving: state.saving, saveLabel: state.saving ? 'Preparing file…' : 'Save file',
     truncatedNote: content?.truncated ? `Preview limited to the first 1 MB${meta.sizeBytes > 0 ? ` of a ${meta.sizeBytes.toLocaleString('en-US')} byte file` : ''}. Save the file to read it in full.` : '',
     ...rich, ...(diagram ? { diagrams: diagram.diagrams } : {}),
@@ -285,14 +285,11 @@ export const attachmentToken = (name: string) => fileIconToken(name);
 /** Drops a preview's state (a draft's preview opens afresh, as its dialog mounts a new AttachmentFilePreview). */
 export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); forgetFontPage(key); forgetNotebook(key); }
 /**
- * A sent file's preview shown again after another surface: the reference mounts only the active surface, which signs
- * its URL afresh (a signature lives an hour), so the next view signs it again, and its failures (a refused URL, a read,
- * the media's or the font's) end with the preview that had them.
+ * A sent file's preview another surface replaced: the reference mounts only the active surface, so the preview goes with
+ * what it signed (a signature lives an hour), read and parsed (a notebook's cells and its Show more count), and its
+ * failures. The font specimen pages stay among the four kept (font-preview.ts).
  */
-export function previewShownAgain(client: T3Client, key: string): void {
-  const state = states.get(client)?.get(key);
-  if (state) { state.url = ''; state.urlAt = 0; state.urlError = ''; state.contentError = ''; state.mediaError = ''; state.fontError = ''; state.frame.entry = null; }
-}
+export function previewHidden(client: T3Client, key: string): void { states.get(client)?.delete(key); forgetNotebook(key); }
 
 /** `surface-linked-att-*`: the header's controls. */
 export async function attachmentLocal(client: T3Client, native: Native, op: string, id: string, now: number): Promise<string> {
@@ -337,20 +334,32 @@ export async function attachmentOp(client: T3Client, native: Native, meta: Attac
     state.url = source.local?.url ?? ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; state.fontError = '';
     // AttachmentFilePreview's `revision`: the viewer mounts afresh, and a draft's bytes go to it again.
     state.revision += 1; state.bytesError = ''; state.frame.notebook = null; state.frame.entry = null; state.frame.booted = false;
+    forgetNotebook(source.key); // NotebookPreview remounts: twenty cells again
     return '';
   }
   // The audio/video player's or the picture's `error` event; a late one from a body already gone is ignored.
   if (op === 'media-error') { if (state.url && !state.mediaError) state.mediaError = mediaErrorMessage(previewBody(filePreviewKind(meta))); return ''; }
   // The specimen's FontFace did not load the bytes (font-preview.ts).
   if (op === 'font-failed') { if (fontPageKept(source.key)) state.fontError = FONT_REFUSED; return ''; }
+  // The same press on an archive entry's picture, which the app wrote to its media cache.
+  if (op === 'entry-image-open') {
+    const path = state.frame.entry?.view === 'image' ? await entryPicture(source.key) : '';
+    if (path) openCachedImage(client, path, state.frame.entry!.path, 'attachment-entry-image-zoom');
+    return '';
+  }
   // PreviewImageContent's press: the expanded image dialog over this one image, the focus going back to the picture.
   if (op === 'image-open') {
     if (/^https?:/i.test(state.url)) openInlineDocumentImage(client, state.url, meta.name, source.dialog ? 'chip-file-preview-image-zoom' : 'attachment-image-zoom');
     return '';
   }
   if (op === 'copy') {
-    // A streamed text's Copy contents is the large-text viewer's: the page reads the whole file and answers `copy`.
-    if (!state.content) { requestCopy(state.frame); return ''; }
+    // A streamed text's Copy contents is the large-text viewer's: the page reads the whole file and answers `copy`. A
+    // failure body mounts no viewer to ask.
+    if (!state.content) {
+      if (state.urlError || state.bytesError) pushToast(client, { kind: 'error', title: 'Could not copy file', description: 'Wait for the file to finish loading before copying.' });
+      else requestCopy(state.frame);
+      return '';
+    }
     try { await client.restAccess(native).call({ op: 'copyText', text: state.content.text }); state.copiedAt = now || -1; }
     catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not copy', description: message(error, 'Please try again.') }); }
     return '';

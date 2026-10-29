@@ -141,48 +141,80 @@ type RowsProps = VirtualTableProps & {
   readonly viewportHeight: number;
 };
 
-/** RowPage: one page's rows, made again only when its rows, its limit or the visible columns change. */
-type RowPage = { element: HTMLDivElement; key: string };
+/** One row's nodes, kept while its page is mounted, as React keeps a keyed row and its keyed cells. */
+type RowNodes = { line: HTMLDivElement; head: HTMLDivElement; number: HTMLSpanElement; spacer: HTMLDivElement | null; cells: Map<number, HTMLDivElement> };
+/** RowPage: one page's rows, updated in place when its rows, its limit or the visible columns change. */
+type RowPage = { element: HTMLDivElement; key: string; rows: Map<number, RowNodes> };
 
-function rowPage(props: RowsProps, page: number, limit: number): RowPage {
+const newRowPage = (): RowPage => ({ element: h("div", { role: "rowgroup" }), key: "", rows: new Map() });
+
+function setAttribute(node: Element, name: string, value: string | number | undefined) {
+  if (value === undefined) { if (node.hasAttribute(name)) node.removeAttribute(name); }
+  else if (node.getAttribute(name) !== String(value)) node.setAttribute(name, String(value));
+}
+
+/**
+ * RowPage's render, reconciled into the nodes already there (U VirtualTablePreview.tsx RowPage: rows keyed by their
+ * place in the page, cells by column): a row, a cell or its text node is replaced only when it changes, so a
+ * selection or the focus in the table outlives a redraw.
+ */
+function patchRowPage(mounted: RowPage, props: RowsProps, page: number, limit: number) {
   const rows = props.getRows(page);
   const start = page * PREVIEW_PAGE_ROWS;
   const count = Math.min(PREVIEW_PAGE_ROWS, props.count - start, limit);
   const reveal = props.revealLine != null ? Math.min(props.count, Math.max(1, props.revealLine)) : null;
-  const element = h("div", { role: "rowgroup" });
   const firstWidth = props.sizes.slice(0, props.firstColumn).reduce((a, b) => a + b, 0);
+  const kept = new Set<number>();
+  let previous: Element | null = null;
   for (let local = 0; local < count; local++) {
     const row = rows?.[local];
     const index = start + local;
     if (props.header && index === 0) continue;
+    kept.add(local);
+    let nodes = mounted.rows.get(local);
+    if (!nodes) {
+      const number = h("span", {});
+      const head = h("div", { class: "vt-rowhead" }, number);
+      nodes = { line: h("div", {}, head), head, number, spacer: null, cells: new Map() };
+      mounted.rows.set(local, nodes);
+    }
+    const { line, head, number } = nodes;
     const revealed = reveal === index + 1;
-    const line = h("div", {
-      "data-preview-row": index,
-      role: props.source ? undefined : "row",
-      "aria-rowindex": props.source ? undefined : index + 1,
-      class: props.source ? `vt-row source${revealed ? " reveal" : ""}` : `vt-row table${(index - (props.header ? 1 : 0)) % 2 ? " odd" : ""}`,
-      "data-preview-reveal": revealed ? "true" : undefined,
-    });
-    const head = h("div", { role: props.source ? undefined : "rowheader", class: "vt-rowhead" }, h("span", {}, String(index + (props.header ? 0 : 1))));
-    head.style.width = `${props.rowHeader}px`;
-    line.append(head);
+    setAttribute(line, "data-preview-row", index);
+    setAttribute(line, "role", props.source ? undefined : "row");
+    setAttribute(line, "aria-rowindex", props.source ? undefined : index + 1);
+    setAttribute(line, "class", props.source ? `vt-row source${revealed ? " reveal" : ""}` : `vt-row table${(index - (props.header ? 1 : 0)) % 2 ? " odd" : ""}`);
+    setAttribute(line, "data-preview-reveal", revealed ? "true" : undefined);
+    setAttribute(head, "role", props.source ? undefined : "rowheader");
+    if (head.style.width !== `${props.rowHeader}px`) head.style.width = `${props.rowHeader}px`;
+    const label = String(index + (props.header ? 0 : 1));
+    if (number.textContent !== label) number.textContent = label;
     if (!props.source) {
-      const spacer = h("div");
-      spacer.style.cssText = `width:${firstWidth}px;flex-shrink:0`;
-      line.append(spacer);
-    }
+      if (!nodes.spacer) { nodes.spacer = h("div"); nodes.spacer.style.flexShrink = "0"; head.after(nodes.spacer); }
+      if (nodes.spacer.style.width !== `${firstWidth}px`) nodes.spacer.style.width = `${firstWidth}px`;
+    } else if (nodes.spacer) { nodes.spacer.remove(); nodes.spacer = null; }
+    const columns = new Set(props.columnsVisible);
+    for (const [column, cell] of nodes.cells) if (!columns.has(column)) { cell.remove(); nodes.cells.delete(column); }
+    let after: Element = nodes.spacer ?? head;
     for (const column of props.columnsVisible) {
-      const cell = h("div", {
-        role: props.source ? undefined : "cell",
-        "aria-colindex": props.source ? undefined : column + 1,
-        class: props.source ? `vt-line${props.wrap ? " wrap" : ""}` : "vt-cell",
-      }, row?.[column] ?? "");
-      if (!props.source) cell.style.width = `${props.sizes[column]}px`;
-      line.append(cell);
+      let cell = nodes.cells.get(column);
+      if (!cell) { cell = h("div"); nodes.cells.set(column, cell); }
+      setAttribute(cell, "role", props.source ? undefined : "cell");
+      setAttribute(cell, "aria-colindex", props.source ? undefined : column + 1);
+      setAttribute(cell, "class", props.source ? `vt-line${props.wrap ? " wrap" : ""}` : "vt-cell");
+      const width = props.source ? "" : `${props.sizes[column]}px`;
+      if (cell.style.width !== width) cell.style.width = width;
+      const text = row?.[column] ?? "";
+      if (cell.textContent !== text) cell.textContent = text;
+      if (cell.previousElementSibling !== after || cell.parentElement !== line) after.after(cell);
+      after = cell;
     }
-    element.append(line);
+    if (line.parentElement !== mounted.element || line.previousElementSibling !== previous) {
+      if (previous) previous.after(line); else mounted.element.prepend(line);
+    }
+    previous = line;
   }
-  return { element, key: "" };
+  for (const [local, nodes] of mounted.rows) if (!kept.has(local)) { nodes.line.remove(); mounted.rows.delete(local); }
 }
 
 /** ScaledRows: the rows' scroll track, scaled past 8 million pixels, with native scrolling over the final rows. */
@@ -291,13 +323,8 @@ class ScaledRows {
       const rows = props.getRows(index);
       const key = `${columnsKey}|${limit}|${this.version(index, rows)}`;
       let mounted = this.pages.get(index);
-      if (!mounted || mounted.key !== key) {
-        const made = rowPage(props, index, limit);
-        made.key = key;
-        if (mounted) mounted.element.replaceWith(made.element);
-        mounted = made;
-        this.pages.set(index, mounted);
-      }
+      if (!mounted) { mounted = newRowPage(); this.pages.set(index, mounted); }
+      if (mounted.key !== key) { patchRowPage(mounted, props, index, limit); mounted.key = key; }
       if (mounted.element.previousElementSibling !== previous || mounted.element.parentElement !== this.content) {
         if (previous) previous.after(mounted.element); else this.content.prepend(mounted.element);
       }

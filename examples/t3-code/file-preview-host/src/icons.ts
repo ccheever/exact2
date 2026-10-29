@@ -7,6 +7,7 @@ export { default as ChevronUp } from "lucide/dist/esm/lucide/src/icons/chevron-u
 export { default as File } from "lucide/dist/esm/lucide/src/icons/file.js";
 export { default as Folder } from "lucide/dist/esm/lucide/src/icons/folder.js";
 export { default as LoaderCircle } from "lucide/dist/esm/lucide/src/icons/loader-circle.js";
+export { default as Maximize } from "lucide/dist/esm/lucide/src/icons/maximize.js";
 export { default as Minus } from "lucide/dist/esm/lucide/src/icons/minus.js";
 export { default as Plus } from "lucide/dist/esm/lucide/src/icons/plus.js";
 export { default as RotateCcw } from "lucide/dist/esm/lucide/src/icons/rotate-ccw.js";

@@ -81,6 +81,53 @@ function packageOf(input) {
   return { name, dir: parts.slice(0, at + 1).join(sep) + sep + name };
 }
 
+/** isTypeOnlyPackage (third-party-licenses.ts): type declarations and no JavaScript entry, so nothing of it ships. */
+function typeOnly(manifest, dir) {
+  const targets = [];
+  const collect = (value, types = false) => {
+    if (typeof value === 'string') targets.push({ path: value, types });
+    else if (Array.isArray(value)) for (const item of value) collect(item, types);
+    else if (value && typeof value === 'object') for (const [key, item] of Object.entries(value)) collect(item, types || key.startsWith('types') || key === 'typings');
+  };
+  collect(manifest.exports);
+  const declaration = target => target.types || /\.d\.[cm]?ts$/.test(target.path) || target.path === './package.json';
+  const declared = value => (typeof value === 'string' ? value.trim() !== '' : !!value && typeof value === 'object' && Object.keys(value).length > 0);
+  if (!(declared(manifest.types) || declared(manifest.typings) || targets.some(declaration))) return false;
+  const entries = [manifest.main, manifest.module, manifest.browser, manifest['react-native'], manifest.bin, manifest.style, manifest.sass];
+  if (entries.some(declared) || targets.some(target => !declaration(target))) return false;
+  if (manifest.exports !== undefined && manifest.exports !== null) return true;
+  return !['index.js', 'index.json', 'index.node'].some(file => { try { return statSync(join(dir, file)).isFile(); } catch { return false; } });
+}
+
+/**
+ * The packages a shipped package depends on to run, transitively (its `dependencies` and `optionalDependencies`, each
+ * found as Node finds it), as the reference's third-party-licenses.ts collectProductionDependencyPackages walks them: a
+ * prebuilt file such as jszip.min.js carries its dependencies' code without the bundle reading their files. A package
+ * that is not installed (an optional one for another platform) ships nothing.
+ */
+export function productionDependencies(roots) {
+  const found = new Map(roots), seen = new Set(found.values());
+  const visit = dir => {
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    for (const name of [...new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.optionalDependencies ?? {})])].sort()) {
+      let at = dir, located = null;
+      while (!located) {
+        const candidate = join(at, 'node_modules', name);
+        try { if (JSON.parse(readFileSync(join(candidate, 'package.json'), 'utf8')).name === name) located = candidate; } catch { /* farther up */ }
+        if (located || dirname(at) === at) break;
+        at = dirname(at);
+      }
+      if (!located || seen.has(located)) continue;
+      seen.add(located);
+      // A type-only package ships nothing, but what it depends on may, so the walk goes on below it.
+      if (!typeOnly(JSON.parse(readFileSync(join(located, 'package.json'), 'utf8')), located)) found.set(name, located);
+      visit(located);
+    }
+  };
+  for (const [, dir] of roots) visit(dir);
+  return found;
+}
+
 function licence(dir) {
   return readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile() && /^(licen[cs]e|copying|notice)/i.test(entry.name)).map(entry => entry.name).sort();
 }
@@ -179,7 +226,9 @@ function copies(read, files) {
   pairs.push([join(pdfjs, 'build', 'pdf.worker.min.mjs'), join('pdfjs', 'pdf.worker.min.mjs')]);
   tree(join(pdfjs, 'standard_fonts'), join('pdfjs', 'standard_fonts'));
   tree(join(pdfjs, 'cmaps'), join('pdfjs', 'cmaps'), file => file.endsWith('.bcmap') || /LICENSE/.test(file));
-  tree(join(pdfjs, 'wasm'), join('pdfjs', 'wasm'));
+  // Not the decoders' JavaScript fallbacks, for a WebView without WebAssembly, nor the scripting engine, which this
+  // viewer never enables.
+  tree(join(pdfjs, 'wasm'), join('pdfjs', 'wasm'), file => !/(?:_nowasm_fallback\.js|quickjs-eval\.(?:js|wasm))$/.test(file));
   // The engines' wasm the bundle asks for, at `./generated/…` beside its modules (the Word package's layout and OPC
   // engines are not in it), and the faces the fonts package asks for at `../assets/…`.
   const code = files.map(({ text }) => text.toString()).join('\n');
@@ -197,7 +246,7 @@ function copies(read, files) {
     if (owner) packages.set(owner.name, owner.dir);
   }
   for (const name of ['pdfjs-dist', '@betteroffice/fonts', 'sql.js']) packages.set(name, module(name));
-  for (const [name, dir] of [...packages].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, dir] of [...productionDependencies(packages)].sort(([a], [b]) => a.localeCompare(b))) {
     const found = licence(dir);
     if (!found.length) {
       // A package that names its licence only in its manifest (saxes, ISC; @nodable/entities, MIT) keeps that.

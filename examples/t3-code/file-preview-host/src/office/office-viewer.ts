@@ -3,7 +3,7 @@
 // PowerPoint files are prepared by the Office worker (office-archive.ts) and drawn by their engines; the other kinds
 // become pages of sanitized HTML, a workbook of cell values, or a notebook's cells, which the app draws itself.
 import { ChevronLeft, ChevronRight } from "../icons";
-import { h, noPreview, post, sizeSuffix, surfaceAction, surfaceLoading, surfaceNotice, selectTrigger, type IconNode, type MenuRow } from "../chrome";
+import { h, noPreview, post, sizeSuffix, surfaceAction, surfaceLoading, surfaceNotice, selectTrigger, type IconNode, type MenuRow, type SelectTrigger, type SurfaceAction } from "../chrome";
 import { formatAttachmentSize, type OfficePreviewKind } from "../shared/file-preview";
 import { readPreviewFile } from "../shared/read-bounded";
 import { VirtualTable } from "../text/virtual-table";
@@ -115,6 +115,9 @@ class ExtendedOfficeViewer {
   private zoom = 1;
   private table: VirtualTable | null = null;
   private shownKey = "";
+  /** What shows under the navigation row: the status, notices, pages or the sheet's table. */
+  private readonly body = h("div", { style: "display:contents" });
+  private nav: { kind: string; row: HTMLDivElement; previous: SurfaceAction; next: SurfaceAction; select: SelectTrigger | null; counter: HTMLSpanElement } | null = null;
 
   constructor(private props: Props) {
     this.fileSize = props.sizeBytes > 0 ? props.sizeBytes : undefined;
@@ -204,20 +207,10 @@ class ExtendedOfficeViewer {
     const documentCount = previewDocument?.pages.length ?? 0;
     const documentDetails = navigation === "chapter" ? `Chapter ${page + 1} of ${documentCount}` : `${documentCount} ${navigation}${documentCount === 1 ? "" : "s"}`;
     const size = sizeSuffix(this.fileSize, formatAttachmentSize);
-    this.show(`page:${page}:${this.fileSize}:${this.props.scheme}`, () => {
+    // The Previous and Next row is kept, so a pressed button keeps its focus as the page turns.
+    this.navigate(navigation, page, count);
+    this.show(`page:${page}:${this.fileSize}:${documentPage ? this.props.scheme : ""}`, () => {
       const nodes: Node[] = [];
-      if (count > 0) {
-        const previous = surfaceAction({ label: `Previous ${navigation}`, icon: ChevronLeft as IconNode, disabled: page === 0, onPress: () => this.selectPage(page - 1) });
-        const next = surfaceAction({ label: `Next ${navigation}`, icon: ChevronRight as IconNode, disabled: page + 1 === count, onPress: () => this.selectPage(page + 1) });
-        let middle: HTMLElement;
-        if (workbook || previewDocument?.navigation === "chapter") {
-          const label = workbook ? "Sheet" : "Chapter";
-          const titles = workbook ? workbook.sheets.map((item) => item.name) : previewDocument!.pages.map((item) => item.title);
-          const rows = (): MenuRow[] => titles.map((title, index) => ({ id: String(index), label: title, selected: index === page }));
-          middle = h("div", { class: "grow" }, selectTrigger({ label, value: titles[page] ?? "", rows, onPick: (id) => this.selectPage(Number(id)) }).element);
-        } else middle = h("span", { class: "counter", "aria-live": "polite" }, `${navigation === "slide" ? "Slide" : "Page"} ${page + 1} of ${count}`);
-        nodes.push(h("div", { class: "office-nav" }, previous.element, middle, next.element));
-      }
       if (props.kind === "ods" && sheet) {
         nodes.push(h("div", { class: "status-line", role: "status" }, `Sheet ${page + 1} of ${count} · ${sheet.rowCount.toLocaleString()} rows · ${sheet.columns.toLocaleString()} columns${size}`));
       }
@@ -244,18 +237,52 @@ class ExtendedOfficeViewer {
       };
       if (!this.table) {
         this.table = new VirtualTable(tableProps);
-        this.element.append(this.table.element);
+        this.body.append(this.table.element);
       } else this.table.update(tableProps);
     }
   }
 
-  /** Replaces what the viewer shows when `key` changes; the sheet table is kept per sheet. */
+  /** Replaces what the viewer shows under its navigation when `key` changes; the sheet table is kept per sheet. */
   private show(key: string, make: () => Node[]) {
     if (key === this.shownKey) return;
     this.shownKey = key;
     this.table?.dispose();
     this.table = null;
-    this.element.replaceChildren(...make());
+    if (!key.startsWith("page:")) this.dropNavigation();
+    this.body.replaceChildren(...make());
+    if (this.body.parentElement !== this.element) this.element.append(this.body);
+  }
+
+  /** The navigation row, made once per kind and updated as the page turns (React keeps its buttons). */
+  private navigate(navigation: string, page: number, count: number) {
+    if (count <= 0) { this.dropNavigation(); return; }
+    const titles = this.workbook ? this.workbook.sheets.map((item) => item.name) : this.previewDocument?.navigation === "chapter" ? this.previewDocument.pages.map((item) => item.title) : null;
+    const kind = `${navigation}:${titles ? "select" : "counter"}`;
+    if (this.nav?.kind !== kind) {
+      this.dropNavigation();
+      const previous = surfaceAction({ label: `Previous ${navigation}`, icon: ChevronLeft as IconNode, onPress: () => this.selectPage(this.page - 1) });
+      const next = surfaceAction({ label: `Next ${navigation}`, icon: ChevronRight as IconNode, onPress: () => this.selectPage(this.page + 1) });
+      const select = titles ? selectTrigger({
+        label: this.workbook ? "Sheet" : "Chapter", value: "",
+        rows: (): MenuRow[] => (this.workbook ? this.workbook.sheets.map((item) => item.name) : this.previewDocument?.pages.map((item) => item.title) ?? [])
+          .map((title, index) => ({ id: String(index), label: title, selected: index === this.page })),
+        onPick: (id) => this.selectPage(Number(id)),
+      }) : null;
+      const counter = h("span", { class: "counter", "aria-live": "polite" });
+      const row = h("div", { class: "office-nav" }, previous.element, select ? h("div", { class: "grow" }, select.element) : counter, next.element);
+      this.nav = { kind, row, previous, next, select, counter };
+      this.element.prepend(row);
+    }
+    const { previous, next, select, counter } = this.nav!;
+    previous.update({ disabled: page === 0 });
+    next.update({ disabled: page + 1 === count });
+    if (select) select.update({ value: titles?.[page] ?? "" });
+    else counter.textContent = `${navigation === "slide" ? "Slide" : "Page"} ${page + 1} of ${count}`;
+  }
+
+  private dropNavigation() {
+    this.nav?.row.remove();
+    this.nav = null;
   }
 
   setScheme(scheme: "light" | "dark") {

@@ -4,7 +4,8 @@
 // archive is drawn by the app (its source view, or its image with the zoom bar), under this page's bar; the page
 // sends it as `entry` and says `entry-closed` when Back to archive leaves it.
 import { ChevronLeft, ChevronRight, File, Folder } from "../icons";
-import { h, icon, post, selectTrigger, surfaceAction, surfaceFailure, surfaceLoading, surfaceNotice, type IconNode } from "../chrome";
+import { h, icon, post, selectTrigger, surfaceAction, surfaceFailure, surfaceLoading, surfaceNotice, type IconNode, type SelectTrigger, type SurfaceAction } from "../chrome";
+import { PictureView } from "./picture-view";
 import { decodeFilePreviewText, filePreviewKind, formatAttachmentSize } from "../shared/file-preview";
 import { readPreviewFile } from "../shared/read-bounded";
 import { BINARY_PREVIEW_MAX_BYTES, SQLITE_PAGE_SIZE, type BinaryWorkerRequest, type BinaryWorkerResult } from "./binary-preview-protocol";
@@ -21,10 +22,22 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** ArchiveFile, for the app to draw: an image's bytes, UTF-8 text, or why it cannot be opened here. */
+/** The largest picture the app draws, as Copy contents is bounded: its base64 passes through the app's 64 MiB heap. */
+export const APP_IMAGE_BYTES = 8 * 1024 * 1024;
+/** Pictures upstream's `<img>` (Chromium) cannot decode, which say "Unable to load image." there. */
+const UNDRAWN = /\.(?:heic|heif|tiff?)$/i;
+
+/**
+ * ArchiveFile, for the app to draw: an image's bytes, UTF-8 text, or why it cannot be opened here; `page` for a picture
+ * this page draws itself (an SVG, which the app's image cannot draw, or one past APP_IMAGE_BYTES).
+ */
 export function archiveEntry(path: string, bytes: Uint8Array): Record<string, unknown> {
   const kind = filePreviewKind({ name: path });
-  if (kind === "image") return { view: "image", data: base64(bytes) };
+  if (kind === "image") {
+    if (UNDRAWN.test(path)) return { view: "failure", message: "Unable to load image." };
+    if (pageDrawn(path, bytes)) return { view: "page" };
+    return { view: "image", data: base64(bytes) };
+  }
   if (["text", "markdown", "html", "mermaid"].includes(kind)) {
     try {
       const text = decodeFilePreviewText(bytes);
@@ -33,6 +46,13 @@ export function archiveEntry(path: string, bytes: Uint8Array): Record<string, un
   }
   return { view: "failure", message: "Only UTF-8 text and images can be opened inside an archive." };
 }
+
+/** A picture this page draws: an SVG, which the app's image cannot draw, or one past APP_IMAGE_BYTES. */
+function pageDrawn(path: string, bytes: Uint8Array): boolean {
+  return filePreviewKind({ name: path }) === "image" && !UNDRAWN.test(path) && (/\.svg$/i.test(path) || bytes.byteLength > APP_IMAGE_BYTES);
+}
+
+type Child = { path: string; directory: boolean; size: number; modified: string | null };
 
 export class BinaryViewer {
   readonly element = h("div", { class: "binary" });
@@ -51,6 +71,12 @@ export class BinaryViewer {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly controller = new AbortController();
   private sentEntry = "";
+  /** The bars and the archive's scroll area, kept from render to render as React keeps them. */
+  private archiveBar: { row: HTMLDivElement; back: SurfaceAction; place: HTMLSpanElement; count: HTMLSpanElement } | null = null;
+  private tableBar: { nodes: HTMLElement[]; select: SelectTrigger; previous: SurfaceAction; next: SurfaceAction; range: HTMLSpanElement; status: HTMLDivElement } | null = null;
+  private listing: { scroll: HTMLDivElement; body: HTMLTableSectionElement; empty: HTMLParagraphElement; rows: Map<string, HTMLTableRowElement> } | null = null;
+  private readonly content = h("div", { style: "display:contents" });
+  private picture: PictureView | null = null;
 
   constructor(private readonly props: { src: string; name: string; kind: "archive" | "sqlite"; onRetry?: () => void }) {
     const controller = this.controller;
@@ -122,59 +148,85 @@ export class BinaryViewer {
 
   private render() {
     const { archive, database, rows, entry, folder, selectedPath, busy, error, props } = this;
-    const nodes: Node[] = [];
-    if (archive) {
-      const back = surfaceAction({
-        label: selectedPath ? "Back to archive" : "Parent folder", icon: ChevronLeft as IconNode, disabled: !selectedPath && !folder,
-        onPress: () => {
-          this.error = null;
-          this.entry = null;
-          if (this.selectedPath) this.selectedPath = null;
-          else this.folder = folder.replace(/(?:[^/]+)?\/$/, "");
-          this.render();
-        },
-      });
-      nodes.push(h("div", { class: "archive-bar" }, back.element, h("span", { class: "archive-place" }, selectedPath ?? (folder || "Archive contents")),
-        h("span", { class: "archive-count" }, `${archive.entries.length.toLocaleString()} entries${this.sizeBytes !== null ? ` · ${formatAttachmentSize(this.sizeBytes)}` : ""}`)));
-    }
+    if (archive) this.renderArchiveBar(archive, folder, selectedPath);
     const table = database?.tables.find((item) => item.name === this.selectedTable);
-    if (database && table) {
-      const select = selectTrigger({
-        label: "Table", value: `${table.name} (${table.count.toLocaleString()} rows)`,
-        rows: () => database.tables.map((item) => ({ id: item.name, label: `${item.name} (${item.count.toLocaleString()} rows)`, selected: item.name === this.selectedTable })),
-        onPick: (name) => { if (!this.busy) this.selectPage(0, name); },
-      });
-      select.update({ busy });
-      const previous = surfaceAction({ label: "Previous rows", icon: ChevronLeft as IconNode, disabled: busy || this.page === 0, onPress: () => this.selectPage(this.page - 1) });
-      const next = surfaceAction({ label: "Next rows", icon: ChevronRight as IconNode, disabled: busy || (this.page + 1) * SQLITE_PAGE_SIZE >= table.count, onPress: () => this.selectPage(this.page + 1) });
-      nodes.push(
-        h("div", { class: "table-bar" }, h("div", { class: "table-select" }, select.element), previous.element,
-          h("span", { class: "range", "aria-live": "polite" }, table.count === 0 ? "0 rows" : `${this.page * SQLITE_PAGE_SIZE + 1}–${Math.min(table.count, (this.page + 1) * SQLITE_PAGE_SIZE)} of ${table.count.toLocaleString()}`),
-          next.element),
-        h("div", { class: "status-line plain", role: "status" }, `${table.count.toLocaleString()} rows · ${rows?.columns.length ?? "…"} columns${this.sizeBytes !== null ? ` · ${formatAttachmentSize(this.sizeBytes)}` : ""}`),
-        surfaceNotice("Read-only. Up to 50 columns and 1,024 characters per cell. Blob contents are omitted."),
-      );
-    }
-    let entryShown = "";
-    if (error) nodes.push(surfaceFailure(error, props.onRetry));
-    else if (busy) nodes.push(surfaceLoading());
+    if (database && table) this.renderTableBar(table, rows, busy);
+    let shown: Node | null = null;
+    // The opened entry the app draws under the archive bar; a picture this page draws is not sent.
+    let sent: Entry | null = null;
+    if (error) shown = surfaceFailure(error, props.onRetry);
+    else if (busy) shown = surfaceLoading();
     else if (selectedPath) {
-      if (entry) entryShown = entry.path;
-    } else if (archive) nodes.push(this.entries(archive));
-    else if (rows) nodes.push(this.table(rows));
-    else nodes.push(h("p", { class: "empty-note" }, "This database has no readable tables."));
-    this.element.replaceChildren(...nodes);
-    // The opened entry, for the app to draw under the archive bar.
-    if (entryShown !== this.sentEntry) {
-      this.sentEntry = entryShown;
-      if (entry && entryShown) post({ type: "entry", path: entry.path, ...archiveEntry(entry.path, entry.bytes) });
+      if (entry && pageDrawn(entry.path, entry.bytes)) {
+        if (this.picture?.path !== entry.path) { this.picture?.dispose(); this.picture = new PictureView(entry.path, entry.bytes); }
+        shown = this.picture.element;
+      } else sent = entry;
+    } else if (archive) shown = this.entries(archive);
+    else if (rows) shown = this.table(rows);
+    else shown = h("p", { class: "empty-note" }, "This database has no readable tables.");
+    if (this.picture && shown !== this.picture.element) { this.picture.dispose(); this.picture = null; }
+    if (!shown) this.content.replaceChildren();
+    else if (this.content.childNodes.length !== 1 || this.content.firstChild !== shown) this.content.replaceChildren(shown);
+    if (this.content.parentElement !== this.element) this.element.append(this.content);
+    const sentPath = sent?.path ?? "";
+    if (sentPath !== this.sentEntry) {
+      this.sentEntry = sentPath;
+      if (sent) post({ type: "entry", path: sent.path, ...archiveEntry(sent.path, sent.bytes) });
       else post({ type: "entry-closed" });
     }
   }
 
+  private renderArchiveBar(archive: Archive, folder: string, selectedPath: string | null) {
+    if (!this.archiveBar) {
+      const back = surfaceAction({
+        label: "Parent folder", icon: ChevronLeft as IconNode,
+        onPress: () => {
+          this.error = null;
+          this.entry = null;
+          if (this.selectedPath) this.selectedPath = null;
+          else this.folder = this.folder.replace(/(?:[^/]+)?\/$/, "");
+          this.render();
+        },
+      });
+      const place = h("span", { class: "archive-place" });
+      const count = h("span", { class: "archive-count" });
+      this.archiveBar = { row: h("div", { class: "archive-bar" }, back.element, place, count), back, place, count };
+      this.element.prepend(this.archiveBar.row);
+    }
+    const { back, place, count } = this.archiveBar;
+    back.update({ label: selectedPath ? "Back to archive" : "Parent folder", disabled: !selectedPath && !folder });
+    place.textContent = selectedPath ?? (folder || "Archive contents");
+    count.textContent = `${archive.entries.length.toLocaleString()} entries${this.sizeBytes !== null ? ` · ${formatAttachmentSize(this.sizeBytes)}` : ""}`;
+  }
+
+  private renderTableBar(table: Database["tables"][number], rows: Rows | null, busy: boolean) {
+    if (!this.tableBar) {
+      const select = selectTrigger({
+        label: "Table", value: "",
+        rows: () => (this.database?.tables ?? []).map((item) => ({ id: item.name, label: `${item.name} (${item.count.toLocaleString()} rows)`, selected: item.name === this.selectedTable })),
+        onPick: (name) => { if (!this.busy) this.selectPage(0, name); },
+      });
+      const previous = surfaceAction({ label: "Previous rows", icon: ChevronLeft as IconNode, onPress: () => this.selectPage(this.page - 1) });
+      const next = surfaceAction({ label: "Next rows", icon: ChevronRight as IconNode, onPress: () => this.selectPage(this.page + 1) });
+      const range = h("span", { class: "range", "aria-live": "polite" });
+      const status = h("div", { class: "status-line plain", role: "status" });
+      const nodes = [h("div", { class: "table-bar" }, h("div", { class: "table-select" }, select.element), previous.element, range, next.element), status,
+        surfaceNotice("Read-only. Up to 50 columns and 1,024 characters per cell. Blob contents are omitted.")];
+      this.tableBar = { nodes, select, previous, next, range, status };
+      this.element.prepend(...nodes);
+    }
+    const { select, previous, next, range, status } = this.tableBar;
+    select.update({ value: `${table.name} (${table.count.toLocaleString()} rows)`, busy });
+    previous.update({ disabled: busy || this.page === 0 });
+    next.update({ disabled: busy || (this.page + 1) * SQLITE_PAGE_SIZE >= table.count });
+    range.textContent = table.count === 0 ? "0 rows" : `${this.page * SQLITE_PAGE_SIZE + 1}–${Math.min(table.count, (this.page + 1) * SQLITE_PAGE_SIZE)} of ${table.count.toLocaleString()}`;
+    status.textContent = `${table.count.toLocaleString()} rows · ${rows?.columns.length ?? "…"} columns${this.sizeBytes !== null ? ` · ${formatAttachmentSize(this.sizeBytes)}` : ""}`;
+  }
+
+  /** The folder's entries in the archive's one scroll area (its position kept as a folder opens), rows keyed by path. */
   private entries(archive: Archive): HTMLElement {
     const folder = this.folder;
-    const children = new Map<string, { path: string; directory: boolean; size: number; modified: string | null }>();
+    const children = new Map<string, Child>();
     for (const item of archive.entries) {
       if (!item.path.startsWith(folder)) continue;
       const rest = item.path.slice(folder.length).replace(/\/$/, "");
@@ -187,28 +239,53 @@ export class BinaryViewer {
       if (previous) previous.size += item.size;
       else children.set(key, { path, directory, size: item.size, modified: item.modified });
     }
-    const body = h("tbody");
-    for (const item of [...children.values()].sort((a, b) => Number(b.directory) - Number(a.directory) || a.path.localeCompare(b.path))) {
-      const open = h("button", { type: "button", class: "entry-open" }, icon((item.directory ? Folder : File) as IconNode, 16), h("span", {}, item.path.slice(folder.length)));
-      open.addEventListener("click", () => {
-        if (item.directory) this.folder = `${item.path}/`;
-        else {
-          this.selectedPath = item.path;
-          this.entry = null;
-          this.send({ type: "entry", path: item.path });
-        }
-        this.render();
-      });
-      body.append(h("tr", {},
-        h("td", { class: "name" }, open),
-        h("td", { class: "size" }, formatAttachmentSize(item.size)),
-        h("td", { class: "date" }, item.modified ? new Date(item.modified).toLocaleDateString() : "-")));
+    if (!this.listing) {
+      const body = h("tbody");
+      const empty = h("p", { class: "empty-note" }, "This folder is empty.");
+      const scroll = h("div", { class: "scroll-both" },
+        h("table", { "aria-label": "Archive entries", class: "entries" },
+          h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Name"), h("th", { scope: "col", class: "end" }, "Size"), h("th", { scope: "col", class: "end" }, "Modified"))),
+          body), empty);
+      this.listing = { scroll, body, empty, rows: new Map() };
     }
-    return h("div", { class: "scroll-both" },
-      h("table", { "aria-label": "Archive entries", class: "entries" },
-        h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Name"), h("th", { scope: "col", class: "end" }, "Size"), h("th", { scope: "col", class: "end" }, "Modified"))),
-        body),
-      children.size === 0 ? h("p", { class: "empty-note" }, "This folder is empty.") : null);
+    const { body, empty, rows } = this.listing;
+    const kept = new Map(rows);
+    rows.clear();
+    let previous: Element | null = null;
+    for (const item of [...children.values()].sort((a, b) => Number(b.directory) - Number(a.directory) || a.path.localeCompare(b.path))) {
+      const key = `${item.path}${item.directory ? "/" : ""}`;
+      let row = kept.get(key);
+      kept.delete(key);
+      if (!row) row = this.entryRow(item);
+      const label = item.path.slice(folder.length);
+      const name = row.querySelector(".entry-open span");
+      if (name && name.textContent !== label) name.textContent = label;
+      const size = row.querySelector(".size");
+      if (size && size.textContent !== formatAttachmentSize(item.size)) size.textContent = formatAttachmentSize(item.size);
+      rows.set(key, row);
+      if (row.parentElement !== body || row.previousElementSibling !== previous) { if (previous) previous.after(row); else body.prepend(row); }
+      previous = row;
+    }
+    for (const row of kept.values()) row.remove();
+    empty.hidden = children.size !== 0;
+    return this.listing.scroll;
+  }
+
+  private entryRow(item: Child): HTMLTableRowElement {
+    const open = h("button", { type: "button", class: "entry-open" }, icon((item.directory ? Folder : File) as IconNode, 16), h("span", {}));
+    open.addEventListener("click", () => {
+      if (item.directory) this.folder = `${item.path}/`;
+      else {
+        this.selectedPath = item.path;
+        this.entry = null;
+        this.send({ type: "entry", path: item.path });
+      }
+      this.render();
+    });
+    return h("tr", {},
+      h("td", { class: "name" }, open),
+      h("td", { class: "size" }, ""),
+      h("td", { class: "date" }, item.modified ? new Date(item.modified).toLocaleDateString() : "-"));
   }
 
   private table(rows: Rows): HTMLElement {
@@ -223,6 +300,7 @@ export class BinaryViewer {
     this.controller.abort();
     this.worker?.terminate();
     this.worker = null;
+    this.picture?.dispose();
     if (this.timer) clearTimeout(this.timer);
     if (this.sentEntry) post({ type: "entry-closed" });
   }

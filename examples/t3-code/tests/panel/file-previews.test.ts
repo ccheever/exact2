@@ -9,7 +9,7 @@ import { binaryPreviewKind, filePreviewDelimiter, filePreviewKind, isMarkdownPre
 import { attachmentLocal, attachmentView, previewBody, type AttachmentMeta } from '../../src/panel/attachment-surface';
 import { linkedViews } from '../../src/panel/pr-attachment-surfaces';
 import { filesHidden, filesLocal, filesState, filesView, setMarkdownTaskChecked } from '../../src/panel/files-surface';
-import { panelState } from '../../src/panel/panel-surfaces';
+import { openFileIn, panelState } from '../../src/panel/panel-surfaces';
 import { filesPrefs } from '../../src/panel/files-prefs';
 import { MERMAID_REFUSED } from '../../src/panel/mermaid-file';
 import { base64, fontSpecimen, forgetFontPages } from '../../src/panel/font-preview';
@@ -357,6 +357,17 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
       projection.visibleTurnItems.push({ item: { id: 'cmd-l', type: 'command_execution', status: 'completed' } });
       const after = JSON.parse((await filesView(client, native, surface('server.log'), 1000)).viewer.config);
       expect(after.key === config.key).toBe(false);
+      // A refused signature is the failure with Try again, which signs it afresh and mounts the viewer again.
+      const signing = client.rpc;
+      (client as unknown as { rpc: () => Promise<never> }).rpc = async () => { throw new Error('refused'); };
+      projection.visibleTurnItems.push({ item: { id: 'cmd-m', type: 'command_execution', status: 'completed' } });
+      const refused = await filesView(client, native, surface('server.log'), 1000);
+      expect([refused.preview, refused.previewError, refused.fullFile.open]).toEqual(['full-error', 'Unable to load file preview.', false]);
+      (client as unknown as { rpc: typeof signing }).rpc = signing;
+      expect((await filesView(client, native, surface('server.log'), 1000)).preview).toBe('full-error');
+      await filesLocal(client, native, 'full-retry', '/repo/server.log', '');
+      const retried = await filesView(client, native, surface('server.log'), 1000);
+      expect([retried.preview, JSON.parse(retried.viewer.config).key === after.key]).toEqual(['viewer', false]);
       // Markdown past 1 MB renders its first megabyte and keeps the notice.
       contents['big.md'] = '# Big'; large.set('big.md', 2 * 1024 * 1024);
       const markdown = await filesView(client, native, surface('big.md'), 1000);
@@ -365,13 +376,33 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
   });
 
   test('a rendered CSV shows every row in the large-text viewer over the text read; a large one streams as Full file', async () => {
-    const { client, contents, large } = filesClient();
+    const { client, contents, large, projection } = filesClient();
     contents['orders.csv'] = 'a,b\n1,2\n';
     const view = await filesView(client, native, surface('orders.csv'), 1000);
     expect([view.preview, view.renderLabel, view.fullFile.open, JSON.parse(view.viewer.config)]).toEqual(['viewer', 'Show source', false, expect.objectContaining({ view: 'text', text: 'a,b\n1,2\n', delimiter: ',' })]);
+    // LargeTextViewer parses its text again when the file changes: a new read is a new viewer.
+    contents['orders.csv'] = 'a,b\n1,2\n3,4\n';
+    projection.visibleTurnItems.push({ item: { id: 'edit-csv', type: 'file_change', status: 'completed' } });
+    const changed = await filesView(client, native, surface('orders.csv'), 1000);
+    expect([JSON.parse(changed.viewer.config).text, JSON.parse(changed.viewer.config).key === JSON.parse(view.viewer.config).key]).toEqual(['a,b\n1,2\n3,4\n', false]);
     contents['big.tsv'] = 'a\tb\n'; large.set('big.tsv', 3 * 1024 * 1024);
     const big = await filesView(client, native, surface('big.tsv'), 1000);
     expect([big.preview, big.fullFile.open, JSON.parse(big.viewer.config).delimiter, big.rawText]).toEqual(['viewer', true, '\t', false]);
+    // Show source over the streamed table is another viewer (WorkspaceLargeTextPreview's key names the mode).
+    await filesLocal(client, native, 'render', 'big.tsv', '');
+    const source = JSON.parse((await filesView(client, native, surface('big.tsv'), 1000)).viewer.config);
+    expect([source.delimiter, source.key === JSON.parse(big.viewer.config).key]).toEqual([null, false]);
+  });
+
+  test('a table opened at a line shows its source there until the rendered toggle answers the request', async () => {
+    const { client, contents } = filesClient();
+    contents['orders.csv'] = 'a,b\n1,2\n3,4\n';
+    const atLine = openFileIn(panelState(client), 'orders.csv', 3);
+    const source = await filesView(client, native, atLine, 1000);
+    expect([source.preview, source.rendered, source.renderLabel]).toEqual(['code', false, 'Show table']);
+    await filesLocal(client, native, 'render', 'orders.csv', '');
+    const table = await filesView(client, native, atLine, 1000);
+    expect([table.preview, table.rendered, filesPrefs(client).renderTable]).toEqual(['viewer', true, true]);
   });
   test('a .markdown file renders, frontmatter blanked, and offers "Show rendered markdown" while Markdown shows as source', async () => {
     const { client } = filesClient();

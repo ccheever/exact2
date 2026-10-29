@@ -121,6 +121,8 @@ type FilesState = {
   attachment: { meta: AttachmentMeta; source: PreviewSource } | null;
   /** Counts the explorer's Refresh presses (FilePreviewPanel's fileRefreshRevision): the attachment body is keyed on it. */
   refreshRevision: number;
+  /** FilePreviewPanel's `handledReveal`: the line request the rendered toggle answered, after which it renders. */
+  handledReveal: { path: string; requestId: number } | null;
 };
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),
 // persisted in the client's preference file (files-prefs.ts).
@@ -138,7 +140,7 @@ export function filesState(client: T3Client): FilesState {
   if (!state || state.key !== key) {
     // Another environment or workspace: the body shown in the last one unmounts.
     if (state?.attachment) forgetPreview(client, state.attachment.source.key);
-    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null, mutation: undefined, readRevisions: new Map(), editorRevision: 0, audioFailed: new Set(), attachment: null, refreshRevision: 0 };
+    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null, mutation: undefined, readRevisions: new Map(), editorRevision: 0, audioFailed: new Set(), attachment: null, refreshRevision: 0, handledReveal: null };
     states.set(client, state);
   }
   return state;
@@ -359,6 +361,17 @@ function placeOf(client: T3Client, state: FilesState, active: Surface): Place {
   return { path, folder, hostFolder: folder && isHost(path) ? path : '', crumbPath, trail: crumbPath === null ? null : retainedBreadcrumbTrail(trail, crumbPath) };
 }
 const activeSurface = (client: T3Client) => { const panel = panelState(client); return panel.surfaces.find(entry => entry.id === panel.active); };
+/**
+ * FilePreviewPanel's renderMarkdown / renderMermaid / renderTable / renderBrowserFile: the preference, once a request to
+ * open the file at a line is answered (`revealHandled`); until then the source shows, where the line is.
+ */
+function renderedShown(client: T3Client, state: FilesState, path: string, active: Surface | undefined): boolean {
+  const preferences = prefsOf(client);
+  const preferred = (isMarkdownPath(path) && preferences.renderMarkdown) || (isMermaidPreviewFile(path) && preferences.renderMermaid !== false)
+    || (isTablePath(path) && preferences.renderTable) || (isHtmlPath(path) && preferences.renderBrowserFile !== false);
+  const revealHandled = !active || !(active.line > 0) || (state.handledReveal?.path === path && state.handledReveal.requestId === active.reveal);
+  return !!preferred && revealHandled;
+}
 /** The host folder the active surface lists, or ''. */
 function activeHostFolder(client: T3Client): string {
   const active = activeSurface(client);
@@ -425,10 +438,13 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   }
   if (op === 'explorer') { preferences.explorer = !preferences.explorer; return ''; }
   if (op === 'render') {
-    if (isMermaidPreviewFile(id)) preferences.renderMermaid = preferences.renderMermaid === false;
-    else if (isMarkdownPath(id)) preferences.renderMarkdown = !preferences.renderMarkdown;
-    else if (isHtmlPath(id)) preferences.renderBrowserFile = preferences.renderBrowserFile === false;
-    else preferences.renderTable = !preferences.renderTable;
+    // FilePreviewPanel's toggle: it flips what shows, and turning rendering on answers a pending line request.
+    const active = activeSurface(client), pressed = !renderedShown(client, state, id, active);
+    if (isMermaidPreviewFile(id)) preferences.renderMermaid = pressed;
+    else if (isMarkdownPath(id)) preferences.renderMarkdown = pressed;
+    else if (isHtmlPath(id)) preferences.renderBrowserFile = pressed;
+    else preferences.renderTable = pressed;
+    state.handledReveal = pressed && active ? { path: id, requestId: active.reveal } : null;
     return '';
   }
   // PreviewImageContent's press: the expanded image dialog over the picture (`id` its URL, `value` its name).
@@ -702,8 +718,7 @@ function codePreviewLines(client: T3Client, path: string): number {
   if (!state || state.key !== `${client.environmentId}|${cwd}` || !path || state.editing === path) return 0;
   const read = state.reads.get(path), preferences = prefsOf(client), local = !isHost(path);
   if (!read || read.error || (read.notFile && local) || isWorkspaceVideoPreviewPath(path) || isWorkspaceImagePreviewPath(path) || isWorkspaceAudioPreviewPath(path) || isPdfPath(path)) return 0;
-  if ((isMarkdownPath(path) && preferences.renderMarkdown) || (isMermaidPreviewFile(path) && preferences.renderMermaid !== false) || (isTablePath(path) && preferences.renderTable)
-    || (isHtmlPath(path) && preferences.renderBrowserFile !== false)) return 0;
+  if (renderedShown(client, state, path, activeSurface(client))) return 0;
   return read.contents.split(/\r\n|\r|\n/).length;
 }
 /**
@@ -764,7 +779,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   if (tree && !tree.dirs.has('') && !tree.errors.has('')) await loadDirectory(client, native, '', false, hostFolder);
   if (tree && selected && tree.revealed !== trail) { tree.revealed = trail ?? ''; tree.expanded.add(selected); await loadDirectory(client, native, selected, false, hostFolder); }
   const markdown = isMarkdownPath(previewPath), mermaid = isMermaidPreviewFile(previewPath), table = isTablePath(previewPath), html = isHtmlPath(previewPath);
-  const rendered = (markdown && preferences.renderMarkdown) || (mermaid && preferences.renderMermaid !== false) || (table && preferences.renderTable) || (html && preferences.renderBrowserFile !== false);
+  const rendered = renderedShown(client, state, previewPath, active);
   // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame's PdfViewer, in the
   // viewer page), a page when rendered; one outside the workspace is signed as a `media-file` (workspaceAssetResource).
   const pdf = isPdfPath(previewPath), frame = (html && rendered) || pdf;
@@ -814,7 +829,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     delimiter: table && rendered ? (/\.tsv$/i.test(previewPath) ? '\t' : ',') : null, revealLine: active.line > 0 ? active.line : null, revealRequestId: active.reveal,
   }, now) : null;
   const preview = !previewPath ? '' : media.kind ? 'media' : audio ? (soundFailed ? 'audio-error' : sound?.url ? 'audio' : 'loading')
-    : frame ? (page.error ? 'error' : page.url ? (pdf ? 'viewer' : 'html') : 'loading') : viewer ? (viewer.error ? 'error' : 'viewer') : document ? 'attachment' : read === undefined ? 'loading' : read.error ? 'error'
+    : frame ? (page.error ? 'error' : page.url ? (pdf ? 'viewer' : 'html') : 'loading') : viewer ? (viewer.error ? (fullFile ? 'full-error' : 'error') : 'viewer') : document ? 'attachment' : read === undefined ? 'loading' : read.error ? 'error'
       : rendered ? (markdown ? 'markdown' : 'mermaid') : 'code';
   const rich = preview === 'markdown' ? await renderedMarkdown(client, native, previewPath, absolute, text, editable, now) : null;
   const diagram = preview === 'mermaid' ? mermaidFile(client, text) : null;

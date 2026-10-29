@@ -26,6 +26,8 @@ class OfficePage {
   private near = false;
   private ratio = window.devicePixelRatio || 1;
   private paintKey = "";
+  private paintedPage: PageSize | null = null;
+  private paintedWith: PaintPage | null = null;
   private controller: AbortController | null = null;
   private readonly observer: IntersectionObserver;
   private readonly query: MediaQueryList;
@@ -62,8 +64,12 @@ class OfficePage {
       if (footer) this.element.append(footer);
     }
   }
+  /** The overlays, put in again only when they are other nodes, so a selection in a text layer outlives a redraw. */
   private paintOverlays() {
-    this.overlays.replaceChildren(...(this.near ? (this.props.overlay?.(this.index) ?? []) : []));
+    const nodes = this.near ? (this.props.overlay?.(this.index) ?? []) : [];
+    const current = this.overlays.childNodes;
+    if (nodes.length === current.length && nodes.every((node, at) => node === current[at])) return;
+    this.overlays.replaceChildren(...nodes);
   }
   private refresh() {
     const page = this.props.pages[this.index];
@@ -71,9 +77,12 @@ class OfficePage {
     this.element.style.width = `${page.width * this.scale}px`;
     Object.assign(this.row.style, { width: `${page.width * this.scale}px`, height: `${page.height * this.scale}px`, background: page.background ?? "#fff" });
     this.redraw();
-    const key = this.near && this.ratio > 0 && this.rasterScale > 0 ? `${this.rasterScale}|${this.ratio}|${page.width}x${page.height}` : "";
-    if (key === this.paintKey) return;
+    // OfficePage's paint effect runs again for a new page or paint, as the Word layout's later pass brings.
+    const key = this.near && this.ratio > 0 && this.rasterScale > 0 ? `${this.rasterScale}|${this.ratio}` : "";
+    if (key === this.paintKey && (!key || (page === this.paintedPage && this.props.paint === this.paintedWith))) return;
     this.paintKey = key;
+    this.paintedPage = page;
+    this.paintedWith = this.props.paint;
     this.controller?.abort();
     this.controller = null;
     if (!key) {

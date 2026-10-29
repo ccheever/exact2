@@ -43,5 +43,8 @@
     "micromark-extension-gfm-table": "2.1.1",
     "strnum": "2.4.2",
     "xml-naming": "0.1.0"
+  },
+  "devDependencies": {
+    "happy-dom": "20.10.2"
   }
 }

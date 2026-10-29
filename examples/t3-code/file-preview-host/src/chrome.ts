@@ -62,8 +62,14 @@ function showTooltip(owner: HTMLElement, label: () => string): void {
     card.classList.add("shown");
     const width = card.offsetWidth, height = card.offsetHeight;
     const above = box.top - 4 - height >= 0;
-    card.style.top = `${above ? box.top - 4 - height : box.bottom + 4}px`;
-    card.style.left = `${Math.max(4, Math.min(window.innerWidth - width - 4, box.left + box.width / 2 - width / 2))}px`;
+    if (above || box.bottom + 4 + height <= window.innerHeight) {
+      card.style.top = `${above ? box.top - 4 - height : box.bottom + 4}px`;
+      card.style.left = `${Math.max(4, Math.min(window.innerWidth - width - 4, box.left + box.width / 2 - width / 2))}px`;
+    } else {
+      // A page no taller than its bar (an archive entry the app draws below): the tooltip goes beside its trigger.
+      card.style.top = `${Math.max(0, Math.min(window.innerHeight - height, box.top + box.height / 2 - height / 2))}px`;
+      card.style.left = `${Math.min(window.innerWidth - width - 4, box.right + 4)}px`;
+    }
   }, 600);
 }
 /** Shows `label` over `owner` while the pointer rests on it, or its focus came from the keyboard. */

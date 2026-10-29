@@ -45,11 +45,14 @@ async function mintFull(client: T3Client, native: Native, absolutePath: string, 
   }
 }
 
-/** useAssetUrlState for the full file, signed again for each workspace revision and after five minutes. */
+/**
+ * useAssetUrlState for the full file, signed again for each workspace revision and after five minutes; a refusal stays
+ * until Try again or the next revision.
+ */
 async function signFull(client: T3Client, native: Native, absolutePath: string, revision: string, now: number): Promise<Signed> {
   const state = stateOf(client), key = `${client.environmentId}|${client.threadId}|${absolutePath}`;
   const known = state.signed?.key === key ? state.signed : null;
-  if (known && !known.error && known.signedFor === revision && !(now > 0 && known.at > 0 && now - known.at > STALE_URL_MS)) return known;
+  if (known && known.signedFor === revision && (known.error || !(now > 0 && known.at > 0 && now - known.at > STALE_URL_MS))) return known;
   state.signed = await mintFull(client, native, absolutePath, revision, now);
   return state.signed;
 }
@@ -77,7 +80,8 @@ export async function filesViewer(client: T3Client, native: Native | null | unde
   if (request.kind === 'pdf') {
     config = { ...base, view: 'pdf', key: `pdf:${client.environmentId}:${client.threadId}:${request.absolute}:${request.revision}`, src: request.url };
   } else if (request.kind === 'table') {
-    config = { ...base, view: 'text', key: `table:${request.path}`, text: request.text, delimiter: request.delimiter };
+    // LargeTextViewer parses its text again when the text changes: a new read of the file is a new viewer.
+    config = { ...base, view: 'text', key: `table:${request.path}:${request.revision}:${request.text.length}:${state.refresh}`, text: request.text, delimiter: request.delimiter };
   } else {
     if (!native?.available) return { viewer: emptyViewerFrame(), full, error: '' };
     const signed = await signFull(client, native, request.absolute, request.revision, now);
@@ -87,7 +91,8 @@ export async function filesViewer(client: T3Client, native: Native | null | unde
     const revision = JSON.stringify([client.environmentId, fullResource(client, request.absolute), signed.fileRevision || request.revision, state.refresh]);
     if (state.loaded?.revision !== revision) state.loaded = { revision, url: signed.url };
     const src = revisedUrl(state.loaded.url, revision, 'revision');
-    config = { ...base, view: 'text', key: `${src}:${state.refresh}`, src, delimiter: request.delimiter, revealLine: request.revealLine, revealRequestId: request.revealRequestId };
+    // WorkspaceLargeTextPreview's key: the file, whether it shows as a table, and the panel's Refresh.
+    config = { ...base, view: 'text', key: `${src}:${request.delimiter ? 'table' : 'source'}:${state.refresh}`, src, delimiter: request.delimiter, revealLine: request.revealLine, revealRequestId: request.revealRequestId };
     if (state.copiedAt < 0 && now) state.copiedAt = now;
     const copied = state.copiedAt < 0 || (state.copiedAt > 0 && now - state.copiedAt < 2000);
     full = { open: true, copyLabel: copied ? 'Copied' : 'Copy contents', copied, saving: state.saving, saveLabel: state.saving ? 'Preparing file…' : 'Save file' };
@@ -103,6 +108,8 @@ export async function filesViewerOp(client: T3Client, native: Native, op: string
   if (op.startsWith('viewer-posted:')) { state.frame.posts = state.frame.posts.filter(post => post.key !== op.slice(14)); return; }
   if (op.startsWith('viewer-pick:')) { viewerPick(state.frame, op.slice(12)); return; }
   if (op === 'full-copy') { requestCopy(state.frame); return; }
+  // The signature's failure's Try again: signed afresh, the viewer mounting again.
+  if (op === 'full-retry') { state.signed = null; state.refresh += 1; return; }
   if (op === 'full-save') {
     if (state.saving || !state.path) return;
     state.saving = true;

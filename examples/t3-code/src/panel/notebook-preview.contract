@@ -53,13 +53,36 @@ component SourceLines
         for line in lines key=line.id
           AttachmentCodeRow(line=line, gutter=gutter, wrap=wrap)
 
+// NotebookSource: a source cell's lines, as tall as they lay out up to 360 pt; their line count's height until then.
+component NotebookSource
+  props
+    lines: AttachmentCodeLine[]
+    gutter: number
+    wrap: bool
+    name: string
+    initial: number
+    testId: string
+  state measured = 0
+  // `resize` hears the content box, so the rows' 1rem of padding is added back; lines that wrap only add height, so
+  // the line count's height is the least it takes.
+  action laidOut(width: number, height: number)
+    measured = min(360, max(initial, ceil(height) + 16))
+  view
+    column height=(measured > 0 ? measured : initial) flex-shrink=0 min-height=0 width="100%"
+      scroll flex=1 min-height=0 width="100%" testId=testId
+        column width=(wrap ? "100%" : "auto") min-width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" role="code" aria-label=name resize=laidOut
+          for line in lines key=line.id
+            AttachmentCodeRow(line=line, gutter=gutter, wrap=wrap)
+
 // ArchiveFile, under the archive's bar the page keeps: the entry's source, its picture, or why it cannot open here.
 component ArchiveEntryBody
   props
     entry: ArchiveEntry
     wrap: bool
+    // PreviewImageContent's press: the expanded image dialog over the entry's picture.
+    expand: action
     testId: string
-  action noExpand
+  action noRetry
     let ignored = entry.path
   action noFailure(message: string)
     let ignored = message
@@ -71,9 +94,9 @@ component ArchiveEntryBody
         SourceLines(lines=entry.lines, gutter=entry.gutter, wrap=wrap, name=entry.path, testId=`${testId}-code`)
       if entry.preview == "image"
         for url in [entry.url] key=url
-          PreviewImage(url=url, name=entry.path, zoomId=`${testId}-image-zoom`, expand=noExpand, failed=noFailure, testId=`${testId}-image`)
+          PreviewImage(url=url, name=entry.path, zoomId=`${testId}-image-zoom`, expand=expand, failed=noFailure, testId=`${testId}-image`)
       if entry.preview == "error"
-        FileSurfaceFailure(message=entry.message, canRetry=false, retry=noExpand, testId=`${testId}-failed`)
+        FileSurfaceFailure(message=entry.message, canRetry=false, retry=noRetry, testId=`${testId}-failed`)
 
 component NotebookPreview
   props
@@ -94,6 +117,12 @@ component NotebookPreview
   state over = false
   action hoverMore(value: bool)
     over = value
+  // The HTML outputs within 160 pt of the view, in the order they came near: the first sixteen mount a frame, as the
+  // reference bounds its browsing contexts; the others keep the height they last reported.
+  state near: string[] = []
+  action outputNear(id: string, entry: IntersectionObserverEntry)
+    let kept = near.filter((seen) => seen != id)
+    near = entry.isIntersecting ? kept.concat([id]) : kept
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   action outputSaid(id: string, payload: string)
@@ -114,21 +143,21 @@ component NotebookPreview
                   for document in documents.filter((entry) => entry.id == cell.document) key=document.id
                     DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#18181bcc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source="", cite=noCite, markStart=-1, markEnd=-1)
               if cell.lines.length > 0
-                column height=cell.sourceHeight flex-shrink=0 min-height=0 width="100%"
-                  SourceLines(lines=cell.lines, gutter=cell.gutter, wrap=wrap, name=cell.aria, testId=`${testId}-source-${cell.id}`)
+                NotebookSource(lines=cell.lines, gutter=cell.gutter, wrap=wrap, name=cell.aria, initial=cell.sourceHeight, testId=`${testId}-source-${cell.id}`)
               for output in cell.outputs key=output.id
                 column width="100%" border-top-width=1 border-top-style="solid" border-color=notebookBorder()
                   if output.kind == "html"
-                    column width="100%" height=output.height flex-shrink=0
-                      ViewerFrame(frame=output.frame, scheme=scheme, sheet=false, message=outputSaid(output.id), posted=noPost, pick=noPost, label=`${cell.aria} HTML output`, testId=`${testId}-output-${output.id}`)
+                    column width="100%" height=output.height flex-shrink=0 intersect=outputNear(output.id) intersect-margin="160px"
+                      if near.slice(0, 16).includes(output.id)
+                        ViewerFrame(frame=output.frame, scheme=scheme, sheet=false, message=outputSaid(output.id), posted=noPost, pick=noPost, label=`${cell.aria} HTML output`, testId=`${testId}-output-${output.id}`)
                   if output.kind == "image" and output.url != ""
                     row width="100%" padding="1rem" box-sizing="border-box"
-                      image output.url aria-label=`${cell.aria} output` max-width="100%" max-height="24rem" object-fit="contain"
+                      image output.url aria-label=`${cell.aria} output` max-width="100%" max-height="22rem" object-fit="contain"
                   if output.kind == "text"
                     text output.text width="100%" padding="1rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#18181b, #f5f5f5)"
           if notebook.empty
             text "This notebook is empty." font-size="0.875rem" line-height="1.25rem" color=notebookMuted()
           if notebook.more != ""
             row
-              button press=act("viewer-more") hover=hoverMore height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=(over ? "light-dark(#f4f4f580, #ffffff14)" : "light-dark(#ffffff, #ffffff08)") testId=`${testId}-more`
+              button press=act("viewer-more") hover=hoverMore height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=(over ? "light-dark(#f4f4f580, #ffffff14)" : "light-dark(#ffffff, #ffffff08)") testId=`${testId}-more`
                 text notebook.more font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"

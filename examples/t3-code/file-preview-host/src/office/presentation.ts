@@ -33,6 +33,8 @@ export class Presentation {
   private readonly failed: Record<number, boolean> = {};
   /** Each slide's notes, made once, so a redraw keeps their selection. */
   private readonly footers = new Map<number, Node | null>();
+  /** Each slide's hidden veil and failure line, made again only when they change, as React keeps them. */
+  private readonly overlays = new Map<number, { key: string; nodes: Node[] }>();
   private pages: OfficePages | null = null;
   private counter: HTMLElement | null = null;
   private previous: ReturnType<typeof surfaceAction> | null = null;
@@ -106,10 +108,17 @@ export class Presentation {
     this.pages = new OfficePages({
       pages: this.slides, paint: this.paint as PaintPage, label: "Slide", onError: this.onError,
       onPageChange: (index) => { if (index !== this.page) { this.page = index; this.updateNav(); } },
-      overlay: (index) => [
-        ...(this.slides[index]?.hidden ? [h("div", { class: "slide-hidden" })] : []),
-        ...(this.failed[index] ? [h("p", { role: "status", class: "slide-failed" }, "This slide could not be drawn.")] : []),
-      ],
+      overlay: (index) => {
+        const hidden = !!this.slides[index]?.hidden, failed = !!this.failed[index], key = `${hidden}|${failed}`;
+        const known = this.overlays.get(index);
+        if (known?.key === key) return known.nodes;
+        const nodes = [
+          ...(hidden ? [h("div", { class: "slide-hidden" })] : []),
+          ...(failed ? [h("p", { role: "status", class: "slide-failed" }, "This slide could not be drawn.")] : []),
+        ];
+        this.overlays.set(index, { key, nodes });
+        return nodes;
+      },
       footer: (index) => {
         if (this.footers.has(index)) return this.footers.get(index)!;
         const slide = this.slides[index];

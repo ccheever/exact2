@@ -116,7 +116,7 @@ async function mount(config: Config, src: string, retry: () => void): Promise<Vi
   throw new Error(`No viewer for ${config.view}`);
 }
 
-class Page {
+export class Page {
   private config: Config | null = null;
   private viewer: Viewer | null = null;
   private incoming: Incoming | null = null;

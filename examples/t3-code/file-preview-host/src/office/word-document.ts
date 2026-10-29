@@ -14,7 +14,8 @@ export class WordDocument {
   private readonly engine: Engine;
   private pages: OfficePages | null = null;
   private opened: readonly WordPageSize[] | null = null;
-  private readonly layers = new Map<number, { spans: readonly WordSpan[] | null; controller: AbortController }>();
+  /** WordTextLayer per page: the page it asked for, its spans, and the nodes drawn from them, kept until they change. */
+  private readonly layers = new Map<number, { page: WordPageSize; spans: readonly WordSpan[] | null; controller: AbortController; root: HTMLElement | null }>();
 
   constructor(bytes: ArrayBuffer, private readonly onDetails: (text: string) => void, private readonly onError: (cause: unknown) => void, loading: () => HTMLElement) {
     this.element.append(loading());
@@ -57,6 +58,7 @@ export class WordDocument {
   };
 
   private show(pages: readonly WordPageSize[]) {
+    for (const [index, layer] of this.layers) if (index >= pages.length) { layer.controller.abort(); this.layers.delete(index); }
     this.opened = pages;
     const props = { pages, paint: this.paint, label: "Page", onError: this.onError, overlay: (index: number) => this.overlay(index) };
     if (this.pages) this.pages.update(props);
@@ -76,24 +78,39 @@ export class WordDocument {
       .catch(this.onError);
   }
 
-  /** WordTextLayer: the page's spans, asked of the worker when the page nears the viewport. */
+  /**
+   * WordTextLayer: the page's spans, asked of the worker when the page nears the viewport, and again for the full
+   * layout's page (its effect on `page`); the spans shown stay until the new ones come.
+   */
   private overlay(index: number): Node[] {
     const page = this.opened?.[index];
     if (!page) return [];
     let layer = this.layers.get(index);
-    if (!layer) {
+    if (layer?.page !== page) {
+      layer?.controller.abort();
       const controller = new AbortController();
-      layer = { spans: null, controller };
-      this.layers.set(index, layer);
-      const held = layer;
+      const asked = { page, spans: layer?.spans ?? null, controller, root: layer?.root ?? null };
+      this.layers.set(index, asked);
       void this.engine.call("text", { index }, { signal: controller.signal })
-        .then((spans) => { held.spans = spans; this.pages?.redraw(); })
+        .then((spans) => {
+          if (this.layers.get(index) !== asked) return;
+          asked.spans = spans;
+          asked.root = null;
+          this.pages?.redraw();
+        })
         .catch(() => undefined);
+      layer = asked;
     }
+    if (!layer.root) layer.root = this.textLayer(layer.spans ?? []);
+    return [layer.root];
+  }
+
+  /** WordTextLayer's spans, transparent over the page for selection and links. */
+  private textLayer(spans: readonly WordSpan[]): HTMLElement {
     const root = h("div", { class: "word-text" });
     root.style.fontFamily = layerFont;
     root.style.lineHeight = String(lineHeight);
-    for (const span of layer.spans ?? []) {
+    for (const span of spans) {
       const text = h("span", { dir: span.dir, role: span.link ? "link" : undefined, tabindex: span.link ? 0 : undefined, "aria-label": span.title }, span.text);
       Object.assign(text.style, { left: `${span.left * 100}%`, top: `${span.top * 100}%`, fontSize: `${span.size * 100}cqw`, transform: span.transform, cursor: span.link ? "pointer" : "text" });
       const link = span.link;
@@ -106,7 +123,7 @@ export class WordDocument {
       if (span.after === "br") root.append(h("br"));
       else if (span.after === "tab") root.append("\t");
     }
-    return [root];
+    return root;
   }
 
   dispose() {

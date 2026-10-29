@@ -25,6 +25,7 @@ export class Spreadsheet {
   private notice: HTMLElement | null = null;
   private grid: { element: HTMLElement; dispose: () => void } | null = null;
   private tablist: HTMLDivElement | null = null;
+  private readonly tabButtons = new Map<number, HTMLButtonElement>();
 
   constructor(source: ArrayBuffer, onDetails: (text: string) => void, private readonly onError: (cause: unknown) => void, loading: () => HTMLElement) {
     this.element.append(loading());
@@ -86,12 +87,28 @@ export class Spreadsheet {
       this.element.replaceChildren(this.grid.element, this.tablist);
     } else this.tablist.before(this.grid.element);
     if (this.notice) this.element.prepend(this.notice);
-    this.tablist.replaceChildren(...this.tabs.map((tab) => {
+    // The tabs are keyed by sheet, as React's are: a pressed or focused tab is the same node after its sheet shows.
+    const kept = new Map(this.tabButtons);
+    this.tabButtons.clear();
+    let previous: Element | null = null;
+    for (const tab of this.tabs) {
+      let button = kept.get(tab.index);
+      kept.delete(tab.index);
+      if (!button) {
+        button = h("button", { type: "button", role: "tab", class: "sheet-tab" }, tab.name);
+        button.addEventListener("click", () => this.show(tab.index));
+      }
       const selected = tab.index === layout.info.activeSheet;
-      const button = h("button", { type: "button", role: "tab", class: "sheet-tab", "aria-selected": String(selected), tabindex: selected ? 0 : -1 }, tab.name);
-      button.addEventListener("click", () => this.show(tab.index));
-      return button;
-    }));
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+      if (button.textContent !== tab.name) button.textContent = tab.name;
+      this.tabButtons.set(tab.index, button);
+      if (button.parentElement !== this.tablist || button.previousElementSibling !== previous) {
+        if (previous) previous.after(button); else this.tablist.prepend(button);
+      }
+      previous = button;
+    }
+    for (const button of kept.values()) button.remove();
   }
 
   dispose() {

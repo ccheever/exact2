@@ -313,13 +313,18 @@ export class PdfViewer {
     const visible = visiblePdfPages(this.ratios, offsets, this.scrollTop, this.viewport.height);
     const shown = new Set(visible.map(({ index }) => index));
     for (const [index, page] of this.pages) if (!shown.has(index)) { page.dispose(); this.pages.delete(index); }
+    // In page order, as React orders keyed pages: a selection dragged from one page into the next runs in that order.
+    let previous: Element | null = null;
     for (const { index, ratio } of visible) {
       let page = this.pages.get(index);
       if (!page) {
         page = new PdfPage(pdf, index, this.onSize, this.onError);
         this.pages.set(index, page);
-        track.append(page.element);
       }
+      if (page.element.parentElement !== track || page.element.previousElementSibling !== previous) {
+        if (previous) previous.after(page.element); else track.prepend(page.element);
+      }
+      previous = page.element;
       page.layout(offsets[index]!, Math.max(16, (this.viewport.width - width) / 2), width, width * ratio, this.query);
     }
     // The zoom's scroll anchor, restored once the new width is laid out.
