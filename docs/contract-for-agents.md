@@ -1189,6 +1189,15 @@ bundle, so its ATS policy also applies during drives. A path grant covers its pa
 it, by whole names: `sqlite.open app:/data` covers `app:/data/inbox-amy.sqlite`,
 `sqlite.open app:/data/inbox` does not. A refused open names the file it wanted
 and the grant line that would admit it.
+A line of `app.ts`'s grants that begins with the word `development` is a development
+build's only: a production bake (`EXACT_UPDATE_TRUST=production`, which an Apple
+`--archive` or `--release` and a deploy set) leaves it out, and any other keeps it
+without the word (`development device.calls purpose.calls`, Harmony's test call,
+LLP 1133.033 §13 question 4). Only the build's copy of `app.ts` changes, so the
+module's own `grants` constant is the build's, and the app can hide what the line
+serves (Harmony's `testCallBuild` source). A Rust data crate's `grants()` can't mark
+a line yet: the bake refuses one (`grant-development`). The bake's own trailing word
+on a development build's `local-network` line (LLP 1133.036 D5) is another thing.
 A token, a password or a key the module keeps is a secret, not a file: grant
 `secret.keep <name>` (one line per name, `secret.keep signal.token`) and use
 `store.set(name, value)`, `store.get(name)` (a string, or `null`) and

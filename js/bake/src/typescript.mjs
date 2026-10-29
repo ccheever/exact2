@@ -157,10 +157,11 @@ function sameServer(key, origin) {
 function movedLines(lines, from, to) {
   const move=(target, a, b)=>target===a || target.startsWith(a+'/') ? b+target.slice(a.length) : target;
   return lines.split('\n').map(line=>{
-    const m=line.match(/^(net\.fetch|net\.websocket) (\S+)(.*)$/);
+    // A development build's only line (`developmentGrants`) moves too.
+    const m=line.match(/^((?:[ \t]*development[ \t]+)?)(net\.fetch|net\.websocket) (\S+)(.*)$/);
     if (!m) return line;
-    const [a,b]=m[1]==='net.fetch' ? [from,to] : [socketOrigin(from),socketOrigin(to)];
-    return `${m[1]} ${move(m[2],a,b)}${m[3]}`;
+    const [a,b]=m[2]==='net.fetch' ? [from,to] : [socketOrigin(from),socketOrigin(to)];
+    return `${m[1]}${m[2]} ${move(m[3],a,b)}${m[4]}`;
   }).join('\n');
 }
 
@@ -193,8 +194,10 @@ export function injectBackendOrigin(code, origin, parse, env=process.env) {
     for (const d of keyed) edits.push([d.init.start,d.init.end,JSON.stringify(keyedGrants(bare(d.init),origin ?? literal,at,developmentTrust(env)))]);
   }
   const previous=literal.replace(/\/+$/,'');
-  const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}`
-    : line===`net.websocket ${socketOrigin(previous)}` || line===`net.websocket ${socketOrigin(previous)}/` ? `net.websocket ${socketOrigin(origin)}` : line).join('\n');
+  // A development build's only line (`developmentGrants`) keeps its marker and moves too.
+  const moved=line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}`
+    : line===`net.websocket ${socketOrigin(previous)}` || line===`net.websocket ${socketOrigin(previous)}/` ? `net.websocket ${socketOrigin(origin)}` : line;
+  const replace=value=>value.split('\n').map(line=>{ const [,mark,rest]=line.match(/^([ \t]*development[ \t]+|)(.*)$/s); return mark+moved(rest); }).join('\n');
   const walk=node=>{
     if (!node || typeof node!=='object') return;
     if (node.type==='Literal' && typeof node.value==='string') { const next=replace(node.value); if(next!==node.value) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
@@ -205,6 +208,33 @@ export function injectBackendOrigin(code, origin, parse, env=process.env) {
   if (origin!==null) grants.filter(d=>!keyed.includes(d)).forEach(d=>walk(d.init));
   for(const [start,end,value] of edits.sort((a,b)=>b[0]-a[0])) code=code.slice(0,start)+value+code.slice(end);
   return code;
+}
+
+/** A grant line that begins with the word `development` is a development
+ * build's only: a production bake leaves it out, any other build keeps it
+ * without the word (Harmony's test call, `development device.calls
+ * purpose.calls`, LLP 1133.033 §13 question 4). No grant family is a bare
+ * word, so the marker is never a grant's own; the bake's trailing
+ * `local-network development` is another thing. Only the captured copy is
+ * rewritten, so the app's own `grants` is the build's at run time too. Run
+ * after `injectBackendOrigin`, which has moved a marked line with the
+ * backend's origin and made keyed grants the selected entry's string. */
+export function developmentGrants(code, parse, env=process.env) {
+  const parsed=parse('app.ts',code);
+  if (parsed.errors.length) return code;
+  const marker=/^([ \t]*)development[ \t]+(?=\S)/;
+  const grants=staticFacts(code,parse).grants;
+  if (grants===undefined || !grants.split('\n').some(line=>marker.test(line))) return code;
+  // The binding exported as `grants`, as `staticFacts` reads it.
+  const body=parsed.program.body;
+  const local=body.flatMap(s=>s.type==='ExportNamedDeclaration' && !s.source ? (s.specifiers ?? []) : [])
+    .find(x=>(x.exported.name ?? x.exported.value)==='grants')?.local;
+  const name=local ? local.name ?? local.value : 'grants';
+  const declaration=body.map(s=>s.type==='ExportNamedDeclaration' ? s.declaration : s)
+    .flatMap(s=>s?.type==='VariableDeclaration' ? s.declarations : []).find(d=>d.id.type==='Identifier' && d.id.name===name);
+  const development=developmentTrust(env);
+  const lines=grants.split('\n').flatMap(line=>!marker.test(line) ? [line] : development ? [line.replace(marker,'$1')] : []);
+  return code.slice(0,declaration.init.start)+JSON.stringify(lines.join('\n'))+code.slice(declaration.init.end);
 }
 
 // Rolldown IDs are file paths, not URL or slash-normalized strings. Both
@@ -951,7 +981,7 @@ export function configure(stage, incremental=false, parse) {
     const authored=existsSync(original) ? JSON.parse(readFileSync(original,'utf8')) : before;
     const selection=backendOriginSelection(app), warning=backendOriginWarning(authored,selection,parse);
     writeFileSync(resolve(stage,'__exact_backend_warning.json'), JSON.stringify(warning));
-    const after=injectBackendOrigin(authored,selection?.origin ?? null,parse);
+    const after=developmentGrants(injectBackendOrigin(authored,selection?.origin ?? null,parse),parse);
     if (before!==after) writeFileSync(modulePath,after);
     // Every producer refuses alike what the web build cannot read without running it.
     if (parse) staticFacts(after,parse);

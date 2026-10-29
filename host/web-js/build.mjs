@@ -64,6 +64,9 @@ const production = args.includes('--production');
 const devReload = args.includes('--dev');
 if (production && devReload) { console.error('--production and --dev are mutually exclusive'); process.exit(2); }
 if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
+// Its app.ts copy loses a development build's only grant lines (`configure`), which reads the trust.
+if (production && (process.env.EXACT_UPDATE_TRUST ?? 'production') !== 'production') { console.error(`--production builds under EXACT_UPDATE_TRUST=production, not ${process.env.EXACT_UPDATE_TRUST}`); process.exit(2); }
+if (production) process.env.EXACT_UPDATE_TRUST = 'production';
 // `--check` (`exact.mjs contract build app.contract`): app.ts's type check alone, saying nothing else.
 const checkOnly = args.includes('--check');
 // The source revision a development build's install pages name, read while

@@ -53,7 +53,7 @@ pub(crate) fn derive(
     // §13 question 4).
     if compat.embedded["trust"] == "production" && devices.iter().any(|g| g.device.name == "calls")
     {
-        return Err("grant-device: `device.calls` stays out of production builds until exact2 has a call transport: a call is a test call until then (LLP 1133.033 §13 question 4); bake with EXACT_UPDATE_TRUST=development, or leave the line out".into());
+        return Err("grant-device: `device.calls` stays out of production builds until exact2 has a call transport: a call is a test call until then (LLP 1133.033 §13 question 4); begin the line in app.ts with `development` (`development device.calls purpose.calls`), which a production bake leaves out".into());
     }
     let strings = if devices.iter().all(|g| !g.device.purpose) {
         None
@@ -406,6 +406,23 @@ pub(crate) fn parsed(
         (grants, if typescript { "app.ts" } else { RUST }),
         (rust, RUST),
     ];
+    // A line marked a development build's only (`development <grant>`) is
+    // app.ts's, whose captured copy loses the word or the line before this
+    // (js/bake/src/typescript.mjs `developmentGrants`); a Rust data crate's
+    // `fn grants()` isn't rewritten, so its marked line is refused here,
+    // ahead of the grammar's own message.
+    let marked: Vec<String> = sources
+        .iter()
+        .filter_map(|(spec, source)| Some(((*spec)?, source)))
+        .flat_map(|(spec, source)| {
+            spec.lines()
+                .filter(|l| l.split_whitespace().next() == Some("development"))
+                .map(move |l| format!("grant-development: {source}: `{}`: only app.ts's grants mark a line a development build's only; a Rust data crate's `fn grants()` can't carry the marker in any build yet, so leave the line out or move it to app.ts", l.trim()))
+        })
+        .collect();
+    if !marked.is_empty() {
+        return Err(marked.join("\n"));
+    }
     let errors: Vec<String> = sources
         .iter()
         .filter_map(|(spec, source)| Some((exact_runner::grants::parse((*spec)?).err()?, source)))
@@ -972,6 +989,28 @@ mod tests {
         production.embedded = json!({ "trust": "production" });
         let refused = derive(&dir.0, "ios", None, &mut production).unwrap_err();
         assert!(refused.contains("§13 question 4"), "{refused}");
+    }
+
+    #[test]
+    fn a_line_still_marked_development_is_refused_naming_the_rust_source() {
+        // app.ts's captured copy has lost the word by now; only a Rust data crate's line keeps it.
+        let dir = app(&[("en", r#"{"mic": "Records."}"#)]);
+        for production in [false, true] {
+            for marked in [
+                "development fs.read app:/cache/take",
+                "development device.hid",
+            ] {
+                let rust = format!("device.microphone mic\n{marked}");
+                let refused = parsed(&dir.0, Some(""), Some(&rust), production).unwrap_err();
+                assert_eq!(refused, format!("grant-development: the Rust source: `{marked}`: only app.ts's grants mark a line a development build's only; a Rust data crate's `fn grants()` can't carry the marker in any build yet, so leave the line out or move it to app.ts"));
+            }
+        }
+        // The bake's own trailing modifier on a development build's local-network line is not the marker.
+        let lan = "device.local-network lan\nnet.fetch local-network development";
+        let dir = app(&[("en", r#"{"lan": "Finds lights."}"#)]);
+        assert!(
+            !parsed(&dir.0, Some(lan), None, false).is_err_and(|e| e.contains("grant-development"))
+        );
     }
 
     #[test]
