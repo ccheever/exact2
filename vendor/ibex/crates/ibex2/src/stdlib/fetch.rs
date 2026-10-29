@@ -434,10 +434,15 @@ pub fn fetch_stream_gated(
         admit_hop(grants, gate, &current.url, redirected)?;
 
         // The request guard applies here, where a header list becomes a
-        // request — not in Headers::set, where the guard is "none".
+        // request — not in Headers::set, where the guard is "none". The
+        // body moves to the hop's request and back, never copied: an
+        // upload's may be 64 MiB (Exact patch 23).
+        let body = current.body.take();
         let mut guarded = current.clone();
+        guarded.body = body;
         guarded.headers = current.headers.for_request();
         let result = transport.open(&guarded, signal);
+        current.body = guarded.body.take();
         signal.check()?;
         let mut response = result?;
         response.redirected = redirected;

@@ -1750,7 +1750,8 @@ reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo ne
 through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. To show an
 upload's percentage while the person goes on, make it a resource's stream with `exactUploadProgress: true`:
 its mapper gets `progress` (`loaded` of `total` bytes sent), then `load` with the reply's `status`, and no
-answer waits for it ([reference](reference.md), "An upload that tells its progress"). Download a file with
+answer waits for it. It is asked once for its arguments (a refresh or store write never sends it again), so a
+retry puts an attempt number in them ([reference](reference.md), "An upload that tells its progress"). Download a file with
 `fetch(url, {exactBodyTo: path})`, not `arrayBuffer()` then `writeFile`: the host writes a 2xx body into the
 file as it arrives (under `fs.write`, at most 1 GiB), so a large file never enters the engine's 64 MiB heap;
 `response.exactBodyTo.bytes` is its size, and a reply that is not 2xx leaves the file untouched and reads as

@@ -331,6 +331,7 @@ impl<D: DataSource> Runner<D> {
                     kept_seed: true,
                     answered_for: None,
                     origin: 0,
+                    upload: false,
                 });
             }
         }
@@ -377,6 +378,7 @@ impl<D: DataSource> Runner<D> {
                 kept_seed: true,
                 answered_for: None,
                 origin: 0,
+                upload: false,
             });
             match ready {
                 true => self.refresh_next.push(i),

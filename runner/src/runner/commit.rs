@@ -25,6 +25,7 @@ pub(super) struct Checkpoint {
     store_readers: Vec<bool>,
     watching: Vec<Vec<String>>,
     failed_args: Vec<Option<Vec<Value>>>,
+    failed_upload: Vec<Option<Vec<Value>>>,
     failed_why: Vec<Option<crate::failure::Failure>>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
@@ -89,6 +90,7 @@ impl<D: DataSource> Runner<D> {
             store_readers: self.store_readers.clone(),
             watching: self.watching.clone(),
             failed_args: self.failed_args.clone(),
+            failed_upload: self.failed_upload.clone(),
             failed_why: self.failed_why.clone(),
             failed_mut: self.failed_mut.clone(),
             refresh_next: self.refresh_next.clone(),
@@ -169,6 +171,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.watching = c.watching;
                 self.failed_args = c.failed_args;
+                self.failed_upload = c.failed_upload;
                 self.ids.work.resources = c.resource_inspection;
                 self.failed_why = c.failed_why;
                 self.failed_mut = c.failed_mut;
@@ -1070,6 +1073,24 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// Whether an upload is in flight for resource `i` (LLP 1016.000 D10).
+    pub(super) fn uploading(&self, i: usize) -> bool {
+        (self.pending.iter()).any(|p| p.target == Target::Resource(i) && p.upload)
+    }
+
+    /// Whether an upload failed for resource `i` at the arguments its failure holds.
+    pub(super) fn upload_failed(&self, i: usize) -> bool {
+        self.failed_upload[i].is_some() && self.failed_upload[i] == self.failed_args[i]
+    }
+
+    /// Whether resource `i`'s answer is an upload's, in flight, ended or
+    /// failed: nothing asks it again at its arguments (D10).
+    pub(super) fn upload_stands(&self, i: usize) -> bool {
+        self.uploading(i)
+            || self.resources[i].as_ref().is_some_and(|s| s.upload)
+            || self.upload_failed(i)
+    }
+
     /// Whether resource `i` has a stream open that has delivered: it is not
     /// pending, but a newer answer must still let its ticket go.
     pub(super) fn streaming(&self, i: usize) -> bool {
@@ -1396,6 +1417,7 @@ impl<D: DataSource> Runner<D> {
                 self.revalidated(i, shown.as_ref(), &value);
                 self.stale[i] = false;
                 self.failed_args[i] = None;
+                self.failed_upload[i] = None;
                 self.keep_answer(i, &p.args, &value);
                 if p.ask_again {
                     self.log(super::lines::asked_again(p.ticket, &name));
@@ -1410,6 +1432,7 @@ impl<D: DataSource> Runner<D> {
                     kept_seed: false,
                     answered_for: None,
                     origin: p.origin,
+                    upload: p.upload,
                 });
                 self.inspected_success(i, p.inspection_generation);
             }

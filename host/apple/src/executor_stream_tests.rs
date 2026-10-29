@@ -49,6 +49,10 @@ impl BodySource for Fed {
 struct Script {
     feeds: Mutex<Vec<Option<Feed>>>,
     aborted: Arc<Mutex<usize>>,
+    /// Told when `/upload-burst` has reported all its bytes sent.
+    reported: Mutex<Option<Sender<()>>>,
+    /// The platform timeout each `/upload-timed` was given.
+    timeouts: Mutex<Vec<Option<Duration>>>,
 }
 struct Scripted(Arc<Script>);
 impl Transport for Scripted {
@@ -88,10 +92,18 @@ impl Transport for Scripted {
                 redirected: false,
             });
         }
-        // An upload: its bytes sent told a quarter, a half and the whole,
-        // each when the test feeds a step, as a platform tells them; then a
-        // JSON reply, which is no event stream.
-        if request.url.ends_with("/upload") {
+        // An upload (LLP 1016.000 D10), reporting its bytes sent as a
+        // platform does: `/upload` a quarter, a half and the whole, each when
+        // the test feeds a step; `-burst` all three at once, then its reply
+        // when fed; `-fails` a half, then a network failure; `-empty` none;
+        // `-timed` none, keeping the platform timeout it was given. Each
+        // replies JSON, which is no event stream.
+        if let Some(kind) = request
+            .url
+            .rsplit('/')
+            .next()
+            .filter(|k| k.starts_with("upload"))
+        {
             assert_eq!(
                 request.headers.get("accept"),
                 None,
@@ -99,12 +111,41 @@ impl Transport for Scripted {
             );
             let sent = request.sent.clone().expect("an upload's hook");
             let total = request.body.as_ref().map_or(0, Vec::len) as u64;
-            let (tx, rx) = channel();
-            self.0.feeds.lock().unwrap().push(Some(tx));
-            for loaded in [total / 4, total / 2, total] {
+            let aborted = self.0.aborted.clone();
+            std::mem::forget(signal.register(move || *aborted.lock().unwrap() += 1));
+            let step = |rx: &Receiver<Vec<u8>>| {
                 rx.recv()
-                    .map_err(|_| HostError::Failed("the test let go".into()))?;
-                (sent.0)(loaded, total);
+                    .map_err(|_| HostError::Failed("the test let go".into()))
+            };
+            let fed = || {
+                let (tx, rx) = channel();
+                self.0.feeds.lock().unwrap().push(Some(tx));
+                rx
+            };
+            match kind {
+                "upload" => {
+                    let rx = fed();
+                    for loaded in [total / 4, total / 2, total] {
+                        step(&rx)?;
+                        (sent.0)(loaded, total);
+                    }
+                }
+                "upload-burst" => {
+                    let rx = fed();
+                    for loaded in [total / 4, total / 2, total] {
+                        (sent.0)(loaded, total);
+                    }
+                    let _ = self.0.reported.lock().unwrap().take().map(|tx| tx.send(()));
+                    step(&rx)?;
+                }
+                "upload-fails" => {
+                    (sent.0)(total / 2, total);
+                    return Err(HostError::Failed(
+                        "TypeError: Failed to fetch — the connection was reset".into(),
+                    ));
+                }
+                "upload-timed" => self.0.timeouts.lock().unwrap().push(request.timeout),
+                _ => assert_eq!(total, 0, "{kind}"),
             }
             headers.set_response("content-type", "application/json");
             return Ok(ibex2::stdlib::fetch::Response {
@@ -144,8 +185,11 @@ impl Transport for Scripted {
 }
 
 fn setup() -> (Core, Arc<Script>, Receiver<()>) {
+    setup_with("net.fetch https://example.test")
+}
+
+fn setup_with(grants: &str) -> (Core, Arc<Script>, Receiver<()>) {
     let script = Arc::new(Script::default());
-    let grants = "net.fetch https://example.test";
     let owners = (0..WORKERS)
         .map(|_| {
             Some(
@@ -916,4 +960,283 @@ fn an_uploads_deadline_ends_it_as_a_timeout() {
         matches!(&end, Outcome::Failed { kind: FailureKind::Timeout, message } if message == "the request timed out after 50 ms"),
         "{end:?}"
     );
+}
+
+#[test]
+fn an_uploads_deadline_reaches_the_platform_a_second_later() {
+    let (core, script, woke) = setup();
+    let mut timed = upload(1, "/upload-timed", 4000);
+    timed.request.timeout_ms = Some(60_000);
+    core.run_owned(timed, None).unwrap();
+    assert!(matches!(next(&core, &woke).1, Outcome::Response(r) if r.status == 201));
+    core.run_owned(upload(2, "/upload-timed", 4000), None)
+        .unwrap();
+    assert!(matches!(next(&core, &woke).1, Outcome::Response(r) if r.status == 201));
+    assert_eq!(
+        *script.timeouts.lock().unwrap(),
+        [Some(Duration::from_millis(61_000)), None],
+        "the deadline's second later, else the platform's own"
+    );
+}
+
+#[test]
+fn an_uploads_bytes_sent_coalesce_while_the_runner_has_not_taken_them() {
+    let (core, script, woke) = setup();
+    let (tx, reported) = channel();
+    *script.reported.lock().unwrap() = Some(tx);
+    core.run_owned(upload(1, "/upload-burst", 4000), None)
+        .unwrap();
+    reported
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the bytes sent were reported");
+    match next(&core, &woke).1 {
+        Outcome::Message(m) => assert_eq!((m.sent(), m.coalesced), (Some((4000, 4000)), 2)),
+        other => panic!("expected the newest bytes sent, got {other:?}"),
+    }
+    feed(&script, 0).send(Vec::new()).unwrap();
+    assert!(matches!(next(&core, &woke).1, Outcome::Response(r) if r.status == 201));
+}
+
+#[test]
+fn an_upload_that_fails_midway_ends_with_its_failure() {
+    let (core, _script, woke) = setup();
+    core.run_owned(upload(1, "/upload-fails", 4000), None)
+        .unwrap();
+    match next(&core, &woke).1 {
+        Outcome::Message(m) => assert_eq!(m.sent(), Some((2000, 4000))),
+        other => panic!("expected the bytes sent, got {other:?}"),
+    }
+    let (_, end) = next(&core, &woke);
+    assert!(
+        matches!(&end, Outcome::Failed { kind: FailureKind::Network, message } if message.contains("the connection was reset")),
+        "{end:?}"
+    );
+}
+
+#[test]
+fn letting_go_of_an_upload_midway_aborts_it() {
+    let (core, script, woke) = setup();
+    core.run_owned(upload(1, "/upload", 4000), None).unwrap();
+    let step = feed(&script, 0);
+    step.send(Vec::new()).unwrap();
+    assert!(matches!(next(&core, &woke).1, Outcome::Message(_)));
+    core.forget(|_| false);
+    assert_eq!(
+        *script.aborted.lock().unwrap(),
+        1,
+        "the transport saw the abort"
+    );
+    drop(step);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !settled(&core) {
+        assert!(
+            Instant::now() < deadline,
+            "the let-go upload kept its reservation"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn an_empty_upload_tells_no_progress_and_ends_with_its_reply() {
+    let (core, _script, woke) = setup();
+    core.run_owned(upload(1, "/upload-empty", 0), None).unwrap();
+    assert!(matches!(next(&core, &woke).1, Outcome::Response(r) if r.status == 201));
+}
+
+/// LLP 1016.000 D10: two bodies whose copies pass the test's 1 MiB budget
+/// together; the second waits, unopened, until the first's exchange ends.
+#[test]
+fn an_upload_waits_for_room_in_its_executors_budget() {
+    let (core, script, woke) = setup();
+    core.run_owned(upload(1, "/upload", 600 << 10), None)
+        .unwrap();
+    let first = feed(&script, 0);
+    core.run_owned(upload(2, "/upload", 600 << 10), None)
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while core.shared.uploads.waiting().0 == 0 {
+        assert!(Instant::now() < deadline, "the second upload never waited");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(
+        script.feeds.lock().unwrap().len(),
+        1,
+        "the second waits unopened"
+    );
+    let finish = |step: Sender<Vec<u8>>, ticket: u64| {
+        for _ in 0..3 {
+            step.send(Vec::new()).unwrap();
+        }
+        while !matches!(next(&core, &woke), (t, Outcome::Response(_)) if t == ticket) {}
+    };
+    finish(first, 1);
+    finish(feed(&script, 1), 2);
+}
+
+/// App directories under the system's temporary one, with one file in
+/// `app:/tmp`; removed when dropped.
+struct AppFiles(std::path::PathBuf);
+impl AppFiles {
+    fn new(name: &str, bytes: &[u8]) -> AppFiles {
+        let root = std::env::temp_dir().join(format!(
+            "exact-upload-{}-{}",
+            std::process::id(),
+            ibex2::stdlib::crypto::random_uuid().unwrap()
+        ));
+        for dir in ["data", "cache", "tmp"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::write(root.join("tmp").join(name), bytes).unwrap();
+        AppFiles(root)
+    }
+    fn roots(&self) -> [std::path::PathBuf; 3] {
+        ["data", "cache", "tmp"].map(|dir| self.0.join(dir))
+    }
+}
+impl Drop for AppFiles {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// An upload of `app:/tmp/<name>`.
+fn file_upload(ticket: u64, path: &str, name: &str) -> RequestOut {
+    let mut out = upload(ticket, path, 0);
+    out.request.body_from = Some(format!("app:/tmp/{name}"));
+    out
+}
+
+/// LLP 1016.000 D10: a file's room is the most a file body may be until it
+/// is read, then its length; a second file waits for room before it is read.
+#[test]
+fn an_uploads_file_is_read_once_it_has_room() {
+    let (core, script, woke) = setup_with("net.fetch https://example.test\nfs.read app:/tmp");
+    let files = AppFiles::new("a.bin", &[7; 4096]);
+    core.set_app_roots(files.roots());
+    core.run_owned(file_upload(1, "/upload", "a.bin"), None)
+        .unwrap();
+    let first = feed(&script, 0);
+    assert_eq!(
+        core.shared.uploads.waiting(),
+        (0, 4096 * super::COPIES),
+        "held at its length"
+    );
+    core.run_owned(file_upload(2, "/upload", "a.bin"), None)
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while core.shared.uploads.waiting().0 == 0 {
+        assert!(Instant::now() < deadline, "the second upload never waited");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(
+        script.feeds.lock().unwrap().len(),
+        1,
+        "the second waits unopened"
+    );
+    let finish = |step: Sender<Vec<u8>>, ticket: u64| {
+        for _ in 0..3 {
+            step.send(Vec::new()).unwrap();
+        }
+        while !matches!(next(&core, &woke), (t, Outcome::Response(_)) if t == ticket) {}
+    };
+    finish(first, 1);
+    finish(feed(&script, 1), 2);
+    assert_eq!(
+        core.shared.uploads.waiting(),
+        (0, 0),
+        "every place given back"
+    );
+}
+
+#[test]
+fn a_reply_that_lands_as_the_deadline_passes_stands() {
+    use super::timed_out;
+    let reply = Outcome::Response(exact_runner::Response {
+        status: 201,
+        headers: Vec::new(),
+        body: Vec::new(),
+    });
+    assert!(matches!(timed_out(reply, true, 50), Outcome::Response(r) if r.status == 201));
+    let aborted = Outcome::Failed {
+        kind: FailureKind::Aborted,
+        message: "native request aborted".into(),
+    };
+    assert!(matches!(
+        timed_out(aborted.clone(), true, 50),
+        Outcome::Failed { kind: FailureKind::Timeout, message } if message == "the request timed out after 50 ms"
+    ));
+    assert_eq!(timed_out(aborted.clone(), false, 50), aborted);
+}
+
+/// URLSession end to end (local patch 23): a 16 MiB body from an app file
+/// (more than loopback's socket buffers take at once) a loopback server reads
+/// 256 KiB at a time, then answers 62 s later, past URLSession's 60 s without
+/// data, which the upload's deadline a second later lifts.
+#[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), and a reply 62 s after its body; bun scripts/async.mjs runs it"]
+fn an_upload_through_urlsession_tells_its_progress_and_waits_out_a_slow_reply() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    const SIZE: usize = 16 << 20;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                break;
+            }
+            if let Some(n) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = n.trim().parse().unwrap();
+            }
+        }
+        let (mut took, mut chunk) = (0, vec![0; 256 << 10]);
+        while took < length {
+            let n = reader
+                .read(&mut chunk[..(length - took).min(256 << 10)])
+                .unwrap();
+            took += n;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_secs(62));
+        let mut stream = stream;
+        let _ = stream
+            .write_all(b"HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    });
+    let files = AppFiles::new("big.bin", &vec![7; SIZE]);
+    let (wake, woke) = channel();
+    let grants = format!("net.fetch http://127.0.0.1:{port}\nfs.read app:/tmp");
+    let core = Core::start(None, &grants, Box::new(move || drop(wake.send(()))));
+    core.set_app_roots(files.roots());
+    let mut out = file_upload(1, "/upload", "big.bin");
+    out.request.url = format!("http://127.0.0.1:{port}/upload");
+    out.request.timeout_ms = Some(120_000);
+    core.run_owned(out, None).unwrap();
+    let (mut sent, deadline) = (Vec::new(), Instant::now() + Duration::from_secs(130));
+    let end = loop {
+        core.begin_pump();
+        match core.drain().pop() {
+            Some((_, Outcome::Message(m), _)) => sent.push(m.sent().expect("an upload's progress")),
+            Some((_, end, _)) => break end,
+            None => {
+                assert!(Instant::now() < deadline, "no reply after {sent:?}");
+                let _ = woke.recv_timeout(Duration::from_millis(100));
+            }
+        }
+    };
+    assert!(
+        matches!(&end, Outcome::Response(r) if r.status == 201 && r.body == b"ok"),
+        "{end:?}"
+    );
+    let total = SIZE as u64;
+    assert!(sent.iter().all(|&(_, t)| t == total), "{sent:?}");
+    assert!(sent.windows(2).all(|w| w[0].0 <= w[1].0), "{sent:?}");
+    assert!(
+        sent.iter().any(|&(n, _)| n < total),
+        "nothing before the whole: {sent:?}"
+    );
+    assert_eq!(sent.last(), Some(&(total, total)));
 }

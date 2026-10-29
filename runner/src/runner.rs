@@ -188,6 +188,8 @@ struct ResourceState {
     /// for a compiled answer standing in for newer arguments until the
     /// source can answer. An overlay lays writes over it for these.
     answered_for: Option<Vec<Value>>,
+    /// An upload's (LLP 1016.000 D10): never asked again at these arguments.
+    upload: bool,
 }
 
 impl ResourceState {
@@ -369,6 +371,9 @@ pub struct Runner<D: DataSource> {
     forgot: bool,
     /// Failed arguments suppress another ask until they change or refresh.
     failed_args: Vec<Option<Vec<Value>>>,
+    /// The arguments an upload failed at (LLP 1016.000 D10), which nothing
+    /// asks again, `refresh` included, while `failed_args` holds them.
+    failed_upload: Vec<Option<Vec<Value>>>,
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
@@ -800,6 +805,7 @@ impl<D: DataSource> Runner<D> {
             picked_count: 0,
             forgot: false,
             failed_args: Vec::new(),
+            failed_upload: Vec::new(),
             failed_why: Vec::new(),
             overrun: Default::default(),
             deferred_edges: Vec::new(),
@@ -880,6 +886,7 @@ impl<D: DataSource> Runner<D> {
                         placeholder: false,
                         kept_seed: false,
                         answered_for: None,
+                        upload: false,
                         origin: 0,
                     })
             })
@@ -914,6 +921,7 @@ impl<D: DataSource> Runner<D> {
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
         runner.watching = vec![Vec::new(); runner.plan.resources.len()];
         runner.failed_args = vec![None; runner.plan.resources.len()];
+        runner.failed_upload = vec![None; runner.plan.resources.len()];
         runner.overlays = vec![None; runner.plan.resources.len()];
         runner.failed_why = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];

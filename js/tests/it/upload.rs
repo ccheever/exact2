@@ -1,9 +1,10 @@
 //! `fetch(url, {exactStream, exactUploadProgress: true})` from TypeScript
-//! (LLP 1016.000 D10): the prelude sends the request
-//! as an upload, the native executor core (the one the Apple, Linux and
-//! render hosts share, here the render host's, so URLSession on a Mac) tells
-//! the body's bytes sent as they go, and the mapper gets each as `progress`
-//! and then the reply as `load`.
+//! (LLP 1016.000 D10): the prelude sends the request as an upload, the
+//! native executor core (the one the Apple, Linux and render hosts share,
+//! here the render host's, whose transport is the portable one, rustls, on a
+//! Mac too: LLP 1048.000 D10) tells the body's bytes sent as they go, and the
+//! mapper gets each as `progress` and then the reply as `load`. URLSession's
+//! is `exact-apple`'s `an_upload_through_urlsession_…`.
 #![cfg(all(exact_js_engine, unix))]
 use super::storage::{args, call, text, Root};
 use exact_runner::{Answer, DataSource, Outcome, RequestOut, Store};
@@ -15,8 +16,9 @@ use std::time::{Duration, Instant};
 const SIZE: usize = 16 << 20;
 
 /// A server on 127.0.0.1 that takes a request's body 256 KiB at a time,
-/// 4 ms apart, and answers 201 with the bytes it took. Its port.
-fn server() -> u16 {
+/// 4 ms apart, and answers 201 with the bytes it took, `wait` after the
+/// body. Its port.
+fn server(wait: Duration) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {
@@ -44,6 +46,7 @@ fn server() -> u16 {
                 took += n;
                 std::thread::sleep(Duration::from_millis(4));
             }
+            std::thread::sleep(wait);
             let body = format!("{{\"took\":{took}}}");
             let _ = write!(
                 stream,
@@ -55,30 +58,28 @@ fn server() -> u16 {
     port
 }
 
-#[test]
-fn an_upload_maps_its_bytes_sent_as_they_go_then_its_reply() {
+/// The fixture's `op` uploads `body` (`app:/data/up.bin`) to `server(wait)`:
+/// its deadline, and what the mapper answers to each outcome, until the one
+/// that is no message.
+fn mapped(op: &str, body: &[u8], wait: Duration) -> (Option<u32>, Vec<String>) {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
     let mut s = Store::new(super::storage::GRANTS, Vec::<(String, Vec<u8>)>::new());
-    std::fs::write(root.0.join("data/big.bin"), vec![7; SIZE]).unwrap();
-    let port = server();
+    std::fs::write(root.0.join("data/up.bin"), body).unwrap();
+    let port = server(wait);
     let executor = exact_render::Executor::start(&format!(
         "fs.read app:/data\nnet.fetch http://127.0.0.1:{port}"
     ));
     executor.set_app_roots(["data", "cache", "tmp"].map(|d| root.0.join(d)));
 
-    let a = args("upload-progress", "app:/data/big.bin");
+    let a = args(op, "app:/data/up.bin");
     let Answer::Later(mut request) = m.answer(&mut s, "work", &a).unwrap() else {
         panic!("an upload is a request")
     };
     assert!(request.stream && request.upload_progress && !request.bytes);
-    assert_eq!(request.body_from.as_deref(), Some("app:/data/big.bin"));
-    assert_eq!(
-        request.timeout_ms,
-        Some(30_000),
-        "an upload takes a deadline"
-    );
+    assert_eq!(request.body_from.as_deref(), Some("app:/data/up.bin"));
+    let deadline = request.timeout_ms;
     request.url = format!("http://127.0.0.1:{port}/upload");
     let out = RequestOut {
         ticket: 1,
@@ -88,8 +89,7 @@ fn an_upload_maps_its_bytes_sent_as_they_go_then_its_reply() {
     };
     executor.run(out, None).unwrap();
 
-    // Each outcome as the mapper answers it, until the one that is no message.
-    let (mut said, until) = (Vec::new(), Instant::now() + Duration::from_secs(30));
+    let (mut said, until) = (Vec::new(), Instant::now() + wait + Duration::from_secs(30));
     loop {
         let Some((_, outcome, _)) = executor.drain().pop() else {
             assert!(Instant::now() < until, "no end after {said:?}");
@@ -102,9 +102,15 @@ fn an_upload_maps_its_bytes_sent_as_they_go_then_its_reply() {
         };
         said.push(text(value));
         if ended {
-            break;
+            return (deadline, said);
         }
     }
+}
+
+#[test]
+fn an_upload_maps_its_bytes_sent_as_they_go_then_its_reply() {
+    let (deadline, said) = mapped("upload-progress", &vec![7; SIZE], Duration::ZERO);
+    assert_eq!(deadline, Some(30_000), "an upload takes a deadline");
     let (end, progress) = said.split_last().unwrap();
     assert_eq!(end, &format!("load 201 {{\"took\":{SIZE}}}"), "{said:?}");
     let sent: Vec<u64> = progress
@@ -127,6 +133,29 @@ fn an_upload_maps_its_bytes_sent_as_they_go_then_its_reply() {
         sent.last(),
         Some(&(SIZE as u64)),
         "the last progress is the whole body"
+    );
+}
+
+/// An empty body has no bytes to tell (XMLHttpRequest's `upload` fires no
+/// computable `progress` for one): its reply alone.
+#[test]
+fn an_empty_upload_maps_no_progress_then_its_reply() {
+    let (_, said) = mapped("upload-progress", &[], Duration::ZERO);
+    assert_eq!(said, ["load 201 {\"took\":0}"]);
+}
+
+/// A reply 32 s after the body, past the portable transport's own limits
+/// (15 s for the response, 30 s for the whole), which the upload's deadline
+/// of 60 s replaces.
+#[test]
+#[ignore = "async lane: a real socket and a reply 32 s after its body; bun scripts/async.mjs runs it"]
+fn an_upload_waits_out_a_reply_past_the_portable_transports_own_limits() {
+    let (deadline, said) = mapped("upload-patient", &[7; 1 << 20], Duration::from_secs(32));
+    assert_eq!(deadline, Some(60_000));
+    assert_eq!(
+        said.last().map(String::as_str),
+        Some("load 201 {\"took\":1048576}"),
+        "{said:?}"
     );
 }
 

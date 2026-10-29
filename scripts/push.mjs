@@ -107,11 +107,22 @@ function bakeTypescript(tool, app, env) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/** The TypeScript runtime this checkout's prelude provides, which a module
+ * baked here may rely on (`bake/src/compat.rs` `TYPESCRIPT_RUNTIME`): a cohort
+ * whose binary has an older one cannot run it (LLP 1016.000 D10). */
+function typescriptRuntime(tool, app, cohort, env) {
+  const inputs = cohort.compat.inputs, platform = ['ios', 'macos', 'linux'].includes(inputs.platform) ? inputs.platform : 'macos';
+  const r = spawnSync(tool, ['compat', app.dir, '--platform', platform, '--json'], { env, encoding: 'utf8' });
+  if (r.status !== 0) refuse(r.stderr.trim());
+  return JSON.parse(r.stdout).inputs?.typescriptRuntime;
+}
+
 /** The module pair as an update carries it (`typescript/`): the plan no
  * longer needs the cohort's source shapes, since the module answers them;
- * the pair needs the cohort's TypeScript runtime and exactly its grants (the
- * host's data source refuses any other, `Paired::decode`). */
-function typescriptBundle(bundle, build, baked, cohort) {
+ * the pair needs the TypeScript runtime it was baked for, which the
+ * classifier compares with the cohort's, and exactly the cohort's grants
+ * (the host's data source refuses any other, `Paired::decode`). */
+function typescriptBundle(bundle, build, baked, cohort, runtime) {
   const meta = JSON.parse(baked.receipt);
   const inputs = cohort.compat.inputs;
   if (meta.appId !== inputs.app) refuse(`the module names app ${meta.appId}, not ${inputs.app}`);
@@ -120,7 +131,7 @@ function typescriptBundle(bundle, build, baked, cohort) {
     { name: 'typescript/app.module.json', bytes: baked.receipt },
     { name: 'typescript/app.hbc', bytes: baked.bytecode },
   ].map((a) => ({ ...a, sha256: sha256(a.bytes) }));
-  const requires = { grantCeiling: inputs.grantCeiling, ...(inputs.typescriptRuntime !== undefined ? { typescriptRuntime: inputs.typescriptRuntime } : {}) };
+  const requires = { grantCeiling: inputs.grantCeiling, ...(runtime !== undefined ? { typescriptRuntime: runtime } : {}) };
   const artifacts = build.graph.artifacts.map((a) => {
     if (a.name !== 'app.plan') return a;
     const { sources, ...rest } = a.requires;
@@ -208,7 +219,7 @@ export async function pusher(opts) {
       let bundle = { plan: { bytes: built.plan, sha256: sha256(built.plan), formatVersion: inputs.formatVersion, kernelSchema: inputs.kernelSchema }, assets };
       let build = { version: 1, trust: 'production', compat: cohort.compat, binary: { sha256: cohort.binary },
         graph: { ...graph, artifacts: [graph.artifacts[0], ...assets.map((a) => ({ name: a.name, sha256: a.sha256, bytes: a.bytes.length, kind: 'bundle', requires: {} }))] } };
-      ({ bundle, build } = typescript ? typescriptBundle(bundle, build, built, cohort) : rustBundle(app, bundle, build, built));
+      ({ bundle, build } = typescript ? typescriptBundle(bundle, build, built, cohort, typescriptRuntime(tools.graph, app, cohort, env)) : rustBundle(app, bundle, build, built));
       const checked = classifyArtifacts(build, cohort, signingKey);
       if (!checked.bundle) refuse(`${platform} ${stream.compatibilityId.slice(0, 8)} cannot take this as an update — ${checked.missing.join('; ')}. It needs a new binary: bun scripts/deploy.mjs ${app.name}`);
       const row = { kind: 'stream', platform, channel, compatibilityId: stream.compatibilityId, action: 'bundle', receipt: cohort };

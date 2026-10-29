@@ -183,6 +183,8 @@ struct Shared {
     /// Long polls waiting to ask again, by stream ticket (LLP 1016.000 D8;
     /// `executor_longpoll.rs`): the attempt, when it asks, and what failed.
     retrying: Mutex<std::collections::HashMap<u64, (u32, std::time::Instant, String)>>,
+    /// What upload streams hold in memory (LLP 1016.000 D10; `stream.rs`).
+    uploads: stream::Uploads,
 }
 
 impl Shared {
@@ -300,6 +302,7 @@ impl Core {
             roots: std::sync::OnceLock::new(),
             sockets: Mutex::default(),
             retrying: Mutex::default(),
+            uploads: stream::Uploads::default(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS

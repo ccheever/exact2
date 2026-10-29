@@ -25,7 +25,8 @@ use ibex2::stdlib::{
     fetch::{Sent, StreamingResponse},
     websocket::{Incoming, MessageSource},
 };
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 /// What a stream opened as.
 enum Opened {
@@ -99,26 +100,30 @@ pub(super) fn run(
             Ok(b) if is_socket(&request.url) => open_socket(&b, request, &abort).map(|s| (s, b)),
             // A body from an app file, read as the stream opens (LLP 1108 D6 R2).
             Ok(b) => {
+                // An upload's body is held in its executor's budget from
+                // before its file is read until its exchange ends, which
+                // `open` reads whole.
+                let mut held = upload_room(shared, &request, &abort)?;
                 super::body::resolve(shared.roots_for(&request), grants, &mut request, &|| {
                     abort
                         .signal()
                         .aborted()
                         .then(|| failed(FailureKind::Aborted, "native request aborted"))
                 })
-                .and_then(|()| open(Ok(&b), request, forced, &abort, sent))
+                .and_then(|()| {
+                    if let Some(held) = held.as_mut() {
+                        held.keep(request.body.len().saturating_mul(COPIES));
+                    }
+                    open(Ok(&b), request, forced, &abort, sent)
+                })
                 .map(|opened| (opened, b))
             }
             Err(message) => Err(failed(FailureKind::Refused, message)),
         }
     }))
     .unwrap_or_else(|_| Err(failed(FailureKind::Aborted, "the stream opener panicked")));
-    let opened = match (opened, timeout) {
-        (Err(_), Some(ms)) if deadline.as_ref().is_some_and(Deadline::passed) => Err(failed(
-            FailureKind::Timeout,
-            format!("the request timed out after {ms} ms"),
-        )),
-        (opened, _) => opened,
-    };
+    let passed = deadline.as_ref().is_some_and(Deadline::passed);
+    let opened = opened.map_err(|end| timed_out(end, passed, timeout.unwrap_or(0)));
     match opened {
         // The bindings live as long as the body they opened.
         Ok((Opened::Events(response, limit), _bindings)) => {
@@ -204,6 +209,119 @@ fn read_socket(
 /// data coalesces, and a log sees the gap and re-asks from its cursor.
 fn message(shared: &Shared, ticket: u64, message: Message) -> bool {
     deliver(shared, ticket, message, false)
+}
+
+/// An upload's end once its deadline may have passed: a failure after the
+/// deadline is the deadline's; a reply that landed as it passed stands, as a
+/// plain request's does (`execute`).
+pub(super) fn timed_out(end: Outcome, passed: bool, ms: u32) -> Outcome {
+    match end {
+        Outcome::Failed { .. } if passed => failed(
+            FailureKind::Timeout,
+            format!("the request timed out after {ms} ms"),
+        ),
+        end => end,
+    }
+}
+
+/// What an executor's upload streams hold in memory (LLP 1016.000 D10):
+/// each body, read from its file or given inline, and the platform's copy
+/// of it, from before a file is read until the exchange ends.
+#[derive(Default)]
+pub(super) struct Uploads {
+    held: Mutex<UploadsHeld>,
+    room: Condvar,
+}
+#[derive(Default)]
+struct UploadsHeld {
+    bytes: usize,
+    /// Uploads waiting for room, for the tests.
+    waiting: usize,
+}
+
+/// What an executor's uploads may hold at once: four bodies of 64 MiB, the
+/// bound file reads have (`executor_body.rs` `MAX_READERS`), with the
+/// platform's copies. An upload's own lane, 64 MiB, could not hold a 50 MB
+/// body beside Apple's copy of it.
+const UPLOAD_BYTES: usize = if cfg!(test) {
+    1 << 20
+} else {
+    super::body::MAX_READERS * exact_runner::MAX_BODY_FROM_BYTES as usize
+};
+
+/// The copies of an upload's body in memory while it goes out: the
+/// stream's, and on Apple URLSession's `NSData`. The portable transport
+/// sends from the stream's.
+pub(super) const COPIES: usize = if cfg!(target_vendor = "apple") { 2 } else { 1 };
+
+impl Uploads {
+    /// Room for `bytes`, waiting while other uploads hold too much, until
+    /// `stopped` says this one has ended. One upload alone always fits.
+    fn hold(&self, bytes: usize, stopped: &dyn Fn() -> bool) -> Option<Held<'_>> {
+        let mut held = self.held.lock().unwrap();
+        held.waiting += 1;
+        while held.bytes > 0 && held.bytes.saturating_add(bytes) > UPLOAD_BYTES {
+            if stopped() {
+                held.waiting -= 1;
+                return None;
+            }
+            held = (self
+                .room
+                .wait_timeout(held, Duration::from_millis(50))
+                .unwrap())
+            .0;
+        }
+        held.waiting -= 1;
+        held.bytes += bytes;
+        Some(Held(self, bytes))
+    }
+
+    /// Uploads waiting for room now, and the bytes held.
+    #[cfg(test)]
+    pub(super) fn waiting(&self) -> (usize, usize) {
+        let held = self.held.lock().unwrap();
+        (held.waiting, held.bytes)
+    }
+}
+
+/// An upload's place in its executor's [`Uploads`], given back when dropped.
+struct Held<'a>(&'a Uploads, usize);
+impl Held<'_> {
+    /// Keep only `bytes` of the place, once the body's size is known.
+    fn keep(&mut self, bytes: usize) {
+        if bytes < self.1 {
+            self.0.held.lock().unwrap().bytes -= self.1 - bytes;
+            self.1 = bytes;
+            self.0.room.notify_all();
+        }
+    }
+}
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        self.0.held.lock().unwrap().bytes -= self.1;
+        self.0.room.notify_all();
+    }
+}
+
+/// An upload's room for its body: its length, or for a file not read yet
+/// the most a file body may be, which [`Held::keep`] lowers once it is
+/// read. An abort or the deadline while it waits ends it.
+fn upload_room<'a>(
+    shared: &'a Shared,
+    request: &Request,
+    abort: &AbortController,
+) -> Result<Option<Held<'a>>, Outcome> {
+    if !request.upload_progress {
+        return Ok(None);
+    }
+    let body = match request.body_from {
+        Some(_) => exact_runner::MAX_BODY_FROM_BYTES as usize,
+        None => request.body.len(),
+    };
+    let bytes = body.saturating_mul(COPIES);
+    (shared.uploads.hold(bytes, &|| abort.signal().aborted()))
+        .map(Some)
+        .ok_or_else(|| failed(FailureKind::Aborted, "native request aborted"))
 }
 
 /// An upload's progress: each count of the body's bytes sent that the
@@ -321,6 +439,7 @@ fn open(
     // the one answer, as the web's, whose `response.body` is null for it.
     let as_bytes = request.bytes && !request.method.eq_ignore_ascii_case("HEAD");
     let upload = request.upload_progress;
+    let timeout = request.timeout_ms.filter(|_| upload);
     let mut req = fetch_request(request, forced);
     if !upload && !req.headers.has("accept") {
         req.headers.set("accept", "text/event-stream");
@@ -328,6 +447,11 @@ fn open(
     // The ceiling is per message: the stream as a whole has none.
     req.max_body = Some(usize::MAX);
     req.sent = sent;
+    // An upload's platform limits follow its deadline a second later, as a
+    // plain request's do (`execute`): the portable transport's 30 s for
+    // the whole exchange and URLSession's 60 s without data never end it
+    // first.
+    req.timeout = timeout.map(|ms| std::time::Duration::from_millis(u64::from(ms) + 1_000));
     let r = b
         .fetch
         .stream(req, &abort.signal())

@@ -162,6 +162,7 @@ impl<D: DataSource> Runner<D> {
                 placeholder: false,
                 kept_seed: false,
                 answered_for: None,
+                upload: false,
                 origin: 0,
             });
             *seed = true;

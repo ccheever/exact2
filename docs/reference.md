@@ -1274,10 +1274,19 @@ stream's messages do. The reply is read whole within the ceiling
 (`exactIndependentHttp.maxResponseBytes`, 1 MiB unless given) and ends the
 stream as `{type: 'load', status, data}`, whatever its status, as
 XMLHttpRequest's `load`. A failure ends it as any stream's `error` does, of kind
-`Timeout` once its `exactTimeout` passes (an upload may take one). No
+`Timeout` once its `exactTimeout` passes (an upload may take one; a reply that
+lands as it passes stands). The platform's own limits follow that deadline a
+second later; without one they are the upload's, as they are a fetch's
+(URLSession's 60 s without data, the portable transport's 30 s for the whole
+exchange), so give a deadline to an upload that may take longer. An empty body
+tells no progress. No
 `Accept: text/event-stream` is added. It is in flight until that reply: `pending(…)` reads true,
 `state.pending` lists it, and every clock waits for it, as for a fetch, while
-each progress event commits as it comes. No answer awaits it, so it holds
+each progress event commits as it comes. It is asked once for its arguments:
+nothing asks it again at them, in flight, finished or failed (not a store write
+it read, a topic it watches, nor `refresh`), so to send the same body again put
+an attempt number in its arguments. New arguments, or the resource leaving the
+view, abort a running upload on every host. No answer awaits it, so it holds
 nothing else back: several uploads run beside a source's other work (each a
 stream, of the 16 a native app may have open). It must be an `http:` or
 `https:` request other than GET or HEAD, without `exactLongPoll`, and with
@@ -1285,8 +1294,12 @@ stream, of the 16 a native app may have open). It must be an `http:` or
 `TypeError`. On the web a cross-origin upload asks a CORS preflight, as any
 XMLHttpRequest with an upload listener does. An older prelude would ignore the
 option and read the reply as a byte stream, so it moves `typescriptRuntime` to
-5. A Rust source's stream takes `Request::upload_progress()` and reads each
-message with `Message::sent()`; the Rust module seam refuses it.
+5, and `push` refuses such a module to a cohort whose binary is older: it needs
+a new binary. A Rust source's stream takes `Request::upload_progress()` and
+reads each message with `Message::sent()`; the Rust module seam refuses it. An
+upload that must finish after the person leaves the app is a background
+transfer instead ([recipe](recipes/background-transfers.md), LLP 1133.017),
+whose progress a live source reports at most once a second.
 
 A **long poll** (LLP 1016.000 D8) is a stream with `exactLongPoll: {cursor,
 from}` beside `exactStream`, for an endpoint that holds each request until it

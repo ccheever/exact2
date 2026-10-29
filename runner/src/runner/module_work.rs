@@ -122,7 +122,9 @@ impl<D: DataSource> Runner<D> {
     /// leaves a failure standing until its arguments change or `refresh`.
     pub(super) fn ask_failed_readers(&mut self, except: Option<Target>) {
         for i in 0..self.failed_args.len() {
-            let failed = self.store_readers[i] && self.failed_args[i].is_some();
+            // (an upload's failure is never asked again at its arguments: D10)
+            let failed =
+                self.store_readers[i] && self.failed_args[i].is_some() && !self.upload_failed(i);
             if failed && except != Some(Target::Resource(i)) {
                 self.force_refresh(i);
             }
@@ -204,7 +206,11 @@ impl<D: DataSource> Runner<D> {
         let mut now = Vec::new();
         if wrote {
             let revision = self.store.revision();
-            for i in self.store_readers() {
+            // An upload is asked once for its arguments (LLP 1016.000 D10).
+            let readers: Vec<usize> = (self.store_readers().into_iter())
+                .filter(|i| !self.upload_stands(*i))
+                .collect();
+            for i in readers {
                 let mut in_flight = false;
                 for p in self.pending.iter_mut() {
                     if p.target == Target::Resource(i)

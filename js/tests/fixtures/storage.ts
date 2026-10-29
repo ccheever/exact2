@@ -440,8 +440,9 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
   }
   // An upload's progress (LLP 1016.000 D10): each
   // event as its mapper gets it, a `progress` of the bytes sent, then `load`.
-  if (op === "upload-progress") {
-    return fetch("https://example.test/upload", { method: "POST", exactBodyFrom: value, exactUploadProgress: true, exactTimeout: 30000,
+  // (`upload-patient`: a deadline past the portable transport's own 30 s)
+  if (op === "upload-progress" || op === "upload-patient") {
+    return fetch("https://example.test/upload", { method: "POST", exactBodyFrom: value, exactUploadProgress: true, exactTimeout: op === "upload-patient" ? 60000 : 30000,
       exactStream: (e: any) => ({text: e.type === "progress" ? `progress ${e.loaded}/${e.total} ${e.lengthComputable}` : e.type === "load" ? `load ${e.status} ${e.data}` : `${e.type} ${e.kind} ${e.message}`}) } as any);
   }
   if (op === "upload-progress-refusals") {

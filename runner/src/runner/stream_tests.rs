@@ -17,6 +17,8 @@ struct Scripted {
     native: bool,
     /// Its stream is an upload that tells its bytes sent (LLP 1016.000 D10).
     upload: bool,
+    /// … whose failure it fails to take.
+    failing_end: bool,
 }
 
 impl DataSource for Scripted {
@@ -24,7 +26,12 @@ impl DataSource for Scripted {
         unreachable!("the fixture implements answer")
     }
 
-    fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
         Ok(match (source, args.first()) {
             ("busy", Some(v)) => Answer::Now(v.clone()),
             (_, Some(Value::Number(n))) if *n == 0. => Answer::Now(Value::Number(-1.)),
@@ -34,6 +41,8 @@ impl DataSource for Scripted {
                 r
             }),
             (_, Some(Value::Number(n))) if self.upload => {
+                // It watches a topic, which asks any other answer again.
+                store.observe_topic("clock");
                 let mut r = crate::Request::get(&format!("https://example.test/up?wave={n}"))
                     .upload_progress();
                 r.method = "POST".into();
@@ -65,6 +74,9 @@ impl DataSource for Scripted {
             Outcome::Message(m) if self.reopen_on_gap && m.coalesced > 0 => Ok(Answer::stream(
                 crate::Request::get("https://example.test/events").header("last-event-id", "1"),
             )),
+            Outcome::Failed { .. } if self.failing_end => {
+                Err(DataError::Unavailable("the upload failed".into()))
+            }
             Outcome::Message(m) if m.sent().is_some() => {
                 Ok(Answer::Now(Value::Number(m.sent().unwrap().0 as f64)))
             }
@@ -448,4 +460,80 @@ fn an_upload_is_pending_until_its_reply_while_its_progress_commits() {
     );
     assert_eq!(value(&r, "busy"), Value::Bool(false));
     assert!(!r.has_pending() && r.in_flight().is_empty() && !r.holds(ticket));
+}
+
+/// An upload is asked once for its arguments (LLP 1016.000 D10): neither a
+/// topic it watches nor a refresh asks it again, in flight or after its
+/// reply; new arguments do, letting the running one go.
+#[test]
+fn an_upload_is_asked_once_for_its_arguments() {
+    let mut r = boot_with(Scripted {
+        upload: true,
+        ..Scripted::default()
+    });
+    let ticket = r.take_requests()[0].ticket;
+    let sent = Outcome::Message(Message::upload_progress(1024, 4096));
+    r.fulfill(ticket, sent).unwrap();
+    r.changed("clock").unwrap();
+    r.act("refresh", vec![]).unwrap();
+    assert!(
+        r.take_requests().is_empty(),
+        "nothing asks it again in flight"
+    );
+    assert!(r.holds(ticket));
+    let reply = Outcome::Response(Response {
+        status: 201,
+        headers: Vec::new(),
+        body: b"{}".to_vec(),
+    });
+    r.fulfill(ticket, reply).unwrap();
+    r.changed("clock").unwrap();
+    r.act("refresh", vec![]).unwrap();
+    assert!(r.take_requests().is_empty(), "nor after its reply");
+    assert_eq!(
+        value(&r, "progress"),
+        Value::Number(-2.),
+        "its answer stands"
+    );
+    // New arguments ask again; a running upload they replace is let go.
+    r.act("wave", vec![Value::Number(2.)]).unwrap();
+    let second = r.take_requests();
+    assert_eq!(second.len(), 1);
+    r.act("wave", vec![Value::Number(3.)]).unwrap();
+    assert!(
+        !r.holds(second[0].ticket),
+        "the host aborts what the runner let go"
+    );
+    assert_eq!(r.take_requests().len(), 1);
+}
+
+/// … and so is one whose end its source failed to take: the failure stands
+/// through a topic it watches, a refresh, and another reply's store write
+/// (LLP 1146 §2.3); new arguments ask again.
+#[test]
+fn an_upload_that_failed_is_not_asked_again_at_its_arguments() {
+    let mut r = boot_with(Scripted {
+        upload: true,
+        failing_end: true,
+        ..Scripted::default()
+    });
+    let ticket = r.take_requests()[0].ticket;
+    let gone = Outcome::Failed {
+        kind: crate::FailureKind::Network,
+        message: "gone".into(),
+    };
+    r.fulfill(ticket, gone).unwrap();
+    assert!(!r.holds(ticket));
+    assert!(r.upload_failed(0), "its failure is an upload's");
+    r.changed("clock").unwrap();
+    r.act("refresh", vec![]).unwrap();
+    // As if its answer had read the store, and another reply's turn wrote it.
+    r.store_readers[0] = true;
+    r.ask_failed_readers(None);
+    r.act("wave", vec![Value::Number(1.)]).unwrap();
+    assert!(r.take_requests().is_empty(), "nothing asks it again");
+    assert!(r.upload_failed(0), "the failure stands");
+    r.act("wave", vec![Value::Number(2.)]).unwrap();
+    assert_eq!(r.take_requests().len(), 1, "new arguments ask again");
+    assert!(!r.upload_failed(0));
 }

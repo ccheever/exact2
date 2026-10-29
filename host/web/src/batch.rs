@@ -39,6 +39,7 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
         .or(request.body_from_refusal())
         .or(request.body_to_refusal())
         .or(request.long_poll_refusal())
+        .or(request.upload_progress_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {

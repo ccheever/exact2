@@ -383,9 +383,16 @@ last saw, returning 2 when they change before the headers, so
 `transport/darwin.rs` tells the hook on the opening thread and waits again.
 `transport/rustls_http.rs` sends such a body through a reader that tells the
 hook each read ureq takes, with an explicit `content-length`. Without a hook
-nothing changes. Tests: `darwin_stream_tests.rs`
+nothing changes. `fetch_stream_gated`, every request's hop loop, moves the
+body into each hop's request and back instead of cloning it, so a request
+holds one copy of its body while it goes out, the platform's aside. Tests: `darwin_stream_tests.rs`
 `an_uploads_bytes_sent_are_told_before_its_headers`, `stream_tests.rs`
-`the_portable_transport_tells_an_uploads_bytes_sent`. Replay on a refresh.
+`the_portable_transport_tells_an_uploads_bytes_sent`, which run with this
+crate's manifest and in no lane; exact2's workspace tests the hook through
+its executor, URLSession in `exact-apple`'s async-lane
+`an_upload_through_urlsession_tells_its_progress_and_waits_out_a_slow_reply`
+and the portable transport in `exact-js`'s
+`an_upload_maps_its_bytes_sent_as_they_go_then_its_reply`. Replay on a refresh.
 
 ## Qualification boundaries
 

@@ -435,8 +435,14 @@ impl<D: DataSource> Runner<D> {
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
                     let failed_for =
                         |f: &Vec<Value>| *f == args || (self.stale[i] && f == identity);
-                    if forced || self.failed_args[i].as_ref().is_some_and(|f| !failed_for(f)) {
+                    // An upload's failure stands through a refresh (D10).
+                    let upload_failed = self.upload_failed(i)
+                        && self.failed_args[i].as_ref().is_some_and(failed_for);
+                    if forced && !upload_failed
+                        || self.failed_args[i].as_ref().is_some_and(|f| !failed_for(f))
+                    {
                         self.failed_args[i] = None;
+                        self.failed_upload[i] = None;
                     }
                     let failed = self.failed_args[i].as_ref().is_some_and(failed_for);
                     // The value may still answer older arguments while a
@@ -488,6 +494,12 @@ impl<D: DataSource> Runner<D> {
                     // write through Store, so this is the one dirtying point.
                     // Host facts always come from this candidate, never a baked
                     // or carried delivery answer (LLP 1030 D7).
+                    // @ref LLP 1016.000 D10 — an upload is asked once for its
+                    // arguments: in flight, ended or failed, nothing asks it
+                    // again at them, not a store write it read nor a refresh.
+                    let upload = states[i].as_ref().is_some_and(|s| s.upload)
+                        || self.uploading(i)
+                        || upload_failed;
                     let reuse = states[i]
                         .as_ref()
                         .filter(|_| !unknown)
@@ -496,10 +508,11 @@ impl<D: DataSource> Runner<D> {
                                 || failed
                                 || (asked_args.unwrap_or(&s.args) == &args
                                 && !exact_plan::runner_owned_source(self.plan.str(row.source))
-                                && !forced
-                                && (!self.store_readers[i]
-                                    || s.store_revision == self.store.revision()
-                                    || self.asks_again_after_reply(i))
+                                && (upload
+                                    || !forced
+                                        && (!self.store_readers[i]
+                                            || s.store_revision == self.store.revision()
+                                            || self.asks_again_after_reply(i)))
                                 // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
                                 && (!s.placeholder || pending_res[i] || awaiting[i]))
@@ -512,6 +525,10 @@ impl<D: DataSource> Runner<D> {
                             !(s.value.is_compiled() && self.secrets_unseen(i, &row, &resources))
                         })
                         .map(|s| s.value.clone());
+                    // A refresh an upload stood through is spent, not carried.
+                    if reuse.is_some() && forced && upload {
+                        force.retain(|f| *f != i);
+                    }
                     let mut value_args = if reuse.is_some() {
                         states[i].as_ref().expect("reused").args.clone()
                     } else {
@@ -528,6 +545,9 @@ impl<D: DataSource> Runner<D> {
                     // Whether what shows is a stand-in, not an answer (D4).
                     let mut placeholder =
                         reuse.is_some() && states[i].as_ref().is_some_and(|s| s.placeholder);
+                    // An upload's answer stays one only while it stands.
+                    let upload_answer =
+                        reuse.is_some() && states[i].as_ref().is_some_and(|s| s.upload);
                     // Every ResourceState was checked for this index in this
                     // Runner's immutable plan: settlement checks new values,
                     // boot rechecks carried/kept values, and fulfil checks replies.
@@ -912,6 +932,7 @@ impl<D: DataSource> Runner<D> {
                         kept_seed,
                         origin,
                         answered_for,
+                        upload: upload_answer,
                     });
                     self.inspected_success(i, generation);
                     settled_res[i] = true;

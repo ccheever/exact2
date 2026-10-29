@@ -10,6 +10,12 @@ use crate::request::{Message, Redirect, Request};
 /// Only an upload sends it.
 pub const UPLOAD_PROGRESS: &str = "exact:progress";
 
+/// The id an upload's progress message carries, which no server's event can
+/// have: an event stream's parser drops an id that holds NUL (HTML's `id`
+/// field), and a long poll's cursor holds no control character. So a
+/// server's event named `exact:progress`, on any other stream, is no upload's.
+const PROGRESS_ID: &str = "\0";
+
 impl Request {
     /// An upload whose bytes sent are delivered as it goes (the field of
     /// this name), on a stream's request: `fetch(url, {exactStream,
@@ -53,6 +59,7 @@ impl Message {
     pub fn upload_progress(loaded: u64, total: u64) -> Message {
         Message {
             event: UPLOAD_PROGRESS.into(),
+            id: PROGRESS_ID.into(),
             data: format!("{{\"loaded\":{loaded},\"total\":{total}}}"),
             ..Message::default()
         }
@@ -68,7 +75,8 @@ impl Message {
                 .next()?;
             digits.parse().ok()
         };
-        (self.event == UPLOAD_PROGRESS).then(|| Some((field("loaded")?, field("total")?)))?
+        let ours = self.event == UPLOAD_PROGRESS && self.id == PROGRESS_ID;
+        ours.then(|| Some((field("loaded")?, field("total")?)))?
     }
 }
 
@@ -140,11 +148,17 @@ mod tests {
         assert_eq!(m.event, "exact:progress");
         assert_eq!(m.data, r#"{"loaded":65536,"total":4194304}"#);
         assert_eq!(m.sent(), Some((65_536, 4_194_304)));
-        // A server's event of another name is no upload's progress.
+        // A server's event of another name is no upload's progress, nor is
+        // one of this name: no server's event has its id.
         let other = Message {
             event: "progress".into(),
             ..m.clone()
         };
         assert_eq!(other.sent(), None);
+        let named = Message {
+            id: "7".into(),
+            ..m.clone()
+        };
+        assert_eq!(named.sent(), None);
     }
 }

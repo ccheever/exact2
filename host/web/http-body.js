@@ -142,7 +142,7 @@ function upload(url, method, headers, body, limit, message, signal, admits) {
       xhr.responseType = 'arraybuffer';
       for (const [name, value] of headers) xhr.setRequestHeader(name, value);
     } catch (error) { return resolve(failed(2, error?.message ?? error)); }
-    xhr.upload.onprogress = e => { if (e.lengthComputable) message({ event: 'exact:progress', id: '', data: JSON.stringify({ loaded: e.loaded, total: e.total }), coalesced: 0, received: performance.now() }); };
+    xhr.upload.onprogress = e => { if (e.lengthComputable) message({ event: 'exact:progress', id: '\0', data: JSON.stringify({ loaded: e.loaded, total: e.total }), coalesced: 0, received: performance.now() }); };
     xhr.onprogress = e => { if (e.loaded > limit) { end(failed(2, 'HTTP response exceeds limit')); xhr.abort(); } };
     xhr.onload = () => {
       if (xhr.responseURL && !admits(xhr.responseURL)) return end(failed(2, `outside the app's grants (net.fetch): redirected to ${new URL(xhr.responseURL).origin}`));
@@ -387,14 +387,15 @@ import { reachRefusal, redirectFor } from './address-space.js';
 export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {}, bodyFile, bodyTarget, protocol }) {
   const encoder = new TextEncoder();
   const failed = (kind, message) => ({ kind, status: 0, headers: '', body: encoder.encode(String(message?.message ?? message)) });
-  const { method, url, headers, body, cache } = op;
+  // `bodyBytes`: a stream's inline body as its bytes (`streamed`); `body`, base64, as the wasm host's batch gives it.
+  const { method, url, headers, body, cache } = op, bytes = op.bodyBytes?.length ? op.bodyBytes : null;
   if (!active()) return failed(4, 'request source unloaded');
   // A long poll no host may run (LLP 1016.000 D8) is refused before anything else is tried: a native call, a socket.
-  const pollRefusal = op.longPoll && longPollRefusal(op, method, body);
+  const pollRefusal = op.longPoll && longPollRefusal(op, method, body || bytes);
   if (pollRefusal) return failed(2, pollRefusal);
   const native = url === 'exact-native:';
   const effective = scopedGrantSet(grantSet, op.scope), invalid = grantError(effective);
-  const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
+  const asset = method === 'GET' && !body && !bytes && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
   const socket = op.stream && /^wss?:/i.test(url), capability = socket ? 'net.websocket' : 'net.fetch';
   if (invalid) return failed(2, invalid);
   if (!native && !asset) try { new URL(url); } catch (error) { return failed(1, error); }
@@ -431,8 +432,8 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // `net.websocket`, above); its method, headers and body are not sent.
   if (socket && op.bodyFrom != null) return failed(2, 'exactBodyFrom: a WebSocket sends no body');
   if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller, protocol && { ...protocol, admit: () => active() && admitsNetwork(scopedGrantSet(grantSet, op.scope), url, 'websocket') });
-  let decodedBody;
-  try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
+  let decodedBody = bytes ?? undefined;
+  try { if (body && !bytes) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
   // A deadline for the whole exchange (Request::timeout_ms): kind 10 when it
   // passes (9 is an auth session's delivery, glue.js). A body read from a file
@@ -451,7 +452,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   let fileBody;
   if (op.bodyFrom != null) {
     if (!bodyFile) return failed(3, `exactBodyFrom ${op.bodyFrom}: this host has no app files (no storage here)`);
-    if (body) return failed(2, 'fetch: a request has one body: body or exactBodyFrom');
+    if (body || bytes) return failed(2, 'fetch: a request has one body: body or exactBodyFrom');
     if (/^(GET|HEAD)$/i.test(method)) return failed(2, 'fetch: a GET or HEAD request cannot have a body');
     if (typeof op.bodyFrom !== 'string' || !op.bodyFrom.startsWith('app:/')) return failed(2, 'exactBodyFrom must be an app:/ path');
     if (new TextEncoder().encode(op.bodyFrom).length > 4096 || /(^|\/)\.\.?(\/|$)|\0/.test(op.bodyFrom.slice(5))) return failed(2, `exactBodyFrom ${op.bodyFrom.slice(0, 256)}: an app:/ path has no . or .. segment, and is at most 4096 bytes`);
@@ -538,11 +539,9 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 // A stream on the JS target (host/web-js: rust-data.js, ts-data.js): `request`
 // over a source's request with the wasm host's admission and ownership.
 // Only the TypeScript adapter opts into ordered protocol frames (D7) and
-// byte streams.
+// byte streams. An inline body goes as its bytes, copied once.
 export function streamed(req, grantSet, message, controller, bodyFile, protocol) {
-  let body = '';
-  for (const b of req.raw ?? []) body += String.fromCharCode(b);
-  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, redirect: req.redirect, longPoll: req.longPoll, upload: req.upload, timeoutMs: req.timeoutMs, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
+  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: '', bodyBytes: req.raw?.length ? Uint8Array.from(req.raw) : undefined, bodyFrom: req.bodyFrom, redirect: req.redirect, longPoll: req.longPoll, upload: req.upload, timeoutMs: req.timeoutMs, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
     { grantSet, controllers: new Set(), controller, message, bodyFile, protocol, localAssetURL: url => new URL(url, location.href).href,
       loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
 }

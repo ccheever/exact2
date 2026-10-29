@@ -750,7 +750,7 @@ function apply(batch) {
           message: (m) => { if (messages++ === 0) first(); safelyFulfill(requestIncarnation, op.ticket, 8, 0, `event: ${m.event}\nid: ${m.id}\ncoalesced: ${m.coalesced}`, encoder.encode(m.data)); },
         };
         controllers.add(controller); if (op.longPoll) controller.replied = () => { first(); if (!heldAsks.has(op.ticket)) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } }; // a long poll's reply of any kind (LLP 1016.000 D8 on D9): out of the clocks' count, held and named
-        if (op.url !== "exact-native:" && /^(GET|HEAD)$/i.test(op.method)) forgettable.set(controller, op.ticket);
+        if (op.url !== "exact-native:" && (/^(GET|HEAD)$/i.test(op.method) || op.upload)) forgettable.set(controller, op.ticket); // an upload let go is aborted, as natively (LLP 1016.000 D10)
         p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error)), performance.now() - started));
