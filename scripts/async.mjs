@@ -89,7 +89,12 @@ const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player
 export function tierTwoChecks() {
   return [
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
-    ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', '*-linux']],
+    ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'sh', '-c', [
+      'failed=0',
+      "cargo check --locked --keep-going --target x86_64-unknown-linux-gnu -p '*-linux' || failed=1",
+      'cargo check --manifest-path snapback4/Cargo.toml --locked --keep-going --target x86_64-unknown-linux-gnu -p app-linux || failed=1',
+      'exit $failed',
+    ].join('\n')]],
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
     // Rust has no GNU MinGW target for ARM64; LLVM's (`gnullvm`) stands in for MSVC here as GNU's does for x64.
     ['windows-arm64', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_aarch64_pc_windows_gnullvm=zig cc -target aarch64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'aarch64-pc-windows-gnullvm', '-p', 'exact-windows', '-p', 'windows-desk']],
@@ -137,6 +142,7 @@ export function checks(sha, since, selection = {}) {
   const lane = selection.lane ?? laneTests();
   const apple = selection.apple ?? appleTouched(sha, since);
   const glue = selection.glue ?? glueTests(WT);
+  const harmonyPackages = ['app-web', 'app-apple', 'app-linux'].flatMap(name => ['-p', name]).join(' ');
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
     // This commit's web builds for the tests that drive one (below): Caltrain wasm with every
@@ -173,10 +179,16 @@ export function checks(sha, since, selection = {}) {
     // This document proof builds Weatherlight's wasm target. Keep it out of
     // glue's seconds loop while retaining it in the asynchronous lane.
     ['web-build-test', 'env', [...required, 'bun', 'test', './host/web/tests/document.test.mjs', '--test-name-pattern', "a TypeScript app's served document"]],
-    // Harmony's end-to-end tests on the web, against a Snapback server of
-    // their own in memory on a free port: never the origin app.ts names,
-    // where a live server real people use listens on this machine.
-    ['harmony', 'env', [...required, 'bun', 'scripts/memory-backend-test.mjs', 'apps/harmony/app']],
+    // Harmony's web tests use their own in-memory Snapback server on a free port,
+    // never the live origin named by app.ts.
+    ['harmony', 'env', [...required, 'sh', '-c', [
+      'failed=0',
+      `cargo build --manifest-path snapback4/Cargo.toml --locked --all-targets --keep-going ${harmonyPackages} || failed=1`,
+      `cargo clippy --manifest-path snapback4/Cargo.toml --locked --all-targets --keep-going ${harmonyPackages} -- -D warnings || failed=1`,
+      `cargo fmt --manifest-path snapback4/Cargo.toml ${harmonyPackages} -- --check || failed=1`,
+      'bun scripts/memory-backend-test.mjs apps/harmony/app || failed=1',
+      'exit $failed',
+    ].join('\n')]],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
