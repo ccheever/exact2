@@ -97,7 +97,7 @@ impl Window {
     }
 
     /// The host's resolved window colour, including its scheme and contrast palette.
-    /// Used only when DWM refuses Mica. @ref LLP 1095 D4; LLP 1149 S2.7.
+    /// Used only when DWM refuses Mica. @ref LLP 1095 D1; LLP 1149 S2.7.
     pub fn set_background(&self, color: [u8; 4]) {
         self.background.set(opaque_background(color));
     }
