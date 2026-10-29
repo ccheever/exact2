@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { backLayer, chromium, launchFacts, listenOn, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
+import { agentPage, backLayer, chromium, launchFacts, listenOn, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs'; import { bootedGeneration, leaseGeneration } from '../host/web/generations.mjs';
@@ -269,10 +269,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       const encoded = worldFile(world).toString('base64');
       await page.addInitScript(value => { globalThis.exactWorldCarry = Uint8Array.from(atob(value), c => c.charCodeAt(0)); }, encoded);
     }
-    const address = new URL(hosted.url);
-    address.searchParams.set('agent', '1');
-    for (const [key, value] of Object.entries(facts)) address.searchParams.set(key, value);
-    if (storage !== undefined) address.searchParams.set('storage', storage);
+    const address = agentPage(new URL(hosted.url), { facts, storage, env });
     await page.goto(address.href, { waitUntil: 'commit' });
     let boot = await waitForBoot(page, neverBooted('the page never booted'));
     if (await page.evaluate(() => matchMedia('(prefers-reduced-transparency: reduce)').matches)) throw new Error(`${name} cannot emulate the required prefers-reduced-transparency: no-preference launch fact`);

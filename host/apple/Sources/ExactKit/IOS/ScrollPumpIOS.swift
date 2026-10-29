@@ -178,6 +178,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         inScroll = true
         defer { inScroll = false }
         lastScroll = CACurrentMediaTime()
+        // The frame sampler measures a scroll's frames, UIKit's deceleration's included
+        p.session?.sampler?.activity()
         armRest(after: Self.restDelay)
         // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
         // Nor is a smooth correction's frame (`OffsetDriver`).

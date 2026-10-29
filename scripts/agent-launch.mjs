@@ -571,6 +571,18 @@ export function faultSpec(spec) {
   return lines.join('\n');
 }
 
+/** `address` as every browser carrier opens it: under the agent, with the launch facts, the drive's auth fixture,
+ * whose sign-in URLs a held request shows whole (LLP 1146 D4), its storage, and hatches off when the drive turns them
+ * off (LLP 1075.003.000.001 §2.6). */
+export function agentPage(address, { facts, storage, env }) {
+  address.searchParams.set('agent', '1');
+  for (const [key, value] of Object.entries(facts)) address.searchParams.set(key, value);
+  if (env?.EXACT_AUTH_FIXTURE) address.searchParams.set('authFixture', env.EXACT_AUTH_FIXTURE);
+  if (storage !== undefined) address.searchParams.set('storage', storage);
+  if ((env?.EXACT_HATCHES ?? process.env.EXACT_HATCHES) === 'off') address.searchParams.set('hatches', 'off');
+  return address;
+}
+
 /** The page address with the fault table a reload carries (LLP 1103 D3); `undefined` leaves the launch's. */
 export function withFaults(href, failFetch) {
   if (failFetch === undefined) return href;

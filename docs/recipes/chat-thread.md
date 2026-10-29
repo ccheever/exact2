@@ -17,17 +17,17 @@ shape Reply
 component Chat
   state draft = ""
   resource thread = loadThread() as shape Message[] else empty()
-  mutation sent as shape Reply refreshes thread then afterSend
-  derive sendError = match sent { case some(r) => r.error, case none => "" }
+  mutation sent as shape Reply refreshes thread then toEnd
+  derive lastId = match thread.at(-1) { case some(m) => m.id, case none => "" }
   action edit(v: string)
     draft = v
   action post
     if draft.trim() != "" and not pending(sent)
       send sent = sendMessage(draft.trim())
-    focus("composer")
-  action afterSend
-    if sendError == ""
       draft = ""
+    focus("composer")
+  action toEnd
+    scrollIntoView("transcript", lastId, block="end")
   view
     main navigationKey=`${top(nav).id}` interactive-widget="resizes-content" width="100%" height="100%"
       for e in stack(nav) key=e.id
@@ -73,7 +73,6 @@ test "a sent message lands; the composer clears"
   expect text "message-1" == "Yes, at noon"
 ```
 
-- Bubbles are not cells (`appearance="none"`); `interactive-widget` keeps the composer over
-  the keyboard; Send keeps it up.
-- `anywhere` breaks a long word (a URL) whichever box bounds the bubble, as UIKit does.
-- Yours: the accent under `AccentColorText`, no name; a group names others'.
+- `interactive-widget` keeps the composer over the keyboard; Send keeps it up.
+- A send scrolls to the end, as Messages does; `scrollFollowEnd` follows only from there.
+- `anywhere` breaks a long word (a URL), as UIKit does. Yours: no name; a group names others'.

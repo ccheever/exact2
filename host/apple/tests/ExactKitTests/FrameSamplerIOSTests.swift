@@ -63,5 +63,21 @@ final class FrameSamplerIOSTests: XCTestCase {
         XCTAssertNotNil(session.clock)
         XCTAssertTrue(sampler.turnObservers.isEmpty)
     }
+
+    /// A scroll opens a segment, so the frames of UIKit's deceleration after
+    /// the finger lifts, which no batch marks, are measured too.
+    func testAScrollOpensASegment() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        sampler.stop()
+        let segments = { (sampler.reply()["lifetime"] as? [String: Int])?["segments"] ?? 0 }
+        let before = segments()
+        session.presenter.scrollPump.scrolled(nil)
+        XCTAssertEqual(segments(), before + 1)
+        XCTAssertFalse(sampler.turnObservers.isEmpty, "the segment's link runs")
+        sampler.stop()
+    }
 }
 #endif

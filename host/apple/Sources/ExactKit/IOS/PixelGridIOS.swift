@@ -194,6 +194,7 @@ extension Presenter {
             // only the absolute origin its own children are placed from changes, and its box keeps its frame.
             if place.drawn == old.drawn {
                 child.grid = place
+                child.placeTextRaster() // its text's box is placed from its absolute origin
                 menus.framed(child); stickies.regridded(child.id)
                 regridChildren(of: child)
                 return

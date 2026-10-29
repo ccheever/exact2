@@ -3,15 +3,6 @@
 #![cfg(exact_js_engine)]
 use super::storage::{call, Root, GRANTS};
 use exact_runner::{DataSource, Store};
-/// The timing tests run one at a time: each compresses seconds of noise
-/// against a wait far shorter, and two at once would slow the small writes
-/// they also wait on past it.
-#[cfg(target_vendor = "apple")]
-static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-/// A wait no compression of [`noise_bmp`] finishes inside, and every small
-/// write does.
-#[cfg(target_vendor = "apple")]
-const WAIT: std::time::Duration = std::time::Duration::from_millis(200);
 
 #[cfg(target_vendor = "apple")]
 use {
@@ -270,14 +261,14 @@ fn half_clear_png(w: u32, h: u32) -> Vec<u8> {
 /// A wait that gives up on an `fs.compressImage` takes its right to write
 /// away (LLP 1069.002 A1.5): the answer fails `timeout`, the queue moves on
 /// to a write of the same path, and the compression, still running, never
-/// writes over it.
+/// writes over it. Each of these tests holds its compressions, so the wait
+/// on one runs out while it runs.
 #[cfg(target_vendor = "apple")]
 #[test]
 fn a_compression_the_wait_gave_up_on_never_writes() {
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let root = Root::new();
     let mut m = root.module();
-    m.set_storage_wait(WAIT);
+    let hold = m.hold_compressions();
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
@@ -300,21 +291,20 @@ fn a_compression_the_wait_gave_up_on_never_writes() {
         "{err:?}"
     );
     // The queue has moved on: a write to the same path, while the
-    // compression still runs.
-    let mut m2 = m;
-    assert_eq!(call(&mut m2, &mut s, "write-slow", "next"), "wrote next");
-    // The abandoned compression finishes in the background and writes nothing.
-    returned(&m2);
+    // compression is still held.
+    assert_eq!(call(&mut m, &mut s, "write-slow", "next"), "wrote next");
+    // Released, the abandoned compression ends and writes nothing.
+    hold.release();
+    returned(&m);
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"next"
     );
-    drop(m2);
 }
 
-/// Until the compression a wait gave up on has returned: whatever it was
-/// going to write is on disk by then. The codec starts nothing after
-/// `TRIAL_BUDGET` (20 s), so the bound only stops work that never ends.
+/// Until the compressions a wait gave up on have returned: whatever they
+/// were going to write is on disk by then. The bound only stops work that
+/// never ends.
 #[cfg(target_vendor = "apple")]
 fn returned(m: &exact_js::Module) {
     let hang = std::time::Instant::now() + std::time::Duration::from_secs(60);
@@ -327,11 +317,10 @@ fn returned(m: &exact_js::Module) {
     }
 }
 
-/// 3000 × 2000 of noise as a 24-bit BMP: seconds of trials at full size,
-/// the first fitting a large budget, then a write.
+/// 120 × 80 of noise as a 24-bit BMP.
 #[cfg(target_vendor = "apple")]
 fn noise_bmp() -> Vec<u8> {
-    let (w, h) = (3000u32, 2000u32);
+    let (w, h) = (120u32, 80u32);
     let row = (w * 3).div_ceil(4) * 4;
     let mut bmp = Vec::with_capacity(54 + (row * h) as usize);
     bmp.extend_from_slice(b"BM");
@@ -358,10 +347,9 @@ fn noise_bmp() -> Vec<u8> {
 #[cfg(target_vendor = "apple")]
 #[test]
 fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let root = Root::new();
     let mut m = root.module();
-    m.set_storage_wait(WAIT);
+    let hold = m.hold_compressions();
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
@@ -372,6 +360,7 @@ fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"after"
     );
+    hold.release();
     returned(&m);
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
@@ -385,10 +374,9 @@ fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
 #[cfg(target_vendor = "apple")]
 #[test]
 fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let root = Root::new();
     let mut m = root.module();
-    m.set_storage_wait(WAIT);
+    let hold = m.hold_compressions();
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
@@ -413,17 +401,18 @@ fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
         next = m.parse(&mut s, "work", &a, outcome);
     }
     // The second waits on the let-go first, then on its own compression,
-    // which either finishes (other completions kept its waiters satisfied)
-    // or has its wait give up in turn.
-    match next {
-        Ok(Answer::Now(v)) => assert_eq!(super::storage::text(v), "written"),
-        Err(err) => assert!(
-            format!("{err:?}").contains("compressImage: timeout: "),
-            "{err:?}"
-        ),
+    // whose wait gives up in turn.
+    let err = match next {
+        Err(err) => err,
+        Ok(Answer::Now(v)) => panic!("the held compression wrote: {v:?}"),
         Ok(Answer::Later(_)) => panic!("the second call did not end"),
-    }
+    };
+    assert!(
+        format!("{err:?}").contains("compressImage: timeout: "),
+        "{err:?}"
+    );
     assert_eq!(call(&mut m, &mut s, "write-slow", "next"), "wrote next");
+    hold.release();
     returned(&m);
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
@@ -437,10 +426,9 @@ fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
 #[cfg(target_vendor = "apple")]
 #[test]
 fn a_let_go_chain_keeps_its_other_storage_after_a_discarded_waiter_gave_up() {
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let root = Root::new();
     let mut m = root.module();
-    m.set_storage_wait(WAIT);
+    let hold = m.hold_compressions();
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
@@ -483,6 +471,7 @@ fn a_let_go_chain_keeps_its_other_storage_after_a_discarded_waiter_gave_up() {
         std::fs::read(root.0.join("data/second")).unwrap(),
         b"second"
     );
+    hold.release();
     returned(&m);
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),

@@ -96,5 +96,29 @@ final class GroupedAccessibilityIOSTests: GroupedListFixture {
         XCTAssertFalse(renamed.accessibilityTraits.contains(.button))
         XCTAssertFalse(renamed.accessibilityTraits.contains(.selected))
     }
+
+    /// UIKit's accessibility reads a list content view's hidden labels: a
+    /// cell whose row drops its value must hold no label with the old one.
+    func testACellWhoseRowDropsItsValueKeepsNoLabelOfIt() throws {
+        var row = Row(view: 11, title: "Font", secondary: "Georgia", accessory: "disclosure", pressable: true)
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].rows[1] = row
+            return m
+        }
+        defer { window.isHidden = true }
+        XCTAssertTrue(labelText(in: try cell(p, 11)).contains("Georgia"))
+        row.title = "Privacy Policy"
+        row.secondary = nil
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["testId": "privacy"]]]))
+        let after = try cell(p, 11)
+        after.layoutIfNeeded()
+        XCTAssertEqual(labelText(in: after), ["Privacy Policy"])
+    }
+
+    /// Every label's text in a view, hidden ones too.
+    private func labelText(in view: UIView) -> [String] {
+        view.subviews.flatMap { ($0 as? UILabel).map { [$0.text ?? ""] } ?? labelText(in: $0) }.filter { !$0.isEmpty }
+    }
 }
 #endif

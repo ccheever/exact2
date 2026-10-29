@@ -90,6 +90,7 @@ fn refused_forms_name_the_authored_line() {
 fn the_test_command_emits_structured_properties_beside_scripts() {
     let dir = std::env::temp_dir().join(format!("contract-properties-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  state screen = \"lock\"\n  state counter = 1\n  state tsResult = none\n  state rustResult = none\n  state rustExecutorResult = none\n  state ready = false\n  state turns = 0\n  state resets = 0\n").unwrap();
     let path = dir.join("app.test.contract");
     std::fs::write(
         &path,
@@ -142,4 +143,34 @@ fn the_cone_follows_derives_and_functions_but_respects_local_names() {
     assert!(
         contract_analyze::check_properties(&file.components[0], &file.fns, &property).is_empty()
     );
+}
+
+#[test]
+fn device_json_refuses_the_same_imported_cone_as_verify() {
+    let dir = std::env::temp_dir().join(format!("contract-property-cone-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    std::fs::write(
+        dir.join("clock.contract"),
+        "fn reading(): number = performanceNow()\n",
+    )
+    .unwrap();
+    let app = dir.join("app.contract");
+    std::fs::write(&app, "use reading from \"./clock.contract\"\ncomponent App\n  derive outer = reading()\n  view\n    text \"clock\"\n").unwrap();
+    let tests = dir.join("app.test.contract");
+    std::fs::write(&tests, "always \"time\"\n  expect state outer whole\n").unwrap();
+    let properties = contract::properties(&std::fs::read_to_string(&tests).unwrap()).unwrap();
+    let errors = contract::check_properties_path(&app, &properties).unwrap_err();
+    assert!(errors
+        .iter()
+        .any(|e| e.to_string().contains("performanceNow")));
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .arg("test")
+        .arg(&tests)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("performanceNow"), "{error}");
+    std::fs::remove_dir_all(dir).unwrap();
 }

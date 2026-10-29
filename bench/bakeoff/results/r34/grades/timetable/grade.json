@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Whole day in time order, grouped by hour with pinned hour headings (e.g. '1:00 PM' stays pinned while its rows scroll under it). Rows show time, coloured 'B · Blue' badge, destination, platform, and red 'Cancelled' / orange 'Delayed 12 min' when not on time."},
+      {"n": 2, "status": "pass", "note": "Station is a capsule button in the nav bar. It opens a system sheet with an alphabetical list, a checkmark on the current station, Cancel, and a bottom search field. Typing 'gl' filters to Glen Park, and tapping it selects and dismisses."},
+      {"n": 3, "status": "pass", "note": "On launch and after a station change, the list opens on the hour that holds the next departure (2:04 PM at 2:01). The Now button scrolls back to the same place."},
+      {"n": 4, "status": "pass", "note": "A system pull-down menu offers All lines plus the five lines with a checkmark, and filtering works. The filter button's icon does not change to show that a filter is active."},
+      {"n": 5, "status": "pass", "note": "Past departures are dimmed, but only slightly (grey vs black text), so earlier rows are hard to tell from upcoming ones at a glance."},
+      {"n": 6, "status": "pass", "note": "Star toggles filled and blue. The Saved tab, with a large title, lists it with 'From Glen Park' and has swipe-to-Delete. Saved items and the chosen station survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The main screen has a small inline 'Timetable' title crowded by three capsule buttons instead of a large title, and at the largest text size it truncates to 'Timeta…'.",
+      "The filter button gives no visual sign that a line filter is active.",
+      "Past-departure dimming is very faint.",
+      "The line filter menu has no line-colour swatches."
+    ],
+    "scroll": "A standard collection list: slow drags and flings are smooth, there are no blank or popping rows, headers pin and hand off cleanly, the list bounces at the top, and scroll position is kept across tab switches.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Whole day grouped by hour with pinned headings ('15:00 · 6 departures'). Rows show time, a coloured letter badge, destination, platform, and red Cancelled / amber Delayed lines."},
+      {"n": 2, "status": "pass", "note": "A large station-name header opens a sheet with a search field ('Search 20 stations') that filters correctly. Tapping a station only moves the checkmark: you must also tap the Done (✓) button to close the sheet."},
+      {"n": 3, "status": "partial", "note": "The Now button lands exactly on the next departure, highlighted 'UP NEXT'. But the list does not open there: at 14:01 it opened around 15:30 (Harbor), around 15:59 after switching to Glen Park, and at 07:00 at the largest text size. This was consistent across relaunches."},
+      {"n": 4, "status": "pass", "note": "Horizontal chips (All lines, R, B, G, Y, O) filter correctly and the count line updates ('28 departures today · Red line')."},
+      {"n": 5, "status": "pass", "note": "Past rows are clearly faded (text, badges and status), labelled 'already departed' for VoiceOver."},
+      {"n": 6, "status": "pass", "note": "Star fills green. The Saved tab shows saved trips across stations with the station name, plus swipe-to-Unsave. Saved items and the chosen station survive relaunch."}
+    ],
+    "bugs": [
+      "On launch, after changing station, and at large text, the list opens one or more hours past the next departure (or at 07:00) instead of at the next departure. Only the Now button scrolls correctly.",
+      "A cancelled departure is still badged 'UP NEXT'.",
+      "The station picker does not close when you tap a station; you have to tap a separate Done button."
+    ],
+    "tells": [
+      "A custom header (spaced-out 'TIMETABLE' wordmark, big station name, date, chip row, count line) instead of a navigation bar. It never collapses, uses about 300 of 874 points, and at the largest text size leaves room for about one row.",
+      "Hand-drawn capsule filter chips instead of a system menu or segmented control.",
+      "Forces a 24-hour clock ('All times are local · 24-hour clock') even though the device uses 12-hour time.",
+      "A custom off-white and green theme with a green tint on bar buttons, which reads as branded or web-like rather than system styling.",
+      "The Saved tab repeats the whole custom header, including a Now button and a disabled station button.",
+      "At the largest text size the picker breaks 'Civic Cen-ter' across lines (syllable hyphenation, which is excused)."
+    ],
+    "scroll": "Scrolling is smooth with no blank rows, and pinned headers work, but it all happens in a short pane under a fixed header. Pulling past the top bounces only the list, not the page.",
+    "scores": {"features": 7, "platform": 5, "polish": 7, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps cover every requirement, but A opens on the next departure as the spec asks, while B opens an hour or more late (and at 07:00 at large text), so Now has to be tapped every time. A uses system navigation bars, menus and sheets and scales well to large text; B's fixed custom header eats a third of the screen and leaves almost no room for the list at large sizes, though B's dimming of past departures and 'UP NEXT' highlight are nicer."
+}

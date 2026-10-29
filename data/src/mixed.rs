@@ -959,6 +959,57 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         self.javascript.background_state()
     }
 
+    // Each let-go request goes to the child that asked it, and each child
+    // hears, as after every `forgotten`, even with none of its own. A
+    // JavaScript child in an ordered set keeps none: its replies take their
+    // turns in the set (LLP 1027.002 D3), which a module turn would bypass.
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        let mut kept = vec![None; let_go.len()];
+        for rust in [false, true] {
+            let ordered = !rust && self.set_of[0].is_some();
+            let mine: Vec<usize> = (0..let_go.len())
+                .filter(|&i| !ordered && self.owner(let_go[i].source).ok() == Some(rust))
+                .collect();
+            let view: Vec<InFlight<'_>> = mine
+                .iter()
+                .map(|&i| InFlight {
+                    continuation: None,
+                    ..let_go[i]
+                })
+                .collect();
+            let tokens = if rust {
+                self.rust.keep_sent(store, &view, refused)
+            } else {
+                // Its calls take their turns in the set, outside any commit.
+                self.javascript.keep_sent(store, &view, refused && !ordered)
+            };
+            // Only the JavaScript child's tokens reach `module_landed`.
+            for (&i, token) in mine.iter().zip(tokens) {
+                kept[i] = token.filter(|_| !rust);
+            }
+        }
+        kept
+    }
+
+    // A kept request is the JavaScript child's (LLP 1146 D2): its module
+    // turn sees the store through the child's grants, as an answer does.
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        let grants = self.javascript.grants().to_string();
+        store.with_grants(&grants, |store| {
+            self.javascript.module_landed(store, token, outcome)
+        })
+    }
+
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         if token == exact_runner::BACKGROUND {
             return self.javascript.continuation(token);

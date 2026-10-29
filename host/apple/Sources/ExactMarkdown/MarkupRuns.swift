@@ -38,12 +38,13 @@ enum MarkupRuns {
     static let atomScheme = "exact-atom:"
 
     /// Expand `source` into runs over `base` (the node's own run style).
-    /// `color` is the node's ink; nil keeps the paragraph colour. `boldText`:
+    /// `color` is the node's ink; nil keeps the paragraph colour. `linkColor`
+    /// is a link's and `atomColor` an atom's, where it is not `color`. `boldText`:
     /// Bold Text weights `base`, and a piece's own weight takes its step.
     /// An atom (LLP 1045.000 D6) is its label on a rounded inline box, a
     /// narrow no-break space each side its padding, so a line breaks around
     /// it and never inside its ends.
-    static func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool = false, atoms: MarkdownAtoms = MarkdownAtoms()) -> [Run] {
+    static func expand(_ source: String, base: Run, color: [Double]?, linkColor: [Double]? = nil, atomColor: [Double]? = nil, boldText: Bool = false, atoms: MarkdownAtoms = MarkdownAtoms()) -> [Run] {
         var out: [Run] = []
         var text = source
         let handle = AtomHandle.of(atoms), paint = AtomPaint.resolve(atoms)
@@ -74,11 +75,14 @@ enum MarkupRuns {
                 // A short line between blocks keeps the node's line height
                 // from stretching it back to a full line.
                 if p.scale < 1 && run.text == "\n" { run.lineHeight = nil }
+                let atom = p.atom.flatMap { a in p.atom_len > 0 ? try? JSONSerialization.jsonObject(with: Data(bytes: a, count: p.atom_len)) as? [String: Any] : nil }
+                // A link's piece takes `linkColor` and an atom's `atomColor`, and an atom its own ink over either
+                let ink = atom != nil ? atomColor ?? color : run.href.isEmpty ? color : linkColor ?? color
                 switch p.role {
-                case 3, 4: run.color = color.map { c in [c[0], c[1], c[2], (c.count > 3 ? c[3] : 255) * 0.62] }
-                default: run.color = color
+                case 3, 4: run.color = ink.map { c in [c[0], c[1], c[2], (c.count > 3 ? c[3] : 255) * 0.62] }
+                default: run.color = ink
                 }
-                if let atom = p.atom, p.atom_len > 0, let detail = try? JSONSerialization.jsonObject(with: Data(bytes: atom, count: p.atom_len)) as? [String: Any] {
+                if let detail = atom {
                     let kind = detail["kind"] as? String ?? ""
                     // One line, as a pill is (D4): its spaces and hyphens do not break.
                     let unbroken = run.text.replacingOccurrences(of: " ", with: "\u{00A0}").replacingOccurrences(of: "-", with: "\u{2011}")

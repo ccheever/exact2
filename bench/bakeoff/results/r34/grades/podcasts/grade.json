@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, newest first, showing show, title, date, length and Played/Unplayed text. The played state is only a word in the metadata line, with no glyph."},
+      {"n": 2, "status": "pass", "note": "'Unplayed Only' system switch with a live '420 episodes • N unplayed' count."},
+      {"n": 3, "status": "pass", "note": "Shows tab lists all 12 shows with episode and unplayed counts; tapping one pushes that show's episodes."},
+      {"n": 4, "status": "pass", "note": "Detail shows summary, date and length. Play changes to 'Playing · Pause' and marks the episode Played. There are also Mark Played and Add to Up Next buttons."},
+      {"n": 5, "status": "partial", "note": "Works only through the ••• menu on each row (Mark Played/Unplayed). There are no swipe actions; a horizontal swipe on a row opens the episode instead."},
+      {"n": 6, "status": "pass", "note": "Add from the detail screen or the row menu. Up Next reorders by dragging the grip, and swipe-to-delete works. Its Edit mode is hand-made (Move Up / Move Down / Remove buttons)."},
+      {"n": 7, "status": "pass", "note": "After relaunch, played state, queue order and removals were all kept."}
+    ],
+    "bugs": [
+      "Swiping an episode row left or right does not reveal actions. The drag is taken as a tap and pushes the episode screen."
+    ],
+    "tells": [
+      "No leading or trailing swipe actions on episode rows, which iOS users expect for played and queue actions.",
+      "Up Next Edit mode is not the system editing style: each row gets pill buttons 'Move Up', 'Move Down' and 'Remove' instead of red delete circles and reorder handles.",
+      "Up Next rows are exposed to accessibility as web-style 'Link' elements inside a plain scroll view, not as list cells.",
+      "Up Next uses a white plain background, while the other tabs use grouped grey, so the tabs do not look like one app.",
+      "Generic look: the same blue microphone glyph for all 12 shows and no artwork. It is correct but bare.",
+      "At the largest text size, words such as 'ra-dios' and 'un-played' are hyphenated, which is allowed. The layout otherwise holds."
+    ],
+    "scroll": "The 420-row list scrolls and flings smoothly with no blank or popping rows. Re-tapping the tab scrolls to the top, and scroll position is kept after pushing and popping an episode.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first list with show artwork, uppercase show name, serif title, date · length, and an Unplayed dot or Played check."},
+      {"n": 2, "status": "pass", "note": "System segmented control 'All (420) / Unplayed (N)' with live counts. Each show's screen also has an 'Unplayed only' switch."},
+      {"n": 3, "status": "pass", "note": "Shows tab is a grid of 12 show tiles with episode and unplayed counts. Tapping one pushes its episode list, which has its own unplayed filter."},
+      {"n": 4, "status": "pass", "note": "Large artwork, date, length and summary. Play becomes Pause with 'Playing this episode' and marks the episode Played. A Now Playing mini bar appears above the tab bar."},
+      {"n": 5, "status": "pass", "note": "A full swipe right toggles played, swipe left offers Up Next, and the row's ••• menu has Mark as Played/Unplayed and Add to Up Next."},
+      {"n": 6, "status": "pass", "note": "Add from a swipe, the menu or the detail screen (which toggles to Remove from Up Next). Up Next uses standard Edit mode with delete circles and reorder handles, and both reordering and removal work."},
+      {"n": 7, "status": "pass", "note": "After relaunch, played state and queue order and contents were kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Heavily branded editorial look: a cream background, serif titles, rust accent and a marketing hero card ('A little curiosity. A great next listen.'). It looks like a designed product rather than a stock UIKit app.",
+      "Rows show both a disclosure chevron and a ••• button, which is redundant.",
+      "The Unplayed dot and the Played check sit with a large gap before their label, and are slightly out of line with the text column.",
+      "At the largest text size, the search field placeholder on the Episodes tab stays small and does not scale with Dynamic Type.",
+      "At large text, the pinned 'Newest first' section header sits over blurred content under the nav bar and looks cluttered."
+    ],
+    "scroll": "Smooth scrolling and flings with no blank or popping rows, and the sticky 'Latest Episodes' header behaves. Re-tapping the tab returns to the top, and scroll position is kept after a push and edge-swipe back.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet the spec and persist correctly, but B supports the gestures iOS users expect (swipe to mark played or queue, standard edit mode with delete and reorder) and adds a now-playing state and real show artwork. A has no row swipe actions (a swipe opens the episode) and a hand-made Move Up/Down edit mode. B's custom styling is the larger departure from stock iOS, but it is consistent and well done."
+}

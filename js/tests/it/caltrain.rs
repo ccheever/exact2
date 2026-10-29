@@ -168,9 +168,9 @@ fn the_executor_refuses_what_the_plan_does_not_declare_and_what_does_not_fit() {
 #[test]
 fn console_lines_are_collected_for_the_runners_logs() {
     let mut m = module();
-    assert!(m.take_logs().is_empty());
+    assert!(crate::authored_logs(m.take_logs()).is_empty());
     m.query("defaultLocation", &[]).unwrap();
-    let logs = m.take_logs();
+    let logs = crate::authored_logs(m.take_logs());
     assert_eq!(
         logs,
         ["defaultLocation {\"lat\":37.3947,\"lon\":-122.0763}"]

@@ -11,9 +11,9 @@
 // gate can see the slot render both.
 // scripts/library-gate.test.mjs holds the cells to the compiler's IR. No
 // `if`, `for` or `match` in this view: every cell renders.
-use PostCard, AtCard, ProfileHeader, ProfileAlert, Avatar, VerifiedBadge, PersonRow from "@exact/cards"
+use PostCard, AtCard, ProfileHeader, ProfileAlert, Avatar, VerifiedBadge, PersonRow, EmptyState from "@exact/cards"
 use ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton, FollowButton from "@exact/actions"
-use ListRow, SwitchRow from "@exact/lists"
+use ListRow, SwitchRow, MenuItem, MenuGroup from "@exact/lists"
 
 component App
   state glyph = "A"
@@ -237,6 +237,31 @@ component App
           FollowButton(id="sample-fb-round-tiny", following=false, text="Follow", label="Follow Ada", tone="primary", size="tiny", shape="round", icon="both", press=press)
           FollowButton(id="sample-fb-icon-follow-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="follow", press=press)
           FollowButton(id="sample-fb-icon-following-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="following", press=press)
+        // What a list shows with nothing in it (stage 15 B batch 2): the
+        // base cell with every piece shown (the icon, title, message and a
+        // button with its icon), then each other icon size, tone and button
+        // tone alone; then the message alone, and a button with no icon and
+        // its own label, as samples.
+        column testId="gate-empty"
+          EmptyState(id="es-base", icon="symbol:info", iconSize="medium", tone="high", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-small", icon="symbol:info", iconSize="small", tone="high", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-large", icon="symbol:info", iconSize="large", tone="high", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-medium", icon="symbol:info", iconSize="medium", tone="medium", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-label", icon="symbol:info", iconSize="medium", tone="label", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-secondary", icon="symbol:info", iconSize="medium", tone="high", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="secondary", press=press)
+          EmptyState(id="sample-es-message", icon="", iconSize="medium", tone="high", title="", message="Nothing here yet.", button="", buttonLabel="", buttonIcon="", buttonTone="primary", press=press)
+          EmptyState(id="sample-es-button", icon="", iconSize="medium", tone="high", title="", message="Say hi to someone", button="New chat", buttonLabel="Start a new chat", buttonIcon="", buttonTone="primary", press=press)
+        // A menu's items in their group (stage 15 B batch 2). MenuGroup has
+        // no id prop, so its cell is the box holding it; its slot's marker
+        // first, then items. MenuItem's destructive value, one at a time; a
+        // group's first item (no hairline above it, structure) a sample.
+        box testId="mg-base"
+          MenuGroup()
+            box testId="marker-mg-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
+              text glyph
+            MenuItem(id="sample-mi-first", label="Translate", icon="symbol:info", destructive=false, first=true, pick=press)
+            MenuItem(id="mi-base", label="Settings", icon="symbol:settings", destructive=false, first=false, pick=press)
+            MenuItem(id="mi-destructive", label="Sign out", icon="symbol:sign-out", destructive=true, first=false, pick=press)
         // The lists' rows sit in a grouped list's section, as the platform's
         // list cells do (LLP 1084): each accessory and a destructive row are
         // samples (structure and an attribute, no recipe).

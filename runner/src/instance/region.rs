@@ -308,8 +308,9 @@ impl RegionInst {
         body: &Reads,
     ) -> Result<bool, InstanceError> {
         // Items may distinguish signed zero even though keys do not. A moved
-        // row also reads a new position (LLP 1062 D8), which dirties all fields.
-        let dirty = if r.frame.index != frame.index {
+        // row whose body reads its position (LLP 1062 D8) has all fields
+        // dirty; one that reads none only its item's changed fields.
+        let dirty = if r.frame.index != frame.index && body.reads_position() {
             !0
         } else {
             crate::compare::changed_fields(&r.frame.item, &frame.item)

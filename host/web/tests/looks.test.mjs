@@ -35,7 +35,7 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
   <style>#exact-root#exact-root .drawn { background-image: linear-gradient(red, blue); }</style>
   <div id="image" class="drawn" data-view="6" data-exact-on="press" style="width:100px;height:40px">i</div>
   <div id="outer" data-view="7" data-exact-on="press" style="padding:10px"><div id="inner" data-view="8" data-exact-on="press" style="width:100px;height:40px">n</div></div>
-  <div data-listrows><div><div id="in-row" data-view="9" data-exact-on="press" style="width:100px;height:40px">r</div></div></div>
+  <div data-listrows><div><div id="in-row" data-view="9" data-exact-on="press" style="width:100%;height:40px">r</div></div></div>
   <div id="eased" data-view="11" style="${eased}">e</div>
   <div id="eased-js" data-exact-looks="1" style="${eased}"><span id="eased-js-in">j</span></div>
   <div id="focused" data-exact-looks="2" tabindex="0" style="${eased}">f</div>

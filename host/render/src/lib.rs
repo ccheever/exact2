@@ -36,7 +36,7 @@ pub use direct::boot_swap_js;
 pub use executor::Executor;
 pub use page::{capture, capture_js, page, scroll_document_js};
 pub use pages::pages;
-pub use serve::{Serve, Server, Stopper};
+pub use serve::{expire_renders, Serve, Server, Stopper};
 pub use source::Anonymous;
 
 // The render never lays out (the projection is style rows, not boxes): its

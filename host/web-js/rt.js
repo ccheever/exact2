@@ -17,7 +17,7 @@ let Media = null; export function useMedia(m) { Media = m; } // and media.js onl
 //   compiled ones; a source not ready keeps the value and asks again when it
 //   is; a later answer lands in its own commit, if its ticket is current;
 // - timers fire on a clock the host moves (`advance`), each at its own time.
-let Listener = null, Owner = null, Queue = [], FocusQueue = [], Flushing = false, Rev = 0;
+let Listener = null, Owner = null, Queue = [], FocusQueue = [], Flushing = false, Rev = 0, LateStore = false; // `LateStore`: a store write outside a commit (module work, a let-go answer's code) owes a commit of its own (LLP 1146 D2)
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
 function node(fn, v, effect) {
   const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
@@ -156,8 +156,8 @@ export function W(s, v) { Writes.push([s.n, v]); }
 export function C(name, args) { Commands.push([name, args, Origin.now()]); Rev++; } export const Origin = { now: () => "app" }; // who caused the commit (modules.js, LLP 1133.002 D12), taken as a command is queued, so a deferred tail runs it under its own commit's origin
 /** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */
 export function R(r) { Refresh.push(r.r ?? r); }
-/** A topic its resource watched changed while ticket `t` was in flight (`t.again`, ts-data.js `changed`, LLP 1016.002 D4): its reply landed or failed, so the resource is asked again. */
-const again = t => { if (t.again) { t.again = false; say(`${t.r.name}: asked again, a watched topic changed while ticket ${t.id} was in flight`); R(t.r); } };
+/** What its resource reads (a watched topic, ts-data.js `changed`, LLP 1016.002 D4; the store, `lateReaders`) changed while ticket `t` was in flight (`t.again`): its reply landed or failed, so the resource is asked again. */
+const again = t => { if (t.again) { t.again = false; say(`${t.r.name}: asked again, what it reads changed while ticket ${t.id} was in flight`); R(t.r); } }, openEnded = t => !!(t.stream || t.req?.stream || t.req?.longPoll || t.call?.held > 0), reads = r => r.store || !!r.ticket?.call?.seen?.read, lateReaders = () => { for (const r of Resources) if (reads(r) && r.ticket && !openEnded(r.ticket)) r.ticket.again = true; }, lateIdle = () => { for (const r of Resources) if (reads(r) && (!r.ticket || openEnded(r.ticket))) R(r); }; // a store write outside a commit asks every store reader again (one whose answer has read the store so far, landed or not), a failed one too, as the runner's commit after a module turn does (LLP 1146 D2): one in flight once its reply lands, marked before that commit's checkpoint so a refusal keeps the mark, and one whose request may never land (a stream, a long poll, a held fetch) now
 /** Pull every derive and resource in plan order: the settlement pass. */
 function settle() { for (const n of Settle) fresh(n); }
 /** One commit: `f` runs; its writes, sends and refreshes land; settlement
@@ -386,7 +386,7 @@ export const Store = {
   map: new Map(), writes: [], pending: new Map(), dirty: false,
   get(k) { return this.map.get(k); },
   // Keeping what is already kept is no write, as the runner's `Store::set`.
-  set(k, v) { if (v != null && this.map.get(k) === v) return; if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; Rev++; },
+  set(k, v) { if (v != null && this.map.get(k) === v) return; if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); if (Writes) this.dirty = true; Rev++; if (!Writes && !LateStore) { LateStore = true; queueMicrotask(() => { LateStore = false; Store.persist(); lateReaders(); recommit(lateIdle, "a store write outside a commit"); }); } }, // kept now, whatever that commit's settlement does; the commit asks the store's readers again
   save() { return [new Map(this.map), this.writes.length]; },
   restore([m, n]) { this.map = m; this.writes.length = n; this.dirty = false; },
   persist() { const p = Kept("secret"); for (const [k, v] of this.writes.splice(0)) this.pending.set(k, { v, warned: false }); for (const [k, entry] of this.pending) try { entry.v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, entry.v); this.pending.delete(k); } catch (e) { if (!entry.warned) { entry.warned = true; say(`store ${k} failed: ${e}`); } } },
@@ -476,10 +476,10 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     r.value = v; r.settled = a; r.origin = origin; Inspections.take(r, generation);
   };
   const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
-    if (p.req) { if (o.more) { const n = { id: ++Ticket, name, owner: r, args: t.args, req: p.req, r, origin: t.origin, generation: t.generation }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
+    if (t.call?.seen?.read || p.store) r.store = t.read = true; if (p.req) { if (o.more) { const n = { id: ++Ticket, name, owner: r, args: t.args, req: p.req, r, origin: t.origin, generation: t.generation }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
     if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin, t.generation); r.failed = null; r.error = r.code = r.reason = undefined; if (!o.more) r.ticket = null; again(t);
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, "it keeps its last value", (error, code, reason) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); });
+  }, "it keeps its last value", (error, code, reason) => { if (t.call?.seen?.read || t.read || data.threwRead?.()) r.store = true; r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); });
   const m = memo(() => Ov.shown(r, (() => {
     ver();
     const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
@@ -498,6 +498,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     let ans; Inspections.begin(r);
     try { ans = ask(source, a, name); Out.push(...(ans?.effects ?? [])); } // what its source sent on a socket goes once this commit stands (LLP 1016.000 D7, amended 2026-10-18)
     catch (e) {
+      if (data.threwRead?.()) r.store = true;
       if (e instanceof Refusal) throw e;
       if (e.refuse && !reconciling) throw new Failed(`resource ${name}: ${e.message}`);
       return fails(a, String(e?.message ?? e), failureCode(e), failureReason(e)); // its newest ask failed: an older one in flight is let go

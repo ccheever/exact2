@@ -10,6 +10,9 @@ use crate::Span;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+/// Status intrinsics resolve their target before looking up a function.
+pub const STATUS_CALLS: &[&str] = &["pending", "failed", "failure"];
+
 /// The namespaces a top-level name lives in. Shapes and `fn`s share one:
 /// both are called as `Name(…)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -918,7 +921,7 @@ impl Rewriter<'_> {
                 // program (this file's, renamed with it) or an action, prop or
                 // inject of the name is the innermost binding.
                 let intrinsic = routing
-                    || matches!(name.as_str(), "pending" | "failed" | "failure")
+                    || STATUS_CALLS.contains(&name.as_str())
                     || (name == "t" && !declared && !self.callable_t());
                 if !intrinsic && (declared || !(self.local(name) || roster)) {
                     self.scope.rename(Kind::Call, name, *span)?;
