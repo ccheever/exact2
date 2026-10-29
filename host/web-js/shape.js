@@ -65,16 +65,31 @@ export const failureReason = e => e && typeof e === "object" && typeof e.reason 
 /** `atomFaces`' `AtomFace` records as the named JSON the runner's bridge writes (LLP 1045.000 D2), each face's colours
  * read as a bound colour row's are on this target: through the build's colour map `cm`, which takes a theme entry's
  * name and a role and refuses a `-exact-platform-color()` none of the plan's literals is (LLP 1095 D3, D4), then as the
- * browser takes them. `currentcolor` and a keyword that defers to the cascade are no colour anywhere in the value, as
- * on the native hosts, where nothing cascades into a pill. One that is none is empty, so the kind's paint stands, and
- * the journal says so as the runner does, naming the node's view (`view`, called only then). */
+ * browser takes them. Two things the browser takes are no colour here, anywhere in the value, as on the native hosts:
+ * `currentcolor` and a keyword that defers to the cascade, where nothing cascades into a pill; and a substitution
+ * (`var()`, `env()`, `attr()`), which can find nothing when the style is computed and then unset the kind's paint
+ * (D4), except a role in the web form the kernel reads as one (`roles`, `face_roles`), which is that role's name. One
+ * that is none is empty, so the kind's paint stands, and the journal says so as the runner does, naming the node's
+ * view (`view`, called only then). */
 const DEFERS = /(?<![-\w])(initial|inherit|unset|revert|revert-layer|currentcolor)(?![-\w])/i;
-const unescaped = c => c.replace(/\\(?:([0-9a-f]{1,6})\s?|(.))/gis, (_, hex, ch) => {
+const SUBSTITUTES = /(?<![-\w])(var|env|attr)\s*\(/i;
+/** `c` as CSS reads its identifiers: newlines folded as the input is (CSS Syntax 3 §3.3), escapes undone (§4.3.7). */
+const unescaped = c => c.replace(/\r\n?|\f/g, "\n").replace(/\\(?:([0-9a-f]{1,6})[ \t\n]?|([^\n]))/gi, (_, hex, ch) => {
   if (!hex) return ch;
   const n = parseInt(hex, 16);
   return String.fromCodePoint(n > 0 && n <= 0x10ffff && (n < 0xd800 || n > 0xdfff) ? n : 0xfffd);
 });
-export function atomFacesRecord(v, cm = c => c, view = () => 0) {
+/** The name a bound colour gives the role `c` names in its web form, read as the kernel reads one (`roles::role`):
+ * `var(--exact-<name>, …)`, the tint's `var(--exact-accent, <name>)`, or the ink on it; else none. */
+const roleOf = (c, roles) => {
+  const l = c.trim().toLowerCase();
+  if (l.replace(/\s/g, "") === "var(--exact-accent-text,accentcolortext)") return "AccentColorText";
+  const tint = /^var\(--exact-accent,([\s\S]*)\)$/.exec(l);
+  if (tint) return Object.hasOwn(roles.a, tint[1].trim()) ? roles.a[tint[1].trim()] : null;
+  const name = /^var\(--exact-([^,)]*)[,)]/.exec(l);
+  return name && Object.hasOwn(roles.n, name[1]) ? roles.n[name[1]] : null;
+};
+export function atomFacesRecord(v, cm = c => c, view = () => 0, roles = { n: {}, a: {} }) {
   const none = c => {
     const x = globalThis.exact;
     x?.journal?.push(`t=${x.now?.() ?? 0} view ${view()}: invalid atomFaces colour ${JSON.stringify(c)}; its kind's paint stands`);
@@ -82,9 +97,11 @@ export function atomFacesRecord(v, cm = c => c, view = () => 0) {
   };
   const paint = c => {
     if (typeof c !== "string" || !c.trim()) return "";
-    if (DEFERS.test(unescaped(c))) return none(c);
+    // A role's web form is the role, its fallback unread, as the kernel reads it.
+    const u = unescaped(c), named = SUBSTITUTES.test(u) ? roleOf(c, roles) : DEFERS.test(u) ? null : c;
+    if (named == null) return none(c);
     let refused = false;
-    const m = cm(c, () => { refused = true; return ""; }) ?? "";
+    const m = cm(named, () => { refused = true; return ""; }) ?? "";
     return refused || typeof CSS !== "undefined" && !CSS.supports("color", m) ? none(c) : m;
   };
   return v == null ? null : JSON.stringify(v.map(([source, label, icon, title, color, backgroundColor]) =>

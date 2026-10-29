@@ -242,8 +242,29 @@ mod tests {
             face_color("#1a85d4"),
             Some(ColorValue::Fixed(Color::parse("#1a85d4").unwrap()))
         );
-        for none in ["", "  ", "not a colour", "light-dark(#d52c36 #ff6762)"] {
+        // What the JS target refuses too (`shape.js`): a cascade keyword
+        // anywhere, and a substitution but a role's web form.
+        for none in [
+            "",
+            "  ",
+            "not a colour",
+            "light-dark(#d52c36 #ff6762)",
+            "currentcolor",
+            "inherit",
+            "light-dark(currentcolor, #000)",
+            "var(--x)",
+            "var(--x, #fff)",
+            "env(safe-area-inset-top)",
+            "attr(data-c type(<color>))",
+            "v\\61r(--exact-separator)",
+        ] {
             assert_eq!(face_color(none), None, "{none:?}");
+        }
+        for role in ["var(--exact-separator)", "VAR(--exact-separator, inherit)"] {
+            assert!(
+                matches!(face_color(role), Some(ColorValue::Role(_))),
+                "{role:?}"
+            );
         }
     }
 

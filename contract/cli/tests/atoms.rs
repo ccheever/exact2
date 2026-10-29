@@ -194,13 +194,13 @@ fn a_faces_token_colour_follows_set_mode_and_set_token() {
 /// A colour in a standard space the platforms ship, or in a wide one, is
 /// read as a bound `color` reads it (LLP 1100 D1, D2), and the wire's text
 /// names it, as Apple draws it. One in a profile the app declares is
-/// refused, with one journal line, though a bound `color` takes it: a host
-/// draws a face from its text alone, which names no ICC file (LLP 1045.000
-/// D2).
+/// refused, with one journal line, though a bound `color` given the same
+/// text from state takes it: a host draws a face from its text alone,
+/// which names no ICC file (LLP 1045.000 D2).
 #[test]
 fn a_faces_profile_colour_is_a_standard_spaces_only() {
     let runner = boot(
-        "color-profile --press src=\"assets/press.icc\" rendering-intent=\"perceptual\"\natom mention prefix=\"@\"\ncomponent App\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=\"color(--dci-p3 1 0 0)\", backgroundColor=\"color(--press 0.1 0.8 0.2)\"), AtomFace(source=\"@b\", label=\"\", icon=\"\", title=\"\", color=\"color(display-p3 1 0 0)\", backgroundColor=\"\")]\n  view\n    column\n      textarea value=\"@a @b \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n      text \"x\" color=\"color(--press 0.1 0.8 0.2)\" testId=\"bound\"\n",
+        "color-profile --press src=\"assets/press.icc\" rendering-intent=\"perceptual\"\natom mention prefix=\"@\"\ncomponent App\n  state press = \"color(--press 0.1 0.8 0.2)\"\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=\"color(--dci-p3 1 0 0)\", backgroundColor=press), AtomFace(source=\"@b\", label=\"\", icon=\"\", title=\"\", color=\"color(display-p3 1 0 0)\", backgroundColor=\"\")]\n  view\n    column\n      textarea value=\"@a @b \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n      text \"x\" color=press testId=\"bound\"\n",
     );
     let faces = json_prop(&runner, "editor", PropId::AtomFaces);
     assert_eq!(faces[0]["color"], "color(--dci-p3 1 0 0)");

@@ -1,7 +1,8 @@
 //! A Markdown node's faces in the theme index (LLP 1045.000 D2, LLP 1121
-//! D7): read again when a pin above them or a token moves, kept as they were
-//! when a token's new value is no colour, and gone from the index when they
-//! read no token, are cleared, or their node is unmounted.
+//! D7): read again when a pin above them, the mode or a token moves; kept
+//! as they were when a read again finds a colour the first read took is
+//! none, and never for one the first read refused; and gone from the index
+//! when they read no token, are cleared, or their node is unmounted.
 
 use crate::{DataError, DataSource, Event, Runner};
 use exact_kernel::{Kernel, PropId, ViewId};
@@ -87,34 +88,91 @@ fn a_pin_above_reads_a_faces_colour_again() {
     assert_eq!(paint(&r, "color"), "light-dark(#111111ff, #eeeeeeff)");
 }
 
+/// An app whose editor's faces paint `color` and `backgroundColor`, with a
+/// button that switches the app's mode to the token's dim slice.
+fn painted(name: &str, color: &str, background: &str, head: &str) -> Runner<NoData> {
+    boot(plan(
+        name,
+        &format!("{head}atom mention prefix=\"@\"\ncomponent App\n  derive faces = [{FACE}, color=\"{color}\", backgroundColor=\"{background}\")]\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  view\n    column\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n"),
+    ))
+}
+
+/// The journal's face lines.
+fn said(r: &Runner<NoData>) -> Vec<String> {
+    let lines = r
+        .journal()
+        .filter(|l| l.contains("invalid atomFaces colour"));
+    lines.map(str::to_string).collect()
+}
+
 /// A token edited to a value that is no colour leaves the faces that read
 /// it as they were, as a row its parse refuses keeps its value, and the
-/// journal names the face's colour once; a colour again sets them.
+/// journal names the face's colour, on that edit and on each read again
+/// while it is none (a mode switch); a colour again sets them, in the
+/// tuple the node is in now.
 #[test]
 fn a_token_that_is_no_colour_leaves_the_faces_as_they_were() {
-    let mut r = boot(plan(
-        "no-colour",
-        &format!("atom mention prefix=\"@\"\ncomponent App\n  derive faces = [{FACE}, color=\"ink\", backgroundColor=\"brand\")]\n  view\n    textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n"),
-    ));
+    let mut r = painted("no-colour", "ink", "brand", "");
     let before = faces(&r);
     let (_, set) = r.set_token("brand", "12px", &[]).unwrap();
     assert_eq!(set, 0);
     assert_eq!(faces(&r), before, "the faces stay as they were");
-    let editor = view(&r, "editor").unwrap();
-    let said: Vec<&str> = r
-        .journal()
-        .filter(|l| l.contains("invalid atomFaces colour"))
-        .collect();
-    assert_eq!(said.len(), 1, "{said:?}");
-    assert!(
-        said[0].ends_with(&format!(
-            "view {editor}: invalid atomFaces colour \"brand\"; its faces stay as they were"
-        )),
-        "{said:?}"
+    press(&mut r, "dim");
+    assert_eq!(
+        faces(&r),
+        before,
+        "and when the mode moves while it is none"
     );
+    let editor = view(&r, "editor").unwrap();
+    let kept =
+        format!("view {editor}: invalid atomFaces colour \"brand\"; its faces stay as they were");
+    let lines = said(&r);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines.iter().all(|l| l.ends_with(&kept)), "{lines:?}");
     let (_, set) = r.set_token("brand", "#00ff00", &[]).unwrap();
     assert_eq!(set, 1);
     assert_eq!(paint(&r, "backgroundColor"), "#00ff00ff");
+    assert_eq!(
+        paint(&r, "color"),
+        "light-dark(#111111ff, #ccccccff)",
+        "in the mode's slice"
+    );
+}
+
+/// A colour the faces' first read refused, said once there, keeps no edit
+/// from them: beside a token, a mode switch and a token's edit set the
+/// token's colour and leave the refused one empty, with no other line.
+/// So for a colour in a profile the app declares (LLP 1100 D3): the first
+/// read refuses it, and every read again does, as the first.
+#[test]
+fn a_refused_colour_beside_a_token_blocks_no_edit() {
+    let press_icc =
+        "color-profile --press src=\"assets/press.icc\" rendering-intent=\"perceptual\"\n";
+    for (name, refused, head) in [
+        ("beside", "notacolour", ""),
+        ("declared", "color(--press 0.1 0.8 0.2)", press_icc),
+    ] {
+        let mut r = painted(name, "ink", refused, head);
+        let editor = view(&r, "editor").unwrap();
+        let first = [format!(
+            "view {editor}: invalid atomFaces colour {refused:?}; its kind's paint stands"
+        )];
+        let ends = |lines: Vec<String>| lines.len() == 1 && lines[0].ends_with(&first[0]);
+        assert_eq!(paint(&r, "backgroundColor"), "", "{name}");
+        assert!(ends(said(&r)), "{name}: {:?}", said(&r));
+        press(&mut r, "dim");
+        assert_eq!(
+            paint(&r, "color"),
+            "light-dark(#111111ff, #ccccccff)",
+            "{name}"
+        );
+        assert_eq!(paint(&r, "backgroundColor"), "", "{name}");
+        let (_, set) = r.set_token("ink", "#0000ff", &[]).unwrap();
+        assert_eq!(set, 1, "{name}");
+        assert_eq!(paint(&r, "color"), "#0000ffff", "{name}");
+        assert_eq!(paint(&r, "backgroundColor"), "", "{name}");
+        assert!(ends(said(&r)), "{name}: said once: {:?}", said(&r));
+    }
 }
 
 /// Faces whose colours read no token now, here a colour from state, leave

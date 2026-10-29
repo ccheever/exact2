@@ -112,6 +112,9 @@ fn atoms_of(handle: u64) -> std::rc::Rc<exact_markdown::Atoms> {
 fn face_paint(text: &str) -> serde_json::Value {
     // No session's overrides: the runner resolved the session's into the text.
     let _roles = exact_kernel::style::roles::bind(&Default::default());
+    // Nor any plan's profiles, whatever scope the caller is in (LLP 1100 §11):
+    // the runner refuses a declared one's colour on a face.
+    let _profiles = exact_kernel::style::profiled::declarations(std::iter::empty());
     exact_runner::decorations::face_color(text)
         .and_then(|color| {
             let mut wire = String::new();

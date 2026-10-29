@@ -63,6 +63,20 @@ pub struct ThemedFaces {
     pub tuple: u32,
     /// The tokens they read, as `theme::name_bit`s.
     pub tokens: u64,
+    /// The colours their first read refused, as written: none of them
+    /// keeps the faces as they were when they are read again.
+    pub refused: Vec<String>,
+}
+
+/// What a refusal leaves: on a first read, the kind's paint; on a read
+/// again, the faces as they were.
+pub(crate) const KIND: &str = "its kind's paint stands";
+pub(crate) const KEPT: &str = "its faces stay as they were";
+
+/// Of `now`, the colours a read again refused that the first read, which
+/// refused `first`, took: any keeps the faces as they were.
+pub(crate) fn newly_refused(now: Vec<String>, first: &[String]) -> Vec<String> {
+    now.into_iter().filter(|t| !first.contains(t)).collect()
 }
 
 /// Every row that read a token, by view and row (D7's index): what a
@@ -291,28 +305,53 @@ impl super::NodeInst {
 
     /// Binding `i`'s `atomFaces` (LLP 1045.000 D2), each face's colours read
     /// as a bound colour row's are, in this node's tuple
-    /// (`bridge::atom_face_paint`). Faces that read a token are kept in the
-    /// index, read again when the token changes, and their binding is set
-    /// again when the tuple moves, as a themed row's is.
+    /// (`bridge::atom_face_paint`): the value to set, or `None` to leave the
+    /// faces as they are. A first read journals each colour that is none,
+    /// which leaves its kind's paint; the same faces read again, when the
+    /// tuple moves, stay as they were if a colour the first read took is
+    /// none now, as a token's edit leaves them (`Runner::set_tokens`), and
+    /// say only that. Faces that read a token are kept in the index, read
+    /// again when the token changes, and their binding is set again when
+    /// the tuple moves, as a themed row's is.
     pub(super) fn faces(
         &mut self,
         u: &mut super::Update<'_>,
         i: usize,
         text: exact_kernel::PropValue,
-        refused: &mut Vec<String>,
-    ) -> exact_kernel::PropValue {
+    ) -> Option<exact_kernel::PropValue> {
+        let again = (u.ids.theme.faces.get(&self.view))
+            .filter(|f| f.text == text)
+            .map(|f| (f.refused.clone(), f.tokens));
         exact_kernel::style::theme::take_named();
+        let mut refused = Vec::new();
         let painted = crate::bridge::atom_face_paint(
             u.env.plan,
             exact_kernel::PropId::AtomFaces,
             text.clone(),
-            refused,
+            &mut refused,
         );
-        let tokens = exact_kernel::style::theme::take_named();
+        let mut tokens = exact_kernel::style::theme::take_named();
+        let view = self.view;
+        let (value, first) = match again {
+            Some((first, read)) => {
+                tokens |= read;
+                let now = newly_refused(refused, &first);
+                for text in &now {
+                    u.notes.push(super::invalid_face(view, text.clone(), KEPT));
+                }
+                (now.is_empty().then_some(painted), first)
+            }
+            None => {
+                for text in &refused {
+                    u.notes.push(super::invalid_face(view, text.clone(), KIND));
+                }
+                (Some(painted), refused)
+            }
+        };
         self.themed.set(i, tokens != 0, false);
         match tokens {
             0 => {
-                u.ids.theme.faces.remove(&self.view);
+                u.ids.theme.faces.remove(&view);
             }
             _ => {
                 let tuple = self.tuple;
@@ -320,11 +359,12 @@ impl super::NodeInst {
                     text,
                     tuple,
                     tokens,
+                    refused: first,
                 };
-                u.ids.theme.faces.insert(self.view, faces);
+                u.ids.theme.faces.insert(view, faces);
             }
         }
-        painted
+        value
     }
 
     /// Binding `i`'s faces are cleared: they read no token now.

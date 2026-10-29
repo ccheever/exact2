@@ -1445,18 +1445,20 @@ component Composer
   one atom, and new text is a new key. An empty label is a link's text or a
   token without its prefix and quotes; the icon is an image source (the web
   draws a URL or asset, not yet a `symbol:`). `color` and `backgroundColor`
-  paint that atom over its kind's `color` and `background-color`: a colour as a
-  bound `color` takes one (`light-dark()`, a theme entry's name, a role, a
-  `-exact-platform-color()` only as one of the app's literals, a wide colour, a
-  colour in a standard space the platforms ship, which Apple draws and the web
-  refuses), or empty for the kind's. A colour in a profile the app declares with
-  `color-profile` is refused on every host. One that names a token follows
-  `setMode`, a pin and a token's new value, as a themed row does.
-  `currentcolor`, or `inherit` or another cascade keyword, anywhere in the
-  value, is no colour. A colour that is none leaves the kind's paint, and the
-  journal says so: on the native hosts and the web's wasm target, one the kernel
-  does not read (a `var()` or `env()`, too); on the JS target, one the browser
-  refuses.
+  paint that atom over its kind's `color` and `background-color`, or are empty
+  for the kind's. Each is a colour as a bound `color` takes one: `light-dark()`,
+  a theme entry's name, a role, a `-exact-platform-color()` only as one of the
+  app's literals, or a colour in a wide space (`color(display-p3 …)`), which
+  every host with pills draws in that space. A colour in a standard space the
+  platforms ship (`color(--dci-p3 …)`) is drawn by Apple and refused on the web,
+  and one in a profile the app declares with `color-profile` is refused on every
+  host. One that names a token follows `setMode`, a pin and a token's new value,
+  as a themed row does. A colour that is none leaves the kind's paint, and the
+  journal says so. On every host that is `currentcolor`, `inherit` or another
+  cascade keyword anywhere in the value, and any `var()`, `env()` or `attr()`
+  but a role's web form (`var(--exact-separator, …)`), which is that role; and,
+  on the native hosts and the web's wasm target, a colour the kernel does not
+  read, or on the JS target one the build's colour map or the browser refuses.
 - `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
   `href` (a link's destination as written), `start`, `end` (UTF-16) and the
   modifiers. It never navigates. In the reader an atom is a tab stop that

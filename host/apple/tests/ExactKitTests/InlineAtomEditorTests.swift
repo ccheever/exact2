@@ -29,6 +29,19 @@ private func assertDisplayP3(_ channels: [Double]?, _ components: [Double], file
     XCTAssertEqual(TextEngine.color(c).cgColor.colorSpace?.name as String?, CGColorSpace.extendedDisplayP3 as String, file: file, line: line)
 }
 
+/// A pill's picture as `draw` paints it into a 40 by 20 Display P3 bitmap:
+/// a point of its fill left of the label, halfway up, is Display P3's own
+/// green, where its sRGB clip would read about (117, 251, 76).
+private func assertDisplayP3Green(file: StaticString = #filePath, line: UInt = #line, _ draw: (CGContext, CGRect) -> Void) throws {
+    let p3 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: p3, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    draw(context, CGRect(x: 0, y: 0, width: 40, height: 20))
+    let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+    let at = 10 * context.bytesPerRow + 2 * 4
+    let got = (0..<4).map { Int(pixels[at + $0]) }
+    for (channel, want) in zip(got, [0, 255, 0, 255]) { XCTAssertEqual(channel, want, accuracy: 2, "\(got)", file: file, line: line) }
+}
+
 #if os(macOS)
 import AppKit
 
@@ -210,8 +223,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
     }
 
     /// A face's colour in a wide space keeps it, as a bound text colour
-    /// does: the picture's fill, read in Display P3, is that space's own
-    /// green, where its sRGB clip would read about (117, 251, 76).
+    /// does, in the pill's picture too.
     func testAWideFaceColourKeepsItsSpaceInThePicture() throws {
         let (_, f, window) = editor(faces: wide)
         defer { window.close() }
@@ -220,20 +232,15 @@ final class InlineAtomEditorMacTests: XCTestCase {
         assertDisplayP3(atom.ink, [1, 0, 0, 1])
         assertDisplayP3(atom.background, [0, 1, 0, 1])
         let pill = try XCTUnwrap(attachments(f).first)
-        let size = CGSize(width: 40, height: 20)
         let location = try XCTUnwrap(f.textLayoutManager?.documentRange.location)
-        let image = try XCTUnwrap(pill.image(for: CGRect(origin: .zero, size: size), attributes: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil))
-        let p3 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
-        let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: p3, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-        image.draw(in: CGRect(origin: .zero, size: size))
-        NSGraphicsContext.restoreGraphicsState()
-        // A point of fill left of the label, halfway up.
-        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
-        let at = 10 * context.bytesPerRow + 2 * 4
-        let got = (0..<4).map { Int(pixels[at + $0]) }
-        for (channel, want) in zip(got, [0, 255, 0, 255]) { XCTAssertEqual(channel, want, accuracy: 2, "\(got)") }
+        let bounds = CGRect(x: 0, y: 0, width: 40, height: 20)
+        let image = try XCTUnwrap(pill.image(for: bounds, attributes: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil))
+        try assertDisplayP3Green { context, rect in
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            image.draw(in: rect)
+            NSGraphicsContext.restoreGraphicsState()
+        }
     }
 
     func testASelectedPillIsEmphasizedOnlyInTheKeyWindowAndKeyChangesRestyle() throws {
@@ -398,13 +405,37 @@ final class InlineAtomEditorIOSTests: XCTestCase {
     }
 
     /// A face's colour in a wide space keeps it on the pill, as a bound
-    /// text colour does (LLP 1100 D2).
+    /// text colour does (LLP 1100 D2), in the picture the renderer makes
+    /// for the text view's traits.
     func testAWideFaceColourKeepsItsSpace() throws {
         let (_, _, f) = field(faces: wide)
         window.layoutIfNeeded()
         let atom = try XCTUnwrap(f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)
         assertDisplayP3(atom.ink, [1, 0, 0, 1])
         assertDisplayP3(atom.background, [0, 1, 0, 1])
+        let manager = try XCTUnwrap(f.textLayoutManager)
+        manager.ensureLayout(for: manager.documentRange)
+        var pill: AtomAttachment?
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+            let text = paragraph.attributedString
+            text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                pill = pill ?? value as? AtomAttachment
+            }
+            return pill == nil
+        }
+        // TextKit asks for the picture with the text view's traits current.
+        let bounds = CGRect(x: 0, y: 0, width: 40, height: 20), location = manager.documentRange.location
+        var picture: UIImage?
+        f.traitCollection.performAsCurrent {
+            picture = pill?.image(for: bounds, attributes: [.font: UIFont.systemFont(ofSize: 16)], location: location, textContainer: nil)
+        }
+        let image = try XCTUnwrap(picture)
+        try assertDisplayP3Green { context, rect in
+            UIGraphicsPushContext(context)
+            image.draw(in: rect)
+            UIGraphicsPopContext()
+        }
     }
 
     func testACaretInsideGoesToTheEndAndBackspaceRemovesItWhole() {

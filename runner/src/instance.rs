@@ -1005,17 +1005,15 @@ impl NodeInst {
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
                     Ok((prop, pv)) => {
-                        let (id, mut refused) = (self.view, Vec::new());
+                        let id = self.view;
                         let pv = bridge::icon_source(plan, prop, pv);
                         let value = match prop {
-                            exact_kernel::PropId::AtomFaces => self.faces(u, i, pv, &mut refused),
-                            _ => pv,
+                            exact_kernel::PropId::AtomFaces => self.faces(u, i, pv),
+                            _ => Some(pv),
                         };
-                        for text in refused {
-                            u.notes
-                                .push(invalid_face(id, text, "its kind's paint stands"));
+                        if let Some(value) = value {
+                            u.ops.push(Op::SetProp { value, id, prop })
                         }
-                        u.ops.push(Op::SetProp { value, id, prop })
                     }
                     Err(
                         e @ (bridge::BridgeError::PropKind { prop, .. }
