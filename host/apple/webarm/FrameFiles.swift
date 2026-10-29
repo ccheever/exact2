@@ -12,12 +12,14 @@ final class FrameFiles {
     /// holds a file whole (WebKit keeps what the page has not read yet).
     static let reads = DispatchQueue(label: "exact.web.files", qos: .userInitiated, attributes: .concurrent)
     static let piece = 1 << 20
-    /// Every given file's response: opened as a document, a file a person
-    /// brought (an HTML page, an SVG, any XML type) runs in an opaque origin,
-    /// never as the app's own, whatever type its extension maps to.
+    /// Every given file's response but a PDF's: opened as a document, a file
+    /// runs in an opaque origin, never as the app's own. A PDF needs no guard,
+    /// since WebKit's PDF view runs no page script, and draws nothing under
+    /// one when framed.
     static let sandbox = "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads"
     /// What `exact_web_set_files` resolved for the source: each `app:/` path
-    /// the page's query names, to its root's directory.
+    /// the page's query names, to its root's directory, or "" for one the
+    /// host refused.
     var supplied: [String: String] = [:]
     /// The current serve's tokens: the pinned root and the names below it.
     private var given: [String: (root: Int32, parts: [String])] = [:]
@@ -25,7 +27,7 @@ final class FrameFiles {
     private var roots: [String: Int32] = [:]
 
     /// `page` with each query value naming a file the page may be given
-    /// replaced by a new token's URL; any other value stays as written, and
+    /// replaced by a new token's URL; any other `app:/` value is emptied, and
     /// the host log says why. Every serve calls it, so the last serve's
     /// tokens end.
     func give(_ page: URL?, source: String?) -> URL? {
@@ -36,8 +38,8 @@ final class FrameFiles {
         parts.percentEncodedQuery = query.split(separator: "&", omittingEmptySubsequences: false).map { pair -> String in
             guard let equals = pair.firstIndex(of: "="), let path = FrameFiles.value(pair[pair.index(after: equals)...]),
                   let rootPath = supplied[path] else { return String(pair) }
-            if tokens[path] == nil { tokens[path] = token(path, rootPath, source: source) }
-            guard let token = tokens[path] ?? nil else { return String(pair) }
+            if tokens[path] == nil { tokens[path] = rootPath.isEmpty ? .some(nil) : token(path, rootPath, source: source) }
+            guard let token = tokens[path] ?? nil else { return "\(pair[..<equals])=" }
             let url = "\(AssetScheme.origin)/\(FrameFiles.prefix)\(token)"
             return "\(pair[..<equals])=\(url.addingPercentEncoding(withAllowedCharacters: FrameFiles.unreserved) ?? url)"
         }.joined(separator: "&")
@@ -49,8 +51,13 @@ final class FrameFiles {
     private func token(_ path: String, _ rootPath: String, source: String?) -> String? {
         let names = path.split(separator: "/", omittingEmptySubsequences: false).dropFirst(2).map(String.init)
         if roots[rootPath] == nil { roots[rootPath] = Darwin.open(rootPath, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) }
-        guard let root = roots[rootPath], root >= 0, let file = FrameFiles.open(below: dup(root), names) else {
-            FileHandle.standardError.write(Data("exact: iframe \(source ?? ""): \(path) is not given (no such regular file)\n".utf8))
+        let notGiven = { (why: String) in FileHandle.standardError.write(Data("exact: iframe \(source ?? ""): \(path) is not given (\(why))\n".utf8)) }
+        guard let root = roots[rootPath], root >= 0 else {
+            notGiven("its root is missing, or is a link")
+            return nil
+        }
+        guard let file = FrameFiles.open(below: dup(root), names) else {
+            notGiven("no regular file there, or a link on the way")
             return nil
         }
         try? file.close()
@@ -108,6 +115,16 @@ final class FrameFiles {
     }
 
     static let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+
+    /// `type` if a browser shows it without running script in it; any other
+    /// (HTML, SVG, any XML) as application/octet-stream, which a frame
+    /// downloads rather than runs. picker-glue.js `shown` is the same.
+    static func shown(_ type: String) -> String {
+        let bare = type.split(separator: ";", maxSplits: 1)[0].trimmingCharacters(in: .whitespaces).lowercased()
+        let media = ["image/", "audio/", "video/"].contains(where: bare.hasPrefix) && !bare.hasPrefix("image/svg")
+        let known = ["text/plain", "text/csv", "text/tab-separated-values", "text/markdown", "text/css", "application/json", "application/pdf"].contains(bare)
+        return (media || known) && !bare.hasSuffix("+xml") ? type : "application/octet-stream"
+    }
 }
 
 extension AssetScheme {
@@ -119,7 +136,7 @@ extension AssetScheme {
         let id = ObjectIdentifier(task), method = (task.request.httpMethod ?? "GET").uppercased()
         guard method == "GET" || method == "HEAD" else {
             Darwin.close(file.root)
-            task.didReceive(HTTPURLResponse(url: url, statusCode: 405, httpVersion: "HTTP/1.1", headerFields: ["Allow": "GET, HEAD", "Content-Length": "0"])!)
+            task.didReceive(HTTPURLResponse(url: url, statusCode: 405, httpVersion: "HTTP/1.1", headerFields: ["Allow": "GET, HEAD", "Content-Length": "0", "Content-Security-Policy": FrameFiles.sandbox])!)
             return task.didFinish()
         }
         let range = task.request.value(forHTTPHeaderField: "Range")
@@ -139,10 +156,10 @@ extension AssetScheme {
             let size = Int(end)
             var from = 0, to = size - 1, status = 200
             if let range, let bytes = AssetScheme.bytes(range, count: size) { (from, to, status) = (bytes.0, bytes.1, 206) }
-            let length = max(0, to - from + 1)
-            var headers = ["Content-Type": AssetScheme.type((file.parts.last.map { ($0 as NSString).pathExtension }) ?? ""),
-                           "Content-Length": String(length), "Accept-Ranges": "bytes", "Cache-Control": "no-store",
-                           "X-Content-Type-Options": "nosniff", "Content-Security-Policy": FrameFiles.sandbox]
+            let length = max(0, to - from + 1), type = FrameFiles.shown(AssetScheme.type((file.parts.last.map { ($0 as NSString).pathExtension }) ?? ""))
+            var headers = ["Content-Type": type, "Content-Length": String(length), "Accept-Ranges": "bytes", "Cache-Control": "no-store",
+                           "X-Content-Type-Options": "nosniff"]
+            if !type.hasPrefix("application/pdf") { headers["Content-Security-Policy"] = FrameFiles.sandbox }
             if status == 206 { headers["Content-Range"] = "bytes \(from)-\(to)/\(size)" }
             guard step({ task.didReceive(HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!) }) else { return }
             do {

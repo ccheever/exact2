@@ -179,7 +179,9 @@ final class AssetScheme: NSObject, WKURLSchemeHandler {
             FileHandle.standardError.write(Data("exact: iframe \(arm?.src ?? ""): \(url.absoluteString) is not an app asset under \(trees)\n".utf8))
         }
         if let given { FileHandle.standardError.write(Data("exact: iframe \(arm?.src ?? ""): \(url.absoluteString) \(given)\n".utf8)) }
-        task.didReceive(HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])!)
+        // A given file's refusal carries its responses' sandbox, as they all do.
+        let headers = given == nil ? ["Content-Length": "0"] : ["Content-Length": "0", "Content-Security-Policy": FrameFiles.sandbox]
+        task.didReceive(HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: headers)!)
         task.didFinish()
     }
 

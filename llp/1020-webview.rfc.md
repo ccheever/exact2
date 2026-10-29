@@ -548,7 +548,7 @@ LLP 1020.001 D4 amends this table for a bundled HTML page under `assets/` or `de
   iframe failures. A fitted PDF element and Chrome's PDF viewer fragments
   remain outside this scope. A bundled page is given an `app:/cache` or
   `app:/tmp` file by naming it in its own query (LLP 1020.001 D7); a value it
-  cannot be given stays as written, and the frame loads as any page does.
+  cannot be given is emptied, and the frame loads as any page does.
 - **Direct** is the web view's own document. A local one is served at the
   synthetic origin above, with `sandbox` sent as a `Content-Security-Policy: sandbox …`
   header, which WebKit enforces on a top-level document, opaque origin

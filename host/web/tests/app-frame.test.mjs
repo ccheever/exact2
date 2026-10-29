@@ -299,6 +299,7 @@ test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report err
 const GIVEN_PAGE = `<!doctype html><script>(async () => {
   const out = { search: location.search, hash: location.hash, files: [] };
   for (const file of new URLSearchParams(location.search).getAll('file')) {
+    if (!file) { out.files.push({ file }); continue; }
     const img = await new Promise(r => { const i = new Image(); i.onload = () => r('load'); i.onerror = () => r('error'); i.src = file; });
     try { const r = await fetch(file); out.files.push({ file, status: r.status, type: r.headers.get('content-type'), bytes: (await r.arrayBuffer()).byteLength, img }); }
     catch (e) { out.files.push({ file, error: String(e), img }); }
@@ -358,12 +359,14 @@ test('a bundled page is given the app files its query names, and only while its 
   expect(odd.files.map(f => [f.status, f.bytes])).toEqual([...ODD.map(n => [200, new TextEncoder().encode(n).length]), [200, 0]]);
   // A new source revokes the old one's URLs.
   expect(await page.evaluate(async urls => Promise.all(urls.map(u => fetch(u).then(() => 'read', () => 'refused'))), first.files.map(f => f.file))).toEqual(['refused', 'refused']);
-  // What cannot be given stays as written; the page loads, and there is no error.
+  // What cannot be given is emptied before the request, so no app path reaches the server; the page loads, and there
+  // is no error.
   const loads = await page.evaluate(() => events.length);
   for (const value of ['app:/data/secret.txt', 'app:/cache/../data/secret.txt', 'app:/cache/missing.bin', 'app:/cache']) {
     for (const written of [value, encodeURIComponent(value)]) {
-      const report = await next(`assets/given.html?file=${written}`);
-      expect([report.files[0].file, report.files[0].error !== undefined]).toEqual([value, true]);
+      const report = await next(`assets/given.html?file=${written}&keep=1`);
+      expect([report.files, report.search]).toEqual([[{ file: '' }], '?file=&keep=1']);
+      expect(await page.evaluate(() => /app(:|%3a)/i.test(frame.src))).toBe(false);
     }
   }
   await page.waitForFunction(n => events.length >= n + 8, loads, { timeout: 15000 });
@@ -401,6 +404,30 @@ test('a page under a release path is given its files, and nothing outside the ap
 // with `=app:` in it: refused, as any source that does not navigate is (rt.js `navigable`, glue.js `frameURL`).
 const SCRIPTED = [' javascript:parent.ran=1//?x=app:', 'java\tscript:parent.ran=1//?x=app:', '\u0001javascript:parent.ran=1//?x=app:'];
 
+test('a given file a browser would run as a document is given as bytes', () => browserTest(async (page, server) => {
+  await givenSetup(page, server);
+  const result = await page.evaluate(async dot => {
+    const { createFileStore } = await import('/storage-fs.js');
+    const files = createFileStore(rt.data.appId), runs = '<script>parent.ran = (parent.ran || 0) + 1</script>';
+    await files.writeFile('app:/cache/a.html', new TextEncoder().encode(runs));
+    await files.writeFile('app:/cache/a.svg', new TextEncoder().encode(`<svg xmlns="http://www.w3.org/2000/svg"><script>parent.ran = (parent.ran || 0) + 1</script></svg>`));
+    await files.writeFile('app:/cache/a.xhtml', new TextEncoder().encode(`<html xmlns="http://www.w3.org/1999/xhtml"><body>${runs}</body></html>`));
+    await files.writeFile('app:/cache/a.xml', new TextEncoder().encode(`<x><script xmlns="http://www.w3.org/1999/xhtml">parent.ran = (parent.ran || 0) + 1</script></x>`));
+    await files.writeFile('app:/cache/a.pdf', new TextEncoder().encode('%PDF-1.4\n%%EOF'));
+    await files.putBlob('app:/tmp/picked.html', new File([runs], 'picked.html', { type: 'text/html' }));
+    const names = ['app:/cache/a.html', 'app:/cache/a.svg', 'app:/cache/a.xhtml', 'app:/cache/a.xml', 'app:/tmp/picked.html', 'app:/cache/dot.png', 'app:/cache/a.pdf'];
+    let el;
+    rt.scope(() => { el = rt.h(document.querySelector('main'), 'iframe', 0, {}, 0); rt.P(el, 'src', () => `assets/given.html?${names.map(n => 'file=' + encodeURIComponent(n)).join('&')}`); });
+    while (reports.length < 1) await new Promise(r => setTimeout(r, 50));
+    const given = reports[0].files.map(f => f.file), types = await Promise.all(given.map(async u => (await fetch(u)).headers.get('content-type')));
+    globalThis.ran = 0;
+    for (const url of given.slice(0, 5)) { const f = document.createElement('iframe'); f.src = url; document.body.append(f); }
+    await new Promise(r => setTimeout(r, 1500));
+    return { types, ran: globalThis.ran };
+  }, [...DOT]);
+  expect(result).toEqual({ types: [...Array(5).fill('application/octet-stream'), 'image/png', 'application/pdf'], ran: 0 });
+}), 60000);
+
 test('a javascript: source with an app: value never runs on either web host', () => browserTest(async (page, server) => {
   const glue = await Bun.file('host/web/glue.js').text();
   const appFrameSource = glue.slice(glue.indexOf('function appFrameSource('), glue.indexOf('\n', glue.indexOf('function appFrameSource(')));
@@ -411,6 +438,8 @@ test('a javascript: source with an app: value never runs on either web host', ()
     const settle = () => new Promise(r => setTimeout(r, 300));
     globalThis.ran = 0;
     const out = { rt: [], glue: [] };
+    // A blob URL of the page's own origin passes pageGivenFiles; the host's rule refuses it.
+    scripted = [...scripted, `blob:${location.origin}/${crypto.randomUUID()}?x=app:`];
     for (const src of scripted) {
       let el;
       rt.scope(() => { el = rt.h(document.querySelector('main'), 'iframe', 0, {}, 0); rt.P(el, 'src', () => src); });
@@ -434,5 +463,5 @@ test('a javascript: source with an app: value never runs on either web host', ()
     out.ran = globalThis.ran;
     return out;
   }, { appFrameSource, scripted: SCRIPTED });
-  expect(result).toEqual({ rt: Array(3).fill('about:blank'), glue: Array(3).fill('about:blank'), ran: 0 });
+  expect(result).toEqual({ rt: Array(4).fill('about:blank'), glue: Array(4).fill('about:blank'), ran: 0 });
 }), 60000);

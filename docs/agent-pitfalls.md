@@ -1347,8 +1347,9 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `report #2.pdf` or `a&b.pdf` is cut short), and read
   `new URLSearchParams(location.search).get('file')` as a URL: each `app:/cache` or
   `app:/tmp` value there becomes one the page can fetch, until the frame's `src`
-  changes. `app:/data`, a link or a file that is not there stays as written, and the
-  host logs `… is not given (…)`: copy the file into `app:/cache` first. Android
+  changes. `app:/data`, a link or a file that is not there is emptied, and the host
+  logs `… is not given (…)`: copy the file into `app:/cache` first. An HTML, SVG or
+  XML file comes as `application/octet-stream`: read its bytes to show it. Android
   gives no files: its page sees the paths. (LLP 1020.001 D7, 2026-10-29.)
 
 - **A browser tab's title comes after its load.** On Apple a partitioned

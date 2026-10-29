@@ -45,6 +45,17 @@ final class IframeGivenFilesTests: XCTestCase {
         try Data("<!doctype html>\(Self.script)".utf8).write(to: path("cache/a.html"))
         try Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!.write(to: path("cache/dot.png"))
         try Data("secret".utf8).write(to: path("data/secret.txt"))
+        try Data("inner".utf8).write(to: path("cache/dir/inner.txt"))
+        try Data("not this".utf8).write(to: path("data/inner.txt"))
+        let pdf = NSMutableData()
+        var box = CGRect(x: 0, y: 0, width: 300, height: 300)
+        let context = try XCTUnwrap(CGContext(consumer: CGDataConsumer(data: pdf as CFMutableData)!, mediaBox: &box, nil))
+        context.beginPDFPage(nil)
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(box)
+        context.endPDFPage()
+        context.closePDF()
+        try (pdf as Data).write(to: path("cache/red.pdf"))
         try Data("elsewhere".utf8).write(to: path("elsewhere/big.bin"))
         // Links inside a root: to a file, and through a directory.
         try fm.createSymbolicLink(at: path("cache/link.txt"), withDestinationURL: path("data/secret.txt"))
@@ -73,7 +84,7 @@ final class IframeGivenFilesTests: XCTestCase {
             const range = async r => { const res = await fetch(digits, { headers: { Range: r } }); return [res.status, await res.text()]; };
             return JSON.stringify({ big, keep: q.get('keep'), hash: location.hash, status: whole.status, bytes, part: part.status,
               contentRange: part.headers.get('content-range'), text: await part.text(), head: head.headers.get('content-length'),
-              sandbox: whole.headers.get('content-security-policy'),
+              type: whole.headers.get('content-type'), sandbox: [whole, part, head].map(r => r.headers.get('content-security-policy')),
               odd: await Promise.all(rest.map(async f => (await (await fetch(f)).arrayBuffer()).byteLength)),
               empty: await fetch(empty).then(async r => [r.status, (await r.arrayBuffer()).byteLength]),
               ranges: [await range('bytes=-3'), await range('bytes=7-'), await range('bytes=99-'), await range('bytes=0-1,4-5'), await range('bytes=x')],
@@ -88,7 +99,8 @@ final class IframeGivenFilesTests: XCTestCase {
         XCTAssertEqual(read["contentRange"] as? String, "bytes 10-19/\(Self.size)")
         XCTAssertEqual(read["text"] as? String, "ABCDEFGHIJ")
         XCTAssertEqual(read["head"] as? String, String(Self.size))
-        XCTAssertEqual(read["sandbox"] as? String, "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads")
+        XCTAssertEqual(read["type"] as? String, "application/octet-stream")
+        XCTAssertEqual(read["sandbox"] as? [String], Array(repeating: "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads", count: 3), "200, 206 and HEAD")
         XCTAssertEqual(read["odd"] as? [Int], Self.odd.map { Data($0.utf8).count }, "names a URL would split, encoded")
         XCTAssertEqual(read["empty"] as? [Int], [200, 0])
         let ranges = try XCTUnwrap(read["ranges"] as? [[Any]]).map { "\($0[0]) \($0[1])" }
@@ -96,15 +108,17 @@ final class IframeGivenFilesTests: XCTestCase {
         XCTAssertEqual(read["post"] as? Int, 405)
     }
 
-    /// Any other value stays as written: the page loads, with no `error`.
-    func testWhatCannotBeGivenStaysAsWritten() throws {
+    /// Any other `app:/` value is emptied: the page loads, with no `error`.
+    func testWhatCannotBeGivenIsEmptied() throws {
         let (session, node) = try frames(1)[0]
         defer { session.destroy() }
+        var n = 0
         for value in ["app:/data/secret.txt", "app:/cache/../data/secret.txt", "app:/cache/missing.bin", "app:/cache/dir",
                       "app:/cache/link.txt", "app:/cache/up/secret.txt", "app:/cache"] {
             for written in [value, encode(value)] {
-                show(session, node, "assets/given.html?file=\(written)")
-                XCTAssertEqual(try run(node, "return JSON.stringify({ file: new URLSearchParams(location.search).get('file') })")["file"] as? String, value, written)
+                n += 1
+                show(session, node, "assets/given.html?file=\(written)&n=\(n)")
+                XCTAssertEqual(try run(node, "return JSON.stringify({ search: location.search })")["search"] as? String, "?file=&n=\(n)", written)
             }
         }
         XCTAssertEqual(slot(session, "failed") as? String, "", "no error reached the app")
@@ -116,12 +130,24 @@ final class IframeGivenFilesTests: XCTestCase {
         let both = try frames(2)
         defer { both.forEach { $0.0.destroy() } }
         let (session, node) = both[0], (other, otherNode) = both[1]
-        show(session, node, "assets/given.html?file=app:/cache/big.bin")
-        let file = try XCTUnwrap(try run(node, "return JSON.stringify({ file: new URLSearchParams(location.search).get('file') })")["file"] as? String)
-        let status = { (node: NodeView, url: String) in try self.run(node, "return JSON.stringify({ status: await fetch(\(self.quoted(url))).then(r => r.status, () => 'refused') })")["status"] as? Int }
+        show(session, node, "assets/given.html?file=app:/cache/big.bin&file=app:/cache/digits.txt&file=app:/cache/dir/inner.txt")
+        let files = try XCTUnwrap(try run(node, "return JSON.stringify({ files: new URLSearchParams(location.search).getAll('file') })")["files"] as? [String])
+        let file = files[0]
+        let status = { (node: NodeView, url: String) in try self.run(node, "return JSON.stringify({ status: await fetch(\(self.quoted(url)), { cache: 'no-store' }).then(r => r.status, () => 'refused') })")["status"] as? Int }
         XCTAssertEqual(try status(node, "exact-app://app/.exact/files/\(UUID().uuidString.lowercased())"), 404, "a guessed token")
         show(other, otherNode, "assets/given.html")
         XCTAssertEqual(try status(otherNode, file), 404, "another frame's page")
+        // A file, and a folder on its way, replaced by links after the page
+        // was given them: each request opens its path again, following none.
+        try FileManager.default.removeItem(at: path("cache/digits.txt"))
+        try FileManager.default.createSymbolicLink(at: path("cache/digits.txt"), withDestinationURL: path("data/secret.txt"))
+        XCTAssertEqual(try status(node, files[1]), 404, "a file replaced by a link")
+        try FileManager.default.moveItem(at: path("cache/dir"), to: path("cache/dir-was"))
+        try FileManager.default.createSymbolicLink(at: path("cache/dir"), withDestinationURL: path("data"))
+        XCTAssertEqual(try status(node, files[2]), 404, "a folder on its way replaced by a link")
+        try FileManager.default.removeItem(at: path("cache/dir"))
+        try FileManager.default.moveItem(at: path("cache/dir-was"), to: path("cache/dir"))
+        XCTAssertEqual(try status(node, files[2]), 200, "the folder back")
         // The root replaced by a link after the page was given the file: its
         // pinned root is read, never the link.
         try FileManager.default.moveItem(at: path("cache"), to: path("cache-was"))
@@ -129,7 +155,7 @@ final class IframeGivenFilesTests: XCTestCase {
         XCTAssertEqual(try run(node, "return JSON.stringify({ bytes: (await (await fetch(\(quoted(file)))).arrayBuffer()).byteLength })")["bytes"] as? Int, Self.size)
         // A new serve then finds a root that is a link, and gives nothing.
         show(session, node, "assets/given.html?file=app:/cache/big.bin&again=1")
-        XCTAssertEqual(try run(node, "return JSON.stringify({ file: new URLSearchParams(location.search).get('file') })")["file"] as? String, "app:/cache/big.bin")
+        XCTAssertEqual(try run(node, "return JSON.stringify({ search: location.search })")["search"] as? String, "?file=&again=1")
         try FileManager.default.removeItem(at: path("cache"))
         try FileManager.default.moveItem(at: path("cache-was"), to: path("cache"))
         // A new source ends the old one's files, as a new frame does.
@@ -142,38 +168,63 @@ final class IframeGivenFilesTests: XCTestCase {
         XCTAssertEqual(try status(node, file), 404, "after the frame was made again")
     }
 
-    /// Every given document runs in an opaque origin, whatever its type; a
-    /// type this Mac has no document for (`.xsl` may be one) is not framed,
-    /// as framing it would download it.
-    func testAGivenDocumentNeverRunsAsTheAppsOrigin() throws {
+    /// A file a browser would run as a document is given as bytes, so it
+    /// never runs as the app; every response but a PDF's carries the sandbox
+    /// as well.
+    func testAGivenFileIsTypedSoItCannotRunAsTheApp() throws {
         let (session, node) = try frames(1)[0]
         defer { session.destroy() }
-        show(session, node, "assets/given.html?" + Self.documents.map { "file=app:/cache/\($0)" }.joined(separator: "&"))
+        let names = Self.documents + ["dot.png", "red.pdf"]
+        show(session, node, "assets/given.html?" + names.map { "file=app:/cache/\($0)" }.joined(separator: "&"))
         let read = try run(node, """
-            const origins = [];
+            const out = [];
             for (const file of new URLSearchParams(location.search).getAll('file')) {
-              const response = await fetch(file), header = response.headers.get('content-security-policy');
-              if (response.headers.get('content-type') === 'application/octet-stream') { origins.push('no document ' + header); continue; }
-              const frame = document.createElement('iframe');
-              const origin = await new Promise(resolve => {
-                const heard = e => { if (e.source === frame.contentWindow) { removeEventListener('message', heard); resolve(String(e.data)); } };
-                addEventListener('message', heard);
-                setTimeout(() => resolve('no script ran'), 3000);
-                frame.src = file;
-                document.body.append(frame);
-              });
-              frame.remove();
-              origins.push(origin + ' ' + header);
+              const r = await fetch(file);
+              out.push(r.headers.get('content-type') + ' ' + r.headers.get('content-security-policy'));
             }
-            return JSON.stringify({ origins });
+            return JSON.stringify({ out });
             """)
         let sandbox = "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads"
-        let origins = try XCTUnwrap(read["origins"] as? [String], "\(read)")
-        XCTAssertEqual(origins.count, Self.documents.count)
-        for (name, origin) in zip(Self.documents, origins) {
-            XCTAssertTrue(origin == "origin=null \(sandbox)" || origin == "no document \(sandbox)", "\(name): \(origin)")
+        XCTAssertEqual(read["out"] as? [String], Self.documents.map { _ in "application/octet-stream \(sandbox)" } + ["image/png \(sandbox)", "application/pdf null"], "\(read)")
+    }
+
+    /// A page that frames a given PDF shows it: WebKit's PDF view draws.
+    func testAFramedGivenPDFDraws() throws {
+        let (session, node) = try frames(1)[0]
+        defer { session.destroy() }
+        #if os(macOS)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.presenter.viewport
+        window.orderFrontRegardless()
+        defer { window.close() }
+        #endif
+        show(session, node, "assets/given.html?file=app:/cache/red.pdf")
+        let read = try run(node, """
+            document.body.style.margin = '0';
+            document.body.replaceChildren();
+            const frame = document.createElement('iframe');
+            frame.style.cssText = 'border:0;width:300px;height:200px';
+            await new Promise(resolve => { frame.onload = resolve; frame.src = new URLSearchParams(location.search).get('file'); document.body.append(frame); });
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            const shown = frame.contentDocument;
+            // macOS shows it in WebKit's PDF view (an <embed>); iOS as an image of its pages.
+            return JSON.stringify({ type: shown.contentType, viewer: !!shown.querySelector('embed') || (shown.querySelector('img')?.naturalWidth ?? 0) > 0 });
+            """)
+        XCTAssertEqual(read["type"] as? String, "application/pdf", "\(read)")
+        XCTAssertEqual(read["viewer"] as? Bool, true, "WebKit shows the PDF in the frame: \(read)")
+        #if os(macOS)
+        // The picture: the PDF's red page fills the frame (it drew nothing under the sandbox).
+        let image = try XCTUnwrap(session.webviews.snapshots()[node.id]?.cgImage(forProposedRect: nil, context: nil, hints: nil), "no snapshot")
+        var pixels = [UInt8](repeating: 0, count: 100 * 100 * 4)
+        let red = pixels.withUnsafeMutableBytes { bytes -> Int in
+            let context = CGContext(data: bytes.baseAddress, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 400,
+                                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 100, height: 100))
+            return stride(from: 0, to: bytes.count, by: 4).filter { bytes[$0] > 200 && bytes[$0 + 1] < 60 && bytes[$0 + 2] < 60 }.count
         }
-        XCTAssertEqual(origins.filter { $0.hasPrefix("origin=null") }.count >= 4, true, "the HTML, SVG, XHTML and RSS documents ran, opaque: \(origins)")
+        XCTAssertGreaterThan(red, 3000, "the PDF's red page")
+        #endif
     }
 
     /// A page in an opaque sandbox cannot read a given file; it can still

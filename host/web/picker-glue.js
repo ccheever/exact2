@@ -74,15 +74,21 @@ export function pageFiles(src, base = document.baseURI) {
   if (!pairs.some(p => p.path)) return null;
   return { paths: [...new Set(pairs.filter(p => p.path).map(p => p.path))], rewrite: urlFor => {
     const out = new URL(url);
-    out.search = '?' + pairs.map(p => p.path && urlFor(p.path) ? `${p.name}=${encodeURIComponent(urlFor(p.path))}` : p.pair).join('&');
+    // A value given nothing is emptied, so no app path reaches the page's server.
+    out.search = '?' + pairs.map(p => p.path ? `${p.name}=${urlFor(p.path) ? encodeURIComponent(urlFor(p.path)) : ''}` : p.pair).join('&');
     return out.href;
   } };
 }
 const GIVEN = /^app:\/(cache|tmp)(\/(?!\.\.?(\/|$))[^/\0]+)+$/;
+// The types a browser shows without running script in them; any other (HTML,
+// SVG, any XML) is given as application/octet-stream, which a frame downloads
+// rather than runs as the app's origin. FrameFiles.swift `shown` is the same.
+const SHOWN = /^(image\/(?!svg)[\w.+-]+|audio\/[\w.+-]+|video\/[\w.+-]+|text\/(plain|csv|tab-separated-values|markdown|css)|application\/(json|pdf))$/i;
+const shown = blob => { const type = blob.type.split(';', 1)[0].trim(); return SHOWN.test(type) && !/\+xml$/i.test(type) ? blob : blob.slice(0, blob.size, 'application/octet-stream'); };
 
 // Each value naming a file the page may be given becomes an object URL the
 // frame owns, made from the store as the source commits and revoked with it.
-// Any other value stays as written, and the console says why.
+// Any other is emptied, and the console says why.
 async function framePage(el, state, appId, given, committed, admit) {
   const store = await fileStore(appId), blobs = new Map();
   const notGiven = (path, why) => console.warn(`exact: iframe ${state.path}: ${path} is not given (${why})`);
@@ -91,7 +97,7 @@ async function framePage(el, state, appId, given, committed, admit) {
     try { blobs.set(path, picked.get(path) ?? (await store.blob(path, typeFor(path))).blob); } catch { notGiven(path, store ? 'no such file' : 'this page has no app files'); }
   }
   if (!state.live) return;
-  const urls = new Map([...blobs].map(([path, blob]) => [path, URL.createObjectURL(blob)])), dispose = state.dispose;
+  const urls = new Map([...blobs].map(([path, blob]) => [path, URL.createObjectURL(shown(blob))])), dispose = state.dispose;
   state.dispose = function () { dispose.call(this); for (const url of urls.values()) URL.revokeObjectURL(url); };
   state.url = given.rewrite(path => urls.get(path));
   admit(state.url);
@@ -103,7 +109,7 @@ async function framePage(el, state, appId, given, committed, admit) {
 // `admit` writes a page's source through the host's own navigation policy
 // (rt.js `navigable`, glue.js `frameURL`), which an `app:/` file's object URL
 // does not need.
-export async function appFrame(el, state, appId, committed = () => {}, admit = url => el.setAttribute('src', url)) {
+export async function appFrame(el, state, appId, committed = () => {}, admit = () => el.setAttribute('src', 'about:blank')) {
   if (!state.path.startsWith('app:/')) {
     const given = pageFiles(state.path);
     // The boot glue's test is looser: a source it sent here that gives no

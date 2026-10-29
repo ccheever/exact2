@@ -1744,9 +1744,12 @@ An `iframe` of a page under `assets/` or `deck/` is given an `app:/cache` or
 `` src=`assets/viewer/index.html?file=${encodeURIComponent(path)}` ``. The page
 reads `new URLSearchParams(location.search).get('file')` and gets a URL it can
 fetch, of any size, until the frame's `src` changes. A value naming `app:/data`, a
-link or a missing file stays as written, the frame loads as usual, and the host
-logs why; copy the file into `app:/cache` first. The web, macOS and iOS give files;
-Android does not ([LLP 1020.001 D7](../llp/1020.001-a-multi-file-bundled-page-in-an-iframe.rfc.md)). Shrink a picked photo for an upload limit with
+link or a missing file is emptied (`file=`), the frame loads as usual, and the host
+logs why; copy the file into `app:/cache` first. An HTML, SVG or XML file is given
+as `application/octet-stream`, so it never runs as the app: read its bytes, into a
+Blob of your own for an SVG `img`, or into a `srcdoc` frame under a `sandbox`
+without `allow-same-origin` for HTML. The web, macOS and iOS give files; Android
+does not ([LLP 1020.001 D7](../llp/1020.001-a-multi-file-bundled-page-in-an-iframe.rfc.md)). Shrink a picked photo for an upload limit with
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
 upright JPEG with no location metadata (`type: "image/png"` writes a PNG that
 keeps transparency; [reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));

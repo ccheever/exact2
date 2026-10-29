@@ -385,11 +385,12 @@ final class WebViews {
         let id = owner.id
         let appFile = src.hasPrefix("app:/") ? AppFiles.url(path) : nil
         // The app files the page's query names, by their roots; the arm gives
-        // those it can open. A value naming nothing it may give stays as written.
+        // those it can open and empties the rest ("" here: refused already).
         var given: [String: String] = [:]
         for value in src.hasPrefix("app:/") ? [] : WebViews.givenPaths(src) {
             let (root, why) = WebViews.givenRoot(value)
-            if let root { given[value] = root } else { FileHandle.standardError.write(Data("exact: iframe \(src): \(value) is not given (\(why))\n".utf8)) }
+            given[value] = root ?? ""
+            if root == nil { FileHandle.standardError.write(Data("exact: iframe \(src): \(value) is not given (\(why))\n".utf8)) }
         }
         WebViews.reads.async { [weak self] in
             let document = src.hasPrefix("app:/")
