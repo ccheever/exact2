@@ -151,6 +151,14 @@ impl Config {
         PainterChoice::from_env(PainterChoice::from_baked(&self.compat))
     }
 
+    /// Whether the carrier should create a window after production-mode filtering.
+    pub fn windowed(&self) -> bool {
+        !self.agent
+            && !self.smoke
+            && self.shot.is_none()
+            && std::env::var("EXACT_DISPLAY").as_deref() != Ok("headless")
+    }
+
     /// Read the environment; `baked` is the plan compiled into the binary
     /// and `compat` its `compat.json` (LLP 1030 D3a).
     pub fn from_env(baked: &[u8], compat: &str) -> Config {
@@ -331,8 +339,8 @@ thread_local! {
     pub(crate) static AGENT_BOOT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Load fonts and lay out while the carrier's device opens; join before painting.
-/// @ref LLP 1149 S2.4.
+/// Load fonts and lay out while the carrier's device opens. Readiness is bounded
+/// by the boot budget; a late device takes over after first pixel. @ref LLP 1149 D6.3.
 #[cfg(windows)]
 pub fn boot_presenter_with_device<D: DataSource + Default>(
     config: &mut Config,
@@ -344,7 +352,10 @@ pub fn boot_presenter_with_device<D: DataSource + Default>(
         viewport,
         PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
     )?;
-    presenter.install_prepared_painter(preparing)?;
+    presenter.install_prepared_painter(
+        preparing,
+        config.clock_started.unwrap_or_else(std::time::Instant::now),
+    );
     Ok((presenter, warning))
 }
 

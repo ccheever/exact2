@@ -292,3 +292,13 @@ fn metal_preserves_submitted_frames_during_atlas_and_pool_eviction() {
 fn d3d11_preserves_submitted_frames_during_atlas_and_pool_eviction() {
     in_flight_storage(&mut super::d3d11::D3d11::new().unwrap());
 }
+
+#[test]
+fn direct_device_selection_is_shared_by_carrier_painter_and_recovery() {
+    assert_eq!(super::direct_d3d11(None), Some(false));
+    assert_eq!(super::direct_d3d11(Some("d3d11")), Some(false));
+    assert_eq!(super::direct_d3d11(Some("warp")), Some(true));
+    for name in ["wgpu", "metal", "invalid"] {
+        assert_eq!(super::direct_d3d11(Some(name)), None);
+    }
+}

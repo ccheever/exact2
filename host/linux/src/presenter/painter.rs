@@ -119,18 +119,24 @@ impl PainterBoot {
             return None;
         }
         let device = std::env::var("EXACT_INK_DEVICE").ok();
-        let force_warp = match device.as_deref() {
-            None | Some("d3d11") => false,
-            Some("warp") => true,
-            _ => return None,
-        };
+        let force_warp = exact_ink::device::direct_d3d11(device.as_deref())?;
         Some(exact_ink::device::d3d11::Preparing::start(force_warp).map_err(|e| e.to_string()))
     }
 
     #[cfg(windows)]
     pub(super) fn finish_direct(preparing: exact_ink::device::d3d11::Preparing) -> OpenedPainter {
         let start = std::time::Instant::now();
-        let device = preparing.finish().map_err(|e| e.to_string())?;
+        let warp = preparing.force_warp();
+        let device = preparing
+            .finish()
+            .or_else(|e| {
+                if warp {
+                    Err(e)
+                } else {
+                    exact_ink::device::d3d11::D3d11::open(true)
+                }
+            })
+            .map_err(|e| e.to_string())?;
         let ink =
             crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(Box::new(device)));
         if std::env::var_os("EXACT_AGENT_WINDOW_FRAMES").is_some() {
@@ -249,13 +255,21 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn install_prepared_painter(
         &mut self,
         preparing: exact_ink::device::d3d11::Preparing,
-    ) -> Result<(), String> {
-        let (backend, info) = PainterBoot::finish_direct(preparing)?;
-        self.brush.replace_backend(backend);
-        self.painter = info;
+        started: std::time::Instant,
+    ) {
+        let (startup, device) = crate::surfaces::window::Startup::wait(preparing, started);
+        if let Some(device) = device {
+            let ink =
+                crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(Box::new(device)));
+            let (backend, info) = ink_backend(ink);
+            self.brush.replace_backend(backend);
+            self.painter = info;
+        } else {
+            self.painter.adapter = Some("CPU startup; composition device pending".into());
+        }
+        self.surfaces.startup_device = Some(startup);
         self.choice = PainterChoice::Ink;
         self.repaint();
-        Ok(())
     }
 
     /// Boot the app under a viewport (points) at a device scale, with its
@@ -309,6 +323,11 @@ impl<D: DataSource> Presenter<D> {
         window: exact_ink::device::d3d11::Window,
         size: [u32; 2],
     ) -> Result<bool, String> {
+        if let Some(startup) = self.surfaces.startup_device.take() {
+            let direct = crate::surfaces::window::DirectWindow::attach(self, window, size, startup);
+            self.surfaces.direct_window = Some(direct);
+            return Ok(true);
+        }
         let attached = self.brush.attach_window(window.clone(), size)?;
         if attached {
             self.surfaces.direct_window = Some(crate::surfaces::window::DirectWindow::new(window));

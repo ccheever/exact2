@@ -22,6 +22,8 @@ use windows::{
     },
 };
 mod composition;
+mod cpu_window;
+pub use cpu_window::CpuWindow;
 #[cfg(test)]
 mod desktop_tests;
 #[cfg(test)]
@@ -33,35 +35,56 @@ mod tests;
 mod text_host;
 pub use composition::Window;
 
-/// The worker transfers the immediate context once, before the paint thread
-/// uses it. App boot overlaps preparation and joins before paint. @ref LLP 1149 S2.4.
-pub struct Preparing(std::sync::mpsc::Receiver<Result<Prepared>>);
+/// Only free-threaded objects cross to the paint thread. A pending worker stays
+/// owned until readiness or cancellation; it never blocks first pixel. @ref LLP 1149 D6.3.
+pub struct Preparing {
+    receive: std::sync::mpsc::Receiver<Result<Prepared>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+    force_warp: bool,
+}
 
 struct Prepared {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     pipeline: setup::Pipeline,
     info: Info,
+    software: bool,
 }
 
 impl Preparing {
     pub fn start(force_warp: bool) -> Result<Self> {
+        Self::start_with(force_warp, move || Prepared::open(force_warp))
+    }
+
+    fn start_with(
+        force_warp: bool,
+        open: impl FnOnce() -> Result<Prepared> + Send + std::panic::UnwindSafe + 'static,
+    ) -> Result<Self> {
         let (send, receive) = std::sync::mpsc::channel();
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("ink-device".into())
             .spawn(move || {
-                let result = std::panic::catch_unwind(|| Prepared::open(force_warp))
+                let result = std::panic::catch_unwind(open)
                     .unwrap_or_else(|_| Err(Error::Device("device worker panicked".into())));
                 let _ = send.send(result);
             })
             .map_err(|e| Error::Device(e.to_string()))?;
-        Ok(Self(receive))
+        Ok(Self {
+            receive,
+            worker: Some(worker),
+            force_warp,
+        })
     }
 
+    pub fn force_warp(&self) -> bool {
+        self.force_warp
+    }
+
+    /// Synchronous callers without a window may wait for the requested device.
     pub fn finish(self) -> Result<D3d11> {
         let joined = Instant::now();
         let prepared = self
-            .0
+            .receive
             .recv()
             .map_err(|_| Error::Device("device worker disconnected".into()))??;
         if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
@@ -72,12 +95,47 @@ impl Preparing {
         }
         D3d11::from_prepared(prepared)
     }
+
+    /// Leave the worker owned by the caller when the boot budget expires.
+    pub fn finish_until(&mut self, deadline: Instant) -> Option<Result<D3d11>> {
+        use std::sync::mpsc::RecvTimeoutError;
+        match self
+            .receive
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
+            Ok(result) => Some(result.and_then(D3d11::from_prepared)),
+            Err(RecvTimeoutError::Timeout) => None,
+            Err(RecvTimeoutError::Disconnected) => {
+                Some(Err(Error::Device("device worker disconnected".into())))
+            }
+        }
+    }
+
+    pub fn poll(&mut self) -> Option<Result<D3d11>> {
+        self.finish_until(Instant::now())
+    }
+}
+
+impl Drop for Preparing {
+    fn drop(&mut self) {
+        // D3D11CreateDevice cannot be interrupted. Joining prevents a discarded
+        // preparation from racing a new one after an early boot refusal.
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 impl Prepared {
     fn open(force_warp: bool) -> Result<Self> {
         let measured = std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some();
         let began = measured.then(super::process_ms).transpose()?;
+        if fault("slow-devices") {
+            std::thread::sleep(Duration::from_millis(600));
+        }
+        if fault("no-devices") || (!force_warp && fault("hardware-open")) {
+            return Err(Error::Device("injected device refusal".into()));
+        }
         let start = Instant::now();
         let (device, context, adapter) = setup::open(force_warp)?;
         let device_ms = start.elapsed().as_secs_f64() * 1000.;
@@ -96,13 +154,24 @@ impl Prepared {
             pipeline,
             info: Info {
                 adapter,
-                api: "direct D3D11".into(),
+                api: if force_warp {
+                    "direct D3D11 WARP"
+                } else {
+                    "direct D3D11"
+                }
+                .into(),
                 device_ms,
                 shaders_ms,
                 cached: false,
             },
+            software: force_warp,
         })
     }
+}
+
+fn fault(name: &str) -> bool {
+    std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+        && std::env::var("EXACT_AGENT_INK_FAULT").as_deref() == Ok(name)
 }
 
 struct Texture {
@@ -134,6 +203,7 @@ pub struct D3d11 {
     retired: Vec<Texture>,
     owner: Rc<()>,
     info: Info,
+    software: bool,
     composition: Option<composition::Composition>,
     presentation_pending: bool,
     retiring_devices: Vec<(Box<D3d11>, u32)>,
@@ -142,6 +212,20 @@ pub struct D3d11 {
 impl D3d11 {
     pub fn new() -> Result<Self> {
         Self::open(false)
+    }
+
+    pub fn open_with_fallback(force_warp: bool) -> Result<Self> {
+        Self::open(force_warp).or_else(|error| {
+            if force_warp {
+                return Err(error);
+            }
+            eprintln!("exact-ink: hardware unavailable; trying WARP: {error}");
+            Self::open(true)
+        })
+    }
+
+    pub fn is_software(&self) -> bool {
+        self.software
     }
 
     /// Force WARP for the software-device qualification (LLP 1149 S0 C6).
@@ -155,6 +239,7 @@ impl D3d11 {
             context,
             pipeline,
             info,
+            software,
         } = prepared;
         let owner = Rc::new(());
         let buffer = Buffer {
@@ -195,6 +280,7 @@ impl D3d11 {
             presentation_pending: false,
             retiring_devices: Vec::new(),
             info,
+            software,
         })
     }
 

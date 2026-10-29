@@ -67,6 +67,18 @@ impl Shelf {
         frames: Option<u32>,
         field: bool,
     ) -> Self {
+        Self::launch_fault(name, exe, painter, size, frames, field, None)
+    }
+
+    fn launch_fault(
+        name: &str,
+        exe: &str,
+        painter: &str,
+        size: &str,
+        frames: Option<u32>,
+        field: bool,
+        fault: Option<&str>,
+    ) -> Self {
         let log = out().join(format!("{name}.log"));
         let file = File::create(&log).unwrap();
         let mut command = Command::new(exe);
@@ -97,10 +109,14 @@ impl Shelf {
             .env_remove("EXACT_AGENT")
             .env_remove("EXACT_DISPLAY")
             .env_remove("EXACT_INK_RICHEDIT")
+            .env_remove("EXACT_AGENT_INK_FAULT")
             .env_remove("EXACT_AGENT_WINDOW_TAP")
             .env_remove("EXACT_AGENT_WINDOW_FRAMES")
             .stdout(Stdio::from(file.try_clone().unwrap()))
             .stderr(Stdio::from(file));
+        if let Some(fault) = fault {
+            command.env("EXACT_AGENT_INK_FAULT", fault);
+        }
         if let Some(frames) = frames {
             command.env("EXACT_AGENT_WINDOW_FRAMES", frames.to_string());
         }
@@ -495,6 +511,92 @@ fn fresh_comparison(name: &str, mut app: Shelf) {
     });
     println!("S2_BAND {name} mean={} over32={}", score.0, score.1);
     fresh.close();
+}
+
+fn fallback_launch(fault: &str) -> Shelf {
+    let exe = std::env::var("INK_SHELF").unwrap();
+    Shelf::launch_fault(fault, &exe, "ink", "1024x720", None, false, Some(fault))
+}
+
+fn assert_picture(image: &tiny_skia::Pixmap) {
+    let dark = image
+        .data()
+        .chunks_exact(4)
+        .filter(|p| p[..3].iter().all(|n| *n < 80))
+        .count();
+    let light = image
+        .data()
+        .chunks_exact(4)
+        .filter(|p| p[..3].iter().all(|n| *n > 200))
+        .count();
+    assert!(
+        dark > 500 && light > 500,
+        "blank client: dark={dark}, light={light}"
+    );
+}
+
+fn warp_boot(fault: &str) {
+    let mut app = fallback_launch(fault);
+    until("WARP paints the first screen", || {
+        app.alive();
+        let log = app.text();
+        log.contains("painter ink") && log.contains("warp true")
+    });
+    let image = app.capture(fault);
+    assert_picture(&image);
+    let log = app.close();
+    assert!(log.contains("injected"), "{log}");
+    assert!(!log.contains("hardware recovery"), "{log}");
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_hardware_open_refusal_uses_warp() {
+    warp_boot("hardware-open");
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_hardware_attach_refusal_uses_warp() {
+    warp_boot("hardware-attach");
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_slow_preparation_displays_cpu_before_hardware() {
+    let mut app = fallback_launch("slow-devices");
+    let first = app.text();
+    assert!(first.contains("painter cpu"), "{first}");
+    assert!(
+        !first.contains("ready at"),
+        "device arrived before the CPU frame: {first}"
+    );
+    assert_picture(&app.capture("slow-devices-cpu"));
+    until("prepared hardware takes over", || {
+        app.alive();
+        app.text().contains("painter ink")
+    });
+    assert_picture(&app.capture("slow-devices-ink"));
+    app.close();
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_refused_devices_display_cpu() {
+    let mut app = fallback_launch("no-devices");
+    assert!(app.text().contains("painter cpu"));
+    assert_picture(&app.capture("no-devices-cpu"));
+    app.close();
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_unavailable_mica_still_presents() {
+    let mut app = fallback_launch("mica");
+    assert_picture(&app.capture("mica-unavailable"));
+    let log = app.close();
+    assert!(log.contains("painter ink"), "{log}");
+    assert_eq!(log.matches("Mica unavailable").count(), 1, "{log}");
 }
 
 #[test]

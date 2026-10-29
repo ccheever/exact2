@@ -52,13 +52,47 @@ fn failed_and_disconnected_device_workers_are_reported() {
     send.send(Err(Error::Device("test device refusal".into())))
         .unwrap();
     assert!(
-        matches!(Preparing(receive).finish(), Err(Error::Device(e)) if e == "test device refusal")
+        matches!(Preparing { receive, worker: None, force_warp: false }.finish(), Err(Error::Device(e)) if e == "test device refusal")
     );
     let (send, receive) = std::sync::mpsc::channel();
     drop(send);
     assert!(
-        matches!(Preparing(receive).finish(), Err(Error::Device(e)) if e.contains("disconnected"))
+        matches!(Preparing { receive, worker: None, force_warp: false }.finish(), Err(Error::Device(e)) if e.contains("disconnected"))
     );
+}
+
+#[test]
+fn expired_preparation_budget_keeps_the_worker_for_later() {
+    let (release, wait) = std::sync::mpsc::channel();
+    let mut preparing = Preparing::start_with(true, move || {
+        wait.recv().unwrap();
+        Prepared::open(true)
+    })
+    .unwrap();
+    assert!(preparing.finish_until(Instant::now()).is_none());
+    release.send(()).unwrap();
+    let mut device = preparing
+        .finish_until(Instant::now() + Duration::from_secs(10))
+        .expect("worker completed")
+        .unwrap();
+    let target = device.create_target(1, 1).unwrap();
+    device
+        .render(&Frame::default(), target, Some([1., 0., 0., 1.]))
+        .unwrap();
+    assert_eq!(device.readback(target).unwrap(), [255, 0, 0, 255]);
+}
+
+#[test]
+fn dropping_preparation_joins_its_worker() {
+    let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let worker_finished = finished.clone();
+    let preparing = Preparing::start_with(false, move || {
+        worker_finished.store(true, std::sync::atomic::Ordering::SeqCst);
+        Err(Error::Device("injected refusal".into()))
+    })
+    .unwrap();
+    drop(preparing);
+    assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
 }
 
 #[test]

@@ -26,14 +26,14 @@ impl Selected {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn open(value: Option<&str>) -> Result<Self> {
+        #[cfg(windows)]
+        if let Some(warp) = direct_d3d11(value) {
+            return d3d11::D3d11::open_with_fallback(warp).map(|d| Self::D3d11(Box::new(d)));
+        }
         match value {
-            #[cfg(windows)]
-            None | Some("d3d11") => d3d11::D3d11::new().map(|d| Self::D3d11(Box::new(d))),
             #[cfg(not(windows))]
             None => wgpu::Wgpu::new().map(Into::into),
             Some("wgpu") => wgpu::Wgpu::new().map(Into::into),
-            #[cfg(windows)]
-            Some("warp") => d3d11::D3d11::open(true).map(|d| Self::D3d11(Box::new(d))),
             Some("metal") => {
                 #[cfg(exact_ink_metal)]
                 {

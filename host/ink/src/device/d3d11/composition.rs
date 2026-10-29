@@ -236,6 +236,11 @@ impl Composition {
             let backdrop = DWMSBT_MAINWINDOW;
             optional_backdrop(
                 || {
+                    if fault("mica") {
+                        return Err(windows::core::Error::from_hresult(
+                            windows::Win32::Foundation::E_FAIL,
+                        ));
+                    }
                     DwmSetWindowAttribute(
                         hwnd,
                         DWMWA_SYSTEMBACKDROP_TYPE,
@@ -244,6 +249,11 @@ impl Composition {
                     )
                 },
                 || {
+                    if fault("mica") {
+                        return Err(windows::core::Error::from_hresult(
+                            windows::Win32::Foundation::E_FAIL,
+                        ));
+                    }
                     DwmExtendFrameIntoClientArea(
                         hwnd,
                         &MARGINS {
@@ -292,7 +302,7 @@ impl Composition {
 impl D3d11 {
     /// Keep the old device until its commands and the replacement present finish.
     /// A swap-chain handoff never waits for either on the frame path.
-    pub fn retire_after_present(&mut self, previous: D3d11) {
+    pub fn retire_after_present(&mut self, mut previous: D3d11) {
         // The completion query follows Present; no later WARP frame will flush it.
         unsafe { previous.context.Flush() };
         // If statistics fail, keep the old device until this window closes.
@@ -300,14 +310,22 @@ impl D3d11 {
             .composition
             .as_ref()
             .and_then(|c| unsafe { c.swap.GetLastPresentCount().ok() })
+            .map(|count| count.max(1))
             .unwrap_or(u32::MAX);
+        // A later replacement covers every older chain. Keep each completion
+        // query, but do not depend on statistics from an already-lost device.
+        self.retiring_devices.extend(
+            previous
+                .retiring_devices
+                .drain(..)
+                .map(|(d, _)| (d, present)),
+        );
         self.retiring_devices.push((Box::new(previous), present));
         self.collect_presented_devices();
     }
 
     pub(super) fn collect_presented_devices(&mut self) {
         self.retiring_devices.retain_mut(|(previous, present)| {
-            previous.collect_presented_devices();
             if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
                 && previous
                     .composition
@@ -332,11 +350,16 @@ impl D3d11 {
                     .is_ok()
                     && stats.PresentCount >= *present
             });
-            !(complete && displayed && previous.retiring_devices.is_empty())
+            !(complete && displayed)
         });
     }
 
     pub fn attach_window(&mut self, window: Window, size: [u32; 2]) -> Result<()> {
+        if !self.software && fault("hardware-attach") {
+            return Err(Error::Device(
+                "injected hardware composition refusal".into(),
+            ));
+        }
         if size.contains(&0) {
             return Err(Error::Invalid("composition size".into()));
         }
@@ -555,6 +578,54 @@ mod tests {
             },
         );
         assert!(extended.get());
+    }
+
+    #[test]
+    #[ignore = "native Windows composition requires fxc and a desktop session"]
+    fn a_blocked_latency_handle_skips_activation_and_keeps_the_device() {
+        use windows::Win32::System::Threading::CreateEventW;
+        let window = Window::fixture([80, 60]).unwrap();
+        let mut device = D3d11::new().unwrap();
+        device.attach_window(window.clone(), [80, 60]).unwrap();
+        let target = device.create_target(80, 60).unwrap();
+        device
+            .render(&Frame::default(), target, Some([1.; 4]))
+            .unwrap();
+        let blocked = unsafe { CreateEventW(None, true, false, None).unwrap() };
+        let original =
+            std::mem::replace(&mut device.composition.as_mut().unwrap().latency, blocked);
+        let start = Instant::now();
+        let result = device.present(target);
+        device.composition.as_mut().unwrap().latency = original;
+        unsafe { CloseHandle(blocked).unwrap() };
+        assert_eq!(result.unwrap(), 0.);
+        assert!(start.elapsed() < Duration::from_millis(100));
+        assert!(device.presentation_pending());
+        assert!(!device.composition.as_ref().unwrap().active);
+        assert!(device.present(target).unwrap() > 0.);
+        assert!(!device.presentation_pending());
+    }
+
+    #[test]
+    #[ignore = "native Windows composition requires fxc and a desktop session"]
+    fn a_hidden_window_skips_activation_until_it_is_visible() {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        let window = Window::fixture([80, 60]).unwrap();
+        let mut device = D3d11::new().unwrap();
+        device.attach_window(window.clone(), [80, 60]).unwrap();
+        let target = device.create_target(80, 60).unwrap();
+        device
+            .render(&Frame::default(), target, Some([1.; 4]))
+            .unwrap();
+        unsafe {
+            let _ = ShowWindow(window.hwnd, SW_HIDE);
+        }
+        assert_eq!(device.present(target).unwrap(), 0.);
+        assert!(!device.composition.as_ref().unwrap().active);
+        unsafe {
+            let _ = ShowWindow(window.hwnd, SW_SHOW);
+        }
+        assert!(device.present(target).unwrap() > 0.);
     }
 
     #[test]
