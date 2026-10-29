@@ -135,7 +135,7 @@ impl Shelf {
             until("late-device window is visible", || {
                 app.alive();
                 app.hwnd = window_for(app.child.id());
-                !app.hwnd.is_invalid()
+                !app.hwnd.is_invalid() && app.client().right > 0 && app.client().bottom > 0
             });
             let image = app.capture_pixels();
             image
