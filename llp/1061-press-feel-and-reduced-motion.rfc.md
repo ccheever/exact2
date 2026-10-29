@@ -268,9 +268,11 @@ the input glue shows by D3's rule, released also when the window, the tab
 or the page goes and when a move says the button is up, a key's press too.
 The glue paints them while it marks the press, an important rule of the
 node's own at the press's progress (which it animates) over the node's look
-beneath, which it reads with the paint off whenever the press turns, the
-node's style or class changes or the scheme flips, so the release eases back
-to the node's look as it is then. The pressed colour is a background layer
+beneath, which it reads again (the paint left on, its declarations kept
+under a declared transition held as they are while the node's own style and
+class, the sheets and the scheme are unchanged) whenever the press turns,
+the node's style or class changes or the scheme flips, so the release eases
+back to the node's look as it is then. The pressed colour is a background layer
 over the node's own background-color (its own images beneath; a colour at
 alpha p over another, so a translucent pressed colour composites rather than
 mixes). The pressed opacity is the property itself where the engine hands
@@ -284,10 +286,11 @@ cancels one. One running on the background colour shows beneath the paint's
 layer; on the opacity or the text colour, the paint of that property waits
 until it ends. Where the node declares a transition on a property the paint
 writes, the paint at rest is exactly the look beneath (an opaque rgb()
-colour, the engine's own opacity number), or that property isn't painted;
-once written it is kept as it is for the press. The paint's layers shift
-the node's own background and mask lists with its images; where that would
-move them under a transition (a position or size list), that layer isn't
+colour, the engine's own opacity number), or that property isn't painted.
+The paint's layers shift
+the node's own background and mask lists with its images (with none, the
+layer takes the node's own clip and origin); where that would move them
+under a transition (a position, its axes, or a size list), that layer isn't
 painted.
 An authored change while held is a base change (LLP 1121 D8), which the
 paint lies over. A property cleared while held stops
