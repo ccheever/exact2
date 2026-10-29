@@ -35,7 +35,8 @@ const free = () => new Promise(ok => { const s = createServer(); s.listen(0, '12
 // The JS loop (Caltrain), the wasm loop's own compiler (theme-fixture, no app.ts) and its TypeScript
 // producer (Canvas Gallery). A wasm loop's wait (the most the knob takes) outlasts its first generation,
 // so that comes while it is not listening yet, which `GENERATED` shows: its classification, said as it
-// captures one. Without it a case would prove nothing, so it fails instead. theme-fixture's design server
+// captures one. Without it a case would prove nothing, so it fails instead; a warm run first (`warm`), so a
+// cold build of the app's dev bin (minutes, after a rebase) does not outlast the wait. theme-fixture's design server
 // takes the app's .exact/tamber.lock: this checkout's turn on the fixture first, as design-tool-inspect's.
 const LOOPS = [
   { name: 'the JS dev loop', args: ['--app', 'caltrain'], delay: 3000 },
@@ -55,10 +56,10 @@ async function fixtureTurn(loop) {
 }
 
 // The loop on `port`, its output heard as it is said; `onReady` runs in the same turn as the line is read.
-function devLoop(loop, port, onReady = () => {}) {
+function devLoop(loop, port, onReady = () => {}, delay = loop.delay) {
   const dist = mkdtempSync(join(tmpdir(), 'exact-plan-ready-dist-'));
   dists.add([loop.args[1], dist]);
-  const env = { ...process.env, EXACT_WEB_DIST: dist, EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: String(loop.delay) };
+  const env = { ...process.env, EXACT_WEB_DIST: dist, ...(delay ? { EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: String(delay) } : {}) };
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), ...loop.args, '--port', String(port)], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '', ready = false;
   // Once its output has all been read (a child's 'close' comes after its streams end).
@@ -81,9 +82,26 @@ test('the listen delay is read only under EXACT_TEST_TIMING=1, from 1 to 60000 m
   expect(await took({ EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: '1500' })).toBeGreaterThanOrEqual(1490);
 });
 
+// A wasm loop's app built once, its loop run to ready with no wait and stopped, before a case times its wait.
+const warmed = new Map();
+const warm = loop => {
+  if (!loop.args.includes('--wasm')) return;
+  if (!warmed.has(loop.name)) warmed.set(loop.name, (async () => {
+    const run = devLoop(loop, await free(), undefined, 0);
+    try {
+      for (const end = Date.now() + 600_000; !run.ready();) {
+        if (Date.now() > end || run.dev.exitCode !== null) throw new Error(`the warm run never got ready: ${run.said().slice(-4000)}`);
+        await Bun.sleep(50);
+      }
+    } finally { await run.dev.stop(15_000); }
+  })());
+  return warmed.get(loop.name);
+};
+
 for (const loop of LOOPS) {
   test(`${loop.name} says 'plan ready' only once its server answers`, async () => {
     await fixtureTurn(loop);
+    await warm(loop);
     const port = await free();
     const six = await sixLoopback;
     let answers = null;
@@ -100,10 +118,11 @@ for (const loop of LOOPS) {
       expect(run.said()).toContain(`dev: TEST delay ${loop.delay} ms before listening (EXACT_TEST_TIMING=1)`);
       if (loop.args.includes('--wasm')) expect(atIndex(run.said(), GENERATED), 'a generation captured before the loop listened').toBeWithin(0, run.said().indexOf(`http://127.0.0.1:${port}/`));
     } finally { await run.dev.stop(15_000); }
-  }, 620_000);
+  }, 1_300_000);
 
   test(`${loop.name} whose port is taken says so and never says 'plan ready'`, async () => {
     await fixtureTurn(loop);
+    await warm(loop);
     const port = await free();
     const holder = createServer();
     await new Promise(ok => holder.listen(port, '127.0.0.1', ok));
@@ -117,5 +136,5 @@ for (const loop of LOOPS) {
       if (loop.args.includes('--wasm')) expect(atIndex(run.said(), GENERATED), 'a generation captured before the listen failed').toBeWithin(0, refused);
       expect(run.ready(), 'a ready line').toBe(false);
     } finally { await run.dev.stop(15_000); }
-  }, 620_000);
+  }, 1_300_000);
 }
