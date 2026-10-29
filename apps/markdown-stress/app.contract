@@ -431,11 +431,12 @@ component DocumentBody
             text `${mixed ? "Mixed · " : ""}${formats}` testId="markup-selection" min-height=16 font-size=12 color="softInk"
             textarea id="markup-editor" markup="markdown" value=editorText input=editMarkdown select=selected testId="markup-editor" aria-label="Markdown editor" width="100%" height=260 box-sizing="border-box" padding=12 border-width=1 border-color="fieldEdge" border-radius=8 background-color="fieldBg" color="ink" font-size=16 line-height="26px"
             text editorText markup="markdown" testId="markup-preview" width="100%" font-size=16 line-height="26px" color="ink"
+            // Above the atom reader, which Firefox draws a line taller (issues/20261030-firefox-atom-reader-single-line.md).
+            textarea id="atom-rtl-editor" markup="markdown" value=atomRtl input=editRtl atoms="mention" atomFaces=atomRtlFaces testId="atom-rtl-editor" aria-label="Right-to-left atoms" width="100%" height=120 box-sizing="border-box" padding=12 border-width=1 border-color="fieldEdge" border-radius=8 background-color="fieldBg" color="ink" font-size=16 line-height="26px" direction="rtl"
+            text atomRtl markup="markdown" atoms="mention" atomFaces=atomRtlFaces testId="atom-rtl-reader" width="100%" font-size=16 line-height="26px" color="ink" direction="rtl"
             textarea id="atom-editor" markup="markdown" value=atomText input=editAtoms select=selectedAtom atoms="citation mention skill" atomFaces=atomFaces atompress=pressedAtom testId="atom-editor" aria-label="Atoms" width="100%" height=160 box-sizing="border-box" padding=12 border-width=1 border-color="fieldEdge" border-radius=8 background-color="fieldBg" color="ink" font-size=16 line-height="26px"
             text `pressed: ${atomPress} · selected: ${atomSelected}` testId="atom-state" font-size=12 color="softInk"
             text atomText markup="markdown" atoms="citation mention skill" atomFaces=atomFaces atompress=pressedAtom testId="atom-reader" width="100%" font-size=16 line-height="26px" color="ink"
-            textarea id="atom-rtl-editor" markup="markdown" value=atomRtl input=editRtl atoms="mention" atomFaces=atomRtlFaces testId="atom-rtl-editor" aria-label="Right-to-left atoms" width="100%" height=120 box-sizing="border-box" padding=12 border-width=1 border-color="fieldEdge" border-radius=8 background-color="fieldBg" color="ink" font-size=16 line-height="26px" direction="rtl"
-            text atomRtl markup="markdown" atoms="mention" atomFaces=atomRtlFaces testId="atom-rtl-reader" width="100%" font-size=16 line-height="26px" color="ink" direction="rtl"
             text doc.source markup="markdown" testId="markup-node" width="100%" font-size=16 line-height="26px" color="ink"
     else
       if windowed
