@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { mobileNewTaskEditorAction as action, mobileNewTaskEditorView as view, mobileNewTaskEditorEffect as effect, mobileNewTaskEditorAllowsWriter } from './new-task-editor';
-import { fixture, picker, config, event, receipt, mounted } from './new-task-editor-test-support';
+import { fixture, picker, config, event, receipt, mounted, intakeReply, continuation } from './new-task-editor-test-support';
 import { obj } from './shared/domain';
 import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftNoteBranch, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 
@@ -57,4 +57,25 @@ test('ordered ready establishes a fresh native mount without a coalesced text la
   expect((await action(f.client, route, { kind: 'observe', payload: event(identity, '') }, f.native, f.storage)).accepted).toBe(true);
   expect(view(f.client, route).kind).toBe('editing');
   expect((await action(f.client, route, { kind: 'observe', payload: event({ ...identity, mountId: 'foreign' }, '') }, f.native, f.storage)).accepted).toBe(false);
+});
+
+test('a concurrently observed open picker is pending without a modal error', async () => {
+  const f = await fixture(); continuation(f);
+  f.intakeHook(async request => intakeReply(request, 'picking'));
+  const result = await action(f.client, f.route, { kind: 'pick', source: 'files' }, f.native, f.storage);
+  expect(result.message).toBe(''); expect(view(f.client, f.route).kind).toBe('frozen');
+  expect(f.calls.some(call => call.action === 'cancel' || call.action === 'resume')).toBe(false);
+});
+
+test('confirmed cancellation and native retirement settle the old route before reentry', async () => {
+  const f = await fixture(); continuation(f);
+  f.intakeHook(async request => { f.detach(); return intakeReply(request, 'cancelled'); });
+  await action(f.client, f.route, { kind: 'pick', source: 'files' }, f.native, f.storage);
+  const freeze = f.calls.find(call => call.action === 'freeze')!;
+  const source = { receiptId: '11111111-1111-4111-8111-111111111111', identity: f.identity, retired: true,
+    event: { ...event(f.identity, '🙂 picked here', 4, 'text'), kind: 'frozen', selection: { start: 3, end: 9 },
+      operationId: freeze.operationId, operationRevision: freeze.operationRevision } };
+  expect(f.calls.some(call => call.action === 'resume')).toBe(false);
+  f.receipts([source]); f.detach(); await f.reread();
+  expect(view(f.client, await f.resume())).toMatchObject({ kind: 'mounting' });
 });

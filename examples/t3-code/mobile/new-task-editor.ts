@@ -64,7 +64,7 @@ interface ResumeRequest {
     readonly tokensJson: string; readonly isNativeEcho: false };
 }
 interface Handback { request: ResumeRequest; newest: ComposerEditorEvent | null; proof: ComposerEditorResume | null }
-interface CompletedCycle { operationRevision: number; frozenEventCount: number; receiptId: string; proof: ComposerEditorResume | null }
+interface CompletedCycle { focused: boolean; operationRevision: number; frozenEventCount: number; receiptId: string; proof: ComposerEditorResume | null }
 type Continuation =
   | { kind: 'ready' }
   | { kind: 'producing' }
@@ -523,7 +523,9 @@ async function continuePick(client: MobileDraftClient, owner: Ledger, entry: Ent
     if (work.capture.intent) await advanceProducer(client, owner, entry, work, native, storage);
     else await advanceFrozen(client, owner, entry, work, native, storage);
     if (entry.progress.kind === 'saved' && entry.progress.publication.slotReleased
-      && (work.continuation.kind === 'terminal' && work.continuation.outcome === 'finished' || work.continuation.kind === 'produced' && work.continuation.saved)) {
+      && (work.continuation.kind === 'terminal' && (work.continuation.outcome === 'finished'
+        || work.continuation.outcome === 'cancelled' && work.continuation.files !== null && work.receipt.retired && !work.handback)
+        || work.continuation.kind === 'produced' && work.continuation.saved)) {
       entry.progress = { kind: 'acknowledged', receipt: work.receipt }; entry.operation = null; return;
     }
     if (entry.operation === work) await resume(client, owner, entry, work, native, storage);
@@ -628,7 +630,7 @@ function resumeMatches(work: FrozenPick, proof: ComposerEditorResume): boolean {
     && equal(event.selection, request.document.selection);
 }
 function completeCycle(entry: Entry, work: FrozenPick, proof: ComposerEditorResume | null): void {
-  entry.completed = { operationRevision: work.operation.revision, frozenEventCount: work.receipt.event.eventCount,
+  entry.completed = { focused: work.receipt.event.focused, operationRevision: work.operation.revision, frozenEventCount: work.receipt.event.eventCount,
     receiptId: work.receipt.id, proof };
   entry.operation = null; entry.progress = { kind: 'unpublished' }; entry.custody = 'native'; entry.notice = '';
 }
@@ -737,8 +739,17 @@ export function mobileNewTaskEditorAllowsWriter(client: T3Client, key: string, p
     || producer === 'voice' && entry.operation?.phase === 'frozen' && entry.operation.capture.intent?.kind === 'voice'
       && entry.progress.kind === 'saved');
 }
+export function mobileNewTaskEditorRouteFor(client: MobileDraftClient, owner: string, visit: string): NewTaskEditorRoute | null {
+  const entry = ledger(client).entries.findLast(candidate => candidate.route.owner === owner && candidate.route.visit === visit
+    && candidate.progress.kind !== 'acknowledged' && currentRoute(client, candidate.route));
+  return entry ? { ...entry.route } : null;
+}
 export function mobileNewTaskEditorEffect(client: MobileDraftClient, route: NewTaskEditorRoute): NewTaskProducerEffect | null {
   return ledger(client).entries.findLast(entry => matchingRoute(entry, route) && entry.effect)?.effect ?? null;
+}
+export function mobileNewTaskEditorFocus(client: MobileDraftClient, route: NewTaskEditorRoute) {
+  const entry = activeEntry(client, route), completed = entry?.completed;
+  return completed?.focused && !entry?.operation ? { serial: completed.receiptId, attempt: 0, operation: 'focus' } : null;
 }
 export function mobileNewTaskEditorFlushKey(client: MobileDraftClient, route: NewTaskEditorRoute): string {
   const entry = activeEntry(client, route);
@@ -884,7 +895,10 @@ async function advanceFrozen(client: MobileDraftClient, owner: Ledger, entry: En
       if (value.files.length > intake.request.remaining) throw new ClientError('The picker inventory exceeds its captured capacity.');
       if (value.status === 'cancelled') { terminal(entry, work, { kind: 'terminal', outcome: 'cancelled', files: value.files }); return; }
       if (value.status === 'staged') transition({ kind: 'staged', request: intake.request, files: value.files });
-      else if (value.status === 'picking' && !liveIntake(client, entry, work)) transition(cancellation(work, null));
+      else if (value.status === 'picking') {
+        if (!liveIntake(client, entry, work)) transition(cancellation(work, null));
+        else { entry.notice = ''; return; }
+      }
       else throw new ClientError(value.error || 'The picker is still pending.');
     }
     if (phase.kind === 'staged') {
