@@ -1,7 +1,7 @@
 import { mobileDraftRecoveryHydrated, type MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTaskFlowCurrent, mobileNewTaskFlowOwns, mobileNewTaskRoute } from './new-task-flow';
 import { mobileNewTaskDraftCurrent, mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftLookup, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
-import { mobileNewTaskContextWrite, mobileNewTaskContextAttach, mobileNewTaskContextProject,
+import { mobileNewTaskContextObserve, mobileNewTaskContextAttach, mobileNewTaskContextProject,
   type MobileNewTaskAttachmentCommit, type MobileNewTaskAttachmentProjection, type MobileNewTaskContextGuard } from './mobile-new-task-context';
 import { mobilePickerIntakeRequest, mobilePickerIntakeInvoke, type PickerIntakeRequest,
   type PickerIntakeFile, type PickerIntakePick, type PickerIntakeFinish } from './composer-picker-intake-io';
@@ -10,8 +10,11 @@ import { mobileFileHoldsCreate, mobileFileHoldReserve, mobileFileHoldAcquire, mo
 import { mobileComposerCountAttachmentsAfterSelection } from './composer-context-insertion';
 import { mobileComposerPickerFileLimit } from './composer-picker';
 import type { OrdinaryInventoryAttachment } from './composer-attachment-publication';
-import { localId } from './shared/composer-editor';
-import { obj, str } from './shared/domain';
+import { localId, workspaceCwd } from './shared/composer-editor';
+import { arr, obj, str } from './shared/domain';
+import { mobileComposerDocument, mobileComposerFileIcon, type ComposerInlineToken } from './composer-editor-document';
+import { mobileComposerProvider } from './composer-command-query';
+import { resolveProviderSkillsForCwd } from './composer-command-model';
 import { draftFiles, fileContextRecords } from './shared/composer-editor-files';
 import { contextReferences } from './shared/composer-editor-menu';
 import { mobileDraftAttachmentIds } from './draft-attachment-order';
@@ -19,7 +22,7 @@ import { mobileComposerTarget, type MobileComposerTarget } from './composer-targ
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { fleet } from './shared/settings-b-fleet';
 import { mobileComposerEditorAccept, mobileComposerEditorAdmit, mobileComposerEditorControlled,
-  mobileComposerEditorDecodeEvent, type ComposerEditorEvent, type ComposerEditorState,
+  mobileComposerEditorDecodeEvent, mobileComposerEditorDecodeResume, type ComposerEditorResume, type ComposerEditorEvent, type ComposerEditorState,
   type ComposerMountedIdentity } from './composer-editor-state';
 import { bridgeReply, ClientError, type Files, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
@@ -48,8 +51,16 @@ type PickWork =
   | { phase: 'allocating'; capture: PickCapture; revision: number; attempt: number }
   | { phase: 'freezing'; capture: PickCapture; operation: OperationIdentity; attempt: number }
   | { phase: 'frozen'; capture: PickCapture; operation: OperationIdentity; receipt: FrozenReceipt;
-      source: MobileNewTaskAttachmentProjection | null; continuation: Continuation; attempt: number };
+      source: MobileNewTaskAttachmentProjection | null; continuation: Continuation; handback: Handback | null; attempt: number };
 type FrozenPick = Extract<PickWork, { phase: 'frozen' }>;
+interface ResumeRequest {
+  readonly op: 'composerEditorHandoff'; readonly action: 'resume'; readonly generation: number;
+  readonly identity: ComposerMountedIdentity; readonly operationId: string; readonly operationRevision: number; readonly receiptId: string;
+  readonly document: { readonly value: string; readonly selection: { readonly start: number; readonly end: number };
+    readonly tokensJson: string; readonly isNativeEcho: false };
+}
+interface Handback { request: ResumeRequest; newest: ComposerEditorEvent | null; proof: ComposerEditorResume | null }
+interface CompletedCycle { operationRevision: number; frozenEventCount: number; receiptId: string; proof: ComposerEditorResume | null }
 type Continuation =
   | { kind: 'ready' }
   | { kind: 'intake'; request: PickerIntakePick; dispatched: boolean }
@@ -73,6 +84,8 @@ interface Entry {
   draft: DraftIdentity; route: NewTaskEditorRoute; state: ComposerEditorState; revision: number;
   custody: 'native' | 'recovery' | 'frozen'; progress: Progress; dirty: boolean;
   attempt: number; problem: string; notice: string; operation: PickWork | null; operationRevision: number; holds: FileHoldLedger | null;
+  generation: number; catalog: string; threadEpoch: number; confirmed: readonly ComposerInlineToken[]; tokensJson: string;
+  completed: CompletedCycle | null;
 }
 interface Ledger {
   entries: Entry[]; serial: number; acceptedRead: number; problem: string; wakeUsed: boolean;
@@ -131,21 +144,103 @@ function activeEntry(client: MobileDraftClient, route: NewTaskEditorRoute): Entr
     && entry.state.identity.owner === captured.owner && sameStable(entry.draft, captured.draft)
     && entry.draft.projectId === captured.draft.projectId) ?? null;
 }
+function liveEntry(client: MobileDraftClient, entry: Entry): boolean {
+  return activeEntry(client, entry.route) === entry && client.generation === entry.generation
+    && client.threadEpoch === entry.threadEpoch && mobileCacheCatalogIdentity(fleet.saved, entry.draft.environmentId) === entry.catalog;
+}
+function usableHolds(entry: Entry) {
+  return entry.holds ? Object.keys(entry.holds.entries).flatMap(id => {
+    const held = mobileFileHoldHeld(entry.holds!, id); return held ? [held] : [];
+  }) : [];
+}
+function savedFiles(client: MobileDraftClient, entry: Entry) {
+  return draftFiles(client.local).filter(file => file.draftKey === entry.draft.key && file.source === 'attached');
+}
+function filesReady(client: MobileDraftClient, entry: Entry): boolean {
+  const held = usableHolds(entry);
+  return savedFiles(client, entry).every(file => held.some(binding => equal(binding.request.file, file)
+    || equal({ ...binding.request.file, status: 'staged', attachmentId: '' }, { ...file, status: 'staged', attachmentId: '' })));
+}
+async function prepareFiles(client: MobileDraftClient, entry: Entry, native: Native): Promise<void> {
+  if (!entry.state.mountId || entry.operation || entry.progress.kind !== 'unpublished' || entry.problem || !liveEntry(client, entry)) return;
+  const files = savedFiles(client, entry), revision = entry.revision;
+  const current = () => liveEntry(client, entry) && !entry.operation && entry.progress.kind === 'unpublished'
+    && registry(client, entry)?.revision === revision && equal(savedFiles(client, entry), files);
+  try {
+    for (const file of files) {
+      if (!current()) return;
+      entry.holds ??= mobileFileHoldsCreate(mounted(entry), entry.generation, { kind: 'new-task', origin: entry.draft.origin,
+        environmentId: entry.draft.environmentId, projectId: entry.draft.projectId, draftKey: entry.draft.key, createdAt: entry.draft.createdAt });
+      const holds = entry.holds;
+      if (usableHolds(entry).some(held => equal({ ...held.request.file, status: 'staged', attachmentId: '' },
+        { ...file, status: 'staged', attachmentId: '' }))) continue;
+      const prior = Object.values(holds.entries).find(hold => hold.desired === 'retain' && !hold.intake && equal(hold.request.file, file));
+      const request = prior?.request ?? mobileFileHoldReserve(holds, file, localId());
+      await mobileFileHoldAcquire(holds, request.requestId, native);
+      if (!current()) return;
+      if (!mobileFileHoldHeld(holds, request.requestId)) throw new ClientError('Wait for the saved attachment bytes to be retained.');
+    }
+    if (current()) entry.notice = '';
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (current()) entry.notice = error instanceof Error ? error.message : 'The saved attachment bytes are not ready.';
+  }
+}
+function projectDocument(client: MobileDraftClient, entry: Entry, value: string, after?: MobileNewTaskAttachmentProjection) {
+  const draft = after?.record ?? registry(client, entry), context = mobileNewTaskContextProject(value, draft?.context);
+  const files = after?.files ?? draftFiles(client.local).filter(file => file.draftKey === entry.draft.key);
+  const images = after?.images ?? client.local.snapshotDrafts[entry.draft.key] ?? [];
+  const references = new Set(contextReferences(value).filter(ref => ref.kind === 'file').map(ref => ref.id));
+  const records = new Map(fileContextRecords(files.filter(file => references.has(file.contextId))
+    .map(file => ({ ...file, attachmentId: file.id }))).map(row => [str(row.contextId), row]));
+  for (const row of context.ok ? context.context?.records ?? [] : []) records.set(str(row.contextId), row);
+  const cwd = workspaceCwd(client), provider = liveEntry(client, entry)
+    ? mobileComposerProvider(arr(client.config.providers).find(p => p.instanceId === client.providerId), cwd) : null;
+  return mobileComposerDocument({ value, context: context.ok && records.size ? { version: 1, records: [...records.values()] } : undefined,
+    environmentId: entry.draft.environmentId, attachments: [...images.map(row => ({ id: str(row.id) })), ...files.map(file => ({ id: file.id }))],
+    skills: provider ? resolveProviderSkillsForCwd(provider, cwd) : [], confirmedTokens: entry.confirmed,
+    iconUri: path => `t3-bundled-icon:${mobileComposerFileIcon(path)}` });
+}
+function updateDocument(client: MobileDraftClient, entry: Entry): void {
+  const document = projectDocument(client, entry, entry.state.value);
+  entry.confirmed = document.confirmedTokens; entry.tokensJson = document.tokensJson;
+}
+function publishText(client: MobileDraftClient, entry: Entry, value: string): boolean {
+  const guard: MobileNewTaskContextGuard = { key: entry.draft.key, createdAt: entry.draft.createdAt, revision: entry.revision };
+  const destination = { origin: entry.draft.origin, environmentId: entry.draft.environmentId, projectId: entry.draft.projectId };
+  const result = mobileNewTaskContextObserve(client, { guard, destination, identity: mounted(entry),
+    generation: entry.generation, text: value, usableHolds: usableHolds(entry) });
+  if (result.kind === 'refused') return false;
+  entry.revision = result.revision; entry.dirty = true;
+  return true;
+}
 function observe(client: MobileDraftClient, entry: Entry, payload: unknown): boolean {
+  if (!mobileDraftRecoveryHydrated(client)) return false;
+  const proof = mobileComposerEditorDecodeResume(payload);
+  if (proof) return acceptResume(client, entry, proof);
+  const work = entry.operation;
+  if (work?.phase === 'frozen' && work.handback) {
+    const handback = work.handback;
+    const event = mobileComposerEditorDecodeEvent(payload);
+    if (!event || !['text', 'selection', 'focus', 'blur'].includes(event.kind) || event.pendingCommand
+      || !sameIdentity(event, mounted(entry)) || event.eventCount <= work.receipt.event.eventCount + 1) return false;
+    if (handback.newest && event.eventCount <= handback.newest.eventCount) return equal(event, handback.newest);
+    handback.newest = event;
+    return handback.proof ? acceptResume(client, entry, handback.proof) : true;
+  }
   if (entry.custody !== 'native' || entry.progress.kind !== 'unpublished' || entry.problem || entry.operation) return false;
   const event = mobileComposerEditorDecodeEvent(payload), draft = registry(client, entry);
   if (!event || event.pendingCommand || event.kind === 'commandApplied' || event.kind === 'commandRejected'
-    || event.eventCount < 1 || !draft || draft.revision !== entry.revision) return false;
+    || event.eventCount < 1 || !draft || draft.revision !== entry.revision || !liveEntry(client, entry)) return false;
   const accepted = mobileComposerEditorAccept(entry.state, event);
   if (!accepted.accepted) return false;
   if (!entry.state.mountId && ledger(client).entries.some(previous => previous !== entry && previous.state.mountId === event.mountId)) return false;
   if (accepted.duplicate) return true;
   if (event.value !== entry.state.value) {
-    const guard: MobileNewTaskContextGuard = { key: entry.draft.key, createdAt: entry.draft.createdAt, revision: entry.revision };
-    if (!mobileNewTaskContextWrite(client, guard, event.value)) return false;
-    entry.revision++; entry.dirty = true;
+    if (!filesReady(client, entry) || !publishText(client, entry, event.value)) return false;
   }
   entry.state = accepted.state;
+  updateDocument(client, entry);
   return true;
 }
 
@@ -154,6 +249,7 @@ export function mobileNewTaskEditorView(client: MobileDraftClient, route: NewTas
   if (!capture) return held('Wait for the current new task draft to be ready.');
   if (!owner.acceptedRead) return held('Wait for the previous editor sources to be checked.');
   let entry = activeEntry(client, route);
+  if (entry && latch) observe(client, entry, latch);
   if (entry?.operation?.phase === 'frozen' && !entry.operation.receipt.retired
     && !(entry.progress.kind === 'saved' && entry.progress.publication.slotReleased))
     return presentation(entry, false, 'frozen', entry.problem || entry.notice || owner.problem || 'The editor source is held for the attachment operation.');
@@ -175,19 +271,22 @@ export function mobileNewTaskEditorView(client: MobileDraftClient, route: NewTas
     entry = { draft: capture.draft, route: { ...route }, revision: capture.revision, custody: 'native',
       state: mobileComposerEditorAdmit(null, { owner: capture.owner, editorId: route.editorId, routeVisit: route.visit, renderEpoch },
         { value: text, selection: { start: text.length, end: text.length } }),
-      progress: { kind: 'unpublished' }, dirty: false, attempt: 0, problem: '', notice: '', operation: null, operationRevision: 0, holds: null };
+      progress: { kind: 'unpublished' }, dirty: false, attempt: 0, problem: '', notice: '', operation: null, operationRevision: 0, holds: null,
+      generation: client.generation, catalog: mobileCacheCatalogIdentity(fleet.saved, capture.draft.environmentId), threadEpoch: client.threadEpoch,
+      confirmed: [], tokensJson: '[]', completed: null };
     owner.entries.push(entry);
+    updateDocument(client, entry);
+    if (latch) observe(client, entry, latch);
   }
-  if (latch) observe(client, entry, latch);
   if (entry.problem || entry.custody !== 'native' || entry.progress.kind !== 'unpublished')
     return held(entry.problem || 'Save the previous editor source before editing.');
   const draft = registry(client, entry);
-  if (!draft || draft.revision !== entry.revision) return held('The saved draft changed. Keep the previous editor source.');
-  const editable = !!entry.state.mountId;
-  return presentation(entry, editable, editable ? 'editing' : 'mounting', '');
+  if (!draft || draft.revision !== entry.revision || !liveEntry(client, entry)) return held('The saved draft changed. Keep the previous editor source.');
+  const editable = !!entry.state.mountId && filesReady(client, entry);
+  return presentation(entry, editable, editable ? 'editing' : 'mounting', entry.notice);
 }
 function presentation(entry: Entry, editable: boolean, kind: 'mounting' | 'editing' | 'frozen', message: string): NewTaskEditorView {
-  const control = mobileComposerEditorControlled(entry.state);
+  const control = mobileComposerEditorControlled(entry.state, entry.tokensJson);
   return { kind, editable, message, node: {
     key: JSON.stringify([entry.route.editorId, entry.state.identity.renderEpoch]),
     configuration: JSON.stringify({ ...control, active: true, editable, readOnly: false,
@@ -245,6 +344,8 @@ function receiptOf(entry: Entry): Receipt | null {
     ? entry.progress.receipt : entry.progress.publication.receipt;
 }
 function publish(client: MobileDraftClient, entry: Entry, receipt: Receipt): boolean {
+  if (entry.completed && (receipt.id === entry.completed.receiptId || receipt.event.eventCount <= entry.completed.frozenEventCount
+    || receipt.kind === 'frozen' && receipt.operation.revision <= entry.completed.operationRevision)) return false;
   const previous = receiptOf(entry);
   if (previous) {
     if (previous.id !== receipt.id || previous.fingerprint !== receipt.fingerprint) {
@@ -252,7 +353,7 @@ function publish(client: MobileDraftClient, entry: Entry, receipt: Receipt): boo
     }
     previous.retired ||= receipt.retired;
     if (entry.progress.kind === 'saved' && previous.retired) releaseSlot(ledger(client), entry, entry.progress.publication);
-    return entry.progress.kind === 'published' || entry.progress.kind === 'durable';
+    if (entry.progress.kind !== 'unpublished') return entry.progress.kind === 'published' || entry.progress.kind === 'durable';
   }
   if (entry.problem) return false;
   if (receipt.kind === 'frozen') {
@@ -261,7 +362,9 @@ function publish(client: MobileDraftClient, entry: Entry, receipt: Receipt): boo
       || work.operation.revision !== receipt.operation.revision || !sameIdentity(work.capture.identity, receipt.identity)) {
       entry.custody = 'frozen'; entry.problem = 'The editor source belongs to an unfinished operation.'; return false;
     }
-    entry.operation = { ...work, phase: 'frozen', receipt, source: null, continuation: { kind: 'ready' }, attempt: 0 }; entry.custody = 'frozen';
+    if (work.phase !== 'frozen')
+      entry.operation = { ...work, phase: 'frozen', receipt, source: null, continuation: { kind: 'ready' }, handback: null, attempt: 0 };
+    entry.custody = 'frozen';
   } else if (entry.custody === 'frozen' || !receipt.retired) {
     entry.custody = 'frozen'; entry.problem = 'The editor source belongs to an unfinished operation.'; return false;
   }
@@ -269,11 +372,10 @@ function publish(client: MobileDraftClient, entry: Entry, receipt: Receipt): boo
   if (!draft || draft.revision !== entry.revision || receipt.event.eventCount <= entry.state.eventCount) {
     entry.problem = 'The draft changed before its final editor source was saved.'; return false;
   }
-  const guard = { key: entry.draft.key, createdAt: entry.draft.createdAt, revision: entry.revision };
-  if (!mobileNewTaskContextWrite(client, guard, receipt.event.value)) return false;
-  entry.revision++; entry.dirty = false; entry.custody = receipt.kind === 'frozen' ? 'frozen' : 'recovery';
   const accepted = mobileComposerEditorAccept(entry.state, receipt.event);
-  if (accepted.accepted) entry.state = accepted.state;
+  if (!accepted.accepted || !publishText(client, entry, receipt.event.value)) return false;
+  entry.dirty = false; entry.custody = receipt.kind === 'frozen' ? 'frozen' : 'recovery';
+  entry.state = accepted.state; updateDocument(client, entry);
   entry.progress = { kind: 'published', publication: { receipt, revision: entry.revision, slotReleased: false } };
   if (entry.operation?.phase === 'frozen') entry.operation.source = projection(client, entry);
   return true;
@@ -395,7 +497,11 @@ async function freeze(client: MobileDraftClient, owner: Ledger, entry: Entry,
 async function continuePick(client: MobileDraftClient, owner: Ledger, entry: Entry, native: Native, storage: Files): Promise<void> {
   const work = entry.operation;
   if (!work || entry.problem) return;
-  if (work.phase === 'frozen') { await advanceFrozen(client, owner, entry, work, native, storage); return; }
+  if (work.phase === 'frozen') {
+    await advanceFrozen(client, owner, entry, work, native, storage);
+    if (entry.operation === work) await resume(client, owner, entry, work, native, storage);
+    return;
+  }
   if (entry.progress.kind !== 'unpublished') return;
   if (!pickCurrent(client, entry, work.capture)) {
     if (work.phase === 'allocating') entry.operation = null;
@@ -483,7 +589,107 @@ function terminal(entry: Entry, work: FrozenPick, next: Extract<Continuation, { 
   const accepted = next.outcome === 'finished' ? next.request.publication.acceptedIds : [];
   entry.notice = '';
   if (entry.holds) for (const hold of Object.values(entry.holds.entries)) {
-    if (hold.intake && !accepted.includes(hold.request.file.id)) mobileFileHoldReleaseNeeded(entry.holds, hold.request.requestId);
+    if (hold.intake?.operationId === work.operation.id && !accepted.includes(hold.request.file.id))
+      mobileFileHoldReleaseNeeded(entry.holds, hold.request.requestId);
+  }
+}
+function resumeMatches(work: FrozenPick, proof: ComposerEditorResume): boolean {
+  const request = work.handback?.request, event = proof.snapshot;
+  return !!request && proof.operationId === request.operationId && proof.operationRevision === request.operationRevision
+    && proof.receiptId === request.receiptId && sameIdentity(event, request.identity)
+    && event.eventCount > work.receipt.event.eventCount && event.value === request.document.value
+    && equal(event.selection, request.document.selection);
+}
+function completeCycle(entry: Entry, work: FrozenPick, proof: ComposerEditorResume | null): void {
+  entry.completed = { operationRevision: work.operation.revision, frozenEventCount: work.receipt.event.eventCount,
+    receiptId: work.receipt.id, proof };
+  entry.operation = null; entry.progress = { kind: 'unpublished' }; entry.custody = 'native'; entry.notice = '';
+}
+function acceptResume(client: MobileDraftClient, entry: Entry, proof: ComposerEditorResume): boolean {
+  if (!mobileDraftRecoveryHydrated(client)) return false;
+  if (entry.completed && proof.operationRevision <= entry.completed.operationRevision)
+    return equal(entry.completed.proof, proof);
+  const work = entry.operation;
+  if (entry.problem || work?.phase !== 'frozen' || !work.handback || !resumeMatches(work, proof)) return false;
+  const handback = work.handback;
+  if (handback.proof && !equal(handback.proof, proof)) return false;
+  const resumed = mobileComposerEditorAccept(entry.state, proof.snapshot);
+  if (!resumed.accepted) return false;
+  const newest = handback.newest;
+  if (newest && newest.eventCount <= proof.snapshot.eventCount) return false;
+  const accepted = newest ? mobileComposerEditorAccept(resumed.state, newest) : resumed;
+  if (!accepted.accepted) return false;
+  handback.proof = proof;
+  const expected = work.continuation.kind === 'terminal' && work.continuation.outcome === 'finished'
+    ? work.continuation.commit.after : work.source;
+  if (!expected || !ownsProjection(projection(client, entry), expected)) return false;
+  entry.revision = registry(client, entry)!.revision;
+  if (accepted.state.value !== expected.text && !publishText(client, entry, accepted.state.value)) return false;
+  entry.state = accepted.state;
+  completeCycle(entry, work, proof); updateDocument(client, entry);
+  return true;
+}
+function acceptRetirement(client: MobileDraftClient, entry: Entry, receipt: Receipt): boolean {
+  const work = entry.operation;
+  if (!mobileDraftRecoveryHydrated(client) || entry.problem || work?.phase !== 'frozen' || !work.handback || receipt.kind !== 'retired' || !receipt.retired
+    || receipt.id === work.receipt.id || !sameIdentity(receipt.identity, work.capture.identity)
+    || receipt.event.eventCount <= work.receipt.event.eventCount + 1
+    || receipt.event.eventCount <= (work.handback.newest?.eventCount ?? -1)) return false;
+  const expected = work.continuation.kind === 'terminal' && work.continuation.outcome === 'finished'
+    ? work.continuation.commit.after : work.source;
+  if (!expected || !ownsProjection(projection(client, entry), expected)) return false;
+  const accepted = mobileComposerEditorAccept(entry.state, receipt.event);
+  entry.revision = registry(client, entry)!.revision;
+  if (!accepted.accepted || !publishText(client, entry, receipt.event.value)) return false;
+  completeCycle(entry, work, work.handback.proof);
+  entry.state = accepted.state; entry.custody = 'recovery'; entry.dirty = false; updateDocument(client, entry);
+  entry.progress = { kind: 'published', publication: { receipt, revision: entry.revision, slotReleased: false } };
+  return true;
+}
+async function saveObservation(client: MobileDraftClient, entry: Entry, storage: Files): Promise<void> {
+  if (!entry.dirty || entry.progress.kind !== 'unpublished') return;
+  const attempt = ++entry.attempt, revision = entry.revision, eventCount = entry.state.eventCount;
+  await client.persist(storage);
+  if (entry.attempt === attempt && entry.custody === 'native' && entry.revision === revision && entry.state.eventCount === eventCount
+    && registry(client, entry)?.revision === revision) entry.dirty = false;
+}
+async function resume(client: MobileDraftClient, owner: Ledger, entry: Entry, work: FrozenPick, native: Native, storage: Files): Promise<void> {
+  const terminal = work.continuation;
+  if (!mobileDraftRecoveryHydrated(client) || entry.problem || entry.progress.kind !== 'saved'
+    || terminal.kind !== 'terminal' || terminal.outcome === 'absent') return;
+  if (!work.handback) {
+    const expected = terminal.outcome === 'finished' ? terminal.commit.after : work.source;
+    if (!expected || !liveEntry(client, entry) || !currentRoute(client, work.capture.route)
+      || !sameIdentity(mounted(entry), work.capture.identity) || work.receipt.retired || entry.progress.publication.slotReleased
+      || !ownsProjection(projection(client, entry), expected) || !equal(registry(client, entry)?.branchChoice, expected.record.branchChoice)
+      || !filesReady(client, entry)) return;
+    const projected = projectDocument(client, entry, expected.text, expected);
+    const selection = terminal.outcome === 'finished' ? terminal.commit.selection ?? work.receipt.event.selection : work.receipt.event.selection;
+    const document = Object.freeze({ value: expected.text, selection: Object.freeze({ ...selection }),
+      tokensJson: projected.tokensJson, isNativeEcho: false as const });
+    const request: ResumeRequest = Object.freeze({ op: 'composerEditorHandoff', action: 'resume', generation: work.capture.target.generation,
+      identity: Object.freeze({ ...work.capture.identity }), operationId: work.operation.id, operationRevision: work.operation.revision,
+      receiptId: work.receipt.id, document });
+    entry.confirmed = projected.confirmedTokens;
+    work.handback = { request, newest: null, proof: null };
+  }
+  const handback = work.handback, request = handback.request, attempt = ++work.attempt;
+  const current = () => mobileDraftRecoveryHydrated(client) && owner.entries.includes(entry)
+    && entry.operation === work && work.handback === handback && work.attempt === attempt;
+  try {
+    if (!handback.proof) {
+      const response = await bridgeReply(native, request);
+      if (!current()) return;
+      if (!response.ok || response.generation !== request.generation || !record(response.value))
+        throw new ClientError('The editor handback is retained until its resume can be confirmed.');
+      const proof = mobileComposerEditorDecodeResume(response.value.event);
+      if (!proof || !acceptResume(client, entry, proof)) throw new ClientError('The resumed editor does not match its saved handback.');
+    } else if (!acceptResume(client, entry, handback.proof)) throw new ClientError('The resumed source is retained until it can be published.');
+    await saveObservation(client, entry, storage);
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (current() || entry.completed?.operationRevision === work.operation.revision && entry.dirty)
+      entry.notice = error instanceof Error ? error.message : 'The editor handback is retained.';
   }
 }
 async function savePublication(client: MobileDraftClient, entry: Entry, work: FrozenPick,
@@ -592,7 +798,9 @@ async function advanceFrozen(client: MobileDraftClient, owner: Ledger, entry: En
         for (const candidate of files) {
           if (!current()) return;
           if (!liveIntake(client, entry, work)) break;
-          const previous = Object.values(holds.entries).find(hold => equal(hold.request.file, candidate.file)
+          if (!candidate.intake && usableHolds(entry).some(held => equal({ ...held.request.file, status: 'staged', attachmentId: '' },
+            { ...candidate.file, status: 'staged', attachmentId: '' }))) continue;
+          const previous = Object.values(holds.entries).find(hold => hold.desired === 'retain' && equal(hold.request.file, candidate.file)
             && (hold.intake?.operationId ?? '') === (candidate.intake ? work.operation.id : ''));
           const request = previous?.request ?? mobileFileHoldReserve(holds, candidate.file, localId(),
             candidate.intake ? { operationId: work.operation.id } : undefined);
@@ -655,11 +863,10 @@ async function recover(client: MobileDraftClient, native: Native, storage: Files
     if (!snapshot) throw new ClientError('The retained editor sources are invalid.');
     const { receipts } = snapshot;
     owner.acceptedRead = serial; owner.problem = '';
-    reconcileSnapshot(client, owner, serial, snapshot, candidates);
     for (const receipt of receipts) {
       const entry = owner.entries.find(candidate => sameIdentity(mounted(candidate), receipt.identity));
       if (!entry) { owner.problem = 'An editor source has no captured draft owner.'; continue; }
-      if (!publish(client, entry, receipt)) continue;
+      if (!acceptRetirement(client, entry, receipt) && !publish(client, entry, receipt)) continue;
       try { await settle(client, owner, entry, native, storage, serial); }
       catch (error) {
         if (letGo(error)) throw error;
@@ -667,8 +874,13 @@ async function recover(client: MobileDraftClient, native: Native, storage: Files
       }
       if (serial < owner.acceptedRead) return;
     }
+    reconcileSnapshot(client, owner, serial, snapshot, candidates);
     for (const entry of owner.entries) {
-      try { await continuePick(client, owner, entry, native, storage); }
+      try {
+        await prepareFiles(client, entry, native);
+        await continuePick(client, owner, entry, native, storage);
+        await saveObservation(client, entry, storage);
+      }
       catch (error) {
         if (letGo(error)) throw error;
         if (serial === owner.acceptedRead) {
@@ -702,12 +914,18 @@ export async function mobileNewTaskEditorAction(client: MobileDraftClient, route
     }
     return { accepted: true, message: owner.problem };
   }
-  const entry = activeEntry(client, route);
+  let entry = activeEntry(client, route);
+  if (intent.kind === 'observe') {
+    const event = mobileComposerEditorDecodeResume(intent.payload)?.snapshot ?? mobileComposerEditorDecodeEvent(intent.payload);
+    if (event) entry = ledger(client).entries.find(candidate => sameIdentity(mounted(candidate), event)
+      && (candidate === entry || candidate.operation?.phase === 'frozen' && candidate.operation.handback !== null || candidate.completed !== null)) ?? null;
+  }
   if (intent.kind === 'pick') {
+    if (entry && native?.available) await prepareFiles(client, entry, native);
     if (!entry || !native?.available || entry.operation || entry.problem || ledger(client).problem
       || entry.progress.kind !== 'unpublished' || entry.custody !== 'native' || !entry.state.mountId
       || entry.state.composing || entry.state.pendingCommand || entry.operationRevision >= MAX_COUNT
-      || registry(client, entry)?.revision !== entry.revision)
+      || registry(client, entry)?.revision !== entry.revision || !liveEntry(client, entry) || !filesReady(client, entry))
       return { accepted: false, message: 'The editor is not ready for an attachment operation.' };
     const capture: PickCapture = { source: intent.source, route: { ...route }, draft: { ...entry.draft }, identity: mounted(entry),
       target: mobileComposerTarget(client), threadEpoch: client.threadEpoch,
@@ -725,12 +943,10 @@ export async function mobileNewTaskEditorAction(client: MobileDraftClient, route
     return { accepted: true, message: entry.problem || entry.notice || owner.problem || 'The editor source is held for the attachment operation.' };
   }
   if (!entry || !observe(client, entry, intent.payload)) return { accepted: false, message: 'The editor observation is no longer current.' };
+  if (native?.available) await prepareFiles(client, entry, native);
   if (entry.dirty) {
-    const attempt = ++entry.attempt, revision = entry.revision, eventCount = entry.state.eventCount;
     try {
-      await client.persist(storage);
-      if (entry.attempt === attempt && entry.custody === 'native' && entry.revision === revision && entry.state.eventCount === eventCount
-        && registry(client, entry)?.revision === revision) entry.dirty = false;
+      await saveObservation(client, entry, storage);
     } catch (error) {
       if (letGo(error)) throw error;
       return { accepted: true, message: 'The draft could not be saved. Its editor source is retained.' };
