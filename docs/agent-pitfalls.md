@@ -1091,6 +1091,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Driving and testing
 
+- **An iOS release simulator build keeps a separate version stamp.**
+  `EXACT_VERSION` and `EXACT_BUILD_NUMBER` enter the iOS bundle through
+  `distributionKeys` only when `--archive` writes an IPA. A `--ios --release`
+  build can still report `0.1.0 (1)` with those variables set. Inspect each
+  artifact's `Info.plist` separately before claiming its version or source.
+  (T3 release verification, 2026-10-28;
+  [bundle assembly](../host/apple/bundle.mjs), `assembleIOS`.)
+
 - **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
   string form sets the whole textarea: AppKit selects all, then inserts the supplied
   value. Even one character per call is replacement, so `" suffix"` does not append

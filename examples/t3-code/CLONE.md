@@ -30,7 +30,7 @@ require them.
 - The InlineShortcut comparison has no complete verdict. Its cached test
   executable is missing, so another test run needs a fresh build.
 - Live App Store Connect status on October 28 reports POC build
-  `1.0.0 (20261028202307)` as `VALID` and `IN_BETA_TESTING` internally. Its exact
+  `1.0.0 (20261029015732)` as `VALID` and `IN_BETA_TESTING` internally. Its exact
   build is assigned to `Team (Expo)`, with one installed tester and one invited
   tester. External distribution was not extended.
 - The observed ordinary Send stall hit the 100 ms JavaScript turn budget.
@@ -76,6 +76,24 @@ Its App Store Connect build ID is `4161d4c0-078f-4952-9927-cf98b251ab23`.
 The IPA SHA-256 is `f60ac86249f6744220b4f4751a25789decf62cc66ef0e72aab5f30ba4bec24d1`.
 The POC TestFlight checkpoint is delivered. Full phone, iPad and desktop parity
 remain incomplete and need their own acceptance evidence.
+
+POC reliability build `1.0.0 (20261029015732)` contains clean pushed source
+`38fd0f766a5352e48ae65d4b168854b5e754747f`, including the complete cache transfers
+and Send continuation correction. Signature, store profile, identity, version
+and source-stamp checks pass. The exact IPA SHA-256 is
+`b1b31ae604d7c88e28cb47b28049b4a661f0d603cd33fdc07aac34b0223f173e`.
+[EAS submission](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/3992b0fd-7fad-454c-a89c-46156667d65a)
+submits that IPA. Apple build `9a6d8e6f-2cfe-4097-9580-f96f50fb2970` is `VALID`
+and `IN_BETA_TESTING`. The existing internal `Team (Expo)` group includes this
+exact build, with one installed tester and one invited tester. Installation of
+this new build is not verified. External distribution was not extended.
+The normal app creates a fresh thread in the existing `main` checkout and receives
+`POC_RELIABILITY_OK`. A production simulator build from the same commit restores
+that environment and thread, receives `PROD_POC_OK`, displays growing output from
+139 to 1,126 characters, and stops with server-confirmed interruption. After
+restart, the interrupted conversation and empty composer return. Its simulator
+package has a separate version stamp; the uploaded device archive is verified
+independently. This refreshes the delivered POC; full phone parity remains open.
 
 The phone parity drive found and corrected a direct-pairing difference: the pinned
 native reference accepts the Mac's LAN HTTP address while the clone rejected it.
