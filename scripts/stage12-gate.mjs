@@ -188,7 +188,7 @@ function driveScreens(copy, host, dir, env) {
       const args = [...(web ?? [join(copy, 'exact.mjs'), 'agent', host]), '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
-      const drive = { cwd: copy, env: { ...cloneWebEnv(env, wasm), ...(web ? { EXACT_APP_DIR: copy } : {}) } };
+      const drive = { cwd: copy, env: { ...cloneWebEnv(env, wasm), ...(web ? { EXACT_APP_DIR: resolve(copy) } : {}) } };
       let r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), drive);
       // A drive that failed before any layout (the simulator refusing a
       // launch, say) is driven once more, and says so.
@@ -238,8 +238,7 @@ function provenance(copy) {
   } catch { /* no simulator named */ }
   // The SDK the copy builds with: its exact.mjs's EXACT2 (the environment's,
   // else its default), not this script's checkout.
-  const named = /const EXACT2 = resolve\(import\.meta\.dir, process\.env\.EXACT2 \?\? "([^"]+)"\)/.exec(readFileSync(join(copy, 'exact.mjs'), 'utf8'))?.[1];
-  const sdk = process.env.EXACT2 ? resolve(process.env.EXACT2) : named ? resolve(copy, named) : null;
+  const sdk = sdkOf(copy);
   return {
     gate: git(ROOT, 'rev-parse', 'HEAD'), sdk, exact2: sdk ? git(sdk, 'rev-parse', 'HEAD') : null, sdkDirty: sdk ? git(sdk, 'status', '--porcelain', '--untracked-files=no') !== '' : null,
     copy: git(copy, 'rev-parse', 'HEAD'), copyDirty: git(copy, 'status', '--porcelain') !== '',
@@ -406,7 +405,8 @@ const conformEvidence = c => {
  * else its default). */
 function sdkOf(copy) {
   const named = /const EXACT2 = resolve\(import\.meta\.dir, process\.env\.EXACT2 \?\? "([^"]+)"\)/.exec(readFileSync(join(copy, 'exact.mjs'), 'utf8'))?.[1];
-  return process.env.EXACT2 ? resolve(process.env.EXACT2) : named ? resolve(copy, named) : null;
+  // As the copy's launcher reads it: an EXACT2 override, like its default, against the copy's directory.
+  return process.env.EXACT2 ? resolve(copy, process.env.EXACT2) : named ? resolve(copy, named) : null;
 }
 
 /** host/web-js/conform.mjs on a copy, run from the SDK it builds with (its
@@ -451,6 +451,9 @@ function buildSide(copy, side) {
   for (const verb of [['web-build'], ['web-build', '--wasm'], ['linux'], ['mac'], ['ios', ...(process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : [])]]) {
     const wasm = verb[1] === '--wasm';
     const r = run(process.execPath, [join(copy, 'exact.mjs'), ...verb], { cwd: copy, env: cloneWebEnv(env, wasm) });
+    // Each build's whole output kept (its compiler warnings: the web drives no longer rebuild and say them).
+    mkdirSync(join(ROOT, 'target', 'stage12-gate'), { recursive: true });
+    writeFileSync(join(ROOT, 'target', 'stage12-gate', `build-${side}-${verb.join('-').replace(/[^\w-]+/g, '')}.log`), r.out);
     if (!r.ok) return `${side}: ${verb.join(' ')} failed: ${r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300)}`;
   }
   if (jsTargetBuild(cloneWasmDist(env))) return `${side}: ${cloneWasmDist(env)} is not a wasm build`;
