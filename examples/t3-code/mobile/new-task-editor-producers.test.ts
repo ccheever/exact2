@@ -79,3 +79,15 @@ test('confirmed cancellation and native retirement settle the old route before r
   f.receipts([source]); f.detach(); await f.reread();
   expect(view(f.client, await f.resume())).toMatchObject({ kind: 'mounting' });
 });
+
+// Native consumes an acknowledged freeze receipt before dropping its retired slot.
+test('confirmed cancelled picker settles after the acknowledged receipt is consumed', async () => {
+  const f = await fixture(); continuation(f);
+  f.intakeHook(async request => intakeReply(request, 'picking'));
+  await action(f.client, f.route, { kind: 'pick', source: 'files' }, f.native, f.storage);
+  f.receipts([]); f.reserved([]); f.detach();
+  f.intakeHook(async request => intakeReply(request, 'cancelled'));
+  await f.reread();
+  expect(f.calls.some(call => call.action === 'resume')).toBe(false);
+  expect(view(f.client, await f.resume()).kind).toBe('mounting');
+});

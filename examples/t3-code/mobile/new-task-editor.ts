@@ -64,7 +64,7 @@ interface ResumeRequest {
     readonly tokensJson: string; readonly isNativeEcho: false };
 }
 interface Handback { request: ResumeRequest; newest: ComposerEditorEvent | null; proof: ComposerEditorResume | null }
-interface CompletedCycle { focused: boolean; operationRevision: number; frozenEventCount: number; receiptId: string; proof: ComposerEditorResume | null }
+interface CompletedCycle { operationRevision: number; frozenEventCount: number; receiptId: string; proof: ComposerEditorResume | null }
 type Continuation =
   | { kind: 'ready' }
   | { kind: 'producing' }
@@ -524,7 +524,7 @@ async function continuePick(client: MobileDraftClient, owner: Ledger, entry: Ent
     else await advanceFrozen(client, owner, entry, work, native, storage);
     if (entry.progress.kind === 'saved' && entry.progress.publication.slotReleased
       && (work.continuation.kind === 'terminal' && (work.continuation.outcome === 'finished'
-        || work.continuation.outcome === 'cancelled' && work.continuation.files !== null && work.receipt.retired && !work.handback)
+        || work.continuation.outcome === 'cancelled' && work.continuation.files !== null && !work.handback)
         || work.continuation.kind === 'produced' && work.continuation.saved)) {
       entry.progress = { kind: 'acknowledged', receipt: work.receipt }; entry.operation = null; return;
     }
@@ -630,8 +630,10 @@ function resumeMatches(work: FrozenPick, proof: ComposerEditorResume): boolean {
     && equal(event.selection, request.document.selection);
 }
 function completeCycle(entry: Entry, work: FrozenPick, proof: ComposerEditorResume | null): void {
-  entry.completed = { focused: work.receipt.event.focused, operationRevision: work.operation.revision, frozenEventCount: work.receipt.event.eventCount,
+  entry.completed = { operationRevision: work.operation.revision, frozenEventCount: work.receipt.event.eventCount,
     receiptId: work.receipt.id, proof };
+  if (proof && !entry.effect && (!work.capture.intent || work.receipt.event.focused))
+    entry.effect = { id: `resume:${work.receipt.id}`, kind: 'focus', destination: '', flow: null };
   entry.operation = null; entry.progress = { kind: 'unpublished' }; entry.custody = 'native'; entry.notice = '';
 }
 function acceptResume(client: MobileDraftClient, entry: Entry, proof: ComposerEditorResume): boolean {
@@ -746,10 +748,6 @@ export function mobileNewTaskEditorRouteFor(client: MobileDraftClient, owner: st
 }
 export function mobileNewTaskEditorEffect(client: MobileDraftClient, route: NewTaskEditorRoute): NewTaskProducerEffect | null {
   return ledger(client).entries.findLast(entry => matchingRoute(entry, route) && entry.effect)?.effect ?? null;
-}
-export function mobileNewTaskEditorFocus(client: MobileDraftClient, route: NewTaskEditorRoute) {
-  const entry = activeEntry(client, route), completed = entry?.completed;
-  return completed?.focused && !entry?.operation ? { serial: completed.receiptId, attempt: 0, operation: 'focus' } : null;
 }
 export function mobileNewTaskEditorFlushKey(client: MobileDraftClient, route: NewTaskEditorRoute): string {
   const entry = activeEntry(client, route);

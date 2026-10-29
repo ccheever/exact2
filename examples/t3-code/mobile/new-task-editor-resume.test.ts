@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mobileNewTaskEditorAction as action, mobileNewTaskEditorView as view } from './new-task-editor';
+import { mobileNewTaskEditorEffect as effect, mobileNewTaskEditorAction as action, mobileNewTaskEditorView as view } from './new-task-editor';
 import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileNewTaskContextRead } from './mobile-new-task-context';
 import { mobileDraftAttachmentIds } from './draft-attachment-order';
@@ -76,6 +76,9 @@ for (const kind of ['files', 'photos'] as const) test(`${kind} hands back one mo
   expect(afterView).toMatchObject({ kind: 'editing', editable: true, node: { key: before.node?.key } });
   expect(config(afterView)).toMatchObject({ acknowledgedEventCount: 3, document: { ...document, isNativeEcho: true } });
   expect(config(afterView).focusIntent).toEqual({ serial: '', attempt: 0, operation: 'none' });
+  const focus = effect(f.client, f.route); expect(focus?.kind).toBe('focus');
+  expect((await action(f.client, f.route, { kind: 'claim', id: focus!.id }, f.native, f.storage)).effect).toEqual(focus!);
+  expect(effect(f.client, f.route)).toBeNull();
   await f.type(`${document.value}🙂 typing`);
   expect(obj(f.disk().drafts)[f.key]).toBe(`${document.value}🙂 typing`);
 });

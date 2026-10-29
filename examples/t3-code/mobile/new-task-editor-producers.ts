@@ -5,6 +5,8 @@ import { mobileComposerTargetText, type MobileComposerTarget } from './composer-
 import { mobileVoiceAction, mobileVoiceSnapshot, mobileVoiceSelection } from './voice-data';
 import type { NewTaskEditorRoute } from './new-task-editor';
 import type { Files, Native } from './shared/protocol';
+import { removeInlineContextReference } from './shared/r4-composer-attachments';
+import { contextId } from './shared/composer-editor-menu';
 import { draftFiles } from './shared/composer-editor-files';
 import { obj, str } from './shared/domain';
 import { collectComposerContextReferences } from './composer-editor-document';
@@ -18,9 +20,10 @@ export type NewTaskProducerIntent =
   | { kind: 'preview'; id: string; token?: string }
   | { kind: 'remove'; source: 'remove-image' | 'remove-file'; id: string }
   | { kind: 'send'; alternate: boolean; now: number; preferences: { ready: boolean; serialized: string } }
-  | { kind: 'voice'; label: string; owner: string };
+  | { kind: 'voice'; label: string; owner: string }
+  | { kind: 'setting'; name: 'workspace' | 'interaction'; value: string };
 export interface NewTaskProducerEffect {
-  id: string; kind: 'navigate' | 'preview' | 'flow'; destination: string; flow: NewTaskFlowResult | null;
+  id: string; kind: 'navigate' | 'preview' | 'flow' | 'focus'; destination: string; flow: NewTaskFlowResult | null;
 }
 export interface NewTaskProducerResult {
   message: string; leave: boolean; voice: boolean;
@@ -60,18 +63,21 @@ export async function newTaskEditorProduce(client: MobileDraftClient, route: New
       const before = mobileComposerTargetText(client, target) ?? '';
       const result = await mobileNewTaskAttachmentRemove(intent.source, intent.id, native, storage, client, target.owner);
       const after = mobileComposerTargetText(client, target) ?? '';
-      // Removal is a single contiguous source deletion. Preserve carets before it,
-      // move carets after it, and clamp a selected removed reference to its start.
-      let prefix = 0; while (prefix < Math.min(before.length, after.length) && before[prefix] === after[prefix]) prefix++;
-      const deleted = before.length - after.length;
-      const offset = (value: number) => Math.min(after.length, value <= prefix ? value : Math.max(prefix, value - deleted));
-      return { ...base, message: result.message, selection: { start: offset(selection.start), end: offset(selection.end) } };
+      const key = intent.source === 'remove-image' ? contextId('image', intent.id) : intent.id;
+      const removed = removeInlineContextReference(before, key);
+      const caret = removed.prompt === after && before !== after ? { start: removed.cursor, end: removed.cursor } : selection;
+      return { ...base, message: result.message, selection: caret };
     }
     case 'send': {
       const flow = await mobileNewTaskFlowAction(route.owner, route.visit, intent.alternate ? 'send-alternate' : 'send',
         target.owner, '', native, storage, client, fleet, intent.now, intent.preferences);
       return { ...base, message: flow.message, leave: flow.submitted || !!flow.nextLocation,
         effect: { kind: 'flow', destination: '', flow } };
+    }
+    case 'setting': {
+      const flow = await mobileNewTaskFlowAction(route.owner, route.visit, intent.name,
+        intent.name === 'interaction' ? target.owner : '', intent.value, native, storage, client);
+      return { ...base, message: flow.message, selection };
     }
     case 'voice': {
       const result = await mobileVoiceAction('start', selection.start, selection.end, intent.label, intent.owner, native, storage, client);
