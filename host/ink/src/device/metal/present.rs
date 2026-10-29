@@ -5,7 +5,7 @@ use crate::device::apple::{trace_interval, trace_mark, trace_time, Layer, Render
 use crate::present::Thread;
 use objc2::Message;
 use objc2_quartz_core::CAMetalDrawable;
-use std::sync::{atomic::Ordering, mpsc::Receiver};
+use std::sync::mpsc::Receiver;
 
 pub(super) struct Command(pub Retained<ProtocolObject<dyn MTLCommandBuffer>>);
 // SAFETY: encoded on its owner thread, then committed once on the render thread.
@@ -32,39 +32,34 @@ struct Work {
     command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
     benchmark: (bool, f32),
     queued: f64,
+    transaction: bool,
 }
 // SAFETY: the retained texture is read on the ordered GPU queue, never mutated
 // by the worker; encoding and committing this command belong only to the worker.
 unsafe impl Send for Work {}
 impl Work {
-    fn run(self, present: bool) -> Result<()> {
-        trace_interval(
-            c"handoff wait",
-            self.queued,
-            trace_time(),
-            f64::from(present),
-        );
+    fn run(self, present: bool) -> Result<Option<Drawable>> {
+        trace_interval(c"handoff wait", || {
+            (self.queued, trace_time(), f64::from(present))
+        });
         let _trace = Trace::new(c"worker present");
         if !present {
             self.command.commit();
-            return Ok(());
+            return Ok(None);
         }
         crate::device::apple::benchmark_present(self.benchmark);
-        let result = self
-            .renderer
-            .lock()
-            .unwrap()
-            .present(&self.texture, &self.command);
-        {
+        let result =
+            self.renderer
+                .lock()
+                .unwrap()
+                .present(&self.texture, &self.command, self.transaction);
+        if !self.transaction {
             let _trace = Trace::new(c"present completion wait");
             self.command.waitUntilCompleted();
         }
-        trace_interval(
-            c"gpu present",
-            self.command.GPUStartTime(),
-            self.command.GPUEndTime(),
-            0.,
-        );
+        trace_interval(c"gpu present", || {
+            (self.command.GPUStartTime(), self.command.GPUEndTime(), 0.)
+        });
         if self.command.status() == MTLCommandBufferStatus::Error {
             return Err(Error::DeviceLost(format!(
                 "window command failed: {:?}",
@@ -160,7 +155,7 @@ impl Upload {
         }
         let stride = self.row.div_ceil(256) * 256;
         let length = stride * self.size[1] as usize;
-        trace_mark(c"staging bytes", length as f64);
+        trace_mark(c"staging bytes", || length as f64);
         let buffer = match old {
             Some((buffer, _)) if buffer.length() >= length => buffer,
             _ => ring
@@ -247,14 +242,27 @@ impl Metal {
                 command: command.clone(),
                 benchmark: crate::device::apple::benchmark_scene(),
                 queued: trace_time(),
+                transaction: window._layer.live_resize(),
             };
-            let receipt = window.thread.frame(move |show| work.run(show))?;
+            let receipt = if work.transaction {
+                // AppKit's resize transaction is still open on this thread.
+                if let Some(drawable) = window.thread.call(move || work.run(true))?? {
+                    drawable.present();
+                }
+                None
+            } else {
+                Some(
+                    window
+                        .thread
+                        .frame(move |show| work.run(show).map(|_| ()))?,
+                )
+            };
             self.submitted.0 += 1;
             self.pending.insert(
                 self.submitted.0,
                 Pending {
                     command: Some(command),
-                    receipt: Some(receipt),
+                    receipt,
                 },
             );
             self.textures.get_mut(&source).unwrap().last = self.submitted;
@@ -268,12 +276,12 @@ impl Renderer {
         &mut self,
         source: &ProtocolObject<dyn MTLTexture>,
         command: &ProtocolObject<dyn MTLCommandBuffer>,
-    ) -> Result<()> {
+        transaction: bool,
+    ) -> Result<Option<Drawable>> {
         if let Err(error) = self.ring.acquire() {
             command.commit();
             return Err(error);
         }
-        let transaction = self.layer.live_resize.load(Ordering::Acquire);
         self.layer.raw.setPresentsWithTransaction(transaction);
         let drawable = {
             let _trace = Trace::new(c"nextDrawable");
@@ -284,7 +292,7 @@ impl Renderer {
             // buffer so resource retirement and a later screenshot can complete.
             command.commit();
             self.layer.retry();
-            return Ok(());
+            return Ok(None);
         };
         self.layer.track(ProtocolObject::from_ref(&*drawable));
         if let Err(error) = encode(
@@ -298,21 +306,20 @@ impl Renderer {
             command.commit();
             return Err(error);
         }
-        if transaction {
-            // Apple's transaction sequence requires present() after scheduling,
-            // on the view's thread; Layer::update drains this at the next wake.
+        let pending = if transaction {
+            // Present on the caller's thread before AppKit commits its resize.
             // https://developer.apple.com/documentation/quartzcore/cametallayer/presentswithtransaction
             command.commit();
             command.waitUntilScheduled();
-            let drawable = Drawable(drawable);
-            self.layer.transaction(move || drawable.present());
+            Some(Drawable(drawable))
         } else {
             command.presentDrawable(ProtocolObject::from_ref(&*drawable));
             command.commit();
-        }
-        trace_mark(c"present committed", 0.);
+            None
+        };
+        trace_mark(c"present committed", || 0.);
         self.ring.retire(command);
-        Ok(())
+        Ok(pending)
     }
 }
 
@@ -405,7 +412,6 @@ impl Ring {
 impl Drop for Window {
     fn drop(&mut self) {
         let _ = self.thread.drain();
-        self._layer.update();
     }
 }
 

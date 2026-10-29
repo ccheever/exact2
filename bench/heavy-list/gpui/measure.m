@@ -100,7 +100,8 @@ int main(int argc, const char **argv) {
                 if ([files fileExistsAtPath:output] || [files fileExistsAtPath:[output stringByAppendingString:@".ready"]]) fail(@"use a fresh results directory");
                 NSMutableDictionary *env = [NSProcessInfo.processInfo.environment mutableCopy];
                 env[@"G1_OUTPUT"] = output; env[@"G1_ARM"] = arm; env[@"BENCH_LIVE"] = @"0";
-                env[@"EXACT_WINDOW_WIDTH"] = @"800"; env[@"EXACT_WINDOW_HEIGHT"] = @"800";
+                env[@"EXACT_WINDOW_WIDTH"] = @"800";
+                env[@"EXACT_WINDOW_HEIGHT"] = [arm isEqual:@"ink"] ? @"768" : @"800";
                 [env removeObjectForKey:@"EXACT_AGENT"];
                 [env removeObjectForKey:@"DYLD_INSERT_LIBRARIES"];
                 [env removeObjectForKey:@"G1_COLD_ONLY"];

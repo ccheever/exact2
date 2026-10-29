@@ -155,15 +155,16 @@ impl Wgpu {
         let done = self.done.clone();
         let errors = self.errors.clone();
         let benchmark = crate::device::apple::benchmark_scene();
+        let transaction = window._layer.live_resize();
         self.submitted.0 += 1;
         let submission = self.submitted;
-        let receipt = window.thread.frame(move |show| {
+        let work = move |show| {
             let mut renderer = renderer.lock().unwrap();
             let result = if show {
                 crate::device::apple::benchmark_present(benchmark);
-                renderer.present(view, size)
+                renderer.present(view, size, transaction)
             } else {
-                Ok(renderer.queue.submit([]))
+                Ok((renderer.queue.submit([]), None))
             };
             if let Err(error) = &result {
                 *errors.lock().unwrap() = Some(error.clone());
@@ -171,8 +172,8 @@ impl Wgpu {
             renderer.queue.on_submitted_work_done(move || {
                 done.fetch_max(submission.0, Ordering::Release);
             });
-            if let Ok(index) = &result {
-                if show {
+            if let Ok((index, _)) = &result {
+                if show && !transaction {
                     renderer
                         .device
                         .poll(::wgpu::PollType::Wait {
@@ -183,8 +184,23 @@ impl Wgpu {
                 }
             }
             result
-        })?;
-        self.pending.insert(submission.0, Pending::Present(receipt));
+        };
+        let pending = if transaction {
+            let (index, output) = window.thread.call(move || work(true))??;
+            // Consume the acquired surface before another frame can configure
+            // or acquire it. wgpu-hal waits until scheduled before presenting.
+            if let Some(output) = output {
+                self.queue.present(output);
+            }
+            Pending::Submitted(index)
+        } else {
+            Pending::Present(
+                window
+                    .thread
+                    .frame(move |show| work(show).map(|(index, _)| index))?,
+            )
+        };
+        self.pending.insert(submission.0, pending);
         self.textures.get_mut(&texture).unwrap().last = submission;
         Ok(started.elapsed().as_secs_f64() * 1000.)
     }
@@ -195,7 +211,8 @@ impl Renderer {
         &mut self,
         source: ::wgpu::TextureView,
         [width, height]: [u32; 2],
-    ) -> Result<::wgpu::SubmissionIndex> {
+        transaction: bool,
+    ) -> Result<(::wgpu::SubmissionIndex, Option<::wgpu::SurfaceTexture>)> {
         if self.config.width != width
             || self.config.height != height
             || self.next == 0 && self.ring.iter().all(|s| s.2.is_none())
@@ -206,20 +223,18 @@ impl Renderer {
             self.layer.raw.setAllowsNextDrawableTimeout(true);
         }
         // wgpu-hal honours presentsWithTransaction and waits until scheduled.
-        self.layer
-            .raw
-            .setPresentsWithTransaction(self.layer.live_resize.load(Ordering::Acquire));
+        self.layer.raw.setPresentsWithTransaction(transaction);
         let output = match self.surface.get_current_texture() {
             ::wgpu::CurrentSurfaceTexture::Success(t)
             | ::wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             ::wgpu::CurrentSurfaceTexture::Timeout | ::wgpu::CurrentSurfaceTexture::Occluded => {
                 self.layer.retry();
-                return Ok(self.queue.submit([]));
+                return Ok((self.queue.submit([]), None));
             }
             ::wgpu::CurrentSurfaceTexture::Outdated | ::wgpu::CurrentSurfaceTexture::Lost => {
                 self.surface.configure(&self.device, &self.config);
                 self.layer.retry();
-                return Ok(self.queue.submit([]));
+                return Ok((self.queue.submit([]), None));
             }
             other => return Err(Error::Device(format!("acquire Metal surface: {other:?}"))),
         };
@@ -290,21 +305,20 @@ impl Renderer {
             pass.draw(0..4, 0..1);
         }
         let index = self.queue.submit([encoder.finish()]);
-        if self.layer.live_resize.load(Ordering::Acquire) {
-            let queue = self.queue.clone();
-            self.layer.transaction(move || queue.present(output));
+        let output = if transaction {
+            Some(output)
         } else {
             self.queue.present(output);
-        }
+            None
+        };
         *last = Some(index.clone());
         self.next = (self.next + 1) % self.ring.len();
-        Ok(index)
+        Ok((index, output))
     }
 }
 
 impl Drop for Window {
     fn drop(&mut self) {
         let _ = self.thread.drain();
-        self._layer.update();
     }
 }

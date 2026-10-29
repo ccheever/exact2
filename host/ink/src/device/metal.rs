@@ -350,10 +350,9 @@ impl Device for Metal {
         let id = TextureId(self.next_texture);
         self.next_texture += 1;
         #[cfg(target_os = "macos")]
-        super::apple::trace_mark(
-            c"texture bytes",
-            MTLResource::allocatedSize(&*texture.raw) as f64,
-        );
+        super::apple::trace_mark(c"texture bytes", || {
+            MTLResource::allocatedSize(&*texture.raw) as f64
+        });
         self.textures.insert(id, texture);
         Ok(id)
     }
@@ -678,12 +677,9 @@ impl Device for Metal {
                 match command.status() {
                     MTLCommandBufferStatus::Completed => {
                         #[cfg(target_os = "macos")]
-                        super::apple::trace_interval(
-                            c"gpu command",
-                            command.GPUStartTime(),
-                            command.GPUEndTime(),
-                            id as f64,
-                        );
+                        super::apple::trace_interval(c"gpu command", || {
+                            (command.GPUStartTime(), command.GPUEndTime(), id as f64)
+                        });
                     }
                     MTLCommandBufferStatus::Error => {
                         let message = command
@@ -709,10 +705,9 @@ impl Device for Metal {
             .remove(&id)
             .ok_or_else(|| Error::Invalid("retired texture".into()))?;
         #[cfg(target_os = "macos")]
-        super::apple::trace_mark(
-            c"texture retired bytes",
-            MTLResource::allocatedSize(&*t.raw) as f64,
-        );
+        super::apple::trace_mark(c"texture retired bytes", || {
+            MTLResource::allocatedSize(&*t.raw) as f64
+        });
         self.retired_textures.push(t);
         self.completed().map(|_| ())
     }

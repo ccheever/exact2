@@ -57,12 +57,16 @@ final class Pacing {
     let lock = NSLock()
     let delivered = DispatchSemaphore(value: 0)
     let measured = DispatchSemaphore(value: 0)
-    var pending: CGEvent?
+    let events: [CGEvent]
+    var posted = 0
+    var emptyCallbacks = 0
     var firstTick: Double?
     var intervals = 0
     var period = 0.0
     var lastPost: Double?
     var maxGap = 0.0
+
+    init(events: [CGEvent]) { self.events = events }
 
     func tick(_ link: CVDisplayLink, pid: Int32) {
         let now = Double(CVGetCurrentHostTime()) / CVGetHostClockFrequency()
@@ -70,8 +74,7 @@ final class Pacing {
         defer { lock.unlock() }
         if firstTick == nil { firstTick = now } else { intervals += 1 }
         let previous = period
-        // Report Core Video's actual output period, or the mean callback interval
-        // if it is unavailable (never the display mode's nominal rate).
+        // Report the actual period independently of the nominal gesture steps.
         let actual = CVDisplayLinkGetActualOutputVideoRefreshPeriod(link)
         if actual.isFinite && actual > 0 {
             period = actual
@@ -79,34 +82,31 @@ final class Pacing {
             period = (now - firstTick!) / Double(intervals)
         }
         if previous == 0 && period > 0 { measured.signal() }
-        if let event = pending {
-            pending = nil
-            let postedAt = Double(CVGetCurrentHostTime()) / CVGetHostClockFrequency()
-            if let lastPost { maxGap = max(maxGap, postedAt - lastPost) }
-            lastPost = postedAt
-            event.postToPid(pid)
-            delivered.signal()
+        guard posted < events.count else {
+            emptyCallbacks += 1
+            return
         }
+        let event = events[posted]
+        let postedAt = Double(CVGetCurrentHostTime()) / CVGetHostClockFrequency()
+        if let lastPost { maxGap = max(maxGap, postedAt - lastPost) }
+        lastPost = postedAt
+        // Event creation is ahead of the gesture; its timestamp is delivery time.
+        event.timestamp = DispatchTime.now().uptimeNanoseconds
+        event.postToPid(pid)
+        posted += 1
+        if posted == events.count { delivered.signal() }
     }
-}
-let pacing = Pacing()
-guard CVDisplayLinkSetOutputHandler(link, { link, _, _, _, _ in
-    pacing.tick(link, pid: request.pid)
-    return kCVReturnSuccess
-}) == kCVReturnSuccess else {
-    fail("cannot set the wheel's display callback")
 }
 let nominal = CVDisplayLinkGetNominalOutputVideoRefreshPeriod(link)
 guard nominal.timeValue > 0, nominal.timeScale > 0 else {
     fail("the target display has no refresh period")
 }
 let period = Double(nominal.timeValue) / Double(nominal.timeScale)
-var running = false
 let source = CGEventSource(stateID: .hidSystemState)
-var posted = 0
+var events: [CGEvent] = []
 
 // CGScrollPhase: began 1, changed 2, ended 4, mayBegin 128. CGMomentumScrollPhase: begin 1, continue 2, end 3.
-func post(_ dx: Double, _ dy: Double, phase: Int64 = 0, momentum: Int64 = 0) {
+func enqueue(_ dx: Double, _ dy: Double, phase: Int64 = 0, momentum: Int64 = 0) {
     guard let e = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2, wheel1: Int32((-dy).rounded()), wheel2: Int32((-dx).rounded()), wheel3: 0) else {
         fail("no scroll event")
     }
@@ -121,48 +121,46 @@ func post(_ dx: Double, _ dy: Double, phase: Int64 = 0, momentum: Int64 = 0) {
     e.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
     e.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
     e.setIntegerValueField(.eventSourceUserData, value: request.mark)
-    pacing.lock.lock()
-    pacing.pending = e
-    pacing.lock.unlock()
-    // Queue the first event before starting. Only the callback posts, at most
-    // once per tick; a delayed producer cannot accumulate catch-up posts.
-    if !running {
-        guard CVDisplayLinkStart(link) == kCVReturnSuccess else {
-            fail("cannot start the wheel's display link")
-        }
-        running = true
-    }
-    guard pacing.delivered.wait(timeout: .now() + 3) == .success else {
-        CVDisplayLinkStop(link)
-        fail("the wheel's display callback stopped")
-    }
-    posted += 1
+    events.append(e)
 }
 
 let (dx, dy) = (request.wheel[0], request.wheel[1])
 switch request.form {
 case "fling", "hold":
-    post(0, 0, phase: 128)
-    pacing.lock.lock()
-    let travelPeriod = pacing.period > 0 ? pacing.period : period
-    pacing.lock.unlock()
-    let steps = max(2, Int((0.1 / travelPeriod).rounded()))
-    post(dx / Double(steps), dy / Double(steps), phase: 1)
-    for _ in 1..<steps { post(dx / Double(steps), dy / Double(steps), phase: 2) }
+    enqueue(0, 0, phase: 128)
+    let steps = max(2, Int((0.1 / period).rounded()))
+    enqueue(dx / Double(steps), dy / Double(steps), phase: 1)
+    for _ in 1..<steps { enqueue(dx / Double(steps), dy / Double(steps), phase: 2) }
     guard request.form == "fling" else { break }
-    post(0, 0, phase: 4)
+    enqueue(0, 0, phase: 4)
     var (vx, vy) = (dx / Double(steps), dy / Double(steps))
-    post(vx, vy, momentum: 1)
-    let end = Date().addingTimeInterval(2)
-    while max(abs(vx), abs(vy)) >= 0.5, Date() < end {
+    enqueue(vx, vy, momentum: 1)
+    for _ in 0..<Int(ceil(2 / period)) {
+        guard max(abs(vx), abs(vy)) >= 0.5 else { break }
         vx *= 0.95; vy *= 0.95
-        post(vx, vy, momentum: 2)
+        enqueue(vx, vy, momentum: 2)
     }
-    post(0, 0, momentum: 3)
+    enqueue(0, 0, momentum: 3)
 case "release":
-    post(0, 0, phase: 4)
+    enqueue(0, 0, phase: 4)
 default:
     fail("form is fling, hold or release, not \(request.form)")
+}
+// The callback owns the complete sequence before the first refresh. It never
+// waits for the main thread to construct or hand over the next event.
+let pacing = Pacing(events: events)
+guard CVDisplayLinkSetOutputHandler(link, { link, _, _, _, _ in
+    pacing.tick(link, pid: request.pid)
+    return kCVReturnSuccess
+}) == kCVReturnSuccess else {
+    fail("cannot set the wheel's display callback")
+}
+guard CVDisplayLinkStart(link) == kCVReturnSuccess else {
+    fail("cannot start the wheel's display link")
+}
+guard pacing.delivered.wait(timeout: .now() + Double(events.count) * period + 3) == .success else {
+    CVDisplayLinkStop(link)
+    fail("the wheel's display callback stopped")
 }
 // A one-event release may need a second callback to measure its fallback period.
 guard pacing.measured.wait(timeout: .now() + 3) == .success else {
@@ -171,7 +169,9 @@ guard pacing.measured.wait(timeout: .now() + 3) == .success else {
 }
 CVDisplayLinkStop(link)
 pacing.lock.lock()
+let posted = pacing.posted
+let emptyCallbacks = pacing.emptyCallbacks
 let measuredPeriod = pacing.period
 let maxGap = pacing.maxGap
 pacing.lock.unlock()
-print(#"{"posted":\#(posted),"periodMs":\#((measuredPeriod * 1000 * 100).rounded() / 100),"maxGapMs":\#((maxGap * 1000 * 1000).rounded() / 1000)}"#)
+print(#"{"posted":\#(posted),"periodMs":\#((measuredPeriod * 1000 * 100).rounded() / 100),"nominalPeriodMs":\#((period * 1000 * 100).rounded() / 100),"maxGapMs":\#((maxGap * 1000 * 1000).rounded() / 1000),"emptyCallbacks":\#(emptyCallbacks)}"#)

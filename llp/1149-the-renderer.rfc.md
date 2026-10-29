@@ -979,7 +979,7 @@ pairs and ten launches each, ink and GPUI on the same presented-drawable instrum
 cold start to its first presented drawable, 375 ms, is GPUI's 386 and better than the native
 host's 459 by its other instrument, but with three timeouts in fourteen launches waiting for
 the complete frame; and the rest of the ink column is the carrier, not the renderer: 860 ms/s
-of main-thread CPU **at rest** (the native host 0.6, GPUI 3.6), 569 ms/s during the fling
+of main-thread CPU **at rest** (the native host 0.6, GPUI 3.6), 569 ms/s of process CPU during the fling
 (119, 92), presented intervals at a p95 of 16.67 ms against GPUI's 8.33 with twelve late
 intervals a second, and a transient 576 MiB footprint during the fling (226 at its end). A
 renderer that paints this screen in 0.5 to 1.4 ms headless and encodes in 0.065 ms does not

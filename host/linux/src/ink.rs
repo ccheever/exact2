@@ -753,7 +753,7 @@ impl Backend for Ink {
     }
     fn slot_again(&mut self, row: u32, id: exact_kernel::ViewId) -> bool {
         #[cfg(target_os = "macos")]
-        exact_ink::device::apple::trace_mark(c"image slot again", id as f64);
+        exact_ink::device::apple::trace_mark(c"image slot again", || id as f64);
         self.replace_slot(row, id)
     }
     fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {

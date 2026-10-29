@@ -6,24 +6,20 @@ use objc2_app_kit::{NSApplication, NSView};
 use objc2_core_foundation::CGSize;
 use objc2_core_graphics::CGColorSpace;
 use objc2_metal::{MTLDrawable, MTLPixelFormat};
-use objc2_quartz_core::{CAMetalLayer, CATransaction};
+use objc2_quartz_core::CAMetalLayer;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+        Arc,
     },
 };
-
-type Transactions = Arc<Mutex<Vec<Box<dyn FnOnce() + Send>>>>;
 
 struct Inner {
     view: Retained<NSView>,
     layer: Retained<CAMetalLayer>,
-    live_resize: Arc<AtomicBool>,
-    retry: Arc<AtomicBool>,
-    transactions: Transactions,
+    retry: Arc<Retry>,
     wake: Arc<dyn Fn() + Send + Sync>,
     _owner: Rc<dyn HasWindowHandle>,
 }
@@ -65,9 +61,7 @@ impl Layer {
         let result = Self(Rc::new(Inner {
             view,
             layer,
-            live_resize: Arc::new(AtomicBool::new(false)),
-            retry: Arc::new(AtomicBool::new(false)),
-            transactions: Default::default(),
+            retry: Arc::default(),
             wake: Arc::new(wake),
             _owner: owner,
         }));
@@ -76,31 +70,24 @@ impl Layer {
     }
 
     pub fn resize(&self, size: [u32; 2], scale: f64) {
+        self.resume_retries();
         self.0.layer.setContentsScale(scale);
         self.0
             .layer
             .setDrawableSize(CGSize::new(size[0] as f64, size[1] as f64));
-        self.update();
-    }
-
-    /// Present resize frames in the view's transaction after scheduling on Metal.
-    pub fn update(&self) {
-        self.0
-            .live_resize
-            .store(self.0.view.inLiveResize(), Ordering::Release);
-        let pending = std::mem::take(&mut *self.0.transactions.lock().unwrap());
-        if !pending.is_empty() {
-            CATransaction::begin();
-            CATransaction::setDisableActions(true);
-            for present in pending {
-                present();
-            }
-            CATransaction::commit();
-        }
     }
 
     pub fn retry_requested(&self) -> bool {
-        self.0.retry.swap(false, Ordering::AcqRel)
+        self.0.retry.requested.swap(false, Ordering::AcqRel)
+    }
+
+    /// An input or surface transition permits another recovery attempt.
+    pub fn resume_retries(&self) {
+        self.0.retry.reset();
+    }
+
+    pub fn live_resize(&self) -> bool {
+        self.0.view.inLiveResize()
     }
 
     /// A posted wheel event carries its own point without moving the cursor.
@@ -121,9 +108,7 @@ impl Layer {
     pub(crate) fn render_layer(&self) -> RenderLayer {
         RenderLayer {
             raw: self.0.layer.clone(),
-            live_resize: self.0.live_resize.clone(),
             retry: self.0.retry.clone(),
-            transactions: self.0.transactions.clone(),
             wake: self.0.wake.clone(),
         }
     }
@@ -131,9 +116,7 @@ impl Layer {
 
 pub(crate) struct RenderLayer {
     pub raw: Retained<CAMetalLayer>,
-    pub live_resize: Arc<AtomicBool>,
-    retry: Arc<AtomicBool>,
-    transactions: Transactions,
+    retry: Arc<Retry>,
     wake: Arc<dyn Fn() + Send + Sync>,
 }
 impl RenderLayer {
@@ -148,10 +131,11 @@ impl RenderLayer {
                 // including while the window's first layer transaction is pending.
                 // https://developer.apple.com/documentation/metal/mtldrawable/presentedtime
                 let time = unsafe { shown.as_ref().presentedTime() };
-                trace_interval(c"presented", time, time, 0.);
-                if time == 0. {
-                    retry.store(true, Ordering::Release);
+                trace_interval(c"presented", || (time, time, 0.));
+                if time == 0. && retry.failed() {
                     wake();
+                } else if time != 0. {
+                    retry.reset();
                 }
             },
         );
@@ -161,12 +145,35 @@ impl RenderLayer {
         }
     }
     pub fn retry(&self) {
-        self.retry.store(true, Ordering::Release);
-        (self.wake)();
+        if self.retry.failed() {
+            (self.wake)();
+        }
     }
-    pub fn transaction(&self, present: impl FnOnce() + Send + 'static) {
-        self.transactions.lock().unwrap().push(Box::new(present));
-        (self.wake)();
+}
+
+#[derive(Default)]
+struct Retry {
+    failures: AtomicU8,
+    requested: AtomicBool,
+}
+impl Retry {
+    fn failed(&self) -> bool {
+        let previous = self
+            .failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                Some(n.saturating_add(1).min(2))
+            })
+            .unwrap();
+        if previous == 0 {
+            self.requested.store(true, Ordering::Release);
+            true
+        } else {
+            false
+        }
+    }
+    fn reset(&self) {
+        self.failures.store(0, Ordering::Release);
+        self.requested.store(false, Ordering::Release);
     }
 }
 // SAFETY: Core Animation layer properties are thread safe. Only the main-thread
@@ -185,28 +192,45 @@ pub fn wheel_phases() -> [u64; 2] {
 
 type Callback = Box<dyn Fn() + Send + Sync>;
 
+struct CallbackSlot(std::sync::Mutex<Option<Callback>>);
+impl CallbackSlot {
+    fn call(&self) {
+        let callback = self.0.lock().unwrap();
+        if let Some(callback) = callback.as_ref() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback));
+        }
+    }
+    fn clear(&self) {
+        self.0.lock().unwrap().take();
+    }
+}
+
 /// Optional benchmark intervals on Core Animation's clock, shared with presentedTime.
 /// The linked probe owns storage; ordinary carriers do not collect anything.
-pub struct Trace(Option<(&'static core::ffi::CStr, f64)>);
+pub struct Trace {
+    name: &'static core::ffi::CStr,
+    start: f64,
+    hook: TraceHook,
+}
 impl Trace {
-    pub fn new(name: &'static core::ffi::CStr) -> Self {
-        Self(trace_hook().map(|_| (name, trace_time())))
+    pub fn new(name: &'static core::ffi::CStr) -> Option<Self> {
+        trace_hook().map(|hook| Self {
+            name,
+            start: unsafe { CACurrentMediaTime() },
+            hook,
+        })
     }
 }
 impl Drop for Trace {
     fn drop(&mut self) {
-        if let Some((name, start)) = self.0 {
-            trace_interval(name, start, trace_time(), 0.);
-        }
+        unsafe { (self.hook)(self.name.as_ptr(), self.start, CACurrentMediaTime(), 0.) };
     }
 }
 type TraceHook = unsafe extern "C" fn(*const core::ffi::c_char, f64, f64, f64);
 fn trace_hook() -> Option<TraceHook> {
     static HOOK: std::sync::OnceLock<Option<TraceHook>> = std::sync::OnceLock::new();
     *HOOK.get_or_init(|| {
-        if std::env::var_os("G1_TRACE").is_none() {
-            return None;
-        }
+        std::env::var_os("G1_TRACE")?;
         // SAFETY: the optional benchmark probe exports this exact C signature.
         unsafe {
             let p = libc::dlsym(libc::RTLD_DEFAULT, c"g1_interval".as_ptr());
@@ -219,17 +243,20 @@ unsafe extern "C" {
     fn CACurrentMediaTime() -> f64;
 }
 pub fn trace_time() -> f64 {
-    unsafe { CACurrentMediaTime() }
+    trace_hook().map_or(0., |_| unsafe { CACurrentMediaTime() })
 }
-pub fn trace_interval(name: &'static core::ffi::CStr, start: f64, end: f64, value: f64) {
+#[inline]
+pub fn trace_interval(name: &'static core::ffi::CStr, values: impl FnOnce() -> (f64, f64, f64)) {
     if let Some(hook) = trace_hook() {
+        let (start, end, value) = values();
         unsafe { hook(name.as_ptr(), start, end, value) };
     }
 }
-pub fn trace_mark(name: &'static core::ffi::CStr, value: f64) {
-    if trace_hook().is_some() {
-        let now = trace_time();
-        trace_interval(name, now, now, value);
+#[inline]
+pub fn trace_mark(name: &'static core::ffi::CStr, value: impl FnOnce() -> f64) {
+    if let Some(hook) = trace_hook() {
+        let now = unsafe { CACurrentMediaTime() };
+        unsafe { hook(name.as_ptr(), now, now, value()) };
     }
 }
 
@@ -257,7 +284,7 @@ unsafe extern "C" {
 /// Display-paced wakeups; the callback never reads the presenter or the view.
 pub struct DisplayLink {
     raw: *mut std::ffi::c_void,
-    callback: Box<Callback>,
+    callback: &'static CallbackSlot,
     running: bool,
 }
 impl DisplayLink {
@@ -270,18 +297,19 @@ impl DisplayLink {
             _: *mut u64,
             context: *mut std::ffi::c_void,
         ) -> i32 {
-            trace_mark(c"display callback", 0.);
-            let callback = unsafe { &*context.cast::<Callback>() };
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback));
+            trace_mark(c"display callback", || 0.);
+            let callback = unsafe { &*context.cast::<CallbackSlot>() };
+            callback.call();
             0
         }
         let mut result = Self {
             raw: std::ptr::null_mut(),
-            callback: Box::new(Box::new(wake)),
+            callback: Box::leak(Box::new(CallbackSlot(std::sync::Mutex::new(Some(
+                Box::new(wake),
+            ))))),
             running: false,
         };
-        // SAFETY: CoreVideo retains the context until the stopped link is released.
-        // The double box keeps its address stable when this owner moves.
+        // SAFETY: the context has a stable address and outlives every callback.
         unsafe {
             let status = CVDisplayLinkCreateWithActiveCGDisplays(&mut result.raw);
             if status != 0 {
@@ -290,7 +318,7 @@ impl DisplayLink {
             let status = CVDisplayLinkSetOutputCallback(
                 result.raw,
                 tick,
-                (&mut *result.callback as *mut Callback).cast(),
+                (result.callback as *const CallbackSlot).cast_mut().cast(),
             );
             if status != 0 {
                 return Err(Error::Device(format!(
@@ -330,6 +358,10 @@ impl DisplayLink {
 }
 impl Drop for DisplayLink {
     fn drop(&mut self) {
+        // CVDisplayLinkStop documents no callback join. Keep the empty context alive;
+        // clearing it waits for an in-flight wake and releases that wake's captures.
+        // https://developer.apple.com/documentation/corevideo/cvdisplaylinkstop(_:)
+        self.callback.clear();
         if !self.raw.is_null() {
             unsafe {
                 if self.running {
@@ -370,5 +402,68 @@ pub(crate) fn benchmark_present((complete, offset): (bool, f32)) {
         unsafe {
             ready(i32::from(complete), 0, offset);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clearing_the_display_callback_waits_for_a_running_wake_and_releases_it() {
+        let (entered, started) = std::sync::mpsc::channel();
+        let (release, finish) = std::sync::mpsc::channel();
+        let finish = std::sync::Mutex::new(finish);
+        let capture = Arc::new(());
+        let weak = Arc::downgrade(&capture);
+        let slot = CallbackSlot(std::sync::Mutex::new(Some(Box::new(move || {
+            let _keep = &capture;
+            entered.send(()).unwrap();
+            finish.lock().unwrap().recv().unwrap();
+        }))));
+        std::thread::scope(|scope| {
+            scope.spawn(|| slot.call());
+            started.recv().unwrap();
+            let (cleared, done) = std::sync::mpsc::channel();
+            let slot = &slot;
+            scope.spawn(move || {
+                slot.clear();
+                cleared.send(()).unwrap();
+            });
+            assert!(matches!(
+                done.recv_timeout(std::time::Duration::from_millis(100)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ));
+            release.send(()).unwrap();
+            done.recv().unwrap();
+        });
+        assert!(weak.upgrade().is_none());
+        slot.call();
+    }
+
+    #[test]
+    fn two_unshown_frames_stop_retries_until_new_activity_or_a_shown_frame() {
+        let retry = Retry::default();
+        for _ in 0..3 {
+            assert!(retry.failed());
+            assert!(retry.requested.swap(false, Ordering::AcqRel));
+            for _ in 0..8 {
+                assert!(!retry.failed());
+                assert!(!retry.requested.load(Ordering::Acquire));
+            }
+            retry.reset();
+        }
+    }
+
+    #[test]
+    fn disabled_trace_never_evaluates_its_arguments_or_constructs_a_span() {
+        assert!(
+            trace_hook().is_none(),
+            "run this test without a linked trace probe"
+        );
+        assert!(Trace::new(c"unused span").is_none());
+        trace_mark(c"unused value", || panic!("disabled value evaluated"));
+        trace_interval(c"unused interval", || panic!("disabled interval evaluated"));
+        assert_eq!(trace_time(), 0.);
     }
 }

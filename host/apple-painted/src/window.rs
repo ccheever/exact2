@@ -51,7 +51,7 @@ struct App<D: DataSource> {
     frames: u64,
     paint_ms: f64,
     wheel_phases: [u64; 2],
-    scrolling: bool,
+    scrolling: Scrolling,
     benchmark_complete: bool,
 }
 
@@ -59,9 +59,7 @@ impl<D: DataSource> Drop for App<D> {
     fn drop(&mut self) {
         self.display.take();
         self.presenter.take();
-        if let Some(layer) = self.layer.take() {
-            layer.update();
-        }
+        self.layer.take();
     }
 }
 
@@ -148,7 +146,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         frames: 0,
         paint_ms: 0.,
         wheel_phases: [0; 2],
-        scrolling: false,
+        scrolling: Scrolling::default(),
         benchmark_complete: false,
     };
     if let Err(error) = events.run_app(&mut state) {
@@ -194,7 +192,13 @@ impl<D: DataSource + Default + 'static> App<D> {
         ) {
             eprintln!("resize: {e}");
         }
-        if let (Some(display), Some(monitor)) = (&self.display, window.current_monitor()) {
+        self.update_display();
+    }
+    fn update_display(&self) {
+        if let (Some(display), Some(monitor)) = (
+            &self.display,
+            self.window.as_ref().and_then(|w| w.current_monitor()),
+        ) {
             if let Err(e) = display.set_display(monitor.native_id()) {
                 eprintln!("{e}");
             }
@@ -208,9 +212,6 @@ impl<D: DataSource + Default + 'static> App<D> {
         let Some(p) = &mut self.presenter else {
             return Ok(());
         };
-        if let Some(layer) = &self.layer {
-            layer.update();
-        }
         let now = if !self.live {
             p.host().now()
         } else {
@@ -300,7 +301,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             let pending = self.tick_pending.clone();
             let active = self.display_active.clone();
             let display = DisplayLink::new(move || {
-                trace_mark(c"display demand", f64::from(active.load(Ordering::Acquire)));
+                trace_mark(c"display demand", || {
+                    f64::from(active.load(Ordering::Acquire))
+                });
                 if active.load(Ordering::Acquire) && !pending.swap(true, Ordering::AcqRel) {
                     let _ = proxy.send_event(Event::Tick);
                 }
@@ -330,9 +333,14 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     fn user_event(&mut self, events: &ActiveEventLoop, event: Event) {
         match event {
             Event::Tick => {
-                trace_mark(c"display wake", 0.);
+                trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
-                if self.display_active.load(Ordering::Acquire) {
+                let dirty = self
+                    .presenter
+                    .as_ref()
+                    .is_some_and(|p| p.dirty() || self.live && p.needs_animation_frame());
+                self.scrolling.tick(dirty);
+                if dirty {
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
@@ -345,6 +353,14 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 if let Some(p) = &mut self.presenter {
                     let request: serde_json::Value =
                         serde_json::from_str(&line).unwrap_or_default();
+                    if matches!(
+                        request["op"].as_str(),
+                        Some("tap" | "type" | "clock" | "prefer")
+                    ) {
+                        if let Some(layer) = &self.layer {
+                            layer.resume_retries();
+                        }
+                    }
                     if request["platform"] == true && request.get("wheel").is_some() {
                         let _ = reply.send(serde_json::json!({"error":"platform wheel placement is not available in the benchmark agent; use ordinary wheel operations or the G1 process-targeted driver"}).to_string());
                         return;
@@ -361,27 +377,47 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                         return;
                     }
                     let mut answer: serde_json::Value =
-                        serde_json::from_str(&exact_linux::agent::handle(p, &line))
+                        serde_json::from_str(&exact_linux::agent::handle_for_window(p, &line))
                             .unwrap_or_default();
                     if request["op"] == "state" {
                         answer["carrier"] = serde_json::json!({"name":"exact-apple-painted","benchmark":true,"shipping":false,"scale":self.scale,"frames":self.frames,"paintMs":self.paint_ms,"wheelPhase":self.wheel_phases[0],"momentumPhase":self.wheel_phases[1],"ime":false,"accessibility":false});
                     }
                     let _ = reply.send(answer.to_string());
-                    // Geometry and screenshots may have consumed the damage.
-                    // The window still owes the driver's new frame.
-                    p.repaint();
                 }
             }
         }
     }
     fn window_event(&mut self, events: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        if matches!(
+            event,
+            WindowEvent::CursorMoved { .. }
+                | WindowEvent::CursorLeft { .. }
+                | WindowEvent::MouseInput { .. }
+                | WindowEvent::MouseWheel { .. }
+                | WindowEvent::KeyboardInput { .. }
+                | WindowEvent::Focused(_)
+                | WindowEvent::Occluded(_)
+        ) {
+            if let Some(layer) = &self.layer {
+                layer.resume_retries();
+            }
+        }
         match event {
             WindowEvent::CloseRequested => {
                 events.exit();
                 return;
             }
-            WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+            WindowEvent::Moved(_) => {
+                self.update_display();
+                return;
+            }
+            WindowEvent::Resized(_) => {
                 self.resized();
+                if self.layer.as_ref().is_some_and(Layer::live_resize) {
+                    if let Err(e) = self.draw() {
+                        self.fail(events, e);
+                    }
+                }
                 return;
             }
             WindowEvent::ScaleFactorChanged { .. } => {
@@ -450,8 +486,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             WindowEvent::MouseWheel { delta, phase, .. } => {
                 let _trace = Trace::new(c"wheel input");
                 self.wheel_phases = exact_ink::device::apple::wheel_phases();
-                self.scrolling = self.wheel_phases != [0; 2]
-                    && matches!(phase, TouchPhase::Started | TouchPhase::Moved);
+                self.scrolling.wheel(
+                    self.wheel_phases != [0; 2]
+                        && matches!(phase, TouchPhase::Started | TouchPhase::Moved),
+                );
                 let [x, y] = self
                     .layer
                     .as_ref()
@@ -466,7 +504,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 };
                 // AppKit already supplies momentum deltas; never synthesize a second fling.
                 p.wheel_at(x, y, -dx, -dy);
-                trace_mark(c"wheel dirty", f64::from(p.dirty()));
+                trace_mark(c"wheel dirty", || f64::from(p.dirty()));
             }
             WindowEvent::KeyboardInput {
                 event,
@@ -497,7 +535,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 p.set_window_active(focused);
                 if !focused {
                     self.buttons = 0;
-                    self.scrolling = false;
+                    self.scrolling.wheel(false);
                     let _ = p.pointer_lost(now);
                 }
             }
@@ -512,9 +550,6 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
-        if let Some(layer) = &self.layer {
-            layer.update();
-        }
         let Some(p) = &mut self.presenter else {
             return;
         };
@@ -540,9 +575,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             p.admit_idle_timer(now);
         }
         let active = !self.hidden && (p.dirty() || self.live && p.needs_animation_frame());
-        self.display_active.store(active, Ordering::Release);
+        let running = !self.hidden && (active || self.scrolling.active);
+        self.display_active.store(running, Ordering::Release);
         if let Some(display) = &mut self.display {
-            if let Err(e) = display.set_running(!self.hidden && (active || self.scrolling)) {
+            if let Err(e) = display.set_running(running) {
                 self.fail(events, e);
                 return;
             }
@@ -554,11 +590,33 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     }
 }
 
+#[derive(Default)]
+struct Scrolling {
+    active: bool,
+    quiet_ticks: u8,
+}
+impl Scrolling {
+    fn wheel(&mut self, active: bool) {
+        self.active = active;
+        self.quiet_ticks = 0;
+    }
+    fn tick(&mut self, dirty: bool) {
+        if self.active && !dirty {
+            self.quiet_ticks += 1;
+            if self.quiet_ticks == 3 {
+                self.active = false;
+            }
+        } else {
+            self.quiet_ticks = 0;
+        }
+    }
+}
+
 // Live drives leave damage for the display link; the headless agent reads pixels.
 fn live_wheel<D: DataSource>(
     p: &mut Presenter<D>,
     request: &serde_json::Value,
-    scrolling: &mut bool,
+    scrolling: &mut Scrolling,
 ) -> Result<serde_json::Value, &'static str> {
     let pair = |v: &serde_json::Value| {
         let v = v.as_array().filter(|v| v.len() == 2)?;
@@ -567,7 +625,10 @@ fn live_wheel<D: DataSource>(
     };
     let (dx, dy) = pair(&request["wheel"]).ok_or("wheel needs two finite deltas")?;
     let (x, y) = pair(&request["at"]).ok_or("live wheel needs at:[x,y] in viewport points")?;
-    *scrolling = matches!(request["phase"].as_str(), Some("began" | "changed"));
+    scrolling.wheel(matches!(
+        request["phase"].as_str(),
+        Some("began" | "changed")
+    ));
     p.wheel_at(x, y, dx, dy);
     Ok(serde_json::json!({"wheel":[dx,dy],"clock":p.host().now(),"live":true}))
 }
@@ -591,6 +652,57 @@ mod tests {
     use exact_linux::presenter::PainterChoice;
 
     #[test]
+    fn agent_reads_leave_an_idle_window_clean_and_input_leaves_damage() {
+        let plan = contract::compile("component App\n  state count: number = 0\n  action increment\n    count = count + 1\n  view\n    column\n      button testId=\"increment\" press=increment\n        text \"Increment\"\n      text count.toString()\n").unwrap().encode();
+        let (mut p, error) =
+            Presenter::boot_with(&plan, (), (120., 100.), 1., ".".into(), PainterChoice::Cpu)
+                .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.frame();
+        for op in ["state", "tree", "layout", "logs"] {
+            let answer = exact_linux::agent::handle_for_window(
+                &mut p,
+                &serde_json::json!({"op":op}).to_string(),
+            );
+            assert!(!answer.contains("\"error\""), "{answer}");
+            assert!(!p.dirty(), "{op} manufactured window damage");
+        }
+        let key = p.host().kernel().find_by_test_id("increment")[0];
+        let id = p.host().kernel().node_by_key(key).unwrap().id;
+        exact_linux::agent::handle_for_window(
+            &mut p,
+            &serde_json::json!({"op":"tap","id":id}).to_string(),
+        );
+        assert!(p.dirty(), "a tap leaves its changed frame for the window");
+        exact_linux::agent::handle_for_window(&mut p, "{\"op\":\"layout\"}");
+        assert!(p.dirty(), "geometry must preserve existing window damage");
+        p.frame();
+        assert!(!p.dirty());
+    }
+
+    #[test]
+    fn a_lost_wheel_end_stops_after_three_clean_callbacks() {
+        let mut scroll = Scrolling::default();
+        scroll.wheel(true);
+        for _ in 0..6 {
+            scroll.tick(true);
+        }
+        assert!(scroll.active, "damage keeps the link running");
+        scroll.tick(false);
+        scroll.tick(false);
+        assert!(scroll.active);
+        scroll.wheel(true);
+        scroll.tick(false);
+        scroll.tick(false);
+        assert!(scroll.active, "a new wheel resets the quiet count");
+        scroll.tick(false);
+        assert!(!scroll.active);
+        scroll.wheel(true);
+        scroll.wheel(false);
+        assert!(!scroll.active, "an end stops immediately");
+    }
+
+    #[test]
     fn a_live_wheel_leaves_the_changed_scene_for_the_display_link() {
         let plan = contract::compile("component App\n  view\n    scroll width=80 height=80 testId=\"rows\"\n      view width=80 height=800 background-color=\"red\"\n").unwrap().encode();
         let (mut p, error) =
@@ -600,7 +712,7 @@ mod tests {
         p.frame();
         assert!(!p.dirty());
         let before = p.host().now();
-        let mut scrolling = false;
+        let mut scrolling = Scrolling::default();
         live_wheel(
             &mut p,
             &serde_json::json!({"at":[40,40],"wheel":[0,20],"phase":"began"}),
@@ -611,7 +723,7 @@ mod tests {
             p.dirty(),
             "input must not consume the window's pending frame"
         );
-        assert!(scrolling);
+        assert!(scrolling.active);
         assert_eq!(p.host().now(), before, "input must not advance the clock");
         let rows = p.host().kernel().find_by_test_id("rows")[0];
         let id = p.host().kernel().node_by_key(rows).unwrap().id;
@@ -622,7 +734,7 @@ mod tests {
             &mut scrolling,
         )
         .unwrap();
-        assert!(!scrolling);
+        assert!(!scrolling.active);
         assert!(live_wheel(&mut p, &serde_json::json!({"wheel":[0,20]}), &mut scrolling).is_err());
     }
 
