@@ -911,12 +911,13 @@ pub(super) fn attributes(
                     attrs.push(("data-autofocus".into(), "false".into()));
                 }
             }
-            // The app's own file (LLP 1069.002 D7): symbols.js shows it
-            // through an object URL, media.js plays it (podcast F19); the
-            // browser has no `app:` scheme.
+            // The app's own file (LLP 1069.002 D7), or a frame's page given
+            // one (LLP 1020.001 D7): symbols.js shows it through an object
+            // URL, media.js plays it (podcast F19); the browser has no `app:`.
             "src"
-                if matches!(element, "img" | "video" | "audio" | "iframe")
-                    && value.starts_with("app:/") =>
+                if matches!(element, "img" | "video" | "audio") && value.starts_with("app:/")
+                    || element == "iframe"
+                        && exact_web::host::document::frame_app_source(value) =>
             {
                 attrs.push(("data-app-src".into(), value.clone()));
             }
