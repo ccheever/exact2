@@ -9,7 +9,13 @@ disabled. Use this handoff when taking over the work.
 The clone is incomplete. The desktop app is in `examples/t3-code`; the separate
 iPhone and iPad app is in `examples/t3-code/mobile`.
 
-These implementation checkpoints are pushed to GitHub:
+Continue on `t3/t3-clone-pr216-poc`, which pushes to PR216's remote branch
+`feat(example)/t3-code-ios`. It includes remote main through `1c7b918556` and the
+verified iPhone POC. The native NewTask editor remains inactive while its producer
+boundaries are completed. The older checkpoints below are provenance, not the
+current starting point.
+
+These earlier implementation checkpoints are available on GitHub:
 
 | Work | Commit | Branch |
 | --- | --- | --- |
@@ -17,9 +23,8 @@ These implementation checkpoints are pushed to GitHub:
 | App refactors and focused tests | `0e6c9ae` | [App checkpoint](https://github.com/ccheever/exact2/tree/t3/clone-contract-apfs-r1-20261024) |
 | Mobile implementation and release work | `250d863` | [Mobile checkpoint](https://github.com/ccheever/exact2/tree/t3/clone-draft-apfs-r1-20261024) |
 
-[PR216](https://github.com/ccheever/exact2/pull/216) remains a draft on a divergent
-branch. Integrate the checkpoints into the working branch as concrete dependencies
-require them.
+[PR216](https://github.com/ccheever/exact2/pull/216) remains a draft against
+`daehyeon/t3-code-main`. Keep it unmerged and limit distribution to TestFlight.
 
 - The desktop app extraction is unfinished. Current `app.contract` is
   2,994 lines against the repository's 1,500-line rule. Current Contract keeps
@@ -68,8 +73,8 @@ from the real provider. This refresh is outside the delivered TestFlight build.
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
 
-The current pickup starts at mobile `250d863`. The ordinary iPhone simulator
-build pairs with the real local T3 environment. Removing unused per-row Arrange
+The ordinary iPhone simulator build pairs with the real local T3 environment.
+Removing unused per-row Arrange
 planner probes fixes Home navigation on the live catalogue. The app opens a
 project, creates a thread, sends a message, and displays the real provider reply.
 The environment and that conversation remain available after an ordinary restart.
@@ -657,3 +662,13 @@ smallest working change that advances the next app flow.
 - Finish when the reference flows, visual behavior, persistence, accessibility,
   and performance are verified on iPhone, iPad, and desktop. Record incomplete
   acceptance and any remaining tester access blocker explicitly.
+
+The next native NewTask prerequisite publishes observed text, context and file
+inventory together. Focused tests cover retained-file deletion and Undo, cleared
+upload state on restoration, duplicate equivalent holds, stale captures,
+malformed metadata, preserved images and shelf files, and persistence through an
+actual client reload. Evicted context payloads stay unresolved even if their file
+holds remain. The helper is not wired into the native editor yet. Independent
+review is pending because T3's Codex provider reports that its CLI is not
+authenticated. Native NewTask activation, resume cycles and producer acceptance
+remain open; this prerequisite adds no TestFlight qualification.

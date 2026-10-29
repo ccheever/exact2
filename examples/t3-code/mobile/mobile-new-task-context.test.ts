@@ -120,3 +120,118 @@ test('rejected invalid insertion does not alter draft text, revision or valid pa
   const before = presentation(f.client, A); expect(edit(f.client, A, 'wrong', { ...a, lineStart: -1 })).toBe(false);
   expect(presentation(f.client, A)).toEqual(before);
 });
+
+import { mobileNewTaskContextObserve as observe } from './mobile-new-task-context';
+import { draftFiles, setDraftFiles, type DraftFile } from './shared/composer-editor-files';
+import type { HeldFile } from './composer-file-holds-io';
+import { mobileDraftAttachmentRecord } from './draft-attachment-order';
+const uuid = (n: number) => `10000000-0000-4000-a000-${String(n).padStart(12, '0')}`;
+function observation(client: MobileDraftClient, text: string, usableHolds: HeldFile[] = []) {
+  const captured = guard(client, A)!, record = store(client).records[A];
+  return { guard: captured, destination: { origin, environmentId: 'env', projectId: 'project' }, generation: 1,
+    identity: { owner: JSON.stringify(['ordinary', origin, 'env', 1, A, record.createdAt]),
+      editorId: 'editor', routeVisit: 'visit', renderEpoch: 'epoch', mountId: 'mount' }, text, usableHolds };
+}
+function heldFile(client: MobileDraftClient, n = 1): HeldFile {
+  const input = observation(client, ''), file: DraftFile = { id: uuid(n), contextId: `file_${n}`, draftKey: A,
+    environmentId: 'env', name: `${n}.txt`, mimeType: 'text/plain', sizeBytes: n, source: 'attached',
+    attachmentId: 'uploaded', status: 'ready' };
+  return { request: { op: 'composerFileHold', action: 'acquire', generation: 1, identity: input.identity,
+    requestId: uuid(n + 1000), target: { kind: 'new-task', ...input.destination, draftKey: A, createdAt: input.guard.createdAt }, file },
+    receipt: { identity: input.identity, requestId: uuid(n + 1000), holdId: uuid(n + 2000), fileIdentity: uuid(n + 3000), id: file.id, sizeBytes: file.sizeBytes } };
+}
+function fileContext(hold: HeldFile): Obj {
+  const file = hold.request.file;
+  return { version: 1, kind: 'file', contextId: file.contextId, attachmentId: file.id,
+    label: file.name, name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes };
+}
+function installFile(client: MobileDraftClient, hold: HeldFile) {
+  const context = fileContext(hold);
+  setDraftFiles(client.local, [hold.request.file]); mobileDraftAttachmentRecord(client, A, [hold.request.file.id]);
+  expect(edit(client, A, link(context), context)).toBe(true);
+  return context;
+}
+test('native observation removes and restores a retained file atomically, preserving current settings through persistence', async () => {
+  const f = await setup(), hold = heldFile(f.client), context = installFile(f.client, hold), record = store(f.client).records[A];
+  Object.assign(record, { choices: { runtimeMode: 'newer' }, extra: { preserved: true } });
+  const removed = observe(f.client, observation(f.client, 'gone', [hold]));
+  expect(removed.kind).toBe('committed'); expect(draftFiles(f.client.local)).toEqual([]);
+  expect(store(f.client).fileReleases).toEqual([hold.receipt.id]);
+  const restored = observe(f.client, observation(f.client, link(context), [hold]));
+  expect(restored.kind).toBe('committed');
+  if (restored.kind !== 'committed') throw new Error(restored.reason);
+  expect(restored.after.files).toEqual([{ ...hold.request.file, attachmentId: '', status: 'staged' }]);
+  expect(restored.after.record).toMatchObject({ choices: { runtimeMode: 'newer' }, extra: { preserved: true } });
+  expect(store(f.client).records[A]).toBe(record);
+  await f.client.persist(f.storage); const r = fixture(f.disk()); await r.load();
+  expect(r.client.local.drafts[A]).toBe(link(context)); expect(draftFiles(r.client.local)).toEqual(restored.after.files);
+  expect(read(r.client, A)).toEqual(read(f.client, A));
+});
+test('observation refuses a missing or mismatched file hold without changing text, context, inventory or revision', async () => {
+  const f = await setup(), hold = heldFile(f.client), context = installFile(f.client, hold);
+  for (const mutate of [(h: HeldFile) => { h.request.generation++; }, (h: HeldFile) => { h.receipt.sizeBytes++; },
+    (h: HeldFile) => { h.request.file.name = 'wrong'; }, (h: HeldFile) => { h.request.identity.mountId = 'old'; }]) {
+    const bad = structuredClone(hold); mutate(bad);
+    const before = structuredClone(f.client.local), revision = f.client.revision;
+    expect(observe(f.client, observation(f.client, '', [bad])).kind).toBe('refused');
+    expect(f.client.local).toEqual(before); expect(f.client.revision).toBe(revision);
+  }
+  expect(observe(f.client, observation(f.client, '', [])).kind).toBe('refused');
+  expect(f.client.local.drafts[A]).toBe(link(context));
+  expect(observe(f.client, observation(f.client, '', [hold])).kind).toBe('committed');
+  expect(observe(f.client, observation(f.client, link(context), [hold])).kind).toBe('committed');
+});
+test('duplicate equivalent holds permit repeated picker cycles; conflicting metadata refuses publication', async () => {
+  const f = await setup(), hold = heldFile(f.client); installFile(f.client, hold);
+  const second = structuredClone(hold); second.request.requestId = uuid(9000); second.receipt.requestId = uuid(9000);
+  second.receipt.holdId = uuid(9001); second.receipt.fileIdentity = uuid(9002);
+  expect(observe(f.client, observation(f.client, '', [hold, second])).kind).toBe('committed');
+  second.request.file.name = 'conflicting';
+  const before = structuredClone(f.client.local);
+  expect(observe(f.client, observation(f.client, link(fileContext(hold)), [hold, second])).kind).toBe('refused');
+  expect(f.client.local).toEqual(before);
+});
+test('invalid raw context permits typing without changing images, file inventory, order or raw context', async () => {
+  for (const raw of [null, 'unsupported', { version: 2, records: [] }]) {
+    const f = await setup(), hold = heldFile(f.client); installFile(f.client, hold);
+    const record = store(f.client).records[A]; record.context = raw;
+    const before = structuredClone(f.client.local);
+    const result = observe(f.client, observation(f.client, 'typed'));
+    expect(result.kind).toBe('committed'); expect(record.context).toEqual(raw);
+    expect(draftFiles(f.client.local)).toEqual(draftFiles(before));
+    expect(f.client.local.snapshotDrafts).toEqual(before.snapshotDrafts);
+    expect(obj(f.client.local).mobileAttachmentOrder).toEqual(obj(before).mobileAttachmentOrder);
+  }
+});
+test('an evicted context payload stays unresolved even while its file hold remains usable', async () => {
+  const f = await setup(), hold = heldFile(f.client), context = installFile(f.client, hold);
+  expect(observe(f.client, observation(f.client, '', [hold])).kind).toBe('committed');
+  for (let n = 0; n < 201; n++) { const row = terminal(`recent_${n}`); expect(edit(f.client, A, link(row), row)).toBe(true); }
+  expect(observe(f.client, observation(f.client, link(context), [hold])).kind).toBe('committed');
+  expect(draftFiles(f.client.local)).toEqual([]); expect(read(f.client, A)).toEqual({ ok: true, context: undefined });
+});
+
+test('observation preserves shelf files and images, including unrelated drafts and their ordering', async () => {
+  const f = await setup(), hold = heldFile(f.client), context = installFile(f.client, hold), shelf = heldFile(f.client, 2).request.file;
+  const other = { ...heldFile(f.client, 3).request.file, draftKey: B };
+  setDraftFiles(f.client.local, [hold.request.file, shelf, other]);
+  f.client.local.snapshotDrafts[A] = [{ id: uuid(4), name: 'photo.png', mimeType: 'image/png', sizeBytes: 4 }];
+  mobileDraftAttachmentRecord(f.client, A, [shelf.id, uuid(4), hold.receipt.id]);
+  expect(observe(f.client, observation(f.client, '', [hold])).kind).toBe('committed');
+  expect(draftFiles(f.client.local)).toEqual([other, shelf]);
+  const result = observe(f.client, observation(f.client, link(context), [hold]));
+  if (result.kind !== 'committed') throw new Error(result.reason);
+  expect(result.after.attachmentIds).toEqual([shelf.id, uuid(4), hold.receipt.id]);
+  expect(result.after.images).toEqual(f.client.local.snapshotDrafts[A]);
+  expect(draftFiles(f.client.local).find(row => row.draftKey === B)).toEqual(other);
+});
+test('stale captures and mismatched saved payloads cannot be laundered by deleting their text', async () => {
+  const f = await setup(), hold = heldFile(f.client); installFile(f.client, hold);
+  const stale = observation(f.client, '', [hold]); expect(edit(f.client, A, 'newer')).toBe(true);
+  const before = structuredClone(f.client.local);
+  expect(observe(f.client, stale)).toEqual({ kind: 'refused', reason: 'stale' }); expect(f.client.local).toEqual(before);
+  const bad = fileContext(hold); bad.name = 'wrong'; store(f.client).records[A].context = { version: 1, records: [bad] };
+  const malformed = structuredClone(f.client.local);
+  expect(observe(f.client, observation(f.client, '', [hold]))).toEqual({ kind: 'refused', reason: 'invalid-context' });
+  expect(f.client.local).toEqual(malformed);
+});

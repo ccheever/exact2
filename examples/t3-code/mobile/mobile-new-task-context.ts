@@ -6,6 +6,10 @@ import { contextId, contextLabel, contextLink, contextReferences, stripContextRe
 import { setDraftFiles, type DraftFile } from './shared/composer-editor-files';
 import { mobileDraftAttachmentRecord } from './draft-attachment-order';
 import type { OrdinaryInventoryAttachment } from './composer-attachment-publication';
+import type { ComposerMountedIdentity } from './composer-editor-state';
+import type { HeldFile, NewTaskFileHoldTarget } from './composer-file-holds-io';
+import { mobileComposerFileScope } from './composer-file-scope';
+import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import { mobileComposerInsertContext, type MobileComposerInsertion } from './composer-context-insertion';
 import type { ComposerPickerDraft, ComposerPickerPlan } from './composer-picker-plan';
 import { mobileContextRecordValid } from './mobile-context-record';
@@ -30,7 +34,7 @@ export function mobileReferencedComposerContext(text: string, context?: MobileMe
   return records.length ? { version: 1, records } : undefined;
 }
 
-/** Only the live record plus at most 200 undo payloads stay in this invocation-owned history. */
+/** Pinned context history retains max(200, current live payload count) records. */
 export function mobileCreateContextHistory() {
   const records = new Map<string, Obj>();
   const restore = (text: string, current?: MobileMessageContext): MobileMessageContext | undefined => {
@@ -76,6 +80,11 @@ export function mobileNewTaskContextGuard(client: T3Client, key: string): Mobile
 }
 // Keying by the actual registry record makes hydration/discard discard its undo history too.
 const histories = new WeakMap<MobileNewTaskDraft, ReturnType<typeof mobileCreateContextHistory>>();
+function detachedHistory(record: MobileNewTaskDraft) {
+  const history = mobileCreateContextHistory(), prior = histories.get(record)?.snapshot();
+  if (prior) history('', { version: 1, records: prior });
+  return history;
+}
 /** Atomically write the producer's text and frozen payload. The caller owns route/focus admission.
  * Ordinary typing preserves invalid raw context; producer insertion/removal must not overwrite it. */
 export function mobileNewTaskContextWrite(client: T3Client, guard: MobileNewTaskContextGuard, text: string,
@@ -368,4 +377,112 @@ export function mobileNewTaskContextAttach(client: T3Client, batch: MobileNewTas
   if (plan.selection) histories.set(record, history);
   client.revision++;
   return { kind: 'committed', commit };
+}
+
+export interface MobileNewTaskObservation {
+  readonly guard: MobileNewTaskContextGuard;
+  readonly destination: MobileNewTaskAttachmentBatch['destination'];
+  readonly identity: ComposerMountedIdentity;
+  readonly generation: number;
+  readonly text: string;
+  readonly usableHolds: readonly HeldFile[];
+}
+export type MobileNewTaskObservationResult =
+  | { kind: 'committed'; revision: number; after: MobileNewTaskAttachmentProjection; removed: readonly OrdinaryInventoryAttachment[] }
+  | { kind: 'refused'; reason: 'stale' | 'invalid-target' | 'invalid-inventory' | 'invalid-context' | 'exhausted' | 'unusable-hold' };
+
+/** The caller supplies IO-usable holds and admits the captured mount. This only publishes local state. */
+export function mobileNewTaskContextObserve(client: T3Client, input: MobileNewTaskObservation): MobileNewTaskObservationResult {
+  const refuse = (reason: Extract<MobileNewTaskObservationResult, { kind: 'refused' }>['reason']): MobileNewTaskObservationResult => ({ kind: 'refused', reason });
+  const { guard, destination, identity, generation, text, usableHolds } = input;
+  const target: NewTaskFileHoldTarget = { kind: 'new-task', ...destination, draftKey: guard.key, createdAt: guard.createdAt };
+  if (!mobileNewTaskDraftIsKey(guard.key) || mobileNewTaskDraftIsPendingKey(guard.key)
+    || !plain(identity) || !['owner', 'editorId', 'routeVisit', 'renderEpoch', 'mountId'].every(key => nonempty(identity[key]))
+    || !integer(generation) || mobileComposerFileScope(identity.owner, target)?.generation !== generation) return refuse('invalid-target');
+  const local = obj(client.local), rawStore = local.mobileNewTaskDrafts;
+  if (!plain(rawStore) || rawStore.version !== 1 || !plain(rawStore.records) || !plain(rawStore.receipts)
+    || !plain(rawStore.claims) || !Object.values(rawStore.claims).every(value => typeof value === 'string')
+    || !batchJSON(rawStore) || !plain(local.drafts)) return refuse('invalid-inventory');
+  const store = mobileNewTaskDraftStore(client), record = store.records[guard.key];
+  if (!record || record.key !== guard.key || record.createdAt !== guard.createdAt || record.revision !== guard.revision
+    || record.origin !== destination.origin || record.environmentId !== destination.environmentId
+    || record.projectId !== destination.projectId) return refuse('stale');
+  if (!integer(record.revision) || record.revision === Number.MAX_SAFE_INTEGER
+    || !integer(client.revision) || client.revision === Number.MAX_SAFE_INTEGER) return refuse('exhausted');
+  if (typeof text !== 'string' || typeof (local.drafts[guard.key] ?? '') !== 'string') return refuse('invalid-context');
+  const inventory = batchInventory(local, rawStore.fileReleases);
+  if (!inventory || inventory.files.some(file => file.draftKey === guard.key && file.environmentId !== destination.environmentId))
+    return refuse('invalid-inventory');
+  const attachments = batchAttachments(inventory, guard.key), decoded = decode(record.context), nextRecord = clone(record);
+  let nextAttachments = attachments, removed: OrdinaryInventoryAttachment[] = [];
+  let history: ReturnType<typeof mobileCreateContextHistory> | undefined;
+  if (decoded.ok) {
+    if (!Array.isArray(usableHolds) || !batchJSON([...usableHolds])) return refuse('unusable-hold');
+    const held = new Map<string, DraftFile>();
+    const equal = (a: unknown, b: unknown) => canonical(a) === canonical(b);
+    const metadata = (file: DraftFile) => ({ ...file, attachmentId: '', status: 'staged' });
+    for (const binding of usableHolds) {
+      const request = binding?.request, receipt = binding?.receipt;
+      if (!request || !receipt || request.op !== 'composerFileHold' || request.action !== 'acquire'
+        || request.generation !== generation || !equal(request.identity, identity) || !equal(request.target, target)
+        || !uuid(request.requestId) || !equal(receipt.identity, identity) || receipt.requestId !== request.requestId
+        || !uuid(receipt.holdId) || !uuid(receipt.fileIdentity) || !batchFile(request.file)
+        || request.file.source !== 'attached' || request.file.draftKey !== guard.key
+        || request.file.environmentId !== destination.environmentId || receipt.id !== request.file.id
+        || receipt.sizeBytes !== request.file.sizeBytes) return refuse('unusable-hold');
+      const previous = held.get(request.file.id);
+      if (previous && !equal(metadata(previous), metadata(request.file))) return refuse('unusable-hold');
+      held.set(request.file.id, request.file);
+    }
+    for (const context of decoded.context?.records ?? []) {
+      if (context.kind !== 'file') continue;
+      const live = attachments.find(row => row.id === context.attachmentId);
+      const file = live?.type === 'file' ? live.file : held.get(str(context.attachmentId));
+      if (!file || live && live.type !== 'file' || file.contextId !== context.contextId
+        || ['name', 'mimeType', 'sizeBytes'].some(field => obj(file)[field] !== context[field])) return refuse('invalid-context');
+    }
+    history = detachedHistory(record);
+    const nextContext = history(text, decoded.context);
+    const previousIds = new Set((decoded.context?.records ?? []).filter(row => row.kind === 'file').map(row => str(row.attachmentId)));
+    const retainedIds = new Set((nextContext?.records ?? []).filter(row => row.kind === 'file').map(row => str(row.attachmentId)));
+    removed = attachments.filter(row => row.type === 'file' && previousIds.has(row.id) && !retainedIds.has(row.id));
+    for (const row of removed) {
+      if (row.type !== 'file' || !held.has(row.id) || !equal(metadata(held.get(row.id)!), metadata(row.file))) return refuse('unusable-hold');
+    }
+    nextAttachments = attachments.filter(row => !removed.includes(row));
+    for (const context of nextContext?.records ?? []) {
+      if (context.kind !== 'file') continue;
+      let attachment = nextAttachments.find(row => row.id === context.attachmentId);
+      if (!attachment) {
+        const file = held.get(str(context.attachmentId));
+        if (!file) return refuse('unusable-hold');
+        attachment = { type: 'file', id: file.id, file: { ...clone(file), attachmentId: '', status: 'staged' } };
+        nextAttachments.push(attachment);
+      }
+      const expected = batchAttachmentRecord(attachment);
+      if (attachment.type !== 'file' || expected.contextId !== context.contextId
+        || ['name', 'mimeType', 'sizeBytes'].some(field => expected[field] !== context[field])) return refuse('invalid-context');
+    }
+    const contextIds = nextAttachments.map(row => str(batchAttachmentRecord(row).contextId));
+    if (new Set(contextIds).size !== contextIds.length) return refuse('invalid-inventory');
+    if (nextContext === undefined) delete nextRecord.context; else nextRecord.context = clone(nextContext);
+  }
+  nextRecord.revision++;
+  const files = nextAttachments.flatMap(row => row.type === 'file' ? [row.file] : []);
+  const attachmentIds = nextAttachments.map(row => row.id), changedInventory = removed.length > 0
+    || files.length !== inventory.files.filter(file => file.draftKey === guard.key).length;
+  const after: MobileNewTaskAttachmentProjection = clone({ record: nextRecord, text,
+    images: inventory.images[guard.key] ?? [], files, attachmentIds,
+    attachmentOrder: changedInventory ? attachmentIds : inventory.orders[guard.key] ?? null });
+  if (changedInventory) {
+    setDraftFiles(client.local, [...inventory.files.filter(file => file.draftKey !== guard.key), ...clone(files)]);
+    mobileDraftAttachmentRecord(client, guard.key, attachmentIds);
+    store.fileReleases = [...new Set([...inventory.fileReleases, ...removed.map(row => row.id)])];
+  }
+  client.local.drafts[guard.key] = text;
+  if (Object.hasOwn(nextRecord, 'context')) record.context = nextRecord.context; else delete record.context;
+  record.revision = nextRecord.revision;
+  if (history) histories.set(record, history);
+  client.revision++;
+  return { kind: 'committed', revision: record.revision, after, removed: clone(removed) };
 }
