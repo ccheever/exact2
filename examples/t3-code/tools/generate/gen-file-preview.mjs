@@ -5,7 +5,7 @@
 // and lucide (ISC). The page and its workers are ES modules in js/; each package's wasm, fonts and data sit where its code
 // resolves them from `import.meta.url`, and the licence of every package the bundle reads is copied into vendor/. The
 // wasm, fonts and CMaps are written gzipped, as `<file>.gz` (the page inflates them, shared/packed.ts): an app's bake
-// captures at most 64 MiB of sources, its assets included, and 16 MiB a file, and they are 56 MiB as the packages ship.
+// captures at most 64 MiB of sources, its assets included, and 16 MiB a file, and they are 52 MiB as the packages ship.
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
@@ -170,7 +170,7 @@ async function bundle() {
 }
 
 /** Each copied file: its source in a package and its place under assets/file-preview/. */
-function copies(read) {
+function copies(read, files) {
   const pairs = [];
   const tree = (from, to, keep = () => true) => {
     for (const file of walk(from).filter(keep)) pairs.push([file, join(to, relative(from, file))]);
@@ -180,11 +180,13 @@ function copies(read) {
   tree(join(pdfjs, 'standard_fonts'), join('pdfjs', 'standard_fonts'));
   tree(join(pdfjs, 'cmaps'), join('pdfjs', 'cmaps'), file => file.endsWith('.bcmap') || /LICENSE/.test(file));
   tree(join(pdfjs, 'wasm'), join('pdfjs', 'wasm'));
-  // The engines' wasm, beside the modules that ask for `./generated/…`, and the faces the fonts package asks for at
-  // `../assets/…`.
-  tree(join(module('@betteroffice/docx'), 'dist', 'generated'), join('js', 'generated'), file => file.endsWith('.wasm'));
-  tree(join(module('@betteroffice/xlsx'), 'dist', 'generated'), join('js', 'generated'), file => file.endsWith('.wasm'));
-  tree(join(module('@betteroffice/pptx'), 'dist', 'generated'), join('js', 'generated'), file => file.endsWith('.wasm'));
+  // The engines' wasm the bundle asks for, at `./generated/…` beside its modules (the Word package's layout and OPC
+  // engines are not in it), and the faces the fonts package asks for at `../assets/…`.
+  const code = files.map(({ text }) => text.toString()).join('\n');
+  for (const name of ['docx', 'xlsx', 'pptx']) {
+    const generated = join(module(`@betteroffice/${name}`), 'dist', 'generated');
+    tree(generated, join('js', 'generated'), file => file.endsWith('.wasm') && code.includes(`"./generated/${relative(generated, file).split(sep).join('/')}"`));
+  }
   tree(join(module('@betteroffice/fonts'), 'assets'), 'assets');
   tree(join(module('@betteroffice/fonts'), 'LICENSES'), join('vendor', 'fonts'));
   pairs.push([join(module('sql.js'), 'dist', 'sql-wasm.wasm'), join('js', 'sql-wasm.wasm')]);
@@ -212,7 +214,7 @@ function copies(read) {
 export async function generate() {
   const { files, read } = await bundle();
   const style = ['viewer.css', join('pdf', 'pdf-viewer.css')].map(name => readFileSync(join(host, 'src', name), 'utf8')).join('\n');
-  return [...files, ...copies(read), { file: join(out, 'index.html'), text: page() }, { file: join(out, 'viewer.css'), text: style }];
+  return [...files, ...copies(read, files), { file: join(out, 'index.html'), text: page() }, { file: join(out, 'viewer.css'), text: style }];
 }
 
 /** A file under assets/file-preview/ this build does not write: an older chunk or a package file it dropped. */

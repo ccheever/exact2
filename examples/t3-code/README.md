@@ -55,7 +55,7 @@ the terminal buffer vectors
 (`tests/terminal/vectors.json`, whose expectations are test data committed in
 `gen-vectors.mjs`), and the document viewers' page (`assets/file-preview/`: the reference's PDF.js,
 large-text, Office, OpenDocument, notebook, archive and SQLite viewers, bundled from
-`file-preview-host/src/` with their wasm, fonts and licences by `gen-file-preview.mjs`; 27 MB, the
+`file-preview-host/src/` with their wasm, fonts and licences by `gen-file-preview.mjs`; 25 MB, the
 wasm, fonts and CMaps gzipped, so the bake's 64 MiB capture of the app's sources and assets holds it).
 The app build runs it before it bakes (`data/build.rs`);
 run it yourself before the tests and checks below:
