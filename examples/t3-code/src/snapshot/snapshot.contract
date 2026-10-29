@@ -20,8 +20,9 @@ use KeyMenu from "../shared/menu-keys.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 
+// SettingsSection's title (settingsLayout.tsx): an `<h2>`, text-base font-semibold text-foreground.
 style SnapSectionTitle
-  font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)"
+  font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)"
 style SnapCard
   display="flex" flex-direction="column" width="100%" box-sizing="border-box"
   border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)"
@@ -97,7 +98,10 @@ component SnapSwitch
     switchId: string
     toggle: action
   view
-    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.4375rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") title="" data-focus-stop=(disabled ? "" : "enabled")
+    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.4375rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") title="" data-focus-stop=(disabled ? "" : "enabled page")
+      // switch.tsx: focus-visible:ring-2 ring-inset ring-ring ring-offset-1 ring-offset-background.
+      :focus-visible
+        box-shadow="inset 0 0 0 1px light-dark(#fcfcfc, #0a0a0a), inset 0 0 0 3px light-dark(#1b4ed8, #346bf1)"
       box width="0.875rem" height="0.875rem" border-radius="0.4375rem" flex-shrink=0 background-color=(checked ? "light-dark(#fcfcfc, #000000)" : "light-dark(#fcfcfc, #a1a1a1)") box-shadow="0 1px 3px #0000000d"
 
 // settingsLayout.tsx SettingsRow: title, description and status beside a
@@ -111,7 +115,7 @@ component SnapRow
     rowId: string
   slot
   view
-    row id=rowId testId=rowId width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
+    row id=rowId tabindex=-1 testId=rowId width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
       column flex=1 min-width=0 gap="0.25rem"
         row min-height="1.25rem" align-items="center" gap="0.375rem"
           text title class=SnapRowTitle role="heading" aria-level=3
@@ -173,26 +177,26 @@ component SnapshotPanel
       column class=SnapCard
         SnapRow(title="SnapShots", description="Capture a window and attach it to your current draft.", status=(busy ? "Updating capture settings…" : data.statusText), first=true, rowId="snap-shot-enabled")
           if data.setupLabel != ""
-            button id="snapshot-setup" press=setup class=SnapOutlineXs disabled=busy testId="snapshot-setup" opacity=(busy ? 0.64 : 1) data-focus-stop=(busy ? "" : "enabled")
+            button id="snapshot-setup" press=setup class=SnapOutlineXs disabled=busy testId="snapshot-setup" opacity=(busy ? 0.64 : 1) data-focus-stop=(busy ? "" : "enabled page")
               text data.setupLabel class=SnapLabelXs
           SnapSwitch(checked=(data.enabled or setupOpen), label="Enable snapshots", disabled=(busy or not data.captureAvailable), switchId="snapshot-enabled", toggle=toggle)
         if data.enabled and data.captureAvailable
           SnapRow(title="Include app text", description="Include text and controls when the app makes them available.", status="", first=false, rowId="snap-shot-accessibility")
             SnapSwitch(checked=data.includeAccessibility, label="Include app text in snapshots", disabled=(busy or not data.captureAvailable), switchId="snapshot-include-text", toggle=change("snapShotIncludeAccessibility", data.includeAccessibility ? "false" : "true"))
           SnapRow(title="Capture shortcut", description="Capture the window you're using without switching apps.", status=data.shortcutStatus, first=false, rowId="snap-shot-shortcut")
-            button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-record-shortcut" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff09)") border-color=(data.recording ? "#00000000" : "light-dark(#d4d4d8, #ffffff1c)") opacity=(busy ? 0.64 : 1) title=""
+            button id="snapshot-record-shortcut" press=record("true") class=SnapOutlineXs disabled=busy data-focus-stop=(busy ? "" : "enabled page") aria-label=data.shortcutAria testId="snapshot-record-shortcut" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff09)") border-color=(data.recording ? "#00000000" : "light-dark(#d4d4d8, #ffffff1c)") opacity=(busy ? 0.64 : 1) title=""
               if data.recording
                 text "Press shortcut…" class=SnapLabelXs
               else
                 SnapKeys(data=data)
             if data.changed
-              button press=saveShortcut(data.candidate) disabled=(busy or not data.canSave) testId="snapshot-save-shortcut" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or not data.canSave ? 0.64 : 1) flex-shrink=0
+              button id="snapshot-save-shortcut" press=saveShortcut(data.candidate) disabled=(busy or not data.canSave) data-focus-stop=(busy or not data.canSave ? "" : "enabled page") testId="snapshot-save-shortcut" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or not data.canSave ? 0.64 : 1) flex-shrink=0
                 text (busy ? "Saving…" : "Save") font-size="0.75rem" font-weight=500 line-height="1rem" color="#ffffff"
-              button press=record("false") disabled=busy testId="snapshot-cancel-shortcut" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(busy ? 0.64 : 1) flex-shrink=0
+              button id="snapshot-cancel-shortcut" press=record("false") disabled=busy data-focus-stop=(busy ? "" : "enabled page") testId="snapshot-cancel-shortcut" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(busy ? 0.64 : 1) flex-shrink=0
                 text "Cancel" class=SnapLabelXs
           SnapRow(title="Capture sound", description="Choose the sound played when capture starts.", status="", first=false, rowId="snap-shot-sound")
             box position="relative" flex-shrink=0
-              button id="snapshot-sound" popovertarget="snapshot-sound-menu" key=triggerKey aria-label=`Snapshot sound: ${data.soundLabel}${data.soundSelection == "soft-pop" ? " (Default)" : ""}` disabled=(not data.captureAvailable) testId="snapshot-sound" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" flex-shrink=0
+              button id="snapshot-sound" popovertarget="snapshot-sound-menu" key=triggerKey aria-label=`Snapshot sound: ${data.soundLabel}${data.soundSelection == "soft-pop" ? " (Default)" : ""}` disabled=(not data.captureAvailable) data-focus-stop=(data.captureAvailable ? "enabled page" : "") testId="snapshot-sound" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" flex-shrink=0
                 row gap="0.25rem" align-items="center"
                   text data.soundLabel font-size="0.875rem" line-height="1.25rem" class=SnapInk white-space="nowrap"
                   if data.soundSelection == "soft-pop"

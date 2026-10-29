@@ -1,7 +1,7 @@
-// PermissionUpdateNotice (MIT reference, see LICENSE-T3, T3 Code 9c161462c9:
-// apps/web/src/components/PermissionUpdateNotice.tsx): once per environment whose session the
+// PermissionUpdateNotice (MIT reference, see LICENSE-T3, T3 Code 7c3b3b3605ef:
+// apps/web/src/components/PermissionUpdateNotice.ts): once per environment whose session the
 // server kept from before the permission split (remote-scopes.ts sessionHasLegacyPermissions), a
-// toast that stays until it is closed. Open Connections and Dismiss close it; any close hides it
+// toast that stays until it is closed. Open Sharing & access and Dismiss close it; any close hides it
 // for that environment on this client for good (`t3code:permission-update:v1:<environment>`,
 // kept in the shell preferences as `permissionUpdateDismissals`).
 import type { T3Client } from '../client/client';
@@ -42,7 +42,7 @@ export function permissionUpdateNotices(client: T3Client, preferencesLoaded: boo
     seen.add(environmentId);
     pushToast(client, {
       kind: 'info', ...permissionUpdateCopy(label), timeoutMs: 0, stacked: true, closeOnAction: true,
-      action: { label: 'Open Connections', op: 'ui:settings', id: 'connections' },
+      action: { label: 'Open Sharing & access', op: 'ui:settings', id: 'access' },
       secondary: { label: 'Dismiss', op: 'dismiss' }, secondaryVariant: 'ghost',
       onClose: () => {
         const prefs = shellPrefs(client);

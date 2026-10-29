@@ -165,7 +165,8 @@ function uncommented(line: string): string {
 /** `component name` of `file` (next to this module): its state, its actions and its derives. */
 export function contractComponent(file: string, name: string) {
   const source = appText(file).split('\n');
-  const from = source.indexOf(`component ${name}`);
+  // A component, or a members file of one (`members T3Code`), whose members read as the component's.
+  const from = source.includes(`component ${name}`) ? source.indexOf(`component ${name}`) : source.indexOf(`members ${name}`);
   if (from < 0) throw new Error(`${file}: no component ${name}`);
   const to = source.findIndex((line, i) => i > from && line.startsWith('component '));
   const lines = source.slice(from, to < 0 ? undefined : to);
