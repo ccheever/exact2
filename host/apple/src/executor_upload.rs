@@ -306,11 +306,6 @@ pub(in super::super) fn freed(
     }
 }
 
-/// Whether an upload waits in the queue.
-pub(in super::super) fn queued(shared: &Shared) -> bool {
-    !shared.uploads.0.lock().unwrap().queue.is_empty()
-}
-
 /// Let go of the uploads waiting whose tickets the runner no longer
 /// `held`: each ends unsent, as aborted, which gives back its admission;
 /// the places that frees may start others.
