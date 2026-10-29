@@ -367,7 +367,7 @@ public final class ExactView: NSView {
         }
         // Mounted and visible participate in frame demand (D3): an unmounted
         // view wants no frames; a mounted one asks again.
-        session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
+        session.frames.run(window != nil && session.frames.hasWork)
         if window != nil { fit(); session.presenter.syncAccessibility() }
         // In a window's sidebar pane, or out of it: the sidebar stands for
         // the tablist only while it is in a window (SidebarMac.swift).
@@ -431,6 +431,7 @@ extension ExactView: NSMenuItemValidation {
     /// Start Speaking with text selected, Stop Speaking while it speaks.
     public func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(toggleFrameHealth(_:)): validateFrameHealthItem(item)
         case #selector(startSpeaking(_:)): !session.presenter.selection.selectedText().isEmpty
         case #selector(stopSpeaking(_:)): Self.speech.isSpeaking
         default: true

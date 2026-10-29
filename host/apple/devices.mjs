@@ -308,6 +308,7 @@ function bootSimulator(dev) {
  *  arguments never reach a Device Hub that is already running, and its main
  *  window shows whichever device was last picked in its list). */
 export function showSimulator(dev, background = false) {
+  if (process.env.EXACT_SHOW_SIMULATOR === '0') return;
   const g = background ? ['-g'] : [], fallback = () => spawnSync('open', [...g, `devices://device/open?id=${dev.udid}`], { stdio: 'ignore' });
   // In the background nothing waits on the window: `open` takes up to a second, a drive's whole launch about two.
   if (background) { spawn('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).on('exit', (code) => { if (code !== 0) fallback(); }).unref(); return; }

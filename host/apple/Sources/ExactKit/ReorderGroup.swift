@@ -271,7 +271,7 @@ package final class ReorderGroupHold {
         // Under the agent the clock is the driver's and a real-time spring
         // never ends between its operations: the ghost lands at once, so a
         // `clock settle` sees the session finish, as the web's does.
-        guard let ghost, let presenter, !ExactEnv.agentMode else { finishSession(); return }
+        guard let ghost, let presenter, !ExactEnv.agentFreezes else { finishSession(); return }
         let row = state.ending == "gone" ? nil : presenter.views[state.row]
         ghost.land(on: row) { [weak self] in self?.finishSession() }
     }

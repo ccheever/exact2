@@ -3024,7 +3024,7 @@ agent operations below for Exact's native tree. Production builds
 (`EXACT_UPDATE_TRUST=production`), `exact release`, and IPA archives leave
 web-view inspection disabled.
 
-An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D, in a development build: a Mac build with production trust, `EXACT_UPDATE_TRUST=production`, or made by `exact release` has no Develop menu and takes none of its chords unless it is built or launched with `EXACT_DEV_MENU=1`, or a person runs `defaults write <bundle id> ExactDevMenu -bool YES` and the build did not say `0`; an iOS build, a release one too, has the menu unless it is built or launched with `EXACT_DEV_MENU=0`, LLP 1115 D9) opens with the
+An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D, in a development build: a Mac build with production trust, `EXACT_UPDATE_TRUST=production`, or made by `exact release` has no Develop menu and takes none of its chords unless it is built or launched with `EXACT_DEV_MENU=1`, or a person runs `defaults write <bundle id> ExactDevMenu -bool YES` and the build did not say `0`; an iOS build, a release one too, has the menu unless it is built or launched with `EXACT_DEV_MENU=0`, LLP 1115 D9) uses a native grouped navigation sheet on iOS. Project commands and diagnostics have full-width rows; Build Information opens a separate, selectable text screen. On macOS, App Info opens with the
 build it is in: the app and version, when, where and with which Xcode it was
 built, the exact2 commit and the app's own (with branch and a dirty flag), the
 build kind, the device, and the app's release notes. `host/apple/build.mjs`
@@ -3034,6 +3034,189 @@ Release notes are `release-notes.md` beside `app.contract`: UTF-8 text, shown as
 written, up to 16 KB; no file, no section. A deploy script that publishes the
 build under a revision sets `EXACT_DISTRIBUTION_REVISION` for the build to show
 it. Copy (iOS and macOS) takes all of it as text.
+
+On iOS, Show Frame Health displays a draggable native card below sheets and alerts.
+Drag its heading, use its accessibility movement actions, or close it with Hide.
+The card starts hidden, keeps its position within its window, and passes app touches
+through its body. It updates from existing Exact frame callbacks at most twice per
+active second, with a final update when they stop; it creates no display link or
+polling timer. Callback spacing, the scheduled period
+and synchronous callback overruns are proxies. The card also shows bounded gap quantiles and apply target overruns; Schedule/request separates the operating-system schedule from the host request. While the card is shown, bounded
+recent-hitch evidence also includes observed applies and asynchronous tick-owner
+boundaries. Native-only animations and actual presentation remain unobserved. An inactive clock
+never counts idle time as a hitch. `perf frames health` exposes the metrics;
+`state.frameHealthUI` describes only the card's visibility and window-local bounds,
+and identifies it as host apparatus outside the app's nodes. An embedder opts into
+the card by passing a host view as `DevMenu.install`'s `frameHealthContainer`.
+
+`app.json` may set `"frame_health": { "mode": "off" }` or `"core"`. Apple development
+builds default to core counters; production builds default to off pending device
+qualification. Showing the card does not override that policy. The core has fixed
+storage for up to 16 collectors per UI thread and does no per-callback allocation;
+these bounds do not substitute for measuring whole-hook overhead on real devices.
+
+### Compact frame-health reports on physical devices
+
+Run an Apple app on a connected phone with `bun host/apple/build.mjs --device --run`.
+For a production bake, opt into collection with `"frame_health": { "mode": "core" }`
+before building. Open the four-finger menu and choose **Show Frame Health**, reproduce
+the hitch, then choose **Share Frame Health…**. Share or Copy supplies JSON text;
+Exact creates no report file or automatic upload. A person can send that text to an
+agent. The system share destination controls any storage it creates.
+
+For controlled device checks, `scripts/fixtures/frame-health-app` is a minimal fixture:
+one Start/Stop button, one moving canvas tile and 32 static rows. It starts paused;
+the drawing function asks for another frame only while running. There are no app
+resources, storage/network grants, widgets or content assets; the only image is
+the required app icon. It reuses the existing Canvas native shell with its own baked source. Build it without touching the phone’s apps:
+
+```sh
+EXACT_APP_DIR="$PWD/scripts/fixtures/frame-health-app" bun host/apple/build.mjs canvas-gallery-apple --device --phone "<phone name or UDID>" --no-install
+```
+
+The development build supports the experimental scroll observer. Use matching
+optimized collector-on/off archives for overhead comparisons; development sampling
+is not part of a production-overhead result. The prepared comparison pair uses
+optimized Swift and Rust `host-dev`, not the full production LTO configuration. The fixture targets iOS 27.0 or newer.
+
+Each source retains its latest 16 timing events in fixed memory. A report includes
+only events from the last 120 seconds. A burst can overwrite the ring sooner; the
+report names overwrite, expiry and byte-budget omissions separately. Hiding the card
+stops detail capture unless the details panel or an agent lease still owns it. Reload preserves retained
+evidence and advances the generation; explicit clear or session teardown removes it.
+The core creates no expiry timer, extra display link, stack sampling, screenshots or log collection. The optional development scroll observer is described below.
+
+An attached agent can use the existing device carrier (`ios --device`, optionally
+`--phone <name|udid>`) and these operations:
+
+```text
+perf frames capture start 60000
+perf frames health
+perf frames health scroll during "tap list drag 0 -400 over 500"
+perf frames live 5000
+perf frames report
+perf frames report scroll
+perf frames capture stop
+perf frames capture clear
+```
+
+A capture lease lasts 1–120000 ms, default 60000. The HUD, details panel and agent
+lease own capture independently. Expiry is checked by existing callbacks, applies and reads; an idle app
+gets no expiry wakeup. Power/thermal notification observers can remain until that next
+check. Reports bypass the legacy sampler and cost at most 4 KB (4000 UTF-8 bytes,
+including the agent carrier's newline). There is one encoder in flight per process;
+agent reports are admitted once per 15 seconds. Encoding runs on a utility queue after
+a bounded main-thread copy. Repeated busy/rate-limited requests receive small refusal
+packets. No report is automatically persisted, queued for retry or sent periodically.
+
+A report covers one source. The default selects the source with the most recent
+retained hitch; `report app` or `report scroll` selects explicitly. `source` identifies
+it, and `otherSources` names retained evidence in other sources. Counts and generations
+belong to their named source. Forwarded apply context does not count an app apply or
+its deadline again as a native-scroll event.
+
+`perf frames health [app|scroll]` reads `exact.frame-health.metrics/1` without starting
+the legacy sampler. The same response supplies the card and native details panels.
+It includes callback/apply counts, p50/p95/p99 bounds, requested and scheduled periods,
+coverage, generation and an explicit cursor. Send that cursor unchanged as `cursor` in
+a subsequent health request to read a delta. A producer/generation mismatch, malformed
+cursor or impossible histogram population returns `baseline-required`; retry without
+it. Read endpoints and the interval/apply finalized-through endpoints are separate.
+Whole completed intervals/applies enter the next window, even if they began before
+its initial read. Never subtract lifetime maxima or assume a wall-time clipping rule.
+The card keeps at most eleven typed snapshots for an approximate five-second view.
+
+Histograms use 64 saturating 32-bit bins per population: 48 bins of 500000 ns over
+[0,24 ms), 15 doubling tails beginning at 24 ms, and overflow. Quantiles are half-open
+bounds; a null upper endpoint means overflow, and null quantiles mean no samples or
+invalid distribution accounting. Saturation is explicit. `histogram.valid` describes
+accounting, not health. All metric responses fit the same 4000-byte wire envelope.
+
+Apple `perf frames live <1–30000 ms>` waits in the driver with a bounded capture lease,
+then reads a cursor delta and releases its lease. During that lease the host refuses
+all virtual-clock requests, including implicit takeover from held-clock operations.
+Use real input. Platform timing now preserves frame tasks, timer wakeups, async fills
+and macOS ordinary-wheel/reorder timing; frozen-clock agents retain their deterministic path.
+Media, permissions, context-menu adapters, touch diagnostics and appearance overrides
+can still differ under an agent. Qualification uses a normally running app or an
+audited journey; these clock changes do not certify every agent workload. Plain frame
+reads under platform timing use the bounded metrics path. Plan-site `perf <target>`
+can enable its requested counters without starting the old frame sampler.
+
+On macOS, phased trackpad replay (`tap … wheel … gesture`) is refused under platform
+timing with `platform-trackpad-replay-unqualified`. AppKit has no validated completion
+acknowledgement for this synthetic sequence: a success reply previously allowed an
+immediate layout read with zero or partial movement. Use a plain wheel event in an
+agent drive, or reproduce the trackpad gesture in the normally running app. Frozen-clock
+replay remains available for functional tests and does not establish live timing.
+
+The iOS/tvOS 18 native-scroll prototype observes one mounted active scroller with a
+passive `UIUpdateLink`: it leaves continuous-update, rate, latency and presentation
+preferences at their defaults. It is disabled in release/production builds pending
+device qualification. A hidden, zero-size host lifecycle view ends observation as soon
+as the scroller leaves its window; the normal end/deceleration callbacks close it too.
+This view has no hit target or accessibility element. Reads never create the observer.
+A missing earlier update phase increments `nativeUpdateSamplesLost` and skips that
+sample. The observer reports completion-deadline overruns. Its cadence is unknown:
+passive updates can pause while a finger rests, so they contribute no FPS, interval
+histogram or maximum-gap population. This observer is not presentation feedback.
+
+On macOS, Develop offers Show/Hide Frame Health, Frame Health Details and Share Frame
+Health. Actions follow the responder chain to the eligible window; an embedder opts in
+by passing `frameHealthContainer` to `DevMenu.install`. The standalone adapter supplies
+its host slot. The card passes body clicks through and moves without changing the
+app's viewport. Details use a native sheet on both platforms, with separate App/Scroll
+sources. Dirty readouts share at most two publication batches per active second across
+the process, with a final boundary update and no idle publication timer. macOS spatial
+motion, canvases and press feedback request the current display maximum, including
+above 120 Hz; press clocks are per window and update when its screen changes.
+
+`exact.frame-health/1` is a versioned JSON schema. Field explanations stay here to
+leave bytes for evidence. `columns` names each field in a `hitches` row. Export keeps
+the newest rows that fit, in chronological order, with `retention.omittedForBudget`;
+it never reduces timing precision to fit. Sequences, captures and generations are
+decimal strings; other numbers are safe JSON integers. `time.clamped` invalidates
+precision claims for values beyond that range. `capturedAt` is wall-clock export
+context only. All intervals use `CACurrentMediaTime`, in nanoseconds.
+
+| Row fields | Meaning |
+|---|---|
+| `sequence`, `capture`, `generation` | Event sequence since clear, capture incarnation, and reload/clock generation. Identity names the installed binary, not the source of every hot reload |
+| `age_ns` | Age at the export snapshot, measured from callback arrival or late apply end |
+| `flags` | Evidence, workload and power bits below |
+| `target_offset_ns` | This callback/tick's platform prediction relative to the event; it is not intended content presentation |
+| `period_ns`, `requested_period_ns` | Scheduled callback interval and this session's preferred host interval at the event; zero is unknown/default. Other owners may request a higher rate |
+| `gap_ns`, `callback_ns` | Callback-arrival gap and synchronous callback duration. Gap requires a stable predecessor; zero means no comparable evidence. Apply-only events have no callback duration |
+| `before_gap_ns`, `before_callback_ns` | Previous callback's observed gap/duration in the same segment; zero without evidence |
+| `after_offset_ns`, `after_gap_ns`, `after_callback_ns` | First observed following callback's arrival offset, gap and duration; null if unavailable. At most two pending events receive this context |
+| `owner_queued_offset_ns`, `owner_began_offset_ns`, `owner_finished_offset_ns` | Matching asynchronous tick submission, owner start and owner completion, including decoding and host callbacks |
+| `main_landed_offset_ns`, `apply_began_offset_ns`, `apply_finished_offset_ns` | Main arrival and outermost presenter-apply boundaries. Apply excludes legacy sampler bookkeeping |
+| `work_target_offset_ns`, `operations` | Captured tick's target and batch operation count; a non-tick apply has no work target |
+
+Offsets are relative to the event's origin; negative means before it. Null boundaries
+are unavailable, never zero-cost work. Callback events attach the largest apply since
+the preceding callback, otherwise the most recent apply only if it ended within two
+scheduled periods. This is temporal evidence, not causal attribution. Queue delay,
+owner elapsed time, main-thread landing delay and apply duration can be derived by
+subtracting their matching boundaries. Elapsed time includes descheduling; it is not
+CPU time. The report cannot attribute unobserved main-thread work, GPU execution,
+presentation, input latency or native-only animations. A zero or empty result is no
+health certification. Live agent scheduler/apply parity remains unqualified; reproduce
+outside an agent run for production behavior.
+
+`flags` bits: 0 callback gap >1.5 stable periods, 1 synchronous callback past target,
+2 captured tick apply past its target, 3 following callback known, 4 work known,
+5 largest apply in the callback interval; 16 motion, 17 spatial, 18 canvas, 19 frame
+tasks, 20 fill pending, 21 tick pending, 22 hatch frames, 23 workload flags known
+(otherwise bits 16–22 are unavailable); bits 32–33 thermal state
+(0 nominal, 1 fair, 2 serious, 3 critical), 34 Low Power Mode, 35 HUD shown, 36 HUD
+dragging, 38 details panel shown. These are cached observations, not proof that any activity caused the hitch.
+
+Save received text as `report.frame-health.json` if needed, then use
+`bun scripts/agent.mjs trace report.frame-health.json` for the expert readout. This
+explicit recipient-side save does not create an app-side retention policy. Commit,
+presentation and host-phase probes like those explored on `ide/trace-costs` can guide
+a later targeted investigation; this bounded monitor does not run those probes.
 
 Build diagnostics include stable ids and original file ranges. Locations are
 1-based line/byte-column coordinates, with exclusive end columns; a usage, I/O or

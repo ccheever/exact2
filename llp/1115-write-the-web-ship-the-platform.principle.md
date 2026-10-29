@@ -30,6 +30,13 @@ This replaces "the web is the standard" as the top rule. The web stays what the 
 (the vocabulary, the layout model) and where the author works (the dev loop); it stops being
 what the user sees.
 
+**Frame health (planned, 2026-10-28).** Native quality includes how the app moves and
+responds. [LLP 1079.000](1079.000-frame-health-v1.plan.md) makes that measurable:
+120 FPS during high-impact interaction on flagship phones, the display's supported
+rate on desktop, even pacing, and low response latency. Static content stays idle.
+The readout must name its evidence; display-link callbacks alone do not establish
+onscreen presentation. The detailed plan remains Draft.
+
 ## 1. Why
 
 A user who opens an Exact app on an iPhone is comparing it, without meaning to, with every
@@ -181,6 +188,15 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   build ships its Develop menu hidden (LLP 1115.000 D7.8), since there it is a menu-bar item
   every person sees and its chords take ⌘R and ⌘D: `defaults write <bundle id> ExactDevMenu
   -bool YES` shows it, as Safari's settings show Safari's, unless the build said `0`.
+
+  **Frame-health control (iOS implemented, 2026-10-28):**
+  [LLP 1079.000 §7.2](1079.000-frame-health-v1.plan.md#72-app-indicator) adds
+  **Show Frame Health** / **Hide Frame Health** to a native grouped navigation sheet.
+  Build Information has its own screen. The card starts hidden,
+  moves by a handle, and lets touches elsewhere reach the app. It sits below sheets
+  and alerts, uses existing snapshots, and does no recurring work at idle. The Mac's
+  equivalent Develop control remains planned. The implementation preserves the
+  menu gates above and never overrides collector qualification or opt-out.
 
 ## 6. Waves
 
