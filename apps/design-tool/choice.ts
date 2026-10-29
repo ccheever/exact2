@@ -140,3 +140,19 @@ export const heldChoice = {
   /** Nothing known (a new server run); answers still on their way are ignored. */
   forget() { bases.clear(); latest.clear(); mine.clear(); sent.clear(); pending.clear(); touched.clear(); rebased.clear(); stale.clear(); asked.clear(); gens.clear(); dirty = false; run += 1; },
 };
+
+/** A held import's brand offers (*1.18*) as its card lists them, each off until ticked as an override is, its fill and
+ * its label's ink together, with the ratio the ink reaches on each scheme's fill (none: the fill isn't opaque); and
+ * whether they begin ticked (their heading's own, so a ticked brand fill doesn't relabel the role overrides). */
+export function brandCards(r: any, base: Set<number> | false | null | undefined, on: boolean) {
+  const all = ((r?.brands ?? []) as any[]).filter(b => (b.items ?? []).length > 0);
+  const chosen = (b: any) => (base ? (b.items as number[]).every(i => base.has(i)) : on);
+  return {
+    brands: all.map(b => ({
+      sets: String(b.sets), token: String(b.token ?? ''), items: (b.items as number[]).join(','), note: String(b.note ?? ''),
+      words: `its label ${[['light', b.contrast?.light], ['dark', b.contrast?.dark]].map(([s, n]) => (typeof n === 'number' ? `${n}:1 ${s}` : `no one ratio ${s}`)).join(', ')}`,
+      on: chosen(b),
+    })),
+    brandsKept: all.some(chosen),
+  };
+}

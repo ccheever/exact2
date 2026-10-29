@@ -72,28 +72,85 @@ fn ink_over(fill: &Folded) -> Option<BrandInk> {
     })
 }
 
-/// The design `text` as the checker reads it alone: a design that checks
-/// only with its packages (a line naming a package's token) without the
-/// lines it can't read, so its own tokens can be measured.
-fn readable(text: &str, vocab: &Vocab) -> String {
+/// The design `text` as the checker reads it alone, for measuring the
+/// tokens `needed`: a design that checks only with its packages (a line
+/// naming a package's token) without the lines it can't read, as long as
+/// none of them is one of `needed` or a token they name (a `when` branch
+/// included); none when one is, since the measure would then leave out a
+/// value the app shows.
+fn readable(text: &str, needed: &[&str], vocab: &Vocab) -> Option<String> {
     let mut text = text.to_string();
     for _ in 0..16 {
         let Err(all) = crate::check(&text, vocab) else {
-            break;
+            return Some(text);
         };
         let lines: std::collections::BTreeSet<usize> =
             all.iter().map(|d| d.line as usize).collect();
         if lines.is_empty() || lines.contains(&0) {
-            break;
+            return None;
         }
-        text = text
-            .lines()
+        let rows: Vec<&str> = text.lines().collect();
+        // The token a line belongs to: its own name, or, for a `when`
+        // branch, the token line above it.
+        let owner = |line: usize| -> Option<String> {
+            rows[..line.min(rows.len())].iter().rev().find_map(|row| {
+                let t = row.trim_start();
+                (!t.starts_with("when ") && t.contains(" = "))
+                    .then(|| t.split(" = ").next().unwrap_or("").trim().to_string())
+            })
+        };
+        let closure = closure_of(&text, needed);
+        if lines
+            .iter()
+            .any(|&l| owner(l).is_none_or(|o| closure.contains(&o)))
+        {
+            return None;
+        }
+        text = rows
+            .iter()
             .enumerate()
             .filter(|(i, _)| !lines.contains(&(i + 1)))
             .map(|(_, l)| format!("{l}\n"))
             .collect();
     }
-    text
+    None
+}
+
+/// The tokens `needed` and every token their values name, transitively, as
+/// the design `text` writes them (a `when` branch's value included).
+fn closure_of(text: &str, needed: &[&str]) -> std::collections::BTreeSet<String> {
+    let mut values: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let mut current: Option<String> = None;
+    for row in text.lines() {
+        let t = row.trim_start();
+        if let Some(rest) = t.strip_prefix("when ") {
+            if let (Some(name), Some((_, v))) = (&current, rest.split_once(':')) {
+                values
+                    .entry(name.clone())
+                    .or_default()
+                    .push_str(&format!(" {v}"));
+            }
+        } else if let Some((name, v)) = t.split_once(" = ") {
+            let name = name.trim().to_string();
+            values
+                .entry(name.clone())
+                .or_default()
+                .push_str(&format!(" {v}"));
+            current = Some(name);
+        }
+    }
+    let mut out: std::collections::BTreeSet<String> =
+        needed.iter().map(|n| n.to_string()).collect();
+    let mut todo: Vec<String> = out.iter().cloned().collect();
+    while let Some(name) = todo.pop() {
+        let Some(v) = values.get(&name) else { continue };
+        for word in v.split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_' || c == '.')) {
+            if !word.is_empty() && out.insert(word.to_string()) {
+                todo.push(word.to_string());
+            }
+        }
+    }
+    out
 }
 
 /// The ink for text on `accent` with the operations `ops` applied to the
@@ -101,8 +158,8 @@ fn readable(text: &str, vocab: &Vocab) -> String {
 /// there, or folds to no colour of its own), `Some(None)` when it varies by
 /// an app axis (no one fill). A design that checks only with its packages is
 /// measured without the lines the checker can't read alone.
-pub fn measure(current: &str, ops: &[Op], accent: &str, vocab: &Vocab) -> Option<Option<BrandInk>> {
-    let text = crate::apply_all(&readable(current, vocab), ops, vocab)
+fn measure(current: &str, ops: &[Op], accent: &str, vocab: &Vocab) -> Option<Option<BrandInk>> {
+    let text = crate::apply_all(&readable(current, &[accent], vocab)?, ops, vocab)
         .ok()?
         .text;
     let f = crate::check(&text, vocab).ok()?;
@@ -116,7 +173,7 @@ pub fn measure(current: &str, ops: &[Op], accent: &str, vocab: &Vocab) -> Option
 
 /// Why to look before ticking a brand offer on `accent`: a scheme its ink
 /// doesn't reach 4.5:1 in; none when it does in both.
-pub fn note_for(accent: &str, ink: &BrandInk) -> Option<String> {
+fn note_for(accent: &str, ink: &BrandInk) -> Option<String> {
     (ink.below[0] || ink.below[1]).then(|| {
         let schemes: Vec<String> = [("light", 0), ("dark", 1)]
             .into_iter()
@@ -131,48 +188,6 @@ pub fn note_for(accent: &str, ink: &BrandInk) -> Option<String> {
             schemes.join(", ")
         )
     })
-}
-
-/// A held brand offer measured again on the design `current` with the
-/// operations `ops` it is held with (a partial accept's, an edit's, a
-/// recompute's), its items `items` among them and every brand offer's
-/// `brand_items` (left out of the measure): its ink, when the offer still
-/// sets the fill `sets` to the accent `token` and its ink token to the ink
-/// white or black would be on that accent now; none when it doesn't (its
-/// fill or ink was edited, the accent changed under it, an operation it was
-/// measured through is gone), so the offer goes.
-pub fn recheck(
-    current: &str,
-    ops: &[Op],
-    items: &[usize],
-    brand_items: &[usize],
-    sets: &str,
-    token: &str,
-    vocab: &Vocab,
-) -> Option<BrandInk> {
-    let mine: Vec<&Op> = items.iter().filter_map(|&i| ops.get(i)).collect();
-    fn valued<'a>(op: &&'a Op) -> Option<(&'a str, &'a str)> {
-        match op {
-            Op::SetToken {
-                name, value, when, ..
-            } if when.is_empty() => Some((name.as_str(), value.trim())),
-            _ => None,
-        }
-    }
-    let fill = mine.iter().filter_map(valued).find(|(n, _)| *n == sets)?;
-    let ink = mine.iter().filter_map(valued).find(|(n, _)| *n != sets)?;
-    if fill.1 != token {
-        return None;
-    }
-    // The accent as the rest of the operations leave it: the brand offers' own
-    // set the packages' tokens, which this design alone doesn't hold.
-    let rest: Vec<Op> = ops
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| !brand_items.contains(i))
-        .map(|(_, op)| op.clone())
-        .collect();
-    measure(current, &rest, token, vocab)?.filter(|now| now.value == ink.1)
 }
 
 /// One brand offer: the package token it sets (`sets`), the import's
@@ -239,12 +254,25 @@ pub fn brands(
         own(name).is_some_and(|t| t.value.value.trim() == value && t.whens.is_empty())
     };
     // A brand's own line that reads a colour dial nothing but the brand lines
-    // read isn't set over: the offers together would leave the dial unused
-    // (`tamber-dial-inert`), refusing the whole import where they could only
-    // be left unticked.
+    // and the role overrides read isn't set over: the offers together would
+    // leave the dial unused (`tamber-dial-inert`), refusing the whole import
+    // where they could only be left unticked.
+    // (with the role overrides the import offers, which set over their own lines too)
+    let roles: Vec<&str> = import
+        .offers
+        .iter()
+        .filter(|o| !o.ops.is_empty())
+        .flat_map(|o| {
+            o.ops.iter().filter_map(|op| match op {
+                Op::SetToken { name, .. } | Op::AddToken { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+        })
+        .collect();
     let lines: Vec<&str> = pairs
         .iter()
         .flat_map(|(f, i)| [f.as_str(), i.as_str()])
+        .chain(roles)
         .collect();
     let orphans = |name: &str| own(name).is_some_and(|t| orphans_with(design, t, &lines));
     pairs

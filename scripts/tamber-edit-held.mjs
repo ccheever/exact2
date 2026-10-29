@@ -9,7 +9,7 @@
 // fails leaves the old one held as it was.
 
 import { carried, staleChoice } from './tamber-held-choice.mjs';
-import { brandsLeftOut, goneNote, remeasured } from './tamber-brands.mjs';
+import { brandItems, droppedNote } from './tamber-brands.mjs';
 
 /** The edit `request` makes of held proposal `p` (`{ops, review}`, the ops kept and the review for them), or a
  * refusal (`{status, error}`). */
@@ -24,10 +24,9 @@ export function edited(request, p) {
   if (typeof value !== 'string' || !value.trim()) return bad('`value` is the new value, a string');
   if (items !== undefined && (!Array.isArray(items) || items.some(i => !Number.isInteger(i) || i < 0 || i >= p.ops.length))) return bad(`\`items\` lists indices of the proposal's ${p.ops.length} operations`);
   const chosen = items === undefined ? p.ops.map((_, i) => i) : [...new Set(items)].sort((a, b) => a - b);
-  // A brand offer kept in part goes, its operations with it (*1.18*); those kept are measured again as the edit
-  // holds them (editHeld, tamber-brands.mjs).
-  const { drop, gone } = brandsLeftOut(p.shown.review, chosen);
-  const kept = chosen.filter(i => !drop.has(i));
+  // Held again without its brand offers' operations (*1.18*: the first proposal's only, tamber-brands.mjs).
+  const brands = brandItems(p.shown.review), kept = chosen.filter(i => !brands.has(i));
+  if (brands.has(index)) return bad('`index` is a brand offer\'s: brand offers are the first proposal\'s only, so an edit drops them; import again to change one');
   if (!kept.includes(index)) return bad('`items` keeps the operation it edits');
   const copy = { ...op, ...(op.whens ? { whens: op.whens.map(w => ({ ...w })) } : {}) };
   if (when === undefined) copy.value = value.trim(); else copy.whens[when - 1].value = value.trim();
@@ -37,9 +36,8 @@ export function edited(request, p) {
   const review = old && {
     ...old, kept: true, from: p.shown.proposal,
     offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
-    // Its brand offers (*1.18*) as its offers, those left out gone, and the review says so.
-    ...(old.brands === undefined ? {} : { brands: old.brands.map(b => ({ ...b, items: (b.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })).filter(b => b.items.length) }),
-    ...(gone.length ? { notes: [...(old.notes ?? []), goneNote(gone)] } : {}),
+    // Its brand offers gone (*1.18*), and the review says so.
+    ...(old.brands?.length ? { brands: undefined, notes: [...(old.notes ?? []), droppedNote] } : {}),
     ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
   };
   if (review) { delete review.dials; delete review.pins; }
@@ -50,18 +48,15 @@ export function edited(request, p) {
  * the held caps, while its edit is planned, marked `busy` (an `accept`, `drop`, `edit-held` or expiry meanwhile
  * passes it by); `hold` puts the new one in its place in one turn (`replaces`), and a plan that fails leaves it as it
  * was. `announce(event)` sends an event. */
-export async function editHeld(request, scope, { expire, proposals, hold, announce, stale = () => null, ask = async () => ({}) }) {
+export async function editHeld(request, scope, { expire, proposals, hold, announce, stale = () => null }) {
   expire();
   const id = request.proposal, p = proposals.get(id);
   if (!p || p.busy) return (!p && stale(id)) || { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
   // A revert is planned from its commit, never from operations a client changed: dropped and reverted again instead.
   if (p.shown.review?.revert !== undefined) return { status: 400, error: { message: 'a held revert is planned from its commit: drop it and revert again to change it' } };
   // (A `choiceAt` named, 1.18: the choice it carries the one the client saw, checked in the turn it is taken.)
-  const first = staleChoice(request, p, 'edit') ?? edited(request, p);
-  if (first.error) return first;
-  // Its brand offers measured again as the edit holds them (*1.18*): one whose fill, ink or accent the edit changes
-  // so its ink no longer fits goes, its operations with it.
-  const made = await remeasured(ask, first.ops, first.review, first.choice);
+  const made = staleChoice(request, p, 'edit') ?? edited(request, p);
+  if (made.error) return made;
   // Its guards stay its guards (not those it inferred); planned on the files as they are, as a re-hold is.
   const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
   p.busy = true;

@@ -1264,20 +1264,21 @@ list is unchanged: it keeps its own.
   - `unmapped` is `[{block, name, value, why, token}]`;
   - `offers` is `[{role, token, items, note}]`;
   - `brands` (*1.18*), when there are any, is `[{sets, token, items, note?, contrast}]`: the import's accent (the
-    token its source's accent maps to, which its `AccentColor` offer names, or the design's override already does) offered as a package's brand fill, a filled control the platform's accent
+    token its source's accent maps to) offered as a package's brand fill, a filled control the platform's accent
     doesn't reach (`actions.follow-fill`, `cards.empty-button`), where the app's packages declare it and its ink.
     A brand offer is told apart from a role override by `sets`, the package token it sets for the app; it has no
     `role`, and sits in a list of its own, so a client that reads only `offers` never shows one and, naming the
     items it keeps, never takes one. Its `items` are the fill set to the accent and its ink's token set to white or
     black for each scheme, whichever reaches 4.5:1 on that scheme's fill (`light-dark(…)` when they differ);
     `contrast` is `{light, dark}`, the ratio the ink reaches, cut to two places as the checker's are, or null on a
-    fill that isn't opaque, where `note` says so. Like a role override, it is off until ticked, and a bare `accept`
-    leaves out one with a `note` (unless it was chosen in a partial accept). Held again (a partial accept, an `edit-held`, or a recompute
-    after the files moved), a brand offer stays only whole, and is measured again on the design as it is with the
-    operations it is then held with: one whose fill or ink was edited, whose accent changed under it, or that lost an
-    operation its ink was measured through goes, its operations with it, and `notes` says so; one kept has its
-    `contrast` and `note` as they are now, and the brand offers a partial accept keeps are recorded as chosen (its
-    `choice`, *1.18*), so its next bare accept takes them;
+    fill that isn't opaque, where `note` says so (an accent with a value the checker can't read alone, a `when`
+    branch naming a package's token, is offered none). Like a role override, it is off until ticked, and a bare
+    `accept` leaves out one with a `note`. Brand offers appear on an import's first proposal only: held
+    again they are gone with all their operations, fill and ink, and `notes` says to import again for them. That is
+    every re-hold (an `edit-held`, which refuses an edit of a brand offer's own operation, and a recompute after the
+    files moved), with one exception: a partial `accept` keeps the brand offers whose items it names, whole, when it
+    also keeps every one of the import's own token operations (its first `tokens`) and the files' content digests are
+    still those the proposal was held on, so the ink was measured on exactly what will be written;
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).

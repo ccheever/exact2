@@ -172,119 +172,82 @@ test('a partial accept holds again with the brand offers it kept, renumbered to 
   } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
 }, 600_000);
 
-test('a warned brand chosen in a partial accept lands on the bare accept of the proposal held again; one kept without its accent does not', async () => {
+test('a partial accept keeps the brands it names only with every import token, on unchanged files; a named warned one lands only as named', async () => {
   const app = gate(), server = await wire(app);
   try {
+    // A named warned brand, every token kept, files unchanged: held again with it; written when named, not by a bare accept.
     const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('rgb(0 106 255 / 50%)'), name: 'globals.css' });
     const { review } = held.ok, follow = review.brands.find(b => b.sets === 'actions.follow-fill');
-    expect(follow.note).toContain('not opaque');
     const tokens = Array.from({ length: review.tokens }, (_, i) => i);
     const re = await server.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal, items: [...tokens, ...follow.items] });
     expect(re.ok.review.brands.map(b => b.sets)).toEqual(['actions.follow-fill']);
-    // Chosen, so a bare accept of the proposal held again takes it, warning and all.
-    expect((await server.call({ method: 'accept', client: 'agent:t', proposal: re.ok.proposal })).status).toBe(200);
-    expect(readFileSync(join(app, 'app.tamber'), 'utf8')).toContain('actions.follow-fill = shadcn.primary');
+    expect(re.ok.review.brands[0].note).toContain('not opaque');
+    const bare = await server.call({ method: 'accept', client: 'agent:t', proposal: re.ok.proposal });
+    expect(bare.status).toBe(200);
+    expect(readFileSync(join(app, 'app.tamber'), 'utf8')).not.toContain('actions.follow-fill');
   } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
   const app2 = gate(), server2 = await wire(app2);
   try {
-    const held = await server2.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
-    const { review, ops } = held.ok, follow = review.brands.find(b => b.sets === 'actions.follow-fill');
-    const accent = ops.findIndex(o => o.op.name === 'shadcn.primary');
-    expect(accent).toBeGreaterThanOrEqual(0);
-    // The brand without its accent: left out with it, so nothing names an accent it wasn't measured on.
-    const items = [...Array.from({ length: review.tokens }, (_, i) => i).filter(i => i !== accent), ...follow.items];
-    const re = await server2.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal, items });
-    expect(re.ok.review.brands ?? []).toEqual([]);
-    expect(re.ok.ops.some(o => o.op.name === 'actions.follow-fill')).toBe(false);
-  } finally { await server2.close(); rmSync(app2, { recursive: true, force: true }); }
-}, 600_000);
-
-test('an edit of the accent drops the brand offers set to it, operations and all, and says why', async () => {
-  const app = gate(), server = await wire(app);
-  try {
-    const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
-    const index = held.ok.ops.findIndex(o => o.op.name === 'shadcn.primary');
-    const edited = await server.call({ method: 'edit-held', client: 'agent:t', proposal: held.ok.proposal, index, value: '#ffd400' });
-    expect(edited.status, JSON.stringify(edited).slice(0, 400)).toBe(200);
-    const { review } = edited.ok;
-    expect(review.brands ?? []).toEqual([]);
-    expect((review.notes ?? []).join(' ')).toContain('actions.follow-fill and cards.empty-button aren\'t offered here');
-    // Its operations gone with it: a bare accept writes no brand fill with an ink chosen for the old accent.
-    expect(edited.ok.ops.some(o => /^(actions\.follow|cards\.empty-button)/.test(o.op.name ?? ''))).toBe(false);
-    expect((await server.call({ method: 'accept', client: 'agent:t', proposal: edited.ok.proposal })).status).toBe(200);
-    const written = readFileSync(join(app, 'app.tamber'), 'utf8');
-    expect(written).toContain('shadcn.primary = #ffd400');
-    expect(written).not.toContain('actions.follow');
-  } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
-}, 600_000);
-
-test('a brand kept in part is left out; a chosen one stays chosen through an unrelated edit; one the design moved under goes', async () => {
-  const app = gate(), server = await wire(app);
-  try {
-    // The fill without its ink: left out whole, with a note.
-    const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
-    const { review } = held.ok, follow = review.brands.find(b => b.sets === 'actions.follow-fill');
-    const tokens = Array.from({ length: review.tokens }, (_, i) => i);
-    const part = await server.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal, items: [...tokens, follow.items[0]] });
-    expect(part.ok.review.brands ?? []).toEqual([]);
-    expect(part.ok.ops.some(o => o.op.name === 'actions.follow-fill')).toBe(false);
-    expect(part.ok.review.notes.join(' ')).toContain('actions.follow-fill isn\'t offered here');
-    await server.call({ method: 'drop', client: 'agent:t', proposal: part.ok.proposal });
-  } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
-  const app2 = gate(), server2 = await wire(app2);
-  try {
-    // A warned brand chosen in a partial accept, then an unrelated edit: still chosen, so the bare accept takes it.
     const held = await server2.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('rgb(0 106 255 / 50%)'), name: 'globals.css' });
     const { review } = held.ok, follow = review.brands.find(b => b.sets === 'actions.follow-fill');
     const re = await server2.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal, items: [...Array.from({ length: review.tokens }, (_, i) => i), ...follow.items] });
-    const background = re.ok.ops.findIndex(o => o.op.name === 'shadcn.background');
-    const edited = await server2.call({ method: 'edit-held', client: 'agent:t', proposal: re.ok.proposal, index: background, value: 'light-dark(#fefefe, #010101)' });
-    expect(edited.ok.review.brands.map(b => b.sets)).toEqual(['actions.follow-fill']);
-    expect((await server2.call({ method: 'accept', client: 'agent:t', proposal: edited.ok.proposal })).status).toBe(200);
+    // Named again, every item: it lands, warning and all.
+    expect((await server2.call({ method: 'accept', client: 'agent:t', proposal: re.ok.proposal, items: re.ok.ops.map(o => o.index) })).status).toBe(200);
     expect(readFileSync(join(app2, 'app.tamber'), 'utf8')).toContain('actions.follow-fill = shadcn.primary');
   } finally { await server2.close(); rmSync(app2, { recursive: true, force: true }); }
   const app3 = gate(), server3 = await wire(app3);
   try {
-    // The accent already the design's (a brand-only re-import), then the design's accent changes under the held
-    // proposal: its accept conflicts, and the recompute leaves the brands out, their inks measured on the old value.
-    const first = await server3.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
-    const items = [...Array.from({ length: first.ok.review.tokens }, (_, i) => i), ...first.ok.review.offers.flatMap(o => o.items)];
-    const whole = await server3.call({ method: 'accept', client: 'agent:t', proposal: first.ok.proposal, items });
-    if (whole.ok?.recomputed) await server3.call({ method: 'accept', client: 'agent:t', proposal: whole.ok.proposal });
-    const again = await server3.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
-    expect(again.ok.review.brands.map(b => b.sets)).toEqual(['actions.follow-fill', 'cards.empty-button']);
-    const text = readFileSync(join(app3, 'app.tamber'), 'utf8');
-    writeFileSync(join(app3, 'app.tamber'), text.replace('shadcn.primary = #006aff', 'shadcn.primary = #ffd400'));
-    await Bun.sleep(1500);
-    const moved = await server3.call({ method: 'accept', client: 'agent:t', proposal: again.ok.proposal });
-    expect(moved.ok?.recomputed, JSON.stringify(moved).slice(0, 400)).toBe(true);
-    expect(moved.ok.review.brands ?? []).toEqual([]);
-    expect(moved.ok.ops.some(o => /^actions\.follow/.test(o.op.name ?? ''))).toBe(false);
+    // Any import token left out: every brand goes, operations and all, with the note.
+    const held = await server3.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
+    const { review, ops } = held.ok, follow = review.brands.find(b => b.sets === 'actions.follow-fill');
+    const background = ops.findIndex(o => o.op.name === 'shadcn.background');
+    const items = [...Array.from({ length: review.tokens }, (_, i) => i).filter(i => i !== background), ...follow.items];
+    const re = await server3.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal, items });
+    expect(re.ok.review.brands ?? []).toEqual([]);
+    expect(re.ok.ops.some(o => /^actions\.follow/.test(o.op.name ?? ''))).toBe(false);
+    expect(re.ok.review.notes.join(' ')).toContain('import again to get brand offers');
   } finally { await server3.close(); rmSync(app3, { recursive: true, force: true }); }
+  const app4 = gate(), server4 = await wire(app4);
+  try {
+    // The files changed since the hold (content, not time): every brand goes.
+    const held = await server4.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
+    const { review } = held.ok, follow = review.brands.find(b => b.sets === 'actions.follow-fill');
+    writeFileSync(join(app4, 'app.tamber'), readFileSync(join(app4, 'app.tamber'), 'utf8').replace('gate.mark = #ff00ff', 'gate.mark = #ff00fe'));
+    await Bun.sleep(1500);
+    const re = await server4.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal, items: [...Array.from({ length: review.tokens }, (_, i) => i), ...follow.items] });
+    expect(re.ok?.recomputed, JSON.stringify(re).slice(0, 300)).toBe(true);
+    expect(re.ok.review.brands ?? []).toEqual([]);
+    expect(re.ok.ops.some(o => /^actions\.follow/.test(o.op.name ?? ''))).toBe(false);
+  } finally { await server4.close(); rmSync(app4, { recursive: true, force: true }); }
 }, 900_000);
 
-test('a brand is held again only whole, and leaving its operations renumbers the rest', async () => {
-  const { brandsLeftOut, withoutItems } = await import('./tamber-brands.mjs');
-  const review = { tokens: 2, offers: [{ role: 'AccentColor', items: [1] }], brands: [{ sets: 'actions.follow-fill', items: [2, 3] }, { sets: 'cards.empty-button', items: [4, 5] }] };
-  expect(brandsLeftOut(review, [0, 1, 2, 3]).gone).toEqual([]);
-  expect(brandsLeftOut(review, [0, 1, 2, 4, 5]).gone).toEqual(['actions.follow-fill']);
-  const { ops, review: after, choice } = withoutItems(['a', 'b', 'c', 'd', 'e', 'f'], review, { choice: [0, 3, 4] }, new Set([2, 3]));
-  expect(ops).toEqual(['a', 'b', 'e', 'f']);
-  expect(after.brands).toEqual([{ sets: 'cards.empty-button', items: [2, 3] }]);
-  expect(after.offers[0].items).toEqual([1]);
-  expect(choice.choice).toEqual([0, 2]);
-});
-
-test('measured again on the design as it is: an edited ink, a moved accent, or an alias changed under it drops the brand, operations and all', async () => {
+test('an edit drops every brand offer with its operations and says to import again; an edit of a brand\'s own operation is refused', async () => {
   const app = gate(), server = await wire(app);
   try {
-    // An edit of the brand's own ink to its fill's blue: the measure no longer finds it white, so it goes.
     const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
     const ink = held.ok.ops.findIndex(o => o.op.name === 'actions.follow-ink');
-    const edited = await server.call({ method: 'edit-held', client: 'agent:t', proposal: held.ok.proposal, index: ink, value: '#006aff' });
+    const refused = await server.call({ method: 'edit-held', client: 'agent:t', proposal: held.ok.proposal, index: ink, value: '#006aff' });
+    expect(refused.status).toBe(400);
+    expect(refused.error.message).toContain('import again');
+    const background = held.ok.ops.findIndex(o => o.op.name === 'shadcn.background');
+    const edited = await server.call({ method: 'edit-held', client: 'agent:t', proposal: held.ok.proposal, index: background, value: 'light-dark(#fefefe, #010101)' });
     expect(edited.status, JSON.stringify(edited).slice(0, 300)).toBe(200);
-    expect(edited.ok.review.brands.map(b => b.sets)).toEqual(['cards.empty-button']);
-    expect(edited.ok.ops.some(o => /^actions\.follow/.test(o.op.name ?? ''))).toBe(false);
-    await server.call({ method: 'drop', client: 'agent:t', proposal: edited.ok.proposal });
+    expect(edited.ok.review.brands ?? []).toEqual([]);
+    expect(edited.ok.ops.some(o => /^(actions\.follow|cards\.empty-button)/.test(o.op.name ?? ''))).toBe(false);
+    expect(edited.ok.review.notes.join(' ')).toContain('import again to get brand offers');
+  } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
+}, 600_000);
+
+test('a recompute after the files moved drops every brand offer with its operations', async () => {
+  const app = gate(), server = await wire(app);
+  try {
+    // A bare accept whose write conflicts (the file changed under it): held again without the brands.
+    const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
+    writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('gate.mark = #ff00ff', 'gate.mark = #ff00fe'));
+    await Bun.sleep(1500);
+    const moved = await server.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal });
+    expect(moved.ok?.recomputed, JSON.stringify(moved).slice(0, 300)).toBe(true);
+    expect(moved.ok.review.brands ?? []).toEqual([]);
+    expect(moved.ok.ops.some(o => /^(actions\.follow|cards\.empty-button)/.test(o.op.name ?? ''))).toBe(false);
   } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
 }, 600_000);

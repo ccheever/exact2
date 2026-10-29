@@ -17,7 +17,7 @@ import { pairingSources } from './pairing'; import { chosenDiffSources } from '.
 import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { heldTitle, opWords, whenText } from './optext';
 import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed'; import { again, heard, keep, resolveAll, type Kept } from './reread';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
-import { carriedChoice, chosenOf, heldChoice, startsChosen } from './choice';
+import { brandCards, carriedChoice, chosenOf, heldChoice, startsChosen } from './choice';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
@@ -648,18 +648,11 @@ function reviewOf(p: any) {
   const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept, on = startsChosen(p, r), chose = heldChoice.base(String(p.proposal)), base = chose && new Set(chose);
   return {
     importer: String(r.importer), mapped: mapped.map(m => ({ ...m, on: !base || base.has(m.index) })), from: String(r.from ?? ''), kept: base ? (r.offers ?? []).some((o: any) => (o.items ?? []).length > 0 && (o.items as number[]).every(i => base.has(i))) : on,
-    // (and the brand fills' heading their own: a ticked brand fill doesn't relabel the role overrides)
-    brandsKept: base ? (r.brands ?? []).some((o: any) => (o.items ?? []).length > 0 && (o.items as number[]).every(i => base.has(i))) : on,
-    // Off until ticked; in a recomputed import, the ones it kept were
+    // Off until ticked (its brand fills too); in a recomputed import, the ones it kept were
     // ticked already, so they are on. One with no items is one
     // the importer could not make, its note saying why; in a recomputed
     // import, one with neither was not chosen, and is left out.
-    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: (o.items ?? []).length > 0 && (base ? (o.items as number[]).every(i => base.has(i)) : on) })),
-    // The accent as the packages' brand fills (*1.18*), each off until ticked as an override is: its fill and its
-    // label's ink together, with the ratio the ink reaches on each scheme's fill (none: the fill isn't opaque).
-    brands: (r.brands ?? []).filter((b: any) => (b.items ?? []).length > 0).map((b: any) => ({ sets: String(b.sets), token: String(b.token ?? ''), items: (b.items as number[]).join(','), note: String(b.note ?? ''),
-      words: `its label ${[['light', b.contrast?.light], ['dark', b.contrast?.dark]].map(([s, n]) => typeof n === 'number' ? `${n}:1 ${s}` : `no one ratio ${s}`).join(', ')}`,
-      on: base ? (b.items as number[]).every(i => base.has(i)) : on })),
+    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: (o.items ?? []).length > 0 && (base ? (o.items as number[]).every(i => base.has(i)) : on) })), ...brandCards(r, base, on), // (and its brand fills, *1.18*: choice.ts)
     // Each with where it came from (a file, a CSS block), so two of one
     // name in two modes are told apart.
     unmapped: (r.unmapped ?? []).map((u: any, i: number) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? '') + (u.block === '(derived)' ? ' (derived: outside the count)' : ''), derived: u.block === '(derived)', block: String(u.block ?? ''), key: `${i}` })),
@@ -1379,7 +1372,7 @@ const sources: Sources = {
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);
     const dropped = byCursor ? { error: '' } : await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
-    const carried = byChoice ? [] : carriedChoice(fresh, tokens, [...(r.offers ?? []), ...(r.brands ?? [])], was);
+    const carried = byChoice ? [] : carriedChoice(fresh, tokens, r.offers ?? [], was);
     const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
   },

@@ -4,7 +4,7 @@
 
 use crate::common;
 use common::vocab;
-use exact_tamber::import::brand::{brands, ink_on, recheck, Brand};
+use exact_tamber::import::brand::{brands, ink_on, Brand};
 use exact_tamber::import::shadcn;
 use exact_tamber::{parse, ratio, Op};
 
@@ -190,65 +190,35 @@ fn a_design_that_checks_only_with_its_packages_still_gets_its_brand_fills() {
 }
 
 #[test]
-fn held_again_a_brand_offer_is_measured_on_the_design_and_operations_it_is_held_with() {
-    let text = "tamber app\n";
-    let design = parse(text).unwrap();
-    let import = shadcn::import(&theme("#006aff", "#006aff"), "shadcn", &design, &vocab()).unwrap();
-    let follow = brands(&import, &design, text, &vocab(), &pairs()).remove(0);
-    let n = import.ops.len();
-    let mut ops = import.ops.clone();
-    ops.extend(follow.ops.clone());
-    let items: Vec<usize> = (n..n + follow.ops.len()).collect();
-    let again = |current: &str, ops: &[Op]| {
-        recheck(
-            current,
-            ops,
-            &items,
-            &items,
-            "actions.follow-fill",
-            "shadcn.primary",
-            &vocab(),
-        )
-    };
-    // As held: measured the same.
-    assert_eq!(
-        again(text, &ops).map(|i| i.value),
-        Some("#ffffff".to_string())
-    );
-    // Its ink edited to the fill's own blue: gone.
-    let mut inked = ops.clone();
-    if let Op::SetToken { value, .. } = &mut inked[n + 1] {
-        *value = "#006aff".into();
-    }
-    assert!(again(text, &inked).is_none());
-    // Held without the accent's operation, on a design whose accent is now
-    // yellow, directly or through another token, or yellow in one mode: gone.
-    let brand_only: Vec<Op> = follow.ops.clone();
-    let items_only: Vec<usize> = (0..brand_only.len()).collect();
-    let only = |current: &str| {
-        recheck(
-            current,
-            &brand_only,
-            &items_only,
-            &items_only,
-            "actions.follow-fill",
-            "shadcn.primary",
-            &vocab(),
-        )
-    };
-    assert!(only("tamber app\n\ntheme\n  shadcn.primary = #006aff\n").is_some());
-    assert!(only("tamber app\n\ntheme\n  shadcn.primary = #ffd400\n").is_none());
-    assert!(only(
-        "tamber app\n\ntheme\n  shadcn.brand = #ffd400\n  shadcn.primary = shadcn.brand\n"
-    )
-    .is_none());
-    assert!(only("tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.primary = #006aff\n    when density=compact: #ffd400\n").is_none());
-}
-
-#[test]
 fn a_dial_only_the_brand_lines_read_together_is_left_as_it_is() {
     // FollowButton's and EmptyState's own lines both read `pop`, and nothing
     // else does: setting both over would leave it unused, so neither is offered.
     let both = "tamber app\n\ndials\n  pop: color = #ff0000\n\ntheme\n  actions.follow-fill = pop\n  cards.empty-button = pop\n";
     assert!(offered(both, &theme("#006aff", "#006aff")).is_empty());
+}
+
+#[test]
+fn an_accent_whose_value_the_checker_cant_read_alone_is_offered_no_brand_fill() {
+    // The accent's compact mode names a package's token: the design alone
+    // can't fold it, so the ink can't be measured for that mode, and no brand
+    // fill is offered rather than one whose contrast holds in one mode only.
+    let text = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.primary = #006aff\n    when density=compact: actions.follow-overlay-fill\n  AccentColor = shadcn.primary\n";
+    assert!(offered(text, &theme("#006aff", "#006aff")).is_empty());
+    // A line that names a package's token but isn't the accent's: measured
+    // without it, offered.
+    let unrelated = "tamber app\n\ntheme\n  page.fill = actions.follow-fill\n";
+    assert_eq!(offered(unrelated, &theme("#006aff", "#006aff")).len(), 2);
+}
+
+#[test]
+fn a_dial_only_accent_color_and_a_brand_line_read_is_left_as_it_is() {
+    // AccentColor and FollowButton's fill line are `pop`'s only readers: the
+    // AccentColor override and the brand offer together would leave it
+    // unused, so FollowButton's isn't offered (EmptyState's still is).
+    let text = "tamber app\n\ndials\n  pop: color = #ff0000\n\ntheme\n  AccentColor = pop\n  actions.follow-fill = pop\n";
+    let sets: Vec<String> = offered(text, &theme("#006aff", "#006aff"))
+        .into_iter()
+        .map(|b| b.sets)
+        .collect();
+    assert_eq!(sets, ["cards.empty-button"]);
 }
