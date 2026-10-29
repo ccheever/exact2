@@ -165,7 +165,7 @@ pub struct Request {
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
-    /// URLSession's 60-second idle timeout). A stream but an upload has none.
+    /// URLSession's 60-second idle timeout). A stream takes none, except an upload.
     /// Set by TypeScript's `fetch(url, {exactTimeout})` and [`Request::timeout`].
     pub timeout_ms: Option<u32>,
     /// The body is this app file's bytes (`app:/…`), read by the host when it

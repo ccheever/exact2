@@ -1,38 +1,54 @@
 //! An upload's place in its executor (LLP 1016.000 D10). Its body, read
 //! from its file or given inline, and the platform's copy of it are held in
 //! the executor's upload budget from before its file is read until its
-//! exchange ends. An upload waits for room in a queue before it takes a
-//! stream's place or a thread, so a burst of attachments leaves the app's
-//! other streams their places; one upload alone always fits.
-use super::super::{complete, failed, Shared, StreamHost, STREAMS};
+//! exchange ends. An upload waits in a queue, holding no stream's place or
+//! thread, until the budget has room and fewer than [`RUNNING`] uploads go
+//! out, so a burst of attachments leaves the app's other streams their
+//! places; one upload alone always fits. The executor records each upload
+//! that has begun to go out, for the runner to read when it lets one go.
+use super::super::{complete, failed, Core, Shared, StreamHost, STREAMS};
 use exact_runner::{FailureKind, Message, Outcome, Request};
 use ibex2::stdlib::{abort::AbortController, fetch::Sent};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 /// What an executor's uploads may hold at once, the platform's copies
 /// counted: 256 MiB, the four 64 MiB file bodies reads may hold at once
 /// (`executor_body.rs` `MAX_READERS`). An upload's own lane, 64 MiB, could
 /// not hold a 50 MB body beside Apple's copy of it.
-const UPLOAD_BYTES: usize = if cfg!(test) {
-    1 << 20
-} else {
-    super::super::body::MAX_READERS * exact_runner::MAX_BODY_FROM_BYTES as usize
-};
+const UPLOAD_BYTES: usize =
+    super::super::body::MAX_READERS * exact_runner::MAX_BODY_FROM_BYTES as usize;
+
+/// The most uploads an executor sends at once, as upstream T3 Code sends
+/// three per environment: the 16 streams' other places stay the app's.
+const RUNNING: usize = 3;
 
 /// The copies of an upload's body in memory while it goes out: the
 /// stream's, and on Apple URLSession's `NSData`. The portable transport
 /// sends from the stream's.
 pub(in super::super) const COPIES: usize = if cfg!(target_vendor = "apple") { 2 } else { 1 };
 
-/// The uploads of one executor: the bytes those going out hold, and those
-/// waiting for room, in the order they were admitted.
-#[derive(Default)]
+/// The uploads of one executor: the bytes those going out hold, how many go
+/// out, those waiting, in the order they were admitted, and those that have
+/// begun to go out, until their end is drained or the runner reads them.
 pub(in super::super) struct Uploads(Mutex<Budget>);
-#[derive(Default)]
 struct Budget {
     bytes: usize,
+    limit: usize,
+    running: usize,
     queue: VecDeque<Queued>,
+    started: HashSet<u64>,
+}
+impl Default for Uploads {
+    fn default() -> Self {
+        Uploads(Mutex::new(Budget {
+            bytes: 0,
+            limit: UPLOAD_BYTES,
+            running: 0,
+            queue: VecDeque::new(),
+            started: HashSet::new(),
+        }))
+    }
 }
 
 /// An upload admitted and waiting for room: everything its thread needs.
@@ -48,8 +64,8 @@ struct Queued {
     need: usize,
 }
 
-/// An upload's place in the budget, given back when dropped, which may
-/// start the next one waiting.
+/// An upload's place in the budget and among those going out, given back
+/// when dropped, which may start the next one waiting.
 pub(in super::super) struct Held {
     shared: Arc<Shared>,
     bytes: usize,
@@ -66,17 +82,46 @@ impl Held {
 }
 impl Drop for Held {
     fn drop(&mut self) {
-        self.shared.uploads.0.lock().unwrap().bytes -= self.bytes;
+        {
+            let mut budget = self.shared.uploads.0.lock().unwrap();
+            budget.bytes -= self.bytes;
+            budget.running -= 1;
+        }
         start(&self.shared);
     }
 }
 
 impl Uploads {
-    /// Uploads waiting for room now, and the bytes those going out hold.
+    /// Uploads waiting now, and the bytes those going out hold.
     #[cfg(test)]
     pub(in super::super) fn waiting(&self) -> (usize, usize) {
         let budget = self.0.lock().unwrap();
         (budget.queue.len(), budget.bytes)
+    }
+
+    /// A smaller budget, for a test's small bodies.
+    #[cfg(test)]
+    pub(in super::super) fn limit(&self, bytes: usize) {
+        self.0.lock().unwrap().limit = bytes;
+    }
+}
+
+impl Core {
+    /// The uploads let go (no longer `held`) that had begun to go out,
+    /// each told once, for the host to hand the runner after it let their
+    /// tickets go (`Runner::uploads_started`, LLP 1016.000 D10).
+    pub(crate) fn let_go_started(&self, held: impl Fn(u64) -> bool) -> Vec<u64> {
+        let mut budget = self.shared.uploads.0.lock().unwrap();
+        let gone: Vec<u64> = budget
+            .started
+            .iter()
+            .copied()
+            .filter(|t| !held(*t))
+            .collect();
+        for ticket in &gone {
+            budget.started.remove(ticket);
+        }
+        gone
     }
 }
 
@@ -108,30 +153,43 @@ pub(in super::super) fn queue(
     start(shared);
 }
 
-/// Start each upload waiting at the head that has room in the budget and a
-/// stream's place: that place and a thread are its from now on.
+/// Start each upload waiting at the head that has room in the budget, a
+/// stream's place, and one of the [`RUNNING`]: that place and a thread are
+/// its from now on. One the runner has let go meanwhile ends unsent.
 pub(in super::super) fn start(shared: &Arc<Shared>) {
-    let mut starting = Vec::new();
+    let (mut starting, mut gone) = (Vec::new(), Vec::new());
     {
         let mut state = shared.state.lock().unwrap();
         let mut budget = shared.uploads.0.lock().unwrap();
         while let Some(next) = budget.queue.front() {
-            let room = budget.bytes == 0 || budget.bytes.saturating_add(next.need) <= UPLOAD_BYTES;
-            if state.retired || !room || state.streams >= STREAMS {
+            let room = budget.bytes == 0 || budget.bytes.saturating_add(next.need) <= budget.limit;
+            if state.retired || !room || budget.running >= RUNNING || state.streams >= STREAMS {
                 break;
             }
             let next = budget.queue.pop_front().expect("a head");
             let Some(run) = state.running.iter_mut().find(|r| r.ticket == next.ticket) else {
                 continue;
             };
+            if run.forgotten {
+                gone.push(next.ticket);
+                continue;
+            }
             run.stream = true;
             state.streams += 1;
             budget.bytes += next.need;
+            budget.running += 1;
             starting.push(next);
         }
         if state.retired {
             budget.queue.clear();
         }
+    }
+    for ticket in gone {
+        complete(
+            shared,
+            ticket,
+            failed(FailureKind::Aborted, "native request aborted"),
+        );
     }
     for q in starting {
         let held = Held {
@@ -166,15 +224,18 @@ pub(in super::super) fn start(shared: &Arc<Shared>) {
     }
 }
 
-/// A completion was drained (`place`: a stream's, whose place is free now):
-/// with the core unlocked, an upload waiting may take the place.
+/// A completion was drained (`place`: a stream's end, whose place is free
+/// now): an upload's record of its start goes with it, and with the core
+/// unlocked an upload waiting may take the place.
 pub(in super::super) fn freed(
     shared: &Arc<Shared>,
     state: std::sync::MutexGuard<'_, super::super::State>,
+    ticket: u64,
     place: bool,
 ) {
     drop(state);
     if place {
+        shared.uploads.0.lock().unwrap().started.remove(&ticket);
         start(shared);
     }
 }
@@ -214,12 +275,20 @@ pub(super) fn timed_out(end: Outcome, passed: bool, ms: u32) -> Outcome {
     }
 }
 
-/// An upload's progress: each count of the body's bytes sent that the
+/// An upload's hooks: each count of the body's bytes sent that the
 /// transport reports is a message, which a newer one replaces while the
-/// runner has not taken it (D4).
+/// runner has not taken it (D4); its start, when the hop loop has admitted
+/// it (`exact:sending`), is recorded here and is a message no other
+/// replaces.
 pub(super) fn progress(shared: &Arc<Shared>, ticket: u64) -> Sent {
-    let shared = shared.clone();
-    Sent(Arc::new(move |loaded, total| {
-        super::message(&shared, ticket, Message::upload_progress(loaded, total));
-    }))
+    let (sending, shared) = (shared.clone(), shared.clone());
+    Sent(
+        Arc::new(move |loaded, total| {
+            super::message(&shared, ticket, Message::upload_progress(loaded, total));
+        }),
+        Some(Arc::new(move || {
+            sending.uploads.0.lock().unwrap().started.insert(ticket);
+            super::message(&sending, ticket, Message::upload_start());
+        })),
+    )
 }

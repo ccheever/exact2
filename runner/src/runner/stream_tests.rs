@@ -680,11 +680,12 @@ fn an_upload_that_never_reached_the_network_is_asked_again_by_refresh() {
     assert_eq!(r.take_requests().len(), 1, "asked again");
 }
 
-/// A reload, an update of the data module and a relaunch keep the marks
-/// (LLP 1016.000 D10): a finished upload answers as it ended and is not
-/// sent again; one on its way comes back failed, `interrupted`.
+/// A reload and an update of the data module carry the marks (LLP 1016.000
+/// D10): a finished upload answers as it ended and is not sent again; one
+/// on its way comes back failed, `interrupted`. A launch starts with none:
+/// an upload the app still shows is asked again.
 #[test]
-fn a_reload_an_update_or_a_relaunch_sends_no_upload_again() {
+fn a_reload_or_an_update_sends_no_upload_again_and_a_launch_asks_one_shown() {
     let mut r = uploads();
     let a = one(&mut r);
     uploaded(&mut r, a, 201);
@@ -716,7 +717,12 @@ fn a_reload_an_update_or_a_relaunch_sends_no_upload_again() {
         assert!(again.take_requests().is_empty(), "wave 1 is not sent again");
         assert_eq!(value(&again, "progress"), Value::Number(201.));
     }
-    // A relaunch reads them from beside the kept answers.
+    // A launch keeps no marks, and nothing of them is in the store.
+    assert!(!r
+        .store()
+        .snapshot()
+        .iter()
+        .any(|(name, _)| name.contains("upload")));
     let mut relaunched = Runner::boot_stored(
         plan(),
         Scripted {
@@ -729,14 +735,11 @@ fn a_reload_an_update_or_a_relaunch_sends_no_upload_again() {
         "/",
     )
     .unwrap();
-    assert!(
-        relaunched.take_requests().is_empty(),
-        "wave 1 is not sent again"
+    assert_eq!(
+        relaunched.take_requests().len(),
+        1,
+        "wave 1, shown, is asked again"
     );
-    assert_eq!(value(&relaunched, "progress"), Value::Number(201.));
-    relaunched.act("wave", vec![Value::Number(2.)]).unwrap();
-    assert!(relaunched.take_requests().is_empty());
-    assert_eq!(failure(&relaunched).as_deref(), Some("interrupted"));
 }
 
 /// A refused commit puts the marks back with everything else.
@@ -783,5 +786,60 @@ fn the_same_request_for_new_arguments_keeps_the_upload_for_both() {
             "wave {wave} is not sent again"
         );
         assert_eq!(value(&r, "progress"), Value::Number(201.));
+    }
+}
+
+/// Of a resource's uploads only the newest `ANSWERS_KEPT` keep their
+/// answers; an older one's arguments, asked again, answer that it was sent
+/// already, and nothing goes out (LLP 1016.000 D10).
+#[test]
+fn an_old_uploads_arguments_answer_already_sent_and_send_nothing() {
+    let mut r = uploads();
+    let first = one(&mut r);
+    uploaded(&mut r, first, 201);
+    let waves = 10..10 + super::uploads::ANSWERS_KEPT as u16 + 2;
+    for wave in waves.clone() {
+        r.act("wave", vec![Value::Number(wave.into())]).unwrap();
+        let ticket = one(&mut r);
+        uploaded(&mut r, ticket, 200 + wave);
+    }
+    for wave in [1., 10., 11.] {
+        r.act("wave", vec![Value::Number(wave)]).unwrap();
+        assert!(
+            r.take_requests().is_empty(),
+            "wave {wave} is not sent again"
+        );
+        assert_eq!(failure(&r).as_deref(), Some("already-sent"));
+    }
+    let newest = waves.end - 1;
+    r.act("wave", vec![Value::Number(newest.into())]).unwrap();
+    assert!(r.take_requests().is_empty());
+    assert_eq!(value(&r, "progress"), Value::Number((200 + newest).into()));
+    assert_eq!(failure(&r), None);
+}
+
+/// An upload let go before the runner heard it start: the host, whose
+/// executor knows, says after the commit. One that had started is cut off
+/// and not sent again when its arguments come back; one that had not is no
+/// upload asked, and they ask again; and without the host's word it stands
+/// as cut off (LLP 1016.000 D10).
+#[test]
+fn an_upload_let_go_before_its_start_was_heard_waits_for_the_hosts_word() {
+    for (word, asks) in [(Some(true), 0), (Some(false), 1), (None, 0)] {
+        let mut r = uploads();
+        let a = one(&mut r);
+        r.act("wave", vec![Value::Number(2.)]).unwrap();
+        assert!(!r.holds(a));
+        let _ = one(&mut r);
+        match word {
+            Some(true) => r.uploads_started(&[a]),
+            Some(false) => r.uploads_started(&[]),
+            None => {}
+        }
+        r.act("wave", vec![Value::Number(1.)]).unwrap();
+        assert_eq!(r.take_requests().len(), asks, "{word:?}");
+        if asks == 0 {
+            assert_eq!(failure(&r).as_deref(), Some("interrupted"), "{word:?}");
+        }
     }
 }

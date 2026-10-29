@@ -1557,10 +1557,9 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - **Wave 9 EX4 — native/media and layout remainder (E4/E8)** (2026-10-12): `device: 'web'` now selects the wasm adapter beside an unrelated camera hatch. HTML capture awaits its governing admission (LLP 1114.002); document pickers need accept plus file_handlers. Reproduce lane 097's grouped-list layout on an Apple presenter; this Linux lane cannot establish native layout parity.
   2026-10-23 (lane q1022/v): Parked: lane 097's app/Contract and exact layout observation are not identified in the entry or this repository. The 2026-10-12 EX4 commit 687810df8e records the same Apple reproduction request without a source path. PickerAcceptIOSTests and GroupedCustomRowsIOSTests pass: 5 tests, 0 failures, 0 skips (/tmp/v-1582.xcresult). These tests qualify current picker selection and custom grouped-row layout, not the missing o
 
-- **EX5 upload progress (2026-10-13; its first half landed 2026-10-29):** `fetch` tells an
-  upload's bytes sent as they go on every host, `exactBodyFrom` included (`exactUploadProgress`,
-  LLP 1016.000 D10). Left: the Snapback adapter's upload progress is still indeterminate; make it
-  determinate on that surface.
+- **EX5 upload progress (2026-10-13):** the Snapback adapter's upload progress is indeterminate.
+  Make it determinate with `fetch`'s `exactUploadProgress` (LLP 1016.000 D10), which tells an
+  upload's bytes sent as they go on every host, `exactBodyFrom` included.
 
 - **EX7 broader game verification (2026-10-14):** of three `game/new.test.mjs` failures that reproduced without the EX7 changes, the missing `.vscode` and the shell CLI fixture's `scripts/app.mjs` were fixed by 38f528f58; the SDK union lock was stale and is unchecked since. Repair it in the game lane if `game/new.test.mjs` still fails on it.
 - **Grey box's game proof on Windows fails 3 checks** (2026-10-16; `issues/20261006-platform-specific-lane-coverage.md`): its Linux branches (`host === 'linux'`) leave Windows on the web's path, so it taps `world:player` through the presenter and expects `platform` delivery; then the continuation save differs from the pin, and the journal lacks `loop wind on`. Its `pins.json` names linux and web only.

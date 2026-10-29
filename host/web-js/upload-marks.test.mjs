@@ -4,15 +4,16 @@ import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { webCompiler } from './module.mjs';
 
-// LLP 1016.000 D10 on the JS target, as the runner keeps it: an upload is asked once for its arguments. The stand-in
-// counts each upload it is sent, by `n`, and holds `n=2`'s until the test lets it answer.
-//  - New arguments with the same request keep the upload going (`12` asks what `2` asked, LLP 1054.000.000 D3).
+// LLP 1016.000 D10 on the JS target, as the runner keeps it: an upload is asked once for its arguments while the page
+// runs. The stand-in counts each upload it is sent, by `n`, and holds `n=2`'s until the test lets it answer.
+//  - New arguments with the same request keep the upload going (`12` asks what `2` asked, LLP 1054.000.000 D3), and a
+//    change of its `with` context, after an upload or during one, sends nothing: the context identifies no upload.
 //  - Arguments come back to answer as their upload ended, after another upload's answer or a failed ask between.
 //  - A store write the upload read, a refresh, and a refused commit (in which the arguments answered at once) send none
-//    of them again; nor does a relaunch, which reads the marks the page kept.
+//    of them again. A relaunch starts afresh, and sends the upload the view still shows again.
 //  - A plain request in flight after them (`5`) is asked again by a refresh, as natively; so is an upload the grants
 //    refused before it went out (`6`), which never reached the network.
-test('an upload is asked once for its arguments, through new arguments, a refused commit and a relaunch', async () => {
+test('an upload is asked once for its arguments in a session, through new arguments, a `with` change and a refused commit', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/upload-marks-test-'));
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': '*' };
@@ -33,14 +34,15 @@ test('an upload is asked once for its arguments, through new arguments, a refuse
   } });
   const origin = `http://127.0.0.1:${peer.port}`;
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Upload Marks', app: { id: 'test.upload-marks', name: 'Upload Marks' }, host: { web: {} }, rust: false }));
-  const actions = { one: 'pick = 1', two: 'pick = 2', twelve: 'pick = 12', three: 'pick = 3', five: 'pick = 5', six: 'pick = 6', refused: 'pick = 0\n    boom = true', renew: 'send renewed = renew()', again: 'refresh up' };
+  const actions = { bump: 'ctx = ctx + 1', one: 'pick = 1', two: 'pick = 2', twelve: 'pick = 12', three: 'pick = 3', five: 'pick = 5', six: 'pick = 6', refused: 'pick = 0\n    boom = true', renew: 'send renewed = renew()', again: 'refresh up' };
   writeFileSync(resolve(dir, 'app.contract'), `shape Done
   ok: bool
 
 component UploadMarks
   state pick = 1
+  state ctx = 0
   state boom = false
-  resource up = up(pick) as shape string else empty()
+  resource up = up(pick) with ctx as shape string else empty()
   resource bad = bad(boom) as shape string else empty()
   mutation renewed as shape Done
 ${Object.entries(actions).map(([name, body]) => `  action ${name}\n    ${body}\n`).join('')}  view
@@ -97,10 +99,13 @@ export function answer(name: string, args: any[], store: Store): any {
     };
     const until = async what => { for (const end = performance.now() + 10000; !what(); await Bun.sleep(20)) if (performance.now() > end) throw new Error('timed out: ' + JSON.stringify(asked)); };
     await step(null, 'load took 1', { 1: 1 });
+    // A `with` change after the upload: the answer it ended with stands.
+    await step('bump', 'load took 1', { 1: 1 });
     await browser.tap('two');
     await until(() => asked[2] === 1);
-    // The same request for newer arguments: the upload going on is theirs, and nothing more is sent.
+    // The same request for newer arguments, and a `with` change: the upload going on is theirs, and nothing more is sent.
     await browser.tap('twelve');
+    await browser.tap('bump');
     await Bun.sleep(300);
     expect(asked).toEqual({ 1: 1, 2: 1 });
     answerTwo();
@@ -124,11 +129,10 @@ export function answer(name: string, args: any[], store: Store): any {
     // Refused before it went out: `refresh` asks it again.
     await step('six', 'error 1', { 1: 1, 2: 1 });
     await step('again', 'error 2', { 1: 1, 2: 1 });
-    // A relaunch reads the marks the page kept.
+    // A relaunch starts afresh: the upload the view shows at launch is sent again.
     await browser.close();
     browser = await launch();
-    await step(null, 'load took 1', { 1: 1, 2: 1 });
-    await step('twelve', 'load took 2', { 1: 1, 2: 1 });
+    await step(null, 'load took 1', { 1: 2, 2: 1 });
   } finally {
     await browser?.close(); server?.stop(true); peer.stop(true); rmSync(dir, { recursive: true, force: true });
   }

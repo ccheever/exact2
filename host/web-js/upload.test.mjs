@@ -182,3 +182,21 @@ export function answer(name, args) { return fetch(...inits[args[0]]); }
     ]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// uploads.js's bound, as the runner's `ANSWERS_KEPT`: of a resource's uploads that ended, the newest 32 keep their
+// answers, and an older one's arguments answer that it went out, sending nothing. Its `with` context identifies none.
+test('of many uploads, the newest keep their answers and the older answer that they went out', async () => {
+  const { uploadAnswer, uploadAt, uploadEnded, uploadSent } = await import('./uploads.js');
+  const r = { marks: [], context: 1, ticket: null, settled: undefined, value: undefined, origin: 0 };
+  for (let n = 0; n < 40; n++) {
+    const t = { ctl: { sent: true } };
+    uploadSent(r, [n, 'before'], t);
+    uploadEnded(r, t, { v: `took ${n}` });
+  }
+  const reasons = [];
+  const at = n => uploadAnswer(r, uploadAt(r, [n, 'after']), [n, 'after'], {
+    take: v => { r.value = v; }, release: () => {}, fails: (a, error, code, reason) => (reasons.push(reason), 'failed'),
+  });
+  expect([0, 7, 8, 39].map(at)).toEqual(['failed', 'failed', 'took 8', 'took 39']);
+  expect(reasons).toEqual(['already-sent', 'already-sent']);
+});

@@ -676,7 +676,12 @@ impl Core {
             wake(&mut state);
         }
         // A stream's place, which an upload waiting may take.
-        stream::place_freed(&self.shared, state, done.stream && !done.message);
+        stream::place_freed(
+            &self.shared,
+            state,
+            done.ticket,
+            done.stream && !done.message,
+        );
         vec![(done.ticket, done.outcome, Some(done.elapsed_ms))]
     }
 

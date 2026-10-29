@@ -377,7 +377,10 @@ the earliest `AbortSignal.timeout` among them as its deadline (exact2 LLP 1146
 `stdlib/fetch.rs` gives `Request` an optional `sent` hook (`Sent`), told
 `(loaded, total)` as the body goes out and `(total, total)` by the time the
 headers have arrived (exact2 LLP 1016.000 D10, XMLHttpRequest's upload
-progress). `transport/darwin_http.mm` records URLSession's `didSendBodyData`
+progress), and an optional start hook beside it, which `fetch_stream_gated`
+tells once, when `admit_hop` has passed the first hop's grant check and
+local-network gate, so a request they refuse never started (the embedder's
+`exact:sending`). `transport/darwin_http.mm` records URLSession's `didSendBodyData`
 on the exchange, and `ibex2_darwin_http_headers` takes the bytes the caller
 last saw, returning 2 when they change before the headers, so
 `transport/darwin.rs` tells the hook on the opening thread and waits again.
@@ -388,8 +391,10 @@ body into each hop's request and back instead of cloning it, so a request
 holds one copy of its body while it goes out, the platform's aside. Tests: `darwin_stream_tests.rs`
 `an_uploads_bytes_sent_are_told_before_its_headers`, `stream_tests.rs`
 `the_portable_transport_tells_an_uploads_bytes_sent`, which run with this
-crate's manifest and in no lane; exact2's workspace tests the hook through
-its executor, URLSession in `exact-apple`'s async-lane
+crate's manifest and in no lane; exact2's workspace tests the hooks through
+its executor (the start hook, and none for a request the grants refuse, in
+`exact-apple`'s `an_upload_the_grants_refuse_never_starts`), URLSession in
+`exact-apple`'s async-lane
 `an_upload_through_urlsession_tells_its_progress_and_waits_out_a_slow_reply`
 and the portable transport in `exact-js`'s
 `an_upload_maps_its_bytes_sent_as_they_go_then_its_reply`. Replay on a refresh.

@@ -302,9 +302,10 @@ fn the_portable_transport_tells_an_uploads_bytes_sent() {
     let mut request = Request::get(&url);
     request.method = "POST".into();
     request.body = Some(vec![7; 1 << 20]);
-    request.sent = Some(Sent(Arc::new(move |loaded, total| {
-        seen.lock().unwrap().push((loaded, total))
-    })));
+    request.sent = Some(Sent(
+        Arc::new(move |loaded, total| seen.lock().unwrap().push((loaded, total))),
+        None,
+    ));
     let response = RustlsHttpTransport::new().send(&request).unwrap();
     assert_eq!(
         (response.status, response.body.as_slice()),

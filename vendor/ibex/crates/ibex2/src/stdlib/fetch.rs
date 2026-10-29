@@ -263,8 +263,14 @@ pub struct Request {
 /// the thread that opened the request, as the platform reports bytes
 /// written, and with `(total, total)` by the time the response's headers
 /// have arrived. A redirect that sends the body again counts from zero.
+/// The second hook, if any, is the upload's start: told once, by the hop
+/// loop, when the first hop's grant and gate have admitted it and its
+/// transport is about to open, so a request they refuse never started.
 #[derive(Clone)]
-pub struct Sent(pub std::sync::Arc<dyn Fn(u64, u64) + Send + Sync>);
+pub struct Sent(
+    pub std::sync::Arc<dyn Fn(u64, u64) + Send + Sync>,
+    pub Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+);
 
 impl std::fmt::Debug for Sent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -432,6 +438,10 @@ pub fn fetch_stream_gated(
     loop {
         signal.check()?;
         admit_hop(grants, gate, &current.url, redirected)?;
+        // An upload goes out now, its grant and gate passed (Exact patch 23).
+        if let (false, Some(Sent(_, Some(start)))) = (redirected, &current.sent) {
+            start();
+        }
 
         // The request guard applies here, where a header list becomes a
         // request — not in Headers::set, where the guard is "none". The

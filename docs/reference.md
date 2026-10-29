@@ -1319,18 +1319,25 @@ awaits it, so it holds nothing else back: uploads run beside a source's other
 work, and natively one waiting for room in the memory its bodies may take
 holds none of the 16 places a native app's streams have.
 
-An upload is **asked once for its arguments**, for the life of the app's
-data: nothing asks it again at them, in flight, finished or failed (not a
-store write it read, a topic it watches, nor `refresh`), and arguments that
-come back after others answer as their upload ended, without asking the
-source. A reload, an update of the data module and a relaunch keep this; an
-upload one of them, or new arguments, cut off on its way comes back failed,
-its `failure(x).reason` `interrupted`, and is not sent again. New arguments
-that make the same request keep the upload already running (LLP 1054.000.000
-D3), so a retry changes the request itself as well as the arguments: put an
-attempt number in the URL's query or a header. An upload the host refused
-before it went out (a limit, the grants, the local network's rule) was never
-sent, and `refresh` asks it again.
+An upload is **asked once for its arguments** while the app runs: nothing
+asks it again at them, in flight, finished or failed (not a store write it
+read, a topic it watches, nor `refresh`), and arguments that come back after
+others answer as their upload ended, without asking the source. Its `with`
+context is not among them: a change there sends nothing. Of a resource's
+uploads the newest 32 that ended keep their answers; an older one's
+arguments, asked again, fail with `failure(x).reason` `already-sent` and send
+nothing. A reload and an update of the data module keep this; an upload one
+of them, or new arguments, cut off on its way comes back failed, its
+`failure(x).reason` `interrupted`, and is not sent again. A launch starts
+afresh, so a relaunched app that still shows the resource at those arguments
+sends the upload again: record what it answered in the store (the server's
+id for an attachment, as upstream T3 Code keeps its attachment ids) and stop
+showing the resource once you have it. New arguments that make the same
+request keep the upload already running (LLP 1054.000.000 D3), so a retry
+changes the request itself as well as the arguments: put an attempt number
+in the URL's query or a header. An upload the host refused before it went
+out (a limit, the grants, the local network's rule) was never sent, and
+`refresh` asks it again.
 
 It must be an `http:` or `https:` request other than GET or HEAD, without
 `exactLongPoll`, and with `redirect` left to follow (XMLHttpRequest can only

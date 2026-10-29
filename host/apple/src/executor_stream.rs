@@ -132,11 +132,6 @@ fn opened(
                     if let Some(held) = held.as_mut() {
                         held.keep(request.body.len().saturating_mul(COPIES));
                     }
-                    // It goes out now: what fails before this never reached
-                    // the network (`UPLOAD_SENDING`, D10).
-                    if request.upload_progress {
-                        message(shared, ticket, Message::upload_start());
-                    }
                     open(Ok(&b), request, forced, &abort, sent)
                 })
                 .map(|opened| (opened, b))
@@ -264,9 +259,13 @@ fn deliver(shared: &Shared, ticket: u64, mut message: Message, reply: bool) -> b
     else {
         return false;
     };
-    let waiting = state.completed[lane]
-        .iter_mut()
-        .find(|done| done.ticket == ticket && done.message);
+    // An upload's start is never folded into another message, nor another
+    // into it (LLP 1016.000 D10): it says the upload reached the network.
+    let start =
+        |done: &Completed| matches!(&done.outcome, Outcome::Message(m) if m.upload_started());
+    let waiting = (state.completed[lane].iter_mut())
+        .find(|done| done.ticket == ticket && done.message && !start(done))
+        .filter(|_| !message.upload_started());
     match waiting {
         Some(done) if reply => {
             done.elapsed_ms = elapsed_ms;

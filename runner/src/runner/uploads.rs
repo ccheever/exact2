@@ -2,23 +2,20 @@
 //! the identifying arguments an upload was asked at and how it stands.
 //! Nothing asks an upload again at arguments it has a mark for: the
 //! resource shows the answer the upload ended with, or its failure. The
-//! marks live as long as the app's data: a reload or an update carries
-//! them by resource name and arguments, and a launch reads them back from
-//! beside the kept answers. An upload a reload, an update or a quit cut
-//! off comes back failed, `interrupted`, and is not sent again.
+//! marks last as long as the runner, and a plan reload or a data module's
+//! update carries them by resource name and arguments; an upload that one
+//! cut off comes back failed, `interrupted`. A launch starts with none: an
+//! app records what an upload answered in its store and stops showing the
+//! resource, or the launch asks it again.
 
 use super::{DataSource, Runner, Target};
 use crate::failure::{Failure, FailureCode};
-use crate::store::Store;
 use exact_plan::Value;
+use std::rc::Rc;
 
-/// Where the marks are kept between launches: beside the kept answers,
-/// under a name no resource can have.
-pub(super) const UPLOADS: &str = "exact.kept.@uploads";
-
-/// The most the kept marks take, which the kept answers' budget counts
-/// (`kept.rs` `KEPT_TOTAL_BYTES`): the oldest are forgotten first.
-pub(super) const UPLOADS_BYTES: usize = 64 * 1024;
+/// How many of a resource's uploads keep the answer each ended with, the
+/// newest; an older one keeps only that it went out (`Gone`).
+pub(super) const ANSWERS_KEPT: usize = 32;
 
 /// How an upload asked at some arguments stands.
 #[derive(Clone, Debug, PartialEq)]
@@ -29,6 +26,9 @@ pub enum UploadEnd {
     Answered(Value),
     /// Its failure: its source failed to take its end, or it was cut off.
     Failed(Failure),
+    /// It went out and ended, and its answer is no longer kept: asked
+    /// again, it answers that it was sent already, and is not sent again.
+    Gone,
 }
 
 /// One upload: the resource and source that asked it, its identifying
@@ -55,40 +55,58 @@ pub(super) fn interrupted() -> Failure {
     }
 }
 
-/// The marks, oldest first.
+/// The failure of an upload asked again whose answer is no longer kept.
+fn already_sent() -> Failure {
+    Failure {
+        code: FailureCode::Error,
+        message: format!(
+            "already sent: the upload went out at these arguments, and of a resource's uploads only the newest {ANSWERS_KEPT} keep their answers; give new arguments to send it again"
+        ),
+        reason: "already-sent".into(),
+    }
+}
+
+/// The marks, oldest first, shared with the checkpoints that copy them
+/// until one changes; and the uploads let go before the runner heard they
+/// started, which wait for the host's word (`uploads_started`).
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(super) struct Uploads(pub(super) Vec<UploadMark>);
+pub(super) struct Uploads {
+    pub(super) marks: Rc<Vec<UploadMark>>,
+    let_go: Vec<u64>,
+}
 
 impl Uploads {
-    /// The marks a new runner starts with: the ones carried or kept, each
+    /// The marks a new runner starts with, carried from the old one: each
     /// still on its way cut off, since its ticket was the old runner's.
     pub(super) fn starting(marks: &[UploadMark]) -> Uploads {
-        Uploads(
-            marks
-                .iter()
-                .map(|m| UploadMark {
-                    end: match &m.end {
-                        UploadEnd::Sent(_) => UploadEnd::Failed(interrupted()),
-                        end => end.clone(),
-                    },
-                    ..m.clone()
-                })
-                .collect(),
-        )
+        let marks = marks
+            .iter()
+            .map(|m| UploadMark {
+                end: match &m.end {
+                    UploadEnd::Sent(_) => UploadEnd::Failed(interrupted()),
+                    end => end.clone(),
+                },
+                ..m.clone()
+            })
+            .collect();
+        Uploads {
+            marks: Rc::new(marks),
+            let_go: Vec::new(),
+        }
     }
 
     /// How the upload `resource` asked at `args` stands, if it was asked.
     pub(super) fn at(&self, resource: &str, args: &[Value]) -> Option<&UploadEnd> {
-        (self.0.iter().rev())
+        (self.marks.iter().rev())
             .find(|m| m.resource == resource && m.args == args)
             .map(|m| &m.end)
     }
 
     /// `resource` asked an upload at `args`, on its way under `ticket`.
     pub(super) fn sent(&mut self, resource: &str, source: &str, args: &[Value], ticket: u64) {
-        self.0
-            .retain(|m| !(m.resource == resource && m.args == args));
-        self.0.push(UploadMark {
+        let marks = Rc::make_mut(&mut self.marks);
+        marks.retain(|m| !(m.resource == resource && m.args == args));
+        marks.push(UploadMark {
             resource: resource.into(),
             source: source.into(),
             args: args.to_vec(),
@@ -96,97 +114,47 @@ impl Uploads {
         });
     }
 
-    /// Every mark on its way under `ticket` ends as `end`; whether any did.
-    pub(super) fn end(&mut self, ticket: u64, end: &UploadEnd) -> bool {
-        let mut any = false;
-        for m in self
-            .0
+    /// Every mark on its way under `ticket` ends as `end`, and of each
+    /// resource's ended uploads only the newest [`ANSWERS_KEPT`] keep how
+    /// they ended.
+    pub(super) fn end(&mut self, ticket: u64, end: &UploadEnd) {
+        let marks = Rc::make_mut(&mut self.marks);
+        let mut resources = Vec::new();
+        for m in marks
             .iter_mut()
             .filter(|m| m.end == UploadEnd::Sent(ticket))
         {
             m.end = end.clone();
-            any = true;
+            resources.push(m.resource.clone());
         }
-        any
+        for resource in resources {
+            let ended = |m: &UploadMark| {
+                m.resource == resource
+                    && matches!(m.end, UploadEnd::Answered(_) | UploadEnd::Failed(_))
+            };
+            let over = marks
+                .iter()
+                .filter(|m| ended(m))
+                .count()
+                .saturating_sub(ANSWERS_KEPT);
+            for m in marks.iter_mut().filter(|m| ended(m)).take(over) {
+                m.end = UploadEnd::Gone;
+            }
+        }
     }
 
     /// Forget the marks under `ticket`: its upload never reached the
     /// network, so asking it again sends nothing twice.
-    pub(super) fn unmark(&mut self, ticket: u64) -> bool {
-        let before = self.0.len();
-        self.0.retain(|m| m.end != UploadEnd::Sent(ticket));
-        self.0.len() != before
-    }
-
-    /// The marks as kept between launches, the newest that fit
-    /// [`UPLOADS_BYTES`], and how many older ones did not.
-    fn encoded(&self) -> (Vec<u8>, usize) {
-        let marks: Vec<Value> = self.0.iter().map(encode).collect();
-        let mut from = 0;
-        loop {
-            let bytes = Value::list(marks[from..].to_vec()).to_bytes();
-            if bytes.len() <= UPLOADS_BYTES || from == marks.len() {
-                return (bytes, from);
-            }
-            from += 1;
+    pub(super) fn unmark(&mut self, ticket: u64) {
+        if self.marks.iter().any(|m| m.end == UploadEnd::Sent(ticket)) {
+            Rc::make_mut(&mut self.marks).retain(|m| m.end != UploadEnd::Sent(ticket));
         }
     }
 
-    /// The marks kept in `store`, if any decode.
-    pub(super) fn kept(store: &Store) -> Vec<UploadMark> {
-        let Some(Ok(Value::List(marks))) = store.kept(UPLOADS).map(Value::from_bytes) else {
-            return Vec::new();
-        };
-        marks.iter().filter_map(decode).collect()
+    /// The marks as a reload or an update carries them.
+    pub(super) fn carried(&self) -> Vec<UploadMark> {
+        self.marks.to_vec()
     }
-}
-
-fn encode(m: &UploadMark) -> Value {
-    let (tag, payload) = match &m.end {
-        UploadEnd::Sent(_) => (0.0, Value::Unit),
-        UploadEnd::Answered(v) => (1.0, v.clone()),
-        UploadEnd::Failed(f) => (
-            2.0,
-            Value::list(vec![
-                Value::str(f.code.name()),
-                Value::str(&f.message),
-                Value::str(&f.reason),
-            ]),
-        ),
-    };
-    Value::list(vec![
-        Value::str(&m.resource),
-        Value::str(&m.source),
-        Value::list(m.args.clone()),
-        Value::Number(tag),
-        payload,
-    ])
-}
-
-fn decode(v: &Value) -> Option<UploadMark> {
-    let Value::List(items) = v else { return None };
-    let [resource, source, Value::List(args), Value::Number(tag), payload] = &items[..] else {
-        return None;
-    };
-    let end = match (*tag as u8, payload) {
-        (0, _) => UploadEnd::Sent(0),
-        (1, v) => UploadEnd::Answered(v.clone()),
-        (2, Value::List(f)) => match &f[..] {
-            [code, message, reason] => UploadEnd::Failed(Failure {
-                code: FailureCode::from_name(code.as_str()?)?,
-                message: message.as_str()?.into(),
-                reason: reason.as_str()?.into(),
-            }),
-            _ => return None,
-        },
-        _ => return None,
-    };
-    Some(UploadMark {
-        resource: resource.as_str()?.into(),
-        source: source.as_str()?.into(),
-        args: args.to_vec(),
-        end,
-    })
 }
 
 impl<D: DataSource> Runner<D> {
@@ -204,6 +172,25 @@ impl<D: DataSource> Runner<D> {
         self.uploads.at(name, self.upload_identity(i, args))
     }
 
+    /// Whether an upload is in flight for resource `i` (LLP 1016.000 D10).
+    pub(super) fn uploading(&self, i: usize) -> bool {
+        (self.pending.iter()).any(|p| p.target == Target::Resource(i) && p.upload)
+    }
+
+    /// Whether resource `i`'s failure is an upload's, at the arguments it holds.
+    pub(super) fn upload_failed(&self, i: usize) -> bool {
+        (self.failed_args[i].as_ref())
+            .is_some_and(|a| matches!(self.upload_at(i, a), Some(UploadEnd::Failed(_))))
+    }
+
+    /// Whether resource `i`'s answer is an upload's, in flight, ended or
+    /// failed: nothing asks it again at its arguments (D10).
+    pub(super) fn upload_stands(&self, i: usize) -> bool {
+        self.uploading(i)
+            || (self.resources[i].as_ref()).is_some_and(|s| self.upload_at(i, &s.args).is_some())
+            || self.upload_failed(i)
+    }
+
     /// `target` asked an upload at `args`, handed to its host as `ticket`.
     pub(super) fn upload_sent(&mut self, target: Target, args: &[Value], ticket: u64) {
         let Target::Resource(i) = target else { return };
@@ -211,18 +198,35 @@ impl<D: DataSource> Runner<D> {
         let (name, source) = (self.plan.str(row.name), self.plan.str(row.source));
         let identity = self.upload_identity(i, args).to_vec();
         self.uploads.sent(name, source, &identity, ticket);
-        self.keep_uploads();
     }
 
     /// Upload `ticket` is over: `end` when it reached the network, else
     /// forgotten, an ordinary answer that `refresh` asks again.
     pub(super) fn upload_over(&mut self, ticket: u64, sent: bool, end: UploadEnd) {
-        let changed = match sent {
+        match sent {
             true => self.uploads.end(ticket, &end),
             false => self.uploads.unmark(ticket),
-        };
-        if changed {
-            self.keep_uploads();
+        }
+    }
+
+    /// Upload `ticket` was let go before its reply, before the runner heard
+    /// whether it had started: the host, whose executor knows, says so after
+    /// the commit (`uploads_started`). Until then it stands as cut off.
+    pub(super) fn upload_let_go(&mut self, ticket: u64) {
+        self.uploads.let_go.push(ticket);
+    }
+
+    /// The host's word on the uploads let go since it last spoke, after it
+    /// let their tickets go (`Core::let_go_started` natively): each in
+    /// `started` had begun to go out, and is cut off, `interrupted`; any
+    /// other never reached the network and is no upload asked, so `refresh`
+    /// asks it again (LLP 1016.000 D10).
+    pub fn uploads_started(&mut self, started: &[u64]) {
+        for ticket in std::mem::take(&mut self.uploads.let_go) {
+            match started.contains(&ticket) {
+                true => self.uploads.end(ticket, &UploadEnd::Failed(interrupted())),
+                false => self.uploads.unmark(ticket),
+            }
         }
     }
 
@@ -251,31 +255,8 @@ impl<D: DataSource> Runner<D> {
             }),
             UploadEnd::Failed(f) => failed(f),
             UploadEnd::Sent(_) => failed(&interrupted()),
+            UploadEnd::Gone => failed(&already_sent()),
         })
-    }
-
-    /// Keep the marks for the next launch, beside the kept answers and
-    /// within their budget. An app that keeps no answers (LLP 1069.008.000
-    /// D7) keeps no marks either: they hold its answers.
-    pub(super) fn keep_uploads(&mut self) {
-        if crate::device::keeps_no_answers(self.data.grants()) {
-            return;
-        }
-        let (bytes, forgot) = self.uploads.encoded();
-        if forgot > 0 {
-            let line = format!(
-                "kept uploads are at most {} KiB together: forgot the {forgot} oldest, which a launch may send again at their arguments (LLP 1016.000 D10)",
-                UPLOADS_BYTES / 1024
-            );
-            self.log(line);
-            self.uploads.0.drain(..forgot);
-        }
-        if self.uploads.0.is_empty() {
-            self.store.forget_kept(UPLOADS);
-            return;
-        }
-        self.make_room(UPLOADS, bytes.len());
-        self.store.keep(UPLOADS, bytes);
     }
 }
 
@@ -283,36 +264,13 @@ impl<D: DataSource> Runner<D> {
 mod tests {
     use super::*;
 
-    fn mark(args: f64, end: UploadEnd) -> UploadMark {
-        UploadMark {
-            resource: "photo".into(),
-            source: "upload".into(),
-            args: vec![Value::Number(args)],
-            end,
-        }
-    }
-
-    #[test]
-    fn marks_round_trip_and_a_new_runner_cuts_off_what_was_on_its_way() {
-        let failed = Failure {
-            code: FailureCode::Offline,
-            message: "gone".into(),
-            reason: String::new(),
-        };
-        let uploads = Uploads(vec![
-            mark(1.0, UploadEnd::Answered(Value::str("done"))),
-            mark(2.0, UploadEnd::Failed(failed)),
-            mark(3.0, UploadEnd::Sent(7)),
-        ]);
-        let (bytes, forgot) = uploads.encoded();
-        assert_eq!(forgot, 0);
-        let Ok(Value::List(kept)) = Value::from_bytes(&bytes) else {
-            panic!("a list")
-        };
-        let kept: Vec<UploadMark> = kept.iter().filter_map(decode).collect();
-        let started = Uploads::starting(&kept);
-        assert_eq!(started.0[..2], uploads.0[..2]);
-        assert_eq!(started.0[2].end, UploadEnd::Failed(interrupted()));
+    fn marks(uploads: &Uploads) -> Vec<(f64, UploadEnd)> {
+        (uploads.marks.iter())
+            .map(|m| match m.args[..] {
+                [Value::Number(n)] => (n, m.end.clone()),
+                _ => unreachable!(),
+            })
+            .collect()
     }
 
     #[test]
@@ -322,29 +280,67 @@ mod tests {
         // The same request for newer arguments (LLP 1054.000.000 D3).
         uploads.sent("photo", "upload", &[Value::Number(2.0)], 4);
         uploads.sent("photo", "upload", &[Value::Number(3.0)], 5);
-        assert!(uploads.end(4, &UploadEnd::Answered(Value::str("ok"))));
-        assert_eq!(
-            uploads.at("photo", &[Value::Number(1.0)]),
-            Some(&UploadEnd::Answered(Value::str("ok")))
-        );
-        assert_eq!(
-            uploads.at("photo", &[Value::Number(2.0)]),
-            Some(&UploadEnd::Answered(Value::str("ok")))
-        );
-        assert!(uploads.unmark(5));
+        let ok = UploadEnd::Answered(Value::str("ok"));
+        uploads.end(4, &ok);
+        assert_eq!(uploads.at("photo", &[Value::Number(1.0)]), Some(&ok));
+        assert_eq!(uploads.at("photo", &[Value::Number(2.0)]), Some(&ok));
+        uploads.unmark(5);
         assert_eq!(uploads.at("photo", &[Value::Number(3.0)]), None);
     }
 
     #[test]
-    fn the_kept_marks_are_the_newest_that_fit() {
-        let big = Value::str(&"x".repeat(UPLOADS_BYTES / 3));
-        let uploads = Uploads(
-            (0..4)
-                .map(|n| mark(f64::from(n), UploadEnd::Answered(big.clone())))
-                .collect(),
+    fn of_a_resources_uploads_the_newest_keep_their_answers_and_the_rest_that_they_went_out() {
+        let mut uploads = Uploads::default();
+        let n = ANSWERS_KEPT as u64 + 3;
+        for ticket in 1..=n {
+            uploads.sent("photo", "upload", &[Value::Number(ticket as f64)], ticket);
+            uploads.sent(
+                "other",
+                "upload",
+                &[Value::Number(ticket as f64)],
+                1000 + ticket,
+            );
+            uploads.end(ticket, &UploadEnd::Answered(Value::Number(ticket as f64)));
+        }
+        let photo: Vec<_> = (marks(&uploads).into_iter().zip(uploads.marks.iter()))
+            .filter(|(_, m)| m.resource == "photo")
+            .map(|(mark, _)| mark)
+            .collect();
+        assert_eq!(photo.len(), n as usize);
+        for (k, (n, end)) in photo.into_iter().enumerate() {
+            let kept = UploadEnd::Answered(Value::Number(n));
+            assert_eq!(end, if k < 3 { UploadEnd::Gone } else { kept }, "{n}");
+        }
+        // Another resource's are its own, here still on their way.
+        let other = uploads.marks.iter().filter(|m| m.resource == "other");
+        assert!(
+            other.clone().count() == n as usize
+                && other
+                    .into_iter()
+                    .all(|m| matches!(m.end, UploadEnd::Sent(_)))
         );
-        let (bytes, forgot) = uploads.encoded();
-        assert!(bytes.len() <= UPLOADS_BYTES);
-        assert_eq!(forgot, 2, "the two oldest");
+    }
+
+    #[test]
+    fn a_new_runner_cuts_off_what_was_on_its_way_and_a_checkpoint_shares_the_marks() {
+        let mut uploads = Uploads::default();
+        uploads.sent("photo", "upload", &[Value::Number(1.0)], 1);
+        uploads.sent("photo", "upload", &[Value::Number(2.0)], 2);
+        uploads.end(1, &UploadEnd::Answered(Value::str("done")));
+        let started = Uploads::starting(&uploads.carried());
+        assert_eq!(
+            marks(&started),
+            [
+                (1.0, UploadEnd::Answered(Value::str("done"))),
+                (2.0, UploadEnd::Failed(interrupted())),
+            ]
+        );
+        let copy = uploads.clone();
+        assert!(
+            Rc::ptr_eq(&copy.marks, &uploads.marks),
+            "a copy shares them"
+        );
+        uploads.sent("photo", "upload", &[Value::Number(3.0)], 3);
+        assert!(!Rc::ptr_eq(&copy.marks, &uploads.marks) && copy.marks.len() == 2);
     }
 }

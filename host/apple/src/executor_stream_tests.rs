@@ -53,6 +53,8 @@ struct Script {
     reported: Mutex<Option<Sender<()>>>,
     /// The platform timeout each `/upload-timed` was given.
     timeouts: Mutex<Vec<Option<Duration>>>,
+    /// `/upload`s going out now, and the most at once.
+    going: Mutex<(usize, usize)>,
 }
 struct Scripted(Arc<Script>);
 impl Transport for Scripted {
@@ -125,10 +127,20 @@ impl Transport for Scripted {
             match kind {
                 "upload" => {
                     let rx = fed();
-                    for loaded in [total / 4, total / 2, total] {
-                        step(&rx)?;
-                        (sent.0)(loaded, total);
+                    {
+                        let mut going = self.0.going.lock().unwrap();
+                        going.0 += 1;
+                        going.1 = going.1.max(going.0);
                     }
+                    let steps = (|| {
+                        for loaded in [total / 4, total / 2, total] {
+                            step(&rx)?;
+                            (sent.0)(loaded, total);
+                        }
+                        Ok(())
+                    })();
+                    self.0.going.lock().unwrap().0 -= 1;
+                    steps?;
                 }
                 "upload-burst" => {
                     let rx = fed();
@@ -1002,9 +1014,13 @@ fn an_uploads_bytes_sent_coalesce_while_the_runner_has_not_taken_them() {
     reported
         .recv_timeout(Duration::from_secs(5))
         .expect("the bytes sent were reported");
-    // The start and the first two counts fold into the newest.
+    // The start is a message of its own; the first two counts fold into the newest.
     match next(&core, &woke).1 {
-        Outcome::Message(m) => assert_eq!((m.sent(), m.coalesced), (Some((4000, 4000)), 3)),
+        Outcome::Message(m) => assert!(m.upload_started() && m.coalesced == 0, "{m:?}"),
+        other => panic!("expected the upload's start, got {other:?}"),
+    }
+    match next(&core, &woke).1 {
+        Outcome::Message(m) => assert_eq!((m.sent(), m.coalesced), (Some((4000, 4000)), 2)),
         other => panic!("expected the newest bytes sent, got {other:?}"),
     }
     feed(&script, 0).send(Vec::new()).unwrap();
@@ -1064,6 +1080,7 @@ fn an_empty_upload_tells_no_progress_and_ends_with_its_reply() {
 #[test]
 fn an_upload_waits_for_room_in_its_executors_budget() {
     let (core, script, woke) = setup();
+    core.shared.uploads.limit(1 << 20);
     core.run_owned(upload(1, "/upload", 600 << 10), None)
         .unwrap();
     let first = feed(&script, 0);
@@ -1127,6 +1144,7 @@ fn file_upload(ticket: u64, path: &str, name: &str) -> RequestOut {
 #[test]
 fn an_uploads_file_is_read_once_it_has_room() {
     let (core, script, woke) = setup_with("net.fetch https://example.test\nfs.read app:/tmp");
+    core.shared.uploads.limit(1 << 20);
     let files = AppFiles::new("a.bin", &[7; 4096]);
     core.set_app_roots(files.roots());
     core.run_owned(file_upload(1, "/upload", "a.bin"), None)
@@ -1164,43 +1182,122 @@ fn an_uploads_file_is_read_once_it_has_room() {
     );
 }
 
-/// LLP 1016.000 D10: a burst of uploads waits for room in the budget
-/// without taking the places the app's other streams need. An event stream
-/// opened before twenty uploads and one opened after them both open; the
-/// uploads go one at a time as each one's room comes back, and each ends
-/// with its reply.
+/// LLP 1016.000 D10: a burst of uploads at a photo's size, in the budget a
+/// device has, goes three at a time, as upstream T3 Code sends them, and
+/// leaves the app's other streams their places: an event stream opened
+/// before twenty 2 MB uploads and one opened after them both open at once,
+/// and every upload ends with its reply.
 #[test]
-fn a_burst_of_uploads_leaves_other_streams_their_places() {
+fn a_burst_of_photo_uploads_goes_three_at_a_time_and_leaves_other_streams_their_places() {
     let (core, script, woke) = setup();
     core.run_owned(stream(100, "/events", 1024), None).unwrap();
     let before = feed(&script, 0);
     for ticket in 1..=20 {
-        core.run_owned(upload(ticket, "/upload", 600 << 10), None)
+        core.run_owned(upload(ticket, "/upload", 2 << 20), None)
             .unwrap();
     }
-    let mut going = feed(&script, 1);
+    let going: Vec<Feed> = (1..=3).map(|at| feed(&script, at)).collect();
     core.run_owned(stream(101, "/events", 1024), None)
         .expect("a stream after the burst has its place");
-    let after = feed(&script, 2);
+    let after = feed(&script, 4);
     assert_eq!(
         core.shared.uploads.waiting(),
-        (19, (600 << 10) * super::COPIES)
+        (17, 3 * (2 << 20) * super::COPIES)
     );
     for (fed, ticket) in [(&before, 100), (&after, 101)] {
         fed.send(format!("id: {ticket}\ndata: {ticket}\n\n").into_bytes())
             .unwrap();
         while !matches!(next(&core, &woke), (t, Outcome::Message(_)) if t == ticket) {}
     }
-    for ticket in 1..=20 {
-        for _ in 0..3 {
-            going.send(Vec::new()).unwrap();
+    // Feed each upload as it opens, whatever its order, until all twenty replied.
+    let (mut fed, mut replies) = (going, 0);
+    let mut opened = 5;
+    while replies < 20 {
+        for step in fed.drain(..) {
+            for _ in 0..3 {
+                step.send(Vec::new()).unwrap();
+            }
         }
-        while !matches!(next(&core, &woke), (t, Outcome::Response(_)) if t == ticket) {}
-        if ticket < 20 {
-            going = feed(&script, 2 + ticket as usize);
+        if let (_, Outcome::Response(_)) = next(&core, &woke) {
+            replies += 1;
+        }
+        while let Some(more) = script
+            .feeds
+            .lock()
+            .unwrap()
+            .get_mut(opened)
+            .and_then(Option::take)
+        {
+            fed.push(more);
+            opened += 1;
         }
     }
+    assert_eq!(
+        script.going.lock().unwrap().1,
+        3,
+        "never more than three at once"
+    );
     assert_eq!(core.shared.uploads.waiting(), (0, 0));
+}
+
+/// The executor records each upload that has begun to go out, and tells
+/// the host which of those the runner let go (`let_go_started`); one let go
+/// while it waits in the queue never started (LLP 1016.000 D10).
+#[test]
+fn the_uploads_let_go_that_had_started_are_told_once() {
+    let (core, script, woke) = setup();
+    for ticket in 1..=4 {
+        core.run_owned(upload(ticket, "/upload", 4096), None)
+            .unwrap();
+    }
+    let _going: Vec<Feed> = (0..3).map(|at| feed(&script, at)).collect();
+    let mut started: Vec<u64> = (0..3)
+        .map(|_| match next(&core, &woke) {
+            (ticket, Outcome::Message(m)) if m.upload_started() => ticket,
+            other => panic!("expected an upload's start, got {other:?}"),
+        })
+        .collect();
+    started.sort_unstable();
+    assert_eq!(core.shared.uploads.waiting().0, 1, "the fourth waits");
+    assert_eq!(
+        core.let_go_started(|_| true),
+        Vec::<u64>::new(),
+        "none let go yet"
+    );
+    core.forget(|_| false);
+    let mut told = core.let_go_started(|_| false);
+    told.sort_unstable();
+    assert_eq!(told, started);
+    assert!(!started.contains(&4));
+    assert_eq!(
+        core.let_go_started(|_| false),
+        Vec::<u64>::new(),
+        "told once"
+    );
+}
+
+/// An upload the grants do not admit is refused before it starts: no
+/// `exact:sending`, so the runner marks it as no upload asked, and
+/// `refresh` asks it again (LLP 1016.000 D10, local patch 23).
+#[test]
+fn an_upload_the_grants_refuse_never_starts() {
+    let (core, _script, woke) = setup();
+    let mut away = upload(1, "/upload", 4096);
+    away.request.url = "https://elsewhere.test/upload".into();
+    core.run_owned(away, None).unwrap();
+    let (ticket, end) = next(&core, &woke);
+    assert_eq!(ticket, 1);
+    assert!(
+        matches!(
+            &end,
+            Outcome::Failed {
+                kind: FailureKind::Refused,
+                ..
+            }
+        ),
+        "{end:?}"
+    );
+    assert!(core.let_go_started(|_| false).is_empty());
 }
 
 #[test]

@@ -342,9 +342,10 @@ fn an_uploads_bytes_sent_are_told_before_its_headers() {
     let mut request = Request::get(&url);
     request.method = "POST".into();
     request.body = Some(vec![7; SIZE]);
-    request.sent = Some(Sent(std::sync::Arc::new(move |loaded, total| {
-        seen.lock().unwrap().push((loaded, total))
-    })));
+    request.sent = Some(Sent(
+        std::sync::Arc::new(move |loaded, total| seen.lock().unwrap().push((loaded, total))),
+        None,
+    ));
     let response = DarwinTransport::new().send(&request).unwrap();
     assert_eq!(response.status, 201);
     server.join().unwrap();

@@ -1097,25 +1097,6 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Whether an upload is in flight for resource `i` (LLP 1016.000 D10).
-    pub(super) fn uploading(&self, i: usize) -> bool {
-        (self.pending.iter()).any(|p| p.target == Target::Resource(i) && p.upload)
-    }
-
-    /// Whether resource `i`'s failure is an upload's, at the arguments it holds.
-    pub(super) fn upload_failed(&self, i: usize) -> bool {
-        (self.failed_args[i].as_ref())
-            .is_some_and(|a| matches!(self.upload_at(i, a), Some(super::UploadEnd::Failed(_))))
-    }
-
-    /// Whether resource `i`'s answer is an upload's, in flight, ended or
-    /// failed: nothing asks it again at its arguments (D10).
-    pub(super) fn upload_stands(&self, i: usize) -> bool {
-        self.uploading(i)
-            || (self.resources[i].as_ref()).is_some_and(|s| self.upload_at(i, &s.args).is_some())
-            || self.upload_failed(i)
-    }
-
     /// Whether resource `i` has a stream open that has delivered: it is not
     /// pending, but a newer answer must still let its ticket go.
     pub(super) fn streaming(&self, i: usize) -> bool {
@@ -1272,13 +1253,15 @@ impl<D: DataSource> Runner<D> {
         summary: &str,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let was_poisoned = self.poisoned;
+        // An upload's bytes sent: it has reached the network (D10), which a
+        // refused commit of this message does not undo.
+        let upload = self.pending[pos].upload;
+        self.pending[pos].sent |= upload;
         let checkpoint = self.checkpoint(true);
         if self.pending[pos].long_poll {
             self.long_poll_replied(pos);
         }
         let p = &mut self.pending[pos];
-        // An upload's bytes sent: it has reached the network (D10).
-        p.sent |= p.upload;
         if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
             count.messages += 1;
             count.coalesced += u64::from(m.coalesced);
