@@ -65,7 +65,8 @@ check('a held state is the real one, until real input, its disabling or its goin
   try {
     await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const settle = () => evaluate(`(document.getAnimations().forEach(a => a.finish()), new Promise(r => requestAnimationFrame(() => r())))`);
-    const face = async () => { await settle(); return evaluate(`getComputedStyle(document.getElementById('card')).backgroundColor`); };
+    // As rgb(), whichever form it computes to (the press paint's is its look beneath's).
+    const face = async () => { await settle(); return evaluate(`(c => c.replace(/color\\(srgb ([\\d.]+) ([\\d.]+) ([\\d.]+)\\)/, (_, ...v) => 'rgb(' + v.slice(0, 3).map(x => Math.round(x * 255)).join(', ') + ')'))(getComputedStyle(document.getElementById('card')).backgroundColor)`); };
     const hold = (id, state) => evaluate(`(r => ({ held: r.held ?? null, reason: r.reason ?? null, el: r.el?.id ?? null }))(exact.hold(document.getElementById('${id}'), ${JSON.stringify(state)}, reason => dropped.push(reason)))`);
     const dropped = () => evaluate('dropped.splice(0)');
     // The glue says it has loaded, once, its hold there to call (a hold sent while it loads waits for this).
@@ -74,7 +75,7 @@ check('a held state is the real one, until real input, its disabling or its goin
     // `active`, named on the label inside: the press of the node it resolves to, its paint shown.
     expect(await hold('label', 'active')).toEqual({ held: 'active', reason: null, el: 'card' });
     expect(await evaluate(`['data-pressed', 'data-exact-painting'].map(a => document.getElementById('card').hasAttribute(a))`)).toEqual([true, true]);
-    expect(await face()).toBe('color(srgb 0 0 1)');
+    expect(await face()).toBe('rgb(0, 0, 255)');
     expect((await evaluate('exact.heldOf(document.getElementById("card"))')).held).toEqual({ state: 'active', node: 3, site: null, rows: [{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }] });
     // With the runner's agent (the wasm page), its rows are the press's own as `layout` says them, with their
     // tokens, and the node is the press's.

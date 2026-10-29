@@ -726,7 +726,10 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     expect(await evaluate(`document.getElementById('painted').getAnimations().filter(a => a instanceof CSSTransition).length`)).toBe(2);
     await mouse('mousePressed', painted);
     await evaluate(`document.getAnimations().filter(a => !(a instanceof CSSTransition)).forEach(a => a.finish())`);
-    expect(await evaluate(`document.getElementById('painted').getAnimations().filter(a => a instanceof CSSTransition).length`)).toBe(2);
+    // The two running are still the authored ones, to the authored values: the paint going on started none of its own
+    // (an earlier paint, read through an animation's custom properties, had Chrome start both toward opacity 1 and
+    // transparent at every press).
+    expect(await evaluate(`JSON.stringify(document.getElementById('painted').getAnimations().filter(a => a instanceof CSSTransition).map(a => [a.transitionProperty, a.effect.getKeyframes().map(k => k.opacity ?? k.backgroundColor)]).sort())`)).toBe(JSON.stringify([['background-color', ['rgb(255, 255, 255)', 'rgb(255, 255, 0)']], ['opacity', ['0.8', '0.6']]]));
     await settle();
     const faded = (await look('painted')).split(' ');
     expect(faded.slice(1).join(' ')).toBe('rgb(0, 0, 255) rgb(255, 0, 0)');
@@ -744,27 +747,24 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     expect(await evaluate(`document.getElementById('painted').getAnimations().length`)).toBe(0);
     // The same under a main-thread stall: the authored transitions set and the press and release handled before any
-    // frame, so they are still pending when the paint goes on, and Chrome drops them. Taking the paint off then made
-    // Chrome start new transitions from the properties' initial values (opacity 1, transparent): the release eased
-    // toward that base and, the paint ended, the node showed it for the transition's second. Both the paint's base and
-    // every look on the way stay between the paint's and the authored values, never toward those initial values.
+    // frame. An earlier paint, read through an animation's custom properties, had Chrome replace them with transitions
+    // toward the properties' initial values (opacity 1, transparent), which the stall left showing for their second.
+    // Every look on the way stays between the paint's and the authored values, never toward those initial values.
     await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = 'background-color 1s linear, opacity 1s linear'; el.style.backgroundColor = 'rgb(255, 255, 0)'; el.style.opacity = '0.6'; getComputedStyle(el).opacity; setTimeout(() => { const end = performance.now() + 300; while (performance.now() < end); }, 0); }`);
     await Promise.all([mouse('mousePressed', painted), mouse('mouseReleased', painted)]);
     const stalled = await evaluate(`new Promise(ok => {
       const el = document.getElementById('painted'), seen = [], end = performance.now() + 3000;
       const look = () => {
-        const s = getComputedStyle(el), paint = el.getAnimations().find(a => !a.transitionProperty && a.effect.getKeyframes()[0]?.['--exact-press-base-opacity'] !== undefined), at = paint?.effect.getKeyframes()[0];
-        seen.push({ painting: el.hasAttribute('data-exact-painting'), look: rgb(s.opacity + ' ' + s.backgroundColor), base: at ? rgb(at['--exact-press-base-opacity'] + ' ' + at['--exact-press-base-background']) : null });
+        const s = getComputedStyle(el);
+        seen.push({ painting: el.hasAttribute('data-exact-painting'), look: rgb(s.opacity + ' ' + s.backgroundColor) });
         if (performance.now() > end || seen.filter(x => !x.painting).length > 5) ok(seen); else requestAnimationFrame(look);
       };
       look();
     })`);
-    // Spellings vary (rgb, color(srgb ...), oklab after a mix), so a look is read as its opacity and its background's alpha.
+    // Spellings vary (rgb, color(srgb ...)), so a look is read as its opacity and its background's alpha: any look
+    // between the paint's (0.4) and the authored (0.8 to 0.6), opaque.
     const parts = (said) => { const [o, ...c] = said.split(' '), bg = c.join(' '), a = /rgba\([^)]*,\s*([\d.]+)\)$/.exec(bg) ?? /\/\s*([\d.]+)\s*\)$/.exec(bg); return [parseFloat(o), a ? parseFloat(a[1]) : 1]; };
-    // The base on the authored segment (0.8 to 0.6, opaque); any look between the paint's (0.4) and the authored, opaque.
-    const based = (said) => { const [o, a] = parts(said); return o >= 0.599 && o <= 0.801 && a === 1; };
     const shown = (said) => { const [o, a] = parts(said); return o >= 0.399 && o <= 0.801 && a === 1; };
-    expect(stalled.filter(x => x.base !== null && !based(x.base)).map(x => x.base), 'the paint eases toward the authored base').toEqual([]);
     expect(stalled.filter(x => !shown(x.look)).map(x => x.look), 'never the initial values (opacity 1, transparent) on the way').toEqual([]);
     expect(stalled.some(x => !x.painting), 'the paint ended').toBe(true);
     await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = ''; el.style.backgroundColor = 'rgb(255, 255, 255)'; el.style.opacity = '0.8'; }`);
@@ -852,9 +852,39 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await evaluate(`{ const el = document.getElementById('inked'); el.style.setProperty('--exact-press-background-color', 'rgb(0, 0, 255)'); }`);
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     await evaluate(`document.getAnimations().filter(a => !(a instanceof CSSTransition)).forEach(a => a.finish())`);
+    // The authored transition, still running, shows above the paint (LLP 1061: the node's transitions are left alone),
+    // on its way to green; it ended, the paint shows.
+    expect(await evaluate(`document.getElementById('inked').getAnimations().filter(a => a instanceof CSSTransition).map(a => a.transitionProperty + ' ' + a.effect.getKeyframes().at(-1).backgroundColor).join()`)).toBe('background-color rgb(0, 255, 0)');
+    expect(await evaluate(`rgb(getComputedStyle(document.getElementById('inked')).backgroundColor)`)).not.toBe('rgb(0, 0, 255)');
+    await evaluate(`document.getElementById('inked').getAnimations().forEach(a => a.finish())`);
     expect(await evaluate(`rgb(getComputedStyle(document.getElementById('inked')).backgroundColor)`)).toBe('rgb(0, 0, 255)');
     await mouse('mouseReleased', inked);
     await settle();
+    // Each painting node's rule (its own important rule, in one adopted sheet) goes with its paint: none is left after
+    // the releases, nor for a node removed from the page mid-press.
+    const ended = (id) => evaluate(`new Promise(ok => { const el = document.getElementById('${id}'), end = performance.now() + 2000, look = () => { if (!el?.hasAttribute('data-exact-painting') || performance.now() > end) ok(); else requestAnimationFrame(look); }; look(); })`);
+    const rules = () => evaluate(`document.adoptedStyleSheets.reduce((n, s) => n + [...s.cssRules].filter(r => r.selectorText.includes('data-exact-painting')).length, 0)`);
+    await ended('inked');
+    expect(await rules()).toBe(0);
+    await mouse('mousePressed', painted);
+    await settle();
+    expect(await rules()).toBe(1);
+    await evaluate(`{ const el = document.getElementById('painted'); window.__spot = [el.parentElement, el.nextSibling]; window.__gone = el; el.remove(); }`);
+    await mouse('mouseReleased', painted);
+    await settle();
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    expect(await rules()).toBe(0);
+    await evaluate(`{ const [parent, next] = window.__spot; parent.insertBefore(document.getElementById('painted') ?? window.__gone, next); }`);
+    // An author's !important on a painted property is above the paint, as it was above the shell's rules.
+    await evaluate(`document.getElementById('painted').style.setProperty('opacity', '0.8', 'important')`);
+    await mouse('mousePressed', painted);
+    await settle();
+    expect(await look('painted')).toBe('0.8 rgb(0, 0, 255) rgb(255, 0, 0)');
+    await mouse('mouseReleased', painted);
+    await settle();
+    await ended('painted');
+    await evaluate(`document.getElementById('painted').style.setProperty('opacity', '0.8')`);
+    expect(await rules()).toBe(0);
   } finally {
     await close();
   }
