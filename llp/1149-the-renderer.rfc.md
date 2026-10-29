@@ -822,6 +822,23 @@ renderer's, to be argued phase by phase when S2 lands); one 304 ms startup outli
 the first frame is unlocalized; the RichEdit bound to Shelf's search field, DirectWrite's
 audit and lock and unlock are S2's next chunks.
 
+**S2.6, 2026-10-28** (`lane/ink-s2` at `d235bec1cc`): the two blind code reviews of S2.1 to
+S2.5 (GPT-6.1 Sol and Muse Wonder Full 1.0; the lane's `target/review-{sol,muse}-s2.md`)
+converged on holding the default flip until the failure paths worked, and S2.6 fixed eleven
+of their twelve items with tests: the boot fallback chain (hardware, then WARP, then the
+error, reported in `state`; forced on the NucBox), hardware recovery independent of WARP
+opening, the `fxc`-less stub's rerun trigger restored (unchanged `PATH`: 0 to 2,892 bytes of
+DXBC, where the old trigger stayed at 0), a latency-wait timeout treated as occlusion, Mica
+non-fatal, a retirement queue drained from non-present paths too, the atlas-ordering fix
+proven by a real-device test on all three layers, one function answering the device
+selection for every caller, the measurement prints gated, the obsolete scheduling check
+removed. It localized the repeating 300 ms startup tail: 207 of 330 ms is the Windows Shell
+jump-list setup before the first frame (`host/windows/src/jump_list.rs`), the device being
+ready at 64 ms. It stopped, at the three-round limit, on the bounded wait's CPU fallback (a
+bitmap child in the composition window stays black); S2.7 changes the approach: the
+fallback presents through WARP's composition swap chain, which exists as the recovery
+transport, and the jump list leaves the boot path.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
