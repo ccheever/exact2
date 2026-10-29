@@ -774,6 +774,16 @@ describe('paints', () => {
       { families, family, pal: { optionHighlight: 'highlight', optionSelected: 'selected' } });
     expect([fill('inter', families[1]!), fill('inter', families[0]!), fill('sf', families[0]!), fill('-', families[1]!)]).toEqual(['highlight', 'selected', 'highlight', '#00000000']);
   });
+  // ComboboxItem at sm and up: min-h-7, px-2 py-1 around a text-sm line, so 28pt rows; LegendList's 30 is an estimate.
+  test("the font picker's rows are ComboboxItem's 28pt", () => {
+    const picker = contractComponent('settings-a-fonts.contract', 'FontFamilyPicker');
+    const families = [{ id: 'sf', label: 'SF Pro', value: '', selected: true, detail: '' }];
+    const scope = { families, family: families[0], pal: {} };
+    const row = (attr: string) => picker.attribute('role="option" aria-selected=family.selected', attr, { query: '', cursor: '' }, scope);
+    expect(['min-height', 'padding-top', 'padding-bottom', 'padding-left', 'padding-right'].map(row)).toEqual(['1.75rem', '0.25rem', '0.25rem', '0.5rem', '0.5rem']);
+    expect(() => row('height')).toThrow('has no height');
+    expect(picker.attribute('text family.label font-family=family.detail', 'line-height', { query: '', cursor: '' }, scope)).toBe('1.25rem');
+  });
 });
 
 // A stacked provider row's select fills the row (ProviderSettingsSelect `w-full`, `w-56` beside the title).

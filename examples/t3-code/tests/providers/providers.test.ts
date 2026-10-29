@@ -4,6 +4,7 @@ import { withUpkeep, versionAdvisoryPresentation } from '../../src/providers/pro
 import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, validateInstanceId, providerInstanceInitials } from '../../src/providers/providers-meta';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
+import { existsSync } from 'node:fs';
 import { appPath, appText } from '../support/app-files';
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
@@ -353,6 +354,14 @@ test('fx: its mark, its display name and the search terms that find it', () => {
   expect(DRIVER_MARKS.FxDriverMark).toMatch(/^<svg viewBox="166\.241 0 155\.861 156" [^>]*color="light-dark\(#0F0F0F, #F5F5F5\)">/);
   expect(PROVIDER_DISPLAY_NAMES.fx).toBe('fx');
   expect(searchSettings('fx', { connected: true, autoSettle: true, scopeKind: 'environment' }).map(item => item.id)).toEqual(expect.arrayContaining(['providers', 'provider-update-checks']));
+});
+
+// AntigravityIcon is a PNG (Icons.tsx embeds it); DriverMark draws the same file from the app's assets/, by its path.
+test("Antigravity's mark is the bundled PNG it names", () => {
+  const props = { driver: 'antigravity', size: 16, initials: 'AG', icon: '' };
+  const mark = contractComponent('provider-icons-kit.contract', 'DriverMark');
+  expect([mark.drawn('image "assets/provider-antigravity.png"', {}, props), mark.drawn('text initials', {}, props)]).toEqual([true, false]);
+  expect(existsSync(appPath('assets/provider-antigravity.png'))).toBe(true);
 });
 
 // ProviderSettingsSelect in Add provider's Config step, as on the instance's editor: a select, not a row of radios.

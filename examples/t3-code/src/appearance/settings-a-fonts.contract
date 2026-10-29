@@ -76,8 +76,9 @@ component FontFamilyPicker
           column padding="0.25rem" width="100%" box-sizing="border-box"
             if matches.length == 0
               text "No fonts found." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color=pal.muted testId=`font-picker-${rowId}-empty` id=`font-picker-${rowId}-empty` data-paint="mutedForeground" data-pick="mutedForeground"
+            // ComboboxItem: sm:min-h-7 px-2 py-1 around a text-sm line, 28pt (the list's 30pt is LegendList's estimate).
             for family in matches key=family.id
-              button press=pickRow(family.id) hover=hoverRow(family.id) role="option" aria-selected=family.selected id=`font-picker-${rowId}-option-${family.id}` testId=`font-picker-${rowId}-${family.id}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="0.5rem" width="100%" height="1.875rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(highlight == family.id ? pal.optionHighlight : family.selected ? pal.optionSelected : "#00000000")
+              button press=pickRow(family.id) hover=hoverRow(family.id) role="option" aria-selected=family.selected id=`font-picker-${rowId}-option-${family.id}` testId=`font-picker-${rowId}-${family.id}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="0.5rem" width="100%" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(highlight == family.id ? pal.optionHighlight : family.selected ? pal.optionSelected : "#00000000")
                 text family.label font-family=family.detail font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 min-width=0 flex=1 text-align="left" id=`paint-FontFamilyPicker-7-${rowId}-${family.id}` data-paint="text" data-pick="text"
                 row gap="0.375rem" align-items="center" flex-shrink=0
                   if family.value == ""
