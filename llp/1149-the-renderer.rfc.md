@@ -903,6 +903,18 @@ recovery and retunes the bound to what was measured: the first frame waits for t
 device up to a bound just above the cold case, and WARP is the fallback only past it or on a
 failure, since the detour cost more than the cold path it was meant to hide.
 
+**S2.9, 2026-10-28** (`aa474f525b`): wgpu device loss now repaints on the CPU;
+both devices pass all six native journeys, the pinned suites and `exact-windows` tests.
+The hardware deadline is 300 ms from process creation. All 40 measured normal launches
+and both cold-cache launches stay on hardware; the cold screens display at 250 and 247 ms.
+The earlier three S2.8b launches opened WARP but displayed their first complete screen on
+AMD hardware. Their two largest stalls precede data activation and the jump-list thread,
+between runner boot and layout completion. The blocking call remains unproven after three
+trace runs that did not reproduce the stall. Two S2.9 maxima still exceed softbuffer's by
+more than 10% (209 versus 153 ms, 197 versus 137 ms), so the branch is not ready to land.
+`host/ink/MEASUREMENTS.md`, “S2.9”, gives the complete series and verbatim test results;
+§8 carries the proposed Windows exception.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
@@ -1254,6 +1266,11 @@ control arm) were decided before S0 and stand on its numbers.
   per platform, with the numbers S0 (Metal, DirectX 11) and S3 (Vulkan, the minisforum's first
   launch) measure written into the entry, and names the budget each is held to. It is written
   when those numbers exist, not before.
+- **Windows, proposed (S2.9):** admit the driver's compilation from shipped DXBC at launch
+  (2.7 ms warm; about 110 ms additional compilation with a cold driver cache, the complete
+  screen displayed at 251–255 ms against 142 ms warm on the NucBox), preparing hardware
+  asynchronously and waiting until 300 ms from process entry before WARP is opened, or
+  opening WARP immediately when hardware fails.
 - Unchanged: a canvas's module compiles at first use, after first pixel (LLP 1009 D5); games
   stay on wgpu and the wasm target; the GPU module's ABI (`gpu/README.md`).
 - Separate commitments (§5 Q24): S0's prototype; the Apple carrier; the painted web; the

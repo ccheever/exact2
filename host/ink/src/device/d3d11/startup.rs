@@ -4,7 +4,7 @@ use super::*;
 use std::sync::{mpsc, Arc};
 
 // NucBox S2.8b: a driver-cache-cold screen displayed at 251–255 ms;
-// the 100 ms bound opened WARP unnecessarily and cost up to 380 ms displayed.
+// the 100 ms bound opened WARP in three of ten retained-store launches.
 const STARTUP_DEVICE_BUDGET: Duration = Duration::from_millis(300);
 
 type Arrival = (bool, Option<Result<Prepared>>);
