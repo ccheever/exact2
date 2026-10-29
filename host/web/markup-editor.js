@@ -215,10 +215,10 @@ function installMarkupEditor(textarea, host) {
     showPlaceholder();
   }
   function read() { source = utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_source(h), wasm.mde_source_len(h))); }
-  /** Each atom's kind, label, icon, title, role, destination, source and its face's paint, in source order (`mde_atom_faces`). */
+  /** Each atom's kind, label, icon, title, role, destination, source and its face's paint and direction, in source order (`mde_atom_faces`). */
   function atomFaces() {
     const out = [], lines = text(wasm.mde_atom_faces(h)).split('\n');
-    for (let k = 0; k + 9 < lines.length; k += 10) { const [kind, label, icon, title, role, href, src, color, backgroundColor] = lines.slice(k, k + 9); out.push({ kind, label, icon, title, role, href, source: src, color, backgroundColor }); }
+    for (let k = 0; k + 10 < lines.length; k += 11) { const [kind, label, icon, title, role, href, src, color, backgroundColor, direction] = lines.slice(k, k + 10); out.push({ kind, label, icon, title, role, href, source: src, color, backgroundColor, direction }); }
     return out;
   }
   /** The field's `atoms` and `atomFaces` into the editor (LLP 1045.000 D2), and its kinds' paint; a change redraws. */

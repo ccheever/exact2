@@ -62,20 +62,25 @@ final class NativeTaskTimers {
         queue.removeAll { entries[$0.row.index] !== $0.entry }
         resume()
     }
-    func resume() {
+    func resume(after delay: Double = 0) {
         guard hasReady, !notification else { return }
         notification = true
-        DispatchQueue.main.async { [weak self] in
+        let ask = { [weak self] in
             guard let self else { return }
             self.notification = false
             if self.hasReady { self.ready() }
         }
+        if delay > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: ask) } else { DispatchQueue.main.async(execute: ask) }
     }
     func take() -> Delivery? { queue.isEmpty ? nil : queue.removeFirst() }
     func complete(_ delivery: Delivery, retry: Bool) {
         let entry = delivery.entry
         guard entries[entry.row.index] === entry else { resume(); return }
-        if retry { queue.insert(delivery, at: 0); return }
+        // A busy or held answer keeps the firing at the front and asks for it again, a frame later: its entry stays
+        // pending, so no later firing of the timer is queued, and a retry left for another batch to resume would stop
+        // the task in an idle app until something else happened. (A frame later, not at once: a busy answer inside a
+        // nested run loop would otherwise ask again on every turn of it.)
+        if retry { queue.insert(delivery, at: 0); resume(after: 1.0 / 60); return }
         entry.pending = false
         resume()
     }

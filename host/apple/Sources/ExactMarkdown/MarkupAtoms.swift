@@ -5,7 +5,9 @@
 // lives, §5.1), and the rest as word joiners; the reader draws an atom's
 // piece as its label on an inline box's background. The pill looks like the
 // platform's token: NSTokenField's on macOS, UISearchTextField's on iOS (D4),
-// unless its face or its kind gives a colour, the face's first (D4).
+// unless its face or its kind gives a colour, the face's first (D4). It lays
+// out its icon and then its label in its line's direction, or in the one its
+// face pins (D4).
 #if canImport(UIKit)
 import UIKit
 typealias AtomImage = UIImage
@@ -153,7 +155,7 @@ final class AtomAttachment: NSTextAttachment {
         let plainInk = atom.ink.map(TextEngine.color) ?? attributes[.foregroundColor] as? UIColor ?? .label
         #endif
         let ink = atom.selected && atom.emphasized ? selectedInk : plainInk
-        let symbol = icon(face.capHeight)
+        let symbol = icon(face.capHeight), rtl = atom.rightToLeft(in: attributes)
         let draw = { (rect: CGRect) in
             let radius = min(rect.height / 2, face.pointSize * 0.3)
             (atom.selected ? selected : fill).setFill()
@@ -162,11 +164,12 @@ final class AtomAttachment: NSTextAttachment {
             #else
             UIBezierPath(roundedRect: rect, cornerRadius: radius).fill()
             #endif
-            var x = rect.minX + Self.padding * face.pointSize
+            // The icon first, then the label, from the pill's leading edge.
+            var lead = rect.minX + Self.padding * face.pointSize, trail = rect.maxX - Self.padding * face.pointSize
             let line = face.ascender - face.descender, top = rect.minY + (rect.height - line) / 2
             if let symbol {
                 let side = face.capHeight, baseline = top + face.ascender
-                let frame = CGRect(x: x, y: baseline - side, width: side, height: side)
+                let frame = CGRect(x: rtl ? trail - side : lead, y: baseline - side, width: side, height: side)
                 #if os(macOS)
                 symbol.isTemplate = true
                 let tinted = NSImage(size: frame.size, flipped: false) { r in symbol.draw(in: r); ink.set(); r.fill(using: .sourceAtop); return true }
@@ -174,11 +177,12 @@ final class AtomAttachment: NSTextAttachment {
                 #else
                 symbol.withTintColor(ink, renderingMode: .alwaysOriginal).draw(in: frame)
                 #endif
-                x += side + face.pointSize * 0.25
+                if rtl { trail -= side + face.pointSize * 0.25 } else { lead += side + face.pointSize * 0.25 }
             }
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail
-            let label = CGRect(x: x, y: top, width: max(0, rect.maxX - Self.padding * face.pointSize - x), height: line)
+            style.baseWritingDirection = rtl ? .rightToLeft : .leftToRight
+            let label = CGRect(x: lead, y: top, width: max(0, trail - lead), height: line)
             (atom.label as NSString).draw(with: label, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
                                           attributes: [.font: face, .foregroundColor: ink, .paragraphStyle: style], context: nil)
         }
@@ -194,8 +198,18 @@ final class AtomAttachment: NSTextAttachment {
 }
 
 extension MarkupAtom {
-    /// The atom of a styling row `[start, end, kind, label, icon, title, role, href, ink, background]`,
-    /// its face's paint over its kind's.
+    /// Whether its pill lays out right to left (D4): its face's direction,
+    /// else its line's, the base direction of the paragraph it is drawn in.
+    func rightToLeft(in attributes: [NSAttributedString.Key: Any]) -> Bool {
+        switch direction {
+        case "ltr": return false
+        case "rtl": return true
+        default: return (attributes[.paragraphStyle] as? NSParagraphStyle)?.baseWritingDirection == .rightToLeft
+        }
+    }
+
+    /// The atom of a styling row `[start, end, kind, label, icon, title, role, href, ink, background,
+    /// direction]`, its face's paint over its kind's.
     static func of(_ row: [Any], paint: [String: (ink: [Double]?, background: [Double]?)], selection: NSRange, atoms: MarkdownAtoms) -> (NSRange, MarkupAtom)? {
         guard row.count >= 8, let start = row[0] as? Int, let end = row[1] as? Int, end > start else { return nil }
         let text = { (i: Int) in row[i] as? String ?? "" }
@@ -204,6 +218,7 @@ extension MarkupAtom {
         let selected = selection.length > 0 && selection.location <= start && end <= NSMaxRange(selection)
         return (range, MarkupAtom(kind: kind, label: text(3), icon: text(4), title: text(5), role: text(6), href: text(7),
                                   ink: face(8) ?? paint[kind]?.ink, background: face(9) ?? paint[kind]?.background, selected: selected,
-                                  emphasized: atoms.emphasized, dark: atoms.dark, contrast: atoms.contrast))
+                                  emphasized: atoms.emphasized, dark: atoms.dark, contrast: atoms.contrast,
+                                  direction: row.count > 10 ? text(10) : ""))
     }
 }

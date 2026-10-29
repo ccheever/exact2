@@ -212,7 +212,7 @@ private final class MarkdownExpansion: TextPresentation {
     func checkpoint() -> () -> Void { {} }
     func controlFont(_ engine: TextEngine, size: CGFloat, weight: Int, family: Int, italic: Bool) -> PlatformFont? { nil }
     func measure(_ engine: TextEngine, _ request: ExactMeasureRequest) -> ExactMetrics? { nil }
-    func markdown(_ engine: TextEngine, source: Run, atoms: String, faces: String) -> [Run]? {
+    func markdown(_ engine: TextEngine, source: Run, atoms: String, faces: String, rtl: Bool) -> [Run]? {
         expansions += 1
         var run = source; run.text = source.text.replacingOccurrences(of: "**", with: ""); return [run]
     }

@@ -7,7 +7,9 @@
 /** An inline atom's pill (D4, D8): modeled on the macOS token, one line at
  * the line's text height, its label cut with an ellipsis at the line's width;
  * its kind's `color` and `background-color` (`css`) win, and its face's
- * (`a.color`, `a.backgroundColor`) over those. A button, or a link as
+ * (`a.color`, `a.backgroundColor`) over those. It lays out its icon and then
+ * its label in its line's direction, which it inherits, or in the one its
+ * face pins (`a.direction`, `ltr` or `rtl`). A button, or a link as
  * declared, named by its label and described by its title; its icon is not
  * read. `editing` makes it the editor's island: no tab stop, no source of its
  * own. Its `data-atom-*` attributes are what a press reports. */
@@ -22,6 +24,7 @@ export function atomBox(a, css = '', editing = false) {
   set('title', a.title);
   if (editing) box.contentEditable = 'false';
   else box.tabIndex = 0;
+  if (a.direction === 'ltr' || a.direction === 'rtl') box.dir = a.direction;
   box.style.cssText = 'display:inline-block;box-sizing:border-box;max-width:100%;vertical-align:bottom;overflow:hidden;text-overflow:ellipsis;'
     + 'white-space:nowrap;text-indent:0;padding:0 .3em;border-radius:.3em;background-color:light-dark(#e1e7f3,#3b4252);color:inherit;'
     + 'cursor:default;user-select:none;-webkit-user-select:none;' + css;
@@ -31,22 +34,23 @@ export function atomBox(a, css = '', editing = false) {
   if (a.icon && !a.icon.startsWith('symbol:')) {
     const img = box.appendChild(document.createElement('img'));
     img.src = a.icon; img.alt = ''; img.setAttribute('aria-hidden', 'true');
-    img.style.cssText = 'width:.75em;height:.75em;margin-inline-end:.25em;vertical-align:baseline;object-fit:contain';
+    // Inline before the label, over the page's `img { display: block }` (index.html).
+    img.style.cssText = 'display:inline-block;width:.75em;height:.75em;margin-inline-end:.25em;vertical-align:baseline;object-fit:contain';
   }
   box.append(a.label);
   return box;
 }
 
 /** A reader piece's pill: its detail `[kind, role, icon, title, href,
- * source, start, end, color, backgroundColor]`, its label `text`, in the
- * piece's scale, weight and flags (italic 1, strike 4), its kind's paint
- * from the text's `data-atom-styles` and its face's over it. */
+ * source, start, end, color, backgroundColor, direction]`, its label `text`,
+ * in the piece's scale, weight and flags (italic 1, strike 4), its kind's
+ * paint from the text's `data-atom-styles` and its face's over it. */
 export function readerAtom(el, text, detail, scale = 1, weight = 0, flags = 0) {
-  const [kind, role, icon, title, href, source, start, end, color = '', backgroundColor = ''] = detail;
+  const [kind, role, icon, title, href, source, start, end, color = '', backgroundColor = '', direction = ''] = detail;
   let styles = {};
   try { styles = JSON.parse(el.getAttribute('data-atom-styles') || '{}'); } catch {}
   presses(el);
-  const box = atomBox({ kind, role, label: text, icon, title, href, source, start, end, color, backgroundColor }, styles[kind] ?? '');
+  const box = atomBox({ kind, role, label: text, icon, title, href, source, start, end, color, backgroundColor, direction }, styles[kind] ?? '');
   if (scale !== 1) box.style.fontSize = `${scale}em`;
   if (weight) box.style.fontWeight = weight;
   if (flags & 1) box.style.fontStyle = 'italic';
@@ -112,7 +116,8 @@ export function rangeFrame(el, start, end) {
     const s = Number(box.dataset.atomStart), e = Number(box.dataset.atomEnd), r = box.getBoundingClientRect();
     if (start === end) {
       if (start !== s && start !== e) continue;
-      const rtl = getComputedStyle(box).direction === 'rtl', x = (start === s) !== rtl ? r.left : r.right;
+      // The line's direction, not the pill's own, which its face may pin.
+      const rtl = getComputedStyle(box.parentElement).direction === 'rtl', x = (start === s) !== rtl ? r.left : r.right;
       return new DOMRect(x, r.top, 0, r.height);
     }
     if (!(s < end && start < e)) continue;

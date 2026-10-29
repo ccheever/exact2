@@ -277,7 +277,7 @@ typedef struct ExactMarkupPiece {
     const uint8_t *href; size_t href_len; /* a link's target; null when none */
     float indent;                       /* CSS px: the head indent of the paragraph it is in (a list item's) */
     uint8_t hang;                       /* 1: a list marker, hung before the indent, its end at it */
-    const uint8_t *atom; size_t atom_len; /* LLP 1045.000 D6: an inline atom's JSON {kind,role,icon,title,href,source,start,end,color,background}, its text the label, its colours its face's paint in the colour wire form (null for the kind's); null otherwise */
+    const uint8_t *atom; size_t atom_len; /* LLP 1045.000 D6: an inline atom's JSON {kind,role,icon,title,href,source,start,end,color,background,direction}, its text the label, its colours its face's paint in the colour wire form (null for the kind's), its direction its face's (ltr, rtl, or empty for its line's); null otherwise */
 } ExactMarkupPiece;
 /* LLP 1045.000 D2: a node's `atoms` and `atomFaces` JSON, parsed once; pass the handle (0 for none)
  * to the calls below that take `atoms`, and free it with exact_markup_free. */

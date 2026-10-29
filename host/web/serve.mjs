@@ -1167,6 +1167,19 @@ export function alsoOnIPv6Loopback(server, port) {
   });
 }
 
+/** TEST ONLY: a dev loop's wait before it listens, so a test shows its
+ * 'plan ready' never comes before the server answers (the gap a loaded
+ * machine opened, the agent then navigating to a refused connection).
+ * EXACT_DEV_LISTEN_DELAY_MS, read only under EXACT_TEST_TIMING=1, a whole
+ * number of ms from 1 to 60000, said on stderr; anything else is ignored. */
+export async function listenDelay(env = process.env) {
+  if (env.EXACT_TEST_TIMING !== '1') return;
+  const said = env.EXACT_DEV_LISTEN_DELAY_MS, ms = /^\d+$/.test(said ?? '') ? Number(said) : NaN;
+  if (!(ms >= 1 && ms <= 60_000)) return;
+  console.error(`dev: TEST delay ${ms} ms before listening (EXACT_TEST_TIMING=1)`);
+  await new Promise(ok => setTimeout(ok, ms));
+}
+
 /** Whether `port` is free on IPv6's loopback too (no IPv6: yes). */
 export const freeOnIPv6Loopback = (port) => new Promise((ok) => {
   const t = createSocketServer();

@@ -24,6 +24,7 @@ mod layout_refusal;
 mod live;
 mod paint;
 mod presence;
+mod reset_gate;
 mod segments;
 mod symbol;
 mod textflow;
