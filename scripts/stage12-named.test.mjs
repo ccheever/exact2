@@ -237,6 +237,12 @@ test("web-wasm's image-raster rule: at most 4 levels inside an Image box laid ou
   const both = img(8, 8, (x, y) => (y === 3 && x >= 2 && x <= 5 ? by(3) : black()));
   const ordered = pixelDiff(a, both, [[2, 3, 1, 1]], { floor: 2, edge: 32 }, [{ target: 'n', change: '', rect: [3, 3, 1, 1] }], [[2, 2, 4, 4]]);
   expect([ordered.differ, ordered.names[0].differ, ordered.images[0].count]).toEqual([0, 1, 2]);
+  // An edge pixel inside an image box, within the web's floor, is the image rule's (counted, cropped), not the floor's
+  const edgy = img(8, 8, x => (x < 4 ? [0, 0, 0, 255] : [200, 200, 200, 255]));
+  const nudged = img(8, 8, (x, y) => (x === 3 && y === 4 ? [2, 2, 2, 255] : x < 4 ? [0, 0, 0, 255] : [200, 200, 200, 255]));
+  const atEdge = pixelDiff(edgy, nudged, [], { floor: 2, edge: 32 }, [], [[2, 2, 4, 4]]);
+  expect([atEdge.differ, atEdge.images[0].count, atEdge.images[0].max]).toEqual([0, 1, 2]);
+  expect(pixelDiff(edgy, nudged, [], { floor: 2, edge: 32 }).differ).toBe(0);
 });
 
 test('only web-wasm shots take the image rule, through comparePixels, and its crops are written', () => {
