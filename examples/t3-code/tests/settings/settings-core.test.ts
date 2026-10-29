@@ -756,6 +756,11 @@ describe('model picker shortcut presses', () => {
       root.call('selectModel', state, { command: () => { took = true; return {}; }, restRaw: () => { took = true; }, focus: () => {}, catalog: { multiple: false } }, ['gpt-6', 'codex', false]);
       expect([target, commandPending, value(rule, { modelTarget: { id: target }, commandPending })]).toEqual([target, commandPending, took || state.taskModelPick !== '']);
     }
+    // The rule names exactly the targets selectModel branches on, read from selectModel itself.
+    const text = appText('app.contract'), from = text.indexOf('  action selectModel(');
+    const body = text.slice(from, text.indexOf('\n  action ', from + 1));
+    const prefixes = (code: string) => [...new Set([...code.matchAll(/modelTarget\.id\.startsWith\("([^"]+)"\)/g)].map(m => m[1]!))].sort();
+    expect(prefixes(rule)).toEqual(prefixes(body));
   });
   // ModelPickerContent's announce blocks nothing (ModelPickerContent.tsx:779-795).
   test('an announcement waits for no command and refreshes only the shell: quick presses are each announced, and a pick right after is sent', () => {
@@ -841,6 +846,11 @@ describe('select sizes', () => {
     const sk = contractComponent('settings-kit.contract', 'SkPopup');
     expect(sk.attribute('column id=menuId', 'min-width', {}, { width: 481, endAlign: 0, menuId: 'm', invoker: 'i', label: '', list: true, items: [], keyed: 0 })).toBe(481);
     expect(appText('settings-kit.contract')).toContain('button popovertarget=`${selectId}-menu` press=measure focus=measure key=triggerKey role="combobox"');
+    // Opened from the keys it measures again, so a trigger that grew with the window or the zoom sizes its popup.
+    const keyed: Obj = { anchorWidth: 481 }, opened: unknown[][] = [];
+    select.call('triggerKey', keyed, { ...scope(0), frame: () => ({ width: 600 }), kmTriggerKey: () => true, kmTriggerTarget: () => '', preventDefault: () => {}, stopPropagation: () => {},
+      showPopover: (...args: unknown[]) => opened.push([keyed.anchorWidth, ...args]), focus: () => {} }, ['ArrowDown', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false }]);
+    expect([keyed.anchorWidth, select.callArguments('SkPopup(', keyed, scope(0)).width, opened.length]).toEqual([600, 600, 1]);
   });
   test('a select of width 0 fills its row; a provider field passes 0 once its row stacks', () => {
     const select = contractComponent('settings-kit.contract', 'SelectControl');

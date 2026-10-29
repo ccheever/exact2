@@ -310,7 +310,8 @@ members T3Code
     if what == "hub-remove" or what == "setup-logout" or what == "setup-remove" or what == "codex-picker" or what == "acp-delete" or what == "acp-disable"
       providerDialog = what
       providerTarget = value
-    // Enter manually and Search registry keep the ACP Registry (handleManualAcpConfiguration); a configuration by hand,
+    // Enter manually keeps the ACP Registry (handleManualAcpConfiguration), and so does Search registry, whose inline
+    // onClick (AddProviderInstanceDialog.tsx:517-520) only leaves the configuration by hand. A configuration by hand,
     // the local command's too, drops an agent added before it (selectedAcp = null), which the wizard's answer forgets.
     if what == "driver" or what == "manual"
       wizardDriver = what == "driver" ? value : "acpRegistry"

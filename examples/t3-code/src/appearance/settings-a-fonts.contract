@@ -73,7 +73,7 @@ component FontFamilyPicker
               ::placeholder
                 color=pal.muted
         // The list is 30pt an item (FontFamilyPicker's LegendList height, items × 30) inside ComboboxListVirtualized's py-1,
-        // to max-h-72, so a short list keeps 2pt under each 28pt row.
+        // to max-h-72. Its 28pt rows touch, so a short list's spare 2pt an item collects below the last row.
         scroll height=(matches.length == 0 ? "auto" : `${min(matches.length * 30 + 8, 288) / 16}rem`) max-height="18rem" width="100%"
           column padding="0.25rem" width="100%" box-sizing="border-box"
             if matches.length == 0

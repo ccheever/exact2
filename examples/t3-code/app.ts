@@ -188,7 +188,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'settingsBPicker') return iconPicker(client, native, String(args[0] || ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] || ''), String(args[5] || ''), Number(args[6]) || 0, String(args[7] ?? '')); // settings-b-icons.ts
   // Settings › Providers shows the environment its scope chose (providers-scope.ts): the page's reads and its actions' args[4] name it.
   if (source === 'providerPage') return scopedProviderPage(client, native, args); // args[4..7]: the settings scope
-  if (source === 'providerWizard') return scopedProviderWizard(client, native, args); // args[8..9]: the dialog and its target (the ChatGPT dialogs); args[10]: the page's environment
+  if (source === 'providerWizard') return scopedProviderWizard(client, native, args); // args[8..9]: the dialog and its target (the ChatGPT dialogs); args[10]: the page's environment; args[11]: the agent epoch
   if (source === 'acpRegistry') return scopedAcpRegistry(client, native, args);
   // Updates, Update all, ACP management, the custom model editor (providers-upkeep.ts).
   if (source === 'providerChange' && String(args[0] || '').startsWith('upkeep:')) { if (native?.available) await scopedUpkeepOp(client, native, args); return { revision: ++client.revision, message: '', relaunch: false, routeReorder: 0 }; }

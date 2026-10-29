@@ -201,7 +201,10 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
       selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
       projects: [{ id: 'project' }], environments: [{ id: 'env' }], environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
-      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger' };
+      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger',
+      frame: () => ({ x: 0, y: 0, width: 600, height: 28 }) };
+    // SelectControl measures its trigger as the keys open it (SelectPopup's min-w-(--anchor-width)).
+    const state = (): Env => (name === 'SelectControl' ? { anchorWidth: 0 } : {});
     const popup = value(command[1]!, scope), sourceId = value(command[2]!, scope);
     expect(sourceId).not.toBe(popup);
     const triggerOwner = name === 'ThreadRow' ? await component(file, 'SidebarCardActions') : body;
@@ -219,22 +222,22 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const keys = name === 'AddMachineSubmenu' ? ['Enter', ' ', 'Space', 'ArrowRight'] : submenu(name) ? ['Enter', ' ', 'Space'] : ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space'];
     for (const key of keys) {
       calls.length = 0;
-      owner.call(action, {}, scope, [key, event()]);
+      owner.call(action, state(), scope, [key, event()]);
       expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ...prep, ['showPopover', popup, { source: sourceId }], ['focus', key === 'ArrowUp' ? 'again' : 'alpha']]);
       calls.length = 0;
-      owner.call(action, {}, scope, [key, event({ repeat: true })]);
+      owner.call(action, state(), scope, [key, event({ repeat: true })]);
       expect(calls).toEqual([['preventDefault'], ['stopPropagation']]);
       for (const modifier of ['metaKey', 'ctrlKey', 'altKey', 'shiftKey']) {
         calls.length = 0;
-        owner.call(action, {}, scope, [key, event({ [modifier]: true })]);
+        owner.call(action, state(), scope, [key, event({ [modifier]: true })]);
         expect(calls).toEqual([]);
       }
-      owner.call(action, {}, { ...scope, [itemName]: [] }, [key, event()]);
+      owner.call(action, state(), { ...scope, [itemName]: [] }, [key, event()]);
       expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ...prep, ['showPopover', popup, { source: sourceId }]]);
     }
     for (const key of ['Escape', 'Tab', 'Home', 'End', 'a', ...(submenu(name) ? ['ArrowDown', 'ArrowUp'] : [])]) {
       calls.length = 0;
-      owner.call(action, {}, scope, [key, event()]);
+      owner.call(action, state(), scope, [key, event()]);
       expect(calls).toEqual([]);
     }
   });

@@ -253,7 +253,8 @@ test('Add provider: past the ACP Registry, Next waits for an agent, a hand-enter
   go({ ...byHand, f1: '' }, true, [], 'next'); // by hand, no ID
   go(byHand, true, [], 'next');
   go(local, false, [], 'back', 1);
-  expect(sent).toEqual([['blocked', ''], ['blocked', ''], ['step', 'next'], ['blocked', ''], ['step', 'next'], ['blocked', ''], ['step', 'next'], ['step', 'back']]);
+  go(local, false, [], '0'); // the Provider header on the Provider step: no error (logic.ts, targetStep > prerequisite.step)
+  expect(sent).toEqual([['blocked', ''], ['blocked', ''], ['step', 'next'], ['blocked', ''], ['step', 'next'], ['blocked', ''], ['step', 'next'], ['step', 'back'], ['step', '0']]);
   // The block marks the attempt (the window's half), which shows the prerequisite's own words, under the form or the search.
   const attempt: Obj = { wizardAttempted: false };
   contractComponent('app-window.contract', 'T3Window').call('providerUi', attempt, { wizardStep: 0, wizardManual: true, providerWizard: { idError: '' },
@@ -261,7 +262,9 @@ test('Add provider: past the ACP Registry, Next waits for an agent, a hand-enter
   expect(attempt.wizardAttempted).toBe(true);
   const source = appText('providers-wizard.contract');
   expect(source).toContain('derive selectionError = not isAcp ? "" : (localAcp ? (f2.trim() == "" ? "Executable is required." : "") : (wizard.prepared.length > 0 or (manual and f1.trim() != "") ? "" : "Select an ACP or configure one manually."))');
-  expect(source.split('if attempted and selectionError != ""\n').length).toBe(3);
+  // Both places say the prerequisite's own words, as plain text, which no screen reader announces (upstream's <p>).
+  expect(source.match(/if attempted and selectionError != ""\n\s+text selectionError font-size="0\.6875rem" color="light-dark\(#e7000b, #ff6467\)" testId="acp-selection-error"\n/g)).toHaveLength(2);
+  expect(source).not.toContain('role="alert" testId="acp-selection-error"');
   expect(source.split('go=go)').length).toBe(4);
   expect(source.split('button press=go("step", "next")').length).toBe(3);
   // A provider picked from the search takes none of the local draft.
@@ -270,14 +273,38 @@ test('Add provider: past the ACP Registry, Next waits for an agent, a hand-enter
   expect([picked.f0, picked.f2, picked.commandArgs]).toEqual(['', '', []]);
 });
 
+// applyWizardNavigation: an agent from the registry has no Sign in step before its instance exists, so the Sign in
+// header (or any step past Identity) saves it; an invalid ID stops on Identity through the root, and a configuration by
+// hand, local or not, goes on as before.
+test("Add provider's Sign in header saves an agent from the registry, as Continue to sign-in does", () => {
+  const dialog = contractComponent('providers-wizard.contract', 'AddProviderDialog');
+  const run = (step: number, prepared: Obj[], idError = '', manual = false, f0 = '') => {
+    const calls: unknown[][] = [];
+    dialog.call('go', { f0, f1: manual ? 'devin' : '', f2: 'dsh', f3: '', f4: '', commandArgs: [], accent: '', published: [], variables: [] },
+      { wizard: { driver: 'acpRegistry', prepared, idError, label: 'Devin', instanceId: 'acpRegistry_devin' }, manual, step, labelSet: false, label: '', idSet: false, id: '',
+        ui: (...args: unknown[]) => calls.push(['ui', ...args]), add: (...args: unknown[]) => calls.push(['add', ...args]) }, ['step', '2']);
+    return calls;
+  };
+  const devin = [{ id: 'devin' }];
+  expect(run(1, devin)).toEqual([['add', 'acpRegistry', 'Devin', 'acpRegistry_devin', '', ['', '', '', '', ''], [], []]]);
+  expect(run(0, devin)).toEqual([['add', 'acpRegistry', 'Devin', 'acpRegistry_devin', '', ['', '', '', '', ''], [], []]]);
+  expect(run(1, devin, 'An instance named \'acpRegistry_devin\' already exists.')).toEqual([['ui', 'step', '2']]);
+  expect(run(0, [])).toEqual([['ui', 'blocked', '']]);
+  expect(run(1, [], '', true, 'local')).toEqual([['ui', 'step', '2']]); // the local command: two steps, no Sign in
+});
+
 // The add's press: an agent added from the search brings its own config (handleAcpPrepared), so only a configuration by
 // hand sends the fields, which the root then reads for a local command; the variables are the published set.
 test("Add provider: the add sends a hand configuration's fields and its published variables", () => {
-  const line = appText('providers-wizard.contract').split('\n').find(entry => entry.includes('testId="create-provider"'))!;
-  const press = line.slice(line.indexOf('press=') + 6, line.indexOf(' class=PvPrimary'));
-  const args = (manual: boolean, f0: string) => value(press, { add: (...values: unknown[]) => values, wizard: { driver: 'acpRegistry' }, shownLabel: 'Local ACP', shownId: '', accent: '',
-    f0, f1: '', f2: 'dsh', f3: '', f4: '', commandArgs: ['--acp'], isAcp: true, manual, localAcp: manual && f0 === 'local',
-    published: [{ name: 'API_KEY', value: 'k', sensitive: true }], variables: [{ name: '1BAD', value: 'x', sensitive: true }] } as Env) as unknown[];
+  expect(appText('providers-wizard.contract')).toContain('button press=save class=PvPrimary disabled=busy testId="create-provider"');
+  const dialog = contractComponent('providers-wizard.contract', 'AddProviderDialog');
+  const args = (manual: boolean, f0: string) => {
+    const added: unknown[][] = [];
+    dialog.call('save', { f0, f1: '', f2: 'dsh', f3: '', f4: '', commandArgs: ['--acp'], accent: '', published: [{ name: 'API_KEY', value: 'k', sensitive: true }],
+      variables: [{ name: '1BAD', value: 'x', sensitive: true }] }, { add: (...values: unknown[]) => added.push(values), wizard: { driver: 'acpRegistry', label: 'Local ACP', instanceId: '' },
+      manual, labelSet: false, label: '', idSet: false, id: '' }, []);
+    return added[0]!;
+  };
   expect(args(true, 'local')).toEqual(['acpRegistry', 'Local ACP', '', '', ['local', '', 'dsh', '', ''], ['--acp'], ['1API_KEY=k']]);
   expect(args(false, 'local')).toEqual(['acpRegistry', 'Local ACP', '', '', ['', '', '', '', ''], ['--acp'], []]);
   // The root closes the dialog on a local command only (provider-add-local), and passes the variables on.
@@ -307,7 +334,9 @@ test("Add provider's variables publish as ProviderEnvironmentSection's do", () =
   // The file's own name rule, and the row's record.
   const scope = { WizardVariable: (fields: Obj) => fields, envNameValid: contractFns('providers-wizard.contract').envNameValid };
   expect(['API_KEY', '_x', 'a1', '1BAD', 'BAD-NAME', ''].map(name => scope.envNameValid(name as never))).toEqual([true, true, true, false, false, false]);
-  const state: Obj = { variables: [row(' API_KEY ')], published: [] };
+  const state: Obj = { variables: [row('')], published: [] };
+  dialog.call('editVariableName', state, scope, [0, ' API_KEY ']); // DraftInput keeps the text as typed until it commits
+  expect(state.variables).toEqual([row(' API_KEY ')]);
   dialog.call('commitVariables', state, scope, []);
   expect([state.variables, state.published]).toEqual([[row('API_KEY')], [row('API_KEY')]]);
   state.variables = [row('API_KEY'), row('1BAD')];
@@ -317,7 +346,13 @@ test("Add provider's variables publish as ProviderEnvironmentSection's do", () =
   expect(state.published).toEqual([row('API_KEY')]); // still a bad name among the rows
   dialog.call('removeVariable', state, scope, [1]);
   expect(state.published).toEqual([row('API_KEY', 'v', false)]);
-  state.variables = [row('API_KEY', 'v', false), row('', '')]; // a row left as added
+  dialog.call('toggleVariableSensitive', state, scope, [0]); // every name valid: the lock publishes
+  expect(state.published).toEqual([row('API_KEY')]);
+  dialog.call('toggleVariableSensitive', state, scope, [0]);
+  state.variables = [row('BASE_URL', 'u'), row('', '')]; // a row left as added is skipped, and the rest publish
+  dialog.call('commitVariables', state, scope, []);
+  expect(state.published).toEqual([row('BASE_URL', 'u')]);
+  state.variables = [row('API_KEY', 'v', false), row('', '')];
   dialog.call('commitVariables', state, scope, []);
   expect(state.published).toEqual([row('API_KEY', 'v', false)]);
   dialog.call('addVariable', state, scope, []);
@@ -328,7 +363,12 @@ test("Add provider's variables publish as ProviderEnvironmentSection's do", () =
   expect(source).toContain('aria-pressed=variable.sensitive aria-label=(variable.name != "" ? `Mark environment variable ${variable.name} as sensitive` : `Mark environment variable ${index + 1} as sensitive`)');
   expect(source).toContain('aria-label=(variable.name != "" ? `Remove environment variable ${variable.name}` : `Remove environment variable ${index + 1}`)');
   expect(source.match(/blur=commitVariables submit=commitVariables/g)).toHaveLength(2);
-  expect(source).toContain('text "Sensitive values are stored separately and never returned to the app."');
+  // The note sits with the rows, so it shows only when there are rows (ProviderInstanceCard.tsx).
+  const lines = source.split('\n'), noteAt = lines.findIndex(entry => entry.includes('text "Sensitive values are stored separately and never returned to the app."'));
+  const indent = (entry: string) => entry.length - entry.trimStart().length;
+  const enclosing = (at: number) => { let up = at - 1; while (indent(lines[up]!) >= indent(lines[at]!)) up--; return up; };
+  expect([lines[enclosing(noteAt)]!.trim(), lines[enclosing(enclosing(noteAt))]!.trim()])
+    .toEqual(['column width="100%" min-width=0 gap="0.5rem" margin-top="0.75rem" padding-bottom="0.5rem"', 'if variables.length > 0']);
 });
 
 // handleManualAcpConfiguration and handleLocalAcpConfiguration drop an agent added before them (selectedAcp = null):

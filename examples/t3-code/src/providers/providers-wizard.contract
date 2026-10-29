@@ -254,12 +254,20 @@ component AddProviderDialog
       clearAcpDraft()
     ui(what, value)
   // resolveWizardNavigation: a step past an unmet prerequisite is blocked, stays on the Provider step and marks the
-  // attempt, which shows the error (providerUi "blocked").
+  // attempt, which shows the error (providerUi "blocked"). An agent from the registry has no Sign in step before its
+  // instance exists: going there saves it, as applyWizardNavigation does; an invalid ID stops on Identity (the root).
   action go(what: string, value: string)
-    if what == "step" and step == 0 and value != "back" and value != "0" and selectionError != ""
+    let target = value == "back" ? step - 1 : (value == "next" ? step + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
+    if what == "step" and step == 0 and target > 0 and selectionError != ""
       ui("blocked", "")
+    else if what == "step" and isAcp and not localAcp and target == 2 and wizard.idError == ""
+      save()
     else
       ui(what, value)
+  // handleSave: an agent added from the search brings its own config (handleAcpPrepared), so only a configuration by
+  // hand sends the fields; a local command sends its published variables.
+  action save
+    add(wizard.driver, shownLabel, shownId, accent, isAcp and not manual ? ["", "", "", "", ""] : [f0, f1, f2, f3, f4], commandArgs, localAcp ? published.map((variable) => `${variable.sensitive ? "1" : "0"}${variable.name}=${variable.value}`) : [])
   action addArgument
     commandArgs = commandArgs.concat([""])
   action editArgument(index: number, value: string)
@@ -410,7 +418,7 @@ component AddProviderDialog
                                   PvIcon(name="x", size=12, color="light-dark(#e7000b, #ff6467)")
                             text "Sensitive values are stored separately and never returned to the app." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
                     if attempted and selectionError != ""
-                      text selectionError font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="acp-selection-error"
+                      text selectionError font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" testId="acp-selection-error"
                 else
                   column width="100%" gap="0.75rem" testId="acp-search"
                     row width="100%" gap="0.5rem" align-items="center" flex-wrap="wrap"
@@ -452,7 +460,7 @@ component AddProviderDialog
                                 button press=prepareAgent(agent.id, agent.name) class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" font-size="0.75rem" disabled=(agent.added or busy) aria-label=`${agent.added ? "Already added" : (busy ? "Preparing" : "Add")} ${agent.name}` testId=`acp-add-${agent.id}` id=`acp-add-${agent.id}` data-focus-stop=(agent.added or busy ? "" : "enabled")
                                   text (agent.added ? "Added" : "Add") font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
                     if attempted and selectionError != ""
-                      text selectionError font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="acp-selection-error"
+                      text selectionError font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" testId="acp-selection-error"
             if shownStep == 1
               column width="100%" gap="0.25rem" min-height=(isAcp ? "18rem" : "0px")
                 for agent in wizard.prepared key=agent.id
@@ -502,7 +510,7 @@ component AddProviderDialog
               button press=go("step", "next") class=PvPrimary disabled=busy testId="wizard-next" id="wizard-next" data-focus-stop=(busy ? "" : "enabled")
                 text "Next" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
             if step == lastStep
-              button press=add(wizard.driver, shownLabel, shownId, accent, isAcp and not manual ? ["", "", "", "", ""] : [f0, f1, f2, f3, f4], commandArgs, localAcp ? published.map((variable) => `${variable.sensitive ? "1" : "0"}${variable.name}=${variable.value}`) : []) class=PvPrimary disabled=busy testId="create-provider" id="create-provider" data-focus-stop=(busy ? "" : "enabled")
+              button press=save class=PvPrimary disabled=busy testId="create-provider" id="create-provider" data-focus-stop=(busy ? "" : "enabled")
                 text (busy ? "Adding..." : (isAcp and not localAcp ? "Continue to sign-in" : "Add instance")) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
         button id="close-add-provider-x" press=ui("close", "") class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-add-provider-x" title="" data-focus-stop=(busy ? "" : "enabled")
           PvIcon(name="x", size=16, color="light-dark(#71717b, #a1a1a1)")

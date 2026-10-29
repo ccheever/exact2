@@ -163,8 +163,8 @@ component SelectControl
     choose: action
     stop: string
   derive menuItems = options.map((option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label))
-  // SelectPopup's min-w-(--anchor-width): a select that fills its row measures its trigger as it is focused or pressed,
-  // before it opens, and its popup is at least as wide (160pt until then).
+  // SelectPopup's min-w-(--anchor-width): a select that fills its row measures its trigger as it is focused, pressed or
+  // opened from the keyboard, and its popup is at least as wide (160pt until then).
   state anchorWidth = 0
   action measure
     anchorWidth = frame(selectId).width
@@ -173,6 +173,7 @@ component SelectControl
       preventDefault()
       stopPropagation()
       if not e.repeat
+        anchorWidth = frame(selectId).width
         showPopover(`${selectId}-menu`, source=selectId)
         let target = kmTriggerTarget(menuItems, k)
         if target != ""
