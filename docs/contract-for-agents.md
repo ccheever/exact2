@@ -4151,11 +4151,16 @@ action. Avatar's and VerifiedBadge's `size`, and VerifiedBadge's
 `ink` and `mark`, have no defaults: pass token or role names
 (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or
 your own), not literal colours, so setting those tokens restyles them.
-`@exact/cards` also exports EmptyState `(id, icon, title, message, button,
-buttonLabel, buttonIcon, press)`, what a list shows with nothing in it: every
-text is yours, and an empty `icon`, `title` or `button` leaves that piece out
-(`icon` and `buttonIcon` are image sources, a `symbol:` name or an icon
-token). `@exact/lists` exports MenuItem `(id, label, icon, destructive,
+`@exact/cards` also exports EmptyState `(id, icon, iconSize, tone, title,
+message, button, buttonLabel, buttonIcon, buttonTone, press)`, what a list
+shows with nothing in it: every text is yours, and an empty `icon`, `title`
+or `button` leaves that piece out (`icon` and `buttonIcon` are image sources,
+a `symbol:` name or an icon token). The three enums are required, with no
+defaults: `iconSize` `"medium"` (48 points, Bluesky's usual), `"small"` (32)
+or `"large"` (64) in a 64-point box; `tone` `"high"` (the message in the
+label colour), `"medium"` (secondary) or `"label"` (message and icon in the
+label colour); `buttonTone` `"primary"` (the brand blue) or `"secondary"`.
+`@exact/lists` exports MenuItem `(id, label, icon, destructive,
 first, pick)` and MenuGroup (a slot of items): a menu's drawn items in a
 sheet, as Bluesky's menu is, not the platform's list cells; the sheet holding
 the groups is yours and carries `role="menu"` (the items are `menuitem`s, the

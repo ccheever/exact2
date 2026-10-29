@@ -577,12 +577,23 @@ Owners as they free up (the lead's order).
    shape) with each icon pattern and each tone and size following as samples.
    **Stage 15 B batch 2 (2026-10-27)** adds `@exact/cards`' **EmptyState** and `@exact/lists`' **MenuItem** and
    **MenuGroup**, with Bluesky's sizes as the packages' tokens (`cards.empty-*`, `lists.menu-*`), their colours
-   params defaulting to platform roles except EmptyState's button, which is the brand primary (`cards.empty-button`,
-   Bluesky's blue, and fixed white `cards.empty-button-ink`), so the platform accent doesn't recolour it; every text
-   is the app's. The menu is drawn, not the platform's list cell
+   params defaulting to platform roles; every text is the app's. The menu is drawn, not the platform's list cell
    or menu, because Bluesky's native menu is a sheet of drawn items. MenuItem's `first` prop stands in for a slot
    index, which would let MenuGroup draw the hairlines between its children. `apps/library-gate` holds MenuGroup in
    a box named for its cell (it has no `id` prop), its slot marked, with MenuItem's cells inside.
+   **Its follow-up (2026-10-28)** gives EmptyState Bluesky's per-call variants: `iconSize` medium (3xl, 48 points:
+   the default, so the first value), small (2xl, 32) or large (4xl, 64, the chats'), in a 64-point box either way;
+   `tone` high (the message contrast_high, the default), medium (contrast_medium, the lists' and Bookmarks') or label
+   (the message and the icon in the text colour, the chats'); and `buttonTone` primary or secondary (Bookmarks' Go
+   home), each with its colour a param over its own `cards.empty-*` token. It had drawn every icon at 64. Its primary
+   button stays Bluesky's brand primary as a literal (`cards.empty-button`, `light-dark(#006aff, #0f73ff)` under
+   fixed white `cards.empty-button-ink`), not the platform accent: white on Apple's default accent is 3.52:1 in light
+   and 3.23:1 in dark, under 4.5:1 for its 13-point label (theme2's 23:51 ruling, with FollowButton's primary). An
+   imported accent doesn't reach it yet: the shadcn and Astryx importers write `AccentColor`, and mapping an accent
+   onto the brand tokens (`cards.empty-button` and `cards.empty-button-ink`, `actions.follow-fill` and
+   `actions.follow-ink`) with an ink chosen for contrast is PENDING, dtool3's item from theme2's 23:51 ruling; until
+   it lands an app sets each fill AND its ink by full name, the ink chosen to meet 4.5:1 on its fill. A gap this
+   keeps, LISTED: the dark default, white on #0f73ff, is itself 4.27:1, under 4.5:1 for that label.
 
 **The gate** (`~/x2theme/stage12-gate-run.txt`), each line with its oracle. **The required hosts**, for every line
 that runs per host: the web (the JS target and wasm), iOS, macOS, Linux, Android's reader and the terminal. A
