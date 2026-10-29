@@ -1,13 +1,11 @@
 import {describe, expect, test} from 'bun:test';
-import {readFileSync} from 'node:fs';
-import {contractComponent, contractFns, value, type Env} from '../support/contract-action-fixture';
-import {appPath} from '../support/app-files';
+import {contractSource, contractComponent, contractFns, value, type Env} from '../support/contract-action-fixture';
 import {composerIntentAnswer} from '../../src/composer/composer-intent-source';
 import {composerRichProjection} from '../../src/composer/composer-rich-projection';
 import {composerSourceSession} from '../../src/composer/composer-rich-state';
 
 const root = contractComponent('app.contract', 'T3Code');
-const source = readFileSync(appPath('app.contract'), 'utf8').split('\n');
+const source = contractSource('app.contract').split('\n');
 const record = (fields: Env) => fields;
 const chipFns = contractFns('src/composer/composer-rich.contract');
 const keyFns = contractFns('src/composer/composer-keys.contract');

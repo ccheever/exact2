@@ -1,10 +1,8 @@
 import {describe, expect, test} from 'bun:test';
-import {readFileSync} from 'node:fs';
-import {appPath} from '../support/app-files';
-import {contractComponent, value, type Env} from '../support/contract-action-fixture';
+import {contractSource, contractComponent, value, type Env} from '../support/contract-action-fixture';
 
 const root = contractComponent('app.contract', 'T3Code');
-const lines = readFileSync(appPath('app.contract'), 'utf8').split('\n');
+const lines = contractSource('app.contract').split('\n');
 const derived = lines.find(line => line.startsWith('  derive composerFieldFocusCurrent = '))!.split(' = ')[1]!;
 const task = lines.find(line => line.startsWith('  task composerFieldRestoreFocus when '))!;
 const admission = task.slice(task.indexOf(' when ') + 6, task.lastIndexOf(' key='));

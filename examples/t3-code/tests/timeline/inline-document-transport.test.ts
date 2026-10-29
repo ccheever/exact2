@@ -1,12 +1,10 @@
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { appPath } from '../support/app-files';
-import { contractComponent } from '../support/contract-action-fixture';
+import { contractSource, contractComponent } from '../support/contract-action-fixture';
 
 // These messages can arrive in one load turn, and ACKs can overlap RPC replies.
 // They must use the runner's ordered mutation rather than newest-answer wins.
 test('document events and delivery acknowledgements share a dedicated ordered mutation', () => {
-  const source = readFileSync(appPath('app.contract'), 'utf8');
+  const source = contractSource('app.contract');
   const route = /if op\.startsWith\("inline-doc-"\)\n\s+send (\w+) = command\(`chatlocal:\$\{op\}`, id, value, 0\)/.exec(source);
   expect(route).not.toBeNull();
   const name = route![1]!;

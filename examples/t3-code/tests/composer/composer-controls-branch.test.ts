@@ -1,5 +1,6 @@
 // Lane composer-controls: the workspace / branch strip under the composer
 // (BranchToolbar, BranchToolbarBranchSelector, BranchToolbar.logic).
+import { contractSource } from '../support/contract-action-fixture';
 import { describe, expect, test } from 'bun:test';
 import { obj, str, type Obj } from '../../src/client/domain';
 import { composerBranches, sanitizeNewRefName, previousWorktree, stripShortcuts } from '../../src/composer/composer-controls-branch';
@@ -219,7 +220,7 @@ describe('one Run on and Workspace keyboard order', () => {
       ['cclocal:env-mode', '', 'worktree', 0], ['cclocal:env-mode', '', 'previous', 0]]);
     expect(workspace).not.toContain('focus(');
     expect(workspace).not.toContain('close(');
-    const app = await Bun.file(appPath('app.contract')).text();
+    const app = contractSource('app.contract');
     expect(app).toContain('action menuCommand(op: string, id: string, value: string, n: number)\n    optionsOpen = ""\n    focus("composer")\n    if not commandPending\n      commandPending = true\n      send changed = command(op, id, value, n)');
   });
 });

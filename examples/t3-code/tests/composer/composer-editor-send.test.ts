@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { connected, opened, running } from '../support/composer-controls-fixture';
 import { snapshot } from '../../src/client/presentation';
 import { DEFAULT_SEND_RULES, pressGesture, sendIntent } from '../../src/composer/composer-editor-intent';
-import { contractComponent } from '../support/contract-action-fixture';
+import { contractSource, contractComponent } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
 import { toasts } from '../../src/shell/toast';
 import { appPath } from '../support/app-files';
@@ -194,7 +194,7 @@ describe('a Send press carries its own pointer modifiers', () => {
     // The reference resolves its send chords only in the composer's editor (composerSubmissionIntentForKey): with the
     // composer unfocused ⌘↩ sends nothing, so Send declares no chord (the composer's key action takes them).
     expect(controls.split('\n').filter(line => line.includes('button press=sendPress ') && line.includes('aria-keyshortcuts='))).toEqual([]);
-    const app = await Bun.file(appPath('app.contract')).text();
+    const app = contractSource('app.contract');
     expect(app).toContain('  action send(held: string)');
     expect(app).toContain('    submit(held == "" ? "" : `pointer:${held}`)');
     expect(app).toContain('send changed = command("send", gesture, composerText, 0)');

@@ -2,13 +2,13 @@
 // session and update slot the transport keeps, the tick publishing the table as each answer that may wait on a
 // reply starts or ends and as the delivering answer reports a newer table, and the grants a server named at run
 // time needs.
+import { contractSource } from '../support/contract-action-fixture';
 import { describe, test, expect } from 'bun:test';
-import { appPath } from '../support/app-files';
 import { SESSION_SLOTS, Transport } from '../../src/transport/transport';
 import { UPDATE_SLOTS } from '../../src/transport/transport-outdated';
 import { answer, grants } from '../../app';
 
-const contract = await Bun.file(appPath('app.contract')).text();
+const contract = contractSource('app.contract');
 const declared = (kind: string) => [...contract.matchAll(new RegExp(`^  ${kind} ([A-Za-z0-9]+) `, 'gm'))].map(match => match[1]!);
 
 describe('app.contract', () => {

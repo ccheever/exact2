@@ -5,7 +5,7 @@
 // thread-jump modifiers the sidebar's view lists, and the views that read the result.
 import { describe, expect, test } from 'bun:test';
 import { contractFns } from '../support/contract-fn-fixture';
-import { contractComponent, value, type Env } from '../support/contract-action-fixture';
+import { contractSource, contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { readFileSync } from 'node:fs';
 import { appFiles, appPath } from '../support/app-files';
 import { threadJumpModifiers } from '../../src/sidebar/sidebar-view';
@@ -158,7 +158,7 @@ describe('the window tracks held modifiers from its key events', () => {
 
 // ── The root's timers: the hints' 200 ms, their immediate hide, and the blur ──
 
-const appSource = readFileSync(appPath('app.contract'), 'utf8');
+const appSource = contractSource('app.contract');
 const taskOf = (name: string) => {
   const m = new RegExp(`^  task ${name} when (.+)\\n    after\\((\\d+), (\\w+)\\)`, 'm').exec(appSource);
   if (!m) throw new Error(`app.contract: no task ${name}`);

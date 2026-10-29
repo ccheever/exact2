@@ -5,6 +5,7 @@
 // `previewFocus` keybindings and ChatView `togglePreviewPanel` (⇧⌘J). The module and the server are fakes. Ported:
 // PreviewEmptyState.test.tsx (4, under their own names), over the projection the Contract view draws (a group shows
 // when its list is not empty; both empty draw "No preview yet").
+import { contractSource } from '../support/contract-action-fixture';
 import { describe, expect, it } from 'bun:test';
 import { browserHost, browserLocal, browserView } from '../../src/browser/browser-surface';
 import { browserKey, navigationPrepare, previewKeys, previewToggleRow, showPreview } from '../../src/browser/browser-navigation';
@@ -356,7 +357,7 @@ describe('the preview keys and ⇧⌘J', () => {
     const pressed: unknown[][] = [];
     value(row.trim().match(/press=(panel\(.*\))\)$/)![1]!, { panel: (...args: unknown[]) => pressed.push(args) });
     expect(pressed).toEqual([['close', '']]);
-    const app = (await Bun.file(appPath('app.contract')).text()).split('\n');
+    const app = (contractSource('app.contract')).split('\n');
     const at = app.findIndex(line => line.startsWith('  action panelUi(what: string, id: string)'));
     const send = app.slice(at, at + 8).find(line => line.includes('send localChanged = command('))!;
     const sent: unknown[][] = [];

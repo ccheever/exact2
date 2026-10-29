@@ -8,15 +8,13 @@
 // The functions run from their `.contract` lines; the answer's and the window's actions run with Contract's action
 // semantics (contract-action-fixture.ts).
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { contractComponent, value, type Env } from '../support/contract-action-fixture';
+import { contractSource, contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { contractFn, contractFns as fnsOf } from '../support/contract-fn-fixture';
-import { appPath } from '../support/app-files';
 
 const contractFns = (file: string) => fnsOf(file, ['CitePart', 'CiteOffer', 'CiteLine']);
 const std = { min: Math.min, max: Math.max };
 
-const source = (file: string) => readFileSync(appPath(file), 'utf8');
+const source = (file: string) => contractSource(file);
 
 // The reference's lib/selectionActions.ts resolveSelectionActionPosition and AssistantSelectionToolbar's layout effect
 // (the toolbar held 8 pt inside the window by its own size), verbatim in behavior.

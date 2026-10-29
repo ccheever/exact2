@@ -3,16 +3,51 @@
 // chords (handleKeyDown), and ⌘O on a shown file (FilePreviewPanel's OpenInPicker). The palette's state is the root's
 // (app.contract), run here with Contract's action semantics.
 import { afterEach, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { parseWhen } from '../../src/settings/keybinding-view';
 import { keyboardDispatch, type DispatchContext } from '../../src/shell/keyboard-dispatch';
 import { newThreadInItems, rootActions } from '../../src/palette/palette';
-import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { contractComponent, contractSource, type Env } from '../support/contract-action-fixture';
+import { APP } from '../support/app-files';
 import { primaryAt, primaryOff, resetPrimary } from '../support/local-primary-fixture';
 
 const root = contractComponent('app.contract', 'T3Code');
+
+test('the action fixture assembles relative same-owner members in listing order', () => {
+  const dir = mkdtempSync(join(tmpdir(), 't3-contract-members-'));
+  try {
+    mkdirSync(join(dir, 'feature'));
+    const before = '  state count = 1\n  derive first = count + 1\n';
+    const member = '  state other = 0\n  derive second = first + 1\n  action inner\n    other = count + 1\n    count = 7\n';
+    const after = '  derive third = second + 1\n  action outer\n    count = count + 1\n    inner()\n    seen(count)\n    match result\n      case some(reply)\n        other = reply\n      case none\n        absent()\n';
+    writeFileSync(join(dir, 'feature', 'part.contract'), `use Shape from "../shape.contract"\n\nmembers Sample\n${member}fn unrelated(): number = 0\n`);
+    writeFileSync(join(dir, 'entry.contract'), `component Sample\n${before}  members "./feature/part.contract"\n${after}component Other\n  state excluded = true\n`);
+    const file = relative(APP, join(dir, 'entry.contract'));
+    expect(contractSource(file)).toBe(`component Sample\n${before}${member}${after}component Other\n  state excluded = true\n`);
+    const component = contractComponent(file, 'Sample');
+    const state = component.state();
+    expect(state).toEqual({ count: 1, other: 0 });
+    expect(component.derives(state, {})).toEqual({ first: 2, second: 3, third: 4 });
+    const observed: unknown[] = [];
+    const scope: Env = { result: null, seen: (value: unknown) => observed.push(value), absent: () => observed.push('none') };
+    scope.inner = () => component.call('inner', state, scope, []);
+    component.call('outer', state, scope, []);
+    expect(state).toEqual({ count: 2, other: 2 });
+    expect(observed).toEqual([1, 'none']);
+    scope.result = 9;
+    component.call('outer', state, scope, []);
+    expect(state).toEqual({ count: 3, other: 9 });
+    writeFileSync(join(dir, 'feature', 'part.contract'), 'members Other\n  state other = 0\n');
+    expect(() => contractSource(file)).toThrow('no members Sample');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 type Palette = { parent: string; popOnEmpty: boolean; back: boolean; count: number; rows: Obj[] };
 
 /** The palette's root state, with the scope its actions read; calls to the root's own actions run in place. */

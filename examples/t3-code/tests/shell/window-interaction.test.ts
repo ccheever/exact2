@@ -4,11 +4,11 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { contractComponent, contractFns, type Env } from '../support/contract-action-fixture';
+import { contractSource, contractComponent, contractFns, type Env } from '../support/contract-action-fixture';
 import { APP } from '../support/app-files';
 
 const contracts = () => (readdirSync(join(APP, 'src'), { recursive: true }) as string[]).filter(name => name.endsWith('.contract'))
-  .map(name => ({ name, lines: readFileSync(join(APP, 'src', name), 'utf8').split('\n') })).concat([{ name: 'app.contract', lines: readFileSync(join(APP, 'app.contract'), 'utf8').split('\n') }]);
+  .map(name => ({ name, lines: readFileSync(join(APP, 'src', name), 'utf8').split('\n') })).concat([{ name: 'app.contract', lines: contractSource('app.contract').split('\n') }]);
 
 describe('the last interaction', () => {
   test('each new second goes to the data module; the first after six idle minutes is a resume', () => {

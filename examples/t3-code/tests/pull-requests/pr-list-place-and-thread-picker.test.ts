@@ -11,10 +11,9 @@ import { fleet, EnvironmentFleet } from '../../src/connections/settings-b-fleet'
 import { prLocal, pullRequestsPage, type PrInput } from '../../src/pull-requests/pages-prs';
 import { environmentQueries } from '../../src/pull-requests/pages-pr-paging';
 import { threadPickerView } from '../../src/pull-requests/pages-pr-links';
-import { contractComponent, value } from '../support/contract-action-fixture';
-import { appPath } from '../support/app-files';
+import { contractComponent, contractSource, value } from '../support/contract-action-fixture';
 
-const source = (file: string) => Bun.file(appPath(file)).text();
+const source = (file: string) => contractSource(file);
 
 // ── A return to the app keeps the list ──────────────────────────────────────
 
@@ -218,7 +217,7 @@ describe('"Link to thread" opens its own picker dialog (PullRequestThreadLinks d
   });
 
   test('the picker keeps its first enabled row highlighted on open and after a query edit', async () => {
-    const expression = (await source('app.contract')).split('  derive paletteHighlight = ')[1]!.split('\n')[0]!;
+    const expression = contractSource('app.contract').split('  derive paletteHighlight = ')[1]!.split('\n')[0]!;
     const highlight = (panel: string, count: number, cursor: number) => value(expression,
       { palette: { panel, count, autoHighlight: true }, paletteCursor: cursor, min: Math.min });
     expect(highlight('picker', 2, -2)).toBe(0);
