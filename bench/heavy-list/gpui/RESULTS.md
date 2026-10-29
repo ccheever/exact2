@@ -1072,3 +1072,161 @@ passing Linux run, and `checks-ink.log` and `checks-carrier-all.log` supply
 the last two summaries. `QUEUE.md` records the unresolved cadence and memory
 work. The final quiet Ink-only comparison and the performance targets remain
 required before S1.2 can be called complete.
+
+
+## S1.3: overlap the walk with rendering; size thumbnails from their content boxes
+
+@ref LLP 1149 D7, D11, S1.3; 2026-10-29, `lane/ink-s1`, following
+`fe7a8c55fb`. The implementation is committed in `221593d2f8`, `a1b3a93560`
+and `1cc26abd77`. **S1.3 is not performance-qualified:** the required
+quiet measurement and allocation-level attribution remain open.
+
+### Handoff and image ownership
+
+`host/apple-painted/src/window.rs` and `host/ink/src/device/apple.rs` no
+longer hold the next walk behind a completion lease. CVDisplayLink and the
+existing idle-timer handling are retained. `host/ink/src/present.rs` hands
+work to the render thread without waiting. Only its newest queued
+presentation remains eligible to show; an older pending presentation resolves
+its retirement fence without acquiring a drawable. Ordered uploads and
+render commands remain queued because later frames can reference their
+textures. The worker waits for the current presentation's GPU completion;
+the main thread can walk and encode the next frame meanwhile. Instance,
+atlas and layer reuse still follows completed submissions.
+
+Both `device/metal.rs` and `device/wgpu.rs`, and their `present.rs` modules,
+use the handoff. Metal uploads use two reusable staging buffers, each written
+only after its preceding blit completes. Further uploads queue their owned
+bytes on the worker. Tests hold the worker behind a channel and verify that
+handoffs return, only the newest pending presentation shows, and resource
+work stays ordered. A Metal test copies five odd-stride rows through two
+staging buffers and checks the resulting pixels.
+
+`host/linux/src/image.rs` resolves raster demand from the content box after
+padding and borders, the painter's object-fit calculation, and device scale.
+The existing 128-pixel size classes provide resize slack; the previous fit
+and scale are retained for deciding when a request needs replacement. The
+new test in `image/control_tests.rs` covers all five fits, padding, borders,
+scale and resizing. A 380×100-point content box at 2× requests a 768-pixel
+cover thumbnail, while contain requests 384 pixels for a 1600×900 source.
+The wider G3 fixture can still require larger thumbnails: a full-width
+photo has 716 points available after the row padding, avatar and gap,
+or 1432 pixels at 2× before fitting. A universal 768-pixel cap would lose
+resolution there.
+
+Benchmark completeness and scroll metadata travel with the encoded frame
+and are published immediately before drawable acquisition. `probe.m`'s
+scroll fields are atomic because the presentation worker now writes them.
+The wgpu functional drive exposed a readback race: mapping could precede the
+worker's copy submission. `map_buffer_on_submit` now orders mapping after
+that copy; the rebuilt wgpu drive passes.
+
+### Measurement
+
+**No S1.3 quiet measurement was obtained.** The wait lasted
+20.04 minutes, with 182 machine observations and no qualifying interval.
+Maximum 1/5/15-minute loads were 508.74/397.71/274.06;
+the final observation was 13.57/145.58/193.06.
+As many as 23 compiler processes were active. Neither the preserved
+before binary nor the final after binary was launched by G3. No focus attempt
+or retry occurred, so console availability is untested. Raw observations
+and the stop reason are `target/s1-3/measurement-quiet.jsonl` and
+`measurement-status.json`.
+
+The before bundle was preserved before editing; the after bundle was built
+from `1cc26abd77` with direct Metal and the G3 probe. Both are under
+`target/s1-3/`, as `Before.app` and `After-final.app`; `binaries.json`
+records their hashes. The prepared driver uses G3's 800×768-point Ink content
+viewport and permits one attempt. It remains unrun.
+
+The table keeps the prior S1.2 diagnostic visible without treating it as a
+new paired baseline. That diagnostic predates the final S1.2 startup fixes
+and is not a qualified measurement of that final code.
+
+| Metric | Before: retained S1.2 scheduling diagnostic | After: S1.3 |
+|---|---:|---:|
+| Rest process / main-thread CPU, ms/s | 1.618 / 1.489 | Unmeasured |
+| Fling process / main-thread CPU, ms/s | 105.016 / 64.561 | Unmeasured |
+| Presented interval p50 / p95, ms | 8.33 / 16.67 | Unmeasured |
+| Late presented intervals/s | 12.33 | Unmeasured |
+| Peak fling footprint, MiB | 566.50 | Unmeasured |
+
+The native and GPUI G3 peak medians remain 226.81 and 399.34 MiB; neither
+arm was rerun. The requested 8.33 ms p95, lateness near GPUI's 0.66/s,
+rest CPU near 1.6 ms/s, and lower fling peak are **not established** for
+S1.3. No performance improvement is claimed.
+
+### Memory attribution and the next chunk
+
+A separate development-agent diagnostic at 800×768 points scrolled eight
+600-point steps. This frozen-clock drive is not the timed G3 workload.
+`target/s1-3/vmmap-scrolled.txt` reports 693.9 MiB current and 846.2 MiB
+lifetime peak footprint, with 227.8 MiB resident owned-unmapped graphics,
+63.2 MiB mapped IOAccelerator memory and 19.0 MiB IOSurfaces. The raster
+state held 28.85 MiB of pixels and reported a 51.86 MiB ownership peak.
+These are different counters, not an allocation decomposition of the process
+peak. The drive's screenshot also requests readback; window presentation
+does not.
+
+This snapshot does not identify the allocator behind the owned-unmapped
+graphics category. It cannot establish that this is the upload textures,
+the driver's heaps, or drawable backing. Three 1600×1536 BGRA surfaces
+contain 28.125 MiB of pixels before alignment and driver overhead; that
+calculation alone cannot explain hundreds of MiB. Allocation-level Metal
+profiling is still required to attribute that transient.
+
+Decoded CPU pixels remain retained after GPU upload. Releasing that copy for
+the GPU painter, and re-decoding when its texture is evicted, is the next
+chunk; this change does not implement it.
+
+### Validation
+
+The six repository checks pass: root all-target build, root tests, clippy
+and fmt, caps, boot, and workspace all-target compilation. Caps checked
+29 crates and one binary for wasm32. Ink and carrier all-target clippy pass.
+The release and development carrier builds pass. Agent drives on direct
+Metal and wgpu settled, scrolled 600 points, and captured screenshots;
+both screenshots were visually inspected. The additional Metal drive
+accepted eight 600-point wheel inputs at G3's content size.
+
+The first root test run failed `workers_start_with_the_first_request` at
+its five-second completion bound. The full rerun with `RUST_TEST_THREADS=2`
+passed. The first full Linux run passed; the run after the readback fix
+failed two `build_channel` polling timeouts. Both failure logs are retained
+and unclassified by `known.mjs`; they are not claimed as known upstream
+failures. The full Linux rerun with `RUST_TEST_THREADS=2` passed.
+
+Verbatim final full Linux summaries for lib, `it` and `pinned`:
+
+```text
+test result: ok. 1576 passed; 0 failed; 20 ignored; 0 measured; 0 filtered out; finished in 102.86s
+test result: ok. 130 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.52s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 20.40s
+```
+
+The requested filtered suites ran with `EXACT_INK_DEVICE=metal EXACT_REQUIRED=1`.
+Verbatim summaries, in order: pinned `paint`, `borders`, `tint`, `backdrop`,
+`gradients`, `visual`, `materials`, then `it::image`:
+
+```text
+test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 6.38s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 4.84s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 4.17s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 7.28s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 8.78s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 6.39s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 6.41s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 4.87s
+```
+
+Final Ink and carrier library summaries:
+
+```text
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.10s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+```
+
+Full logs and screenshots are under `target/s1-3/`. `checks-test-retry.log`
+is the passing root run; `checks-linux-retry.log` is the controlled Linux
+rerun; `checks-ink-readback.log` follows the readback fix. Filtered-suite
+logs are named `checks-<suite>-metal.log`.
