@@ -1044,10 +1044,7 @@ reads can't say so (a 429 included): treat an aborted request as an unknown
 outcome. A stream (`exactStream`) runs until the runner lets its ticket go, as
 before. Natively and on the wasm target, a fetch made by a module callback
 that answers no resource or mutation (a payment sheet's or a tool's handler) is
-not cancelled yet: it rejects at once, and its request runs to its end. One
-known limit, natively, on a worker-placed source: a retirement race there (being
-fixed) can leave a replaced call's fetch abortable after the runner let it go,
-and once 256 more requests have been let go its abort may no longer cancel it.
+not cancelled yet: it rejects at once, and its request runs to its end.
 This is the TypeScript runtime 5: an older prelude would leave an aborted request
 running, so it moves `typescriptRuntime` to 5, and a native app with a
 TypeScript data module needs a new binary once more.
