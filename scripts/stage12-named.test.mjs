@@ -99,29 +99,28 @@ test('a binding draws nothing of its own and places only what it binds to', () =
     .toEqual(['@exact/cards/person-row.contract#PersonRow', '@exact/lists/menu.contract#MenuItem', null]);
 });
 
-test("option B's body shape: one PersonRow call, its FollowButton in that call's slot, at most one if and no other control", () => {
+test("option B's body shape on the map: one PersonRow call site, at most one FollowButton call site, in that call's slot", () => {
   const PR = '@exact/cards/person-row.contract#PersonRow', FB = '@exact/actions/follow-button.contract#FollowButton';
   const b = { component: 'B', allowed: [PR, FB] };
   const at = (line, col = 5) => ({ file: '/copy/b.contract', line, col, component: 'B' });
   const rowNode = line => ({ library: PR, component: 'PersonRow', chain: [at(line)] });
   // The walk's first step of a slotted FollowButton: the PersonRow call it renders in, `slot: true`.
-  const steps = [{ file: '/copy/b.contract', line: 10, col: 5, component: 'PersonRow', slot: true }, { file: '/copy/b.contract', line: 10, col: 5, component: 'Other' }];
+  const steps = [{ file: '/copy/b.contract', line: 10, col: 5, component: 'PersonRow', slot: true }, { file: '/copy/b.contract', line: 10, col: 5, component: 'Other' },
+    { file: '/copy/b.contract', line: 20, col: 5, component: 'PersonRow', slot: true }];
   const followNode = (line, walk) => ({ library: FB, component: 'FollowButton', chain: [at(line, 9)], walk });
-  const map = (...nodes) => ({ nodes, walk_steps: steps, walks: [[0], [1]] });
-  const text = view => `use PersonRow from "@exact/cards"\n\ncomponent B // a binding\n  props\n    p: P\n  view\n${view}// the next\ncomponent C\n  view\n    text "c"\n`;
-  const ok = text('    PersonRow(id="a", name="for else when", label=`if ${p}`)\n      if p.on\n        FollowButton(id="f",\n\t press=x)\n');
-  expect(bindingShape(map(rowNode(10), rowNode(10), followNode(12, 0)), ok, b)).toEqual({ ok: true, said: 'one PersonRow call, its one FollowButton in its slot (in an if)' });
-  expect(bindingShape(map(rowNode(10)), text('    PersonRow(id="a")\n'), b)).toEqual({ ok: true, said: 'one PersonRow call' });
-  for (const [m, t, why] of [
-    [map(rowNode(10), rowNode(20)), ok, 'from 2 sites'],
-    [map(rowNode(10), followNode(12, 0), followNode(14, 0)), ok, 'FollowButton from 2 sites'],
+  const map = (...nodes) => ({ nodes, walk_steps: steps, walks: [[0], [1], [2]] });
+  expect(bindingShape(map(rowNode(10), rowNode(10), followNode(12, 0), followNode(12, 0)), b)).toEqual({ ok: true, said: 'one PersonRow call, its one FollowButton call in its slot' });
+  expect(bindingShape(map(rowNode(10)), b)).toEqual({ ok: true, said: 'one PersonRow call' });
+  for (const [m, why] of [
+    [map(rowNode(10), rowNode(20)), 'from 2 sites'],
+    // An else with a second button, or two buttons: two call sites.
+    [map(rowNode(10), followNode(12, 0), followNode(14, 0)), 'FollowButton from 2 sites'],
     // A FollowButton written beside the row, not in its slot (Grok round 1): its walk doesn't start in the slot.
-    [map(rowNode(10), followNode(12, 1)), ok, "outside its PersonRow's slot"],
-    [map(rowNode(10), followNode(12, 0)), text('    PersonRow(id="a")\n      if p.on\n        FollowButton(id="f")\n      else\n        FollowButton(id="g")\n'), 'has a else'],
-    [map(rowNode(10), followNode(12, 0)), text('    PersonRow(id="a")\n      for x in p.xs key=x\n        FollowButton(id="f")\n'), 'has a for'],
-    [map(rowNode(10), followNode(12, 0)), text('    PersonRow(id="a")\n      if p.on\n        if p.off\n          FollowButton(id="f")\n'), '2 ifs'],
-    [map(rowNode(10)), 'component X\n  view\n    text "x"\n', 'declares no component B'],
-  ]) expect(bindingShape(m, t, b)).toMatchObject({ ok: false, said: expect.stringContaining(why) });
+    [map(rowNode(10), followNode(12, 1)), "outside its PersonRow's slot"],
+    // In the slot of another PersonRow call than the binding's one.
+    [map(rowNode(10), followNode(12, 2)), "outside its PersonRow's slot"],
+    [map(), 'from 0 sites'],
+  ]) expect(bindingShape(m, b)).toMatchObject({ ok: false, said: expect.stringContaining(why) });
 });
 
 test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindings and screens", () => {

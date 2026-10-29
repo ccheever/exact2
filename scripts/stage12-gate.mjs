@@ -485,7 +485,7 @@ export function consumerPixels(opts) {
   if (kept.length) return fail(`--copy still declares ${kept.map(x => x.line).join(', ')}: not the adoption`);
   if (unborn.length) return fail(`--before never declared ${unborn.map(x => x.line).join(', ')}: not the baseline`);
   // Theme2's option B: each binding draws nothing of its own and places only what it binds to (after's source map).
-  const bound = [...bindingsCheck(maps.after, BINDINGS), ...BINDINGS.map(b => ({ binding: b.component, ...bindingShape(maps.after, readFileSync(join(opts.copy, b.file), 'utf8'), b) }))];
+  const bound = [...bindingsCheck(maps.after, BINDINGS), ...BINDINGS.map(b => ({ binding: b.component, ...bindingShape(maps.after, b) }))];
   if (bound.some(b => !b.ok)) return fail(...bound.map(b => `binding ${b.binding}: ${b.said}`));
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no

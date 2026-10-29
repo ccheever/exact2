@@ -165,35 +165,23 @@ export function bindingsCheck(map, bindings) {
   });
 }
 
-/** Option B's body shape, on the source map and the source. On the map (formatting-proof): the binding calls the
- * package PersonRow from exactly one call site, the package FollowButton from at most one, and every FollowButton it
- * draws renders in that PersonRow's slot (its walk's first step is the PersonRow call, `slot: true`). On the source
- * (`text`, the file declaring it), its view with comments and string literals blanked: at most one `if`, and no
- * `else`, `for`, `match` or `when`, so the slot holds nothing or the `if` around the FollowButton. {ok, said}. */
-export function bindingShape(map, text, { component, allowed }) {
+/** Option B's body shape, on the source map (formatting-proof; theme2's 18:40 terms: an `if` is control, not
+ * drawing, and any other NODE fails): the binding calls the package PersonRow from exactly one call site, the
+ * package FollowButton from at most one, and every FollowButton it draws renders in that PersonRow call's slot (its
+ * walk's first step is the PersonRow call, `slot: true`). With bindingsCheck (nothing drawn of its own or through
+ * an app helper), that is one PersonRow and in its slot at most one FollowButton, whatever control wraps either:
+ * control draws nothing, and the source's words aren't read (a scan of them can't follow Contract's syntax).
+ * {ok, said}. */
+export function bindingShape(map, { component, allowed }) {
   const [rowId, followId] = allowed;
   const nodes = map.nodes ?? [], steps = map.walk_steps ?? [], walks = map.walks ?? [];
   const site = c => `${c.file}:${c.line}:${c.col}`;
-  const direct = (id) => nodes.filter(n => n.chain?.[0]?.component === component && n.library === id);
+  const direct = id => nodes.filter(n => n.chain?.[0]?.component === component && n.library === id);
   const rows = [...new Set(direct(rowId).map(n => site(n.chain[0])))], follows = direct(followId);
   const followSites = [...new Set(follows.map(n => site(n.chain[0])))];
   if (rows.length !== 1) return { ok: false, said: `calls PersonRow from ${rows.length} sites, not one` };
   if (followSites.length > 1) return { ok: false, said: `calls FollowButton from ${followSites.length} sites, not at most one` };
   const outside = follows.filter(n => { const first = steps[walks[n.walk]?.[0]]; return !(first?.slot && first.component === rowId.split('#')[1] && site(first) === rows[0]); });
   if (outside.length) return { ok: false, said: `draws a FollowButton outside its PersonRow's slot (${outside.length} node(s))` };
-  // The view's words: from `component <name>` to the next top-level line, comments and strings blanked.
-  const lines = text.split('\n');
-  const at = lines.findIndex(l => new RegExp(`^component ${component}(?![\\w])`).test(l));
-  if (at < 0) return { ok: false, said: `declares no component ${component}` };
-  let end = lines.findIndex((l, i) => i > at && /^\S/.test(l) && !l.startsWith('//'));
-  if (end < 0) end = lines.length;
-  const blank = l => l.replace(/"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""').replace(/\/\/.*$/, '');
-  const body = lines.slice(at + 1, end).map(blank);
-  const v = body.findIndex(l => /^\s*view\s*$/.test(l));
-  if (v < 0) return { ok: false, said: 'has no view' };
-  const words = body.slice(v + 1).join('\n');
-  const ifs = (words.match(/(^|\s)if\s/g) ?? []).length, other = words.match(/(^|\s)(else|for|match|when)(\s|$)/);
-  if (other) return { ok: false, said: `its view has a ${other[2]}: only the if around the FollowButton is allowed` };
-  if (ifs > 1) return { ok: false, said: `its view has ${ifs} ifs, not at most one` };
-  return { ok: true, said: `one PersonRow call${followSites.length ? `, its one FollowButton in its slot${ifs ? ' (in an if)' : ''}` : ''}` };
+  return { ok: true, said: `one PersonRow call${followSites.length ? ', its one FollowButton call in its slot' : ''}` };
 }
