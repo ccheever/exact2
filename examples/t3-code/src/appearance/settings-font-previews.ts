@@ -148,7 +148,7 @@ function previewLines(): Omit<FontDiffPreview, 'scheme'> {
   const lines: FontDiffLine[] = [];
   for (const hunk of file.hunks) {
     const oldSide = hunk.lines.filter(line => line.kind !== 'addition'), newSide = hunk.lines.filter(line => line.kind !== 'deletion');
-    const oldTokens = lineTokens(oldSide.map(line => line.text), file.path), newTokens = lineTokens(newSide.map(line => line.text), file.path);
+    const oldTokens = lineTokens(oldSide.map(line => line.text), file.path, 'settingsCore'), newTokens = lineTokens(newSide.map(line => line.text), file.path, 'settingsCore');
     const tokensOf = (line: (typeof hunk.lines)[number]) => line.kind === 'addition' ? newTokens[newSide.indexOf(line)] ?? [] : oldTokens[oldSide.indexOf(line)] ?? [];
     const plain = (text: string): Segment[] => [{ id: '0', text, mark: false, syntax: '' }];
     for (let index = 0; index < hunk.lines.length;) {

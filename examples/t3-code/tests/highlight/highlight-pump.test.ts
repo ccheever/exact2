@@ -7,7 +7,7 @@
 // reached". The actions run with the Contract action semantics of contract-action-fixture.ts.
 import { afterEach, describe, expect, test } from 'bun:test';
 import { contractComponent } from '../support/contract-action-fixture';
-import { highlightAsk, highlightPending, highlightStore, highlightTokens, highlightView, resetHighlights, tokensOf } from '../../src/highlight/highlights';
+import { highlightAsk, highlightPending, highlightStore, highlightTokens, highlightView, resetHighlights, tokensOf, type HighlightView } from '../../src/highlight/highlights';
 import { highlightCode, highlightRound, lexed, lineRecords, resetLexers, settleHighlights } from '../support/highlights-fixture';
 
 type Answer = { name: string; highlightPending: boolean };
@@ -79,7 +79,7 @@ describe('an answer that painted a text without its tokens reports it', () => {
   test('after the pump stores that text during the answer', async () => {
     const text = 'const value = compute(input, { retries: 3, label: "x" });\n'.repeat(400);
     const answer = await highlightView('shell', async () => {
-      expect(highlightTokens(text, 'a.ts')).toBeNull(); // the shell's panel asks; the text waits for the lexers
+      expect(highlightTokens(text, 'a.ts', 0, 'shell')).toBeNull(); // the shell's panel asks; the text waits for the lexers
       expect(highlightPending()).toBe(true);
       settleHighlights(); // the root's rounds land while the answer awaits its last native calls
       expect(highlightPending()).toBe(false);
@@ -87,7 +87,7 @@ describe('an answer that painted a text without its tokens reports it', () => {
     });
     expect(answer.highlightPending).toBe(true);
     // The answer asked again gets the tokens and reports nothing.
-    const again = await highlightView('shell', () => { expect(highlightTokens(text, 'a.ts')).not.toBeNull(); return {}; });
+    const again = await highlightView('shell', () => { expect(highlightTokens(text, 'a.ts', 0, 'shell')).not.toBeNull(); return {}; });
     expect(again.highlightPending).toBe(false);
   });
 
@@ -107,7 +107,7 @@ describe('an answer that painted a text without its tokens reports it', () => {
 describe('what the views paint settles, and nothing starves', () => {
   afterEach(() => { resetHighlights(); resetLexers(); });
   /** A view's answer painting these texts, and whether it painted each with its tokens. */
-  const paint = (view: string, texts: readonly string[], language = 'ts') => highlightView(view, () => ({ colored: texts.map(text => highlightTokens(text, language)?.some(token => token.cls) === true) }));
+  const paint = (view: HighlightView, texts: readonly string[], language = 'ts') => highlightView(view, () => ({ colored: texts.map(text => highlightTokens(text, language, 0, view)?.some(token => token.cls) === true) }));
 
   test('a diff of more than 400 texts settles: none of them is dropped while the view paints them', async () => {
     // Both sides of 300 hunks, about 90 of them a round.

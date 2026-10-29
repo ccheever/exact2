@@ -93,9 +93,9 @@ describe('line records become tokens', () => {
   });
   test('code blocks carry their exact text for the renderer to match', () => {
     const markdown = 'Intro\n\n```ts\nconst a = 1;\n```\n\n```\nplain\n```\n';
-    messageCodeBlocks(markdown);
+    messageCodeBlocks(markdown, null, 'message');
     settleHighlights();
-    const blocks = messageCodeBlocks(markdown);
+    const blocks = messageCodeBlocks(markdown, null, 'message');
     expect(blocks.map(block => block.code)).toEqual(['const a = 1;', 'plain']);
     expect(blocks[0]!.tokens.map(token => token.cls)).toEqual(['kw', 'var', 'op', 'num', 'punct']);
     expect(blocks[1]!.tokens).toEqual([{ id: '0', text: 'plain', cls: '', at: 0, line: 0, lastLine: 0 }]);

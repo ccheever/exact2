@@ -23,5 +23,5 @@ export function replToolTitle(toolName: unknown, input: unknown, retainedTitle?:
 export function replArguments(toolName: unknown, input: unknown) {
   if (!isJavaScriptReplTool(toolName)) return [];
   return (toolCallLines({ args: input }).args ?? []).map(([key, value], index) => ({ id: String(index), key, text: value,
-    tokens: key === 'code' ? codeTokens(highlight(value, 'typescript')) : [] }));
+    tokens: key === 'code' ? codeTokens(highlight(value, 'typescript', 0, 'data')) : [] }));
 }

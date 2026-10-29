@@ -2,15 +2,16 @@
 // live tokenizer, highlights.rs's budget and its eight documents): which texts go to a document and how, what each
 // view's answer pins and reports, and what the cache keeps.
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
-import { highlightAsk, highlightPending, highlightStore, highlightTokens, highlightView, resetHighlights, tokensOf, WHOLE_BYTES } from '../../src/highlight/highlights';
-import { messageCodeBlocks } from '../../src/highlight/timeline-highlight';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { highlightAsk, highlightPending, highlightStore, highlightTokens, highlightView, resetHighlights, textBytes, tokensOf, WHOLE_BYTES, type HighlightView } from '../../src/highlight/highlights';
+import { messageBlocksCached, messageCodeBlocks, resetMessageBlocks } from '../../src/highlight/timeline-highlight';
 import { highlightCode, highlightRound, lexed, lineRecords, resetLexers, settleHighlights } from '../support/highlights-fixture';
 
-afterEach(() => { resetHighlights(); resetLexers(); });
+afterEach(() => { resetHighlights(); resetMessageBlocks(); resetLexers(); });
 const whole = (text: string) => tokensOf(text, lineRecords(72, text));
-/** Whether `text` has its tokens now (a text not yet lexed, or one that extends nothing lexed, paints plain). */
-const lexedNow = (text: string) => highlightTokens(text, 'ts')?.some(token => token.cls) === true;
+/** Whether `text` has its tokens now (a text not yet lexed, or one that extends nothing lexed, paints plain), painted
+ *  for `view`. */
+const lexedNow = (text: string, view: HighlightView | null = null) => highlightTokens(text, 'ts', 0, view)?.some(token => token.cls) === true;
 
 describe('documents', () => {
   test('nine long texts at once each get their tokens, and each document starts once', async () => {
@@ -19,7 +20,7 @@ describe('documents', () => {
     const line = 'export function step(index: number): number { return index * 2 + offset; } // a long file\n';
     const texts = Array.from({ length: 9 }, (_, i) => `// file ${i}\n${line.repeat(450)}`);
     expect(texts.every(text => text.length > WHOLE_BYTES)).toBe(true);
-    const paint = () => highlightView('shell', () => ({ waiting: texts.filter(text => !lexedNow(text)).length }));
+    const paint = () => highlightView('shell', () => ({ waiting: texts.filter(text => !lexedNow(text, 'shell')).length }));
     let answer = await paint(), rounds = 0, starts = 0;
     while (answer.highlightPending) {
       if (++rounds > 200) throw new Error(`${answer.waiting} texts still waited after 200 rounds`);
@@ -29,6 +30,40 @@ describe('documents', () => {
     }
     expect(answer.waiting).toBe(0);
     expect(starts).toBe(9);
+  });
+
+  /** Nine long texts that grow, text `i` by a line every `every(i)` rounds, painted each round by one view and lexed
+   *  a round at a time: each text's longest run of rounds painting a version without its tokens, the documents
+   *  started again, and the bytes lexed. */
+  async function growing(rounds: number, every: (text: number) => number) {
+    const line = (i: number, n: number) => `export function step${n}(index: number): number { return index * ${i} + offset; } // text ${i}\n`;
+    const texts = Array.from({ length: 9 }, (_, i) => Array.from({ length: 400 }, (_, n) => line(i, n)).join(''));
+    expect(texts.every(text => text.length > WHOLE_BYTES)).toBe(true);
+    const behind = texts.map(() => 0), worst = texts.map(() => 0);
+    let starts = 0;
+    lexed.bytes = 0;
+    for (let round = 0; round < rounds; round++) {
+      texts.forEach((text, i) => { if (round % every(i) === 0) texts[i] = text + line(i, 400 + round); });
+      await highlightView('shell', () => { texts.forEach((text, i) => { behind[i] = lexedNow(text, 'shell') ? 0 : behind[i]! + 1; worst[i] = Math.max(worst[i]!, behind[i]!); }); return {}; });
+      starts += highlightRound().requests.filter(request => request.doc && request.from === 0).length;
+    }
+    const length = texts.reduce((sum, text) => sum + text.length, 0);
+    return { worst: Math.max(...worst), restarts: starts - texts.length, lexedPerText: lexed.bytes / length };
+  }
+
+  test('nine long texts that grow every round each get a document in turn', async () => {
+    // The ninth never got one: the eight with documents always had work in flight.
+    const { worst, restarts } = await growing(200, () => 1);
+    expect(worst).toBeLessThanOrEqual(20);
+    expect(restarts).toBeLessThanOrEqual(200 / 16 + 9);
+  });
+
+  test('nine long texts that grow every few rounds keep their documents while they grow', async () => {
+    // Documents dropped as soon as their texts paused started them again every few rounds: 128 to 206 restarts.
+    const { worst, restarts, lexedPerText } = await growing(300, i => 2 + (i % 4));
+    expect(worst).toBeLessThanOrEqual(20);
+    expect(restarts).toBeLessThanOrEqual(300 / 16 + 9);
+    expect(lexedPerText).toBeLessThan(4);
   });
 
   test('a block with CRLF line ends, streamed a character at a time, paints what its whole text does', () => {
@@ -72,9 +107,9 @@ describe('documents', () => {
     for (let end = 40; end <= code.length; end += 40) {
       // The fence is still open: the block runs to the end of the reply so far.
       const reply = `Here is the block.\n\n\`\`\`ts\n${code.slice(0, end)}`;
-      expect(messageCodeBlocks(reply).map(block => block.code)).toEqual([code.slice(0, end).replace(/\n+$/, '')]);
+      expect(messageCodeBlocks(reply, null, 'reply').map(block => block.code)).toEqual([code.slice(0, end).replace(/\n+$/, '')]);
       settleHighlights();
-      const [block] = messageCodeBlocks(reply);
+      const [block] = messageCodeBlocks(reply, null, 'reply');
       expect(block!.tokens.map(token => [token.text, token.cls])).toEqual(whole(block!.code).map(token => [token.text, token.cls]));
     }
     // Lexed again whole, each of its 285 versions would cost half the block on average: about 140 blocks.
@@ -83,7 +118,7 @@ describe('documents', () => {
 
   test('a block that grows faster than the rounds lex has its newest version\'s tokens each round', async () => {
     const code = Array.from({ length: 200 }, (_, i) => `const line${i} = compute(${i});`).join('\n');
-    const paint = (version: string) => highlightView('data', () => { highlightTokens(version, 'ts'); return {}; });
+    const paint = (version: string) => highlightView('data', () => { highlightTokens(version, 'ts', 0, 'data'); return {}; });
     let end = 0, behind = 0;
     while (end < code.length) {
       // Three versions a round: the older two are no view's by the round, and its document takes the newest.
@@ -96,12 +131,22 @@ describe('documents', () => {
   });
 });
 
-describe('a view pins and reports only what it paints', () => {
-  // The runtime's answer context (js/src/prelude.js `__exact_async_context`) as the bundle's async helper keeps it:
-  // an async function resumes under the answer it began under (LLP 1133.002 D14).
-  const answers = new AsyncLocalStorage<object>();
-  beforeAll(() => { (globalThis as { __exact_async_context?: unknown }).__exact_async_context = { current: () => answers.getStore() ?? null }; });
-  afterAll(() => { delete (globalThis as { __exact_async_context?: unknown }).__exact_async_context; });
+// Each call that paints names its view, so what an answer pins and reports does not depend on the runtime's answer
+// context, whose two shapes differ: Hermes's `current()` gives an answer's call record, the web's a new object each
+// time (js/src/prelude.js `__exact_async_context`, host/web-js/ts-data.js). Each test runs with neither, and with each.
+const answers = new AsyncLocalStorage<object>();
+const shapes: [string, (() => unknown) | null][] = [
+  ['no runtime context', null],
+  ['a Hermes-shaped context', () => answers.getStore() ?? null],
+  ['a web-shaped context', () => ({ ...answers.getStore() })],
+];
+for (const [shape, current] of shapes) describe(`a view pins and reports only what it paints, with ${shape}`, () => {
+  beforeEach(() => {
+    const scope = globalThis as { __exact_async_context?: unknown };
+    if (current) scope.__exact_async_context = { current, swap: () => null };
+    else delete scope.__exact_async_context;
+  });
+  afterEach(() => { delete (globalThis as { __exact_async_context?: unknown }).__exact_async_context; });
   /** A runtime answer: `run` under an answer of its own. */
   const answer = <T>(run: () => T): T => answers.run({}, run);
   const gate = () => { let open!: () => void; const shut = new Promise<void>(resolve => { open = resolve; }); return { shut, open }; };
@@ -110,8 +155,8 @@ describe('a view pins and reports only what it paints', () => {
     highlightTokens('let shellText = 1;', 'ts');
     settleHighlights();
     const wait = gate();
-    const shell = answer(() => highlightView('shell', async () => { highlightTokens('let shellText = 1;', 'ts'); await wait.shut; return {}; }));
-    const data = await answer(() => highlightView('data', () => { highlightTokens('let dataOnly = 2;', 'ts'); return {}; }));
+    const shell = answer(() => highlightView('shell', async () => { highlightTokens('let shellText = 1;', 'ts', 0, 'shell'); await wait.shut; return {}; }));
+    const data = await answer(() => highlightView('data', () => { highlightTokens('let dataOnly = 2;', 'ts', 0, 'data'); return {}; }));
     wait.open();
     expect(data.highlightPending).toBe(true);
     expect((await shell).highlightPending).toBe(false);
@@ -128,12 +173,17 @@ describe('a view pins and reports only what it paints', () => {
     highlightTokens('let dataText = 1;', 'ts');
     settleHighlights();
     const shellWait = gate(), dataWait = gate();
-    const shell = answer(() => highlightView('shell', async () => { await shellWait.shut; highlightTokens('let shellLate = 2;', 'ts'); return {}; }));
-    const data = answer(() => highlightView('data', async () => { highlightTokens('let dataText = 1;', 'ts'); await dataWait.shut; return {}; }));
+    const shell = answer(() => highlightView('shell', async () => { await shellWait.shut; highlightTokens('let shellLate = 2;', 'ts', 0, 'shell'); return {}; }));
+    const data = answer(() => highlightView('data', async () => { highlightTokens('let dataText = 1;', 'ts', 0, 'data'); await dataWait.shut; return {}; }));
     shellWait.open();
-    await shell.then(value => expect(value.highlightPending).toBe(true));
+    expect((await shell).highlightPending).toBe(true);
     dataWait.open();
     expect((await data).highlightPending).toBe(false);
+    // The shell's late text stays: its answer pins it through 500 others.
+    settleHighlights();
+    for (let i = 0; i < 500; i++) highlightTokens(`let other${i} = ${i};`, 'ts');
+    settleHighlights();
+    expect(lexedNow('let shellLate = 2;')).toBe(true);
   });
 
   test('the texts an answer in flight has painted stay while the pump trims the cache', async () => {
@@ -142,9 +192,9 @@ describe('a view pins and reports only what it paints', () => {
     settleHighlights();
     const wait = gate();
     const data = answer(() => highlightView('data', async () => {
-      texts.forEach(lexedNow);
+      texts.forEach(text => lexedNow(text, 'data'));
       await wait.shut;
-      return { lexed: texts.filter(lexedNow).length };
+      return { lexed: texts.filter(text => lexedNow(text, 'data')).length };
     }));
     // The pump's rounds lex 450 other texts, past KEPT, while the answer waits.
     for (let i = 0; i < 450; i++) highlightTokens(`let other${i} = ${i};`, 'ts');
@@ -155,11 +205,11 @@ describe('a view pins and reports only what it paints', () => {
 
   test('a message whose blocks come from the cache of painted results keeps their texts pinned', async () => {
     const message = 'Intro\n\n```ts\nconst pinned = 1;\n```\n';
-    messageCodeBlocks(message);
+    messageCodeBlocks(message, null, 'message');
     settleHighlights();
     for (let round = 0; round < 3; round++) {
       // Each answer paints the cached blocks again (highlightShown), and 450 other texts are lexed between them.
-      await answer(() => highlightView('data', () => ({ code: messageCodeBlocks(message) })));
+      await answer(() => highlightView('data', () => ({ code: messageCodeBlocks(message, 'data', 'message') })));
       for (let i = 0; i < 450; i++) highlightTokens(`let other${round}x${i} = ${i};`, 'ts');
       settleHighlights();
     }
@@ -168,15 +218,36 @@ describe('a view pins and reports only what it paints', () => {
 });
 
 describe('what the cache keeps', () => {
-  test('the lexed texts no view paints are kept up to 4,000,000 characters, the most recently used', () => {
-    // 160 texts of 26,814 characters: 4.3 million, under 400 texts.
-    const texts = Array.from({ length: 160 }, (_, i) => `// text ${String(i).padStart(3, '0')}\n${'export const value = compute(input, { retries: 3, label: "x" });\n'.repeat(400)}`);
+  test('the lexed texts no view paints are kept while their tokens take up to 8 MiB, the most recently used', () => {
+    // 40 texts of 26,814 characters and 6,402 tokens each: about 0.8 MB apiece in Hermes's heap, under 400 texts.
+    const texts = Array.from({ length: 40 }, (_, i) => `// text ${String(i).padStart(3, '0')}\n${'export const value = compute(input, { retries: 3, label: "x" });\n'.repeat(400)}`);
     for (const text of texts) {
       highlightTokens(text, 'ts');
       settleHighlights();
     }
-    const kept = Math.floor(4_000_000 / texts[0]!.length);
-    expect(texts.map(lexedNow)).toEqual(texts.map((_, i) => i >= texts.length - kept));
+    const kept = Math.floor((8 << 20) / textBytes(texts[0]!, whole(texts[0]!).length));
+    expect(kept).toBeLessThan(texts.length);
+    expect(texts.map(text => lexedNow(text))).toEqual(texts.map((_, i) => i >= texts.length - kept));
+  });
+
+  test('the cache of message blocks keeps one version a message, while their tokens take up to 4 MiB', () => {
+    const block = (i: number, lines: number) => `\`\`\`ts\n${Array.from({ length: lines }, (_, n) => `const value${i}x${n} = compute(${n});`).join('\n')}\n\`\`\``;
+    // A reply streaming its block: each version replaces the last.
+    for (let lines = 10; lines <= 200; lines += 10) {
+      messageCodeBlocks(block(0, lines), null, 'reply');
+      settleHighlights();
+      messageCodeBlocks(block(0, lines), null, 'reply');
+    }
+    expect(messageBlocksCached().entries).toBe(1);
+    // Many messages: the least recently used go past 4 MiB.
+    for (let i = 1; i <= 60; i++) {
+      messageCodeBlocks(block(i, 300), null, `message ${i}`);
+      settleHighlights();
+      messageCodeBlocks(block(i, 300), null, `message ${i}`);
+    }
+    const { entries, bytes } = messageBlocksCached();
+    expect(entries).toBeLessThan(61);
+    expect(bytes).toBeLessThanOrEqual(4 << 20);
   });
 
   test('a text the lexers left out goes before the texts painted after it', () => {

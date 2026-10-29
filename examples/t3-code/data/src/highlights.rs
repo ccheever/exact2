@@ -15,10 +15,11 @@
 //!   its new lines are lexed again.
 //!
 //! The lexers share the crate's one worker thread with the chat Markdown, so a call spends about [`BUDGET`] on them:
-//! staging a document's text counts, and is done whole lines at a time too, and a call's first line or text is held
-//! to the budget like the rest (a line that does not fit is lexed a slice at a time; a whole text that cannot fit a
-//! call of its own is a document instead). Every call into the module carries fuel and every store a memory limit: a
-//! lexer that loops or grows without end traps, which drops its instance, and its text paints plain.
+//! staging a document's text counts, and is done whole lines at a time too. What does not fit what is left waits for
+//! the next call, except a call's first step, which runs past the budget by at most one line staged or one slice of a
+//! line lexed (a line that does not fit is lexed a slice at a time; a whole text that cannot fit a call of its own is a
+//! document instead). Every call into the module carries fuel and every store a memory limit: a lexer that loops or
+//! grows without end traps, which drops its instance, and its text paints plain.
 
 use exact_plan::Value;
 use std::cell::RefCell;
@@ -1143,8 +1144,9 @@ mod tests {
 
     #[test]
     fn every_prefix_of_upstream_s_samples_paints_what_the_whole_text_does() {
-        // incrementalHighlighting.test.ts's samples, each streamed a character at a time and in steps of 3 and 7
-        // (dist/languages.js ids). One with a CR is never appended to (highlights.ts starts its document again).
+        // incrementalHighlighting.test.ts's eleven samples at the pin, and a setext heading of the clone's own, each
+        // streamed a character at a time and in steps of 3 and 7 (dist/languages.js ids). One with a CR is never
+        // appended to (highlights.ts starts its document again).
         let samples: [(&str, u8, &str); 12] = [
             (
                 "typescript",

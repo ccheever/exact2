@@ -21,6 +21,7 @@ import { messageTime } from '../timeline/timeline-presentation';
 import { lineTokens, overlay } from '../highlight/timeline-diff-syntax';
 import { wordAltMarks } from '../appearance/settings-font-previews'; // Pierre's word-alt marks, ported
 import type { Token } from '../highlight/timeline-highlight';
+import type { HighlightView } from '../highlight/highlights';
 import { utilityPlacement, type LineDrag } from './diff-line-drag';
 
 /** `baseRef`: the Changes scope's comparison target, null for Automatic (diffPanelStore's branch selection). `reveal`: a turn's
@@ -255,12 +256,12 @@ export const plain = (text: string): Segment[] => [{ id: '0', text, mark: false,
  * One hunk as stacked rows and split pairs; the pull request Code tab draws the same rows (pages-pr-code-rows.ts).
  * With `marks`, each deletion and the addition at its index in a change block carry word-alt marks (wordAltMarks).
  */
-export function hunkRows(hunk: Hunk, path: string, marks = false): { stacked: Row[]; split: { left: Row; right: Row }[] } {
+export function hunkRows(hunk: Hunk, path: string, marks = false, view: HighlightView | null = null): { stacked: Row[]; split: { left: Row; right: Row }[] } {
   const stacked: Row[] = [], split: { left: Row; right: Row }[] = [];
   const empty: Row = { tone: 'empty', number: '', segments: [], oldLine: 0, newLine: 0 };
   // Each side is highlighted as one text (timeline-diff-syntax.ts).
   const oldSide = hunk.lines.filter(line => line.kind !== 'addition'), newSide = hunk.lines.filter(line => line.kind !== 'deletion');
-  const oldTokens = lineTokens(oldSide.map(line => line.text), path), newTokens = lineTokens(newSide.map(line => line.text), path);
+  const oldTokens = lineTokens(oldSide.map(line => line.text), path, view), newTokens = lineTokens(newSide.map(line => line.text), path, view);
   const syntax = new Map<Line, { old: Token[]; next: Token[] }>();
   oldSide.forEach((line, at) => syntax.set(line, { old: oldTokens[at] ?? [], next: [] }));
   newSide.forEach((line, at) => syntax.set(line, { old: syntax.get(line)?.old ?? [], next: newTokens[at] ?? [] }));
@@ -450,7 +451,7 @@ export function diffSnapshot(client: T3Client, now: number) {
       // Past the row limit nothing more is drawn: the hunk only counts, and its sides ask the lexers for nothing.
       if (rows >= (state.find.open ? 100_000 : ROW_LIMIT)) rows += hunk.lines.length;
       else {
-        const { stacked, split } = hunkRows(hunk, file.path, true);
+        const { stacked, split } = hunkRows(hunk, file.path, true, 'data');
         (state.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
       }
       oldNext = oldStart + oldCount; newNext = newStart + newCount;

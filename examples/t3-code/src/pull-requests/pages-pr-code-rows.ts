@@ -139,7 +139,7 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
       // Past the row limit nothing more is drawn: the hunk only counts, and its sides ask the lexers for nothing.
       if (rows >= (input.finding ? 100_000 : ROW_LIMIT)) rows += hunk.lines.length;
       else {
-        const { stacked, split } = hunkRows(hunk, file.path, true);
+        const { stacked, split } = hunkRows(hunk, file.path, true, 'prDetail');
         (input.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
       }
       oldNext = oldStart + hunk.deletionCount; newNext = newStart + hunk.additionCount;

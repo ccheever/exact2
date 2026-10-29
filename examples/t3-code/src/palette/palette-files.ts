@@ -94,7 +94,7 @@ export function lineParts(line: string, ranges: Obj[], path = ''): PalettePart[]
   const hit = (at: number) => marks.some(([start, end]) => at >= start && at < end);
   // HighlightedSearchLine: getFiletypeFromFileName(path) picks the language (a root Dockerfile too).
   const language = path ? fileLanguage(path) : '';
-  const tokens = language ? highlight(line, language) : [{ text: line, cls: '' }];
+  const tokens = language ? highlight(line, language, 0, 'palette') : [{ text: line, cls: '' }];
   const parts: PalettePart[] = [];
   let offset = 0;
   for (const token of tokens.length ? tokens : [{ text: line, cls: '' }]) {
