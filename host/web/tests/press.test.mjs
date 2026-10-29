@@ -743,6 +743,29 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     expect(await ink('label')).toBe('rgb(0, 0, 0)');
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     expect(await evaluate(`document.getElementById('painted').getAnimations().length`)).toBe(0);
+    // The same under a main-thread stall: the authored transitions set and the press and release handled before any
+    // frame, so they are still pending when the paint goes on, and Chrome drops them. Taking the paint off then made
+    // Chrome start new transitions from the properties' initial values (opacity 1, transparent): the release eased
+    // toward that base and, the paint ended, the node showed it for the transition's second. Both the paint's base and
+    // the look after its end lie on the authored segment (0.8 white to 0.6 yellow), never on those initial values.
+    await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = 'background-color 1s linear, opacity 1s linear'; el.style.backgroundColor = 'rgb(255, 255, 0)'; el.style.opacity = '0.6'; getComputedStyle(el).opacity; setTimeout(() => { const end = performance.now() + 300; while (performance.now() < end); }, 0); }`);
+    await Promise.all([mouse('mousePressed', painted), mouse('mouseReleased', painted)]);
+    const stalled = await evaluate(`new Promise(ok => {
+      const el = document.getElementById('painted'), seen = [], end = performance.now() + 3000;
+      const look = () => {
+        const s = getComputedStyle(el), paint = el.getAnimations().find(a => !a.transitionProperty && a.effect.getKeyframes()[0]?.['--exact-press-base-opacity'] !== undefined), at = paint?.effect.getKeyframes()[0];
+        seen.push({ painting: el.hasAttribute('data-exact-painting'), look: rgb(s.opacity + ' ' + s.backgroundColor), base: at ? rgb(at['--exact-press-base-opacity'] + ' ' + at['--exact-press-base-background']) : null });
+        if (performance.now() > end || seen.filter(x => !x.painting).length > 5) ok(seen); else requestAnimationFrame(look);
+      };
+      look();
+    })`);
+    const authored = (said) => { const [o, ...c] = said.split(' '), v = parseFloat(o); return v >= 0.599 && v <= 0.801 && /^rgb\(255, 255, \d+\)$/.test(c.join(' ')); };
+    expect(stalled.filter(x => x.base !== null && !authored(x.base)).map(x => x.base), 'the paint eases toward the authored base').toEqual([]);
+    expect(stalled.filter(x => !x.painting && !authored(x.look)).map(x => x.look), 'the look after the paint is the authored one').toEqual([]);
+    expect(stalled.some(x => !x.painting), 'the paint ended').toBe(true);
+    await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = ''; el.style.backgroundColor = 'rgb(255, 255, 255)'; el.style.opacity = '0.8'; }`);
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    expect(await evaluate(`document.getElementById('painted').getAnimations().length`)).toBe(0);
 
     // A colour alone is the author's press too: no unsaid dim under it.
     const inked = await centre('inked');
