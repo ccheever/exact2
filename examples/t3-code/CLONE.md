@@ -64,10 +64,19 @@ These earlier implementation checkpoints are available on GitHub:
 [PR216](https://github.com/ccheever/exact2/pull/216) remains a draft against
 `daehyeon/t3-code-main`. Keep it unmerged and limit distribution to TestFlight.
 
-- The desktop app extraction is unfinished. Current `app.contract` is
-  2,994 lines against the repository's 1,500-line rule. Current Contract keeps
-  ordinary resources, mutations and tasks at Root. No fitting replacement was
-  selected.
+- The desktop Root now uses five feature-local Contract `members` files and is
+  1,382 lines. All five extraction steps compile to the exact original plan.
+  Root retains state, request ownership and declaration order. The fixture
+  assembles members at their listing positions. All 7,159 desktop TypeScript
+  tests, 19 compiler members tests, strict application TypeScript and the six
+  repository checks pass, including caps. An unchanged `.mjs` adapter test
+  cannot register in Bun and remains unqualified. The normal native desktop
+  build times out during the app bake after 1,200 seconds without an error
+  explaining the timeout. Native launch and member rebuild behavior remain
+  unverified. The five extraction commits end at `823073b67c`. Independent
+  review finds no introduced P1 or P2 issue. It passes a fresh full-plan
+  comparison, 560 desktop tests, 19 compiler members tests, caps and 11 fixture
+  reader probes. No new comment cleanup is required.
 - Focused compiler, chat and command tests passed. Whole-app behavior, visual
   parity and final integrated checks remain unverified.
 - The InlineShortcut comparison has no complete verdict. Its cached test
