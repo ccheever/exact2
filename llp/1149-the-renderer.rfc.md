@@ -776,6 +776,23 @@ residual text; the frame intervals across the migration include the synchronizat
 probe, so a switch without a late frame is not established; lock and unlock stays untested.
 Every pinned suite and `exact-windows`'s tests pass with both devices on the NucBox.
 
+**S2.3, 2026-10-28** (`lane/ink-s2` at `d9b189480e`): the window is a composition window from
+creation (`WS_EX_NOREDIRECTIONBITMAP`, never GDI), its first frames through a WARP device
+while the hardware device readies, the hardware swap chain replacing WARP's on the shared
+visual. Mica matched before and after and the sampled pixels did not change across the
+switch, but the approach costs what it saves: the paired overhead over `softbuffer` rose to
+14.2 ms at 1024×720 and 29.5 ms at 1920×1080 (WARP's own first frames), and the frame after
+the switch ran 21 to 36 ms, past 25 ms in five and eight launches of ten, with 50 ms
+sampling gaps that cannot exclude a one-refresh flash. The 150% DPI residue is gone (the
+post-round-trip capture matches a fresh launch at 0.001/255); the return to 100% leaves a
+1030×737 client instead of 1024×720 (`QUEUE.md`). **The orchestrator's correction**: the
+10 ms bar the S2 chunks were held to was stricter than D15's own boot gate, which is no more
+than 10% regression against the platform's existing painter (34 ms on Shelf's 342 ms first
+screen); by D15, S2.1's 17 to 27 ms with no migration at all already passed. S2.4 therefore
+takes the simplest shape: the composition window from creation (S2.3's), the hardware
+device created at process start, the first frame waiting only for it, no WARP and no
+switch to qualify.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
