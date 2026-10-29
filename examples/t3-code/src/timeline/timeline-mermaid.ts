@@ -38,7 +38,8 @@ const attempts = new Map<string, number>();
 const retryKey = (theme: Theme, code: string) => `${theme}\n${code.trim()}`;
 
 const fence = /^( {0,3})(`{3,}|~{3,})([^\n`]*)\n([\s\S]*?)\n? {0,3}\2[`~]*[ \t]*(?:\n|$)/gm;
-/** The code of every ```mermaid fence, as the parsed block's text (messageCodeBlocks' matching). */
+/** The code of every closed ```mermaid fence, as the parsed block's text: a diagram draws once its fence closes
+ *  (MarkdownMermaidCodeBlock), where messageCodeBlocks takes a fence still open too, as code. */
 export function mermaidFences(markdown: string): string[] {
   if (!markdown.includes('mermaid')) return [];
   const found: string[] = [];

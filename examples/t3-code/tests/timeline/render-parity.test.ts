@@ -3,9 +3,12 @@ import { shellCommand } from '../../src/highlight/shell-command';
 import { inlineCodeFilePathCandidate } from '../../src/timeline/inline-code-files';
 import { fileLinkTarget, messageChips } from '../../src/timeline/message-chips';
 import { eventRow, handoffEndpoints } from '../../src/timeline/timeline-events';
+import { settleHighlights } from '../support/highlights-fixture';
 
 test('embedded script colors map through shell quotes without changing the command', () => {
   const command = 'node -e "const answer = 42; console.log(answer)"';
+  shellCommand(command);
+  settleHighlights(); // the command and its script wait for the lexers (highlights.ts)
   const tokens = shellCommand(command);
   expect(tokens.map(token => token.text).join('')).toBe(command);
   expect(tokens.some(token => token.text.includes('42') && token.cls === 'num')).toBe(true);

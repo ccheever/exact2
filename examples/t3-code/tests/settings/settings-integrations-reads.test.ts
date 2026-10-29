@@ -13,7 +13,7 @@ import { Backend, nextAppGeneration, storage } from '../support/client-fixture';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { DEVICE_STATE_KEY } from '../../src/device/device-surface';
 import { resetPrimary } from '../support/local-primary-fixture';
-import { resetHighlightSlicing } from '../../src/highlight/shiki-highlight';
+import { resetHighlights } from '../../src/highlight/highlights';
 
 const READS = ['server.getConfig', 'server.getSettings', 'device.list'];
 
@@ -81,7 +81,7 @@ async function launched() {
   return { native, files };
 }
 
-afterEach(() => { resetPrimary(); resetHighlightSlicing(); });
+afterEach(() => { resetPrimary(); resetHighlights(); });
 
 describe('Settings › Integrations reads its config, settings and device state as the reference does', () => {
   test('opening the page answers once with no server reads, and its answer never asks it again', async () => {

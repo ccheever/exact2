@@ -405,7 +405,7 @@ shape Snapshot
   updateEverything: UpdateEverythingView
   serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool
-  highlightPending: bool // a code text waits for its Shiki tokens
+  highlightPending: bool // a code text waits for its tokens (highlights.ts)
   markdownSkills: MarkdownSkill[]
   composer: ComposerView
   // The AlertStack wrapper's clip to its banners (laid-out-widths.ts alertClip).

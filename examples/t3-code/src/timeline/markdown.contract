@@ -1,8 +1,9 @@
-use FindPart, FindParts, FindToken from "./thread-find.contract"
+use FindPart, FindParts, FindToken, findFrom, findTo from "./thread-find.contract"
 // App-local chat typography over the existing portable Markdown parser.
 use FileTypeIcon from "../shared/timeline-files.contract"
 use TimelineIcon from "./timeline-icons-kit.contract"
 use Tip from "../shell/shell-tip.contract"
+use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
 use AttachmentUrl, ChipThumb from "./timeline-attachments.contract"
 use CodeTip from "./code-tips.contract"
 use Icon from "../shared/icons.contract"
@@ -83,6 +84,8 @@ shape ChatBlock
   // The block's own words' direction (markdown_direction.rs): "rtl", "ltr", or "" without letters.
   dir: string
   findParts: FindPart[]
+  // A code block's find part each line starts in, then its last part (markdown_find.rs find_lines); none for one part.
+  findLines: number[]
 shape ChatDocument
   id: string
   blocks: ChatBlock[]
@@ -94,18 +97,21 @@ shape CodeToken
   id: string
   text: string
   cls: string
+  // Where the token starts in its block's code, in UTF-16 units (find and citation marks), counted once in TypeScript
+  // (timeline-highlight.ts codeTokens). Summed here per token, the last of N tokens took about 5N list steps (map,
+  // indexOf, slice, map and join each walk the list), past the runner's 65,536 an evaluation (runner/src/vm.rs
+  // MAX_LIST_STEPS) at about 13,100 tokens, and the trap poisoned the runner.
+  at: number
+  // The lines its first and last characters are on: CodeBlock hands FindToken those lines' find parts.
+  line: number
+  lastLine: number
 shape CodeHighlight
   id: string
   code: string
   icon: string
   tokens: CodeToken[]
-// pierre-light / pierre-dark, the reference's Shiki themes, by token class.
-// A class ends in "+i" where the pierre theme sets italic (shiki-highlight.ts).
-fn synColor(cls: string): string = synInk(cls.endsWith("+i") ? cls.slice(0, -2) : cls)
-fn synSlant(cls: string): string = cls.endsWith("+i") ? "italic" : "normal"
 // .chat-markdown strong is 600 (3816296021); the parser's bold runs are capped there.
 fn runWeight(weight: number): number = weight > 600 ? 600 : weight
-fn synInk(cls: string): string = ["kw", "decl", "type", "fn", "var", "const"].includes(cls) ? (cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : "light-dark(#d5901c, #ffab16)") : ["param", "pyparam", "flag", "interp", "bold", "str", "esc", "num"].includes(cls) ? (cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : "light-dark(#1ca1c7, #68cdf2)") : ["nul", "op", "builtin", "punct", "com", "key", "tag", "heading", "attr"].includes(cls) ? (cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : "light-dark(#18a46c, #60d199)") : ["regex", "deco"].includes(cls) ? (cls == "regex" ? "light-dark(#17a5af, #64d1db)" : "light-dark(#1a85d4, #69b1ff)") : "light-dark(#000000, #fafafa)"
 
 shape TranscriptMarkdown
   documents: ChatDocument[]
@@ -163,10 +169,9 @@ fn citeOffset(blocks: ChatBlock[], code: CodeHighlight[], blockId: string): numb
 // or code span of a block laid out word by word (FlowRuns) after the runs before it; a whole block's text at its start.
 fn citeRunOffset(blocks: ChatBlock[], code: CodeHighlight[], blockId: string, runId: string): number = runId == "" ? 0 : runId == "code" ? blocks.filter((b) => b.id == blockId).map((b) => citeCodeLabel(b, code) != "" ? `${citeCodeLabel(b, code)}\n` : "").join("").length : blocks.filter((b) => b.id == blockId).map((b) => b.runs.slice(0, max(0, b.runs.map((r) => r.id).indexOf(runId))).map((r) => r.text).join("")).join("").length
 fn noChips(): ChipView[] = []
-// Where run `id` starts in its block's text (the runs before it), and where token `id` starts in
-// its code; with the cited text's [start, end) in the same offsets (`ms`, `me`; -1 when nothing is marked there).
+// Where run `id` starts in its block's text (the runs before it); with the cited text's [start, end) in the same
+// offsets (`ms`, `me`; -1 when nothing is marked there). A code token carries its own offset (CodeToken `at`).
 fn runAt(runs: ChatRun[], id: string): number = runs.slice(0, max(0, runs.map((r) => r.id).indexOf(id))).map((r) => r.text).join("").length
-fn tokenAt(tokens: CodeToken[], id: string): number = tokens.slice(0, max(0, tokens.map((t) => t.id).indexOf(id))).map((t) => t.text).join("").length
 fn citeMarks(ms: number, me: number, at: number, size: number): bool = ms >= 0 and me > at and ms < at + size
 
 // Occurrence ids come from the same parsed blocks/runs that draw the images. Shared URLs keep separate entries.
@@ -1112,21 +1117,21 @@ component CodeBlock
           text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#000000, #fafafa)"
             for token in hl.tokens key=token.id
               if ms < 0
-                text color=synColor(token.cls) font-style=synSlant(token.cls)
-                  FindToken(value=token.text, at=tokenAt(hl.tokens, token.id), parts=block.findParts)
+                text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
+                  FindToken(value=token.text, at=token.at, parts=block.findParts.slice(findFrom(block.findLines, token.line), findTo(block.findLines, token.lastLine)))
               else
-                text color=synColor(token.cls) font-style=synSlant(token.cls)
-                  MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
+                text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
+                  MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
               for token in hl.tokens key=token.id
                 if ms < 0
-                  text color=synColor(token.cls) font-style=synSlant(token.cls)
-                    FindToken(value=token.text, at=tokenAt(hl.tokens, token.id), parts=block.findParts)
+                  text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
+                    FindToken(value=token.text, at=token.at, parts=block.findParts.slice(findFrom(block.findLines, token.line), findTo(block.findLines, token.lastLine)))
                 else
-                  text color=synColor(token.cls) font-style=synSlant(token.cls)
-                    MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
+                  text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
+                    MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
 // MarkdownMermaidCodeBlock (74541bab17): a closed ```mermaid fence draws its diagram with
 // no card, centred and fit to the lane, under the code header's actions ("Show code" left of Copy);
 // "Show code" turns it back into the code block, where "Show diagram" sits left of

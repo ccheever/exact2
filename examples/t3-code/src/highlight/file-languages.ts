@@ -1,9 +1,9 @@
 // The language a file name picks, as the reference's @pierre/diffs
 // 1.3.0-beta.10 (Apache-2.0; dist/utils/getFiletypeFromFileName.js, EXTENSION_TO_FILE_FORMAT, 345
 // entries) picks it: a whole name (Dockerfile, CMakeLists.txt), a compound extension (component.ts,
-// blade.php) or a simple one. Each value is a Shiki 4.2 language id or alias (1c is bsl's), so
-// every one has its grammar here; a name the table lacks paints as plain text, as the reference
-// falls back to "text". code-highlighting-languages.test.ts checks both.
+// blade.php) or a simple one. Each value is a Shiki 4.2 language id or alias (1c is bsl's), which
+// the reference hands to @pierre/highlights: a language with a lexer there (highlights-tables.ts)
+// is highlighted, and the others paint plain, as the reference falls back to "text".
 
 /** File names and extensions to the Shiki language @pierre/diffs gives them. */
 export const FILE_TYPES: Record<string, string> = {

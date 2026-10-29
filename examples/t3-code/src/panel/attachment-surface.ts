@@ -137,7 +137,7 @@ async function renderedAttachment(client: T3Client, native: Native | null | unde
   return {
     markdownSource: [{ id: `attachment:${id}`, kind: 'attachment', title: '', body: text }],
     md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, '', [], `attachment:${id}`, { thread: false }, client)) }, // the owner names the document
-    code: messageCodeBlocks(text), diagrams, mdUrls: [],
+    code: messageCodeBlocks(text, 'shell', `attachment:${id}`), diagrams, mdUrls: [],
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
 }
@@ -196,7 +196,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
         : kind === 'image' ? 'image' : mediaBody(kind, rendered) || 'none';
   const text = content?.text ?? '';
   const table = preview === 'table' ? tableRows(meta.name, text) : null;
-  const lines = preview === 'code' ? codeLines(meta.name, text) : [];
+  const lines = preview === 'code' ? codeLines(meta.name, text, 'shell') : [];
   const extension = meta.name.split('.').pop() || 'this format';
   // useCopyToClipboard: "Copied" for two seconds of the window's clock, stamped by the first view after the copy.
   if (state.copiedAt < 0 && now) state.copiedAt = now;

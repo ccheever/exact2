@@ -184,10 +184,12 @@ describe('sent videos in the transcript', () => {
 });
 
 import { codeLines } from '../../src/panel/files-surface';
+import { settleHighlights } from '../support/highlights-fixture';
 describe('HTML source lines', () => {
   test('every line keeps its own text: tags no longer swallow the text before them', () => {
     const text = '<!doctype html>\n<html><head><title>T</title></head>\n<body>\n<h1>Hi</h1>\n</body></html>';
     expect(codeLines('page.html', text).map(line => line.runs.map(run => run.text).join(''))).toEqual(text.split('\n'));
+    settleHighlights(); // the page waits for the lexers (highlights.ts)
     expect(codeLines('page.html', text)[3]!.runs.map(run => [run.text, run.syntax])).toEqual([['<', 'punct'], ['h1', 'tag'], ['>', 'punct'], ['Hi', ''], ['</', 'punct'], ['h1', 'tag'], ['>', 'punct']]);
   });
 });

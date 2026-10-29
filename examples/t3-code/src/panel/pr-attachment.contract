@@ -22,8 +22,7 @@ use prdCheckIcon from "../pull-requests/pages-pr-detail.contract"
 use prdCheckTone from "../pull-requests/pages-pr-detail.contract"
 use ChatDocument from "../timeline/markdown.contract"
 use DiagramBlocks from "../timeline/markdown.contract"
-use synColor from "../timeline/markdown.contract"
-use synSlant from "../timeline/markdown.contract"
+use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
 use PgIcon from "../shared/pages-icons.contract"
 use ShellIcon from "../shell/shell-icons.contract"
 use PanelIcon from "./panel-icons.contract"
@@ -305,7 +304,7 @@ component AttachmentCodeRow
       text line.number width=gutter flex-shrink=0 padding-right="0.614375rem" box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
       text flex=1 min-width=0 padding-left="0.4875rem" padding-right="0.4875rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
         for run in line.runs key=run.id
-          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
+          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax) font-weight=synWeight(run.syntax)
 
 // The Show more chevrons from the shell set (the pull request icon set has no chevron-up), else the pages glyphs.
 component SurfaceGlyph
