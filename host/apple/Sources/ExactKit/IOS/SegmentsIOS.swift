@@ -544,7 +544,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             if control.superview !== owner { owner.addSubview(control) }
             assign(control, \.isEnabled, available(owner))
             // The authored colour belongs to UIKit's control, within its native height and corners.
-            assign(control, \.backgroundColor, owner.channels("background_color").map { TextEngine.color($0) })
+            assign(control, \.backgroundColor, owner.undimmedChannels("background_color", dark: owner.drawsDark).map { TextEngine.color($0) })
             owner.applyBoxLayer()
             owner.setNeedsDisplay()
             control.accessibilityLabel = owner.props["accessibilityLabel"]

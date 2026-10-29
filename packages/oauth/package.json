@@ -1,0 +1,14 @@
+{
+  "name": "@exact/oauth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OAuth 2.0 and OpenID Connect sign-in for data code: authorization code with PKCE, refresh with rotation, an authorized fetch, sign-out (LLP 1146).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "contract": "./index.contract",
+      "default": "./index.ts"
+    }
+  }
+}

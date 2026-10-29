@@ -34,11 +34,11 @@ test "armed again by each answer"
   tap "poke"
   tap "poke"
   expect state after == 2
-  expect state stamp == 40
+  expect state stamp == 41
   clock +5
   expect state after == 2
-  expect state stamp == 40
+  expect state stamp == 41
   tap "poke"
   clock +1
   expect state after == 3
-  expect state stamp == 45
+  expect state stamp == 47

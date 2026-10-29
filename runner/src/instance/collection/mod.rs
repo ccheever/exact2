@@ -679,7 +679,11 @@ impl Collection {
             .as_ref()
             .map(|g| {
                 self.index
-                    .capture_anchor(self.anchor_offset(g.offset), g.port_main, self.follows())
+                    .capture_anchor(
+                        self.anchor_offset(g.offset, g.port_main),
+                        g.port_main,
+                        self.follows(),
+                    )
                     .map_err(index_error)
             })
             .transpose()
@@ -880,9 +884,9 @@ impl Collection {
             let mounted = match old.remove(&text) {
                 Some(mut mounted) => {
                     mounted.held = false;
-                    let dirty = self.reposition(&mut mounted, position);
+                    let body = &u.sites.deps.bodies[self.region.0 as usize];
+                    let dirty = self.reposition(&mut mounted, position, body.reads_position());
                     if update {
-                        let body = &u.sites.deps.bodies[self.region.0 as usize];
                         update_row(u, &mut mounted.row, frames, dirty, body)?;
                     } else {
                         u.work.rows_reused += 1;
@@ -911,7 +915,7 @@ impl Collection {
                 match self.index.position(&text) {
                     Some(position) => {
                         kept = true;
-                        self.reposition(&mut mounted, position);
+                        self.reposition(&mut mounted, position, true);
                         self.settle_mounted(u, mounted, &text)?;
                     }
                     // An item that left the data went with the update that
@@ -991,7 +995,7 @@ impl Collection {
         pending |= !kept.is_empty();
         for (_, text, mut mounted) in kept {
             let position = self.index.position(&text).unwrap();
-            self.reposition(&mut mounted, position);
+            self.reposition(&mut mounted, position, true);
             self.settle_mounted(u, mounted, &text)?;
         }
         self.mounted.sort_by_key(|row| row.position);
@@ -1002,9 +1006,11 @@ impl Collection {
     }
     /// Move a mounted row to `position`; which fields of its item changed
     /// ([`crate::compare::changed_fields`]), every one when its position
-    /// changed (a row that moved reads its new one, LLP 1062 D8). An
-    /// equivalent item keeps its object for nested memos.
-    fn reposition(&self, mounted: &mut Mounted, position: usize) -> u64 {
+    /// changed and its body reads its position (`reads_position`: a row that
+    /// moved reads its new one, LLP 1062 D8). A row that reads none keeps
+    /// its bindings as an unmoved one would (a prepend moves every kept
+    /// row). An equivalent item keeps its object for nested memos.
+    fn reposition(&self, mounted: &mut Mounted, position: usize, reads_position: bool) -> u64 {
         mounted.position = position;
         let item = Some(self.items[position].clone());
         let dirty = crate::compare::changed_fields(&mounted.row.frame.item, &item);
@@ -1013,7 +1019,7 @@ impl Collection {
         }
         let moved = mounted.row.frame.index != Some(position);
         mounted.row.frame.index = Some(position);
-        if moved {
+        if moved && reads_position {
             !0
         } else {
             dirty

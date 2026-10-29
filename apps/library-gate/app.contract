@@ -237,14 +237,20 @@ component App
           FollowButton(id="sample-fb-round-tiny", following=false, text="Follow", label="Follow Ada", tone="primary", size="tiny", shape="round", icon="both", press=press)
           FollowButton(id="sample-fb-icon-follow-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="follow", press=press)
           FollowButton(id="sample-fb-icon-following-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="following", press=press)
-        // What a list shows with nothing in it (stage 15 B batch 2): no
-        // variant, so one cell, every piece shown (the icon, title, message
-        // and a button with its icon); then the message alone, and a button
-        // with no icon and its own label, as samples.
+        // What a list shows with nothing in it (stage 15 B batch 2): the
+        // base cell with every piece shown (the icon, title, message and a
+        // button with its icon), then each other icon size, tone and button
+        // tone alone; then the message alone, and a button with no icon and
+        // its own label, as samples.
         column testId="gate-empty"
-          EmptyState(id="es-base", icon="symbol:info", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", press=press)
-          EmptyState(id="sample-es-message", icon="", title="", message="Nothing here yet.", button="", buttonLabel="", buttonIcon="", press=press)
-          EmptyState(id="sample-es-button", icon="", title="", message="Say hi to someone", button="New chat", buttonLabel="Start a new chat", buttonIcon="", press=press)
+          EmptyState(id="es-base", icon="symbol:info", iconSize="medium", tone="high", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-small", icon="symbol:info", iconSize="small", tone="high", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-large", icon="symbol:info", iconSize="large", tone="high", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-medium", icon="symbol:info", iconSize="medium", tone="medium", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-label", icon="symbol:info", iconSize="medium", tone="label", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="primary", press=press)
+          EmptyState(id="es-secondary", icon="symbol:info", iconSize="medium", tone="high", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="secondary", press=press)
+          EmptyState(id="sample-es-message", icon="", iconSize="medium", tone="high", title="", message="Nothing here yet.", button="", buttonLabel="", buttonIcon="", buttonTone="primary", press=press)
+          EmptyState(id="sample-es-button", icon="", iconSize="medium", tone="high", title="", message="Say hi to someone", button="New chat", buttonLabel="Start a new chat", buttonIcon="", buttonTone="primary", press=press)
         // A menu's items in their group (stage 15 B batch 2). MenuGroup has
         // no id prop, so its cell is the box holding it; its slot's marker
         // first, then items. MenuItem's destructive value, one at a time; a

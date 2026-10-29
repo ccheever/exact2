@@ -304,7 +304,17 @@ extension Presenter {
     /// again at its next read.
     func applyContentGeometry(_ v: NodeView, _ op: BatchOp) {
         v.applyFieldContent(op.payload)
-        touched(v.id, textChanged: true)
+        // A paragraph's content box is where its pixels are, not what they
+        // say (`textRasterGeometryChanged`). One with no pixels for it (a new
+        // paragraph, a box of another size) is painted as the batch ends, with
+        // the batch's other new words (`paintChangedText`). A paragraph drawn
+        // in its view instead (lines flowed around shapes placed in the view,
+        // columns) and a field's words are laid out in the box again.
+        if v.isParagraph {
+            v.textRasterGeometryChanged()
+            if applying, v.textRasterKey == nil { changedText.insert(v.id) }
+        }
+        touched(v.id, textChanged: !v.isParagraph || !v.canRasterText)
         controls.faceChanged(v.id)
     }
 }

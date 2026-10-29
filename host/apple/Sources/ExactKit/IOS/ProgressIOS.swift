@@ -44,7 +44,7 @@ extension ControlHost {
             // The spinner's own `color`, else an authored accent (on it or
             // around it, as the bar takes it: LLP 1121 D9), else UIKit's grey
             // (LLP 1115 D4: an inherited text colour is not the spinner's).
-            let own = owner.ownColor("text_color") == nil ? nil : owner.channels("text_color").map { TextEngine.color($0) }
+            let own = owner.ownUIColor("text_color")
             // An `accent-color` on it or above (not the platform's tint, which
             // `accent-color: AccentColor` names), else the design's AccentColor.
             let written = Self.authorsAccent(owner)

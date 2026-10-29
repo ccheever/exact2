@@ -31,6 +31,8 @@ final class GroupedCell: UICollectionViewListCell {
     /// The node of its row's switch or detail button.
     var target: UInt32?
     var height: CGFloat?
+    /// An authored `min-height` for a cell UIKit's configuration sizes.
+    var minimumHeight: CGFloat?
     /// Its standard row's svg-only icon path token, drawn again at a new
     /// Dynamic Type size (stage 9 A2); nil for an SF Symbol or none.
     var pathSymbol: String? {
@@ -71,10 +73,16 @@ final class GroupedCell: UICollectionViewListCell {
     }
     #endif
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        guard let height else { return super.preferredLayoutAttributesFitting(attributes) }
-        let fitted = attributes.copy() as! UICollectionViewLayoutAttributes
-        fitted.size.height = height
-        return fitted
+        if let height {
+            let fitted = attributes.copy() as! UICollectionViewLayoutAttributes
+            fitted.size.height = height
+            return fitted
+        }
+        let fitted = super.preferredLayoutAttributesFitting(attributes)
+        guard let least = minimumHeight, fitted.size.height < least else { return fitted }
+        let raised = fitted.copy() as! UICollectionViewLayoutAttributes
+        raised.size.height = least
+        return raised
     }
 }
 

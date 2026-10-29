@@ -488,6 +488,8 @@ fn a_rust_source_drives_the_typed_client_through_host_requests() {
         "sent"
     );
     let poll = client.changes(host, 0).unwrap();
+    // Wake by audience: the poll declares interest, so a bystander is not woken by a stranger's commit.
+    assert!(poll.path.contains("&interest=1"), "{}", poll.path);
     let outcome = run(host_request(&poll, &origin, &headers));
     assert!(!client
         .changed(host, &poll.exchange, host_reply(&outcome))

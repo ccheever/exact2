@@ -563,17 +563,37 @@ Owners as they free up (the lead's order).
    which the compiler can't require, is checked non-empty on every round library-gate cell and by the adopting
    copy's script. Its tone-by-state colours and three press scales are params over `actions.follow-*` tokens, its
    sizes tokens (theme2's sign-off: tokens, not per-size params). Stated limit: its label's font weight is fixed per
-   size (500 small, 600 tiny), since there is no weight token kind for an app to restyle it; its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
+   size (500 small, 600 tiny), since there is no weight token kind for an app to restyle it. Its primary tone is
+   Bluesky's literal (`actions.follow-fill = light-dark(#006aff, #0f73ff)` under fixed white
+   `actions.follow-ink`), not the platform accent (theme2's 2026-10-27 23:51 ruling: Apple's default accent under
+   white text would drop to 3.52:1 light and 3.23:1 dark). An app or a theme importer reaches it by setting
+   `actions.follow-fill` and `actions.follow-ink` by full name. The ruled import path, owned by dtool3 and not built
+   yet, is for its importer to map an imported accent there with an ink chosen for 4.5:1 (today the shadcn and
+   Astryx importers map an accent to `AccentColor` only), so an import doesn't recolour the primary until it lands. Listed, a pre-existing gap not fixed here: the dark default, white on `#0f73ff`,
+   is 4.27:1 (light, on `#006aff`, 4.66:1), under 4.5:1 for the 13 px weight-500 small label. The overlay tone is
+   fixed (the video feed's own dark theme) and the subtle shades (`primary_50`, `primary_600`) stay Bluesky's
+   literal values by choice, as before, rather than a `color-mix()` of the fill. Its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
    beside Bluesky's paths. Library-gate places it once per compiler-marked variant value (following, tone, size,
    shape) with each icon pattern and each tone and size following as samples.
    **Stage 15 B batch 2 (2026-10-27)** adds `@exact/cards`' **EmptyState** and `@exact/lists`' **MenuItem** and
    **MenuGroup**, with Bluesky's sizes as the packages' tokens (`cards.empty-*`, `lists.menu-*`), their colours
-   params defaulting to platform roles except EmptyState's button, which is the brand primary (`cards.empty-button`,
-   Bluesky's blue, and fixed white `cards.empty-button-ink`), so the platform accent doesn't recolour it; every text
-   is the app's. The menu is drawn, not the platform's list cell
+   params defaulting to platform roles; every text is the app's. The menu is drawn, not the platform's list cell
    or menu, because Bluesky's native menu is a sheet of drawn items. MenuItem's `first` prop stands in for a slot
    index, which would let MenuGroup draw the hairlines between its children. `apps/library-gate` holds MenuGroup in
    a box named for its cell (it has no `id` prop), its slot marked, with MenuItem's cells inside.
+   **Its follow-up (2026-10-28)** gives EmptyState Bluesky's per-call variants: `iconSize` medium (3xl, 48 points:
+   the default, so the first value), small (2xl, 32) or large (4xl, 64, the chats'), in a 64-point box either way;
+   `tone` high (the message contrast_high, the default), medium (contrast_medium, the lists' and Bookmarks') or label
+   (the message and the icon in the text colour, the chats'); and `buttonTone` primary or secondary (Bookmarks' Go
+   home), each with its colour a param over its own `cards.empty-*` token. It had drawn every icon at 64. Its primary
+   button stays Bluesky's brand primary as a literal (`cards.empty-button`, `light-dark(#006aff, #0f73ff)` under
+   fixed white `cards.empty-button-ink`), not the platform accent: white on Apple's default accent is 3.52:1 in light
+   and 3.23:1 in dark, under 4.5:1 for its 13-point label (theme2's 23:51 ruling, with FollowButton's primary). An
+   imported accent doesn't reach it yet: the shadcn and Astryx importers write `AccentColor`, and mapping an accent
+   onto the brand tokens (`cards.empty-button` and `cards.empty-button-ink`, `actions.follow-fill` and
+   `actions.follow-ink`) with an ink chosen for contrast is PENDING, dtool3's item from theme2's 23:51 ruling; until
+   it lands an app sets each fill AND its ink by full name, the ink chosen to meet 4.5:1 on its fill. A gap this
+   keeps, LISTED: the dark default, white on #0f73ff, is itself 4.27:1, under 4.5:1 for that label.
 
 **The gate** (`~/x2theme/stage12-gate-run.txt`), each line with its oracle. **The required hosts**, for every line
 that runs per host: the web (the JS target and wasm), iOS, macOS, Linux, Android's reader and the terminal. A

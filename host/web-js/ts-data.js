@@ -374,7 +374,7 @@ export function install(data, mixed = false, modules = null) {
   // paint (rt.js `painted`), whether or not anything asks `later`.
   load = modules && (() => painted().then(modules));
   if (modules && typeof requestAnimationFrame === 'function') pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`));
-  let keys = null, asking = '', thrown = null;
+  let keys = null, asking = '', thrown = null, threwRead = false;
   // The answer an async function was called under, put back around each of
   // its steps by the bundle's async helper (js/bake/src/typescript.mjs
   // `asyncContextHelper`, LLP 1133.002 D14), as Hermes's prelude does with
@@ -408,6 +408,11 @@ export function install(data, mixed = false, modules = null) {
     const types = sourceTypes[name], [params, result] = types ?? [[], 'u'];
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
+    // A call that read the store and then threw read it too: its resource is a store reader (LLP 1146 §2.3).
+    threwRead = false;
+    try { return answerWith(name, args, target, mutation, types, params, result, seen); } catch (e) { threwRead = !!seen.read; throw e; }
+  };
+  const answerWith = (name, args, target, mutation, types, params, result, seen) => {
     // A kept key's work is counted on its answer as an ordinary fetch is (LLP 1016.000 D9).
     for (const name of ['key', 'keepKey']) { const op = seen[name]; seen[name] = (...a) => ordinary(() => op(...a)); }
     asking = target ?? name; watching = name;
@@ -436,6 +441,7 @@ export function install(data, mixed = false, modules = null) {
     if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read, effects }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
+      call.seen = seen; // a read after an `await` makes a store reader too: rt.js looks when the answer lands (LLP 1146 §2.3)
       // Once: an answer let go while its timers were armed never settles, and ends here (ts-fetch.js `dropTimers`).
       const settle = () => { if (call.settled) return; call.settled = true; dropTimers(call); answering.untraced.delete(call); pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
       call.abandon = settle;
@@ -477,5 +483,6 @@ export function install(data, mixed = false, modules = null) {
   };
   // A resource's source that sent and then threw: what it sent, which rt.js `ask` queues with the commit.
   data.thrown = () => { const t = thrown ?? []; thrown = null; return t; };
+  data.threwRead = () => { const read = threwRead; threwRead = false; return read; };
   for (const f of data.q.splice(0)) f();
 }

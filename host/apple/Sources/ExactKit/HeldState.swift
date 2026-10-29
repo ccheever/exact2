@@ -267,7 +267,7 @@ extension Presenter {
 
     /// The node above `id` in the logical tree: a paragraph's run's owner, a
     /// flat leaf's parent (iOS), else as the runner says it.
-    func logicalParent(of id: UInt32) -> UInt32? {
+    package func logicalParent(of id: UInt32) -> UInt32? {
         if let run = inlineText(id) { return run.parent }
         #if os(iOS) || os(tvOS)
         if let parent = flats.parent(of: id) { return parent }

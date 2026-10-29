@@ -250,6 +250,28 @@ test('`appTransportSecurity` writes ATS for web content only; absent, no key (#1
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('a manifest `start_url` other than the root bakes `ExactStartURL` on iOS and macOS (W3C App Manifest)', () => {
+  const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });
+  for (const plist of [infoPlist(app({ start_url: '/today' }), false), macInfoPlist(app({ start_url: '/today' }))]) {
+    assert.match(plist, /<key>ExactStartURL<\/key><string>\/today<\/string>/);
+  }
+  // Resolved against the manifest's URL, as `deploy.mjs` resolves it for the web.
+  for (const [start_url, want] of [['today', '/today'], ['./today', '/today'], ['/today?tab=2', '/today?tab=2']]) {
+    assert.ok(infoPlist(app({ start_url }), false).includes(`<key>ExactStartURL</key><string>${want}</string>`), start_url);
+  }
+  for (const start_url of [undefined, '', '/', './', '//elsewhere/today', 'https://example.com/today']) {
+    assert.doesNotMatch(infoPlist(app({ start_url }), false), /ExactStartURL/, String(start_url));
+  }
+  // On the app's declared origin an absolute or scheme-relative URL is a place in the app; on another, none.
+  const at = (start_url) => infoPlist({ ...app({ start_url }), origin: 'https://example.com' }, false);
+  for (const start_url of ['https://example.com/today', '//example.com/today', '/today']) {
+    assert.ok(at(start_url).includes('<key>ExactStartURL</key><string>/today</string>'), start_url);
+  }
+  for (const start_url of ['https://elsewhere.com/today', 'http://example.com/today', 'https://example.com/']) {
+    assert.doesNotMatch(at(start_url), /ExactStartURL/, start_url);
+  }
+});
+
 test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 1069.010 D4)', async () => {
   const { readManifest } = await import('./app.mjs');
   const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });

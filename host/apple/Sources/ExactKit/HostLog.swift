@@ -25,14 +25,27 @@ extension Presenter {
     /// What holds the focus in `window`, as a host line names it: a node by
     /// its id and testId, else the responder's class.
     static func focusHolder(in window: UIWindow) -> String {
-        func first(_ view: UIView) -> UIView? { view.isFirstResponder ? view : view.subviews.lazy.compactMap(first).first }
-        guard let held = first(window) else { return "nothing" }
+        guard let held = window.firstInTree({ $0.isFirstResponder ? $0 : nil }) else { return "nothing" }
         var up: UIView? = held
         while let view = up {
             if let node = view as? NodeView { return "#\(node.id)\(node.props["testId"].map { " [\($0)]" } ?? "")" }
             up = view.superview
         }
         return String(describing: type(of: held))
+    }
+}
+
+extension UIView {
+    /// The first of this view and its descendants, depth first, that `match`
+    /// gives a value for, each view asked once; a view `prune` is true of is
+    /// passed over with its subtree. Not `subviews.lazy.compactMap(…).first`:
+    /// `first` asks the matching child twice, which doubles a recursive
+    /// search at each level of depth.
+    package func firstInTree<T>(_ match: (UIView) -> T?, prune: (UIView) -> Bool = { _ in false }) -> T? {
+        if prune(self) { return nil }
+        if let found = match(self) { return found }
+        for child in subviews { if let found = child.firstInTree(match, prune: prune) { return found } }
+        return nil
     }
 }
 #endif

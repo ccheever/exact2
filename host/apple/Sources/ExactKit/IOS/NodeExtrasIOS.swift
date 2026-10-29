@@ -27,10 +27,18 @@ final class TextSpecs {
     var headroom: Float?
     var raster: CGImage?
     var rasterLayer: CALayer?
+    /// The layer at the paragraph's place that holds `rasterLayer` (`NodeView.placeTextRaster`).
+    var rasterBox: CALayer?
+    /// What the shown pixels answer for in the paragraph's box, whether they
+    /// are a band of it, the ink they were painted from (`TextRasterImage.ink`)
+    /// and the room they serve (`TextRasterKey.room`).
+    var rasterCovered = CGRect.null, rasterBand = false, rasterInk = (ink: CGRect.null, shadows: CGRect.null), rasterRoom = CGRect.null
     var rasterFrame = CGRect.zero
     var rasterScale: CGFloat = 1
     var flowShapes: [TextFlowShape] = []
     var layout: (width: CGFloat, paragraph: Paragraph)?
+    /// Which way a tall paragraph's port travels, for its band ahead (`TextRasterizer.key`).
+    var bandTravel = PortTravel()
 }
 
 /// What some nodes set and most do not, apart from the view, so every view
@@ -208,6 +216,7 @@ extension NodeView {
     var cachedTextHeadroom: Float? { get { specs?.headroom } set { if newValue != nil || specs != nil { textMore.headroom = newValue } } }
     var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
+    var textBoxLayer: CALayer? { get { specs?.rasterBox } set { if newValue != nil || specs != nil { textMore.rasterBox = newValue } } }
     var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }
     var textRasterScale: CGFloat { get { specs?.rasterScale ?? 1 } set { if newValue != 1 || specs != nil { textMore.rasterScale = newValue } } }
     var flowShapes: [TextFlowShape] { get { specs?.flowShapes ?? [] } set { if !newValue.isEmpty || specs != nil { textMore.flowShapes = newValue } } }
@@ -474,11 +483,14 @@ extension NodeView {
     /// A field of the author's own (`appearance="none"`) is their box, and
     /// inherits as text does.
     var fieldInk: UIColor {
-        showsOwnTextColor || !isNativeTextControl ? color("text_color", SystemColor.canvasText) : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
+        guard isNativeTextControl else { return color("text_color", SystemColor.canvasText) }
+        // A native editor's own colour as written, with the tint undimmed: UIKit leaves its text colour as set (TintDimmingIOS.swift)
+        return showsOwnTextColor ? undimmedCGColor("text_color").map { UIColor(cgColor: $0) } ?? SystemColor.canvasText : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
     }
-    /// `ownColor` as this node draws it now, or nil.
+    /// The colour this node's author wrote for row `key`, with the tint undimmed, for UIKit to draw
+    /// with (TintDimmingIOS.swift); nil where the author wrote none
     func ownUIColor(_ key: String) -> UIColor? {
-        ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }
+        ownColor(key) == nil ? nil : undimmedCGColor(key).map { UIColor(cgColor: $0) }
     }
 }
 extension NodeView {

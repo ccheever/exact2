@@ -218,6 +218,22 @@ function answer(source: string, args: unknown[], store: Store): unknown {
         .then(r => r.text(), (e: { kind: string; message: string }) => { lastError = `${e.kind}: ${e.message}`; return "failed"; })
         .finally(() => { flushing = false; });
     case "flushing": return `${flushing} ${lastError}`;
+    // A read whose rejection, run with no store, reads the store (LLP 1146 D3).
+    case "peek":
+      return fetch("https://api.castle.xyz/peek").then(r => r.text(), () => {
+        try { return `kept ${store.get("castle.session")}`; } catch (e) { lastError = (e as Error).message; return "threw"; }
+      });
+    // Each store operation tried where there is no store, what each said kept for `flushing`.
+    case "peekAll":
+      return fetch("https://api.castle.xyz/peek").then(r => r.text(), async () => {
+        const s = store as unknown as Record<string, (...a: unknown[]) => unknown>;
+        const said: string[] = [];
+        for (const [op, ...a] of [["get", "castle.session"], ["has", "castle.session"], ["locked", "castle.session"], ["unlock", "castle.session"], ["protect", "castle.session"], ["unprotect", "castle.session"], ["set", "castle.session", "x"], ["forget", "castle.session"], ["keepKey", "castle.key", null], ["key", "castle.key"]]) {
+          try { await s[op](...a); said.push(`${op} answered`); } catch (e) { said.push((e as Error).message.split(". ")[0]); }
+        }
+        lastError = said.join(" | ");
+        return "threw";
+      });
     // A BufferSource body goes as its bytes (LLP 1069.002 D4): a view into
     // the middle of a buffer, the buffer itself, and a DataView, each once.
     case "upload": {

@@ -273,6 +273,9 @@ fn step_json(step: &Step, s: &mut String) {
             }
             s.push(']');
         }
+        Step::Authorize { cancel, .. } => {
+            s.push_str(&format!("{{\"op\":\"authorize\",\"cancel\":{cancel}"));
+        }
         Step::Clipboard {
             target, edit, text, ..
         } => {

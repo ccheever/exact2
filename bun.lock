@@ -222,6 +222,10 @@
       "name": "@exact/notifications",
       "version": "1.0.0",
     },
+    "packages/oauth": {
+      "name": "@exact/oauth",
+      "version": "0.1.0",
+    },
     "packages/passkeys": {
       "name": "@exact/passkeys",
       "version": "1.0.0",
@@ -389,6 +393,8 @@
     "@exact/nfc": ["@exact/nfc@workspace:packages/nfc"],
 
     "@exact/notifications": ["@exact/notifications@workspace:packages/notifications"],
+
+    "@exact/oauth": ["@exact/oauth@workspace:packages/oauth"],
 
     "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
 

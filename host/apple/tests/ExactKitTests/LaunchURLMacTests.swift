@@ -89,6 +89,40 @@ final class LaunchURLMacTests: XCTestCase {
 
         """
 
+    /// A launch no link started opens at the manifest's `start_url`; one a
+    /// link started opens where the link goes.
+    func testALaunchWithNoLinkOpensAtTheStartLocation() throws {
+        let bytes = try plan("""
+            routes nav
+              home "/"
+              today "/today"
+              opened "/open"
+              notfound
+
+            component App
+              action back
+                nav = back(nav)
+              view
+                main navigationKey=`${top(nav).id}` navigationBack="back"
+                  text `at ${top(nav).url}`
+                  for e in stack(nav) key=e.id
+                    column navigationKey=`${e.id}`
+                      text `${e.name}`
+
+            """)
+        let was = ExactSession.startLocation
+        ExactSession.startLocation = "/today"
+        defer { ExactSession.startLocation = was }
+        for (link, at) in [(nil, "at /today"), ("exacttest://auth/x", "at /open?u=exacttest%3A%2F%2Fauth%2Fx")] {
+            let session = ExactApp.shared.makeSession()
+            session.protocolHandlers = handlers
+            defer { session.destroy() }
+            if let link { XCTAssertTrue(session.openURL(try XCTUnwrap(URL(string: link)))) }
+            XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 390, height: 844)).error)
+            XCTAssertTrue(session.agent(#"{"op":"tree"}"#).contains("\"\(at)\""), "\(link ?? "no link"): \(session.agent(#"{"op":"tree"}"#).prefix(600))")
+        }
+    }
+
     func testALaunchURLWithNoNavigationRootIsJournaled() throws {
         let lines = try logs(launching: "exacttest://auth/x?request=1", rootless)
         XCTAssertTrue(lines.contains { $0.hasSuffix("launch URL refused: no navigation root handler (/auth/x?request=1)") }, "\(lines)")

@@ -15,6 +15,22 @@ pub struct TestDecl {
     /// Where.
     pub span: Span,
 }
+// Keep the census's vocabulary tied to the parser's exhaustive step enum.
+macro_rules! steps {
+    ($(#[$meta:meta])* pub enum Step { $($(#[$variant_meta:meta])* $kind:ident { $($fields:tt)* }),* $(,)? }) => {
+        $(#[$meta])* pub enum Step { $($(#[$variant_meta])* $kind { $($fields)* }),* }
+        impl Step {
+            /// Every step kind the parser can produce.
+            pub const KINDS: &[&str] = &[$(stringify!($kind)),*];
+            /// This step's kind, from the parser's enum.
+            pub fn kind(&self) -> &'static str {
+                match self { $(Self::$kind { .. } => stringify!($kind)),* }
+            }
+        }
+    };
+}
+
+steps! {
 /// One step of a `test`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
@@ -197,6 +213,16 @@ pub enum Step {
         target: String,
         /// The files or folders chosen; empty for `cancel`.
         paths: Vec<String>,
+        /// Where.
+        span: Span,
+    },
+    /// `authorize` / `authorize cancel`: complete the held sign-in (LLP 1146
+    /// D4). The driver requests its authorization URL from the app's
+    /// declared fixture server, redirects not followed, and answers the hold
+    /// with the `Location` it returns; `cancel` answers 499.
+    Authorize {
+        /// `authorize cancel`.
+        cancel: bool,
         /// Where.
         span: Span,
     },
@@ -394,4 +420,6 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+}
+
 }

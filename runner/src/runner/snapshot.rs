@@ -113,6 +113,7 @@ impl<D: DataSource> Runner<D> {
             Err("snapshot refresh exceeded 128 requests".into())
         })();
         self.data.forgotten(&store, &[]);
+        self.data.keep_sent(&store, &[], false);
         result
     }
 }

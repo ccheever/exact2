@@ -223,7 +223,12 @@ fn main() -> ExitCode {
         if cmd == "normalize-grants" {
             return match std::fs::read_to_string(file) {
                 Ok(spec) => {
-                    println!("{}", exact_runner::grants::normalized_json(&spec));
+                    // The native bake's refusal too (js/bake/src/lib.rs), so
+                    // the web build fails where a native one would.
+                    match exact_runner::auth::session_grant_refusal(&spec) {
+                        Some(refusal) => println!("{}", serde_json::json!({ "error": refusal })),
+                        None => println!("{}", exact_runner::grants::normalized_json(&spec)),
+                    }
                     ExitCode::SUCCESS
                 }
                 Err(error) => {

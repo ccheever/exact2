@@ -90,8 +90,13 @@ function accept(s, got) {
 function summary(s) {
   const u = parse(s.url), out = { origin: u ? origin(u) ?? "" : "", path: u?.path ?? "", params: [] };
   for (const [n, v] of pairs(u?.query)) { out.params.push(n); if (n === "client_id" || n === "request_uri") out[n] = v; }
+  // The drive's declared fixture server: its URL is shown whole, for an authored test's `authorize` (LLP 1146 D4).
+  if (out.origin && out.origin === fixtureOrigin()) out.url = s.url;
   return Object.assign(out, { callback: unsafeCallback(parse(s.callback)) ? "<redacted callback>" : s.callback, state: s.state, ephemeral: s.ephemeral });
 }
+
+/** The auth fixture the drive declared (`?authFixture=`, LLP 1146 D4), only under the agent. */
+const fixtureOrigin = () => { const o = clock.agent && typeof location === "object" ? new URLSearchParams(location.search).get("authFixture") : null; return o && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(o) ? o : null; };
 
 // ---------------------------------------------------------------- sessions
 /** Live sessions: { ticket, target, session, done(status, body), held }. */
@@ -127,7 +132,7 @@ export function install(grants, target) {
     if (typeof o.callback !== "string" || typeof o.state !== "string" || !o.state) return reject(new TypeError("openAuthSession(url, {callback, state}): callback is authCallback() and state a non-empty string"));
     const ticket = nextTicket();
     const done = (status, body) => { if (status === 200) resolve(body); else { const e = new Error(body || "the auth session failed"); Object.defineProperty(e, "status", { value: status, enumerable: true }); reject(e); } };
-    const refuse = (status, why) => { say(`auth ${ticket}: answered ${status}`); done(status, why); };
+    const refuse = (status, why) => { say(`auth ${ticket}: answered ${status}: ${why}`); done(status, why); };
     const s = { url: String(url), callback: o.callback, state: o.state, ephemeral: !!o.ephemeral };
     // A browser reads a backslash in an http(s) URL as a slash and drops tabs
     // and newlines, so such a URL can hide userinfo from parse(): refuse it unechoed.

@@ -324,6 +324,13 @@ pub fn boot_presenter<D: DataSource + Default>(
     boot_presenter_with_painter(config, viewport, painter)
 }
 
+thread_local! {
+    /// Whether the agent drives the presenter this thread boots: the presenter
+    /// is the agent's from its first commit, so a request its boot makes (a
+    /// sign-in, a share) is held as a later one is (LLP 1146 D4).
+    pub(crate) static AGENT_BOOT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Keep the carrier's constructor through selected-plan refusal and baked fallback.
 pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     config: &mut Config,
@@ -331,6 +338,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     painter: PainterBoot,
 ) -> Result<(Presenter<D>, Option<String>), String> {
     exact_runner::delivery::refuse_analysis(&config.compat).map_err(str::to_string)?;
+    AGENT_BOOT.set(config.agent);
     let mut updates = config.updates.take();
     let compat = config.compat.clone();
     let facts = |updates: &Option<Box<dyn Store>>| {
@@ -806,6 +814,9 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
     crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
     0
 }
+
+#[cfg(test)]
+mod boot_hold_tests;
 
 #[cfg(test)]
 mod scale_tests {

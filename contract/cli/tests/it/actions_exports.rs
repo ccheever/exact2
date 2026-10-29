@@ -169,3 +169,107 @@ component App
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The primary tone is Bluesky's literal and an app reaches it by full name
+/// (theme2's 2026-10-27 23:51 ruling: no platform-accent default, which
+/// would fall under 4.5:1 with white text; an importer maps an accent here).
+/// With nothing set, the primary's fill is `light-dark(#006aff, #0f73ff)`
+/// and its ink, on the label and the icon (the button's children, not its
+/// own text colour), `#ffffff`. An app setting `actions.follow-fill =
+/// #e11d48` and `actions.follow-ink = #111111` recolours both, in both
+/// schemes, while the overlay keeps its fixed `#dce2ea` fill and `#000000`
+/// ink.
+#[test]
+fn an_app_recolours_the_primary_fill_and_ink_by_full_name_and_not_the_overlay() {
+    use exact_kernel::{Color, ColorValue, RowValue, StyleId};
+    // The colour of `row` on the node `path` below the button `id` (each
+    // step a child index): `[]` the button, `[0, 0]` its icon's image, `[1]`
+    // its label (icon "both": the icon box first, then the label).
+    let colour = |r: &Runner<NoData>, id: &str, path: &[usize], row: StyleId| -> ColorValue {
+        let key = r.kernel().find_by_test_id(id)[0];
+        let mut node = r.kernel().node_by_key(key).unwrap();
+        for &k in path {
+            node = node
+                .child_nodes()
+                .nth(k)
+                .unwrap_or_else(|| panic!("{id}: no child {k} on {path:?}"));
+        }
+        match node.computed(row) {
+            RowValue::ColorValue(c) => c,
+            RowValue::Color(c) => ColorValue::Fixed(c),
+            other => panic!("{id} {path:?}: {other:?}"),
+        }
+    };
+    let hex = |s: &str| Color::parse(s).unwrap();
+    let boot = |dir: &Path| {
+        let plan =
+            contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e}"));
+        Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    // [light, dark] of the fill, the icon's ink and the label's ink.
+    let read = |r: &Runner<NoData>, id: &str| {
+        [false, true].map(|dark| {
+            [
+                colour(r, id, &[], StyleId::BackgroundColor).resolve(dark),
+                colour(r, id, &[0, 0], StyleId::TextColor).resolve(dark),
+                colour(r, id, &[1], StyleId::TextColor).resolve(dark),
+            ]
+        })
+    };
+    let overlay = [[hex("#dce2ea"), hex("#000000"), hex("#000000")]; 2];
+
+    let white = hex("#ffffff");
+
+    // Nothing set, Bluesky's literals; then the app's brand by full name.
+    // An overlay pill (with a label, which the round "d" lacks) beside it.
+    let source = CONSUMER.replace(
+        "      FollowButton(id=\"d\"",
+        "      FollowButton(id=\"o\", following=false, text=\"Follow\", label=\"\", tone=\"overlay\", size=\"small\", shape=\"pill\", icon=\"both\", press=press)\n      FollowButton(id=\"d\"",
+    );
+    for (tag, design, primary) in [
+        (
+            "fill-none",
+            "",
+            [
+                [hex("#006aff"), white, white],
+                [hex("#0f73ff"), white, white],
+            ],
+        ),
+        (
+            "fill-set",
+            "  actions.follow-fill = #e11d48\n  actions.follow-ink = #111111\n",
+            [[hex("#e11d48"), hex("#111111"), hex("#111111")]; 2],
+        ),
+    ] {
+        let dir = consumer(tag, &source);
+        std::fs::write(
+            dir.join("app.tamber"),
+            format!("tamber consumer\n\ntheme\n  ink = #111111\n{design}"),
+        )
+        .unwrap();
+        let r = boot(&dir);
+        if design.is_empty() {
+            // The default ink is the fixed literal, not a role: Apple's
+            // `AccentColorText` also resolves to white, so a resolved read
+            // alone would pass a regression to it.
+            for path in [&[0, 0][..], &[1][..]] {
+                assert_eq!(
+                    colour(&r, "a", path, StyleId::TextColor),
+                    ColorValue::Fixed(white),
+                    "{tag}: the primary's ink at {path:?}, a fixed #ffffff"
+                );
+            }
+        }
+        assert_eq!(read(&r, "a"), primary, "{tag}: the primary");
+        assert_eq!(read(&r, "o"), overlay, "{tag}: the overlay");
+        drop(r);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
