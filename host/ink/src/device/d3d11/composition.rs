@@ -17,6 +17,7 @@ use windows::Win32::{
 pub struct Window {
     pub(super) hwnd: HWND,
     visual: Rc<RefCell<std::rc::Weak<Visual>>>,
+    background: Rc<Cell<[u8; 4]>>,
     _owner: Rc<dyn Any>,
 }
 impl Window {
@@ -34,6 +35,7 @@ impl Window {
         Ok(Self {
             hwnd: HWND(handle.hwnd.get() as *mut _),
             visual: Default::default(),
+            background: Rc::new(Cell::new([255; 4])),
             _owner: owner,
         })
     }
@@ -72,6 +74,7 @@ impl Window {
                 Ok(hwnd) => Ok(Self {
                     hwnd,
                     visual: Default::default(),
+                    background: Rc::new(Cell::new([255; 4])),
                     _owner: Rc::new(Owner(hwnd)),
                 }),
                 Err(e) => {
@@ -93,6 +96,12 @@ impl Window {
         }
     }
 
+    /// The host's resolved window colour, including its scheme and contrast palette.
+    /// Used only when DWM refuses Mica. @ref LLP 1095 D4; LLP 1149 S2.7.
+    pub fn set_background(&self, color: [u8; 4]) {
+        self.background.set(opaque_background(color));
+    }
+
     pub fn hwnd(&self) -> usize {
         self.hwnd.0 as usize
     }
@@ -111,6 +120,7 @@ struct Visual {
     target: IDCompositionTarget,
     visual: IDCompositionVisual,
     content: std::cell::Cell<usize>,
+    backdrop: bool,
 }
 impl Drop for Visual {
     fn drop(&mut self) {
@@ -187,6 +197,7 @@ impl Composition {
                         target,
                         visual,
                         content: Default::default(),
+                        backdrop: set_backdrop(window.hwnd),
                     });
                     *window.visual.borrow_mut() = Rc::downgrade(&scene);
                     scene
@@ -233,38 +244,6 @@ impl Composition {
                     "ink requires WS_EX_NOREDIRECTIONBITMAP at window creation and no WS_EX_LAYERED".into(),
                 ));
             }
-            let backdrop = DWMSBT_MAINWINDOW;
-            optional_backdrop(
-                || {
-                    if fault("mica") {
-                        return Err(windows::core::Error::from_hresult(
-                            windows::Win32::Foundation::E_FAIL,
-                        ));
-                    }
-                    DwmSetWindowAttribute(
-                        hwnd,
-                        DWMWA_SYSTEMBACKDROP_TYPE,
-                        (&backdrop as *const DWM_SYSTEMBACKDROP_TYPE).cast(),
-                        size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32,
-                    )
-                },
-                || {
-                    if fault("mica") {
-                        return Err(windows::core::Error::from_hresult(
-                            windows::Win32::Foundation::E_FAIL,
-                        ));
-                    }
-                    DwmExtendFrameIntoClientArea(
-                        hwnd,
-                        &MARGINS {
-                            cxLeftWidth: -1,
-                            cxRightWidth: -1,
-                            cyTopHeight: -1,
-                            cyBottomHeight: -1,
-                        },
-                    )
-                },
-            );
             self.scene.visual.SetContent(&self.swap)?;
             self.scene.device.Commit()?;
             self.scene.content.set(self.swap.as_raw() as usize);
@@ -397,6 +376,12 @@ impl D3d11 {
         let activating = !composition.active
             || composition.scene.content.get() != composition.swap.as_raw() as usize;
         let swap = composition.swap.clone();
+        let opaque = !composition.scene.backdrop;
+        let background = composition
+            ._window
+            .background
+            .get()
+            .map(|v| f64::from(v) / 255.);
         let mut did_present;
         unsafe {
             // An unattached visual can TEST as occluded even in a visible window.
@@ -433,8 +418,14 @@ impl D3d11 {
                 )
                 .map_err(|_| Error::Invalid("composition quad".into()))?;
             let mut frame = encoder.finish();
-            frame.batches[0].replace = true;
-            self.draw(&frame, &view.unwrap(), size, Some([0.; 4]), None)?;
+            frame.batches[0].replace = !opaque;
+            self.draw(
+                &frame,
+                &view.unwrap(),
+                size,
+                Some(if opaque { background } else { [0.; 4] }),
+                None,
+            )?;
             let status = swap.Present(1, DXGI_PRESENT(0));
             did_present = presented(status)?;
         }
@@ -538,22 +529,76 @@ fn window_drawable(hwnd: HWND) -> bool {
     unsafe { IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() }
 }
 
+fn opaque_background(color: [u8; 4]) -> [u8; 4] {
+    [color[0], color[1], color[2], 255]
+}
+
+fn set_backdrop(hwnd: HWND) -> bool {
+    unsafe {
+        let backdrop = DWMSBT_MAINWINDOW;
+        optional_backdrop(
+            || {
+                if fault("mica") {
+                    return Err(windows::core::Error::from_hresult(
+                        windows::Win32::Foundation::E_FAIL,
+                    ));
+                }
+                DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWA_SYSTEMBACKDROP_TYPE,
+                    (&backdrop as *const DWM_SYSTEMBACKDROP_TYPE).cast(),
+                    size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32,
+                )
+            },
+            || {
+                if fault("mica") {
+                    return Err(windows::core::Error::from_hresult(
+                        windows::Win32::Foundation::E_FAIL,
+                    ));
+                }
+                DwmExtendFrameIntoClientArea(
+                    hwnd,
+                    &MARGINS {
+                        cxLeftWidth: -1,
+                        cxRightWidth: -1,
+                        cyTopHeight: -1,
+                        cyBottomHeight: -1,
+                    },
+                )
+            },
+        )
+    }
+}
+
 fn optional_backdrop(
     set: impl FnOnce() -> windows::core::Result<()>,
     extend: impl FnOnce() -> windows::core::Result<()>,
-) {
+) -> bool {
     let results = [set(), extend()];
     if let Some(error) = results.into_iter().find_map(std::result::Result::err) {
         static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
             eprintln!("exact-ink: Mica unavailable: {error}");
         }
+        false
+    } else {
+        true
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mica_refusal_keeps_the_reported_window_colour_opaque() {
+        for color in [[243, 243, 243, 255], [32, 32, 32, 0], [18, 56, 92, 128]] {
+            assert_eq!(
+                opaque_background(color),
+                [color[0], color[1], color[2], 255]
+            );
+        }
+    }
 
     #[test]
     fn a_latency_timeout_skips_the_frame_without_losing_the_device() {
@@ -564,7 +609,7 @@ mod tests {
     #[test]
     fn a_refused_backdrop_still_attempts_frame_extension() {
         let extended = Cell::new(false);
-        optional_backdrop(
+        let available = optional_backdrop(
             || {
                 Err(windows::core::Error::from_hresult(
                     windows::Win32::Foundation::E_FAIL,
@@ -578,6 +623,8 @@ mod tests {
             },
         );
         assert!(extended.get());
+        assert!(!available);
+        assert!(optional_backdrop(|| Ok(()), || Ok(())));
     }
 
     #[test]

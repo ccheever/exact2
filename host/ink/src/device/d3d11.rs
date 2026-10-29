@@ -22,8 +22,6 @@ use windows::{
     },
 };
 mod composition;
-mod cpu_window;
-pub use cpu_window::CpuWindow;
 #[cfg(test)]
 mod desktop_tests;
 #[cfg(test)]
@@ -130,10 +128,13 @@ impl Prepared {
     fn open(force_warp: bool) -> Result<Self> {
         let measured = std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some();
         let began = measured.then(super::process_ms).transpose()?;
-        if fault("slow-devices") {
+        if !force_warp && (fault("slow-hardware") || fault("slow-hardware-no-warp")) {
             std::thread::sleep(Duration::from_millis(600));
         }
-        if fault("no-devices") || (!force_warp && fault("hardware-open")) {
+        if fault("no-devices")
+            || (!force_warp && fault("hardware-open"))
+            || (force_warp && fault("slow-hardware-no-warp"))
+        {
             return Err(Error::Device("injected device refusal".into()));
         }
         let start = Instant::now();

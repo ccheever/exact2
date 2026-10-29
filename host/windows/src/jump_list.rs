@@ -97,8 +97,8 @@ pub(crate) fn argument(text: &str) -> String {
 
 #[cfg(windows)]
 /// Set the jump list's tasks to the manifest's items in `compat`; with none,
-/// the app's tasks are cleared. Called on the window's thread, before its
-/// loop runs. A failure is logged: the app runs without the list.
+/// the app's tasks are cleared. Runs on an owned worker after first pixel,
+/// with its own COM apartment. A failure is logged: the app runs without the list.
 pub(crate) fn set_from_compat(compat: &str) {
     if let Err(error) = set(&tasks(compat)) {
         eprintln!("exact-windows: the jump list's tasks: {error}");

@@ -564,28 +564,37 @@ fn shelf_hardware_attach_refusal_uses_warp() {
 #[test]
 #[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_slow_preparation_displays_cpu_before_hardware() {
-    let mut app = fallback_launch("slow-devices");
+    let mut app = fallback_launch("slow-hardware");
     let first = app.text();
     assert!(first.contains("painter cpu"), "{first}");
     assert!(
-        !first.contains("ready at"),
-        "device arrived before the CPU frame: {first}"
+        first.contains("warp true") && !first.contains("warp false"),
+        "WARP must present before hardware is ready: {first}"
     );
-    assert_picture(&app.capture("slow-devices-cpu"));
+    assert_picture(&app.capture("slow-hardware-cpu"));
     until("prepared hardware takes over", || {
         app.alive();
         app.text().contains("painter ink")
     });
-    assert_picture(&app.capture("slow-devices-ink"));
+    assert_picture(&app.capture("slow-hardware-ink"));
     app.close();
 }
 
 #[test]
 #[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
-fn shelf_refused_devices_display_cpu() {
-    let mut app = fallback_launch("no-devices");
-    assert!(app.text().contains("painter cpu"));
-    assert_picture(&app.capture("no-devices-cpu"));
+fn shelf_refused_warp_waits_for_prepared_hardware() {
+    let mut app = fallback_launch("slow-hardware-no-warp");
+    let first = app.text();
+    assert!(
+        first.contains("startup WARP: device: injected device refusal"),
+        "{first}"
+    );
+    assert!(
+        !first.contains("painter cpu"),
+        "no CPU frame was presented: {first}"
+    );
+    assert!(first.contains("painter ink"), "{first}");
+    assert_picture(&app.capture("refused-warp-hardware"));
     app.close();
 }
 
@@ -621,9 +630,18 @@ fn shelf_startup_series() {
                         .find(|s| s.starts_with("exact-windows: frame 1 at "))
                         .unwrap();
                     assert!(first.contains("painter ink"), "{first}");
-                    assert!(!log.contains("migration") && !log.contains("WARP"), "{log}");
+                    assert!(
+                        !log.contains("migration") && !log.contains("warp true"),
+                        "{log}"
+                    );
                 }
-                println!("S2_STARTUP {name}\n{}", app.text());
+                let log = app.text();
+                assert!(
+                    log.find("first present returned").unwrap()
+                        < log.find("boot jump-list-started").unwrap(),
+                    "{log}"
+                );
+                println!("S2_STARTUP {name}\n{log}");
             }
         }
     }
