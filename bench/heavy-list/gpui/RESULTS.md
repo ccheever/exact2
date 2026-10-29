@@ -1646,3 +1646,117 @@ visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 97 filtered 
 materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 4.34s
 image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 3.56s
 ```
+
+## G3b: window to window, the driver paced by the display
+
+@ref LLP 1149 §4.1; 2026-10-29, `lane/ink-s1` at `26646bb58e`.
+**Driver verification failed; the three-arm series was not run.** It
+recorded three within-gesture input gaps at or above 12 ms; the gate
+requires none. No carrier, renderer, probe or tracked driver source changed, and
+no further measurement attempts or screenshots followed this result.
+
+### Preparation and verification
+
+All three release arms were rebuilt at the lane tip, with the same linked
+probe, into `target/g3b/{Native,GPUI,Ink}.app`; Ink uses direct Metal.
+`target/g3/exact-wheel` was rebuilt from `host/apple/wheel.swift`, and
+`wheelHelper()` independently compiled the source-hash helper at
+`target/wheel-helper/3cb494cefbaf78cd/exact-wheel`. The measurement driver
+compiled with G3's temporary 768-point Ink content-height adjustment.
+`data.sha256` passed. The launch commands are in `target/g3b/plan.txt`;
+`provenance.json` records executable and source hashes. All three signed
+probes have SHA-256
+`e1843d9a2c7cb810b91d55469b2a5cd70af105ae2297c4243d35f176c8e3c225`.
+
+The orchestrator's `GO` arrived at 12:46:18 PDT while builds were still
+running. No window was launched or input posted until preparation finished
+and the quiet rule passed. The verification ran at 12:52:36–12:53:02 PDT
+with `G1_TRACE=1 G3_ONLY_INK=1`: one G3 round, four gestures. All six
+five-second machine observations were quiet, with no compiler processes
+and maximum 1/5/15-minute loads of **24.88/23.59/22.06**.
+
+The first launch lost focus before any gesture: the sidecar names **Slack**
+(`com.tinyspeck.slackmacgap`, PID 36534), followed by a transition with
+Heavy list frontmost but no key window. The driver's single permitted
+retake completed with no focus loss, `fair` thermal endpoints and Low Power
+Mode off. Its window was 800×800 outer points, 800×768 content, at 2× and
+120 Hz. Both attempts and their focus records remain in
+`target/g3b/verification/`.
+
+The trace join follows S1.5: presented, committed and GPU spans in file
+order, including never-shown drawables; only then remove zero presented
+timestamps. There are **341 joined frames, 325 shown, 16 never shown and
+zero dropped trace events**. Input gaps count consecutive `wheel input`
+events only when both endpoints lie in the same recorded `inputWindows`
+entry. The three between-gesture gaps are excluded.
+
+| Verification measurement | Result |
+|---|---:|
+| Driver posts | 424; 106 per gesture |
+| Probe `wheelEvents` / trace `wheel input` events | 419 / 419 |
+| Within-gesture input gaps | 415 |
+| Gaps in [8.0, 8.7) ms | 390 |
+| Gaps at or above 12 ms; required 0 | **3: 16.672, 41.629, 12.481 ms** |
+| Gesture-window duration | 4.069416 s |
+| Presented intervals inside those windows | 320 |
+| Late intervals, over 12.5 ms | 6; 1.474/s |
+| Presented interval p95 | 8.333 ms |
+
+All three long input gaps occur in the third gesture, which received 101
+events against 106 posted; the other gestures received 106 each. The
+helper reports 8.33, 8.33, 8.35 and 8.33 ms periods. These delivery marks
+do not identify whether the remaining gaps arose in posting, window-server
+delivery or application dispatch. The saved analysis is
+`verification/analysis.json`; the successful retake's trace SHA-256 is
+`ba6cc224d6a7675c122fa2f842f3bbb7dea2c4b067ce2809860f066ff986e0b8`.
+
+### Prediction disposition
+
+The verification's lower late count does not override its failed input
+gate. The prescribed five interleaved rounds and ten launches per arm,
+their medians and ranges, and the three screenshots were therefore not
+collected. There is no new native or GPUI result to compare with G3.
+
+| S1.5 prediction | Verification observation; series verdict |
+|---|---|
+| Ink late intervals ≤ about 2/gesture second | 1.474/s in this diagnostic; met in this sample, unqualified for the series |
+| About 464–490 intervals per about 4.5 gesture seconds | 320 in 4.069416 s, equivalent to 353.86 per 4.5 s; not met in this sample |
+| Ink p95 8.33 ms | 8.333 ms in this diagnostic; met in this sample, unqualified for the series |
+| GPUI and native rows within G3's ranges | Not tested: neither arm launched |
+| Ink fling CPU/s rises about 40%, read per frame too | Not tested by the series; the traced diagnostic alone cannot establish the change |
+
+For accounting only, the traced retake used **78.96 ms/s** of fling process
+CPU over 10.00243 s and presented **324 frames** in that same interval:
+32.392 frames/s, or **2.438 ms/frame**. GPUI's corresponding value was not
+measured. Trace overhead and the failed delivery gate prevent treating
+this as the requested CPU comparison. No D15 verdict changes.
+
+G3's window-parity and non-comparables paragraph and table above still
+apply. During a gesture with one input per refresh, both painted rows can
+represent content cadence; that premise was not established here. At rest,
+GPUI's one-second re-presentation runs and Ink's does not, which the
+rest-CPU row of a completed series must reflect. S1.4's roughly 340 MiB
+graphics transient remains unresolved.
+
+
+### Validation
+
+All six repository checks passed, including clippy, fmt, the workspace
+all-target check and caps' wasm32 check. The default-member tests used
+`RUST_TEST_THREADS=2`. The full Linux run also used
+`EXACT_INK_DEVICE=metal EXACT_REQUIRED=1` and passed 1,576 library tests
+and 293 integration tests, excluding child reruns. No retries were needed.
+The filtered suites used the same environment; their summaries are verbatim:
+
+```text
+paint: test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 5.71s
+borders: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 3.21s
+tint: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 2.98s
+backdrop: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 3.36s
+gradients: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 2.97s
+visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 4.38s
+materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 3.72s
+image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 2.90s
+```
+
+The logs and command exit codes are in `target/g3b/checks/`.

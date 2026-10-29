@@ -988,6 +988,21 @@ decodes the JPEGs at full size. S1.2 fixes that (an idle app submits nothing, D7
 per frame, D11; the complete frame's present; the decode at the drawn size), and G3 is run
 again before any ink number is cited against GPUI.
 
+**S1.2 to S1.5 and G3b, 2026-10-29**: S1.2–S1.3 removed the carrier's idle
+timer spin, overlapped the next frame's walk with rendering, repaired the complete-frame
+retry and decoded thumbnails at their drawn size. S1.4–S1.5 attributed much of G3's cadence
+difference to gaps in the driver's input and GPUI's re-presentation between inputs, then paced the
+driver by the display. G3b's quiet verification at `26646bb58e` failed its input gate:
+390 of 415 within-gesture gaps were in [8.0, 8.7) ms, but three reached 12 ms
+(16.672, 41.629 and 12.481 ms); 424 events were posted and 419 received.
+The one accepted traced sample had 1.474 late intervals per gesture second and an
+8.333 ms p95, but the required zero long input gaps was not met, so the three-arm
+series stopped before collection. There are no new comparative cold-start, CPU per
+second or frame, rest-CPU or footprint distributions against GPUI and the native host;
+D15's separate renderer and device-arm verdicts are unchanged, and this verification
+qualifies neither the carrier nor its boot budget. S1.4's roughly 340 MiB graphics
+transient during the fling remains open (`bench/heavy-list/gpui/RESULTS.md`, “G3b”).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms
