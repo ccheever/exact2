@@ -68,6 +68,10 @@ export interface Profile {
   exposeDate: boolean;
   /** The status of a revocation with an unknown token: 200 as RFC 7009 §2.2 says, or 400 `invalid_token` (GOOG-16). */
   revokeUnknown: 200 | 400;
+  /** An authentication tree for an app's own sign-in screens, whose SSO token the authorization endpoint takes in a POST (FR-1, FR-2). */
+  authenticationTree?: boolean;
+  /** The API's status for an expired access token: 401 (RFC 6750 §3.1), or a gateway's 403 (FR-4). */
+  expiredStatus?: 401 | 403;
 }
 
 const base: Profile = {
@@ -135,6 +139,12 @@ export const PROFILES: Record<string, Profile> = {
   // Salesforce: no `expires_in` (SF-1); a refresh reply without a refresh
   // token (SF-3).
   salesforce: { ...base, expiresIn: 'absent', refreshTokenWhen: 'always', rotation: 'omit' },
+  // ForgeRock (PingAM) for an app that signs the person in with its own
+  // screens: an authentication tree (FR-1) whose SSO token the authorization
+  // endpoint takes in a POST, besides a browser's GET (FR-2); a refresh token
+  // for a client with the grant (FR-3), rotated; behind a gateway that answers
+  // 403 for an expired access token (FR-4).
+  forgerock: { ...base, refreshTokenWhen: 'always', authenticationTree: true, expiredStatus: 403 },
 };
 
 interface Grant { profile: string; client: string; redirect: string; challenge: string | null; nonce: string | null; offline: boolean; used: boolean; family: string }
@@ -170,6 +180,9 @@ const now = (): number => clock;
 const PEOPLE: Record<string, { sub: string; name: string; email: string }> = {
   default: { sub: 'user-1', name: 'Ada Lovelace', email: 'ada@example.com' },
 };
+// The person's password at an authentication tree, and the SSO tokens it issued.
+const PASSWORD = 'lovelace';
+let ssoTokens = new Set<string>();
 
 function count(profile: string, what: string): void {
   (counts[profile] ??= {})[what] = (counts[profile][what] ?? 0) + 1;
@@ -426,7 +439,7 @@ function resource(profile: string, req: Request): Response {
   const f = bearer(req);
   if (!f || f === 'expired') {
     return new Response(JSON.stringify({ error: 'invalid_token' }), {
-      status: 401,
+      status: f === 'expired' ? PROFILES[profile].expiredStatus ?? 401 : 401,
       headers: { 'Content-Type': 'application/json', 'WWW-Authenticate': `Bearer error="invalid_token"`, 'Access-Control-Allow-Origin': '*' },
     });
   }
@@ -440,7 +453,7 @@ async function control(req: Request): Promise<Response> {
   switch (body.action) {
     case 'reset':
       for (const release of held.splice(0)) release();
-      codes = new Map(); families = new Map(); byRefresh = new Map(); byAccess = new Map(); next = {}; denyNext = new Set(); counts = {}; marks = {}; clock = Date.now(); after = {}; omitType = new Set(); idClaims = {};
+      codes = new Map(); families = new Map(); byRefresh = new Map(); byAccess = new Map(); next = {}; denyNext = new Set(); counts = {}; marks = {}; clock = Date.now(); after = {}; omitType = new Set(); idClaims = {}; ssoTokens = new Set();
       break;
     case 'expire-access':
       for (const f of families.values()) if (!profile || f.profile === profile) for (const k of f.access.keys()) f.access.set(k, 0);
@@ -533,6 +546,37 @@ function revoke(profile: string, req: Request, form: URLSearchParams): Response 
   return new Response(null, { status: 200, headers });
 }
 
+// ForgeRock's REST sign-in (FR-1): the first call answers the tree's first
+// node, a name and a password to fill; the filled node answers an SSO token,
+// a wrong password 401 "Login failure".
+async function authenticate(profile: string, req: Request): Promise<Response> {
+  count(profile, 'authenticate');
+  const body = await req.json().catch(() => ({})) as { authId?: string; callbacks?: { input?: { value?: unknown }[] }[] };
+  if (!body.authId) {
+    const callback = (type: string, prompt: string, input: string) => ({ type, output: [{ name: 'prompt', value: prompt }], input: [{ name: input, value: '' }] });
+    return Response.json({ authId: token('auth'), callbacks: [callback('NameCallback', 'User Name', 'IDToken1'), callback('PasswordCallback', 'Password', 'IDToken2')] });
+  }
+  const [name, password] = (body.callbacks ?? []).map((c) => c.input?.[0]?.value);
+  if (name !== PEOPLE.default.email || password !== PASSWORD) return Response.json({ code: 401, reason: 'Unauthorized', message: 'Login failure' }, { status: 401 });
+  const sso = token('sso');
+  ssoTokens.add(sso);
+  return Response.json({ tokenId: sso, successUrl: '/console', realm: '/' });
+}
+
+// The authorization endpoint's POST with an SSO token, in the `iPlanetDirectoryPro`
+// cookie or header, repeated in `csrf`, and `decision=allow` (FR-2): the same
+// request as a browser's GET. Without a valid session it redirects to the sign-in page.
+async function authorizeWithSession(profile: string, req: Request): Promise<Response> {
+  const url = new URL(req.url), form = new URLSearchParams(await req.text());
+  const cookie = /(?:^|;\s*)iPlanetDirectoryPro=([^;]+)/.exec(req.headers.get('cookie') ?? '')?.[1];
+  const sso = cookie ?? req.headers.get('iPlanetDirectoryPro') ?? '';
+  if (!ssoTokens.has(sso) || form.get('csrf') !== sso || form.get('decision') !== 'allow') {
+    return new Response(null, { status: 302, headers: { Location: `${url.origin}/p/${profile}/login` } });
+  }
+  for (const [k, v] of form) if (k !== 'csrf' && k !== 'decision') url.searchParams.set(k, v);
+  return authorize(profile, url);
+}
+
 function discovery(origin: string, profile: string): Response {
   const p = PROFILES[profile], b = p.issuer.startsWith('{base}/oidc') ? issuerOf(origin, profile) : baseOf(origin, profile);
   // The token endpoint's origin: the next port for a profile whose provider keeps it apart.
@@ -571,6 +615,8 @@ export function handle(req: Request): Response | Promise<Response> {
   const rest = (m[2] ?? '/').replace(/^\/(common|organizations|consumers)\/v2\.0/, '').replace(/^\/oidc\/2/, '');
   if (rest === '/.well-known/openid-configuration' || rest === '//.well-known/openid-configuration') return discovery(url.origin, profile);
   if (rest === '/authorize' && req.method === 'GET') return authorize(profile, url);
+  if (rest === '/authorize' && req.method === 'POST' && PROFILES[profile].authenticationTree) return authorizeWithSession(profile, req);
+  if (rest === '/json/authenticate' && req.method === 'POST' && PROFILES[profile].authenticationTree) return authenticate(profile, req);
   if (rest === '/token' && req.method === 'POST') return tokenEndpoint(profile, req);
   if ((rest === '/userinfo' || rest === '/api/me') && req.method === 'GET') return resource(profile, req);
   // An API that refuses a valid token, and one that redirects (the library follows no redirect).

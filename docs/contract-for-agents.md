@@ -1261,19 +1261,62 @@ documentation requires (LLP 1146; the IDs are `packages/oauth/test/PROVIDERS.md`
 | GitHub | `endpoints: { authorization: 'https://github.com/login/oauth/authorize', token: 'https://github.com/login/oauth/access_token' }`, no `openid` (GH-1), `clientSecret` (GH-7), `commaScopes: true` (GH-5), `endedErrors: ['bad_refresh_token']` (GH-4). Its token endpoint does not answer a browser, so a web build needs a server (GH-8) |
 | Salesforce | `issuer: 'https://login.salesforce.com'`, the `refresh_token` scope (SF-14); it sends no `expires_in`, so the expiry is learned from a 401 (SF-1) |
 | Amazon Cognito | the endpoints are on the user pool's domain, not the issuer's: grant both origins (COGNITO-1) |
+| ForgeRock (PingAM) | `issuer`: the realm's, `…/oauth2/realms/root/realms/<realm>`, as its discovery document names it. An app with its own sign-in screens answers the authentication tree (FR-1), then passes `signIn` an `authorize` that POSTs the authorization request with the SSO token (FR-2; below), natively only. A gateway that answers 403 for an expired access token: `expiredStatus: [401, 403]` (FR-4) |
 | Sign in with Apple | not supported: its token exchange needs a server-signed client secret |
 
 Every option, with what it does, is in `@exact/oauth`'s `index.d.ts`.
 
+**An app's own sign-in screens.** A provider that lets an app sign the person
+in with its own screens (ForgeRock's authentication trees) still issues an
+authorization code. The app sends the authorization request as the provider
+documents and answers where it was redirected; the package checks it and does
+the rest. The source that answers the tree's last step keeps its SSO token in
+the module and answers only that the tree is done: an answer is kept and
+shown, and whoever holds the token can sign in as the person.
+
+```ts
+let sso = '';  // the tree's SSO token, set by the source that answers its last step
+const sources: Sources = {
+  signIn: (_a, store) => {
+    const token = sso;
+    sso = '';
+    return provider.signIn(store, {
+      authorize: async ({ endpoint, params, fetch }) => {
+        const reply = await fetch(endpoint, { method: 'POST', redirect: 'manual',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: `iPlanetDirectoryPro=${token}` },
+          body: new URLSearchParams({ ...params, csrf: token, decision: 'allow' }).toString() });
+        return reply.headers.get('Location') ?? '';
+      },
+    });
+  },
+};
+```
+
+This sign-in runs natively. On the web, the browser answers `redirect:
+'manual'` with no status or headers (Fetch's opaque redirect) and drops a
+`Cookie` an app sets, so a web build needs a server to send the authorization
+request, as GitHub's needs one for its token exchange (GH-8). Grant no
+`auth.session` or `auth.callback`, and set `callback` to the redirect URI the
+provider registered. Send with the `fetch` that `authorize` is given, the
+package's transport, and throw an `OAuthError` to say why sign-in failed,
+giving it the failing reply's status. `claims(store)` reads the ID token's
+claims, for an API that wants one of them in a header; the `log` option hears
+what the session did, with no token in it, for a diagnostics screen; the
+`fetch` option carries every request the package makes, for a demo whose
+server is in the app.
+
 **Testing against a fake provider.** Name `<exact2>/packages/oauth/test/fixture.ts`
 as the app's server in `app.json` (`"commands": {"server": ["bun", "<exact2>/packages/oauth/test/fixture.ts", "--port", "4400"]}`,
 `"server": {"database": false}`). Its profiles (`spec`, `google`, `entra`, `auth0`,
-`okta`, `onelogin`, `github`, `salesforce`) behave as those providers do. The
+`okta`, `onelogin`, `github`, `salesforce`, `forgerock`) behave as those providers do. The
 issuer is `http://127.0.0.1:4400/p/<profile>`, except Entra's
 `…/p/entra/common/v2.0`, Auth0's `…/p/auth0/` and OneLogin's
 `…/p/onelogin/oidc/2`. Google's token endpoint is on the next port, `4401`:
 grant it too. GitHub has no discovery: its `endpoints` are `…/p/github/authorize`
 and `…/p/github/token`. `GET /p/<profile>/api/me` answers the person.
+ForgeRock's tree is `POST /p/forgerock/json/authenticate` (the person is
+`ada@example.com`, password `lovelace`), and its API answers 403 for an expired
+access token.
 `authorize` completes the held sign-in against the fixture;
 `authorize cancel` cancels it. `request POST "/control"` changes what the
 fixture does next: `{"action": "expire-access", "profile": "spec"}`, and
