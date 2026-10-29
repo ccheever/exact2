@@ -124,5 +124,7 @@ impl Core {
             }
         }
         stream::release(&self.shared, aborts);
+        // An upload let go while it waits ends unsent; the places freed may start others.
+        stream::forget_uploads(&self.shared, &held);
     }
 }

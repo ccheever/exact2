@@ -377,8 +377,8 @@ function unpark() { if (Parked >= 0 && Rev !== Parked) { Parked = -1; paint(); }
 /** The app's data sources (LLP 1016). `answer(source, args, store)` gives
  * `{v}` now, `{req}` (an HTTP request the host runs, then `parse`s),
  * a Promise (an executor-local continuation: TypeScript), or `null` while
- * the source is not ready; `ready(f)` calls `f` once it is. */
-export const data = { answer: () => null, parse: null, q: [], ready: f => data.q.push(f) };
+ * the source is not ready; `ready(f)` calls `f` once it is. `uploads`: the uploads asked, none until ts-data.js installs uploads.js's `ledger` (LLP 1016.000 D10). */
+export const data = { answer: () => null, parse: null, q: [], ready: f => data.q.push(f), uploads: { at() {}, ends: (r, t, ...c) => c, kept: r => r.value } };
 const DEVELOPMENT_STORE = null; // a development build's app directory, as storage-environment.js's (host/web-js/build.mjs writes both)
 /** The page's `localStorage` keys of a kind: "exact.<kind>.<name>", or in a development build "exact.<kind>.@<digest>/<name>", its app's own on the origin the dev server's apps share (LLP 1116.004 D8). Persisted state's kind is "state" (persist.js); the durable store's (LLP 1018, `Store`: name → text, kept after a commit stands) is "secret". */
 export const Kept = kind => `exact.${kind}.${DEVELOPMENT_STORE ? `@${DEVELOPMENT_STORE}/` : ''}`;
@@ -406,7 +406,7 @@ function send(t, land) {
     // A stream's message (`more`) keeps its ticket; anything else ends it.
     const done = (o, more) => {
       if (t.closed) return;
-      if (t.waiting) { t.waiting = false; counted(t, inflight); }
+      if (t.waiting && !(more && t.upload)) { t.waiting = false; counted(t, inflight); } // an upload is in flight until its reply
       t.elapsed = Math.max(0, Math.round(performance.now() - started));
       if (more) { t.messages++; t.coalesced += (o.streamed ?? o).coalesced ?? 0; o.more = true; } else { Open.delete(t); longPollEnded(t); }
       say(`${more ? "message" : "reply"} ${t.id}; wall ${t.elapsed} ms`); land(o);
@@ -461,7 +461,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   const ver = sig(0), pend = sig(false), fail = sig(null);
   const kept = checkpoint().kept?.get(name);
   if (kept) [initialArgs, initial] = kept;
-  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0 };
+  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0, marks: [], context: args.context ?? 0 }; // `marks`: the uploads it asked, `context`: how many of its last arguments are its `with` context (uploads.js)
   Inspections.track(r, !kept && !carried, () => pend.n.v);
   const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } }, release = () => { if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; } flag(pend, false); }, fails = (args, error, code, reason) => { r.failed = args; r.error = error; r.code = code; r.reason = reason; flag(fail, failure()); release(); say(`resource ${name} failed: ${error}`); Inspections.fail(r); return r.value; }, failure = () => r.failed ? [r.failed, r.code ?? "error", r.error ?? "it failed", r.reason ?? ""] : null; // `fail` holds the message too: a `failure(x)` reader is asked again when only it changes
   const hold = () => {
@@ -475,20 +475,20 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     r.checked = v;
     r.value = v; r.settled = a; r.origin = origin; Inspections.take(r, generation);
   };
-  const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
+  const land = t => reply(t, name, source, () => r.ticket === t, ...data.uploads.ends(r, t, (p, o) => { // an upload keeps how it ended (uploads.js)
     if (t.call?.seen?.read || p.store) r.store = t.read = true; if (p.req) { if (o.more) { const n = { id: ++Ticket, name, owner: r, args: t.args, req: p.req, r, origin: t.origin, generation: t.generation }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
     if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin, t.generation); r.failed = null; r.error = r.code = r.reason = undefined; if (!o.more) r.ticket = null; again(t);
-    W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, "it keeps its last value", (error, code, reason) => { if (t.call?.seen?.read || t.read || data.threwRead?.()) r.store = true; r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); });
+    W(pend, !!(o.more && t.upload)); W(fail, null); W(ver, ver.n.v + 1); // an upload is pending until its reply
+  }, "it keeps its last value", (error, code, reason) => { if (t.call?.seen?.read || t.read || data.threwRead?.()) r.store = true; r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); }));
   const m = memo(() => Ov.shown(r, (() => {
     ver();
     const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
-    const forced = r.forced, rev = r.rev, reconciling = r.reconciling; // `reconciling`: asked after a write ended, a refusal fails it (overlay.js)
+    const forced = r.forced, rev = r.rev, reconciling = r.reconciling, mk = data.uploads.at(r, a); // `reconciling`: asked after a write ended, a refusal fails it (overlay.js); `mk`: an upload asked at these arguments, not asked again (LLP 1016.000 D10)
     r.forced = r.rev = r.reconciling = false;
-    // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
-    if (r.failed && (forced || !equal(a, r.failed))) { r.failed = null; r.error = r.code = r.reason = undefined; }
+    // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs), but not an upload's. `fail` follows.
+    if (r.failed && (forced && !mk?.failed || !equal(a, r.failed))) { r.failed = null; r.error = r.code = r.reason = undefined; }
     flag(fail, failure());
-    if (r.failed) return r.value;
+    if (r.failed || mk) return r.failed ? r.value : data.uploads.answer(r, mk, a, { take, fails, release }); // an upload answers as it ended, or goes on
     const baked = r.baked; r.baked = false;
     if (!forced && !rev) {
       // Arguments compare as the runner's do (`equal`: `-0` is `0`, NaN asks again); a bake is asked once anyway (LLP 1048.003 D6).
@@ -512,14 +512,14 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
       if (!r.ticket) flag(pend, false);
       return r.value;
     }
-    if (ans && ans.req && !forced && !rev && r.ticket?.req && !equal(a, r.ticket.args) && sameReq(ans.req, r.ticket.req)) {
+    if (ans && !forced && !rev && r.ticket && !equal(a, r.ticket.args) && (ans.req && r.ticket.req && sameReq(ans.req, r.ticket.req) || ans.upload && ans.upload === r.ticket.upload)) { // a Rust request, or an upload (LLP 1016.000 D10)
       say(`keep request ${r.ticket.id} (${name}): the same request for newer arguments`);
       r.ticket.args = a; r.ticket.generation = r.inspection?.request;
-      return r.value;
+      return data.uploads.kept(r, a); // what it shows meanwhile; an upload's mark covers these arguments too
     }
     if (ans && (ans.req || ans.promise || ans.stream)) {
       hold();
-      const t = { id: ++Ticket, name, owner: r, args: a, req: ans.req, promise: ans.promise, call: ans.call, stream: ans.stream, baked, r, origin: Ov.tick(), generation: r.inspection?.request }; if (baked) say(`${name} shows its build-time answer until its source answers`);
+      const t = { id: ++Ticket, name, owner: r, args: a, req: ans.req, promise: ans.promise, call: ans.call, stream: ans.stream, upload: ans.upload, baked, r, origin: Ov.tick(), generation: r.inspection?.request }; if (baked) say(`${name} shows its build-time answer until its source answers`);
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
@@ -532,8 +532,8 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     return r.value;
   })(), r.settled ?? r.asked, r.origin), type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev, r.reason, r.inspection && { ...r.inspection }, r.ticket?.generation],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; r.ticket.generation = x[16]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; r.reason = x[14]; r.inspection = x[15]; write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev, r.reason, r.inspection && { ...r.inspection }, r.ticket?.generation, r.marks],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; r.ticket.generation = x[16]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; r.reason = x[14]; r.inspection = x[15]; r.marks = x[17]; write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     touch: undo => flag(ver, ver.n.v + 1, undo), // its writes changed: what it shows is laid over again
     reconcile: undo => { r.forced = r.reconciling = true; flag(ver, ver.n.v + 1, undo); },

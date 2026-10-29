@@ -25,6 +25,7 @@ pub(super) struct Checkpoint {
     store_readers: Vec<bool>,
     watching: Vec<Vec<String>>,
     failed_args: Vec<Option<Vec<Value>>>,
+    uploads: super::uploads::Uploads,
     failed_why: Vec<Option<crate::failure::Failure>>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
@@ -89,6 +90,7 @@ impl<D: DataSource> Runner<D> {
             store_readers: self.store_readers.clone(),
             watching: self.watching.clone(),
             failed_args: self.failed_args.clone(),
+            uploads: self.uploads.clone(),
             failed_why: self.failed_why.clone(),
             failed_mut: self.failed_mut.clone(),
             refresh_next: self.refresh_next.clone(),
@@ -169,6 +171,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.watching = c.watching;
                 self.failed_args = c.failed_args;
+                self.uploads = c.uploads;
                 self.ids.work.resources = c.resource_inspection;
                 self.failed_why = c.failed_why;
                 self.failed_mut = c.failed_mut;
@@ -860,7 +863,12 @@ impl<D: DataSource> Runner<D> {
                     p.inspection_generation =
                         self.ids.work.resources.get(i).map_or(0, |w| w.request);
                 }
-                let ticket = p.ticket;
+                let (ticket, upload) = (p.ticket, p.upload);
+                // An upload kept for newer arguments is asked at them too (D10).
+                if upload {
+                    let args = p.args.clone();
+                    self.upload_sent(target, &args, ticket);
+                }
                 // The newer arguments' causes join the request's (LLP
                 // 1133.035 D16 item 6).
                 self.note_kept(target, ticket);
@@ -908,6 +916,8 @@ impl<D: DataSource> Runner<D> {
             fetch: request.fetch,
             keepable: keepable.then(|| request.clone()),
             stream: sockets::stream_count(&request),
+            upload: request.stream && request.upload_progress,
+            sent: false,
             grant: request
                 .stream
                 .then(|| {
@@ -933,6 +943,14 @@ impl<D: DataSource> Runner<D> {
             reask_at: None,
             reasks,
         });
+        if request.stream && request.upload_progress {
+            let args = self
+                .pending
+                .last()
+                .map(|p| p.args.clone())
+                .unwrap_or_default();
+            self.upload_sent(target, &args, ticket);
+        }
         self.requests.push(RequestOut {
             ticket,
             target: name,
@@ -1169,6 +1187,11 @@ impl<D: DataSource> Runner<D> {
             if self.listen_event(pos, m) {
                 return Ok(None);
             }
+            // An upload's start (LLP 1016.000 D10): noted; no mapper sees it.
+            if self.pending[pos].upload && m.upload_started() {
+                self.pending[pos].sent = true;
+                return Ok(None);
+            }
             return self.message(pos, outcome, &summary);
         }
         // A re-ask's wait was never sent (`overrun.rs`): only its invocation's end fails it.
@@ -1230,6 +1253,10 @@ impl<D: DataSource> Runner<D> {
         summary: &str,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let was_poisoned = self.poisoned;
+        // An upload's bytes sent: it has reached the network (D10), which a
+        // refused commit of this message does not undo.
+        let upload = self.pending[pos].upload;
+        self.pending[pos].sent |= upload;
         let checkpoint = self.checkpoint(true);
         if self.pending[pos].long_poll {
             self.long_poll_replied(pos);
@@ -1283,6 +1310,7 @@ impl<D: DataSource> Runner<D> {
         }
         let name = self.target_name(p.target);
         let message = p.stream.is_some() && matches!(outcome, Outcome::Message(_));
+        let failed_end = matches!(outcome, Outcome::Failed { .. });
         let ty = match p.target {
             Target::Resource(i) => self.plan.resources[i].ty,
             Target::Mutation(m) => self.plan.mutations[m].ty,
@@ -1409,6 +1437,12 @@ impl<D: DataSource> Runner<D> {
                 self.stale[i] = false;
                 self.failed_args[i] = None;
                 self.keep_answer(i, &p.args, &value);
+                // An upload's end is the answer it stands on at its arguments;
+                // one that never reached the network is an ordinary answer (D10).
+                if p.upload && !message {
+                    let end = super::UploadEnd::Answered(value.clone());
+                    self.upload_over(p.ticket, p.sent || !failed_end, end);
+                }
                 if p.ask_again {
                     self.log(super::lines::asked_again(p.ticket, &name));
                     self.force_refresh(i);

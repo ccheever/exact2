@@ -39,11 +39,13 @@ extern "C" {
         timeout_seconds: f64,
         out_error: *mut *mut c_char,
     ) -> *mut std::ffi::c_void;
+    /// 2: the body's bytes sent changed before the headers (`inout_sent`).
     fn ibex2_darwin_http_headers(
         handle: *mut std::ffi::c_void,
         out_status: *mut c_int,
         out_headers: *mut *mut c_char,
         out_error: *mut *mut c_char,
+        inout_sent: *mut i64,
     ) -> c_int;
     fn ibex2_darwin_http_read(
         handle: *mut std::ffi::c_void,
@@ -252,15 +254,37 @@ impl Transport for DarwinTransport {
             last_reused: self.last_reused.clone(),
         };
         let (mut status, mut headers, mut error) = (0, std::ptr::null_mut(), std::ptr::null_mut());
-        // SAFETY: source owns the exchange until success transfers it to Body,
-        // or any error drops it and cancels the outstanding task.
-        let failed = unsafe {
-            ibex2_darwin_http_headers(
-                source.exchange.pointer(),
-                &mut status,
-                &mut headers,
-                &mut error,
-            )
+        // An upload's progress (Exact patch 23): each change URLSession's
+        // `didSendBodyData` makes before the headers is told here, on this
+        // thread, and the wait goes on.
+        let total = body.len() as u64;
+        let sent = request.sent.as_ref().filter(|_| total > 0);
+        let mut seen = 0_i64;
+        let failed = loop {
+            let mut now = seen;
+            let progress = if sent.is_some() {
+                &mut now as *mut i64
+            } else {
+                std::ptr::null_mut()
+            };
+            // SAFETY: source owns the exchange until success transfers it to Body,
+            // or any error drops it and cancels the outstanding task.
+            let failed = unsafe {
+                ibex2_darwin_http_headers(
+                    source.exchange.pointer(),
+                    &mut status,
+                    &mut headers,
+                    &mut error,
+                    progress,
+                )
+            };
+            match (failed, sent) {
+                (2, Some(sent)) => {
+                    seen = now;
+                    (sent.0)((now.max(0) as u64).min(total), total);
+                }
+                _ => break failed,
+            }
         };
         let headers_text = unsafe { take_string(headers) }.unwrap_or_default();
         let error = unsafe { take_string(error) };
@@ -269,6 +293,10 @@ impl Transport for DarwinTransport {
             return Err(HostError::Failed(
                 error.unwrap_or_else(|| "TypeError: Failed to fetch".into()),
             ));
+        }
+        // The whole body was sent once the headers came.
+        if let Some(sent) = sent.filter(|_| seen as u64 != total) {
+            (sent.0)(total, total);
         }
         let mut headers = Headers::new();
         for line in headers_text.lines() {

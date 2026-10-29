@@ -19,13 +19,30 @@ function request(input, init, redirect) {
   // `exactBodyFrom` (LLP 1108 D6 R2): read as the stream opens (http-body.js).
   const bodyFrom = init.exactBodyFrom === undefined ? undefined : init.exactBodyFrom, refusal = bodyFrom === undefined ? null : bodyFromRefusal(input, init);
   if (refusal) throw new TypeError(refusal);
-  const raw = init.body == null ? undefined : new TextEncoder().encode(String(init.body));
+  // A BufferSource body goes as its bytes, copied now, as Hermes sends one (an upload's); anything else as its text.
+  const body = init.body, raw = body == null ? undefined : body instanceof ArrayBuffer ? new Uint8Array(body.slice(0))
+    : ArrayBuffer.isView(body) ? new Uint8Array(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)) : new TextEncoder().encode(String(body));
   const request = typeof Request === 'function' && input instanceof Request ? input : null;
   const method = methodOf(input, init), url = request ? request.url : String(input);
   // (a Request's own body comes along when `init` names none: a long poll has none)
   if (init.exactLongPoll !== undefined && request?.body != null && init.body == null)
     throw new TypeError('exactLongPoll: a long poll is a GET with no body');
-  return { method, url, headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576, longPoll: longPollOf(init.exactLongPoll, method, url) };
+  const upload = uploadOf(init, method, url, redirect), timeoutMs = upload ? init.exactTimeout : undefined;
+  if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3600000))
+    throw new TypeError('exactTimeout must be an integer number of milliseconds from 1 to 3600000');
+  return { method, url, headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576, longPoll: longPollOf(init.exactLongPoll, method, url), upload, timeoutMs };
+}
+// `exactUploadProgress` (LLP 1016.000 D10), as js/src/binary.js `uploadOf` checks it.
+function uploadOf(init, method, url, redirect) {
+  const upload = init.exactUploadProgress;
+  if (upload === undefined || upload === false) return undefined;
+  if (upload !== true) throw new TypeError('exactUploadProgress is true or false');
+  if (/^wss?:/i.test(url)) throw new TypeError('exactUploadProgress: a WebSocket sends no body');
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url)) throw new TypeError('exactUploadProgress: an upload is an http: or https: request');
+  if (init.exactLongPoll !== undefined) throw new TypeError('exactUploadProgress: a long poll sends no body');
+  if (method === 'GET' || method === 'HEAD') throw new TypeError('exactUploadProgress: a GET or HEAD request sends no body');
+  if (redirect !== undefined && redirect !== 'follow') throw new TypeError('exactUploadProgress: an upload follows its redirects');
+  return true;
 }
 // `exactLongPoll` (LLP 1016.000 D8), as js/src/prelude.js `longPollOf` checks it.
 function longPollOf(poll, method, url) {
@@ -123,6 +140,7 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
   if (own?.aborted) controller.abort(own.reason);
   else own?.addEventListener?.('abort', () => controller.abort(own.reason), { once: true });
   const map = init.exactStream;
+  controller.upload = !!req.upload; // in flight until its reply, for every clock (rt.js)
   let socket;
   // An HTTP body that is not events is a byte stream (http-body.js `readBytes`).
   const protocol = /^wss?:/i.test(req.url) ? { socket: transport => { socket = handle(transport, controller); controller.socket = transport; } } : { bytes: true };
@@ -147,8 +165,12 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
       return { error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) };
     } finally { if (turn) answering.mapper = null; }
   };
-  // A long poll's reply that is no event (`exact:reply`, LLP 1016.000 D8) reaches no mapper.
-  const message = m => req.longPoll && m.event === 'exact:reply' ? undefined : deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }, true), coalesced: m.coalesced });
+  // A long poll's reply that is no event (`exact:reply`, LLP 1016.000 D8) reaches no mapper, nor an upload's start
+  // (`exact:sending`), which, as any bytes sent, says it reached the network (rt.js); its bytes sent are a `progress`
+  // event, as XMLHttpRequest's.
+  const event = m => req.upload && m.event === 'exact:progress' ? { type: 'progress', ...JSON.parse(m.data), lengthComputable: true, data: '', lastEventId: '', coalesced: m.coalesced } : { type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced };
+  const message = m => (controller.sent ||= !!req.upload, req.longPoll && m.event === 'exact:reply' || req.upload && m.event === 'exact:sending')
+    ? undefined : deliver({ ...value(event(m), true), coalesced: m.coalesced });
   const timed = m => {
     const g = gate();
     if (!g) return message(m);
@@ -161,6 +183,7 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
       if (o.close) journal.push(`t=${clock.now} socket close: ${o.close.code} ${o.close.reason} (${controller.streamName})`);
       return value(o.close ? { type: 'close', data: '', lastEventId: '', coalesced: 0, ...o.close } : o.kind
       ? { type: 'error', data: '', lastEventId: '', coalesced: 0, kind: KINDS[o.kind], message: said.decode(o.body), status: 0 }
+      : req.upload ? { type: 'load', status: o.status, data: said.decode(o.body), lastEventId: '', coalesced: 0 }
       : { type: 'error', data: said.decode(o.body), lastEventId: '', coalesced: 0, kind: 'Response', message: `HTTP ${o.status}`, status: o.status });
     });
 }

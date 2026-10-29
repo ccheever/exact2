@@ -52,6 +52,7 @@ fn same_carried(a: &exact_runner::Carried, b: &exact_runner::Carried) -> bool {
         forgot_waiting,
         faults,
         modes,
+        uploads,
     } = a;
     router == &b.router
         && data_revision == &b.data_revision
@@ -79,4 +80,17 @@ fn same_carried(a: &exact_runner::Carried, b: &exact_runner::Carried) -> bool {
             .all(|((an, asrc, aa, av), (bn, bsrc, ba, bv))| {
                 an == bn && asrc == bsrc && equivalent_all(aa, ba) && equivalent(av, bv)
             })
+        && uploads.len() == b.uploads.len()
+        && uploads.iter().zip(&b.uploads).all(|(a, b)| {
+            use exact_runner::UploadEnd::{Answered, Failed, Sent};
+            a.resource == b.resource
+                && a.source == b.source
+                && equivalent_all(&a.args, &b.args)
+                && match (&a.end, &b.end) {
+                    (Answered(av), Answered(bv)) => equivalent(av, bv),
+                    (Sent(at), Sent(bt)) => at == bt,
+                    (Failed(af), Failed(bf)) => af == bf,
+                    _ => false,
+                }
+        })
 }

@@ -8,6 +8,9 @@ pub(super) fn hand_out<D: DataSource>(
     held: &mut Held,
 ) {
     executor.forget(|ticket| runner.holds(ticket));
+    // Of the uploads it let go, which had begun to go out (LLP 1016.000 D10).
+    let started = executor.let_go_started(|ticket| runner.holds(ticket));
+    runner.uploads_started(&started);
     lift(executor, held);
     for r in runner.take_requests() {
         // Device capabilities: the environment has none; nor may a long poll run on other work (LLP 1016.000 D8).

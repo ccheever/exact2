@@ -250,6 +250,9 @@ impl<D: DataSource> Bridge<D> {
             // An app's aborted fetches first (any method), then what the runner let go.
             x.cancel(&h.runner_mut().take_explicit_aborts());
             x.forget(&|ticket| h.runner().holds(ticket));
+            // Of the uploads it let go, which had begun to go out (LLP 1016.000 D10).
+            let started = x.let_go_started(&|ticket| h.runner().holds(ticket));
+            h.runner_mut().uploads_started(&started);
             if !h.has_ordered_request_refusals() {
                 for (ticket, reason) in x.resume_ordered() {
                     h.refuse_request(ticket, reason, true);
@@ -913,6 +916,13 @@ impl<D: DataSource> Bridge<D> {
             return self.prepare_error("no prepared plan");
         };
         candidate.host.commit_boot();
+        // The old executor lets go of everything, then says which uploads had
+        // begun to go out; the rest never left (LLP 1016.000 D10).
+        if let Some(old) = self.executor.as_deref() {
+            old.forget(&|_| false);
+            let started = old.let_go_started(&|_| false);
+            candidate.host.runner_mut().uploads_started(&started);
+        }
         let executor = self.links.io.map(|io| {
             (io.start)(
                 candidate.bindings,

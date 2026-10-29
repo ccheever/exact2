@@ -49,8 +49,37 @@ pub(crate) const RUST_ABI: u32 = 4;
 /// prelude would leave running, its reply (a 429 included) dropped; and,
 /// sharing it (no binary had shipped 5), an aborted kept write's rejection in
 /// a module turn (LLP 1146 D2), which an older prelude would run in the
-/// aborting turn, where a refused commit drops its continuation's writes.
+/// aborting turn, where a refused commit drops its continuation's writes; and,
+/// sharing it as well, `fetch`'s `exactUploadProgress` (LLP 1016.000 D10),
+/// which an older prelude would ignore, giving the mapper no progress and the
+/// reply as a byte stream's messages.
 pub(crate) const TYPESCRIPT_RUNTIME: u32 = 5;
+
+/// What each runtime past the first added that a bundle names to use (see
+/// [`TYPESCRIPT_RUNTIME`]): a `fetch` option an older prelude would ignore,
+/// or, for 5's abort changes, what makes an abort signal.
+const RUNTIME_OPTIONS: [(u32, &str); 7] = [
+    (5, "exactUploadProgress"),
+    (5, "AbortController"),
+    (5, "AbortSignal"),
+    (4, "exactBodyTo"),
+    (3, "exactLongPoll"),
+    (2, "redirect"),
+    (1, "exactBodyFrom"),
+];
+
+/// The lowest runtime a TypeScript `bundle` needs: the newest whose option
+/// it names anywhere (a property name survives bundling), else none. A push
+/// records it, so a module that uses nothing newer still goes to a binary
+/// whose prelude is older (LLP 1016.000 D10). A name in a string or a
+/// comment counts too: such a module asks for more than it needs, never less.
+pub fn typescript_runtime_of(bundle: &[u8]) -> u32 {
+    let text = String::from_utf8_lossy(bundle);
+    RUNTIME_OPTIONS
+        .iter()
+        .find(|(_, option)| text.contains(option))
+        .map_or(0, |(runtime, _)| *runtime)
+}
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 

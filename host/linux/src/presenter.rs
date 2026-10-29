@@ -638,7 +638,12 @@ impl<D: DataSource> Presenter<D> {
         self.module = module;
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;
+        // The old executor lets go of everything, then says which uploads had
+        // begun to go out; the rest never left (LLP 1016.000 D10).
+        self.executor.forget(|_| false);
+        let started = self.executor.let_go_started(|_| false);
         self.executor = self.host.executor();
+        self.host.runner_mut().uploads_started(&started);
         self.parked.clear();
         self.scroll.clear();
         self.collection = collection::State::default();
@@ -797,6 +802,9 @@ impl<D: DataSource> Presenter<D> {
             .cancel(&self.host.runner_mut().take_explicit_aborts());
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
+        // Of the uploads it let go, which had begun to go out (LLP 1016.000 D10).
+        let started = (self.executor).let_go_started(|ticket| self.host.runner().holds(ticket));
+        self.host.runner_mut().uploads_started(&started);
         if !self.host.has_ordered_request_refusals() {
             for (ticket, reason) in self.executor.resume_ordered() {
                 self.host.refuse_request(ticket, reason, true);

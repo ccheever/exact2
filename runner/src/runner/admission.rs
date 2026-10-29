@@ -295,11 +295,11 @@ impl<D: DataSource> Runner<D> {
         target: Target,
         why: Failure,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        let (failed_args, ask_again, write) = self
+        let (failed_args, ask_again, write, upload, sent) = self
             .pending
             .iter()
             .find(|p| p.ticket == ticket)
-            .map(|p| (Some(p.args.clone()), p.ask_again, p.write))
+            .map(|p| (Some(p.args.clone()), p.ask_again, p.write, p.upload, p.sent))
             .unwrap_or_default();
         self.pending.retain(|p| p.ticket != ticket);
         self.forgot = true;
@@ -313,6 +313,11 @@ impl<D: DataSource> Runner<D> {
             Target::Resource(i) => {
                 // Keep the standing answer's arguments. Failure suppresses
                 // another ask independently of that answer's store revision.
+                // An upload's failure is never asked again at its arguments,
+                // unless it never reached the network (D10).
+                if upload {
+                    self.upload_over(ticket, sent, super::UploadEnd::Failed(why.clone()));
+                }
                 self.failed_args[i] = failed_args;
                 self.failed_why[i] = Some(why);
                 self.count_failure(i);

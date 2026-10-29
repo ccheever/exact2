@@ -39,6 +39,7 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
         .or(request.body_from_refusal())
         .or(request.body_to_refusal())
         .or(request.long_poll_refusal())
+        .or(request.upload_progress_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
@@ -694,6 +695,11 @@ impl Batch {
         // body as events and delivers each as a message (kind 8).
         if r.request.stream {
             s.push_str(",\"stream\":true");
+        }
+        // An upload (LLP 1016.000 D10): the page sends it with XMLHttpRequest and
+        // delivers its bytes sent as messages, then its reply.
+        if r.request.upload_progress {
+            s.push_str(",\"upload\":true");
         }
         // A long poll (D8): the page asks again with each reply's cursor.
         if let Some(poll) = &r.request.long_poll {

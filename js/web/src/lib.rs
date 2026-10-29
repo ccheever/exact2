@@ -407,6 +407,8 @@ impl Module {
             }
             // `exactHeld` (LLP 1016.000 D9): no clock waits on it.
             request.held = r["held"] == true;
+            // `exactUploadProgress`: the page sends it with XMLHttpRequest.
+            request.upload_progress = r["upload_progress"] == true;
             // `exactBodyFrom`: the page reads the file into the body.
             match &r["body_from"] {
                 Json::Null => {}

@@ -471,6 +471,30 @@ fn failed(error: impl std::fmt::Display) -> HostError {
     HostError::Failed(format!("TypeError: Failed to fetch — {error}"))
 }
 
+/// Run `req` on `agent`, its body a slice or a counted reader.
+fn run<S: ureq::AsSendBody>(
+    agent: &ureq::Agent,
+    req: ureq::http::Request<S>,
+    timeout: Option<Duration>,
+) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+    // Replace all agent defaults: no shorter internal phase limit may win
+    // before the request's own timeout (LLP 0068.000 §4).
+    let req = match timeout {
+        Some(limit) => agent
+            .configure_request(req)
+            .timeout_global(Some(limit))
+            .timeout_connect(Some(limit))
+            .timeout_send_request(Some(limit))
+            .timeout_send_body(Some(limit))
+            .timeout_await_100(Some(limit))
+            .timeout_recv_response(Some(limit))
+            .timeout_recv_body(Some(limit))
+            .build(),
+        None => req,
+    };
+    agent.run(req)
+}
+
 /// A proxy as an error names it: scheme, host, and port, without credentials.
 fn named(proxy: &ureq::Proxy) -> String {
     let scheme = proxy.uri().scheme_str().unwrap_or("http");
@@ -488,6 +512,25 @@ impl BodySource for Source {
             self.lease.take();
         }
         result
+    }
+}
+/// An upload's body as ureq takes it (Exact patch 23): each read is told to
+/// the request's `sent` hook. ureq writes what it read to the socket before
+/// it reads again, so the count leads the wire by at most one output buffer.
+struct Counted<'a> {
+    body: &'a [u8],
+    at: usize,
+    sent: &'a crate::stdlib::fetch::Sent,
+}
+impl Read for Counted<'_> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let n = out.len().min(self.body.len() - self.at);
+        out[..n].copy_from_slice(&self.body[self.at..self.at + n]);
+        self.at += n;
+        if n > 0 {
+            (self.sent.0)(self.at as u64, self.body.len() as u64);
+        }
+        Ok(n)
     }
 }
 // Drop the reader (closing an unfinished response) before returning the lease.
@@ -510,9 +553,13 @@ impl Transport for RustlsHttpTransport {
         for (name, value) in request.headers.entries() {
             builder = builder.header(name, value);
         }
-        let req = builder
-            .body(request.body.as_deref().unwrap_or_default())
-            .map_err(failed)?;
+        let body = request.body.as_deref().unwrap_or_default();
+        let counted = request.sent.as_ref().filter(|_| !body.is_empty());
+        if counted.is_some() {
+            // A body read from a reader is otherwise sent chunked.
+            builder = builder.header("content-length", body.len());
+        }
+        let req = builder.body(()).map_err(failed)?;
         // Plain HTTP agents stay separate so creating or using one does not
         // initialize the process TLS config. An HTTPS request initializes it
         // before constructing the first TLS-capable agent, and so does a plain
@@ -526,24 +573,29 @@ impl Transport for RustlsHttpTransport {
             needs_tls(req.uri().scheme_str() == Some("https"), proxy),
         );
         let agent = &lease.slot.as_ref().unwrap().agent;
-        // Replace all agent defaults: no shorter internal phase limit may win
-        // before the request's own timeout (LLP 0068.000 §4).
-        let req = match request.timeout {
-            Some(limit) => agent
-                .configure_request(req)
-                .timeout_global(Some(limit))
-                .timeout_connect(Some(limit))
-                .timeout_send_request(Some(limit))
-                .timeout_send_body(Some(limit))
-                .timeout_await_100(Some(limit))
-                .timeout_recv_response(Some(limit))
-                .timeout_recv_body(Some(limit))
-                .build(),
-            None => req,
+        let (parts, ()) = req.into_parts();
+        let mut reader = counted.map(|sent| Counted { body, at: 0, sent });
+        let result = match reader.as_mut() {
+            Some(reader) => {
+                let counted = ureq::SendBody::from_reader(reader);
+                run(
+                    agent,
+                    ureq::http::Request::from_parts(parts, counted),
+                    request.timeout,
+                )
+            }
+            None => run(
+                agent,
+                ureq::http::Request::from_parts(parts, body),
+                request.timeout,
+            ),
         };
-        let result = agent.run(req);
         signal.check()?;
         let response = result.map_err(failed)?;
+        // The whole body was sent once the headers came.
+        if let Some(reader) = reader.filter(|r| r.at < body.len()) {
+            (reader.sent.0)(body.len() as u64, body.len() as u64);
+        }
         let status = response.status();
         let mut headers = Headers::new();
         for (name, value) in response.headers() {

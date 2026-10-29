@@ -121,12 +121,14 @@ mod time;
 mod transport;
 #[cfg(test)]
 mod transport_tests;
+mod uploads;
 mod viewport;
 mod writes;
 pub use carry::Carried;
 pub use checkpoint::Checkpoint;
 pub use router::{routing, RouterChange, Routing};
 pub use split::{press_writes_router, StackSplit};
+pub use uploads::{UploadEnd, UploadMark};
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
@@ -241,6 +243,11 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    /// An upload's stream ([`Request::upload_progress`]): in flight until its reply.
+    upload: bool,
+    /// The upload has begun to go out (`UPLOAD_SENDING`, or its first bytes
+    /// sent): a failure before that never reached the network (D10).
+    sent: bool,
     /// A stream's: the grant line that admits it (`state.streams`).
     grant: Option<String>,
     /// A topic its resource watches changed while it was in flight: its
@@ -281,10 +288,10 @@ pub struct StreamCount {
 }
 
 impl PendingReq {
-    /// In flight: every request, and a stream until its first message.
-    /// What `pending(…)` reads, held requests included.
+    /// In flight: every request, a stream until its first message, and an
+    /// upload until its reply. What `pending(…)` reads, held requests included.
     fn in_flight(&self) -> bool {
-        self.stream.is_none_or(|s| s.messages == 0)
+        self.upload || self.stream.is_none_or(|s| s.messages == 0)
     }
 
     /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9),
@@ -381,6 +388,9 @@ pub struct Runner<D: DataSource> {
     retired_fetches: Vec<(u64, u64)>,
     /// Failed arguments suppress another ask until they change or refresh.
     failed_args: Vec<Option<Vec<Value>>>,
+    /// The uploads asked and how each stands (LLP 1016.000 D10): none is
+    /// asked again at its arguments.
+    uploads: uploads::Uploads,
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
@@ -810,6 +820,7 @@ impl<D: DataSource> Runner<D> {
             explicit_aborts: Vec::new(),
             retired_fetches: Vec::new(),
             failed_args: Vec::new(),
+            uploads: Default::default(),
             failed_why: Vec::new(),
             overrun: Default::default(),
             deferred_edges: Vec::new(),
@@ -894,6 +905,9 @@ impl<D: DataSource> Runner<D> {
                     })
             })
             .collect();
+        // @ref LLP 1016.000 D10 — the uploads asked, carried by resource,
+        // source and arguments whatever the data module; a launch starts with none.
+        runner.carry_uploads_in(carried.map_or(&[][..], |c| &c.uploads));
         // @ref LLP 1048.000 D6 — a document's answers seed their resources.
         // The device's own store is an input its render never had.
         let (seeded, note) = match seed {
