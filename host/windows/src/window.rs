@@ -29,6 +29,7 @@ struct App<D: DataSource> {
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     preparing: Option<exact_ink::device::d3d11::Preparing>,
+    jump_list: Option<std::thread::JoinHandle<()>>,
     direct: bool,
     presenter: Option<Presenter<D>>,
     timers: crate::timers::Timers,
@@ -72,6 +73,9 @@ impl<D: DataSource> Drop for App<D> {
         // The module's GPU swapchain must release its HWND before the window.
         self.presenter.take();
         self.caret.clear();
+        if let Some(worker) = self.jump_list.take() {
+            let _ = worker.join();
+        }
     }
 }
 
@@ -142,6 +146,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     composed: exact_linux::Composed,
 ) -> i32 {
     let started = Instant::now();
+    boot_phase("host-entered");
     if app::print_baked_receipt(compat) {
         return 0;
     }
@@ -231,8 +236,6 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         }
     };
     boot_phase("event-loop-ready");
-    crate::jump_list::set_from_compat(compat);
-    boot_phase("jump-list-ready");
     let proxy = event_loop.create_proxy();
     let wake = proxy.clone();
     desktop.set_wake(move || {
@@ -255,6 +258,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         window: None,
         surface: None,
         preparing,
+        jump_list: None,
         direct,
         presenter: None,
         timers,
@@ -558,6 +562,9 @@ impl<D: DataSource + Default + 'static> App<D> {
             buffer.present().map_err(|e| e.to_string())?;
             p.recycle_frame(frame);
         }
+        if !p.last_frame_succeeded() {
+            return Ok(());
+        }
         // A keyboard command can change the cursor while the mouse is still.
         // Re-resolve the painted hit after the frame, including unmounts and HUDs.
         let cursor = if self.pointer_inside && self.focused {
@@ -670,6 +677,14 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
         let logged_at = frame_started.elapsed().as_secs_f64() * 1000.;
         p.first_pixel();
+        if self.jump_list.is_none() && p.last_frame_succeeded() {
+            let compat = self.config.compat.clone();
+            self.jump_list = Some(std::thread::spawn(move || {
+                boot_phase("jump-list-started");
+                crate::jump_list::set_from_compat(&compat);
+                boot_phase("jump-list-ready");
+            }));
+        }
         let activated_at = frame_started.elapsed().as_secs_f64() * 1000.;
         if let Some(access) = &mut self.accessibility {
             access.sync(p, window, &self.name);
@@ -1369,6 +1384,7 @@ mod tests {
             window: Some(window),
             surface: None,
             preparing: None,
+            jump_list: None,
             direct: true,
             presenter: Some(p),
             started,

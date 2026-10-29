@@ -192,6 +192,7 @@ pub(crate) struct Startup {
     warp: Option<exact_ink::device::d3d11::Preparing>,
     force_warp: bool,
     warp_attempted: bool,
+    ready_warp: Option<exact_ink::device::d3d11::D3d11>,
 }
 
 impl Startup {
@@ -201,12 +202,27 @@ impl Startup {
     ) -> (Self, Option<exact_ink::device::d3d11::D3d11>) {
         let deadline = started + std::time::Duration::from_millis(100);
         let force_warp = preparing.force_warp();
-        let result = preparing.finish_until(deadline);
+        // Reserve WARP's measured 14 ms device and 3 ms pipeline build, plus
+        // attachment, inside the 100 ms join budget. @ref LLP 1149 S0 C6, S2.7.
+        let hardware_deadline = if force_warp {
+            deadline
+        } else {
+            started + std::time::Duration::from_millis(75)
+        };
+        let joined = std::time::Instant::now();
+        let result = preparing.finish_until(hardware_deadline);
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            eprintln!(
+                "exact-ink: startup join {:.3} ms",
+                joined.elapsed().as_secs_f64() * 1000.
+            );
+        }
         let mut startup = Self {
             primary: None,
             warp: None,
             force_warp,
             warp_attempted: force_warp,
+            ready_warp: None,
         };
         match result {
             Some(Ok(device)) => return (startup, Some(device)),
@@ -217,6 +233,7 @@ impl Startup {
         if let Some(result) = startup.warp.as_mut().and_then(|p| p.finish_until(deadline)) {
             startup.warp = None;
             match result {
+                Ok(device) if startup.primary.is_some() => startup.ready_warp = Some(device),
                 Ok(device) => return (startup, Some(device)),
                 Err(error) => eprintln!("exact-ink: startup WARP: {error}"),
             }
@@ -239,8 +256,8 @@ impl Startup {
     }
 }
 
-/// CPU recovery retains composition presentation. GDI is confined to a child
-/// HWND when neither device is ready. @ref LLP 1149 D5.4, D6.3.
+/// Startup and recovery upload CPU frames through WARP on the shared visual.
+/// Without either device, keep waiting for preparation. @ref LLP 1149 D5.4, D6.3.
 pub(crate) struct DirectWindow {
     pub(crate) window: exact_ink::device::d3d11::Window,
     pub(crate) recovering: bool,
@@ -248,7 +265,6 @@ pub(crate) struct DirectWindow {
     present_due: Option<std::time::Instant>,
     poll_due: std::time::Instant,
     startup: Startup,
-    bitmap: Option<exact_ink::device::d3d11::CpuWindow>,
     open: fn(bool) -> exact_ink::device::Result<exact_ink::device::d3d11::D3d11>,
     pub(crate) fallback: Option<(
         exact_ink::device::d3d11::D3d11,
@@ -271,8 +287,8 @@ impl DirectWindow {
                 )
                 .unwrap_or(false),
                 warp_attempted: false,
+                ready_warp: None,
             },
-            bitmap: None,
             open: exact_ink::device::d3d11::D3d11::open,
             fallback: None,
         }
@@ -293,6 +309,11 @@ impl DirectWindow {
         }
         direct.use_cpu(p, "CPU startup; composition pending");
         direct.startup.start_warp();
+        if let Some(device) = direct.startup.ready_warp.take() {
+            if let Err(error) = direct.install_fallback(p, device, size) {
+                eprintln!("exact-ink: startup WARP: {error}");
+            }
+        }
         direct.retry.failed(std::time::Instant::now());
         direct
     }
@@ -343,8 +364,21 @@ impl DirectWindow {
         Ok(())
     }
 
-    fn poll_startup<D: DataSource>(&mut self, p: &mut Presenter<D>, size: [u32; 2]) {
+    fn install_fallback<D: DataSource>(
+        &mut self,
+        p: &mut Presenter<D>,
+        mut device: exact_ink::device::d3d11::D3d11,
+        size: [u32; 2],
+    ) -> exact_ink::device::Result<()> {
         use exact_ink::device::Device;
+        device.attach_window(self.window.clone(), size)?;
+        let target = device.create_target(size[0], size[1])?;
+        self.fallback = Some((device, target));
+        p.painter.adapter = Some("WARP composition; hardware pending".into());
+        Ok(())
+    }
+
+    fn poll_startup<D: DataSource>(&mut self, p: &mut Presenter<D>, size: [u32; 2]) {
         if let Some(result) = self.startup.primary.as_mut().and_then(|p| p.poll()) {
             self.startup.primary = None;
             if let Err(e) = result.and_then(|d| self.install(p, d, size)) {
@@ -355,13 +389,9 @@ impl DirectWindow {
         if let Some(result) = self.startup.warp.as_mut().and_then(|p| p.poll()) {
             self.startup.warp = None;
             if self.recovering {
-                let installed = result.and_then(|mut d| {
+                let installed = result.and_then(|d| {
                     if self.startup.primary.is_some() {
-                        d.attach_window(self.window.clone(), size)?;
-                        let target = d.create_target(size[0], size[1])?;
-                        self.fallback = Some((d, target));
-                        p.painter.adapter = Some("WARP composition; hardware pending".into());
-                        Ok(())
+                        self.install_fallback(p, d, size)
                     } else {
                         self.install(p, d, size)
                     }
@@ -380,18 +410,9 @@ impl DirectWindow {
         self.poll_due = now + std::time::Duration::from_millis(16);
         let size =
             [p.viewport().0, p.viewport().1].map(|v| (v * p.brush.scale).round().max(1.) as u32);
+        self.window
+            .set_background(crate::paint::page_color(p.dark()));
         self.poll_startup(p, size);
-        // Keep the bitmap until DXGI observes its replacement on screen, not
-        // merely until Present returns. The composition target is above children.
-        if self.bitmap.is_some()
-            && (matches!(p.brush.displayed_process_ms(), Ok(Some(_)))
-                || self
-                    .fallback
-                    .as_ref()
-                    .is_some_and(|(d, _)| d.presented_process_ms().is_ok()))
-        {
-            self.bitmap = None;
-        }
         let retry_due = self.retry.ready(now) && !self.startup.pending();
         // WARP refusal must not prevent a later hardware attempt.
         if self.recovering && retry_due {
@@ -460,28 +481,6 @@ impl DirectWindow {
                 }
             }
         }
-        if !p.last_frame_succeeded {
-            let shown = (|| {
-                if self.bitmap.is_none() {
-                    self.bitmap = Some(exact_ink::device::d3d11::CpuWindow::new(
-                        self.window.clone(),
-                    )?);
-                }
-                self.bitmap.as_mut().unwrap().present(size, pixels.data())
-            })();
-            p.last_frame_succeeded = shown.is_ok();
-            p.painter.adapter = Some(
-                if self.startup.pending() {
-                    "CPU bitmap; composition device pending"
-                } else {
-                    "CPU bitmap; composition unavailable"
-                }
-                .into(),
-            );
-            if let Err(error) = shown {
-                eprintln!("exact-ink: CPU startup frame: {error}");
-            }
-        }
         if retry_due {
             self.retry.failed(std::time::Instant::now());
         }
@@ -493,9 +492,7 @@ impl<D: DataSource> Presenter<D> {
     /// Next readiness or recovery attempt for a directly presenting painter.
     pub fn painter_retry_deadline(&self) -> Option<std::time::Instant> {
         self.surfaces.direct_window.as_ref().and_then(|d| {
-            if d.startup.pending()
-                || (d.bitmap.is_some() && (!d.recovering || d.fallback.is_some()))
-            {
+            if d.startup.pending() {
                 Some(d.poll_due)
             } else if d.recovering {
                 d.retry.deadline().into_iter().chain(d.present_due).min()
@@ -631,6 +628,7 @@ mod tests {
             warp: None,
             force_warp: false,
             warp_attempted: false,
+            ready_warp: None,
         };
         let direct = DirectWindow::attach(&mut p, window.clone(), [80, 60], startup);
         p.surfaces.direct_window = Some(direct);
@@ -678,7 +676,7 @@ mod tests {
             .unwrap()
             .fallback
             .is_none());
-        assert!(p.surfaces.direct_window.as_ref().unwrap().bitmap.is_some());
+        assert!(!p.last_frame_succeeded());
         p.surfaces.direct_window.as_mut().unwrap().retry = Default::default();
         p.window_frame(window.clone()).unwrap();
         assert_eq!(p.painter.name, "ink");
@@ -696,7 +694,7 @@ mod tests {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
         let mut direct = DirectWindow::new(window.clone());
-        direct.bitmap = Some(exact_ink::device::d3d11::CpuWindow::new(window).unwrap());
+        direct.startup.primary = Some(exact_ink::device::d3d11::Preparing::start(false).unwrap());
         let due = std::time::Instant::now() - std::time::Duration::from_millis(1);
         direct.poll_due = due;
         p.surfaces.direct_window = Some(direct);

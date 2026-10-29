@@ -7,9 +7,6 @@
 //! After every commit the host lays the roots out with the kernel's layout
 //! under the viewport, feeds the motion engine the commit (LLP 1003 §4),
 //! seeks it to the app's clock, and keeps each node's presentation values.
-//! The painter then reads frames, styles, and props from the kernel and the
-//! presentation values from here. The kernel is the single source of truth
-//! and the only copy.
 
 use crate::paint::Presented;
 use exact_kernel::motion::{layout_presented, motion_node, node_key, MotionSync, PaintMotion};
@@ -270,6 +267,8 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        #[cfg(windows)]
+        crate::app::boot_phase("runner-ready");
         if let Some(p) = presence {
             runner.install_presence(p.backend, p.keystore);
         }
@@ -360,6 +359,8 @@ impl<D: DataSource> Host<D> {
         }
         let error = host.layout().err();
         host.observe_layout();
+        #[cfg(windows)]
+        crate::app::boot_phase("layout-ready");
         host.present();
         Ok((host, error))
     }
