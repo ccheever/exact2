@@ -10,41 +10,87 @@ import UIKit
 /// UIKit's dimmed tint, as a text view's do: a status's symbol keeps its colour beside its words.
 @MainActor
 enum TintDimming {
-    private static let probe = UIView()
-    private static var greys: [[Int]: [Double]] = [:]
+    private static var greys: [[Double]: Double] = [:]
+    private static let srgb = CGColorSpace(name: CGColorSpace.sRGB)!, gray = CGColorSpace(name: CGColorSpace.extendedGray)!
     /// The rows Exact hands UIKit as tints, which UIKit dims itself and keeps once the dimming ends
     static let tints: Set<String> = ["accent_color", "caret_color"]
+    /// The share of a colour's alpha UIKit's dimmed tint keeps (TintDimmingSweepIOSTests). Exact's grey keeps the
+    /// colour's own alpha instead, as a native button's dimmed symbol keeps its alpha.
+    static let uikitDimmedAlpha = 0.8
 
     /// The grey UIKit gives a tint of this colour while it dims tints, in 0...255 sRGB channels, at
-    /// the colour's own alpha (as a native button's dimmed symbol keeps its alpha). A colour whose
+    /// the colour's own alpha. UIKit's dimmed tint is exactly the colour converted to grey by Core
+    /// Graphics (to `extendedGray`: D50 luminance on sRGB's curve, from the colour's own space;
+    /// TintDimmingSweepIOSTests), so it is converted here, touching no view: this runs inside UIKit's
+    /// tint traversal and Core Animation's commit, where making a view or dimming one again faults,
+    /// and a view kept for it answered every colour with the first one's grey. A colour whose sRGB
     /// channels lie within 24 of each other counts as neutral and stays. A colour in its own space
-    /// (`textChannels`' nine numbers) greys from its sRGB channels.
+    /// (`textChannels`' nine numbers) greys from that space, as UIKit greys a display-p3 colour; a
+    /// grey brighter than sRGB's white comes back as nine numbers in extended sRGB, unclipped.
     static func grey(_ c: [Double]) -> [Double] {
         guard c.count >= 4, (c[0...2].max() ?? 0) - (c[0...2].min() ?? 0) > 24 else { return c }
-        let key = c[0...3].map { Int($0.rounded()) }
-        let dimmed = greys[key] ?? {
-            probe.tintColor = UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
-            probe.tintAdjustmentMode = .dimmed
-            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            guard probe.tintColor.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
-            let out = [Double(r), Double(g), Double(b), Double(a)].map { $0 * 255 }
-            // Bound the cache as `SRGBColors` bounds its own: a colour transition on a dimmed face asks for a new grey each frame
-            if greys.count >= 512 { greys.removeAll() }
-            greys[key] = out
-            return out
+        let own = c.count == 9 ? ownSpace(c[4]) : nil
+        let key = own == nil ? Array(c[0...3]) : Array(c[4...8])
+        let level = greys[key] ?? {
+            // In its extended space, as `TextEngine.color` paints it, untagged: UIKit's grey ignores a colour's headroom tag
+            let colour = own.flatMap { CGColor(colorSpace: $0, components: c[5...8].map { CGFloat($0) }) }
+                ?? CGColor(colorSpace: srgb, components: c[0...3].map { CGFloat($0 / 255) })
+            return colour.flatMap { level($0, key) }
         }()
-        guard let dimmed else { return c }
-        return Array(dimmed[0...2]) + [c[3]]
+        guard let level else { return c }
+        return level <= 255 ? [level, level, level, c[3]] : [255, 255, 255, c[3], 0, level / 255, level / 255, level / 255, c[3] / 255]
     }
 
-    /// `grey` of a colour in any space; a neutral one exactly as it came, in its own space and range
-    /// (an HDR white)
+    /// `grey` of a colour in any space, from that space; a neutral one exactly as it came, in its own
+    /// space and range (an HDR white), and a grey past sRGB's white in extended sRGB
     static func grey(_ c: CGColor) -> CGColor {
-        guard let rgb = c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil),
+        // Judged neutral or not untagged too: Core Graphics tone-maps a tagged colour on the way to sRGB
+        guard let rgb = untagged(c).converted(to: srgb, intent: .defaultIntent, options: nil),
               let parts = rgb.components, parts.count == 4 else { return c }
-        let channels = parts.map { Double($0) * 255 }, grey = grey(channels)
-        return grey == channels ? c : SRGBColors.color(grey[0], grey[1], grey[2], grey[3])
+        let channels = parts.map { Double($0) * 255 }
+        guard (channels[0...2].max() ?? 0) - (channels[0...2].min() ?? 0) > 24,
+              let level = level(untagged(c), cgKey(c)) else { return c }
+        if level <= 255 { return SRGBColors.color(level, level, level, channels[3]) }
+        // Past white: in extended sRGB, tagged with its headroom as the painters tag an HDR colour
+        return CGColor(colorSpace: CGColorSpace(name: CGColorSpace.extendedSRGB)!, components: [level / 255, level / 255, level / 255, CGFloat(channels[3] / 255)])
+            .map(ColorRange.tagged) ?? c
     }
+
+    /// The space `textChannels` names by its code, extended as `TextEngine.color` draws it: sRGB (or
+    /// a profile's colour, as extended sRGB), display-p3, linear sRGB
+    private static func ownSpace(_ code: Double) -> CGColorSpace? {
+        [0: CGColorSpace.extendedSRGB, 1: CGColorSpace.extendedDisplayP3, 2: CGColorSpace.extendedLinearSRGB][Int(code)].flatMap { CGColorSpace(name: $0) }
+    }
+
+    /// The grey level (0...255, past 255 for a colour past sRGB's white) of `colour`, kept under `key`
+    /// (none: not kept)
+    private static func level(_ colour: CGColor, _ key: [Double]?) -> Double? {
+        if let key, let kept = greys[key] { return kept }
+        guard let g = colour.converted(to: gray, intent: .defaultIntent, options: nil)?.components?.first else { return nil }
+        // Bound the cache as `SRGBColors` bounds its own: a colour transition on a dimmed face asks for a new grey each frame
+        if let key {
+            if greys.count >= 512 { greys.removeAll() }
+            greys[key] = Double(g) * 255
+        }
+        return Double(g) * 255
+    }
+
+    /// The colour without its headroom tag (`ColorRange.tagged`'s): UIKit's dimmed tint ignores the tag
+    /// (TintDimmingSweepIOSTests), where Core Graphics' grey of a tagged colour tone-maps it
+    private static func untagged(_ c: CGColor) -> CGColor {
+        guard let space = c.colorSpace, let parts = c.components else { return c }
+        return CGColor(colorSpace: space, components: parts) ?? c
+    }
+
+    /// A `CGColor`'s cache key: a marker no channel takes, its space's place among the named spaces a
+    /// colour here comes in, then its components (its grey ignores a headroom tag, so the key does);
+    /// none for a colour in another space, which is converted every time
+    private static func cgKey(_ c: CGColor) -> [Double]? {
+        guard let name = c.colorSpace?.name as String?, let space = cgSpaces.firstIndex(of: name) else { return nil }
+        return [-1e9, Double(space)] + (c.components ?? []).map { Double($0) }
+    }
+    private static let cgSpaces = [CGColorSpace.sRGB, CGColorSpace.extendedSRGB, CGColorSpace.displayP3, CGColorSpace.extendedDisplayP3,
+                                   CGColorSpace.linearSRGB, CGColorSpace.extendedLinearSRGB].map { $0 as String }
 }
 
 /// A view a session's nodes are mounted in: the viewport, the `DocumentMount` native navigation
