@@ -152,8 +152,8 @@ pub fn icon_of<'a>(
 /// one, in the tuple bound (a theme entry's name as the colour it stands
 /// for, LLP 1095 D4; a `-exact-platform-color()` only as one of the plan's
 /// literals, D3), except that a profile the app declares is no colour here
-/// (a built-in one is, LLP 1100 D3), and written as the wire's text, which
-/// a host reads with no theme bound. One that is no colour is empty, so its
+/// (LLP 1100 D3; a standard space's colour is, D1), and written as the
+/// wire's text, which a host reads with no theme bound. One that is no colour is empty, so its
 /// kind's paint stands, and is added to `refused`. Any other prop as it is.
 /// A node's faces that read a token are read again when it or the tuple
 /// changes (`instance::theme`).

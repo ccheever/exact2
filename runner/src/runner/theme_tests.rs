@@ -129,7 +129,7 @@ fn faces_that_read_no_token_leave_the_index() {
     let editor = view(&r, "editor").unwrap();
     assert_eq!(indexed(&r), [editor]);
     press(&mut r, "plain");
-    assert_eq!(indexed(&r), []);
+    assert!(indexed(&r).is_empty());
     let (_, set) = r.set_token("ink", "#0000ff", &[]).unwrap();
     assert_eq!(set, 0);
     assert_eq!(paint(&r, "color"), "#ff0000ff");
@@ -155,12 +155,12 @@ fn an_unmounted_nodes_faces_leave_the_index() {
     assert_eq!(set, 0, "a retired view is not set");
     let kernel = &r.kernel;
     r.ids.retain(|view| kernel.node(view).is_some());
-    assert_eq!(indexed(&r), []);
+    assert!(indexed(&r).is_empty());
 }
 
 /// Faces the bridge cannot read are cleared, journalled, and leave the
-/// index. A compiled plan's records always read; this one's `broken` starts
-/// as text, as a plan from another binary's compiler might hold.
+/// index. A compiled plan's records always read; this one's `broken` is
+/// made text, as a plan from another binary's compiler might hold.
 #[test]
 fn cleared_faces_leave_the_index() {
     let mut plan = plan(
@@ -175,6 +175,7 @@ fn cleared_faces_leave_the_index() {
     };
     let (broken, word) = (slot(&plan, "broken"), slot(&plan, "word"));
     plan.slots[broken].init = plan.slots[word].init;
+    plan.slots[broken].ty = plan.slots[word].ty;
     let mut r = boot(plan);
     let editor = view(&r, "editor").unwrap();
     assert_eq!(indexed(&r), [editor]);
@@ -186,7 +187,7 @@ fn cleared_faces_leave_the_index() {
         "{:?}",
         r.journal().collect::<Vec<_>>()
     );
-    assert_eq!(indexed(&r), []);
+    assert!(indexed(&r).is_empty());
     let (_, set) = r.set_token("ink", "#0000ff", &[]).unwrap();
     assert_eq!(set, 0);
     assert_eq!(faces(&r), None);

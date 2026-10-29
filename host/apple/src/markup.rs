@@ -654,9 +654,9 @@ mod tests {
     /// LLP 1045.000 D2: a face's colour as the runner wrote it crosses in
     /// the presenters' wire form: a role as its platform colour, resolved
     /// with no session's overrides even while two sessions live on the
-    /// thread (each would be a guess); a colour in a built-in profile's
-    /// space, and one in a wide space, each in its own. A profile the app
-    /// declares is none here, as the runner never writes one.
+    /// thread (each would be a guess); a colour in a standard space the
+    /// platforms ship, and one in a wide space, each in its own. A profile
+    /// the app declares is none here, as the runner never writes one.
     #[test]
     fn a_faces_paint_crosses_in_the_wire_form() {
         use exact_kernel::style::roles;
