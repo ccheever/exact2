@@ -71,9 +71,15 @@ These earlier implementation checkpoints are available on GitHub:
   tests, 19 compiler members tests, strict application TypeScript and the six
   repository checks pass, including caps. An unchanged `.mjs` adapter test
   cannot register in Bun and remains unqualified. The normal native desktop
-  build times out during the app bake after 1,200 seconds without an error
-  explaining the timeout. Native launch and member rebuild behavior remain
-  unverified. The five extraction commits end at `823073b67c`. Independent
+  bake initially times out after 1,200 seconds. A build with
+  `CARGO_PROFILE_HOST_DEV_BUILD_OVERRIDE_OPT_LEVEL=3` succeeds and preserves
+  the clone identity and native package qualification. The signed bundle
+  launches through the repository driver in a fresh scratch store. Its
+  onboarding help and invalid-link error work. All five members are registered
+  as Cargo inputs, and editing each makes the native driver refuse the stale
+  build. Source bytes are restored exactly. The resulting rebuild is running;
+  rebuild completion and connected desktop UI remain unqualified. The five
+  extraction commits end at `823073b67c`. Independent
   review finds no introduced P1 or P2 issue. It passes a fresh full-plan
   comparison, 560 desktop tests, 19 compiler members tests, caps and 11 fixture
   reader probes. No new comment cleanup is required.
