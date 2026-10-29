@@ -1667,12 +1667,15 @@ design tool (LLP 1122 D5). It records each file's source digest and each winning
 attribute span. A host still never reads a map, and no map is in a bake. The tool shows
 one selected node's provenance; a general provenance explorer stays refused.
 
-**Expanded (user, 2026-10-28: "Implement", LLP 1079.000):** frame health is a KPI,
-with local bounded counters, human and agent readouts, and a draggable iOS card in
-the four-finger dev menu. The menu and card follow platform presentation and
-accessibility. This admits the requested implementation beyond the earlier UI and
-production-counter exclusions; it adds no production inspection endpoint or remote
-telemetry. The user's follow-up, "Let’s target 4KB", admits bounded in-memory recent-hitch capture and explicit Share/Copy or agent-requested reports capped at 4000 bytes, with no automatic disk retention or sender. The follow-up “Let’s do it all” admits live-clock scheduling parity, cursor windows, the debug-only passive native-scroll experiment and macOS card/inspector controls. Production default-on remains behind measured adapter qualification.
+**Expanded (user, 2026-10-28: "Implement", LLP 1079.000):** admit bounded local
+frame-health counters, native menus and cards, and human/agent readouts. The menu and
+card follow platform presentation and accessibility. The request "Let’s target 4KB"
+admits recent-hitch capture in fixed memory and explicit Share/Copy or agent reports
+capped at 4000 bytes, without automatic persistence or uploads. "Let’s do it all"
+also admits live-clock scheduling, cursor reads, the development-only passive
+native-scroll experiment and macOS card/inspector controls. Production default-on
+requires measured adapter qualification. No production inspection endpoint or
+remote telemetry is added.
 
 `clock` replaces a `wait` operation on purpose. If the motion graph is closed-form under
 a virtual clock, an agent advances time and reads the result; it never sleeps waiting for

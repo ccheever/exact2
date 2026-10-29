@@ -8,7 +8,7 @@ import UIKit
 import AppKit
 #endif
 
-/// A one-shot, bounded packet: no file, timer, image, app text, log dump or upload.
+/// Export bounded timing evidence on request, without files, timers, screenshots or uploads.
 enum FrameHealthReport {
     static let maximumBytes = 4000
     static let maximumAgeNs: UInt64 = 120_000_000_000
@@ -140,8 +140,8 @@ enum FrameHealthReport {
         return encoded
     }
 
-    /// Copy fixed evidence on main, then serialize on an existing utility worker.
-    /// One in-flight export prevents a slow consumer from growing an encoding queue.
+    /// Copy bounded evidence on the main thread, then encode it on a utility worker.
+    /// Allow one export at a time to prevent an encoding backlog.
     static func prepare(health: FrameHealth, session: ExactSession?, now: Double = CACurrentMediaTime(), completion: @escaping (Data) -> Void) {
         guard !health.reportInFlight, !encoding else {
             completion(Data("{\"format\":\"exact.frame-health/1\",\"available\":false,\"error\":\"report-busy\",\"retryAfterMs\":1000}".utf8))
@@ -165,7 +165,7 @@ enum FrameHealthReport {
 }
 
 extension FrameHealth {
-    /// A detailed wire report costs at most 4 KB and is admitted once per 15 seconds.
+    /// Admit at most one agent report every 15 seconds; each report is at most 4000 bytes.
     func agentReport(session: ExactSession?, source: FrameHealth? = nil, now: Double = CACurrentMediaTime(), completion: @escaping (Data) -> Void) {
         guard now >= FrameHealthReport.nextAgentReport else {
             let delay = Int(ceil((FrameHealthReport.nextAgentReport - now) * 1000))

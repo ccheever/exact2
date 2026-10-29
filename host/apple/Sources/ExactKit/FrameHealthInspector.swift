@@ -5,7 +5,9 @@ import UIKit
 /// Native detail view over the same bounded metrics as the agent's health request.
 final class FrameHealthInspectorController: UITableViewController {
     weak var health: FrameHealth?
-    private let source = UISegmentedControl(items: ["App", "Scroll"])
+    let source = UISegmentedControl(items: ["App", "Scroll"])
+    let chart = FrameHealthChart()
+    private let header = UIView()
     private var lines: [String] = []
     init(health: FrameHealth) { self.health = health; super.init(style: .insetGrouped) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -16,13 +18,43 @@ final class FrameHealthInspectorController: UITableViewController {
         navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
         source.selectedSegmentIndex = 0
         source.addAction(UIAction { [weak self] _ in self?.refresh() }, for: .valueChanged)
-        let header = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 56))
-        source.frame = header.bounds.insetBy(dx: 20, dy: 12)
-        source.autoresizingMask = [.flexibleWidth]
-        header.addSubview(source); tableView.tableHeaderView = header
+        source.accessibilityLabel = "Frame health source"
+        source.translatesAutoresizingMaskIntoConstraints = false
+        let legend = UILabel()
+        legend.text = "Callback cadence · last 30 s\nBlue: average · Orange: slowest gap bound\n120 Hz reference. Actual presentation is unmeasured."
+        legend.font = .preferredFont(forTextStyle: .caption1)
+        legend.adjustsFontForContentSizeCategory = true
+        legend.numberOfLines = 0
+        legend.textColor = .secondaryLabel
+        let content = UIStackView(arrangedSubviews: [source, chart, legend])
+        content.axis = .vertical
+        content.spacing = 12
+        content.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(content)
+        header.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 12, leading: 20, bottom: 16, trailing: 20)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: header.layoutMarginsGuide.topAnchor),
+            content.bottomAnchor.constraint(equalTo: header.layoutMarginsGuide.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: header.layoutMarginsGuide.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: header.layoutMarginsGuide.trailingAnchor),
+            source.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            chart.heightAnchor.constraint(equalToConstant: 144)])
+        header.frame.size = CGSize(width: tableView.bounds.width, height: 280)
+        tableView.tableHeaderView = header
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 44
         refresh()
+    }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let width = tableView.bounds.width
+        guard width > 0 else { return }
+        let size = header.systemLayoutSizeFitting(CGSize(width: width, height: 0),
+            withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
+        if abs(header.frame.width - width) > 0.5 || abs(header.frame.height - size.height) > 0.5 {
+            header.frame.size = CGSize(width: width, height: size.height)
+            tableView.tableHeaderView = header
+        }
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
@@ -39,6 +71,7 @@ final class FrameHealthInspectorController: UITableViewController {
         source.setEnabled(health.nativeHealth != nil, forSegmentAt: 1)
         let chosen = source.selectedSegmentIndex == 1 ? health.nativeHealth ?? health : health
         lines = FrameHealthReadout.detail(chosen).components(separatedBy: "\n")
+        chart.update(chosen)
         tableView.reloadData()
     }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { lines.count }

@@ -30,12 +30,13 @@ This replaces "the web is the standard" as the top rule. The web stays what the 
 (the vocabulary, the layout model) and where the author works (the dev loop); it stops being
 what the user sees.
 
-**Frame health (planned, 2026-10-28).** Native quality includes how the app moves and
+**Frame health (2026-10-28).** Native quality includes how the app moves and
 responds. [LLP 1079.000](1079.000-frame-health-v1.plan.md) makes that measurable:
 120 FPS during high-impact interaction on flagship phones, the display's supported
 rate on desktop, even pacing, and low response latency. Static content stays idle.
 The readout must name its evidence; display-link callbacks alone do not establish
-onscreen presentation. The detailed plan remains Draft.
+onscreen presentation. The Apple metrics and prototype readouts are implemented;
+device qualification and UI refinement remain open.
 
 ## 1. Why
 
@@ -195,7 +196,7 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   Build Information has its own screen. The card starts hidden,
   moves by a handle, and lets touches elsewhere reach the app. It sits below sheets
   and alerts, uses existing snapshots, and does no recurring work at idle. The Mac's
-  equivalent Develop control remains planned. The implementation preserves the
+  equivalent Develop controls are implemented. The implementation preserves the
   menu gates above and never overrides collector qualification or opt-out.
 
 ## 6. Waves

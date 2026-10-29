@@ -22,7 +22,7 @@ pub const INTERVAL_MAXIMUM: u64 = 32;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Work {
-    /// Capture incarnation that submitted the work.
+    /// Capture ID at work submission.
     pub capture: u64,
     /// Main-thread apply start, monotonic nanoseconds.
     pub began_ns: u64,
@@ -48,7 +48,7 @@ pub struct Work {
 pub struct Hitch {
     /// Sequence within this history; interpret with collector/capture identity.
     pub sequence: u64,
-    /// Capture segment incarnation that observed this event.
+    /// Capture ID for this event.
     pub capture: u64,
     /// Core reload/clock generation that observed this event.
     pub generation: u64,
@@ -76,7 +76,7 @@ pub struct Hitch {
     pub after_callback_ns: u64,
     /// Evidence bits plus cached host workload/power flags.
     pub flags: u64,
-    /// Most recently completed observed apply, not a claim of causation.
+    /// Nearby apply timing; temporal proximity does not establish causation.
     pub work: Work,
 }
 
@@ -84,7 +84,7 @@ pub struct Hitch {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Status {
-    /// Most recent capture incarnation, including while paused.
+    /// Latest capture ID, retained while paused.
     pub capture: u64,
     /// Whether detail capture is active.
     pub active: u64,
@@ -119,8 +119,8 @@ pub(super) struct History {
     callback: u64,
     work: Work,
     maximum_apply: Work,
-    // At most two pending events receive post-context. Older pending events
-    // remain explicitly without AFTER_KNOWN rather than adding per-frame scans.
+    // Add following-callback context to at most two pending events. Leave older
+    // events without AFTER_KNOWN to avoid scanning the history on each frame.
     pending: [Option<usize>; 2],
 }
 

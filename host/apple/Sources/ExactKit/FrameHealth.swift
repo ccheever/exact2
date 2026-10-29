@@ -8,7 +8,8 @@ import UIKit
 import AppKit
 #endif
 
-/// Existing app-clock callbacks only. Native-only scrolling and presentation are unobserved.
+/// Bounded callback and apply timing. Presentation is unmeasured; the optional native-scroll
+/// source reports deadlines with unknown cadence.
 final class FrameHealth {
     #if DEBUG
     static let nativeObserverAllowed = !ExactEnv.releaseBuild

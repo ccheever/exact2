@@ -1,7 +1,8 @@
 import Foundation
 import QuartzCore
 
-/// One process-wide publication batch, driven only by existing work. Registration is outside hooks.
+/// Coalesce reader updates across the process. Common run-loop modes keep scrolling live;
+/// existing hooks and lifecycle changes supply updates without a polling timer.
 enum FrameHealthPublication {
     private final class Reader { weak var health: FrameHealth? }
     private static var readers = (0..<16).map { _ in Reader() }
@@ -21,7 +22,7 @@ enum FrameHealthPublication {
         guard !pending, force || now >= next else { return }
         if !force { next = now + 0.5 }
         pending = true
-        DispatchQueue.main.async {
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
             pending = false
             for reader in readers {
                 guard let health = reader.health, health.publicationDirty else { continue }
@@ -32,5 +33,6 @@ enum FrameHealthPublication {
                 }
             }
         }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 }
