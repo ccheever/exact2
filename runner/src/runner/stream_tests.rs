@@ -15,6 +15,12 @@ struct Scripted {
     long_poll: bool,
     /// … and asked of native work, which no host may run as one.
     native: bool,
+    /// Its stream is an upload that tells its bytes sent (LLP 1016.000 D10).
+    upload: bool,
+    /// … whose failure it fails to take.
+    failing_end: bool,
+    /// … whose request is the same for every wave.
+    same_request: bool,
 }
 
 impl DataSource for Scripted {
@@ -22,7 +28,12 @@ impl DataSource for Scripted {
         unreachable!("the fixture implements answer")
     }
 
-    fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
         Ok(match (source, args.first()) {
             ("busy", Some(v)) => Answer::Now(v.clone()),
             (_, Some(Value::Number(n))) if *n == 0. => Answer::Now(Value::Number(-1.)),
@@ -31,6 +42,25 @@ impl DataSource for Scripted {
                 r.stream = true;
                 r
             }),
+            // Wave 3's ask fails, before any request.
+            (_, Some(Value::Number(n))) if self.upload && *n == 3. => {
+                return Err(DataError::Failed(
+                    crate::failure::FailureCode::Error,
+                    "no third wave".into(),
+                    String::new(),
+                ))
+            }
+            (_, Some(Value::Number(n))) if self.upload => {
+                // It watches a topic, which asks any other answer again,
+                // and reads the store, whose writes ask its readers again.
+                store.observe_topic("clock");
+                let _ = store.get("token");
+                let wave = if self.same_request { 1. } else { *n };
+                let mut r = crate::Request::get(&format!("https://example.test/up?wave={wave}"))
+                    .upload_progress();
+                r.method = "POST".into();
+                Answer::stream(r)
+            }
             (_, Some(Value::Number(n))) if self.long_poll => Answer::stream(
                 crate::Request::get(&format!("https://example.test/changes?wave={n}"))
                     .long_poll("since", "seq"),
@@ -57,6 +87,14 @@ impl DataSource for Scripted {
             Outcome::Message(m) if self.reopen_on_gap && m.coalesced > 0 => Ok(Answer::stream(
                 crate::Request::get("https://example.test/events").header("last-event-id", "1"),
             )),
+            Outcome::Failed { .. } if self.failing_end => {
+                Err(DataError::Unavailable("the upload failed".into()))
+            }
+            // An upload's reply answers its status.
+            Outcome::Response(r) if self.upload => Ok(Answer::Now(Value::Number(r.status.into()))),
+            Outcome::Message(m) if m.sent().is_some() => {
+                Ok(Answer::Now(Value::Number(m.sent().unwrap().0 as f64)))
+            }
             Outcome::Message(m) => Ok(Answer::Now(Value::Number(
                 m.data
                     .parse()
@@ -65,9 +103,18 @@ impl DataSource for Scripted {
             _ => Ok(Answer::Now(Value::Number(-2.))),
         }
     }
+
+    fn grants(&self) -> &str {
+        "secret.keep token\n"
+    }
 }
 
 fn plan() -> Plan {
+    plan_from("progress")
+}
+
+/// The plan, its `progress` resource asking `source`.
+fn plan_from(source: &str) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let number = b.primitive(TypeKind::Number);
     let boolean = b.primitive(TypeKind::Bool);
@@ -76,7 +123,7 @@ fn plan() -> Plan {
     let mut arg = Asm::new();
     arg.load_slot(wave);
     let arg = b.code(arg);
-    let progress = b.resource("progress", "progress", &[arg], number, None);
+    let progress = b.resource("progress", source, &[arg], number, None);
     let mut arg = Asm::new();
     arg.pending_resource(progress);
     let arg = b.code(arg);
@@ -397,4 +444,524 @@ fn a_response_that_is_not_an_event_stream_ends_it() {
     .unwrap();
     assert!(!r.holds(ticket), "a response that is not a stream ends it");
     assert_eq!(value(&r, "progress"), Value::Number(-2.));
+}
+
+/// An upload (LLP 1016.000 D10) is in flight until its reply, for
+/// `pending(…)`, `state.pending` and every clock, while each count of its
+/// bytes sent commits; the reply ends it.
+#[test]
+fn an_upload_is_pending_until_its_reply_while_its_progress_commits() {
+    let mut r = boot_with(Scripted {
+        upload: true,
+        ..Scripted::default()
+    });
+    let out = r.take_requests();
+    let ticket = out[0].ticket;
+    assert!(out[0].request.stream && out[0].request.upload_progress);
+    for loaded in [1024, 4096] {
+        let sent = Outcome::Message(Message::upload_progress(loaded, 4096));
+        assert!(r.fulfill(ticket, sent).unwrap().is_some(), "each commits");
+        assert_eq!(value(&r, "progress"), Value::Number(loaded as f64));
+        assert_eq!(
+            value(&r, "busy"),
+            Value::Bool(true),
+            "pending until the reply"
+        );
+        assert!(r.has_pending(), "every clock waits for it");
+        assert_eq!(r.in_flight(), [("progress".to_string(), ticket)]);
+        assert!(r.holds(ticket));
+    }
+    let reply = Outcome::Response(Response {
+        status: 201,
+        headers: Vec::new(),
+        body: b"{}".to_vec(),
+    });
+    assert!(r.fulfill(ticket, reply).unwrap().is_some());
+    assert_eq!(
+        value(&r, "progress"),
+        Value::Number(201.),
+        "the reply is shaped"
+    );
+    assert_eq!(value(&r, "busy"), Value::Bool(false));
+    assert!(!r.has_pending() && r.in_flight().is_empty() && !r.holds(ticket));
+}
+
+/// An upload is asked once for its arguments (LLP 1016.000 D10): neither a
+/// topic it watches nor a refresh asks it again, in flight or after its
+/// reply; new arguments do, letting the running one go.
+#[test]
+fn an_upload_is_asked_once_for_its_arguments() {
+    let mut r = boot_with(Scripted {
+        upload: true,
+        ..Scripted::default()
+    });
+    let ticket = r.take_requests()[0].ticket;
+    let sent = Outcome::Message(Message::upload_progress(1024, 4096));
+    r.fulfill(ticket, sent).unwrap();
+    r.changed("clock").unwrap();
+    r.act("refresh", vec![]).unwrap();
+    assert!(
+        r.take_requests().is_empty(),
+        "nothing asks it again in flight"
+    );
+    assert!(r.holds(ticket));
+    let reply = Outcome::Response(Response {
+        status: 201,
+        headers: Vec::new(),
+        body: b"{}".to_vec(),
+    });
+    r.fulfill(ticket, reply).unwrap();
+    r.changed("clock").unwrap();
+    r.act("refresh", vec![]).unwrap();
+    assert!(r.take_requests().is_empty(), "nor after its reply");
+    assert_eq!(
+        value(&r, "progress"),
+        Value::Number(201.),
+        "its answer stands"
+    );
+    // New arguments ask again; a running upload they replace is let go.
+    r.act("wave", vec![Value::Number(2.)]).unwrap();
+    let second = r.take_requests();
+    assert_eq!(second.len(), 1);
+    r.act("wave", vec![Value::Number(4.)]).unwrap();
+    assert!(
+        !r.holds(second[0].ticket),
+        "the host aborts what the runner let go"
+    );
+    assert_eq!(r.take_requests().len(), 1);
+}
+
+/// … and so is one whose end its source failed to take: the failure stands
+/// through a topic it watches, a refresh, and another reply's store write
+/// (LLP 1146 §2.3); new arguments ask again.
+#[test]
+fn an_upload_that_failed_is_not_asked_again_at_its_arguments() {
+    let mut r = boot_with(Scripted {
+        upload: true,
+        failing_end: true,
+        ..Scripted::default()
+    });
+    let ticket = r.take_requests()[0].ticket;
+    started(&mut r, ticket);
+    r.fulfill(ticket, gone()).unwrap();
+    assert!(!r.holds(ticket));
+    assert!(r.upload_failed(0), "its failure is an upload's");
+    r.changed("clock").unwrap();
+    r.act("refresh", vec![]).unwrap();
+    // As if its answer had read the store, and another reply's turn wrote it.
+    r.store_readers[0] = true;
+    r.ask_failed_readers(None);
+    r.act("wave", vec![Value::Number(1.)]).unwrap();
+    assert!(r.take_requests().is_empty(), "nothing asks it again");
+    assert!(r.upload_failed(0), "the failure stands");
+    r.act("wave", vec![Value::Number(2.)]).unwrap();
+    assert_eq!(r.take_requests().len(), 1, "new arguments ask again");
+    assert!(!r.upload_failed(0));
+}
+
+fn gone() -> Outcome {
+    Outcome::Failed {
+        kind: crate::FailureKind::Network,
+        message: "gone".into(),
+    }
+}
+
+/// The host has begun to send upload `ticket` (`UPLOAD_SENDING`).
+fn started(r: &mut Runner<Scripted>, ticket: u64) {
+    let start = Outcome::Message(Message::upload_start());
+    assert!(
+        r.fulfill(ticket, start).unwrap().is_none(),
+        "no commit, no mapper"
+    );
+}
+
+/// Upload `ticket` went out and was answered `status`.
+fn uploaded(r: &mut Runner<Scripted>, ticket: u64, status: u16) {
+    started(r, ticket);
+    let reply = Outcome::Response(Response {
+        status,
+        headers: Vec::new(),
+        body: b"{}".to_vec(),
+    });
+    r.fulfill(ticket, reply).unwrap();
+}
+
+fn uploads() -> Runner<Scripted> {
+    boot_with(Scripted {
+        upload: true,
+        ..Scripted::default()
+    })
+}
+
+/// The one request asked now.
+fn one(r: &mut Runner<Scripted>) -> u64 {
+    let out = r.take_requests();
+    assert_eq!(out.len(), 1, "one request: {out:?}");
+    out[0].ticket
+}
+
+/// Why `progress` failed: its failure's reason, else its message.
+fn failure(r: &Runner<Scripted>) -> Option<String> {
+    let f = crate::failure::state(&r.failed_args, &r.failed_why, 0)?;
+    Some(if f.reason.is_empty() {
+        f.message
+    } else {
+        f.reason
+    })
+}
+
+/// LLP 1016.000 D10: arguments an upload ended at answer as it ended when
+/// they come back, after another upload's answer or a failed ask between;
+/// a store write it read, a topic or a refresh sends none of them again.
+#[test]
+fn an_uploads_arguments_answer_as_it_ended_when_they_come_back() {
+    let mut r = uploads();
+    let a = one(&mut r);
+    uploaded(&mut r, a, 201);
+    // B goes out and answers 202; wave 3's ask fails.
+    r.act("wave", vec![Value::Number(2.)]).unwrap();
+    let b = one(&mut r);
+    uploaded(&mut r, b, 202);
+    r.act("wave", vec![Value::Number(3.)]).unwrap();
+    assert!(r.take_requests().is_empty() && failure(&r).is_some());
+    for (wave, status) in [(1., 201.), (2., 202.), (1., 201.)] {
+        r.act("wave", vec![Value::Number(wave)]).unwrap();
+        assert!(
+            r.take_requests().is_empty(),
+            "wave {wave} is not sent again"
+        );
+        assert_eq!(value(&r, "progress"), Value::Number(status));
+        assert_eq!(failure(&r), None);
+    }
+    // A store write it read, a topic, a refresh: nothing goes out.
+    assert!(r.store_readers[0]);
+    r.store_changed(vec![("token".into(), b"new".to_vec())])
+        .unwrap();
+    r.changed("clock").unwrap();
+    r.act("refresh", vec![]).unwrap();
+    assert!(r.take_requests().is_empty());
+    assert_eq!(value(&r, "progress"), Value::Number(201.));
+}
+
+/// … and one let go on its way, by new arguments with another request, is
+/// cut off: its arguments come back failed, `interrupted`, not sent again.
+#[test]
+fn an_upload_let_go_on_its_way_comes_back_interrupted() {
+    let mut r = uploads();
+    let a = one(&mut r);
+    started(&mut r, a);
+    r.act("wave", vec![Value::Number(2.)]).unwrap();
+    let b = one(&mut r);
+    assert!(!r.holds(a));
+    uploaded(&mut r, b, 202);
+    r.act("wave", vec![Value::Number(1.)]).unwrap();
+    assert!(
+        r.take_requests().is_empty(),
+        "the cut-off one is not sent again"
+    );
+    assert_eq!(failure(&r).as_deref(), Some("interrupted"));
+}
+
+/// An upload that never reached the network (refused by the host before it
+/// went out, or failing before its start) is no upload asked: `refresh`
+/// asks it again, as any failed answer.
+#[test]
+fn an_upload_that_never_reached_the_network_is_asked_again_by_refresh() {
+    let mut r = boot_with(Scripted {
+        upload: true,
+        failing_end: true,
+        ..Scripted::default()
+    });
+    let a = one(&mut r);
+    r.refuse_request(a, "native executor admission limit reached", false);
+    let (ticket, refusal) = r.take_request_refusal(false).unwrap();
+    r.fulfill(ticket, refusal).unwrap();
+    assert!(!r.holds(a) && failure(&r).is_some());
+    r.act("refresh", vec![]).unwrap();
+    let again = one(&mut r);
+    // Failing before its start: the same.
+    r.fulfill(again, gone()).unwrap();
+    r.act("refresh", vec![]).unwrap();
+    assert_eq!(r.take_requests().len(), 1, "asked again");
+}
+
+/// A reload and an update of the data module carry the marks (LLP 1016.000
+/// D10): a finished upload answers as it ended and is not sent again; one
+/// on its way comes back failed, `interrupted`. A launch starts with none:
+/// an upload the app still shows is asked again.
+#[test]
+fn a_reload_or_an_update_sends_no_upload_again_and_a_launch_asks_one_shown() {
+    let mut r = uploads();
+    let a = one(&mut r);
+    uploaded(&mut r, a, 201);
+    r.act("wave", vec![Value::Number(2.)]).unwrap();
+    let b = one(&mut r);
+    started(&mut r, b);
+    let carried = r.carry();
+    let mut updated = carried.clone();
+    updated.data_revision = Some("an older module".into());
+    for carried in [carried, updated] {
+        let mut again = Runner::boot_carrying(
+            plan(),
+            Scripted {
+                upload: true,
+                ..Scripted::default()
+            },
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert!(
+            again.take_requests().is_empty(),
+            "wave 2 is cut off, not sent again"
+        );
+        assert_eq!(failure(&again).as_deref(), Some("interrupted"));
+        again.act("wave", vec![Value::Number(1.)]).unwrap();
+        assert!(again.take_requests().is_empty(), "wave 1 is not sent again");
+        assert_eq!(value(&again, "progress"), Value::Number(201.));
+    }
+    // A launch keeps no marks, and nothing of them is in the store.
+    assert!(!r
+        .store()
+        .snapshot()
+        .iter()
+        .any(|(name, _)| name.contains("upload")));
+    let mut relaunched = Runner::boot_stored(
+        plan(),
+        Scripted {
+            upload: true,
+            ..Scripted::default()
+        },
+        Kernel::with_monospace(),
+        r.store().snapshot(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(
+        relaunched.take_requests().len(),
+        1,
+        "wave 1, shown, is asked again"
+    );
+}
+
+/// A refused commit puts the marks back with everything else.
+#[test]
+fn a_refused_commit_puts_the_marks_back() {
+    let mut r = uploads();
+    let a = one(&mut r);
+    uploaded(&mut r, a, 201);
+    let before = r.uploads.clone();
+    let checkpoint = r.checkpoint(true);
+    r.act("wave", vec![Value::Number(2.)]).unwrap();
+    assert_ne!(r.uploads, before, "wave 2 was asked");
+    r.conclude(checkpoint, &Err::<(), _>(RunnerError::Cycle), false);
+    assert_eq!(r.uploads, before);
+}
+
+/// Bytes sent mark an upload as having reached the network, and a refused
+/// commit of their message does not undo it (LLP 1016.000 D10): let go, it
+/// is cut off whatever the host then says, and `refresh` sends nothing.
+#[test]
+fn a_refused_progress_commit_leaves_the_upload_sent() {
+    let mut r = uploads();
+    let a = one(&mut r);
+    r.data().bad_message = true;
+    let progress = Outcome::Message(Message::upload_progress(10, 100));
+    assert!(r.fulfill(a, progress).unwrap().is_some());
+    assert!(!r.holds(a), "a message it cannot take lets it go");
+    r.uploads_started(&[]);
+    r.data().bad_message = false;
+    r.act("refresh", vec![]).unwrap();
+    assert!(r.take_requests().is_empty(), "not sent again");
+}
+
+/// New arguments that make the same request keep the upload going (LLP
+/// 1054.000.000 D3): nothing more is sent, and both arguments answer as it
+/// ends, so neither is sent again when it comes back.
+#[test]
+fn the_same_request_for_new_arguments_keeps_the_upload_for_both() {
+    let mut r = boot_with(Scripted {
+        upload: true,
+        same_request: true,
+        ..Scripted::default()
+    });
+    let a = one(&mut r);
+    started(&mut r, a);
+    r.act("wave", vec![Value::Number(2.)]).unwrap();
+    assert!(
+        r.take_requests().is_empty() && r.holds(a),
+        "kept for wave 2"
+    );
+    let reply = Outcome::Response(Response {
+        status: 201,
+        headers: Vec::new(),
+        body: b"{}".to_vec(),
+    });
+    r.fulfill(a, reply).unwrap();
+    for wave in [1., 2.] {
+        r.act("wave", vec![Value::Number(wave)]).unwrap();
+        assert!(
+            r.take_requests().is_empty(),
+            "wave {wave} is not sent again"
+        );
+        assert_eq!(value(&r, "progress"), Value::Number(201.));
+    }
+}
+
+/// Of a resource's uploads only the newest `ANSWERS_KEPT` keep their
+/// answers; an older one's arguments, asked again, answer that it was sent
+/// already, and nothing goes out (LLP 1016.000 D10).
+#[test]
+fn an_old_uploads_arguments_answer_already_sent_and_send_nothing() {
+    let mut r = uploads();
+    let first = one(&mut r);
+    uploaded(&mut r, first, 201);
+    let waves = 10..10 + super::uploads::ANSWERS_KEPT as u16 + 2;
+    for wave in waves.clone() {
+        r.act("wave", vec![Value::Number(wave.into())]).unwrap();
+        let ticket = one(&mut r);
+        uploaded(&mut r, ticket, 200 + wave);
+    }
+    for wave in [1., 10., 11.] {
+        r.act("wave", vec![Value::Number(wave)]).unwrap();
+        assert!(
+            r.take_requests().is_empty(),
+            "wave {wave} is not sent again"
+        );
+        assert_eq!(failure(&r).as_deref(), Some("already-sent"));
+    }
+    let newest = waves.end - 1;
+    r.act("wave", vec![Value::Number(newest.into())]).unwrap();
+    assert!(r.take_requests().is_empty());
+    assert_eq!(value(&r, "progress"), Value::Number((200 + newest).into()));
+    assert_eq!(failure(&r), None);
+}
+
+/// An upload let go before the runner heard it start: the host, whose
+/// executor knows, says after the commit. One that had started is cut off
+/// and not sent again when its arguments come back; one that had not is no
+/// upload asked, and they ask again; and without the host's word it stands
+/// as cut off (LLP 1016.000 D10).
+#[test]
+fn an_upload_let_go_before_its_start_was_heard_waits_for_the_hosts_word() {
+    for (word, asks) in [(Some(true), 0), (Some(false), 1), (None, 0)] {
+        let mut r = uploads();
+        let a = one(&mut r);
+        r.act("wave", vec![Value::Number(2.)]).unwrap();
+        assert!(!r.holds(a));
+        let _ = one(&mut r);
+        match word {
+            Some(true) => r.uploads_started(&[a]),
+            Some(false) => r.uploads_started(&[]),
+            None => {}
+        }
+        r.act("wave", vec![Value::Number(1.)]).unwrap();
+        assert_eq!(r.take_requests().len(), asks, "{word:?}");
+        if asks == 0 {
+            assert_eq!(failure(&r).as_deref(), Some("interrupted"), "{word:?}");
+        }
+    }
+}
+
+/// Marks belong to their resource and its source (LLP 1016.000 D10): an
+/// update that points the resource at another source drops them, and that
+/// source is asked at the arguments.
+#[test]
+fn an_update_that_repoints_the_resource_asks_its_new_source() {
+    let mut r = uploads();
+    let a = one(&mut r);
+    uploaded(&mut r, a, 201);
+    let mut carried = r.carry();
+    carried.data_revision = Some("an older module".into());
+    for (source, asks) in [("progress", 0), ("elsewhere", 1)] {
+        let mut again = Runner::boot_carrying(
+            plan_from(source),
+            Scripted {
+                upload: true,
+                ..Scripted::default()
+            },
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(again.take_requests().len(), asks, "{source}");
+    }
+}
+
+/// Fifteen photos, each a resource that uploads (its argument past the
+/// scripted source's failing third), and an action that changes nothing
+/// else.
+fn photos() -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let number = b.primitive(TypeKind::Number);
+    for k in 1..=15 {
+        let arg = b.constant(&Value::Number(f64::from(10 + k)));
+        b.resource(&format!("photo{k}"), "photo", &[arg], number, None);
+    }
+    let zero = b.constant(&Value::Number(0.));
+    let pokes = b.slot("pokes", number, zero);
+    let mut body = Asm::new();
+    body.load_param(0).store_slot(pokes);
+    let body = b.code(body);
+    b.action("poke", &[("value", number)], &[pokes], body);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    b.finish().unwrap()
+}
+
+/// An immediate update while a burst of fifteen uploads is out (LLP 1016.000
+/// D10). The old runner heard two of them begin; its executor had begun a
+/// third, unheard, and the other twelve waited in its queue. The new runner
+/// sends nothing until its host says which had begun: those three come back
+/// cut off, and the twelve that never left are asked again, under tickets
+/// past the old runner's.
+#[test]
+fn an_update_during_a_burst_asks_again_the_uploads_that_never_left() {
+    let scripted = || Scripted {
+        upload: true,
+        ..Scripted::default()
+    };
+    let mut old = Runner::boot(
+        photos(),
+        scripted(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let tickets: Vec<u64> = old.take_requests().iter().map(|o| o.ticket).collect();
+    assert_eq!(tickets.len(), 15);
+    started(&mut old, tickets[0]);
+    started(&mut old, tickets[1]);
+    let mut carried = old.carry();
+    carried.data_revision = Some("an older module".into());
+    let mut new = Runner::boot_carrying(
+        photos(),
+        scripted(),
+        Kernel::with_monospace(),
+        &carried,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        new.take_requests().is_empty(),
+        "nothing before the host's word"
+    );
+    new.uploads_started(&tickets[..3]);
+    new.act("poke", vec![Value::Number(1.)]).unwrap();
+    let again = new.take_requests();
+    assert_eq!(again.len(), 12);
+    assert!(
+        again.iter().all(|o| o.ticket > tickets[14]),
+        "tickets past the old ones"
+    );
+    for i in 0..3 {
+        let f = crate::failure::state(&new.failed_args, &new.failed_why, i).expect("cut off");
+        assert_eq!(f.reason, "interrupted", "photo{}", i + 1);
+    }
 }

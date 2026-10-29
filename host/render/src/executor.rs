@@ -107,6 +107,11 @@ impl Executor {
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
     }
+    /// The uploads let go that had begun to go out, for
+    /// `Runner::uploads_started` (LLP 1016.000 D10).
+    pub fn let_go_started(&self, held: impl Fn(u64) -> bool) -> Vec<u64> {
+        self.core.let_go_started(held)
+    }
     /// Cancel the requests the app aborted, whatever their method.
     pub fn cancel(&self, tickets: &[u64]) {
         self.core.cancel(tickets);

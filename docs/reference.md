@@ -1054,8 +1054,8 @@ that answers no resource or mutation (a payment sheet's or a tool's handler) is
 not cancelled yet: it rejects at once, and its request runs to its end.
 This is the TypeScript runtime 5: an older prelude would leave an aborted request
 running, and would reject an aborted kept write in the turn that aborted it, so
-it moves `typescriptRuntime` to 5, and a native app with a TypeScript data
-module needs a new binary once more.
+it moves `typescriptRuntime` to 5, and a native app whose TypeScript data module
+makes an abort signal needs a new binary once more.
 
 A poll loop (`for (;;) { await sleep(5000); … }`) belongs in a Contract
 `task`, not in an answer: an answer that always has a timer armed never
@@ -1218,7 +1218,7 @@ exchange, headers and body: `fetch(url, { exactTimeout: 10000 })`. When it
 passes the request is cancelled and the fetch rejects with a `FetchError`
 whose `kind` is `Timeout` (`the request timed out after 10000 ms`). The same
 holds on Apple, Linux, the web's wasm host and the web build; a stream
-(`exactStream`) takes none.
+(`exactStream`) takes none, except an upload (below).
 
 A long poll, a request the server holds until something changes, says so with
 `exactHeld: true`: `fetch(url + '?wait=25', { exactHeld: true })` (LLP
@@ -1280,6 +1280,82 @@ open, with `grant`, the grant line that admitted it. The same holds on Hermes, t
 target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
+
+An **upload** that tells its progress (LLP 1016.000 D10) is a stream with
+`exactUploadProgress: true` beside its body, for a percentage the view draws
+while the person goes on working. Make it a resource's answer, keyed by what
+it uploads:
+
+```ts
+if (source === "upload") return fetch(uploadUrl, {
+  method: "POST", headers: { "content-type": "image/png" }, exactBodyFrom: path,
+  exactUploadProgress: true, exactTimeout: 300000,
+  exactStream: (e) => e.type === "progress" ? { status: "uploading", progress: e.loaded / e.total }
+    : e.type === "load" && e.status < 300 ? { status: "ready", progress: 1 }
+    : { status: "failed", progress: 0 },
+});
+```
+
+As the body (`body` or `exactBodyFrom`) goes out, the mapper gets
+XMLHttpRequest's upload progress, `{type: 'progress', loaded, total,
+lengthComputable: true}`: `loaded` is the bytes the platform has written
+(URLSession's `didSendBodyData` on Apple, the portable transport's writes on
+Linux, Windows and Android, `xhr.upload` on the web), `total` the body's
+length, and the last has `loaded === total`. They coalesce to the newest, as a
+stream's messages do. The reply is read whole within the ceiling
+(`exactIndependentHttp.maxResponseBytes`, 1 MiB unless given) and ends the
+stream as `{type: 'load', status, data}`, whatever its status, as
+XMLHttpRequest's `load`. A failure ends it as any stream's `error` does, of kind
+`Timeout` once its `exactTimeout` passes (an upload may take one; a reply that
+lands as it passes stands). The platform's own limits follow that deadline a
+second later; without one they are the upload's, as they are a fetch's
+(URLSession's 60 s without data; the portable transport's 30 s for the whole
+exchange, 15 s for the reply's head and 15 s for its body), so give a
+deadline to an upload that may take longer. An empty body tells no progress.
+No `Accept: text/event-stream` is added. It is in flight until that reply:
+`pending(…)` reads true, `state.pending` lists it, and every clock waits for
+it, as for a fetch, while each progress event commits as it comes. No answer
+awaits it, so it holds nothing else back: uploads run beside a source's other
+work, and natively one waiting for room in the memory its bodies may take
+holds none of the 16 places a native app's streams have.
+
+An upload is **asked once for its arguments** while the app runs: nothing
+asks it again at them, in flight, finished or failed (not a store write it
+read, a topic it watches, nor `refresh`), and arguments that come back after
+others answer as their upload ended, without asking the source. Its `with`
+context is not among them: a change there sends nothing. Of a resource's
+uploads the newest 32 that ended keep their answers; an older one's
+arguments, asked again, fail with `failure(x).reason` `already-sent` and send
+nothing. A plan reload and an update of the data module keep this, but for
+the web JS target's development reload, a new page, which asks again an
+upload the page still shows. An upload one of them, or new arguments, cut
+off after it began to go out comes back failed, its `failure(x).reason`
+`interrupted`, and is not sent again; one that had not begun is asked
+again. A launch starts
+afresh, so a relaunched app that still shows the resource at those arguments
+sends the upload again: record what it answered in the store (the server's
+id for an attachment, as upstream T3 Code keeps its attachment ids) and stop
+showing the resource once you have it. New arguments that make the same
+request keep the upload already running (LLP 1054.000.000 D3), so a retry
+changes the request itself as well as the arguments: put an attempt number
+in the URL's query or a header. An upload the host refused before it went
+out (a limit, the grants, the local network's rule) was never sent, and
+`refresh` asks it again.
+
+It must be an `http:` or `https:` request other than GET or HEAD, without
+`exactLongPoll`, and with `redirect` left to follow (XMLHttpRequest can only
+follow), or it is a `TypeError`. On the web a cross-origin upload asks a CORS
+preflight, as any XMLHttpRequest with an upload listener does. An older
+prelude would ignore the option and read the reply as a byte stream, so a
+module that uses it needs `typescriptRuntime` 5, which it shares with the
+abort changes above (no binary had shipped 5): the bake records each
+module's lowest runtime, and `push` refuses such a module to a cohort whose
+binary is older (it needs a new binary) while a module that uses nothing
+newer still pushes. A Rust source's stream takes `Request::upload_progress()`
+and reads each message with `Message::sent()`; the Rust module seam refuses
+it. An upload that must finish after the person leaves the app is a
+background transfer instead ([recipe](recipes/background-transfers.md), LLP
+1133.017), whose progress a live source reports at most once a second.
 
 A **long poll** (LLP 1016.000 D8) is a stream with `exactLongPoll: {cursor,
 from}` beside `exactStream`, for an endpoint that holds each request until it

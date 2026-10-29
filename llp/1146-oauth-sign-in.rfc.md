@@ -150,6 +150,12 @@ the store.
   store reader again, a failed one included: one in flight once its reply
   lands, marked before that commit so its refusal keeps the mark, and one
   whose request may never land now.
+- An upload is the exception to each of these (LLP 1016.000 D10): it is asked
+  once for its arguments, so neither the re-ask after a module turn's write
+  nor that of a failed reader after a reply's turn sends it again
+  (`module_work.rs` `module_commit` and `ask_failed_readers` pass over a
+  resource whose arguments an upload was asked at), and on the web JS target
+  the late write's commit answers it as its upload ended (`uploads.js`).
 
 ### 2.4 Scope and limits
 

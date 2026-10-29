@@ -67,6 +67,9 @@ struct Running {
     exchange: Option<AbortController>,
     forgotten: bool,
     stream: bool,
+    /// An upload waiting for its start (`stream::Uploads`): it holds no
+    /// count or bytes of its lane until then.
+    waiting: bool,
     /// An ordered safe read: once complete it holds no effect slot.
     read: bool,
     /// The asynchronous core's (LLP 1120 D3, D5); workers leave them be.
@@ -186,6 +189,11 @@ struct Shared {
     /// Long polls waiting to ask again, by stream ticket (LLP 1016.000 D8;
     /// `executor_longpoll.rs`): the attempt, when it asks, and what failed.
     retrying: Mutex<std::collections::HashMap<u64, (u32, std::time::Instant, String)>>,
+    /// What upload streams hold in memory (LLP 1016.000 D10; `stream.rs`).
+    uploads: stream::Uploads,
+    /// This, for a path that frees room uploads wait for holding only a
+    /// reference (`complete`): it starts them (`stream::start_uploads`).
+    me: std::sync::Weak<Shared>,
 }
 
 impl Shared {
@@ -290,7 +298,7 @@ impl Core {
         host: StreamHost,
         lanes: Option<asynch::Lanes>,
     ) -> Self {
-        let shared = Arc::new(Shared {
+        let shared = Arc::new_cyclic(|me| Shared {
             state: Mutex::new(State {
                 wake: Some(wake),
                 ..State::default()
@@ -303,6 +311,8 @@ impl Core {
             roots: std::sync::OnceLock::new(),
             sockets: Mutex::default(),
             retrying: Mutex::default(),
+            uploads: stream::Uploads::default(),
+            me: me.clone(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS
@@ -454,14 +464,15 @@ impl Core {
     ) -> Result<(), (&'static str, Option<OwnedWork>)> {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
-        // A deadline on work that cannot take one (a stream, a continuation, native work), or a long
-        // poll that is no stream's HTTP GET (LLP 1016.000 D8), is refused here, before any path.
+        // A deadline on work that cannot take one (a stream but an upload, a continuation, native work), or a
+        // long poll that is no stream's HTTP GET (LLP 1016.000 D8), is refused here, before any path.
         let checked = r
             .request
             .long_poll_refusal()
             .or(r.request.timeout_refusal())
             .or(r.request.body_from_refusal())
             .or(r.request.body_to_refusal())
+            .or(r.request.upload_progress_refusal())
             .map_or_else(|| reservation(&r.request), Err)
             .and_then(|charge| state.book.reserve_inline_copy(&r.request, charge));
         let lane = checked.as_ref().map_or(0, |(lane, _, _)| *lane);
@@ -505,11 +516,15 @@ impl Core {
             }
             return Ok(());
         }
+        // An upload waits for its start holding no count, bytes or place of
+        // its lane, so a queue of them refuses no other request; it takes
+        // them as it starts (`stream::start`).
+        let waits = r.request.stream && r.request.upload_progress;
         let admitted = (|| {
             let (lane, charge, limit) = checked?;
             // A stream starts at once, so it is charged its ceiling now.
             let (full, charge) = if r.request.stream {
-                (state.streams >= STREAMS, limit)
+                (state.streams >= STREAMS && !waits, limit)
             } else {
                 let streams = if lane == 1 { state.streams } else { 0 };
                 // Plain reads may wait in a larger, still ordered backlog:
@@ -530,8 +545,11 @@ impl Core {
             // A parked upload's outstanding charge counts as taken, so a
             // later request can't crowd it out (LLP 1120 §6 question 8).
             let parked = state.book.parked(lane, &state.jobs[lane]);
-            if full || charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked) {
+            if full || (!waits && charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked)) {
                 return Err("native executor admission limit reached");
+            }
+            if waits && stream::uploads_full(&self.shared, r.request.body.len()) {
+                return Err("native executor upload queue limit reached");
             }
             if lane == 0 {
                 // Count every waiting request, including writes. Otherwise
@@ -559,23 +577,28 @@ impl Core {
         if ordered {
             state.ordered.push_back(r.ticket);
         }
-        state.counts[lane] += 1;
-        state.bytes[lane] += charge;
+        if !waits {
+            state.counts[lane] += 1;
+            state.bytes[lane] += charge;
+        }
         if r.request.stream {
             // Never queued behind held replies: a stream opens on its own
             // thread with its own transport, and reads there (LLP 1067 D3).
-            state.streams += 1;
+            // An upload takes its place and thread once its budget has room.
+            let upload = r.request.upload_progress;
+            state.streams += usize::from(!upload);
             let abort = AbortController::new();
             state.running.push(Running {
                 started: std::time::Instant::now(),
                 ticket: r.ticket,
                 lane,
-                charge,
+                charge: if waits { 0 } else { charge },
                 limit,
                 abort: Some(abort.clone()),
                 exchange: None,
                 forgotten: false,
-                stream: true,
+                stream: !upload,
+                waiting: waits,
                 read: false,
                 terminal: false,
                 live: 0,
@@ -588,6 +611,10 @@ impl Core {
             let (shared, grants) = (self.shared.clone(), self.grants.clone());
             let (ticket, request, forced) = (r.ticket, r.request, r.forced);
             let host = self.stream_host.clone();
+            if upload {
+                stream::queue_upload(&shared, ticket, request, forced, grants, host, abort);
+                return Ok(());
+            }
             let spawned = std::thread::Builder::new()
                 .name(format!("exact-stream-{ticket}"))
                 .spawn({
@@ -661,6 +688,9 @@ impl Core {
         if has_ready(&state) {
             wake(&mut state);
         }
+        // The independent lane's bytes and perhaps a stream's place, which
+        // an upload waiting may take.
+        stream::place_freed(&self.shared, state, done.ticket, lane == 1 && !done.message);
         vec![(done.ticket, done.outcome, Some(done.elapsed_ms))]
     }
 
@@ -924,6 +954,7 @@ fn next_job(state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
         exchange: (job.work.is_none() && !job.request.stream).then(|| abort.clone()),
         forgotten: job.forgotten,
         stream: job.request.stream,
+        waiting: false,
         read: lane == 0 && read(&job.request, job.work.is_some()),
         terminal: false,
         live: 0,
@@ -949,7 +980,7 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     // A completion frees ordered bytes a waiting job may need.
     rouse(shared, &state);
     if run.forgotten {
-        state.counts[lane] -= 1;
+        state.counts[lane] -= usize::from(!run.waiting);
         state.streams -= usize::from(run.stream);
         state.bytes[lane] -= run.charge;
         // The lane going idle can let a retained ordered refusal settle,
@@ -957,8 +988,17 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
         if lane == 0 && state.counts[0] == 0 {
             wake(&mut state);
         }
+        // The room it held, in its lane and among the streams, may start an
+        // upload waiting for it; one that held none frees none.
+        drop(state);
+        if lane == 1 && (run.charge > 0 || run.stream) {
+            stream::start_uploads(shared);
+        }
         return;
     }
+    // An upload that ends before it starts holds a count until drained, as
+    // every end does.
+    state.counts[lane] += usize::from(run.waiting);
     let bytes = if lane == 0 {
         retained(&outcome) + std::mem::size_of::<Completed>()
     } else {

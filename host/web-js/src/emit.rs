@@ -435,12 +435,17 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         } else {
             kept.to_string()
         };
+        // Its last `context` arguments are its `with` context (LLP 1027.005
+        // D6), which identify no upload it asks (uploads.js, LLP 1016.000 D10).
+        let args = match r.context {
+            0 => format!("()=>[{}]", args.join(",")),
+            n => format!("Object.assign(()=>[{}],{{context:{n}}})", args.join(",")),
+        };
         let _ = write!(
             body,
-            "const r_{i}={res}({},{},()=>[{}],{initial},{initial_args},{},{placeholder}{carry});",
+            "const r_{i}={res}({},{},{args},{initial},{initial_args},{},{placeholder}{carry});",
             serde_json::to_string(plan.str(r.name)).unwrap(),
             serde_json::to_string(plan.str(r.source)).unwrap(),
-            args.join(","),
             serde_json::to_string(&type_code(plan, r.ty)).unwrap()
         );
         // The runner's own resource shows its facts, never a write (overlay.js)

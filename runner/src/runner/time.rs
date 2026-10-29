@@ -260,7 +260,8 @@ impl<D: DataSource> Runner<D> {
     pub fn changed(&mut self, topic: &str) -> Result<Option<CommitReceipt>, RunnerError> {
         let mut which = Vec::new();
         for i in 0..self.watching.len() {
-            if !self.watching[i].iter().any(|t| t == topic) {
+            // An upload is asked once for its arguments (LLP 1016.000 D10).
+            if !self.watching[i].iter().any(|t| t == topic) || self.upload_stands(i) {
                 continue;
             }
             // A stream keeps no reply to wait for, and a refused request

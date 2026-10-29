@@ -88,6 +88,7 @@ pub mod surface_record;
 pub mod time;
 pub mod tools;
 pub mod transport;
+pub mod upload;
 pub mod uses;
 pub mod viewport;
 pub mod vm;
@@ -124,11 +125,12 @@ pub use runner::{
     Picked, PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange,
     RouterLink, Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection,
     SnapshotModule, SocketReader, SocketState, StackSplit, StreamCount, SurfaceAnswer, Target,
-    Timed, WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND,
-    RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    Timed, UploadEnd, UploadMark, WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS,
+    PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use runner::{AppState, LiveApplied, LiveRefusal, Place, Tamber};
 pub use runner::{CallHow, WakeHow};
+pub use upload::{UPLOAD_PROGRESS, UPLOAD_SENDING};
 /// The binding core's names (LLP 1121 D12): what `contract tamber gen rust`
 /// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
 pub mod tamber {

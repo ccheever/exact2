@@ -33,6 +33,7 @@ mod storage;
 mod superseded;
 mod timers;
 mod turn_budget;
+mod upload;
 mod walk;
 mod watch;
 mod windows_lean;

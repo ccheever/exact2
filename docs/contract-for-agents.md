@@ -1765,7 +1765,15 @@ HDR and metadata where the host can and says what it wrote
 `compressImage` takes `rotate`, `flip` and `crop` too. Upload a file with `fetch(url, {method: "POST", headers:
 {"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
 reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
-through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Download a file with
+through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. To show an
+upload's percentage while the person goes on, make it a resource's stream with `exactUploadProgress: true`:
+its mapper gets `progress` (`loaded` of `total` bytes sent), then `load` with the reply's `status`, and no
+answer waits for it. It is asked once for its arguments while the app runs, across a reload too, though not the
+web JS target's development reload (a refresh or store write never sends it again, and one cut off after it began
+comes back failed, `interrupted`), so a retry puts an attempt number in its arguments and in its URL or a header:
+new arguments that make the same request keep the running upload. A launch starts afresh and sends again an upload the view still shows, so record what it answered (the
+server's id for the attachment) in the store and stop showing the resource once you have it
+([reference](reference.md), "An upload that tells its progress"). Download a file with
 `fetch(url, {exactBodyTo: path})`, not `arrayBuffer()` then `writeFile`: the host writes a 2xx body into the
 file as it arrives (under `fs.write`, at most 1 GiB), so a large file never enters the engine's 64 MiB heap;
 `response.exactBodyTo.bytes` is its size, and a reply that is not 2xx leaves the file untouched and reads as
