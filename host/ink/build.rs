@@ -257,15 +257,21 @@ fn build_dxbc(out: &Path, entries: &[String]) {
         for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
             for name in ["fxc.exe", "fxc"] {
                 let candidate = dir.join(name);
-                if candidate.is_file() {
-                    if fxc.is_none() {
-                        fxc = Some(candidate);
-                    }
+                if candidate.is_file() && fxc.is_none() {
+                    fxc = Some(candidate);
                 }
             }
             if fxc.is_some() {
                 break;
             }
+        }
+    }
+    if let Some(path) = &fxc {
+        println!("cargo:rerun-if-changed={}", path.display());
+    } else if windows {
+        // Installing the SDK into an existing PATH directory must replace the stub.
+        for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+            println!("cargo:rerun-if-changed={}", dir.display());
         }
     }
     let available = fxc.is_some();

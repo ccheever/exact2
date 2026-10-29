@@ -1879,6 +1879,10 @@ snapshots their input before returning ([Microsoft's API contract](https://learn
 still makes its page unavailable, and pins and completion-based retirement
 are unchanged. `device.rs` states that upload contract; shared-storage
 writers still wait inside their device implementation. In `device/tests.rs`,
+wgpu and Metal retain their internal upload waits: the measured cadence win
+is D3D11's only. Each device's `draws_both_consecutive_atlas_uploads` test
+checks two entries appended to one page before drawing and reading both back.
+In the mock-device test,
 the delayed device refuses host waits while 32 entries append to one page
 with no submissions completed. The new regression fails before the fix and
 passes after it; the existing in-flight draw/eviction tests also pass.
