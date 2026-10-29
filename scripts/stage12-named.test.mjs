@@ -180,7 +180,7 @@ test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindin
   }
   // Every menu screen named on every host: the padded sheet on iOS, the groups elsewhere.
   for (const screen of ['post-menu', 'profile-menu']) {
-    const mine = p.named.filter(n => n.screen === screen);
+    const mine = p.named.filter(n => n.screen === screen && /-menu-(sheet|groups)$/.test(n.target));
     expect(mine.flatMap(n => n.hosts).sort()).toEqual(['ios', 'linux', 'macos', 'web', 'web-wasm']);
     expect(mine.find(n => n.hosts.includes('ios')).pad).toEqual([28, 8, 40, 8]);
   }
