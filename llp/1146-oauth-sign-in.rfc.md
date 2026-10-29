@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Draft, built (§9)
-**Systems:** the TypeScript seam (`js/src/prelude.js` `__exact_adopt`, `js/src/binary.js` `__exact_module_work` and `timers`, `js/src/door.rs` op 22, ibex2's `bindings/abort.js` (the abort hooks' `sources`, expo/ibex#4), `js/src/turns.rs`, `js/src/lib.rs`, `js/src/module_work.rs`); the bake (`js/bake/src/typescript.mjs`: the async helper's `route`); Runner (`runner/src/request.rs` `has_effects`, `runner/src/runner/module_work.rs`, `commit.rs`, `admission.rs`, `settlement.rs`, `source.rs`'s `DataSource`, `auth.rs`); the source composers that forward `background` (`data/src/placed.rs`, `data/src/mixed.rs`, `data/host/src/lib.rs`, `logic/src/lib.rs`, `logic/src/configured.rs`, `host/render/src/source.rs`); the Linux host (`host/linux/src/presenter.rs`, `host/linux/src/agent/stdio.rs`); the web JS target (`host/web-js/ts-data.js`, `rt.js`, `auth.js`, `src/main.rs`); the Contract test grammar and driver (`contract/syntax`, `contract/cli/src/tests_json.rs`, `scripts/agent-test.mjs`, `scripts/agent.mjs`); `scripts/exact.mjs` (`add`, `docs`); `packages/oauth` (`@exact/oauth`, its fixture server and cases); `apps/oauth-fixture`; `docs/recipes/oauth.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/start-here.md`, `docs/card.md`
+**Systems:** the TypeScript seam (`js/src/prelude.js` `__exact_adopt`, `js/src/binary.js` `__exact_module_work` and `timers`, `js/src/door.rs` op 22, ibex2's `bindings/abort.js` (the abort hooks' `sources`, expo/ibex#4), `js/src/turns.rs`, `js/src/lib.rs`, `js/src/module_work.rs`); the Apple host (`host/apple/src/batch.rs` `mustFinish`, `colors.rs` `finish_moved`, `ExactKit/Holds.swift` `FinishHold` and `mustFinish`); the bake (`js/bake/src/typescript.mjs`: the async helper's `route`); Runner (`runner/src/request.rs` `has_effects`, `runner/src/runner/in_flight.rs` `must_finish`, `runner/src/runner/module_work.rs`, `commit.rs`, `admission.rs`, `settlement.rs`, `source.rs`'s `DataSource`, `auth.rs`); the source composers that forward `background` (`data/src/placed.rs`, `data/src/mixed.rs`, `data/host/src/lib.rs`, `logic/src/lib.rs`, `logic/src/configured.rs`, `host/render/src/source.rs`); the Linux host (`host/linux/src/presenter.rs`, `host/linux/src/agent/stdio.rs`, `host/linux/src/teardown.rs`); the web JS target (`host/web-js/ts-data.js`, `rt.js`, `auth.js`, `src/main.rs`); the Contract test grammar and driver (`contract/syntax`, `contract/cli/src/tests_json.rs`, `scripts/agent-test.mjs`, `scripts/agent.mjs`); `scripts/exact.mjs` (`add`, `docs`); `packages/oauth` (`@exact/oauth`, its fixture server and cases); `apps/oauth-fixture`; `docs/recipes/oauth.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/start-here.md`, `docs/card.md`
 **Author:** Claude (Opus 5.5)
 **Date:** 2026-10-26
 **Implementer:** Claude (Opus 5.5), 2026-10-26
@@ -182,9 +182,24 @@ the store.
   data source; a worker placement and the wasm target's module realm; and a
   JavaScript source in an ordered set with a worker Rust source sharing its
   `secret.keep` names (LLP 1027.002 D3), whose replies take their turns in the
-  set. The store writes of a reply's turn with effects (§2.3) stand for every
-  source the turn runs directly, not for a reply such a set delivers later.
+  set. The store writes of a reply's turn with effects (§2.3) stand, also
+  when a worker placement or such a set takes the reply in a later turn: a
+  continuation that parsing the reply returns is the rest of that answer and
+  keeps the request's obligation.
 - **Teardown, reload and update** end kept requests with the engine.
+- **Suspension and quitting** wait for a request with effects, kept or not,
+  and the continuations of its reply, as for the module's storage (LLP 1097
+  D10): the runner's `must_finish`.
+  iOS and tvOS hold a background task from the batch that says there is
+  such work to the one that says it is done, as UIKit asks of work that must
+  finish ("Extending your app's background execution time"), or until the
+  system's time runs out; one the system took back is begun again when the
+  app returns to the foreground. A macOS quit, the Apple driver's exit and the
+  Linux host's orderly exit (an agent's quit, a headless run's end) wait for
+  it: five seconds, 1.5 for the Apple driver and one for a Linux agent's quit,
+  whose drivers kill at two. Closing a window on Windows does not wait. Nor
+  does leaving the app on Android: the Android reader drains only the store
+  at `onStop`, and Android may kill the stopped app's process.
 - **Several tabs, windows or extensions** share the store and coordinate no
   work.
 
@@ -334,14 +349,18 @@ servers keep a held request open as long as a case holds it.
   puts back the first, which takes its reply), `js/tests/it/no_store.rs`
   (every store operation throws in a let-go continuation, each naming
   itself), `runner/src/request.rs` (which requests have effects),
-  `runner/tests/it/keep_sent.rs` (what the source keeps runs to its end,
-  what it does not is cancelled, one the host refused is not offered, a
-  refused commit keeps nothing it let go, a refused commit after a module
-  turn keeps the turn's writes, kept requests the host refuses settle once
-  each, an ordered one behind ordered work, module work's wait lapses at the
-  next write, a held reader is asked again at once after module work, and a
-  plain request a later pass drops is forgotten, at boot too, where the
-  source is then told what it may keep), `data/src/mixed_tests/keep_sent.rs`
+  `runner/tests/it/keep_sent.rs` (a request with effects is in flight from
+  its send until it lands, kept or not, as the agent's `background` op says,
+  and a GET, a POST refused at admission or a re-ask's wait never is
+  (`modules/invoke.rs` checks a handler's refused POST, `settlement_tests.rs`
+  the wait); what the source keeps runs to its end, what it does not is
+  cancelled, one the host refused is not offered, a refused commit keeps
+  nothing it let go, a refused commit after a module turn keeps the turn's
+  writes, kept requests the host refuses settle once each, an ordered one
+  behind ordered work, module work's wait lapses at the next write, a held
+  reader is asked again at once after module work, and a plain request a
+  later pass drops is forgotten, at boot too, where the source is then told
+  what it may keep), `data/src/mixed_tests/keep_sent.rs`
   (module work lands in a JavaScript child under its own grants),
   `runner/tests/it/app_module.rs` (a write that is not module work's asks a
   store reader in flight again at once), `runner/tests/it/failed_readers.rs`
@@ -360,7 +379,14 @@ servers keep a held request open as long as a case holds it.
   long, aborts at the request's deadline, which a later answer carrying the
   same signal has too),
   `js/tests/it/superseded.rs` and `host/web-js/answer-timers.test.mjs` (a
-  let-go answer's continuation arms no timer) and
+  let-go answer's continuation arms no timer),
+  `host/apple/src/finish_tests.rs` (a batch says the app must finish from a
+  POST's send until it lands), `FinishHoldTests` (one background task from
+  that word to its end however often it repeats, ended once, by the system's
+  expiration too, begun again on the app's return to the foreground, and
+  ended by the session's end), the Linux host's
+  `an_orderly_exit_waits_for_a_request_with_effects` (an orderly exit waits
+  for a POST's late reply and its turn) and
   `host/linux/src/app/boot_hold_tests.rs` (a sign-in the boot starts is
   held under the agent).
 - **App cases** (`cases.template.contract`, written per profile by
@@ -393,8 +419,9 @@ browser.
 
 - **A lock API.** Work several answers share is a shared promise, as on the
   web; what must finish once started is a request with effects (D2).
-- **Draining kept requests across teardown, reload and update**, and through
-  iOS suspension.
+- **Draining kept requests across teardown, reload and update**, on a
+  Windows window's close and an Android app's stop, and past the background
+  time iOS grants.
 - **DPoP and PAR** in `@exact/oauth`; Sign in with Apple; a backend for
   providers whose token endpoint refuses browsers.
 - **A clock in data code.** LLP 1027.000 stands.

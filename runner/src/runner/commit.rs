@@ -1414,13 +1414,13 @@ impl<D: DataSource> Runner<D> {
                 });
             }
             Answer::Later(request) => {
-                // One more round (LLP 1027 D1a): the target keeps its value,
-                // a new ticket goes out for the same arguments, and this
-                // commit changes nothing but the pending set.
-                // A round of an ask made before a watched topic changed
-                // carries the ask again to its last (LLP 1016.002 D4).
+                // One more round (LLP 1027 D1a): the target keeps its value, a new ticket goes
+                // out for the same arguments, and this commit changes only the pending set. The
+                // round carries an ask made before a watched topic changed on to its last (LLP
+                // 1016.002 D4); a continuation, the rest of this reply's answer (a worker's later
+                // turn too), keeps the request's obligation to finish (LLP 1146 D2).
                 self.log(super::lines::one_more(&name));
-                let ticket = self.next_ticket;
+                let (ticket, effects) = (self.next_ticket, p.admitted_effects());
                 self.enqueue(p.target, p.source, p.args, request, false);
                 // `enqueue` may keep a ticket or a running child, and push none.
                 if let Some(next) = self.pending.last_mut().filter(|n| n.ticket >= ticket) {
@@ -1430,6 +1430,7 @@ impl<D: DataSource> Runner<D> {
                     next.inspection_generation = p.inspection_generation;
                     next.write = p.write;
                     next.reasks = p.reasks;
+                    next.effects |= next.continuation.is_some() && effects;
                 }
                 return self.update();
             }

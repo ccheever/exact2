@@ -88,11 +88,7 @@ impl<D: DataSource> Host<D> {
     /// (a boot, a committed plan) says it at its first batch.
     pub(super) fn wakelock_moved(&mut self) -> Option<bool> {
         let held = !exact_runner::wakelock::holders(&self.runner).is_empty();
-        if self.holds_told.0 == Some(held) {
-            return None;
-        }
-        self.holds_told.0 = Some(held);
-        Some(held)
+        moved(&mut self.holds_told.wakelock, held)
     }
 
     /// The session's orientation lock when it changed since a batch last
@@ -104,11 +100,17 @@ impl<D: DataSource> Host<D> {
             exact_runner::orientation::Session::Held(lock) => lock.json(),
             _ => "{\"types\":0}".to_owned(),
         };
-        if self.holds_told.1.as_ref() == Some(&lock) {
-            return None;
-        }
-        self.holds_told.1 = Some(lock.clone());
-        Some(lock)
+        moved(&mut self.holds_told.orientation, lock)
+    }
+
+    /// Whether the app must finish work an answer started (`Runner::must_finish`),
+    /// when that changed since a batch last said it: on iOS and tvOS the
+    /// session holds a background task while it must. The batch that says
+    /// `false` comes after the store the last reply's turn wrote is
+    /// persisted. A new host says it at its first batch.
+    pub(super) fn finish_moved(&mut self) -> Option<bool> {
+        let must = self.runner.must_finish();
+        moved(&mut self.holds_told.finish, must)
     }
 
     /// Take the presenter's resolutions; when anything resolves differently,
@@ -196,6 +198,26 @@ pub(crate) fn emit_roles(batch: &mut Batch) {
     batch.roles(&entries);
 }
 
+/// What a batch last said of each hold, so a batch says one only when it moves.
+#[derive(Default)]
+pub(super) struct Told {
+    wakelock: Option<bool>,
+    orientation: Option<String>,
+    finish: Option<bool>,
+}
+
+fn moved<T: PartialEq + Clone>(told: &mut Option<T>, now: T) -> Option<T> {
+    if told.as_ref() == Some(&now) {
+        return None;
+    }
+    *told = Some(now.clone());
+    Some(now)
+}
+
 #[cfg(test)]
 #[path = "colors_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "finish_tests.rs"]
+mod finish_tests;

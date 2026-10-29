@@ -22,6 +22,24 @@ impl<D: DataSource> Runner<D> {
         out
     }
 
+    /// Work an answer started that the app must finish before it is
+    /// suspended or ends: a request with effects in flight, an answer's, a
+    /// kept one or a handler's (LLP 1146 D2), or the module's storage still
+    /// landing (LLP 1097 D10). A host keeps the app running while there is
+    /// (an iOS background task, a quit held), so a reply lands and what its
+    /// turn writes is persisted.
+    pub fn must_finish(&self) -> bool {
+        self.effects_in_flight() || self.background_operations() > 0
+    }
+
+    /// Whether a request with effects the host has not refused is in flight
+    /// (`PendingReq::admitted_effects`).
+    pub fn effects_in_flight(&self) -> bool {
+        self.module_work_effects()
+            || self.pending.iter().any(PendingReq::admitted_effects)
+            || self.tool_effects()
+    }
+
     /// Whether any request is in flight (the agent's `settle` waits on it).
     /// An open stream counts only until its first message (LLP 1016.000
     /// D5): after that it is open, not in flight, or `settle` never ends.

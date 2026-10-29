@@ -663,9 +663,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// the last window closing ends the app. Nothing is held while the app
     /// asks (LLP 1069.010 D7). Once the quit is decided, each native module
     /// starts its quit work (`ExactModule.willQuit`), and the quit is held
-    /// while that work runs or storage an answer started is still landing:
-    /// one hold, five seconds at most for all of it (LLP 1097 D10, LLP
-    /// 1069.010 Q4). AppKit's modal loop keeps the main thread running.
+    /// while that work runs, storage an answer started is still landing or
+    /// a request with effects is in flight: one hold, five seconds at most
+    /// for all of it (LLP 1097 D10, LLP 1146 D2, LLP 1069.010 Q4). AppKit's
+    /// modal loop keeps the main thread running, so a reply lands meanwhile.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // A repeated quit joins the existing hold: it neither asks the app
         // again, nor the modules, nor starts a fresh five-second deadline.
@@ -678,13 +679,13 @@ final class Delegate: NSObject, NSApplicationDelegate {
         // The open windows' sessions, and the last window's if its closing started the quit.
         let sessions = (windows + closedForQuit).map(\.session)
         for session in sessions { session.willQuit() }
-        let hold = StorageHold(bound: 5, pending: { sessions.contains { $0.storageOperations > 0 || $0.quitWorkPending } },
-                               begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
+        let hold = QuitHold(bound: 5, pending: { sessions.contains { $0.quitWorkPending || $0.mustFinish } },
+                            end: { NSApp.reply(toApplicationShouldTerminate: true) })
         guard hold.hold() else { return .terminateNow }
         quitting = hold
         return .terminateLater
     }
-    var quitting: StorageHold?
+    var quitting: QuitHold?
     var relaunching = false
     /// The quit is decided, however it came (⌘Q, the app menu, an Apple
     /// Event, SIGTERM, the last window closing): every session still live goes now,

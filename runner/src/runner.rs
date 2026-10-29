@@ -300,6 +300,14 @@ impl PendingReq {
     fn waited(&self) -> bool {
         self.in_flight() && !self.quiet() && !self.replied && self.reask_at.is_none()
     }
+
+    /// A request with effects the host has not refused at admission, and no
+    /// re-ask's wait (never sent), so it may reach its server: one let go is
+    /// offered to its source to keep, and the app is held open while it is
+    /// out (LLP 1146 D2).
+    fn admitted_effects(&self) -> bool {
+        self.effects && self.refusal.is_none() && !self.refused && self.reask_at.is_none()
+    }
 }
 
 type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;

@@ -129,8 +129,13 @@ struct Data {
     guard_refuse: Option<DataError>,
     /// `rows` answers later with a plain GET, a request a re-ask may keep.
     later_get: bool,
+    /// `rows` answers later with a POST, a request with effects.
+    later_post: bool,
     /// `watch` answers later (else now, false).
     watch_later: bool,
+    /// How many replies' parses answer with a continuation first, as a
+    /// worker-placed source takes a reply in a later turn.
+    continue_parse: usize,
     /// `rows`'s next turn answers later, whatever `refuse` says.
     later_once: bool,
     /// `rows`'s next turn is refused with this.
@@ -160,7 +165,9 @@ impl Data {
             guard_stream: false,
             guard_refuse: None,
             later_get: false,
+            later_post: false,
             watch_later: false,
+            continue_parse: 0,
             later_once: false,
             refuse_once: None,
             guard_writes_once: false,
@@ -224,6 +231,8 @@ impl DataSource for Data {
             })
         } else if self.later_get {
             Answer::Later(Request::get("https://example.test/rows"))
+        } else if self.later_post {
+            Answer::Later(Request::post_json("https://example.test/rows", "{}"))
         } else if self.later {
             Answer::Later(Request::continuation(1))
         } else {
@@ -251,6 +260,10 @@ impl DataSource for Data {
             return Err(DataError::Unavailable(
                 "took 180 ms, over the 100 ms budget".into(),
             ));
+        }
+        if self.continue_parse > 0 {
+            self.continue_parse -= 1;
+            return Ok(Answer::Later(Request::continuation(7)));
         }
         Ok(Answer::Now(self.value.clone()))
     }
@@ -988,6 +1001,51 @@ fn an_overrun_reply_asks_again_with_a_new_request() {
     r.fulfill(again[0].ticket, reply()).unwrap();
     assert!(!r.pending_res[0]);
     assert_eq!(r.reask_due_ms(), None);
+}
+
+/// A POST's reply refused by a turn over its budget waits to ask again with a
+/// new request: the wait is never sent, so it is no request with effects in
+/// flight and holds no app open (LLP 1146 D2); the new POST is one.
+#[test]
+fn an_overrun_post_s_wait_has_no_effects_in_flight() {
+    let mut data = Data::new(records(1));
+    data.later_post = true;
+    let mut r = boot(plan(TypeKind::Number, None, false, false), data);
+    let first = r.take_requests();
+    assert!(r.effects_in_flight(), "the POST is out");
+    r.data().parse_error = Some(overrun());
+    r.fulfill(first[0].ticket, reply()).unwrap();
+    assert!(r.pending_res[0], "it waits to ask again");
+    assert!(!r.effects_in_flight(), "the wait is not sent");
+    assert!(!r.must_finish());
+    r.data().parse_error = None;
+    let t0 = r.now_ms();
+    r.advance(t0 + 250.).unwrap();
+    assert_eq!(r.take_requests().len(), 1, "asked again");
+    assert!(r.effects_in_flight(), "the new POST is out");
+}
+
+/// A POST's reply that a worker-placed source takes in a later turn comes back
+/// as a continuation, and so does that turn's own wait: each is the rest of
+/// the reply's answer, so the app must still finish it (LLP 1146 D2) until
+/// the answer ends.
+#[test]
+fn a_post_s_reply_taken_in_later_turns_must_still_finish() {
+    let mut data = Data::new(records(1));
+    data.later_post = true;
+    data.continue_parse = 2;
+    let mut r = boot(plan(TypeKind::Number, None, false, false), data);
+    let post = r.take_requests();
+    assert!(r.must_finish(), "the POST is out");
+    r.fulfill(post[0].ticket, reply()).unwrap();
+    for turn in ["the reply's turn", "its wait"] {
+        let next = r.take_requests();
+        assert_eq!(next.len(), 1, "{turn}");
+        assert!(r.must_finish(), "{turn} runs on");
+        r.fulfill(next[0].ticket, reply()).unwrap();
+    }
+    assert!(!r.pending_res[0], "answered");
+    assert!(!r.must_finish());
 }
 
 // Round 1's findings on the first build (theme2's 18:55 condition (a)): each
