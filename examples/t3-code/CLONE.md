@@ -39,7 +39,7 @@ require them.
   Stop and restart pass in the normal iPhone app. Bounded cache transfers also
   address the separate 4 MiB native-request refusals.
 
-The working branch incorporates remote `main` at `2b9447b370`. Five conflict
+The working branch incorporates remote `main` at `1c7b918556`. Five conflict
 resolutions preserve both the clone's production package qualification and
 main's development flags, system-framework linking and source-sweep exclusions.
 The clone lockfile adds the three dependencies its updated path crates require.
@@ -53,6 +53,17 @@ output from 416 to 818 characters, and stops with server-confirmed interruption.
 After restart, the interrupted conversation reopens with an empty composer and
 receives `MAIN_RESTART_OK`. This integration is outside the delivered TestFlight
 build below. Full phone parity remains open.
+
+The latest main refresh merges without conflicts. Its symbol fixtures now register
+handwritten images with the runtime and supply its current browser hooks. All 31
+affected symbol, paint and list tests pass, including an independent rerun. Rust
+build/tests/Clippy/formatting, workspace and boot pass. Caps retains the desktop
+violation. The broader web run has 136 passes and two failures. Its cold-build
+timeout passes on rerun; the remaining motion check cannot link because the
+installed nightly's `rust-lld` cannot locate `libLLVM.dylib`. Three attempts stop
+at that toolchain error. Firefox is unavailable. The rebuilt normal iPhone app
+restores the saved environment and conversation and receives `MAIN_REFRESH_OK`
+from the real provider. This refresh is outside the delivered TestFlight build.
 
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
