@@ -19,6 +19,7 @@ Astra reviewed r1 (`llp/reviews/1079-speed-hygiene-in-the-agents-hands.astra.md`
 **Implementer:** Claude (Opus 5.5). All four stages landed on 2026-10-03.
 **Date:** 2026-10-02
 **Related:**
+- [LLP 1079.000: Frame health as a key performance metric](1079.000-frame-health-v1.plan.md), the frame-health extension for bounded collection and native readouts.
 - LLP 1001 §5: `CommitReceipt`, `LayoutReceipt`, the receipt ring.
 - LLP 1005 §6: commits, `advance`, the clock.
 - LLP 1012 §1–§3: the operations, the tags, the journal and its cursor.
@@ -32,6 +33,20 @@ Astra reviewed r1 (`llp/reviews/1079-speed-hygiene-in-the-agents-hands.astra.md`
 - `rules/DEFERRED.md` §Agent API: the nine; "A tenth operation replaces one of the nine"; "Not shipping: … causal trace, … perf". §Tooling: "no devtools UI".
 
 ## Summary
+
+**Frame health extension (in progress, 2026-10-28).**
+[LLP 1079.000](1079.000-frame-health-v1.plan.md) makes frame health a runtime KPI:
+on-time updates, even pacing, low latency and honest measurement coverage. The target
+is 120 FPS for high-impact interaction on flagship phones and the supported display
+rate on desktop, including above 120 Hz. Idle content needs no repeated frames.
+
+Apple now provides bounded callback/apply metrics, cursor reads, hitch reports,
+native inspectors and draggable cards. The iOS menu uses a grouped sheet with a
+separate Build Information screen. Callback timing is labeled as a proxy; matching
+asynchronous owner/apply timestamps are available during detail capture. Native-only
+animation cadence and presentation remain unmeasured. Production defaults off.
+The UI needs another design pass; the cross-host protocol and device qualification
+remain in the plan. The development sampler below remains separately available.
 
 James, 2026-10-02:
 
@@ -507,6 +522,12 @@ Times are observations. Each is printed with its proxy ("p95 interval 16.9
     Chrome's Performance panel run the host's code unchanged.
   - Production telemetry, which is EAS Observe's.
   - A per-frame journal line for every frame.
+
+  **Authorized extension (2026-10-28):** the user's "Implement" instruction admits
+  [LLP 1079.000 §11](1079.000-frame-health-v1.plan.md#11-authorization-and-remaining-decisions),
+  including local counters and a source-aware UI. The first Apple/iOS slice is
+  implemented. It adds no telemetry service or production inspection endpoint;
+  production default-on still requires qualification.
 - **Not split into forms of `tree` and `state`.** r1 did that. Counts are not
   a property of the tree's shape, and a frame window is not the app's state;
   `state` "marks" would make a read mutate. One honest operation was

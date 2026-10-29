@@ -20,14 +20,14 @@ extension ExactSession {
     // paced by frames from its second step, and one whose steps alternate
     // between showing something and not keeps the link.
     func scheduleClock(due: Double?) {
-        let agent = ExactEnv.agentMode || clock != nil
+        let agent = ExactEnv.agentFreezes || clock != nil
         // A frame task (LLP 1073 D5) keeps the link running; the agent's clock fires its virtual frames.
         let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent, hidden: PageFacts.hidden,
                                           quiet: timersQuiet && !frames.tasks)
         frames.timerSoon = wake == .frame || (frames.tasks && !agent)
         // Keep a timer already armed for this deadline; most batches leave it unchanged.
         if case .timeout = wake, let armed = clockTimer, armed.isValid, clockDue == due {
-            frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
+            frames.run(frames.hasWork)
             return
         }
         clockTimer?.invalidate()
@@ -37,7 +37,7 @@ extension ExactSession {
             clockDue = due
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in self?.fireClock() }
         }
-        frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
+        frames.run(frames.hasWork)
     }
 
     /// `clockTimer`'s advance. One the owner cannot take now (it waits on
@@ -49,7 +49,7 @@ extension ExactSession {
         clockTimer = nil
         // Queued behind a slice, the driver may have taken the clock since
         whenIdle { [weak self] in
-            guard let self, state != .destroyed, clock == nil, !ExactEnv.agentMode else { return }
+            guard let self, state != .destroyed, clock == nil, !ExactEnv.agentFreezes else { return }
             followOffset()
             // Posted, not waited for; one in flight re-arms the clock as it lands.
             if ExactSession.asyncFills { if !advanceInFlight { sendAdvance(now: now()) }; return }
@@ -73,7 +73,7 @@ extension ExactSession {
     /// for a `then`, a queue's `next` or an answer that is the earliest work
     /// due; what is due after it is posted.
     func advanceIfDue() {
-        guard !advancingDue, !applying, !landing, !holdingReports, state != .destroyed, clock == nil, !ExactEnv.agentMode,
+        guard !advancingDue, !applying, !landing, !holdingReports, state != .destroyed, clock == nil, !ExactEnv.agentFreezes,
               !frames.tasks, !ownerInFlight, let due = timerDue, due <= now() else { return }
         advancingDue = true
         defer { advancingDue = false }
@@ -94,7 +94,7 @@ extension ExactSession {
     func sendAdvance(now: Double, frame: Double? = nil) {
         advanceInFlight = true
         let captured = generation
-        runtime.advanceAsync(now: now, frame: frame) { [weak self] batch in self?.publish(.advance, batch, captured) }
+        runtime.advanceAsync(now: now, frame: frame, capture: frameHealth.captureID, measureFrame: frameHealth.enabled && clock == nil) { [weak self] batch in self?.publish(.advance, batch, captured) }
     }
 
     /// A frame's tick on the owner, not waited for: motion sampled at this
@@ -102,6 +102,6 @@ extension ExactSession {
     func sendTick(now: Double, frame: Double? = nil) {
         tickInFlight = true
         let captured = generation
-        runtime.tickAsync(now: now, frame: frame) { [weak self] batch in self?.publish(.tick, batch, captured) }
+        runtime.tickAsync(now: now, frame: frame, capture: frameHealth.captureID, measureFrame: frameHealth.enabled && clock == nil) { [weak self] batch in self?.publish(.tick, batch, captured) }
     }
 }

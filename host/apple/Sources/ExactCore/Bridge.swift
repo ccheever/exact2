@@ -9,6 +9,7 @@
 // call below runs there as one job while the caller waits.
 import CExact
 import Foundation
+import QuartzCore
 
 /// One batch from the library: the ops, and whether the presenter should keep
 /// the clock (timers) or the display link (motion) running.
@@ -70,6 +71,7 @@ public struct Batch {
     public var alerts: [String] = []
     /// The journal's other lines, for the unified log at a lower level (LLP 1143).
     public var journal: [String] = []
+    package var frameWorkTiming: FrameWorkTiming?
     package init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false, busy: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
@@ -509,11 +511,16 @@ package final class Runtime {
             }
         }
     }
-    package func tickAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
+    package func tickAsync(now: Double, frame: Double? = nil, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (Batch) -> Void) {
         if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+        let queued = capture == 0 ? 0 : CACurrentMediaTime()
         Owner.shared.post { [self] in
             guard !destroyed else { return }
-            done(read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)))
+            let began = capture == 0 ? 0 : CACurrentMediaTime()
+            var batch = read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now))
+            if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
+                queued: queued, began: began, finished: capture == 0 ? 0 : CACurrentMediaTime()) }
+            done(batch)
         }
     }
     /// Actual viewport/row observations using the runner's versioned LE wire.
@@ -697,11 +704,16 @@ package final class Runtime {
     package func landThenFirst() -> Batch { on { read(exact_advance(rt, 0, 3)) } }
     /// A timer advance on the owner, not waited for (LLP 1072.000): what is
     /// due by `now`, or with `frame` that display frame's (`frame(now:wall:)`).
-    package func advanceAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
+    package func advanceAsync(now: Double, frame: Double? = nil, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (Batch) -> Void) {
         if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+        let queued = capture == 0 ? 0 : CACurrentMediaTime()
         Owner.shared.post { [self] in
             guard !destroyed else { return }
-            done(read(frame.map { exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0)))
+            let began = capture == 0 ? 0 : CACurrentMediaTime()
+            var batch = read(frame.map { exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0))
+            if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
+                queued: queued, began: began, finished: capture == 0 ? 0 : CACurrentMediaTime()) }
+            done(batch)
         }
     }
     package func frame(now: Double, wall: Double? = nil) -> Batch { on { read(wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }

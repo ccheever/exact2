@@ -53,6 +53,7 @@ pub mod delivery;
 mod doc_watch;
 pub mod documents;
 pub mod executor;
+pub mod frame_health;
 pub mod geometry;
 pub mod gradient;
 pub mod host;
