@@ -146,10 +146,7 @@ impl Suggestions {
                     continue;
                 }
                 self.frame(action, previous, land);
-            } else if step.label.starts_with("clock +")
-                && previous.config
-                && step.config
-                && !step.omitted
+            } else if step.clock(Some(previous)) && previous.config && step.config && !step.omitted
             {
                 self.frame("", previous, step);
             }

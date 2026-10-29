@@ -18,6 +18,7 @@ pub(super) struct Clock {
     /// queue `next`s it arms inherit (D2)
     instant: Option<f64>,
     pub(super) trace: Option<Vec<super::trace::Ran>>,
+    pub(super) untraced_change: bool,
     /// When the commit running started, or the input or reply it serves
     /// arrived
     started: f64,
@@ -313,11 +314,15 @@ impl<D: DataSource> Runner<D> {
         let mut landed = now_ms;
         let mut stopped_on_request = false;
         self.queues.stopped_on_next = false;
+        let before = self.trace_configuration();
         // A module's value ticket that timed out by now (LLP 1133.002 §6).
         self.module_deadlines(now_ms);
         // A listed entry now due, and an app's list another session changed.
         self.listed_due(now_ms);
         self.pump_presence();
+        if before.is_some() && before != self.trace_configuration() {
+            self.clock.untraced_change = true;
+        }
         loop {
             // The earliest due timer, deterministic by index on ties.
             let due = self

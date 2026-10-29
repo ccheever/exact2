@@ -961,6 +961,19 @@ impl Client {
             path.push_str("&store_id=");
             path.push_str(&encode(store));
         }
+        // Wake by audience (Snapback LLP 3000.041 §4.1, exact2 LLP 1110): the
+        // server answers this poll only for commits this viewer can read, an
+        // online-only table named here, or an effect that names the viewer; a
+        // bystander sleeps to its deadline and learns nothing. Synced tables
+        // need no declaration. An older server ignores both parameters.
+        if let Ok(backend) = ok(core.call(json!({"op": "backend"}))) {
+            path.push_str("&interest=1");
+            let tables = crate::backend::online_only_tables(&backend);
+            if !tables.is_empty() {
+                path.push_str("&tables=");
+                path.push_str(&encode(&tables.join(",")));
+            }
+        }
         let mut fetch = Fetch::get(path);
         self.exchanges += 1;
         fetch.exchange = format!("{}.poll{}", self.incarnation, self.exchanges);

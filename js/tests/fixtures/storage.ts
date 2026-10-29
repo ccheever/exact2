@@ -13,6 +13,7 @@ let shared: Promise<{text:string}>;
 // the last failure a background step reported to the app.
 let saving: Promise<unknown> = Promise.resolve(), lastError = "";
 let compressAndWrite = 0;
+const slept: string[] = [];
 const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.charCodeAt(0)));
 
 // Writes an answer starts and does not await (kanban F22): the answer is
@@ -223,6 +224,16 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     tail = run.catch(() => {});
     return run;
   }
+  // A write, then a timer once it lands: refused to a call let go meanwhile,
+  // whose chain still runs (LLP 1027.000 D1: its timer would never run).
+  if (op === "write-then-sleep") {
+    return storage.fs.writeFile(storage.fs.directories.data + "/slept", bytes(value)).then(() => {
+      try { setTimeout(() => {}, 10); slept.push(value + " armed"); }
+      catch (e) { slept.push(value + " refused: " + e.message); }
+      return {text: value};
+    });
+  }
+  if (op === "slept") return {text: slept.join("; ")};
   if (op === "serial") {
     const run = tail.then(async () => {
       const db = await storage.sqlite.open("app:/data/notes.db");

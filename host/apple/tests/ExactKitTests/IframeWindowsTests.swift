@@ -590,7 +590,8 @@ final class IframeWindowsTests: XCTestCase {
     private func suppression(_ sheet: NSWindow) -> NSButton? {
         func find(_ view: NSView) -> NSButton? {
             if let button = view as? NSButton, button.title.hasPrefix("Prevent this page"), !button.isHidden { return button }
-            return view.subviews.lazy.compactMap(find).first
+            for child in view.subviews { if let found = find(child) { return found } }
+            return nil
         }
         return sheet.contentView.flatMap(find)
     }

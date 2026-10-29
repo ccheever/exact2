@@ -712,7 +712,9 @@ EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
 export function add(args, say = console.log) {
   const [module, name] = args, short = String(module ?? '').replace(/^@exact\//, '');
   const read = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
-  const standard = readdirSync(resolve(ROOT, 'packages')).filter((p) => read(resolve(ROOT, 'packages', p, 'exact.json'))?.kind === 'interface');
+  // A standard module (an interface), or a TypeScript library of exact2's own (`@exact/oauth`, LLP 1146 D5).
+  const standard = readdirSync(resolve(ROOT, 'packages')).filter((p) => read(resolve(ROOT, 'packages', p, 'exact.json'))?.kind === 'interface'
+    || read(resolve(ROOT, 'packages', p, 'package.json'))?.exports?.['.']?.types !== undefined);
   if (!standard.includes(short)) throw new Error(`add: ${module ? `no standard module ${module}` : 'name a module'}; exact2's are ${standard.join(', ')} (exact add geolocation)`);
   if (!name && !process.env.EXACT_APP_DIR) throw new Error('add: name the app (exact add geolocation <app>), or run bun exact.mjs add in it');
   const app = resolveApp(name), at = resolve(app.dir, 'package.json'), manifest = read(at);
@@ -1087,6 +1089,7 @@ const TOPICS = {
   deploy: 'Recipe: porting an app, a release build, splitting the work',
   accessibility: 'Native views: accessibility', strings: 'Recipe: app.json, assets and modules',
   list: 'Recipe: list rows: search, swipe, filter and long-press', midi: 'MIDI: `exactMIDI`, `sendMIDI`, `midimessage`',
+  'sign-in provider': 'Sign-in providers (`@exact/oauth`)',
 };
 
 const STOP = new Set(['a', 'an', 'and', 'by', 'for', 'in', 'it', 'its', 'of', 'on', 'or', 'the', 'to', 'you']);

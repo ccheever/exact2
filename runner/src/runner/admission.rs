@@ -92,7 +92,9 @@ impl<D: DataSource> Runner<D> {
             // fence lifts once it has (a host would otherwise wait on it).
             self.background.refusal = Some((ticket, reason, ordered));
         } else if self.is_tool(ticket) {
-            self.refuse_tool(ticket, reason);
+            self.refuse_tool(ticket, reason, ordered);
+        } else if self.is_module_work(ticket) {
+            self.refuse_module_work(ticket, reason, ordered);
         }
     }
 
@@ -106,7 +108,16 @@ impl<D: DataSource> Runner<D> {
         if let Some(settled) = crate::auth::take_any_settled(self) {
             return Some(settled);
         }
-        if let Some((ticket, reason)) = self.tool_refusal() {
+        if let Some((ticket, reason)) = self.module_work_refusal(allow_ordered) {
+            return Some((
+                ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Refused,
+                    message: reason.into(),
+                },
+            ));
+        }
+        if let Some((ticket, reason)) = self.tool_refusal(allow_ordered) {
             let message = reason.into();
             return Some((
                 ticket,
@@ -206,9 +217,12 @@ impl<D: DataSource> Runner<D> {
 
     /// The host must keep later ordered admissions behind these refusals.
     pub fn has_ordered_request_refusals(&self) -> bool {
-        self.background
-            .refusal
-            .is_some_and(|(ticket, _, ordered)| ordered && self.is_background(ticket))
+        self.has_ordered_module_work_refusal()
+            || self.has_ordered_tool_refusal()
+            || self
+                .background
+                .refusal
+                .is_some_and(|(ticket, _, ordered)| ordered && self.is_background(ticket))
             || self
                 .pending
                 .iter()
@@ -218,6 +232,8 @@ impl<D: DataSource> Runner<D> {
     /// More refused admissions need a future host pump.
     pub fn has_request_refusals(&self, allow_ordered: bool) -> bool {
         self.auth.has_settled_for(|t| self.holds(t))
+            || self.has_module_work_refusal(allow_ordered)
+            || self.has_tool_refusal(allow_ordered)
             || self.background_refusal(allow_ordered).is_some()
             || self.pending.iter().any(|p| {
                 p.refusal

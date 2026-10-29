@@ -18,9 +18,9 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// what the route hatch last saw; whether the hatch has run; the header
     /// lifted into the bar; the content scroll view a hatch was handed.
     var projectedSource: BarSource?, projected: HatchSource?, backSource: String?
-    /// `projectedSource` with every item's enabling left out, and the items made from it by node: an item that is
-    /// only enabled or disabled changes in place (`NavigationHost.enable`).
-    var projectedFaces: BarSource?, barItemOf: [UInt32: UIBarButtonItem] = [:]
+    /// `projectedSource` with every item's enabling left out: an item that is only enabled or disabled changes
+    /// in place, on the item kept for it (`NavigationHost.enable`, `barItemsMade`).
+    var projectedFaces: BarSource?
     var hatched = false
     /// Whether a route of its stack is beneath it, to go back to: written
     /// as the stack's routes are prepared, before UIKit shows any of them
@@ -61,6 +61,13 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     var bottomClearance: CGFloat = 0
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
+    /// The bar items last made, by node: one whose kind is unchanged is
+    /// updated in place, so UIKit's glass animates the change (`barItemMade`).
+    var barItemsMade: [UInt32: (item: HeaderShape.Item, bar: UIBarButtonItem, press: BarPress, menuFrom: UInt64?)] = [:]
+    /// Whether the bar has been projected: the items of a later projection animate where it shows.
+    var barProjected = false
+    /// The space before each group, by the item that follows it.
+    var barSpaces: [UInt32: UIBarButtonItem] = [:]
     /// The bar items of its header's readouts, by node, kept across
     /// projections so a readout's view changes in place (§9.15).
     var readouts: [UInt32: UIBarButtonItem] = [:]
@@ -170,7 +177,8 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// The route's own background, if it paints one.
     private func ownBackdrop(dark: Bool) -> [Double]? {
         if node.groundIsSheets { return nil }
-        return node.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
+        // As written, never greyed: the view keeps the colour its provider gave (TintDimmingIOS.swift)
+        return node.undimmedChannels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
     }
 
     /// What shows behind the route where it paints nothing: its own
@@ -179,7 +187,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// through a transparent route (LLP 1116 D2: a root's
     /// `-exact-grouped-background` under every screen).
     func backdrop(dark: Bool) -> [Double]? {
-        let painted = { (n: NodeView) in n.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
+        let painted = { (n: NodeView) in n.undimmedChannels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
         if let own = ownBackdrop(dark: dark) { return own }
         guard let host, let root = host.container else { return nil }
         var next: UIView? = host.logicalParent(of: node)

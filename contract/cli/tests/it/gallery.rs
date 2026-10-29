@@ -123,10 +123,13 @@ fn the_gallery_places_each_cell_refuses_one_the_compiler_wont_take_and_leaves_th
     assert!(why.contains("injects `theme`"), "{why}");
     let text = std::fs::read_to_string(&g.source).unwrap();
     assert!(text.contains(&format!("can't place: {why}")), "{text}");
-    // A placeholder of each kind, an inert action, the variant values as written, the slot's box.
+    // A placeholder of each kind, an inert action, the variant values as written, the slot's
+    // sample: a tinted block saying "slot", not an invisible box (stage 15 D4 batch 3 #1).
     assert!(text.contains(r#"Card(tone="quiet", compact=false, label="label", count=0, maybe=none, items=[], press=noop, info=Info(title="title", n=0))"#), "{text}");
     assert!(
-        text.contains("  action noop\n") && text.contains(r#"box testId="gallery-Card-2-slot""#),
+        text.contains("  action noop\n")
+            && text.contains(r#"column testId="gallery-Card-2-slot" min-width=24 min-height=24 background-color="-exact-fill""#)
+            && text.contains(r#"text "slot" font="-exact-caption2""#),
         "{text}"
     );
     // The gallery's design is the app's own; the app's plan and describe's files are as they were.

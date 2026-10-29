@@ -319,7 +319,7 @@ extension NavigationHost {
         if let tabs = tabItemsSource?.0, tabs.tablist === list, tabs.tabs.indices.contains(routerTab) {
             let selected = tabs.tabs[routerTab]
             if selected.ownColor("tint_color") != nil,
-               let light = selected.channels("tint_color", dark: false), let dark = selected.channels("tint_color", dark: true) {
+               let light = selected.undimmedChannels("tint_color", dark: false), let dark = selected.undimmedChannels("tint_color", dark: true) {
                 let wanted = [light, dark]
                 guard tabTint != wanted || !tabTintOwn else { return }
                 tabTint = wanted

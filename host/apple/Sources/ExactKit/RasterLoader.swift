@@ -252,8 +252,9 @@ private final class RasterBackend: @unchecked Sendable {
             input = try fetched?.get() ?? RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
             metadata = try input!.metadata()
         } catch {
-            failure = error is RasterFailure || error is RasterHTTPStatus || error is RasterEmptyResponse
-                ? String(describing: error) : error.localizedDescription
+            // (A link the reason quotes loses its query: a CDN's signature.)
+            failure = RasterRetry.redacted(error is RasterFailure || error is RasterHTTPStatus || error is RasterEmptyResponse
+                ? String(describing: error) : error.localizedDescription, source: source.name)
             // A download's only: a header that fails to read fails again.
             if RasterInput.remote(source.name) != nil, input == nil, RasterRetry.transient(error) {
                 transient = (error as? RasterHTTPStatus)?.retryAfter ?? .now()
@@ -618,7 +619,7 @@ final class RasterLoader {
         }
         refusedPictures[view.id] = nil
         if let session = view.presenter?.session, let refusal = pictures.admit(source, session: session) {
-            view.presenter?.session?.log("image refused: \(source): \(refusal) (LLP 1133.019 D2)")
+            view.presenter?.session?.log("image refused: \(RasterRetry.withoutQuery(source)): \(refusal) (LLP 1133.019 D2)")
             refusedPictures[view.id] = ({ [weak view] in view }, source, resolver)
             refuse(refusal); return false
         }

@@ -1,7 +1,7 @@
 # LLP 1151: Properties beside the app, and what checking one means
 
 **Type:** RFC
-**Status:** Draft r5, 2026-10-28. Charlie asked for this document and its first stage on 2026-10-27 ("Write an RFC for making Contract more verifiable based on the ideas in this Gist and any other good ideas … go ahead and implement it"). It builds on James Ide's assessment "A verifiable Contract" (2026-10-27), whose gaps G0–G7 and proposals D0–D9 are cited here by those names. r1 was reviewed blind by GPT-6 Astra (max), Grok 4.7 (xhigh), Muse Wonder 1.0 (xhigh) and Claude Fable 5.1, all NOT READY on the same points (`llp/reviews/rfc-2026-10-27-1151-r1.{astra,grok,muse,fable}.md`); the same four seats brainstormed separately (`…-r1-brainstorm.*.md`). r2 was reviewed by the same four, each given its own r1 review only: Fable READY with four fixes, Astra, Grok and Muse NOT READY (`…-r2.*.md`), converging on one delivery error and four scope errors. r3 was reviewed in the third and last round the rules allow: Fable and Muse READY, Astra and Grok NOT READY (`…-r3.*.md`), all four on the same three points, which r4 takes. r4 was reviewed in a fourth round Charlie asked for on 2026-10-28, beyond the three the rules allow: Fable and Muse READY, Astra and Grok NOT READY (`…-r4.*.md`), on three points r5 takes. What each round changed is in §R.
+**Status:** Accepted, 2026-10-28 (Charlie: "accept"; the waiver for the doing-list given the same day, "approve waiver yes"). The text is r5. Charlie asked for this document and its first stage on 2026-10-27 ("Write an RFC for making Contract more verifiable based on the ideas in this Gist and any other good ideas … go ahead and implement it"). It builds on James Ide's assessment "A verifiable Contract" (2026-10-27), whose gaps G0–G7 and proposals D0–D9 are cited here by those names. r1 was reviewed blind by GPT-6 Astra (max), Grok 4.7 (xhigh), Muse Wonder 1.0 (xhigh) and Claude Fable 5.1, all NOT READY on the same points (`llp/reviews/rfc-2026-10-27-1151-r1.{astra,grok,muse,fable}.md`); the same four seats brainstormed separately (`…-r1-brainstorm.*.md`). r2 was reviewed by the same four, each given its own r1 review only: Fable READY with four fixes, Astra, Grok and Muse NOT READY (`…-r2.*.md`), converging on one delivery error and four scope errors. r3 was reviewed in the third and last round the rules allow: Fable and Muse READY, Astra and Grok NOT READY (`…-r3.*.md`), all four on the same three points, which r4 takes. r4 was reviewed in a fourth round Charlie asked for on 2026-10-28, beyond the three the rules allow: Fable and Muse READY, Astra and Grok NOT READY (`…-r4.*.md`), on three points r5 takes. What each round changed is in §R.
 **Systems:** the authored-test grammar (`contract/syntax/src/parser.rs`, `parser/steps.rs`, `ast.rs`, `contract/cli/src/tests_json.rs`); `difftest verify` and the harness (`semantics/difftest/src/verify.rs`, `lib.rs`, `script.rs`, `observe.rs`, `oracle.rs`); the observation on both sides (`observe.rs`, `Contract/Observe.lean`, and a trace of `advance` and `dispatch` in `Contract/Runtime.lean`); `contract verify` (`contract/cli/src/verify.rs`); the device test runner (`scripts/agent-test.mjs`); later stages: `Contract/Invariant.lean`, `Axiomatic.lean`, `StepSound.lean`, `TypeCheck.lean`
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Implementer:** stage 1 (§4): this session, 2026-10-27, GPT-6 Astra writing under Claude's direction. Stages 2 to 4 have none; §2's D9 to D12 are directions, not specifications, and say nothing an implementer could be held to.
@@ -750,30 +750,32 @@ Stage 1's lanes measured these on this Mac (an Apple Silicon machine, Lean's
 observation cache warm, Cargo's startup included); the lanes' reports under
 `target/review-1151/` hold the raw logs.
 
-**Delivery** (lane A1b, with `land`, inputs followed by `land` and the settle
-expansion), over the 228 blocks of the ten apps' test files, the nested Harmony app's
-included:
+**Delivery** (lane D, under r5's rule: `land`, inputs followed by `land`, the test
+clock's advances after each delivered step, the settle expansion, a settle bound that
+does not stop a block), over the 232 blocks of the ten apps' test files, the nested
+Harmony app's included:
 
 | App | Whole | Partial | Skipped | Partial blocks stop at | Skipped blocks stop at |
 |---|---:|---:|---:|---|---|
 | Agents | 0 | 0 | 3 | | `size` 3 |
 | Caltrain | 3 | 0 | 0 | | |
-| Design Tool | 11 | 39 | 45 | `request` 33; `type … key` 5; `reload` 1 | `request` 39; `fail fetch` 3; `size` 3 |
-| Excord | 0 | 85 | 3 | `clock until` 83; settle bound 2 | `fail fetch` 2; `size` 1 |
+| Design Tool | 11 | 41 | 47 | `request` 35; `type … key` 5; `reload` 1 | `request` 44; `fail fetch` 3 |
+| Excord | 0 | 85 | 3 | `clock until` 85 | `fail fetch` 2; `size` 1 |
 | Harmony | 0 | 0 | 6 | | `fresh` 6 |
 | Messages | 0 | 2 | 0 | a tap that is not a press 2 | |
-| Metronome | 9 | 0 | 0 | | |
+| Metronome | 5 | 0 | 4 | | `midi` 4 |
 | Reflow | 3 | 0 | 0 | | |
 | Shelf | 9 | 3 | 2 | `reload` 2; `back` 1 | a tap that is not a press 1; `fail fetch` 1 |
 | Variable Type | 2 | 0 | 3 | | `drag` 2; `type … key` 1 |
-| all | 37 | 129 | 62 | | |
+| all | 33 | 131 | 68 | | |
 
-Before stage 1 about a dozen blocks ran at all. The 85 Excord prefixes all agree with
-the semantics; the next steps worth delivering are `request` (72 blocks) and `clock
-until` (83), then `size` (7), which is a launch fact the harness could take. r5
-changed the delivery rule (the test clock's advances follow each delivered step, and
-the settle bound no longer stops a block, so the two Excord rows above are recounted);
-the census is rerun in the stage-1 change and this table replaced.
+Before stage 1 about a dozen blocks ran at all. Against lane A1b's count under r4's
+rule (37, 129, 62): the two Excord blocks the settle bound stopped now run to their
+`clock until`; Metronome's four MIDI blocks are skipped, since their first step is a
+`prefer-midi` the census now classifies as undeliverable rather than consuming; the
+Design Tool's `size` skips became `request` stops once a leading `size` counted as a
+launch fact. The next steps worth delivering are `request` (79 blocks) and `clock
+until` (85).
 
 **What delivery exposed.** Two divergences that no run reached before: Shelf's Back
 test, at its one-millisecond task, has the semantics emit `setContentIndex` and
@@ -786,9 +788,13 @@ divergences on eight apps that call host operations outside the oracle
 origin/main `8233879705` all eight diverge at boot; after stage 1's capture of the
 boot's host facts they diverge at the first such call.
 
-**Wall-clock** (lane A1, before the twin ran beside `advance`; median of three warm
-runs, `cargo run -q`): Type Tour 1.3 s runner-only, 1.5 s with Lean; Excord 1.6 s
-runner-only, 3.1 s with Lean. The twin's cost and the walks' are lane A2's numbers.
+**Wall-clock** (lane D, the twin beside `advance`; `contract verify`, median of three
+warm runs, `DIFFTEST_CACHE=1`): with the default twenty walks, Type Tour 2.6 s
+runner-only and 3.3 s with Lean, Excord 44 s and 88 s; with `--walks 0`, Type Tour
+1.5 s and 2.0 s, Excord 23 s and 47 s. The walks cost Excord 21 s on the runner and
+40 s with Lean; Lean's share of a default Excord run is 43 s. The device runner's cost
+on the web host was not measured: lane D's sandbox refused the profile lock, and the
+number is owed.
 
 **The trace.** The projection proof (open question 2) did not close in a page; the
 twin runs beside the original on every step and `trace disagrees` has never printed
@@ -796,9 +802,26 @@ on the corpus. Commit kinds the trace leaves out: a transport's or MIDI port's a
 a re-ask, a wake's delivery and expiry, a drop deadline, a transport-end action, and
 the advance tail's presence, polls, live times and text-axis frames.
 
-Still to fill by lanes B, A2 and C: steps with more than one commit and per `after`
-line checked against counted only; the suggestions per app and who kept them; the
-receipts of the four proof apps; the device-runner cost.
+**Steps and `after` lines** (lane D, empty and seeded stores included). Over the ten
+apps' default runs, 13,224 observed steps, 785 with more than one commit. The ten
+apps have no authored `after` line, so `after` checked and counted only are both
+zero and open question 1's trigger cannot fire on them; on the four proof apps every
+`after` step was checked (Photo Editor 94, Update Lab 324, Video Player 168; none
+counted only). Under the question's stated rule, proofs come before per-commit
+observation.
+
+**The proof apps.** All twelve theorems, restated as blocks (Type Tour one, Update Lab
+five, Photo Editor three, Video Player three), held on every observed step. Of the
+fourteen verifications eight exited clean and six reported runner/Lean
+disagreements (Agents, the Design Tool, Excord, Harmony, Photo Editor, Shelf), none
+falsifying an authored line; the Design Tool's revert walk, shrunk from 55 to 29
+events, is in `QUEUE.md`, and Photo Editor's are host operations outside the oracle.
+
+**Suggestions.** The search printed 394 property blocks over the fourteen apps (lane
+D's report has them verbatim; Caltrain 99, the Design Tool 84, Harmony 45, Reflow 36,
+Excord 23, Metronome 23, the rest fewer than twenty). None has been kept or dropped;
+which an author keeps is the measurement D6 asks for and is still owed, and it
+decides stage 2.
 
 ## Open questions
 
@@ -826,10 +849,9 @@ receipts of the four proof apps; the device-runner cost.
   landed. D1's blocks are the authored-test grammar's, compile to nothing an app runs,
   and keep executable assertions out of a component's source; this document reads
   them as outside that take, as `clock until`, `fail fetch` and `request` were, and
-  that reading is written beside the entry in the change that adds the grammar,
-  marked as pending Charlie's confirmation, since the list wants a take or a waiver in
-  his words. If he reads it otherwise, stage 1's items 1, 2, 4 and 5 stand without the
-  blocks and the suggestions print as text an author cannot yet keep.
+  that reading is written beside the entry, with the waiver Charlie gave on
+  2026-10-28 ("approve waiver yes"), since the list wants a take or a waiver in his
+  words.
 - **Apparatus.** Stage 1 adds no check. It adds work to `verify`, a traced observation,
   a script event, and a recipe file; Charlie's instruction of 2026-10-27 is the
   approval `rules/RULES.md` "Agents" asks for this document and that work. Stages 2 to

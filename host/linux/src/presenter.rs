@@ -561,7 +561,7 @@ impl<D: DataSource> Presenter<D> {
             commands: Vec::new(),
             field_select_tasks: Vec::new(),
             field_change_tasks: Default::default(),
-            agent: false,
+            agent: crate::app::AGENT_BOOT.get(),
             booting: true,
             content_registration: region,
             last_region_frame: None,
@@ -834,11 +834,11 @@ impl<D: DataSource> Presenter<D> {
                 self.surfaces.enqueue(r, &admitted);
                 continue;
             }
-            // No system browser here (LLP 1069.006 D5): 501, delivered by
-            // the next pump as an admission answer.
+            // No system browser here (LLP 1069.006 D5): 501, delivered by the next pump as an
+            // admission answer; under the agent it is held, as on every host (LLP 1146 D4).
             if r.request.is_auth() {
-                let runner = self.host.runner_mut();
-                exact_runner::auth::arm(runner, &r, false, exact_runner::auth::Browser::None, None);
+                let (agent, none) = (self.agent, exact_runner::auth::Browser::None);
+                exact_runner::auth::arm(self.host.runner_mut(), &r, agent, none, None);
                 self.executor.notify();
                 continue;
             }

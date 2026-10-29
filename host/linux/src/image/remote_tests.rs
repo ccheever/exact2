@@ -942,3 +942,116 @@ fn a_url_whose_server_said_when_to_ask_again_is_not_fetched_sooner_by_a_new_sour
     let huge = fetched(&downloads, &format!("{origin}/huge.png")).unwrap_err();
     assert!(huge.after.unwrap() > Instant::now() + Duration::from_secs(86_400));
 }
+
+#[test]
+fn an_errors_links_lose_their_queries() {
+    use super::without_queries;
+    assert_eq!(
+        without_queries("a redirect to https://cdn.example/a.png?ex=1&is=2&hm=3 now"),
+        "a redirect to https://cdn.example/a.png now"
+    );
+    assert_eq!(without_queries("ftp://h/p#frag"), "ftp://h/p");
+    assert_eq!(without_queries("HTTP 404"), "HTTP 404");
+    assert_eq!(without_queries("why? because"), "why? because");
+    assert_eq!(
+        without_queries("https://cdn.example/a.png?ex=1\u{000B}&hm=secret"),
+        "https://cdn.example/a.png"
+    );
+    let spaced = "https://h/a?x=a &hm=secret";
+    assert_eq!(
+        super::redacted(&format!("url(\"{spaced}\") gone"), spaced),
+        "url(\"https://h/a\") gone"
+    );
+    assert_eq!(
+        without_queries("https://h/a.svg?x=a\u{00A0}&hm=secret"),
+        "https://h/a.svg"
+    );
+    assert_eq!(
+        without_queries("https://h/a.svg?\u{0301}x=1&hm=secret"),
+        "https://h/a.svg"
+    );
+    assert_eq!(
+        without_queries("`https://h/a.svg?file=(1).png&hm=secret`: x"),
+        "`https://h/a.svg`: x"
+    );
+    assert_eq!(
+        without_queries("url(a.css?file=(1).png&hm=secret)"),
+        "url(a.css)"
+    );
+    assert_eq!(
+        without_queries("`https://h/a.png?)ex=1&is=2&hm=secret`: x"),
+        "`https://h/a.png`: x"
+    );
+    assert_eq!(
+        without_queries("`https://h/a.svg?x=),&hm=secret`: x"),
+        "`https://h/a.svg`: x"
+    );
+    assert_eq!(
+        without_queries("https://h/a.svg?x=))&hm=secret"),
+        "https://h/a.svg"
+    );
+    assert_eq!(
+        without_queries("https://h/a.svg?)&hm=secret"),
+        "https://h/a.svg"
+    );
+    assert_eq!(
+        without_queries("`https://h/a.svg?x=)&hm=secret`: x"),
+        "`https://h/a.svg`: x"
+    );
+    let long = format!("<{}?{}>", "a".repeat(200_000), "b".repeat(200_000));
+    assert_eq!(
+        without_queries(&long).len(),
+        200_002,
+        "linear, and the query gone"
+    );
+    assert_eq!(
+        without_queries("@import url( a.css?hm=secret);"),
+        "@import url( a.css);"
+    );
+    assert_eq!(
+        super::redacted("url(https://h/a.svg?x=1&hm=secret)", "https://h/a.svg?x=1"),
+        "url(https://h/a.svg)"
+    );
+    assert_eq!(
+        without_queries("fill=#fff stroke=#000"),
+        "fill=#fff stroke=#000"
+    );
+    assert_eq!(
+        without_queries("@import url(a.css?hm=secret);"),
+        "@import url(a.css);"
+    );
+    let spaced = "https://h/a b.png?hm=secret";
+    assert_eq!(
+        super::redacted(&format!("image {spaced}: gone"), spaced),
+        "image https://h/a b.png: gone"
+    );
+    assert_eq!(
+        without_queries("image `/a.svg?hm=1`: x"),
+        "image `/a.svg`: x"
+    );
+    assert_eq!(
+        without_queries("image `//cdn.example/a.svg?hm=1`: x"),
+        "image `//cdn.example/a.svg`: x"
+    );
+    assert_eq!(
+        without_queries("fill=\"url(https:h/x?hm=s)\""),
+        "fill=\"url(https:h/x)\""
+    );
+    assert_eq!(
+        without_queries("fill=\"url(//h/x?hm=s)\""),
+        "fill=\"url(//h/x)\""
+    );
+    assert_eq!(without_queries("HTTP 503: why?"), "HTTP 503: why?");
+    assert_eq!(
+        without_queries("image `https:cdn.example/a.png?hm=1`: x"),
+        "image `https:cdn.example/a.png`: x"
+    );
+    assert_eq!(
+        without_queries("fill=\"url(https://h/x?hm=s)\""),
+        "fill=\"url(https://h/x)\""
+    );
+    assert_eq!(
+        without_queries("a redirect to //bad:port/a.png?hm=1#f"),
+        "a redirect to //bad:port/a.png"
+    );
+}

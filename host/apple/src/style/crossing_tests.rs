@@ -3,7 +3,8 @@
 //! margins, a sticky box's vertical insets. A width or height does not
 //! cross, but that its author wrote one does (`"written"`): a presenter tells
 //! an author's box from one a sheet gave (a grouped row's leading symbol,
-//! `GroupedCustomRowsIOS`).
+//! `GroupedCustomRowsIOS`). So does an `animation`, which the engine runs: a
+//! glass its author animates in does not also materialize.
 
 use super::*;
 use exact_runner::{DataError, DataSource, Runner};
@@ -209,4 +210,39 @@ fn an_authored_size_is_named_written_and_a_sheets_is_not() {
         serde_json::json!(["width", "height"])
     );
     assert_eq!(written("sheet-star"), serde_json::json!([]));
+}
+
+#[test]
+fn an_authored_animation_is_named_written_and_does_not_cross() {
+    let source = r#"keyframes rise
+  from opacity=0
+
+component App
+  view
+    column testId="root"
+      text "Badge" testId="moving" animation="rise 200ms ease-out"
+      text "Still" testId="still"
+"#;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::new(Box::new(exact_kernel::MonospaceMeasurer::default())),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let json = |t: &str| -> serde_json::Value {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id(t)[0]).unwrap();
+        serde_json::from_str(&style_json_for(&node, &Env::default()).0).unwrap()
+    };
+    let moving = json("moving");
+    assert!(moving.get("animation").is_none(), "{moving}");
+    assert_eq!(
+        moving["written"],
+        serde_json::json!(["animation"]),
+        "{moving}"
+    );
+    assert!(json("still").get("written").is_none());
 }
