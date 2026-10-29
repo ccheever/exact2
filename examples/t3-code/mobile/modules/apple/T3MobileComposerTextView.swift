@@ -137,6 +137,7 @@ final class ComposerTextView: UITextView {
   var onAttributedMutation: (() -> Void)?
   var onSubmit: ((Bool) -> Void)?
   var isReadOnly = false
+  var plainTextPaste = false
   var textPasteThresholdBytes = 0
   var maxInputChars = Int.max
   var enterBehavior: ComposerEnterBehavior = .send
@@ -260,6 +261,14 @@ final class ComposerTextView: UITextView {
       return
     }
     let pasteboard = UIPasteboard.general
+    if plainTextPaste, let text = pasteboard.string {
+      guard permitsSourceReplacement(selectedRange, with: text) else {
+        onPasteText?(text, selectedRange)
+        return
+      }
+      insertText(text)
+      return
+    }
     let context = T3ComposerClipboard.read()
     if !context["fragment", default: ""].isEmpty || context["html", default: ""].contains("data-t3-context-fragment=") {
       onPasteContext?(context)
@@ -301,6 +310,13 @@ final class ComposerTextView: UITextView {
     let selectedLength = sourceOffset(forDisplayOffset: NSMaxRange(selectedRange)) -
       sourceOffset(forDisplayOffset: selectedRange.location)
     return sourceLength - selectedLength + pastedLength > maxInputChars
+  }
+
+  func permitsSourceReplacement(_ range: NSRange, with text: String) -> Bool {
+    guard range.location >= 0, range.length >= 0, NSMaxRange(range) <= attributedText.length else { return false }
+    let length = sourceOffset(forDisplayOffset: attributedText.length)
+    let removed = sourceOffset(forDisplayOffset: NSMaxRange(range)) - sourceOffset(forDisplayOffset: range.location)
+    return length - removed + (text as NSString).length <= maxInputChars
   }
 
   override func deleteBackward() {

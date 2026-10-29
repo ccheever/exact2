@@ -416,6 +416,7 @@ final class T3MobileOwnedComposerView: UIView, UITextViewDelegate, UITextDropDel
     replacementText text: String
   ) -> Bool {
     restoreBaseTypingAttributes()
+    if self.textView.plainTextPaste && !self.textView.permitsSourceReplacement(range, with: text) { return false }
     return !isReadOnly
   }
 

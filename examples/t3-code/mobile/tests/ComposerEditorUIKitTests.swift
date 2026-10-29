@@ -71,6 +71,7 @@ final class ComposerEditorUIKitTests {
         do { try await pasteCancellation() } catch { check(false, "paste cancellation threw: \(error)") }
         do { try await voiceCapture() } catch { check(false, "voice capture threw: \(error)") }
         do { try await richObservation() } catch { check(false, "rich observation threw: \(error)") }
+        do { try newTaskPlainPaste() } catch { check(false, "NewTask plain paste threw: \(error)") }
         do { try bundledIcons() } catch { check(false, "bundled icons threw: \(error)") }
         for (name, body) in [("handoff transitions", handoffTransitions), ("held retirement", heldRetirement), ("handoff refusal", handoffRefusal), ("handoff Undo", handoffUndo), ("rebased handoff Undo", handoffRebasedTokens)] {
             do { try body() } catch { check(false, "\(name) threw: \(error)") }
@@ -83,6 +84,45 @@ final class ComposerEditorUIKitTests {
             "failed": checks.filter { $0["pass"] as? Bool == false }.count,
             "pid": ProcessInfo.processInfo.processIdentifier, "platform": UIDevice.current.systemVersion,
             "method": "Actual production Swift bodies; public UIKit in isolated simulator app. No framework runner/root integration."]
+    }
+    private func newTaskPlainPaste() throws {
+        let pasteboard = UIPasteboard.general, saved = pasteboard.items
+        defer { pasteboard.items = saved }
+        let owner = try json(["ordinary", "https://t3.test", "environment", 3, "new-task:plain-paste", "birth"])
+        var (port, control) = try makePort("🙂 tail", selection: 3, owner: owner)
+        try acknowledge(port, &control)
+        let body = editor(port), text = body.textView
+        text.maxInputChars = 24
+        text.textPasteThresholdBytes = 1
+        pasteboard.items = [["public.utf8-plain-text": "plain🙂", "public.html": Data("<b data-t3-context-fragment='foreign'>rich</b>".utf8),
+                            T3ComposerClipboard.fragmentType: Data("{\"version\":1,\"records\":[]}".utf8)]]
+        let before = events.count
+        text.paste(nil)
+        check(port.composerSnapshot?.value == "🙂 plain🙂tail", "NewTask pastes plain text before foreign rich context")
+        check(port.composerSnapshot?.selection == .init(start: 10, end: 10), "Plain paste restores the UTF16 caret after emoji")
+        check(!events.dropFirst(before).contains { ($0["kind"] as? String)?.hasPrefix("paste") == true }, "Within-limit NewTask paste stays native despite interception threshold")
+        pasteboard.string = String(repeating: "🙂", count: 20)
+        let source = port.composerSnapshot?.value
+        text.paste(nil)
+        check(port.composerSnapshot?.value == source && event("pasteText") != nil, "Oversized NewTask paste retains the source and reports refusal")
+        check(!body.textView(text, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: String(repeating: "🙂", count: 20)), "Native NewTask typing enforces source UTF16 limit")
+        text.setMarkedText("語", selectedRange: NSRange(location: 1, length: 0))
+        let marked = port.composerSnapshot?.value
+        pasteboard.string = "blocked"
+        text.paste(nil)
+        check(port.composerSnapshot?.value == marked && text.markedTextRange != nil, "Plain paste preserves active IME composition")
+        text.unmarkText()
+        control["active"] = false; try apply(port, control)
+        let inactive = port.composerSnapshot?.value
+        text.paste(nil)
+        check(port.composerSnapshot?.value == inactive, "NewTask paste respects explicit deactivation")
+        let identity = port.composerIdentity!.json as NSDictionary
+        port.destroy(); port.view.removeFromSuperview()
+        let read = operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 3, "action": "read"])
+        let receipts = (read["value"] as? [String: Any])?["receipts"] as? [[String: Any]] ?? []
+        for receipt in receipts where receipt["identity"] as? NSDictionary == identity {
+            _ = operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 3, "action": "acknowledge", "receiptId": receipt["receiptId"]!])
+        }
     }
     private func readyAndRichMapping() throws {
         let source = "🙂 @file tail"

@@ -111,6 +111,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         catch { state = nil; control = nil; throw error }
         let editor = T3MobileOwnedComposerView(frame: root.bounds)
         self.editor = editor; root.editor = editor
+        editor.textView.plainTextPaste = next.identity.independentNewTask
         root.addSubview(editor)
         editor.textView.accessibilityIdentifier = next.editorId
         editor.textView.accessibilityLabel = next.presentation?.placeholder
