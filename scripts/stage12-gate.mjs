@@ -547,7 +547,11 @@ export function consumerPixels(opts) {
     ...byComponent.map(c => { const all = [...new Set(Object.values(c.per).flat())]; const same = hosts.every(h => c.per[h].length === all.length); return `  ${c.name}: ${same ? all.join(', ') : hosts.map(h => `${h} ${c.per[h].join(', ') || 'none'}`).join('; ')}`; }),
     ...bound.map(b => `binding ${b.binding}: ${b.said}`),
     ...(NAMED.length ? [`named changes (theme2 23:16: inside each named box allowed and reported, strict outside; crops of every named box on every shot in ${crops}, ${cropped.length} files):`,
-      ...report.map(n => `  ${n.status} ${n.screen} ${n.target}: ${n.change}; ${n.differ} px over ${n.shots.length} of ${n.seen} shots${n.shots.length ? `, boxes ${n.shots.map(h => `${h.shot.split(' ').slice(0, 2).join('-')} ${h.box.join(',')}`).join('; ')}` : ''}`)] : []),
+      ...report.map(n => `  ${n.status} ${n.screen} ${n.target}: ${n.change}; ${n.differ} px over ${n.shots.length} of ${n.seen} shots${n.shots.length ? `, boxes ${n.shots.map(h => `${h.shot.split(' ').slice(0, 2).join('-')} ${h.box.join(',')}`).join('; ')}` : ''}`),
+      // For theme2's reading (10:47 (7)): each named box's rect (pad included) and its two crops, shot by shot.
+      'each named box, shot by shot: its rect [x, y, w, h] and its crops (before, after) in the directory above:',
+      ...r.flatMap(x => (x.names ?? []).map(m => `  ${x.shot} ${m.target}: [${m.rect.join(', ')}] ${m.differ} px; ${cropped.filter(f => f.includes(`${x.shot.replace(/[^\w.-]+/g, '-')}-${m.target.replace(/[^\w.-]+/g, '-')}-`)).map(f => f.split('/').pop()).join(', ')}`))] : []),
+    ...(r.some(x => x.allow?.length) ? ['the allowlist, shot by shot (the caret strips and the iOS keyboard band):', ...r.filter(x => x.allow?.length).map(x => `  ${x.shot}: ${x.allow.map(a => `[${a.rect.join(', ')}] ${a.reason.split(',')[0]}`).join('; ')}`)] : []),
     ...conformEvidence(conform)];
   return missingNames.length || bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);
 }
