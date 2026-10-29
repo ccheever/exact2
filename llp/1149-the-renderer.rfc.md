@@ -903,6 +903,24 @@ recovery and retunes the bound to what was measured: the first frame waits for t
 device up to a bound just above the cold case, and WARP is the fallback only past it or on a
 failure, since the detour cost more than the cold path it was meant to hide.
 
+**S2.9, 2026-10-28** (`lane/ink-s2` at `e0cddcc2be`): wgpu's recovery on Windows preserves
+device loss and rejects invalid submissions and readbacks (the Linux adapter repaints on the
+CPU after a loss); the hardware deadline is one named 300 ms, set from the cold launch; §8
+carries the proposed Windows exception. All forty ordinary launches stayed on hardware; cold
+launches display at 246.5 and 250.0 ms; both devices pass every journey, the pinned suites
+and `exact-windows`'s tests. What remains is the tail D15's guard names: the worst launch of
+ten runs 37 to 44% past the `softbuffer` arm's worst (209.4 against 152.9 ms fresh at
+1920×1080; 196.8 against 137.0 retained at 1024×720), a stall between runner boot and
+layout, before the renderer draws, which 76 diagnostic launches across three traces did not
+reproduce; and the forced case of both preparations past the deadline shows no pixels until
+355 ms and the complete screen at 997 ms, the price of a device that is effectively broken.
+**The orchestrator's decision**: S2 lands now with Windows ink's device at wgpu by default,
+every fix and qualification kept, `EXACT_INK_DEVICE=d3d11` the qualified composition path;
+the flip is S2's next chunk once the tail is localized (the hypothesis to test first: the
+device thread's driver load holding the loader lock while the runner boots), because a
+repeating worst-run regression is a failure until repaired or traded, and the trade is
+Charlie's.
+
 **S2.9, 2026-10-28** (`aa474f525b`): wgpu device loss now repaints on the CPU;
 both devices pass all six native journeys, the pinned suites and `exact-windows` tests.
 The hardware deadline is 300 ms from process creation. All 40 measured normal launches
