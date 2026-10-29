@@ -10,7 +10,7 @@
 // - page → app: boot, menu (a select's rows at its trigger), copy (the text) or copy-error, retry, link, entry,
 //   entry-closed, notebook, height, error.
 import "./shared/packed";
-import { h, hideTooltip, menuPicked, post, surfaceLoading } from "./chrome";
+import { h, hideTooltip, menuPicked, post, surfaceFailure, surfaceLoading } from "./chrome";
 
 export type Config = {
   readonly type: "config";
@@ -65,6 +65,28 @@ class Incoming {
   url() {
     return URL.createObjectURL(new Blob(this.parts));
   }
+}
+
+/**
+ * The page's own requests reach only the origin its file comes from, once one is known (a second policy narrows the
+ * first, CSP3 §4.1). The static policy allows any http(s) origin because an environment's is known only at run time.
+ * A worker started from a URL takes no policy from its document, so this bounds the page, not its workers.
+ */
+export function narrowConnections(src: string, at: Document = document): void {
+  if (at.head.querySelector("meta[data-connections]")) return;
+  let origin: string;
+  try {
+    const url = new URL(src, at.location.href);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return;
+    origin = url.origin;
+  } catch {
+    return;
+  }
+  const meta = at.createElement("meta");
+  meta.httpEquiv = "Content-Security-Policy";
+  meta.content = `connect-src 'self' ${origin} blob: data:`;
+  meta.dataset.connections = origin;
+  at.head.append(meta);
 }
 
 async function mount(config: Config, src: string, retry: () => void): Promise<Viewer> {
@@ -148,14 +170,21 @@ class Page {
 
   private start(config: Config, src: string) {
     const serial = ++this.serial;
+    const retry = () => post({ type: "retry", key: config.key });
+    narrowConnections(src);
     this.show(surfaceLoading());
-    void mount(config, src, () => post({ type: "retry", key: config.key }))
+    void mount(config, src, retry)
       .then((viewer) => {
         if (serial !== this.serial) { viewer.dispose(); return; }
         this.viewer = viewer;
         this.show(viewer.element);
       })
-      .catch((cause: unknown) => post({ type: "error", message: cause instanceof Error ? cause.message : String(cause) }));
+      .catch((cause: unknown) => {
+        // A viewer that cannot load (its chunk, its engine) says so where the spinner was, with Try again.
+        const message = cause instanceof Error && cause.message ? cause.message : "The preview could not be loaded.";
+        if (serial === this.serial) this.show(surfaceFailure(message, retry));
+        post({ type: "error", message });
+      });
   }
 
   private show(element: HTMLElement) {

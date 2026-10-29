@@ -31,7 +31,7 @@ import { sourceGutter } from './files-crumbs-settle'; // the reference's line-nu
 import { letGo } from '../client/let-go';
 import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
 import { FILE_TEXT_PREVIEW_MAX_BYTES, filePreviewDelimiter, filePreviewKind, maskMarkdownFrontmatter, officePreviewKind, type FilePreviewKind } from './file-preview-kind';
-import { emptyViewerFrame, newFrame, postBytes, postToViewer, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames'; // the viewer page
+import { emptyViewerFrame, newFrame, postBytes, requestCopy, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames'; // the viewer page
 import { emptyEntry, emptyNotebook, entryView, forgetNotebook, notebookOutputMessage, notebookView, showMoreCells, type EntryView, type NotebookView } from './notebook-preview'; // what the page hands back
 import { appFiles } from '../media/save-file';
 import { stagedPath } from './attachment-files';
@@ -336,7 +336,7 @@ export async function attachmentOp(client: T3Client, native: Native, meta: Attac
     forgetFontPage(source.key);
     state.url = source.local?.url ?? ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; state.fontError = '';
     // AttachmentFilePreview's `revision`: the viewer mounts afresh, and a draft's bytes go to it again.
-    state.revision += 1; state.bytesError = ''; state.frame.notebook = null; state.frame.entry = null;
+    state.revision += 1; state.bytesError = ''; state.frame.notebook = null; state.frame.entry = null; state.frame.booted = false;
     return '';
   }
   // The audio/video player's or the picture's `error` event; a late one from a body already gone is ignored.
@@ -350,11 +350,7 @@ export async function attachmentOp(client: T3Client, native: Native, meta: Attac
   }
   if (op === 'copy') {
     // A streamed text's Copy contents is the large-text viewer's: the page reads the whole file and answers `copy`.
-    if (!state.content) {
-      if (state.frame.booted) postToViewer(state.frame, { type: 'copy' });
-      else pushToast(client, { kind: 'error', title: 'Could not copy file', description: 'Wait for the file to finish loading before copying.' });
-      return '';
-    }
+    if (!state.content) { requestCopy(state.frame); return ''; }
     try { await client.restAccess(native).call({ op: 'copyText', text: state.content.text }); state.copiedAt = now || -1; }
     catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not copy', description: message(error, 'Please try again.') }); }
     return '';

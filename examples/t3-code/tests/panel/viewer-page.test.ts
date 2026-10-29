@@ -7,8 +7,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
 import { attachmentLocal, attachmentOp, attachmentView, forgetPreview, type AttachmentMeta, type PreviewSource } from '../../src/panel/attachment-surface';
-import { newFrame, postBytes, postToViewer, viewerFrameView, viewerMessage, viewerPick } from '../../src/panel/viewer-frames';
-import { inertNotebookMarkdown } from '../../src/panel/notebook-preview';
+import { newFrame, postBytes, postToViewer, viewerFrameId, viewerFrameView, viewerMessage, viewerPick } from '../../src/panel/viewer-frames';
 import { memoryAppFiles, serveAssets } from '../support/asset-server';
 
 const native = { available: true } as Native;
@@ -54,6 +53,12 @@ describe('the frame (viewer-frames.ts)', () => {
     expect(frame.posts).toEqual([]);
     viewerPick(frame, `${menu.serial}|1`);
     expect([JSON.parse(frame.posts[0]!.text), frame.menu.rows]).toEqual([{ type: 'pick', serial: 7, id: '1' }, []]);
+  });
+
+  test('a frame id is one per preview key: keys that differ only in punctuation do not share a frame', () => {
+    const ids = ['files:a.b.docx', 'files:a_b.docx', 'files:a-b.docx', 'files:a/b.docx'].map(viewerFrameId);
+    expect(new Set(ids).size).toBe(4);
+    expect(ids.every(id => /^[A-Za-z0-9_-]+$/.test(id))).toBe(true);
   });
 
   test('a draft\'s bytes go as base64 posts of a mebibyte, the last one done', () => {
@@ -102,13 +107,20 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
     expect([view.preview, view.showWrap, view.canCopy, view.copyLabel, view.truncatedNote]).toEqual(['viewer', true, true, 'Copy contents', '']);
     expect(config(view)).toMatchObject({ view: 'text', src: 'http://127.0.0.1:1/api/assets/l?sig=1', sizeBytes: 40 * 1024 * 1024, delimiter: null, wrap: true });
     expect(server.calls).toEqual([]);
-    // Copy contents before the page booted says to wait; after, it asks the page, whose answer reaches the clipboard.
-    await attachmentLocal(c, native, 'copy', log.id, 0);
+    // Text the page sends unasked never reaches the clipboard.
     await attachmentLocal(c, native, 'viewer:{"type":"boot"}', log.id, 0);
+    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', text: 'unasked' })}`, log.id, 0);
+    expect(calls.filter(call => call.op === 'copyText')).toEqual([]);
+    // Copy contents pressed before a Try again's page booted goes to that page once it does; its answer is copied once.
+    await attachmentLocal(c, native, 'retry', log.id, 0);
     await attachmentLocal(c, native, 'copy', log.id, 0);
+    await attachmentLocal(c, native, 'copy', log.id, 0);
+    expect((await attachmentView(c, native, log, 1000)).viewer.posts).toEqual([]);
+    await attachmentLocal(c, native, 'viewer:{"type":"boot"}', log.id, 0);
     const asked = await attachmentView(c, native, log, 1000);
-    expect(JSON.parse(asked.viewer.posts[0]!.text)).toEqual({ type: 'copy' });
+    expect([asked.viewer.posts.length, JSON.parse(asked.viewer.posts[0]!.text)]).toEqual([1, { type: 'copy' }]);
     await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', text: 'whole file' })}`, log.id, 0);
+    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', text: 'again' })}`, log.id, 0);
     expect(calls.filter(call => call.op === 'copyText')).toEqual([{ op: 'copyText', text: 'whole file' }]);
     expect((await attachmentView(c, native, log, 1500)).copyLabel).toBe('Copied');
   });
@@ -156,10 +168,6 @@ describe('what the page hands back (NotebookPreview, ArchiveFile)', () => {
     { kind: 'code', source: 'print(1)\nprint(2)', outputs: [{ kind: 'text', text: '1\n2\n' }, { kind: 'html', text: '<table><tr><td>1</td></tr></table>' }, { kind: 'image', text: 'data:image/png;base64,iVBORw0KGgo=' }] },
     { kind: 'raw', source: 'raw text', outputs: [] },
   ] };
-  test('inert Markdown: no links, images, raw HTML or inline code; a Mermaid fence is text, fenced code keeps its lines', () => {
-    expect(inertNotebookMarkdown(notebook.cells[0]!.source)).toBe('# Sales\nSee docs and chart with code bold.');
-    expect(inertNotebookMarkdown('```mermaid\ngraph TD\n```\n```ts\nconst a = [b](c);\n```\n[ref]: https://x\n`a*b`')).toBe('```text\ngraph TD\n```\n```ts\nconst a = [b](c);\n```\n\na\\*b');
-  });
   test('a notebook the page parsed is drawn here: its status, cells, outputs, and Show more past twenty cells', async () => {
     const meta: AttachmentMeta = { id: 'nb', name: 'analysis.ipynb', mimeType: '', sizeBytes: 2410 };
     const c = client([meta]);
@@ -168,7 +176,10 @@ describe('what the page hands back (NotebookPreview, ArchiveFile)', () => {
     const view = await attachmentView(c, native, meta, 1000);
     expect([view.preview, view.notebook.status, view.notebook.more, view.notebook.empty]).toEqual(['notebook', '3 cells · python · 3 KB', '', false]);
     const [markdown, code, raw] = view.notebook.cells;
-    expect([markdown!.label, markdown!.document !== '', view.markdownSource.map(source => source.body)]).toEqual(['markdown · 1', true, ['# Sales\nSee docs and chart with code bold.']]);
+    // A Markdown cell goes to the renderer whole, as a `notebook` document, which it makes inert (data/src/markdown.rs
+    // notebook_inert_tests): parsing it here as text could disagree with the renderer about where an image starts.
+    expect([markdown!.label, markdown!.document !== '', view.markdownSource.map(source => [source.kind, source.body])])
+      .toEqual(['markdown · 1', true, [['notebook', notebook.cells[0]!.source]]]);
     expect([code!.label, code!.lines.map(line => line.number), code!.sourceHeight, code!.outputs.map(output => [output.kind, output.text, output.url])])
       .toEqual(['python · 2', ['1', '2'], 56, [['text', '1\n2\n', ''], ['html', '', ''], ['image', '', 'data:image/png;base64,iVBORw0KGgo=']]]);
     expect([raw!.label, raw!.lines.length]).toEqual(['raw · 3', 1]);
@@ -183,6 +194,10 @@ describe('what the page hands back (NotebookPreview, ArchiveFile)', () => {
     expect([first.notebook.cells.length, first.notebook.more]).toEqual([20, 'Show more cells (25 remaining)']);
     await attachmentLocal(c, native, 'viewer-more', meta.id, 0);
     expect((await attachmentView(c, native, meta, 1000)).notebook.more).toBe('Show more cells (5 remaining)');
+    // An image output that is not a picture's data URL shows nothing: it would load with no press.
+    const remote = { ...notebook, cells: [{ kind: 'code', source: 'x', outputs: [{ kind: 'image', text: 'https://attacker.example/p.png' }, { kind: 'image', text: 'data:text/html;base64,PGI+' }] }] };
+    await attachmentLocal(c, native, `viewer:${JSON.stringify(remote)}`, meta.id, 0);
+    expect((await attachmentView(c, native, meta, 1000)).notebook.cells[0]!.outputs.map(output => output.url)).toEqual(['', '']);
   });
   test("an archive's opened entry: its source, its picture written for the image view, or why not; Back closes it", async () => {
     const files = memoryAppFiles();

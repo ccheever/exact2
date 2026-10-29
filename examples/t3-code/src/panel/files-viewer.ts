@@ -11,7 +11,7 @@ import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
 import { saveAttachment } from './attachment-files';
 import { revisedUrl } from './files-rendered-html';
-import { emptyViewerFrame, newFrame, postToViewer, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames';
+import { emptyViewerFrame, newFrame, requestCopy, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames';
 import { openExternal } from '../client/external-open';
 
 export type FullFileView = { open: boolean; copyLabel: string; copied: boolean; saving: boolean; saveLabel: string };
@@ -102,7 +102,7 @@ export async function filesViewerOp(client: T3Client, native: Native, op: string
   const state = stateOf(client);
   if (op.startsWith('viewer-posted:')) { state.frame.posts = state.frame.posts.filter(post => post.key !== op.slice(14)); return; }
   if (op.startsWith('viewer-pick:')) { viewerPick(state.frame, op.slice(12)); return; }
-  if (op === 'full-copy') { if (state.frame.booted) postToViewer(state.frame, { type: 'copy' }); return; }
+  if (op === 'full-copy') { requestCopy(state.frame); return; }
   if (op === 'full-save') {
     if (state.saving || !state.path) return;
     state.saving = true;

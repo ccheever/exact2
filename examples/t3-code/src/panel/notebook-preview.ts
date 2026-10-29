@@ -87,34 +87,6 @@ function notebookOf(owner: string) {
 }
 export function forgetNotebook(owner: string): void { notebookState.delete(owner); pictures.delete(`entry:${owner}`); }
 
-/**
- * inertNotebookMarkdown: saved notebooks load no URL and turn no authored link into an app action. Raw HTML and link
- * definitions go, an image is its alt text, a link its text, inline code plain text, and a Mermaid fence is text; fenced
- * code keeps its lines.
- */
-export function inertNotebookMarkdown(source: string): string {
-  const escape = (text: string) => text.replace(/[\\`*_{}[\]()#+\-.!|<>~]/g, (char) => `\\${char}`);
-  let fence = '';
-  return source.split('\n').map((line) => {
-    const opener = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence) {
-      if (opener && opener[1]!.startsWith(fence[0]!) && opener[1]!.length >= fence.length && !opener[2]!.trim()) fence = '';
-      return line;
-    }
-    if (opener) {
-      fence = opener[1]!;
-      return /^\s*mermaid\b/i.test(opener[2]!) ? line.replace(/mermaid/i, 'text') : line;
-    }
-    if (/^ {0,3}\[[^\]]+\]:\s*\S/.test(line)) return '';
-    return line
-      .replace(/`([^`]+)`/g, (_, code: string) => escape(code))
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt: string) => alt)
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, (_, text: string) => text)
-      .replace(/\[([^\]]*)\]\[[^\]]*\]/g, (_, text: string) => text)
-      .replace(/<\/?[A-Za-z][^>]*>/g, '');
-  }).join('\n');
-}
-
 /** NotebookPreview's projection: the shown cells, their Markdown documents and code, and the outputs' frames. */
 export async function notebookView(client: T3Client, owner: string, notebook: ViewerNotebook): Promise<{ view: NotebookView; markdown: NotebookMarkdown }> {
   const state = notebookOf(owner);
@@ -125,7 +97,8 @@ export async function notebookView(client: T3Client, owner: string, notebook: Vi
   for (const [index, cell] of shown.entries()) {
     const id = `${index}`;
     const document = cell.kind === 'markdown' ? `notebook:${owner}:${index}` : '';
-    if (document) markdownSource.push({ id: document, kind: 'attachment', title: '', body: inertNotebookMarkdown(cell.source) });
+    // `notebook`: the renderer makes the cell inert (data/src/markdown.rs `inert_blocks`), as upstream's tree pass does.
+    if (document) markdownSource.push({ id: document, kind: 'notebook', title: '', body: cell.source });
     const source = cell.kind !== 'markdown' && cell.source.trim() ? cell.source : '';
     const extension = cell.kind === 'code' ? (NOTEBOOK_SOURCE_EXTENSIONS[notebook.language] ?? notebook.language) : 'txt';
     const lines = source ? codeLines(`cell.${extension}`, source) : [];
@@ -162,11 +135,15 @@ export async function notebookView(client: T3Client, owner: string, notebook: Vi
   };
 }
 
-/** An image output's source: its `data:` URL, or past 1 MiB a file the image reads. */
+/**
+ * An image output's source: its `data:` URL, or past 1 MiB a file the image reads. Only a picture's `data:` URL: what
+ * the page sends is shown with no press, so any other source (a remote URL) shows nothing.
+ */
 async function imageSource(owner: string, outputId: string, dataUrl: string): Promise<string> {
+  const match = /^data:image\/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/=]*)$/.exec(dataUrl);
+  if (!match) return '';
   if (dataUrl.length <= DATA_URL_BYTES) return dataUrl;
-  const match = /^data:image\/(png|jpeg|gif|webp);base64,(.*)$/s.exec(dataUrl);
-  return match ? picture(`output:${owner}:${outputId}`, String(dataUrl.length), match[2]!, match[1] === 'jpeg' ? 'jpg' : match[1]!) : '';
+  return picture(`output:${owner}:${outputId}`, String(dataUrl.length), match[2]!, match[1] === 'jpeg' ? 'jpg' : match[1]!);
 }
 
 /** Show more cells: twenty more. */
