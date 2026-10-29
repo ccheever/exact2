@@ -1,12 +1,15 @@
 //! An upload's place in its executor (LLP 1016.000 D10). Its body, read
 //! from its file or given inline, and the platform's copy of it are held in
 //! the executor's upload budget from before its file is read until its
-//! exchange ends. An upload waits in a queue, holding no stream's place or
-//! thread, until the budget has room and fewer than [`RUNNING`] uploads go
-//! out, so a burst of attachments leaves the app's other streams their
-//! places; one upload alone always fits. The executor records each upload
-//! that has begun to go out, for the runner to read when it lets one go.
-use super::super::{complete, failed, Core, Shared, StreamHost, STREAMS};
+//! exchange ends. An upload waits in a queue, holding no stream's place,
+//! thread, count or bytes of its lane, until the budget has room, fewer
+//! than [`RUNNING`] uploads go out and its lane can take its buffers and
+//! its reply's ceiling; then it takes them all. So a burst of attachments
+//! leaves the app's other streams their places and its other requests
+//! their room; one upload alone always fits. The executor records each
+//! upload that has begun to go out, for the runner to read when it lets
+//! one go.
+use super::super::{complete, failed, Core, Shared, StreamHost, BYTES, STREAMS};
 use exact_runner::{FailureKind, Message, Outcome, Request};
 use ibex2::stdlib::{abort::AbortController, fetch::Sent};
 use std::collections::{HashSet, VecDeque};
@@ -126,7 +129,7 @@ impl Core {
 }
 
 /// Admit upload `ticket` to wait for room. Its running entry, which the
-/// core made, holds no stream's place until it starts.
+/// core made, holds no stream's place, count or bytes until it starts.
 pub(in super::super) fn queue(
     shared: &Arc<Shared>,
     ticket: u64,
@@ -154,27 +157,39 @@ pub(in super::super) fn queue(
 }
 
 /// Start each upload waiting at the head that has room in the budget, a
-/// stream's place, and one of the [`RUNNING`]: that place and a thread are
-/// its from now on. One the runner has let go meanwhile ends unsent.
+/// stream's place, one of the [`RUNNING`], and room in its lane for its
+/// buffers and its reply's ceiling (`Running::limit`, as the core charges
+/// a stream at admission): that place, a thread, a count and those bytes
+/// are its from now on. One the runner has let go meanwhile ends unsent.
 pub(in super::super) fn start(shared: &Arc<Shared>) {
     let (mut starting, mut gone) = (Vec::new(), Vec::new());
     {
-        let mut state = shared.state.lock().unwrap();
+        let mut guard = shared.state.lock().unwrap();
+        let state = &mut *guard;
         let mut budget = shared.uploads.0.lock().unwrap();
         while let Some(next) = budget.queue.front() {
             let room = budget.bytes == 0 || budget.bytes.saturating_add(next.need) <= budget.limit;
             if state.retired || !room || budget.running >= RUNNING || state.streams >= STREAMS {
                 break;
             }
-            let next = budget.queue.pop_front().expect("a head");
             let Some(run) = state.running.iter_mut().find(|r| r.ticket == next.ticket) else {
+                budget.queue.pop_front();
                 continue;
             };
             if run.forgotten {
                 gone.push(next.ticket);
+                budget.queue.pop_front();
                 continue;
             }
-            run.stream = true;
+            let (lane, limit) = (run.lane, run.limit);
+            let parked = state.book.parked(lane, &state.jobs[lane]);
+            if limit > BYTES[lane].saturating_sub(state.bytes[lane] + parked) {
+                break;
+            }
+            let next = budget.queue.pop_front().expect("a head");
+            (run.stream, run.waiting, run.charge) = (true, false, limit);
+            state.counts[lane] += 1;
+            state.bytes[lane] += limit;
             state.streams += 1;
             budget.bytes += next.need;
             budget.running += 1;
@@ -224,20 +239,26 @@ pub(in super::super) fn start(shared: &Arc<Shared>) {
     }
 }
 
-/// A completion was drained (`place`: a stream's end, whose place is free
-/// now): an upload's record of its start goes with it, and with the core
-/// unlocked an upload waiting may take the place.
+/// A completion was drained (`room`: the end of a request of the
+/// independent lane, whose bytes, and a stream's place if it was one, are
+/// free now): an upload's record of its start goes with it, and with the
+/// core unlocked an upload waiting may take the room.
 pub(in super::super) fn freed(
     shared: &Arc<Shared>,
     state: std::sync::MutexGuard<'_, super::super::State>,
     ticket: u64,
-    place: bool,
+    room: bool,
 ) {
     drop(state);
-    if place {
+    if room {
         shared.uploads.0.lock().unwrap().started.remove(&ticket);
         start(shared);
     }
+}
+
+/// Whether an upload waits in the queue.
+pub(in super::super) fn queued(shared: &Shared) -> bool {
+    !shared.uploads.0.lock().unwrap().queue.is_empty()
 }
 
 /// Let go of the uploads waiting whose tickets the runner no longer

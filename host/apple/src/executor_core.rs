@@ -67,6 +67,9 @@ struct Running {
     exchange: Option<AbortController>,
     forgotten: bool,
     stream: bool,
+    /// An upload waiting for its start (`stream::Uploads`): it holds no
+    /// count or bytes of its lane until then.
+    waiting: bool,
     /// An ordered safe read: once complete it holds no effect slot.
     read: bool,
     /// The asynchronous core's (LLP 1120 D3, D5); workers leave them be.
@@ -509,15 +512,15 @@ impl Core {
             }
             return Ok(());
         }
+        // An upload waits for its start holding no count, bytes or place of
+        // its lane, so a queue of them refuses no other request; it takes
+        // them as it starts (`stream::start`).
+        let waits = r.request.stream && r.request.upload_progress;
         let admitted = (|| {
             let (lane, charge, limit) = checked?;
-            // A stream starts at once, so it is charged its ceiling now; an
-            // upload waits for its place (`stream::Uploads`).
+            // A stream starts at once, so it is charged its ceiling now.
             let (full, charge) = if r.request.stream {
-                (
-                    state.streams >= STREAMS && !r.request.upload_progress,
-                    limit,
-                )
+                (state.streams >= STREAMS && !waits, limit)
             } else {
                 let streams = if lane == 1 { state.streams } else { 0 };
                 // Plain reads may wait in a larger, still ordered backlog:
@@ -538,7 +541,7 @@ impl Core {
             // A parked upload's outstanding charge counts as taken, so a
             // later request can't crowd it out (LLP 1120 §6 question 8).
             let parked = state.book.parked(lane, &state.jobs[lane]);
-            if full || charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked) {
+            if full || (!waits && charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked)) {
                 return Err("native executor admission limit reached");
             }
             if lane == 0 {
@@ -567,8 +570,10 @@ impl Core {
         if ordered {
             state.ordered.push_back(r.ticket);
         }
-        state.counts[lane] += 1;
-        state.bytes[lane] += charge;
+        if !waits {
+            state.counts[lane] += 1;
+            state.bytes[lane] += charge;
+        }
         if r.request.stream {
             // Never queued behind held replies: a stream opens on its own
             // thread with its own transport, and reads there (LLP 1067 D3).
@@ -580,12 +585,13 @@ impl Core {
                 started: std::time::Instant::now(),
                 ticket: r.ticket,
                 lane,
-                charge,
+                charge: if waits { 0 } else { charge },
                 limit,
                 abort: Some(abort.clone()),
                 exchange: None,
                 forgotten: false,
                 stream: !upload,
+                waiting: waits,
                 read: false,
                 terminal: false,
                 live: 0,
@@ -675,13 +681,9 @@ impl Core {
         if has_ready(&state) {
             wake(&mut state);
         }
-        // A stream's place, which an upload waiting may take.
-        stream::place_freed(
-            &self.shared,
-            state,
-            done.ticket,
-            done.stream && !done.message,
-        );
+        // The independent lane's bytes and perhaps a stream's place, which
+        // an upload waiting may take.
+        stream::place_freed(&self.shared, state, done.ticket, lane == 1 && !done.message);
         vec![(done.ticket, done.outcome, Some(done.elapsed_ms))]
     }
 
@@ -945,6 +947,7 @@ fn next_job(state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
         exchange: (job.work.is_none() && !job.request.stream).then(|| abort.clone()),
         forgotten: job.forgotten,
         stream: job.request.stream,
+        waiting: false,
         read: lane == 0 && read(&job.request, job.work.is_some()),
         terminal: false,
         live: 0,
@@ -970,16 +973,21 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     // A completion frees ordered bytes a waiting job may need.
     rouse(shared, &state);
     if run.forgotten {
-        state.counts[lane] -= 1;
+        state.counts[lane] -= usize::from(!run.waiting);
         state.streams -= usize::from(run.stream);
         state.bytes[lane] -= run.charge;
         // The lane going idle can let a retained ordered refusal settle,
         // and the work held behind it go: the host needs a pump for that.
-        if lane == 0 && state.counts[0] == 0 {
+        // The bytes freed may start an upload waiting for them, at the
+        // next pump's forget (`stream::start`).
+        if (lane == 0 && state.counts[0] == 0) || (lane == 1 && stream::uploads_queued(shared)) {
             wake(&mut state);
         }
         return;
     }
+    // An upload that ends before it starts holds a count until drained, as
+    // every end does.
+    state.counts[lane] += usize::from(run.waiting);
     let bytes = if lane == 0 {
         retained(&outcome) + std::mem::size_of::<Completed>()
     } else {

@@ -27,6 +27,7 @@ use ibex2::stdlib::{
 };
 use std::sync::Arc;
 use std::time::Duration;
+pub(super) use upload::queued as uploads_queued;
 pub(super) use upload::Uploads;
 pub(super) use upload::{forget as forget_uploads, freed as place_freed, queue as queue_upload};
 use upload::{progress, timed_out, COPIES};

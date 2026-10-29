@@ -550,6 +550,7 @@ impl Machine {
             exchange: (kind == Kind::Http).then(|| abort.clone()),
             forgotten: job.forgotten,
             stream: false,
+            waiting: false,
             read: lane == 0 && super::read(&job.request, job.work.is_some()),
             terminal: false,
             // The start holds its run until it has run (`starter`).

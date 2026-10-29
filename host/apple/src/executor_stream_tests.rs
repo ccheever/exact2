@@ -239,8 +239,13 @@ fn stream(ticket: u64, path: &str, ceiling: u32) -> RequestOut {
 
 /// An upload (LLP 1016.000 D10): a POST stream of `size` bytes.
 fn upload(ticket: u64, path: &str, size: usize) -> RequestOut {
+    upload_within(ticket, path, size, 4096)
+}
+
+/// The same, its reply read within `ceiling` bytes.
+fn upload_within(ticket: u64, path: &str, size: usize, ceiling: u32) -> RequestOut {
     let mut request = Request::get(&format!("https://example.test{path}"))
-        .independent_http(4096)
+        .independent_http(ceiling)
         .upload_progress();
     request.method = "POST".into();
     request.body = vec![7; size];
@@ -1186,10 +1191,11 @@ fn an_uploads_file_is_read_once_it_has_room() {
 /// device has, goes three at a time, as upstream T3 Code sends them, and
 /// leaves the app's other streams their places: an event stream opened
 /// before fifteen 2 MB uploads and one opened after them both open at once,
-/// and every upload ends with its reply. The budget alone would start all
-/// fifteen, which with the first stream take all 16 places; fifteen is as
-/// many as the independent lane admits at once on the asynchronous core,
-/// which also reserves the portable transport's copy of each body.
+/// and every upload ends with its reply. Without the cap the budget and the
+/// independent lane would start all fifteen, which with the first stream
+/// take all 16 places; the lane would hold no more going out at once on the
+/// asynchronous core, which also reserves the portable transport's copy of
+/// each body.
 #[test]
 fn a_burst_of_photo_uploads_goes_three_at_a_time_and_leaves_other_streams_their_places() {
     let (core, script, woke) = setup();
@@ -1241,6 +1247,31 @@ fn a_burst_of_photo_uploads_goes_three_at_a_time_and_leaves_other_streams_their_
         "never more than three at once"
     );
     assert_eq!(core.shared.uploads.waiting(), (0, 0));
+}
+
+/// LLP 1016.000 D10: an upload waiting in the queue holds no count or
+/// bytes of its lane. Thirty with a 1 MiB reply ceiling, `maxResponseBytes`'s
+/// default, charged as they waited, would leave the independent lane's 64
+/// MiB no room for a fetch's ceiling, and the fetch would wait behind them
+/// unanswered; only the three going out are charged, and the fetch is
+/// admitted and answered.
+#[test]
+fn thirty_uploads_waiting_leave_an_independent_fetch_its_room() {
+    let (core, script, woke) = setup();
+    for ticket in 1..=30 {
+        core.run_owned(upload_within(ticket, "/upload", 4096, 1 << 20), None)
+            .expect("an upload waits");
+    }
+    let _going: Vec<Feed> = (0..3).map(|at| feed(&script, at)).collect();
+    assert_eq!(core.shared.uploads.waiting().0, 27);
+    let fetch = RequestOut {
+        ticket: 100,
+        target: "data".into(),
+        request: Request::get("https://example.test/data").independent_http(1 << 20),
+        forced: false,
+    };
+    core.run_owned(fetch, None).expect("the fetch is admitted");
+    while !matches!(next(&core, &woke), (100, Outcome::Response(_))) {}
 }
 
 /// The executor records each upload that has begun to go out, and tells
