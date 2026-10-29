@@ -323,10 +323,20 @@ package final class TextArea: NSTextView {
         if string.isEmpty, !placeholder.isEmpty {
             let origin = textContainerOrigin
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
-            (placeholder as NSString).draw(in: rect, withAttributes: [
+            var attributes: [NSAttributedString.Key: Any] = [
                 .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? ThemeRoles.color("placeholder", in: self, or: NSColor.placeholderTextColor) : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
-            ])
+            ]
+            // A Markdown editor's at its first line's start (LLP 1045 D11), as
+            // UIKit's and the web's: string drawing aligns natural text by the
+            // app's layout direction, not the paragraph's, so the side is said.
+            if let markup {
+                let style = NSMutableParagraphStyle(), direction = markup.direction(at: 0)
+                style.baseWritingDirection = direction
+                style.alignment = direction == .rightToLeft ? .right : .left
+                attributes[.paragraphStyle] = style
+            }
+            (placeholder as NSString).draw(in: rect, withAttributes: attributes)
         }
     }
 }

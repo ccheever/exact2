@@ -18,7 +18,7 @@ const STYLES = [[1, 'md-b'], [2, 'md-i'], [4, 'md-c'], [8, 'md-s'], [16, 'md-a']
 const CSS = `
 .exact-markdown-editor { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; caret-color: currentColor; cursor: text; }
 .exact-markdown-editor, .exact-markdown-editor * { position: relative; }
-.exact-markdown-editor.md-empty::before { content: attr(placeholder); position: absolute; pointer-events: none; color: var(--exact-placeholder-color, light-dark(#3c3c4380, #ebebf580)); }
+.exact-markdown-editor.md-empty > .md-line:first-child::before { content: attr(data-placeholder); position: absolute; pointer-events: none; color: var(--exact-placeholder-color, light-dark(#3c3c4380, #ebebf580)); }
 .md-hide, .md-collapsed { display: none; }
 .md-b { font-weight: 700; } .md-i { font-style: italic; } .md-s { text-decoration: line-through; }
 .md-c { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .88em; background: light-dark(#0000000f, #ffffff14); border-radius: 4px; padding: 1px 3px; }
@@ -30,13 +30,13 @@ const CSS = `
 .md-code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .88em; background: light-dark(#0000000f, #ffffff14); padding: 0 12px; }
 .md-code-first { border-top-left-radius: 8px; border-top-right-radius: 8px; padding-top: 8px; }
 .md-code-last { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; padding-bottom: 8px; }
-.md-quote { --q: 1; color: light-dark(#6b6b70, #a1a1aa); padding-inline-start: calc(var(--q) * 18px); background: repeating-linear-gradient(to right, light-dark(#d4d4d8, #52525b) 0 3px, transparent 3px 18px) no-repeat; background-size: calc(var(--q) * 18px) 100%; }
-.md-quote:dir(rtl) { background-image: repeating-linear-gradient(to left, light-dark(#d4d4d8, #52525b) 0 3px, transparent 3px 18px); background-position: right top; }
-.md-quote[data-quote="2"] { --q: 2; } .md-quote[data-quote="3"] { --q: 3; }
+.md-quote { --q: 1; --bar: light-dark(#d4d4d8, #52525b); color: light-dark(#6b6b70, #a1a1aa); border-inline-start: calc(var(--q) * 18px) solid transparent;
+  border-image: linear-gradient(to right, var(--bar) 0 3px, transparent 3px 18px, var(--bar) 18px 21px, transparent 21px 36px, var(--bar) 36px 39px, transparent 39px calc(100% - 39px),
+    var(--bar) calc(100% - 39px) calc(100% - 36px), transparent calc(100% - 36px) calc(100% - 21px), var(--bar) calc(100% - 21px) calc(100% - 18px), transparent calc(100% - 18px) calc(100% - 3px), var(--bar) calc(100% - 3px)) 0 18; }
+.md-quote[data-quote="2"] { --q: 2; border-image-slice: 0 36; } .md-quote[data-quote="3"] { --q: 3; border-image-slice: 0 54; }
 .md-list { --d: 0; padding-inline-start: calc(28px + var(--d) * 24px); }
 .md-list[data-depth="1"] { --d: 1; } .md-list[data-depth="2"] { --d: 2; } .md-list[data-depth="3"] { --d: 3; }
-.md-quote.md-list { padding-inline-start: calc(var(--q) * 18px + 28px + var(--d) * 24px); }
-.md-bullet::before, .md-number::before, .md-task::before { position: absolute; inset-inline-start: calc(var(--d, 0) * 24px + var(--q, 0) * 18px); width: 22px; text-align: center; }
+.md-bullet::before, .md-number::before, .md-task::before { position: absolute; inset-inline-start: calc(var(--d, 0) * 24px); width: 22px; text-align: center; }
 .md-bullet::before { content: "•"; font-weight: 700; } .md-list[data-depth="1"].md-bullet::before { content: "◦"; }
 .md-number::before { content: attr(data-num); opacity: .6; text-align: end; font-variant-numeric: tabular-nums; }
 .md-task::before { content: ""; top: .3em; margin-inline-start: 3px; width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 4px; cursor: pointer; }
@@ -116,9 +116,10 @@ function build(d) {
   return line;
 }
 /** Whether a line's DOM already is `d` — as it is after most native keystrokes.
- * Its `dir` is set in place (`direct`), so it is no part of `d`. */
+ * Its `dir` and placeholder are set in place (`direct`, `showPlaceholder`), so
+ * they are no part of `d`. */
 function matches(line, d) {
-  const own = line.hasAttribute('dir') ? 2 : 1;
+  const own = 1 + line.hasAttribute('dir') + line.hasAttribute('data-placeholder');
   if (line.className !== d.cls || line.attributes.length !== own + d.attrs.length || d.attrs.some(([k, value]) => line.getAttribute(k) !== value)) return false;
   const kids = line.childNodes, boxes = d.segs.filter(s => s[2]).length;
   if (kids.length !== d.segs.length + boxes + (d.empty ? 1 : 0)) return false;
@@ -132,6 +133,25 @@ function matches(line, d) {
   return !d.empty || kids[kids.length - 1].nodeName === 'BR';
 }
 
+// A strong letter, and those of the right-to-left scripts (UAX #9's R and AL),
+// as Apple's MarkupEditor classifies them for `auto` (LLP 1045 D11).
+const STRONG = /[\p{L}‎‏؜]/u;
+const RTL = /[֐-ࣿ‏יִ-﷿ﹰ-﻿\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u;
+/** `auto`'s direction for a line: its first strong letter outside Markdown
+ * syntax (hidden or dimmed) and atoms; null for none. */
+function firstStrong(line) {
+  const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    if (t.parentElement.closest('.md-hide, .md-m, .md-collapsed, .exact-atom')) continue;
+    const c = STRONG.exec(t.data)?.[0];
+    if (c) return RTL.test(c) ? 'rtl' : 'ltr';
+  }
+  return null;
+}
+
+/** A line's inline-start border and padding, where its text starts. */
+const gutter = css => (parseFloat(css.borderInlineStartWidth) || 0) + (parseFloat(css.paddingInlineStart) || 0);
+
 // Replacing the textarea happens only once this module and its wasm are
 // ready; until then it remains an ordinary, usable source editor.
 function installMarkupEditor(textarea, host) {
@@ -142,7 +162,9 @@ function installMarkupEditor(textarea, host) {
   let source = '', lines = [], records = [], starts = [0], index = new WeakMap(), payload = '', placed = null;
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
   let nativeHidden = null, direction = 'none', told = null, reported = '', moving = false, reread = false, atomStyles = {}, atomed = null;
-  let dirs = [], dirsSaid = null;
+  // The app's `paragraphDirs` words; whether they still wait to be placed by
+  // line number; and each line's text and word as drawn (LLP 1045 D11).
+  let words = [], wordsSaid = null, placeWords = true, drawnTexts = [], drawnWords = [];
   let tabIndex = el.getAttribute('tabindex');
   const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !inertAncestor(el);
   const now = () => performance.now();
@@ -184,8 +206,10 @@ function installMarkupEditor(textarea, host) {
     lines.splice(head, 0, ...added);
     records = next;
     mutations = []; observer.takeRecords();
-    lines.forEach((line, i) => { index.set(line, i); direct(line, i); });
+    carry(next.map(r => r.line));
+    lines.forEach((line, i) => { index.set(line, i); direct(line, drawnWords[i], i >= head && i < head + added.length); });
     el.classList.toggle('md-empty', source === '');
+    showPlaceholder();
   }
   function read() { source = utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_source(h), wasm.mde_source_len(h))); }
   /** Each atom's kind, label, icon, title, role, destination and source, in source order (`mde_atom_faces`). */
@@ -206,16 +230,51 @@ function installMarkupEditor(textarea, host) {
   /** The field's `paragraphDirs` words (LLP 1045 D11); whether they changed. */
   function directions() {
     const said = el.getAttribute('data-paragraph-dirs') ?? '';
-    if (said === dirsSaid) return false;
-    dirsSaid = said; dirs = said.split(/[\t\n\f\r ]+/).filter(Boolean);
+    if (said === wordsSaid) return false;
+    wordsSaid = said; words = said.split(/[\t\n\f\r ]+/).filter(Boolean); placeWords = true;
     return true;
   }
-  /** Line `i`'s base direction as HTML's `dir`: its word, a line past the last
-   * word taking the last. With no word, or another, it inherits the field's. */
-  function direct(line, i) {
-    const word = dirs[Math.min(i, dirs.length - 1)];
-    if (word === 'ltr' || word === 'rtl' || word === 'auto') { if (line.getAttribute('dir') !== word) line.setAttribute('dir', word); }
-    else line.removeAttribute('dir');
+  /** Each line's word as drawn: new words by line number, a line past the
+   * last word taking the last; then each word stays with its line through
+   * edits, and a line an edit adds takes the word of the line above it (at
+   * the top, below it) until the app's next words. */
+  function carry(texts) {
+    if (placeWords) {
+      placeWords = false;
+      drawnWords = texts.map((_, i) => words[Math.min(i, words.length - 1)]);
+    } else {
+      const old = drawnTexts, was = drawnWords;
+      let head = 0, tail = 0;
+      while (head < old.length && head < texts.length && old[head] === texts[head]) head++;
+      while (tail < old.length - head && tail < texts.length - head && old[old.length - 1 - tail] === texts[texts.length - 1 - tail]) tail++;
+      const kept = old.length - head - tail, next = was.slice(0, head);
+      for (let k = 0; k < texts.length - head - tail; k++) next.push(k < kept ? was[head + k] : next[head + k - 1] ?? was[head + kept]);
+      drawnWords = next.concat(was.slice(was.length - tail));
+    }
+    drawnTexts = texts;
+  }
+  /** New words from the app, by line number, once the batch that brought them
+   * has drawn its value too (a render in between places them itself). */
+  function placeNewWords() {
+    if (destroyed || !placeWords) return;
+    carry(drawnTexts);
+    lines.forEach((line, i) => direct(line, drawnWords[i]));
+  }
+  /** A line's `dir` from its word: `ltr` or `rtl`, or for `auto` its first
+   * strong letter outside syntax and atoms. With none it inherits the field's. */
+  function direct(line, word, force) {
+    if (!force && line.exactWord === word) return;
+    line.exactWord = word;
+    const dir = word === 'ltr' || word === 'rtl' ? word : word === 'auto' ? firstStrong(line) : null;
+    if (dir) { if (line.getAttribute('dir') !== dir) line.setAttribute('dir', dir); } else line.removeAttribute('dir');
+  }
+  /** An empty editor's placeholder, on its line, so it takes that line's
+   * direction, as UIKit draws it in the first line's paragraph style. */
+  function showPlaceholder() {
+    const line = lines[0], text = source === '' ? el.getAttribute('placeholder') ?? '' : '';
+    if (!line) return;
+    if (text) { if (line.getAttribute('data-placeholder') !== text) line.setAttribute('data-placeholder', text); }
+    else line.removeAttribute('data-placeholder');
   }
 
   /** The source offset of a DOM point inside the editor. An island adds no
@@ -466,7 +525,7 @@ function installMarkupEditor(textarea, host) {
   function sync() {
     if (destroyed) return;
     if (composing || notifying) { pendingSync = true; return; }
-    if (el.getAttribute('markup') === 'markdown') { configure(); if (directions()) lines.forEach(direct); const bits = atoms(); if (bits & SOURCE) { render(); if (bits & PLACE) place(false); emit(); } return; }
+    if (el.getAttribute('markup') === 'markdown') { configure(); showPlaceholder(); if (directions()) queueMicrotask(placeNewWords); const bits = atoms(); if (bits & SOURCE) { render(); if (bits & PLACE) place(false); emit(); } return; }
     // Markdown off: the same source in a plain textarea, the explicit source mode.
     const native = document.createElement('textarea'), [from, to] = sel(), focused = document.activeElement === el;
     for (const attr of el.attributes) if (!ours.includes(attr.name) && !defaults.has(attr.name)) native.setAttribute(attr.name, attr.value);
@@ -559,10 +618,11 @@ function installMarkupEditor(textarea, host) {
   };
   el.addEventListener('copy', clip(false));
   el.addEventListener('cut', clip(true));
-  /** Whether `x` is in a line's marker gutter: its inline-start padding, the right in a right-to-left line. */
+  /** Whether `x` is in a line's marker gutter: its inline-start border (a
+   * quote's bars) and padding, the right in a right-to-left line. */
   const inGutter = (line, x) => {
-    const box = line.getBoundingClientRect(), css = getComputedStyle(line);
-    return css.direction === 'rtl' ? box.right - x <= parseFloat(css.paddingRight) : x - box.left <= parseFloat(css.paddingLeft);
+    const box = line.getBoundingClientRect(), css = getComputedStyle(line), start = gutter(css);
+    return (css.direction === 'rtl' ? box.right - x : x - box.left) <= start;
   };
   // A press on an island selects its atom, then is the field's `atompress` (LLP 1045.000 D5, D7).
   const pressed = e => { const box = e.target.closest?.('.exact-atom'); return box && el.contains(box) && index.has(box.parentNode) ? islands().find(i => i.box === box) : null; };
@@ -660,8 +720,7 @@ function installMarkupEditor(textarea, host) {
     if (at) { r.setStart(at[0], at[1]); const box = r.getBoundingClientRect(); if (box.height) return box; }
     // A caret on an empty line has no text to measure: the line's start.
     const l = line.getBoundingClientRect(), css = getComputedStyle(line);
-    const x = css.direction === 'rtl' ? l.right - parseFloat(css.paddingRight || '0') : l.x + parseFloat(css.paddingLeft || '0');
-    return new DOMRect(x, l.y, 0, l.height);
+    return new DOMRect(css.direction === 'rtl' ? l.right - gutter(css) : l.x + gutter(css), l.y, 0, l.height);
   }
   function rangeFrame(from, to) {
     if (destroyed || composing) return null;

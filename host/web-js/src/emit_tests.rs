@@ -380,6 +380,27 @@ fn aria_disabled_is_an_attribute_for_static_and_bound_values() {
     );
 }
 
+/// LLP 1045 D11: a literal `paragraphDirs` is the element's attribute from
+/// its creation, before the Markdown editor mounts and reads it; a bound one
+/// writes the same attribute.
+#[test]
+fn paragraph_dirs_is_written_before_the_editor_mounts() {
+    let plan = contract::compile(
+        "component App\n  state dirs = \"ltr rtl\"\n  view\n    column\n      textarea value=\"\" markup=\"markdown\" paragraphDirs=\"rtl\"\n      textarea value=\"\" markup=\"markdown\" paragraphDirs=dirs\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let literal = js
+        .find("\"data-paragraph-dirs\":\"rtl\"")
+        .unwrap_or_else(|| panic!("{js}"));
+    let mount = js.find("mde(").unwrap_or_else(|| panic!("{js}"));
+    assert!(literal < mount, "the attribute precedes the mount: {js}");
+    assert!(
+        js.matches("\"data-paragraph-dirs\"").count() >= 2,
+        "the bound value uses the same attribute: {js}"
+    );
+}
+
 #[test]
 fn a_dialog_close_handler_uses_the_dom_event() {
     let plan = contract::compile(

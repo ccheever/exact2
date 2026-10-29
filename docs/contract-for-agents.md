@@ -2091,7 +2091,7 @@ give each source a face with `atomFaces=` and hear `atompress=`
 Keep them out of your own rules over `setSelectionRange` and `beforeinput`: the
 editor keeps a caret out of an atom and deletes it whole. An editor where
 Arabic or Hebrew lines sit beside English ones gives each line its base
-direction with `paragraphDirs`, HTML's `dir` words, one per line of the source
+direction with `paragraphDirs`, HTML's `dir` words, one per source line
 ([Markdown](contract-grammar.md#markdown-markup-format-select)).
 
 Choose a colour by what it means, not by how it looks. **The accent is for

@@ -16,7 +16,7 @@ use exact_kernel::{PropId, StyleCodec, StyleId};
 pub fn accepts(prop: PropId) -> Option<&'static str> {
     match prop {
         PropId::NavigationDetent => Some("space-separated large, medium, finite positive point heights, or percentages of the sheet's maximum height above 0% and at most 100%; fit-content alone or as fit-content large; otherwise ascending, point heights and percentages (or medium) not mixed, large last"),
-        PropId::ParagraphDirs => Some("space-separated ltr, rtl or auto, HTML's dir words, one for each line of the source in order; a line past the last word takes the last"),
+        PropId::ParagraphDirs => Some("space-separated ltr, rtl or auto, HTML's dir words, one per source line in order; a line past the last word takes the last"),
         _ => None,
     }
 }

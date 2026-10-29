@@ -283,6 +283,16 @@ for (const engine of engines) {
       expect(start).toBe(right);
     });
   }, 60000);
+
+  // @ref LLP 1045 D11 — `auto` reads the letters a line draws as text, as Apple's MarkupEditor does.
+  engineTest[engine](`${engine}: auto takes a line's first strong letter outside its syntax and atoms`, async () => {
+    await editor(engine, '@src/a.ts اشرح هذا \n@x اكتب\n[1](https://example.test) مرحبا\n42', async (page, field) => {
+      await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'auto'); el.exactMarkup.sync(); });
+      await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => setTimeout(ok))));
+      // The atom and the link's destination are left out; `@x` has no face, so it is text; 42 has no strong letter.
+      expect(await field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')))).toEqual(['rtl', 'ltr', 'rtl', null]);
+    }, { faceList: [['@src/a.ts', 'a.ts']] });
+  }, 60000);
 }
 
 for (const engine of engines) {

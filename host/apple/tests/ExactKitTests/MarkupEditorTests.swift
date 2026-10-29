@@ -510,43 +510,139 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertNil(MarkupEdit(source: "abcd", object: ["replacements": [[1, 3, "x"], [2, 4, "y"]], "selection": [0, 0]]))
     }
 
-    /// LLP 1045 D11: each line's paragraph takes the app's word as its base
-    /// direction, a line past the last word the last; a new `paragraphDirs`
-    /// alone restyles, and the source never changes.
-    func testParagraphDirsGiveEachLineItsBaseWritingDirection() throws {
-        let source = "One\nReact هو مكتبة\n- عنصر\n"
-        let (node, field, window, presenter) = editor(source, selection: NSRange(location: (source as NSString).length, length: 0))
-        // The session's text engine is the editor's fonts: without one it styles nothing.
+    /// A Markdown editor styled by a session's text engine, which gives it
+    /// its fonts: without one it styles nothing. The caller keeps the
+    /// presenter, which its node holds weakly.
+    private func styled(_ source: String, caret: Int? = nil) -> (NodeView, TextArea, NSWindow, Presenter, ExactSession) {
+        let (node, field, window, presenter) = editor(source, selection: NSRange(location: caret ?? (source as NSString).length, length: 0))
         let session = ExactApp.shared.makeSession(label: "paragraph-dirs")
         presenter.session = session
-        defer { window.close(); session.destroy() }
         node.restyleMarkup()
-        let storage = try XCTUnwrap(field.textStorage)
+        return (node, field, window, presenter, session)
+    }
+
+    /// Each line's base direction, read at the given line starts.
+    private func directions(_ field: TextArea, _ starts: [Int]) -> [NSWritingDirection?] {
+        starts.map { (field.textStorage?.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.baseWritingDirection }
+    }
+
+    /// LLP 1045 D11: each line's paragraph takes the app's word as its base
+    /// direction, a line past the last word the last, and a line without one
+    /// the field's; a new `paragraphDirs` alone restyles, and the source never
+    /// changes.
+    func testParagraphDirsGiveEachLineItsBaseWritingDirection() throws {
+        let source = "One\nReact هو مكتبة\n- عنصر\n"
+        let (node, field, window, presenter, session) = styled(source)
+        defer { window.close(); session.destroy(); _ = presenter }
         let starts = [0, 4, 19]
-        let directions = { starts.map { (storage.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.baseWritingDirection } }
-        // Where "React" starts, from the line's leading edge: TextKit's natural base is its first strong letter, an R.
+        // Where "React" starts, from the field's left edge.
         let react = { () -> CGFloat in
             var actual = NSRange()
             return field.firstRect(forCharacterRange: NSRange(location: 4, length: 1), actualRange: &actual).minX - window.frame.minX
         }
-        XCTAssertEqual(directions(), [.natural, .natural, .natural])
+        // Without words every line takes the field's direction: no first strong letter selects one.
+        XCTAssertEqual(directions(field, starts), [.leftToRight, .leftToRight, .leftToRight])
         XCTAssertLessThan(react(), 100)
         node.props["paragraphDirs"] = "ltr rtl"
         node.applyTextArea()
-        XCTAssertEqual(directions(), [.leftToRight, .rightToLeft, .rightToLeft])
+        XCTAssertEqual(directions(field, starts), [.leftToRight, .rightToLeft, .rightToLeft])
         XCTAssertGreaterThan(react(), 250, "a right-to-left line starts at the right")
-        // The caret on the empty last line types in its line's direction.
+        // The caret on the empty last line types, and draws a placeholder, in its line's direction.
         XCTAssertEqual((field.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.baseWritingDirection, .rightToLeft)
-        // The list item keeps its paragraph row's indents, now from the right.
-        let item = try XCTUnwrap(storage.attribute(.paragraphStyle, at: 19, effectiveRange: nil) as? NSParagraphStyle)
+        // The list item keeps its paragraph row's indent, which TextKit measures from the leading edge.
+        let item = try XCTUnwrap(field.textStorage?.attribute(.paragraphStyle, at: 19, effectiveRange: nil) as? NSParagraphStyle)
         XCTAssertEqual(item.headIndent, 20)
+        // The most common direction is every paragraph's base; only the line that differs is set apart.
+        let drawn = try XCTUnwrap(field.markup as? MarkupEditor).directions
+        XCTAssertEqual(drawn.base, .rightToLeft)
+        XCTAssertEqual(drawn.runs.map(\.range), [NSRange(location: 0, length: 4)])
+        node.props["paragraphDirs"] = "rtl"
+        node.applyTextArea()
+        XCTAssertEqual(directions(field, starts), [.rightToLeft, .rightToLeft, .rightToLeft])
+        XCTAssertTrue(try XCTUnwrap(field.markup as? MarkupEditor).directions.runs.isEmpty, "one word is one pass")
         node.props["paragraphDirs"] = "rtl sideways"
         node.applyTextArea()
-        XCTAssertEqual(directions(), [.rightToLeft, .natural, .natural])
+        XCTAssertEqual(directions(field, starts), [.rightToLeft, .leftToRight, .leftToRight])
         node.props["paragraphDirs"] = nil
         node.applyTextArea()
-        XCTAssertEqual(directions(), [.natural, .natural, .natural])
+        XCTAssertEqual(directions(field, starts), [.leftToRight, .leftToRight, .leftToRight])
         XCTAssertEqual(field.string, source)
+    }
+
+    /// LLP 1045 D11: a field whose own `direction` is right to left gives it
+    /// to every line without a word, the author's over the first strong letter.
+    func testALineWithoutAWordTakesTheFieldsDirection() {
+        let (node, field, window, presenter, session) = styled("Hello\nمرحبا")
+        defer { window.close(); session.destroy(); _ = presenter }
+        node.applyStyle(["direction": .string("rtl")])
+        XCTAssertEqual(directions(field, [0, 6]), [.rightToLeft, .rightToLeft])
+        node.props["paragraphDirs"] = "ltr"
+        node.applyTextArea()
+        XCTAssertEqual(directions(field, [0, 6]), [.leftToRight, .leftToRight])
+        node.props["paragraphDirs"] = "ltr x"
+        node.applyTextArea()
+        XCTAssertEqual(directions(field, [0, 6]), [.leftToRight, .rightToLeft])
+    }
+
+    /// LLP 1045 D11: an empty editor's placeholder is drawn in its first
+    /// line's direction, as UIKit's and the web's are.
+    func testAnEmptyEditorsPlaceholderTakesItsFirstLinesDirection() throws {
+        let (node, field, window, presenter, session) = styled("")
+        defer { window.close(); session.destroy(); _ = presenter }
+        let editor = try XCTUnwrap(field.markup)
+        XCTAssertEqual(editor.direction(at: 0), .leftToRight)
+        node.props["paragraphDirs"] = "rtl"
+        node.applyTextArea()
+        XCTAssertEqual(editor.direction(at: 0), .rightToLeft)
+    }
+
+    /// LLP 1045 D11: `auto` is a line's first strong letter outside its
+    /// syntax and atoms, as the web editor finds it; with none, the field's.
+    func testAutoTakesTheFirstStrongLetterOutsideSyntaxAndAtoms() {
+        let source = "@src/a.ts اشرح هذا \n@x اكتب\n[1](https://example.test) مرحبا\n42"
+        let (node, field, window, presenter, session) = styled(source)
+        defer { window.close(); session.destroy(); _ = presenter }
+        node.props["atoms"] = #"[{"name":"mention","prefix":"@"}]"#
+        node.props["atomFaces"] = #"[{"source":"@src/a.ts","label":"a.ts","icon":"","title":""}]"#
+        node.props["paragraphDirs"] = "auto"
+        node.applyTextArea()
+        let starts = [0, 20, 28, 60]
+        XCTAssertEqual(directions(field, starts), [.rightToLeft, .leftToRight, .rightToLeft, .leftToRight])
+    }
+
+    /// LLP 1045 D11: a word stays with its line through typing, Return, undo
+    /// and a composition, until the app's next words.
+    func testAWordStaysWithItsLineThroughTypingReturnUndoAndComposition() throws {
+        let (node, field, window, presenter, session) = styled("A\nب\nC", caret: 1)
+        defer { window.close(); session.destroy(); _ = presenter }
+        node.props["paragraphDirs"] = "ltr rtl ltr"
+        node.applyTextArea()
+        XCTAssertEqual(directions(field, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        // Return at the end of the first line: the new line takes the word above it, and ب keeps its own.
+        field.setSelectedRange(NSRange(location: 1, length: 0))
+        field.insertNewline(nil)
+        XCTAssertEqual(field.string, "A\n\nب\nC")
+        XCTAssertEqual(directions(field, [0, 2, 3, 5]), [.leftToRight, .leftToRight, .rightToLeft, .leftToRight])
+        field.breakUndoCoalescing()
+        field.undoManager?.undo()
+        XCTAssertEqual(field.string, "A\nب\nC")
+        XCTAssertEqual(directions(field, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        // Typing in a line keeps its word.
+        field.setSelectedRange(NSRange(location: 3, length: 0))
+        field.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertEqual(field.string, "A\nبx\nC")
+        XCTAssertEqual(directions(field, [0, 2, 5]), [.leftToRight, .rightToLeft, .leftToRight])
+        // A composition is drawn in its line's direction and committed with it.
+        field.setMarkedText("ج", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(field.hasMarkedText())
+        field.unmarkText()
+        XCTAssertEqual(field.string, "A\nبxج\nC")
+        XCTAssertEqual(directions(field, [0, 2, 6]), [.leftToRight, .rightToLeft, .leftToRight])
+        // The app's next words go by line number again.
+        node.props["value"] = field.string
+        node.props["paragraphDirs"] = "rtl"
+        node.applyTextArea()
+        XCTAssertEqual(directions(field, [0, 2, 6]), [.rightToLeft, .rightToLeft, .rightToLeft])
     }
 }
 #endif
@@ -666,25 +762,69 @@ final class MarkupEditorIOSTests: XCTestCase {
         XCTAssertEqual(heard, ["before - one 5 insertLineBreak", "before - one 5 insertLineBreak", "input - one\n-  8 insertLineBreak"])
     }
 
-    /// LLP 1045 D11 on UIKit: a `paragraphDirs` the app sends alone restyles
-    /// each line's base direction, and the empty last line types in its line's.
-    func testParagraphDirsGiveEachLineItsBaseWritingDirection() {
-        let source = "One\nReact هو مكتبة\n"
+    /// A Markdown field styled by a session's text engine, which gives it
+    /// its fonts: without one it styles nothing.
+    private func styledField(_ source: String) -> (Presenter, NodeView, TextArea, ExactSession) {
         let (p, node, f) = markdownField(source)
-        // The session's text engine is the editor's fonts: without one it styles nothing.
         let session = ExactApp.shared.makeSession(label: "paragraph-dirs")
         p.session = session
-        defer { session.destroy() }
         node.restyleMarkup()
-        let directions = { [0, 4].map { (f.textStorage.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.baseWritingDirection } }
-        XCTAssertEqual(directions(), [.natural, .natural])
+        return (p, node, f, session)
+    }
+
+    private func directions(_ f: TextArea, _ starts: [Int]) -> [NSWritingDirection?] {
+        starts.map { (f.textStorage.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.baseWritingDirection }
+    }
+
+    /// LLP 1045 D11 on UIKit: a `paragraphDirs` the app sends alone restyles
+    /// each line's base direction, the empty last line types (and draws its
+    /// placeholder) in its line's, and a line without a word takes the field's.
+    func testParagraphDirsGiveEachLineItsBaseWritingDirection() {
+        let source = "One\nReact هو مكتبة\n"
+        let (p, _, f, session) = styledField(source)
+        defer { session.destroy() }
+        XCTAssertEqual(directions(f, [0, 4]), [.leftToRight, .leftToRight])
         f.selectedRange = NSRange(location: (source as NSString).length, length: 0)
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl"]]]))
-        XCTAssertEqual(directions(), [.leftToRight, .rightToLeft])
+        XCTAssertEqual(directions(f, [0, 4]), [.leftToRight, .rightToLeft])
         XCTAssertEqual((f.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.baseWritingDirection, .rightToLeft)
         p.apply(wireBatch([["op": "props", "id": 2, "clear": ["paragraphDirs"]]]))
-        XCTAssertEqual(directions(), [.natural, .natural])
+        XCTAssertEqual(directions(f, [0, 4]), [.leftToRight, .leftToRight])
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["direction": "rtl"]]]))
+        XCTAssertEqual(directions(f, [0, 4]), [.rightToLeft, .rightToLeft])
         XCTAssertEqual(f.text, source)
+    }
+
+    /// LLP 1045 D11 on UIKit: a word stays with its line through typing,
+    /// Return, undo and a composition, until the app's next words.
+    func testAWordStaysWithItsLineThroughTypingReturnUndoAndComposition() throws {
+        let (p, node, f, session) = styledField("A\nب\nC")
+        defer { session.destroy() }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl ltr"]]]))
+        XCTAssertTrue(f.becomeFirstResponder())
+        f.undoManager?.removeAllActions()
+        f.selectedRange = NSRange(location: 1, length: 0)
+        f.insertText("\n")
+        XCTAssertEqual(f.text, "A\n\nب\nC")
+        XCTAssertEqual(directions(f, [0, 2, 3, 5]), [.leftToRight, .leftToRight, .rightToLeft, .leftToRight])
+        let manager = try XCTUnwrap(f.undoManager)
+        // UIKit closes the typing's undo group at the end of the run loop turn.
+        let deadline = Date().addingTimeInterval(2)
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        manager.undo()
+        XCTAssertEqual(f.text, "A\nب\nC")
+        XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        f.selectedRange = NSRange(location: 3, length: 0)
+        f.insertText("x")
+        XCTAssertEqual(directions(f, [0, 2, 5]), [.leftToRight, .rightToLeft, .leftToRight])
+        f.setMarkedText("ج", selectedRange: NSRange(location: 1, length: 0))
+        XCTAssertNotNil(f.markedTextRange)
+        f.unmarkText()
+        XCTAssertEqual(f.text, "A\nبxج\nC")
+        XCTAssertEqual(directions(f, [0, 2, 6]), [.leftToRight, .rightToLeft, .leftToRight])
+        node.props["value"] = f.text
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": f.text ?? "", "paragraphDirs": "rtl"]]]))
+        XCTAssertEqual(directions(f, [0, 2, 6]), [.rightToLeft, .rightToLeft, .rightToLeft])
     }
 }
 #endif

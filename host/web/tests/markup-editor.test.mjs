@@ -14,7 +14,8 @@ const missing = Object.fromEntries(await Promise.all(engines.map(async e => [e, 
 const engineTest = Object.fromEntries(engines.map(e => [e, need(e === 'chromium' ? 'chrome' : e, missing[e])]));
 const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) : null;
 
-async function editor(engine, source, drive, runtime = false) {
+/** `attrs`: the textarea's own attributes beside its markup, as a page writes them before the editor mounts. */
+async function editor(engine, source, drive, runtime = false, attrs = '') {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
     if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
@@ -24,7 +25,7 @@ async function editor(engine, source, drive, runtime = false) {
       const js = resolve(WEB, '../web-js', path.slice(1));
       return new Response(Bun.file(existsSync(js) ? js : resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     }
-    return new Response(`<!doctype html><meta charset="utf-8"><textarea id="editor" markup="markdown" style="width:500px;height:240px"></textarea><pre id="echo"></pre>
+    return new Response(`<!doctype html><meta charset="utf-8"><textarea id="editor" markup="markdown" ${attrs} style="width:500px;height:240px"></textarea><pre id="echo"></pre>
       <script type="module">
         globalThis.exact = {};
         let field = document.getElementById('editor');
@@ -298,6 +299,58 @@ for (const engine of engines) for (const runtime of [false, true]) {
       await say('');
       expect(await dirs()).toEqual([null, null, null, null]);
     }, runtime);
+  }, 60000);
+
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: a word stays with its line through an edit that adds or removes one`, async () => {
+    await editor(engine, 'A\nب\nC', async (page, field) => {
+      const dirs = () => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+      // Words the page wrote before the editor mounted.
+      expect(await dirs()).toEqual(['ltr', 'rtl', 'ltr']);
+      // Return at the end of the first line: the new line takes the word above it, and ب keeps its own.
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(1, 1); });
+      await page.keyboard.press('Enter'); await settle(page);
+      expect(await field.evaluate(el => el.value)).toBe('A\n\nب\nC');
+      expect(await dirs()).toEqual(['ltr', 'ltr', 'rtl', 'ltr']);
+      // Delete at the empty line takes it back out (forward: WebKit's Backspace navigates in the runtime harness).
+      await page.keyboard.press('Delete'); await settle(page);
+      expect(await field.evaluate(el => el.value)).toBe('A\nب\nC');
+      expect(await dirs()).toEqual(['ltr', 'rtl', 'ltr']);
+      // The app's next words go by line number again.
+      await page.evaluate(runtime => {
+        (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', 'rtl');
+        if (!runtime) field().exactMarkup.sync();
+      }, runtime);
+      await settle(page);
+      expect(await dirs()).toEqual(['rtl', 'rtl', 'rtl']);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
+  }, 60000);
+
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: quote bars, list markers and the placeholder sit at each line's start`, async () => {
+    await editor(engine, '> اقتباس\n- عنصر', async (page, field) => {
+      // Each line's start border and padding, physical: [left border, right border, left padding, right padding].
+      const sides = () => field.evaluate(el => [...el.children].map(line => {
+        const css = getComputedStyle(line);
+        return [css.borderLeftWidth, css.borderRightWidth, css.paddingLeft, css.paddingRight];
+      }));
+      expect(await sides()).toEqual([['18px', '0px', '0px', '0px'], ['0px', '0px', '28px', '0px']]);
+      // A field whose own direction is right to left, with no words: CSS direction alone.
+      await field.evaluate(el => { el.style.direction = 'rtl'; });
+      expect(await sides()).toEqual([['0px', '18px', '0px', '0px'], ['0px', '0px', '0px', '28px']]);
+      await field.evaluate(el => { el.style.direction = ''; });
+      await page.evaluate(runtime => {
+        (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', 'rtl');
+        if (!runtime) field().exactMarkup.sync();
+      }, runtime);
+      await settle(page);
+      expect(await sides()).toEqual([['0px', '18px', '0px', '0px'], ['0px', '0px', '0px', '28px']]);
+      // Emptied, the placeholder is drawn on the first line, in that line's direction.
+      await field.evaluate(el => { el.value = ''; });
+      await settle(page);
+      expect(await field.evaluate(el => {
+        const line = el.children[0];
+        return [el.value, line.getAttribute('dir'), getComputedStyle(line, '::before').content, getComputedStyle(line, '::before').direction];
+      })).toEqual(['', 'rtl', '"Ask"', 'rtl']);
+    }, runtime, 'placeholder="Ask"');
   }, 60000);
 
   engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: source selection, range edits, their undo and the app's beforeinput`, async () => {

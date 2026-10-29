@@ -1401,17 +1401,20 @@ both are refused while an input method composes. On the web, where hidden
 syntax is not drawn, a caret put inside it is drawn at its visible edge and
 reads back there ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D6).
 
-`paragraphDirs` gives each line of the editor's source its base direction, in
-HTML's `dir` words, the first word the first line's: `paragraphDirs="ltr rtl"`
-draws the first line left to right and every line after it right to left,
-since a line past the last word takes the last; `auto` is the line's first
-strong letter. An editor where Arabic or Hebrew sits beside English derives
-the words from its value (one word per line of `value.split("\n")`), by
-whatever rule the app keeps. Without `paragraphDirs` each line keeps the
-editor's own direction: the field's `direction` on the web, its first strong
-letter on Apple. The web, macOS and iOS draw it, a right-to-left line's list
-marker and quote bar on its right; Linux, Windows and Android, which show the
-source, ignore it ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D11).
+`paragraphDirs` gives the editor's lines their base direction: one word per
+source line, HTML's `dir` (`ltr`, `rtl` or `auto`), the first word the first
+line's. A line feed ends a line, so a Markdown paragraph broken over three
+source lines takes three words. `paragraphDirs="ltr rtl"` draws the first line
+left to right and every line after it right to left, since a line past the
+last word takes the last. An editor where Arabic or Hebrew sits beside English
+derives the words from its value (one per `value.split("\n")`), by whatever
+rule the app keeps. Until the app's next words, each word stays with its line
+through edits, and a line an edit adds takes the word above it. A line without
+a word takes the field's `direction`; `auto` is the line's first strong letter
+outside its syntax and atoms. The web, macOS and iOS draw it, a right-to-left
+line's list marker and quote bar on its right; Linux, Windows and Android,
+which show the source, ignore it
+([LLP 1045](../llp/1045-markdown-editor.rfc.md) D11).
 
 ### Inline atoms: `atom`, `atoms`, `atomFaces`, `atompress`
 

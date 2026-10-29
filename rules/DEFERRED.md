@@ -236,7 +236,7 @@ crate's other hidden syntax (`QUEUE.md`, "Markdown editor") waits behind
 atoms. Still out: pill padding and radius, a second control inside a pill,
 atoms in the Linux, Windows and Android editors (they show the source), and
 inline math (a child RFC's). **Expanded (Daehyeon Mun, 2026-10-29, waived;
-LLP 1045 D11):** the app gives each line of the editor's source its base
+LLP 1045 D11):** the app gives each source line of the editor its base
 direction, `paragraphDirs` in HTML's `dir` words, drawn on the web and Apple.
 Unblocks T3 Code's composer, whose original gives each block the direction of
 most of its words. Take: waived (Daehyeon Mun, 2026-10-29): one attribute on
