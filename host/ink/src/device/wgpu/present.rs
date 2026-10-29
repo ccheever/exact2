@@ -154,12 +154,17 @@ impl Wgpu {
         let renderer = window.renderer.clone();
         let done = self.done.clone();
         let errors = self.errors.clone();
-        let flight = window._layer.begin_frame()?;
+        let benchmark = crate::device::apple::benchmark_scene();
         self.submitted.0 += 1;
         let submission = self.submitted;
-        let receipt = window.thread.send(move || {
+        let receipt = window.thread.frame(move |show| {
             let mut renderer = renderer.lock().unwrap();
-            let result = renderer.present(view, size);
+            let result = if show {
+                crate::device::apple::benchmark_present(benchmark);
+                renderer.present(view, size)
+            } else {
+                Ok(renderer.queue.submit([]))
+            };
             if let Err(error) = &result {
                 *errors.lock().unwrap() = Some(error.clone());
             }
@@ -167,15 +172,16 @@ impl Wgpu {
                 done.fetch_max(submission.0, Ordering::Release);
             });
             if let Ok(index) = &result {
-                renderer
-                    .device
-                    .poll(::wgpu::PollType::Wait {
-                        submission_index: Some(index.clone()),
-                        timeout: Some(std::time::Duration::from_secs(30)),
-                    })
-                    .map_err(|e| Error::Device(e.to_string()))?;
+                if show {
+                    renderer
+                        .device
+                        .poll(::wgpu::PollType::Wait {
+                            submission_index: Some(index.clone()),
+                            timeout: Some(std::time::Duration::from_secs(30)),
+                        })
+                        .map_err(|e| Error::Device(e.to_string()))?;
+                }
             }
-            drop(flight);
             result
         })?;
         self.pending.insert(submission.0, Pending::Present(receipt));

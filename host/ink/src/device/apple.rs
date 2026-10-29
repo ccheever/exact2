@@ -23,7 +23,6 @@ struct Inner {
     layer: Retained<CAMetalLayer>,
     live_resize: Arc<AtomicBool>,
     retry: Arc<AtomicBool>,
-    flight: Arc<AtomicBool>,
     transactions: Transactions,
     wake: Arc<dyn Fn() + Send + Sync>,
     _owner: Rc<dyn HasWindowHandle>,
@@ -68,7 +67,6 @@ impl Layer {
             layer,
             live_resize: Arc::new(AtomicBool::new(false)),
             retry: Arc::new(AtomicBool::new(false)),
-            flight: Arc::new(AtomicBool::new(false)),
             transactions: Default::default(),
             wake: Arc::new(wake),
             _owner: owner,
@@ -105,15 +103,6 @@ impl Layer {
         self.0.retry.swap(false, Ordering::AcqRel)
     }
 
-    /// Damage stays with the presenter until the previous frame has completed.
-    pub fn in_flight(&self) -> bool {
-        self.0.flight.load(Ordering::Acquire)
-    }
-
-    pub(crate) fn begin_frame(&self) -> Result<Flight> {
-        Flight::begin(self.0.flight.clone(), self.0.wake.clone())
-    }
-
     /// A posted wheel event carries its own point without moving the cursor.
     pub fn wheel_position(&self) -> Option<[f32; 2]> {
         let event = NSApplication::sharedApplication(MainThreadMarker::new()?).currentEvent()?;
@@ -137,25 +126,6 @@ impl Layer {
             transactions: self.0.transactions.clone(),
             wake: self.0.wake.clone(),
         }
-    }
-}
-
-pub(crate) struct Flight {
-    pending: Arc<AtomicBool>,
-    wake: Arc<dyn Fn() + Send + Sync>,
-}
-impl Flight {
-    fn begin(pending: Arc<AtomicBool>, wake: Arc<dyn Fn() + Send + Sync>) -> Result<Self> {
-        if pending.swap(true, Ordering::AcqRel) {
-            return Err(Error::Invalid("a window frame is already in flight".into()));
-        }
-        Ok(Self { pending, wake })
-    }
-}
-impl Drop for Flight {
-    fn drop(&mut self) {
-        self.pending.store(false, Ordering::Release);
-        (self.wake)();
     }
 }
 
@@ -319,9 +289,21 @@ impl Drop for DisplayLink {
     }
 }
 
-/// Publish readiness to the optional, linked G1 benchmark probe.
-/// The offset is in points; the probe records it separately from GPUI's item index.
+thread_local! {
+    static BENCHMARK: std::cell::Cell<(bool, f32)> = const { std::cell::Cell::new((false, 0.)) };
+}
+
+/// Readiness and scroll offset of the frame being encoded, for the optional probe.
 pub fn benchmark_frame(complete: bool, offset: f32) {
+    BENCHMARK.set((complete, offset));
+}
+
+pub(crate) fn benchmark_scene() -> (bool, f32) {
+    BENCHMARK.get()
+}
+
+/// Set the probe's metadata on the worker immediately before drawable acquisition.
+pub(crate) fn benchmark_present((complete, offset): (bool, f32)) {
     type Ready = unsafe extern "C" fn(i32, usize, f32);
     static READY: std::sync::OnceLock<Option<Ready>> = std::sync::OnceLock::new();
     let ready = READY.get_or_init(|| unsafe {
@@ -336,28 +318,5 @@ pub fn benchmark_frame(complete: bool, offset: f32) {
         unsafe {
             ready(i32::from(complete), 0, offset);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn completion_releases_the_frame_and_wakes_pending_damage() {
-        let pending = Arc::new(AtomicBool::new(false));
-        let (tx, rx) = std::sync::mpsc::channel();
-        let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || tx.send(()).unwrap());
-        let frame = Flight::begin(pending.clone(), wake.clone()).unwrap();
-        assert!(pending.load(Ordering::Acquire));
-        assert!(Flight::begin(pending.clone(), wake.clone()).is_err());
-        assert!(rx.try_recv().is_err());
-        std::thread::spawn(move || drop(frame)).join().unwrap();
-        rx.recv().unwrap();
-        assert!(!pending.load(Ordering::Acquire));
-        drop(Flight::begin(pending.clone(), wake).unwrap());
-        rx.recv().unwrap();
-        assert!(!pending.load(Ordering::Acquire));
-        assert!(rx.try_recv().is_err());
     }
 }

@@ -415,24 +415,42 @@ impl Wgpu {
 
     fn submit(&mut self, commands: ::wgpu::CommandBuffer) -> Result<Submission> {
         failure(&self.errors)?;
-        #[cfg(target_os = "macos")]
-        let index = if let Some(window) = &self.window {
-            let queue = self.queue.clone();
-            window.thread.call(move || queue.submit([commands]))?
-        } else {
-            self.queue.submit([commands])
-        };
-        #[cfg(not(target_os = "macos"))]
-        let index = self.queue.submit([commands]);
-        failure(&self.errors)?;
         self.submitted.0 += 1;
         let id = self.submitted;
-        self.pending.insert(id.0, Pending::Submitted(index));
         let done = self.done.clone();
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &self.window {
+            let queue = self.queue.clone();
+            let receipt = window.thread.send(move || {
+                let index = queue.submit([commands]);
+                queue.on_submitted_work_done(move || {
+                    done.fetch_max(id.0, Ordering::Release);
+                });
+                Ok(index)
+            })?;
+            self.pending.insert(id.0, Pending::Present(receipt));
+            return Ok(id);
+        }
+        let index = self.queue.submit([commands]);
+        failure(&self.errors)?;
+        self.pending.insert(id.0, Pending::Submitted(index));
         self.queue.on_submitted_work_done(move || {
             done.fetch_max(id.0, Ordering::Release);
         });
         Ok(id)
+    }
+
+    fn write_buffer(&self, buffer: &::wgpu::Buffer, offset: u64, bytes: &[u8]) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &self.window {
+            let (queue, buffer, bytes) = (self.queue.clone(), buffer.clone(), bytes.to_vec());
+            window
+                .thread
+                .send(move || queue.write_buffer(&buffer, offset, &bytes))?;
+            return Ok(());
+        }
+        self.queue.write_buffer(buffer, offset, bytes);
+        Ok(())
     }
 
     fn encode_pass(
@@ -603,7 +621,7 @@ impl Device for Wgpu {
             ));
         }
         self.wait(Submission(buffer.last.load(Ordering::Acquire)))?;
-        self.queue.write_buffer(&buffer.raw, offset, data);
+        self.write_buffer(&buffer.raw, offset, data)?;
         let submission = self.submit(
             self.device
                 .create_command_encoder(&Default::default())
@@ -646,6 +664,21 @@ impl Device for Wgpu {
         if data.len() as u64 != bytes {
             return Err(Error::Invalid("texture upload length".into()));
         }
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &self.window {
+            let (queue, raw, desc, data) = (
+                self.queue.clone(),
+                texture.raw.clone(),
+                texture.desc,
+                data.to_vec(),
+            );
+            window.thread.send(move || {
+                upload_raw(&queue, &raw, desc, origin, size, &data);
+            })?;
+        } else {
+            upload(&self.queue, texture, origin, size, data);
+        }
+        #[cfg(not(target_os = "macos"))]
         upload(&self.queue, texture, origin, size, data);
         let submission = self.submit(
             self.device
@@ -832,14 +865,13 @@ impl Device for Wgpu {
             self.retired_buffers.push((self.submitted, old.raw));
         }
         if !bytes.is_empty() {
-            self.queue
-                .write_buffer(&self.buffers[slot].buffer.raw, 0, bytes);
+            self.write_buffer(&self.buffers[slot].buffer.raw, 0, bytes)?;
         }
-        self.queue.write_buffer(
+        self.write_buffer(
             &self.buffers[slot].viewport,
             0,
             bytemuck::cast_slice(&[desc.width as f32, desc.height as f32, 0., 0.]),
-        );
+        )?;
         let groups = frame
             .batches
             .iter()
@@ -1019,15 +1051,25 @@ fn point([x, y]: [u32; 2]) -> ::wgpu::Origin3d {
     ::wgpu::Origin3d { x, y, z: 0 }
 }
 fn upload(queue: &::wgpu::Queue, texture: &Texture, origin: [u32; 2], size: [u32; 2], data: &[u8]) {
+    upload_raw(queue, &texture.raw, texture.desc, origin, size, data);
+}
+fn upload_raw(
+    queue: &::wgpu::Queue,
+    texture: &::wgpu::Texture,
+    desc: TextureDesc,
+    origin: [u32; 2],
+    size: [u32; 2],
+    data: &[u8],
+) {
     queue.write_texture(
         ::wgpu::TexelCopyTextureInfo {
             origin: point(origin),
-            ..texture.raw.as_image_copy()
+            ..texture.as_image_copy()
         },
         data,
         ::wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(size[0] * texture.desc.format.channels()),
+            bytes_per_row: Some(size[0] * desc.format.channels()),
             rows_per_image: None,
         },
         extent(size),

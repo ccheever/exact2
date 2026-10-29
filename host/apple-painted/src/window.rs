@@ -206,9 +206,6 @@ impl<D: DataSource + Default + 'static> App<D> {
         };
         if let Some(layer) = &self.layer {
             layer.update();
-            if layer.in_flight() {
-                return Ok(());
-            }
         }
         let now = if self.config.agent {
             p.host().now()
@@ -527,15 +524,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         if !self.config.agent {
             p.admit_idle_timer(now);
         }
-        let in_flight = self.layer.as_ref().is_some_and(Layer::in_flight);
-        let active = !self.hidden
-            && !in_flight
-            && (p.dirty() || !self.config.agent && p.needs_animation_frame());
+        let active = !self.hidden && (p.dirty() || !self.config.agent && p.needs_animation_frame());
         self.display_active.store(active, Ordering::Release);
         if let Some(display) = &mut self.display {
-            if let Err(e) =
-                display.set_running(!self.hidden && (active || in_flight || self.scrolling))
-            {
+            if let Err(e) = display.set_running(!self.hidden && (active || self.scrolling)) {
                 self.fail(events, e);
                 return;
             }

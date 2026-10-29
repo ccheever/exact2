@@ -184,7 +184,7 @@ impl Metal {
             #[cfg(target_os = "macos")]
             if let Some(window) = &self.window {
                 let command = present::Command(commands.clone());
-                if let Err(e) = window.thread.call(move || command.commit()) {
+                if let Err(e) = window.thread.send(move || command.commit()) {
                     self.error = Some(e.to_string());
                 }
             } else {
@@ -310,6 +310,27 @@ impl Device for Metal {
             != u64::from(size[0]) * u64::from(size[1]) * u64::from(desc.format.channels())
         {
             return Err(Error::Invalid("texture upload length".into()));
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &mut self.window {
+            if let Some(error) = &self.error {
+                return Err(Error::Device(error.clone()));
+            }
+            let command = self
+                .queue
+                .commandBuffer()
+                .ok_or_else(|| Error::Device("upload command buffer allocation".into()))?;
+            window.upload(
+                self.textures.get(&id).unwrap(),
+                command.clone(),
+                origin,
+                size,
+                data,
+            )?;
+            self.submitted.0 += 1;
+            self.pending.insert(self.submitted.0, Some(command));
+            self.textures.get_mut(&id).unwrap().last = self.submitted;
+            return Ok(self.submitted);
         }
         self.wait(self.last_use(id)?)?;
         upload(self.texture(id)?, origin, size, data);
@@ -548,10 +569,6 @@ impl Device for Metal {
         if s <= self.completed()? {
             return Ok(());
         }
-        #[cfg(target_os = "macos")]
-        if let Some(window) = &mut self.window {
-            window.wait()?;
-        }
         if s > self.done {
             // A CPU upload has no command buffer. Waiting on the latest earlier
             // command still covers it because uploads waited on their resource.
@@ -567,6 +584,10 @@ impl Device for Metal {
         self.completed().map(|_| ())
     }
     fn completed(&mut self) -> Result<Submission> {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &mut self.window {
+            window.collect()?;
+        }
         if let Some(e) = &self.error {
             return Err(Error::Device(e.clone()));
         }

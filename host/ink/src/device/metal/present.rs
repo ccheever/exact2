@@ -30,13 +30,18 @@ struct Work {
     renderer: std::sync::Arc<std::sync::Mutex<Renderer>>,
     texture: Retained<ProtocolObject<dyn MTLTexture>>,
     command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
-    _flight: crate::device::apple::Flight,
+    benchmark: (bool, f32),
 }
 // SAFETY: the retained texture is read on the ordered GPU queue, never mutated
 // by the worker; encoding and committing this command belong only to the worker.
 unsafe impl Send for Work {}
 impl Work {
-    fn run(self) -> Result<()> {
+    fn run(self, present: bool) -> Result<()> {
+        if !present {
+            self.command.commit();
+            return Ok(());
+        }
+        crate::device::apple::benchmark_present(self.benchmark);
         let result = self
             .renderer
             .lock()
@@ -55,7 +60,8 @@ impl Work {
 
 pub(super) struct Window {
     pub thread: Thread,
-    pending: Option<Receiver<Result<()>>>,
+    pending: std::collections::VecDeque<Receiver<Result<()>>>,
+    uploads: std::sync::Arc<std::sync::Mutex<Uploads>>,
     renderer: std::sync::Arc<std::sync::Mutex<Renderer>>,
     _layer: Layer,
 }
@@ -72,13 +78,126 @@ struct Renderer {
 unsafe impl Send for Renderer {}
 
 impl Window {
+    pub fn collect(&mut self) -> Result<()> {
+        while let Some(pending) = self.pending.front() {
+            match pending.try_recv() {
+                Ok(result) => {
+                    result?;
+                    self.pending.pop_front();
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(_) => return Err(Error::DeviceLost("Metal presentation stopped".into())),
+            }
+        }
+        Ok(())
+    }
     pub fn wait(&mut self) -> Result<()> {
-        if let Some(pending) = self.pending.take() {
+        while let Some(pending) = self.pending.pop_front() {
             pending
                 .recv()
                 .map_err(|_| Error::DeviceLost("Metal presentation stopped".into()))??;
         }
         self.thread.drain()
+    }
+
+    pub fn upload(
+        &mut self,
+        texture: &Texture,
+        command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+        origin: [u32; 2],
+        size: [u32; 2],
+        bytes: &[u8],
+    ) -> Result<()> {
+        let work = Upload {
+            ring: self.uploads.clone(),
+            command,
+            texture: texture.raw.clone(),
+            row: size[0] as usize * texture.desc.format.channels() as usize,
+            origin,
+            size,
+            bytes: bytes.to_vec(),
+        };
+        self.pending
+            .push_back(self.thread.send(move || work.run())?);
+        Ok(())
+    }
+}
+
+type UploadSlot = (
+    Retained<ProtocolObject<dyn MTLBuffer>>,
+    Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+);
+struct Uploads {
+    device: Retained<ProtocolObject<dyn MTLDevice>>,
+    slots: [Option<UploadSlot>; 2],
+    next: usize,
+}
+// SAFETY: only the render worker uses the ring; each slot is written after
+// its previous GPU copy completes. Metal retains the resources it encodes.
+unsafe impl Send for Uploads {}
+
+struct Upload {
+    ring: std::sync::Arc<std::sync::Mutex<Uploads>>,
+    command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    texture: Retained<ProtocolObject<dyn MTLTexture>>,
+    row: usize,
+    origin: [u32; 2],
+    size: [u32; 2],
+    bytes: Vec<u8>,
+}
+// SAFETY: this job owns its pixels; encoding belongs to the render worker.
+unsafe impl Send for Upload {}
+impl Upload {
+    fn run(self) -> Result<()> {
+        let result = self.encode();
+        // Even a failed upload must complete its submission's retirement fence.
+        self.command.commit();
+        result
+    }
+    fn encode(&self) -> Result<()> {
+        let mut ring = self.ring.lock().unwrap();
+        let slot = ring.next;
+        let old = ring.slots[slot].take();
+        if let Some((_, command)) = &old {
+            command.waitUntilCompleted();
+            if command.status() == MTLCommandBufferStatus::Error {
+                return Err(Error::DeviceLost("image upload failed".into()));
+            }
+        }
+        let stride = self.row.div_ceil(256) * 256;
+        let length = stride * self.size[1] as usize;
+        let buffer = match old {
+            Some((buffer, _)) if buffer.length() >= length => buffer,
+            _ => ring
+                .device
+                .newBufferWithLength_options(length, MTLResourceOptions::StorageModeShared)
+                .ok_or_else(|| Error::Device("upload staging allocation".into()))?,
+        };
+        let encoder = self
+            .command
+            .blitCommandEncoder()
+            .ok_or_else(|| Error::Device("upload blit encoder".into()))?;
+        // SAFETY: the ring slot completed; every row is within its checked
+        // allocation. The texture region and source length were checked by Device.
+        // https://developer.apple.com/documentation/metal/mtlblitcommandencoder
+        unsafe {
+            for (y, row) in self.bytes.chunks_exact(self.row).enumerate() {
+                std::ptr::copy_nonoverlapping(
+                    row.as_ptr(),
+                    buffer.contents().as_ptr().cast::<u8>().add(y * stride),
+                    row.len(),
+                );
+            }
+            encoder.copyFromBuffer_sourceOffset_sourceBytesPerRow_sourceBytesPerImage_sourceSize_toTexture_destinationSlice_destinationLevel_destinationOrigin_options(
+                &buffer, 0, stride, 0,
+                MTLSize { width: self.size[0] as usize, height: self.size[1] as usize, depth: 1 },
+                &self.texture, 0, 0, point(self.origin), MTLBlitOption::None,
+            );
+        }
+        encoder.endEncoding();
+        ring.slots[slot] = Some((buffer, self.command.clone()));
+        ring.next = (slot + 1) % 2;
+        Ok(())
     }
 }
 
@@ -94,7 +213,12 @@ impl Metal {
         render_layer.raw.setDevice(Some(&self.device));
         self.window = Some(Window {
             thread: Thread::new()?,
-            pending: None,
+            pending: Default::default(),
+            uploads: std::sync::Arc::new(std::sync::Mutex::new(Uploads {
+                device: self.device.clone(),
+                slots: Default::default(),
+                next: 0,
+            })),
             renderer: std::sync::Arc::new(std::sync::Mutex::new(Renderer {
                 layer: render_layer,
                 pipeline: pipelines.replace,
@@ -120,14 +244,16 @@ impl Metal {
                 .window
                 .as_mut()
                 .ok_or(Error::Unsupported("no Metal layer"))?;
-            window.wait()?;
+            window.collect()?;
             let work = Work {
                 renderer: window.renderer.clone(),
                 texture,
                 command: command.clone(),
-                _flight: window._layer.begin_frame()?,
+                benchmark: crate::device::apple::benchmark_scene(),
             };
-            window.pending = Some(window.thread.send(move || work.run())?);
+            window
+                .pending
+                .push_back(window.thread.frame(move |show| work.run(show))?);
             self.submitted.0 += 1;
             self.pending.insert(self.submitted.0, Some(command));
             self.textures.get_mut(&source).unwrap().last = self.submitted;
@@ -279,6 +405,51 @@ impl Drop for Window {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_uploads_reuse_two_staging_buffers_after_completion() {
+        let mut device = Metal::new().unwrap();
+        let ring = std::sync::Arc::new(std::sync::Mutex::new(Uploads {
+            device: device.device.clone(),
+            slots: Default::default(),
+            next: 0,
+        }));
+        let worker = Thread::new().unwrap();
+        let texture = device.create_texture(TextureDesc::rgba(7, 5)).unwrap();
+        let mut receipts = Vec::new();
+        let mut commands = Vec::new();
+        for row in 0..5 {
+            let command = device.commands().unwrap();
+            commands.push(command.clone());
+            let job = Upload {
+                ring: ring.clone(),
+                command,
+                texture: device.texture(texture).unwrap().raw.clone(),
+                row: 28,
+                origin: [0, row],
+                size: [7, 1],
+                bytes: [row as u8 * 30, 40, 80, 255].repeat(7),
+            };
+            receipts.push(worker.send(move || job.run()).unwrap());
+        }
+        for receipt in receipts {
+            receipt.recv().unwrap().unwrap();
+        }
+        for command in commands {
+            command.waitUntilCompleted();
+            assert_eq!(command.status(), MTLCommandBufferStatus::Completed);
+        }
+        let ring = ring.lock().unwrap();
+        assert_eq!(ring.next, 1);
+        assert!(ring
+            .slots
+            .iter()
+            .all(|s| s.as_ref().unwrap().0.length() == 256));
+        let pixels = device.readback(texture).unwrap();
+        for (row, pixels) in pixels.chunks_exact(28).enumerate() {
+            assert_eq!(pixels, [row as u8 * 30, 40, 80, 255].repeat(7));
+        }
+    }
 
     #[test]
     fn drawable_ring_presents_encoded_srgb_to_bgra_and_reuses_completed_slots() {
