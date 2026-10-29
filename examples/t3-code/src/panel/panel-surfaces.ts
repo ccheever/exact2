@@ -48,7 +48,6 @@ import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, frameLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
 import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix, workspaceRelativeFilePath } from '../timeline/workspace-file-lookup'; // a chat link's file
-import { mediaFrameSource } from '../media/media-frame'; // a server tab's PDF as a local copy
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number;
@@ -473,15 +472,11 @@ export async function panelView(client: T3Client, native: Native | null | undefi
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...linked,
     deviceMini: visibleMini(deviceMini(client, deviceStateOf(client)), shownDevice(client)), // shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
-    ...browserFramesOf(client, await localPdf(open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client)), // The client's profiles for the "+" menu and the launcher
-      await localPdf(browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)))), // shouldRenderPreviewMiniPlayer's browser half
+    ...browserFramesOf(client, open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // The client's profiles for the "+" menu and the launcher
+      browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client))), // shouldRenderPreviewMiniPlayer's browser half
     ...annotationDispatchView(client), annotationSend: annotationSendSerial(client), // After browserPrepare applied the picks
     automationRecording: automationRecordingView(client), // the agent's recording tools (browser-automation-recording.ts)
   };
-}
-/** A server tab's PDF as the local copy its frame shows (media-frame.ts), none when it could not be written. */
-async function localPdf<View extends { pdfUrl: string }>(view: View): Promise<View> {
-  return view.pdfUrl ? { ...view, pdfUrl: (await mediaFrameSource('pdf', view.pdfUrl)).src } : view;
 }
 /** The panel's Browser tab, the floating player's, and every tab's frame: the panel's sits in its stage's slot while its
  *  page shows (not the empty state or the load-failed page), and the player's at the player's frame. */

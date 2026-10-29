@@ -1,9 +1,9 @@
 // The attachment preview's media bodies (MIT reference, see LICENSE-T3:
 // components/files/AttachmentFilePreview.tsx, BrowserDocumentFrame.tsx, AudioPreview.tsx).
-// A PDF and a rendered HTML page are Contract frames (media-frame.ts); audio and video are Contract `video` nodes with
-// `controls` (AVKit). The surface reads "Unable to load audio." / "Unable to load video." when the player reports an
-// error, as the reference's onError does; Try again re-mints the URL, and the error state in between unmounts the failed
-// player, so the next one is a new node.
+// A rendered HTML page is a Contract frame (media-frame.ts), as a PDF at its signed URL would be; audio and video are
+// Contract `video` nodes with `controls` (AVKit). The surface reads "Unable to load audio." / "Unable to load video."
+// when the player reports an error, as the reference's onError does; Try again re-mints the URL, and the error state in
+// between unmounts the failed player, so the next one is a new node.
 
 export type MediaPreview = 'pdf' | 'html' | 'audio' | 'video';
 const MEDIA: readonly string[] = ['pdf', 'html', 'audio', 'video'];

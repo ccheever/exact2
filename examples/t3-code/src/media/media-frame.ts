@@ -1,19 +1,15 @@
-// The previews' PDF and rendered-page bodies (MIT reference, see LICENSE-T3: components/files/BrowserDocumentFrame.tsx)
-// as Contract iframes (media-frame.contract, LLP 1020.002). A PDF frame shows a local file in the platform's viewer
-// (D10: PDFKit's PDFView on Apple), so a server's signed PDF is downloaded into app:/cache first (the host writes the
-// body, `fetch`'s `exactBodyTo`), and a draft's staged copy, which has no extension, is copied there under a `.pdf`
-// name, by which the host knows its type. A sent page is
+// The previews' rendered-page bodies (MIT reference, see LICENSE-T3: components/files/BrowserDocumentFrame.tsx) as
+// Contract iframes (media-frame.contract, LLP 1020.002), and the copies in app:/cache that frames show. A sent page is
 // framed at its signed asset URL, as the reference frames it; a draft page is its staged copy under an `.html` name,
-// which the host serves as the frame's own document with no siblings, as a Blob URL's page has none.
+// which the host serves as the frame's own document with no siblings, as a Blob URL's page has none. A draft past what a
+// message carries is copied there for the viewer page, which is given it (LLP 1020.001 D7). PDFs are the viewer page's.
 import { appFiles } from './save-file';
 import { STAGED } from '../composer/composer-staged-copies';
 
-/** Where fetched PDFs and copied draft documents are kept while they are shown (app.ts grants). */
+/** Where copied draft documents are kept while they are shown (app.ts grants). */
 export const MEDIA_CACHE = 'app:/cache/media-preview';
-/** The prefix a draft's PDF or page URL carries (composer-chip-file.ts draftSource): its staged copy's name follows. */
+/** The prefix a draft's file URL carries (composer-chip-file.ts draftSource): its staged copy's name follows. */
 export const STAGED_SCHEME = 't3-staged:';
-/** The largest PDF downloaded for a frame: `fetch`'s maximum for a body written to a file, which goes to disk. */
-const MAX_BYTES = 1024 * 1024 * 1024;
 /** Documents kept at once; the oldest file goes when another arrives. */
 const KEPT = 16;
 const FAILED = 'Could not load this file.';
@@ -45,11 +41,6 @@ export function stagedCopyName(raw: string): string | null {
 const kept = new Map<string, Promise<string>>();
 let serial = 0;
 
-async function fetched(url: string, path: string): Promise<void> {
-  const reply = await fetch(url, { exactTimeout: 60_000, exactBodyTo: path, exactIndependentHttp: { maxResponseBytes: MAX_BYTES } } as RequestInit);
-  if (!reply.ok) throw new Error(`HTTP ${reply.status}`);
-}
-
 async function copied(name: string, path: string): Promise<void> {
   await files().copyFile(`${STAGED}/${name}`, path);
 }
@@ -75,16 +66,25 @@ function local(key: string, extension: string, write: (path: string) => Promise<
 }
 
 /**
- * The `src` of a preview's frame for `kind` ("pdf" or "html") at `url` (a signed asset URL, or a draft's
- * `t3-staged:<name>`), or the message the surface shows when there is none.
+ * A draft's staged copy under app:/cache, where a bundled page can be given it (LLP 1020.001 D7; app:/data, where the
+ * composer keeps it, is never given), named with `name`'s extension.
+ */
+export function cachedStagedCopy(staged: string, name: string): Promise<string> {
+  const extension = /\.([a-z0-9]{1,10})$/i.exec(name)?.[1]?.toLowerCase() ?? 'bin';
+  return local(`given:${staged}`, extension, path => copied(staged, path));
+}
+
+/**
+ * The `src` of a preview's frame for `kind` ("html") at `url` (a signed asset URL, or a draft's `t3-staged:<name>`), or
+ * the message the surface shows when there is none.
  */
 export async function mediaFrameSource(kind: string, url: string): Promise<FrameSource> {
-  if (!url || (kind !== 'pdf' && kind !== 'html')) return { src: '', error: '' };
+  if (!url || kind !== 'html') return { src: '', error: '' };
   const staged = stagedCopyName(url);
   if (!staged && !isAssetUrl(url)) return { src: '', error: FAILED };
-  if (kind === 'html' && !staged) return { src: url, error: '' };
+  if (!staged) return { src: url, error: '' };
   try {
-    return { src: await local(url, kind, path => staged ? copied(staged, path) : fetched(url, path)), error: '' };
+    return { src: await local(url, kind, path => copied(staged, path)), error: '' };
   } catch {
     return { src: '', error: FAILED };
   }

@@ -1,6 +1,6 @@
 // A preview's PDF or rendered page (MIT reference, see LICENSE-T3: components/files/BrowserDocumentFrame.tsx), filling
-// its box. A PDF is its signed URL, which WebKit's PDF view shows, or the local copy media-frame.ts wrote, which PDFKit's
-// PDFView shows (LLP 1020.002 D10; Chrome's viewer on the web), unsandboxed either way, as the reference's `<embed>` is.
+// its box. A PDF is its signed URL, which WebKit's PDF view shows (LLP 1020.002 D10: a remote PDF stays WebKit's;
+// Chrome's viewer on the web), unsandboxed, as the reference's `<embed>` is.
 // A page is the reference's FileDocument, an `iframe` under `sandbox="allow-scripts allow-forms allow-popups
 // allow-downloads"` on white (its box's), a page that declares no color-scheme rendering light. A link navigates the
 // frame; a new tab (`target=_blank`, ⌘-click) opens the URL in the default browser, as the desktop's
