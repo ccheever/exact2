@@ -152,13 +152,7 @@ pub struct Request {
     /// last one, never dropped. Unset, such a body is the stream's one
     /// answer. Set by TypeScript's `fetch(url, {exactStream})`.
     pub bytes: bool,
-    /// An HTTP stream that is an upload (LLP 1016.000 D10): the host
-    /// delivers the body's bytes sent as they go, each a
-    /// [`Message::upload_progress`], and the reply, read whole within the
-    /// ceiling, is its one answer. It is in flight until that reply, for
-    /// `pending(…)` and every clock, as a plain request is. Set by
-    /// TypeScript's `fetch(url, {exactStream, exactUploadProgress: true})`
-    /// and `Request::upload_progress()` (`upload.rs`).
+    /// An HTTP stream that is an upload, which tells its bytes sent (`upload.rs`).
     pub upload_progress: bool,
     /// An HTTP stream that is a long poll (LLP 1016.000 D8): the host asks
     /// the URL, delivers each reply as one [`Message`] (its `id` the new
@@ -171,8 +165,7 @@ pub struct Request {
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
-    /// URLSession's 60-second idle timeout). A stream has no deadline; an
-    /// upload, which ends at its reply, may.
+    /// URLSession's 60-second idle timeout). A stream but an upload has none.
     /// Set by TypeScript's `fetch(url, {exactTimeout})` and [`Request::timeout`].
     pub timeout_ms: Option<u32>,
     /// The body is this app file's bytes (`app:/…`), read by the host when it

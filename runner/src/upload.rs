@@ -1,7 +1,11 @@
-//! An upload's progress (LLP 1016.000 D10): a stream's request whose host
-//! delivers the body's bytes sent as they go, then the reply, read whole,
-//! as the one answer that ends it. Its terms, and the message that carries
-//! the bytes sent.
+//! An upload's progress (LLP 1016.000 D10): a stream's request
+//! ([`Request::upload_progress`]) whose host delivers the body's bytes sent
+//! as they go, each a [`Message::upload_progress`], then the reply, read
+//! whole within the ceiling, as the one answer that ends it. It is in flight
+//! until that reply, for `pending(…)` and every clock, as a plain request
+//! is. Set by TypeScript's `fetch(url, {exactStream, exactUploadProgress:
+//! true})`. Its terms, and the messages that carry its start and its bytes
+//! sent.
 
 use crate::request::{Message, Redirect, Request};
 
