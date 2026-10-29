@@ -45,9 +45,11 @@ async function fixture(body) {
   try {
     // These fixtures assert the workspaces' default target paths.
     delete process.env.CARGO_TARGET_DIR;
-    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/cargo-check.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/web-js/route-pattern.js','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/app/crates.mjs','game/.cargo/config.toml','scripts/cargo-dep-info.mjs','scripts/linked-plan.mjs','scripts/app-cli.mjs']) {
+    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/cargo-check.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/share-target.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/web-js/route-pattern.js','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/app/crates.mjs','game/.cargo/config.toml','scripts/cargo-dep-info.mjs','scripts/linked-plan.mjs','scripts/app-cli.mjs']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
+    write('scripts/rustc/exact-rustc', readFileSync(resolve(import.meta.dir, 'rustc/exact-rustc')));
+    chmodSync(resolve(root, 'scripts/rustc/exact-rustc'), 0o755);
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
     const {prepareGame} = await import(resolve(root,'game/app/shells.mjs'));
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
@@ -83,19 +85,45 @@ test('shell repair replaces half-written members before metadata', () => fixture
   assert.ok(existsSync(resolve(dirname(path),'src/lib.rs')));
 }), 60_000);
 
-test('in-repo app members can own a separate locked workspace without EXACT_APP_DIR', () => fixture(({app, root, pkg, write, run}) => {
+test('Harmony shells belong to the Snapback workspace and leave the public root graph private-source-free', () => {
+  const root = resolve(import.meta.dir, '..');
+  for (const kind of ['web', 'apple', 'linux']) {
+    const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain', '--manifest-path', `apps/harmony/app/${kind}/Cargo.toml`], {cwd:root, encoding:'utf8', timeout:60000});
+    assert.equal(located.status, 0, located.stderr);
+    assert.equal(located.stdout.trim(), resolve(root, 'snapback4/Cargo.toml'));
+  }
+  const result = spawnSync('cargo', ['metadata', '--locked', '--offline', '--no-deps', '--format-version', '1'], {cwd:root, encoding:'utf8', timeout:60000});
+  assert.equal(result.status, 0, result.stderr);
+  const metadata = JSON.parse(result.stdout);
+  assert.equal(metadata.workspace_root, root);
+  assert.ok(!metadata.packages.some(pkg => pkg.manifest_path.startsWith(resolve(root, 'apps/harmony/app') + sep)));
+  assert.ok(!metadata.packages.flatMap(pkg => pkg.dependencies).some(dep => dep.source?.startsWith('git+https://github.com/expo/snapback')));
+  assert.doesNotMatch(readFileSync(resolve(root, 'Cargo.lock'), 'utf8'), /source = "git\+https:\/\/github\.com\/expo\/snapback/);
+});
+
+test('in-repo app members can own a separate locked workspace without EXACT_APP_DIR', () => fixture(({app, root, pkg, write, run, flags}) => {
   delete process.env.EXACT_APP_DIR;
   write('apps/separate/app.contract', 'component App\n  view\n');
   write('apps/separate/app.json', JSON.stringify({name:'Separate',app:{id:'com.exact.separate',name:'Separate'}}));
-  pkg('apps/separate/web', 'separate-web');
-  write('apps/separate/web/Cargo.toml', '[package]\nworkspace="../../../optional"\nname="separate-web"\nversion="0.1.0"\nedition="2021"\n');
-  write('optional/Cargo.toml', '[workspace]\nmembers=["../apps/separate/web"]\nresolver="2"\n');
+  const kinds = ['web', 'apple', 'linux'];
+  for (const kind of kinds) {
+    pkg(`apps/separate/${kind}`, `separate-${kind}`);
+    write(`apps/separate/${kind}/Cargo.toml`, `[package]\nworkspace="../../../optional"\nname="separate-${kind}"\nversion="0.1.0"\nedition="2021"\n`);
+  }
+  write('optional/Cargo.toml', `[workspace]\nmembers=${JSON.stringify(kinds.map(kind => `../apps/separate/${kind}`))}\nresolver="2"\n`);
   run('cargo', ['generate-lockfile', '--offline', '--manifest-path', resolve(root,'optional/Cargo.toml')]);
   const resolved = app('separate');
   assert.equal(resolved.workspace, resolve(root,'optional'));
   assert.equal(resolved.target, resolve(root,'optional/target'));
-  assert.equal(resolved.cargoPackage('web').name, 'separate-web');
-  pkg('apps/separate/linux', 'separate-linux');
+  for (const kind of kinds) {
+    assert.equal(resolved.cargoPackage(kind).name, `separate-${kind}`);
+    assert.equal(resolved.cargoPackage(kind).manifest_path, resolve(root, `apps/separate/${kind}/Cargo.toml`));
+  }
+  assert.deepEqual(flags(resolved), ['--locked', '--offline']);
+  const metadata = JSON.parse(run('cargo', ['metadata', ...flags(resolved), '--manifest-path', resolve(resolved.workspace, 'Cargo.toml'), '--format-version', '1']));
+  assert.equal(metadata.workspace_root, resolved.workspace);
+  assert.equal(metadata.target_directory, resolved.target);
+  assert.equal(metadata.workspace_members.length, 3);
   write('apps/separate/linux/Cargo.toml', '[package]\nworkspace="../../.."\nname="separate-linux"\nversion="0.1.0"\nedition="2021"\n');
   assert.throws(() => app('separate'), /different Cargo workspaces/);
 }), 60_000);
