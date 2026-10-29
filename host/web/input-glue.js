@@ -271,7 +271,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const rule = paintRule(el, state);
     state.animation?.cancel();
     const animation = state.animation = el.animate([{ "--exact-press-paint": from }, { "--exact-press-paint": state.to }], { ...EASE, duration: agentMode ? 0 : duration });
+    const written = new Set(el.getAnimations());
     el.setAttribute("data-exact-painting", hold(el, state, rule));
+    // Writing a kept declaration back is the glue's own change, which Firefox (its transition styles see the
+    // animation) would time with the node's transition: one it starts is none of the node's.
+    if (Object.keys(state.kept ?? {}).length) { getComputedStyle(el).opacity; for (const a of el.getAnimations()) if (!written.has(a) && a.transitionProperty in state.kept) a.cancel(); }
     // A finish already queued when a re-press replaced the ease ends nothing.
     if (state.to === 0) animation.onfinish = () => { if (state.animation === animation) endPaint(el, state); };
     if (agentMode) animation.finish();
@@ -287,7 +291,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
   // Whether the node declares a transition on `property` (by its name, `all`, or a shorthand holding it): the last
   // entry naming it decides, by its combined duration (duration + delay, which may be negative) above 0.
-  const HOLDS = { "background-color": ["background"], "background-position": ["background"], "background-size": ["background"], "mask-position": ["mask"], "mask-size": ["mask"], color: [], opacity: [] };
+  const HOLDS = { "background-color": ["background"], "background-position": ["background"], "background-position-x": ["background", "background-position"], "background-position-y": ["background", "background-position"], "background-size": ["background"],
+    "mask-position": ["mask"], "mask-position-x": ["mask", "mask-position"], "mask-position-y": ["mask", "mask-position"], "mask-size": ["mask"], color: [], opacity: [] };
   const transitioned = (cs, property) => {
     const list = s => s.split(/\s*,\s*/), names = list(cs.transitionProperty), times = list(cs.transitionDuration), delays = list(cs.transitionDelay);
     let on = false;
@@ -295,10 +300,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return on;
   };
   // An authored transition running (or paused, as the agent's clock pauses it) on `property`.
+  const PAINTED_KEY = { opacity: "opacity", color: "color" };
   const running = (el, property) => el.getAnimations().find(a => a.transitionProperty === property && (a.playState === "running" || a.playState === "paused"));
   // A layered list (a background's, a mask's) with the paint's own layer first: each of the node's lists cycled out
   // to its images' count, as CSS matches them, then `first` before it.
-  const items = said => { const out = []; let depth = 0, from = 0; for (let i = 0; i < said.length; i++) { const c = said[i]; if (c === "(") depth++; else if (c === ")") depth--; else if (c === "," && !depth) { out.push(said.slice(from, i).trim()); from = i + 1; } } out.push(said.slice(from).trim()); return out; };
+  const items = said => { const out = []; let depth = 0, from = 0, quote = ""; for (let i = 0; i < said.length; i++) { const c = said[i]; if (quote) { if (c === "\\") i++; else if (c === quote) quote = ""; } else if (c === '"' || c === "'") quote = c; else if (c === "(") depth++; else if (c === ")") depth--; else if (c === "," && !depth) { out.push(said.slice(from, i).trim()); from = i + 1; } } out.push(said.slice(from).trim()); return out; };
   const layered = (said, count, first) => { const list = items(said); return [first, ...Array.from({ length: count }, (_, i) => list[i % list.length])].join(", "); };
   const LAYER = { background: { position: "0% 0%", size: "auto", repeat: "repeat", origin: "padding-box", clip: "border-box", attachment: "scroll" },
     mask: { position: "0% 0%", size: "auto", repeat: "repeat", origin: "border-box", clip: "no-clip", composite: "intersect", mode: "alpha" } };
@@ -310,8 +316,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const out = [`${kind}-image: ${count ? `${mine}, ${images}` : mine} !important`];
     for (const [name, value] of Object.entries(LAYER[kind])) {
       const theirs = read(name);
-      if (!count && items(theirs)[0] === value) continue;
-      if ((name === "position" || name === "size") && transitioned(cs, `${kind}-${name}`)) return null;
+      // With no images of its own, a node's background clip and origin are its background colour's: the layer
+      // takes them (a mask's own no-clip still applies, so a shadow fades with the node).
+      if (!count && ((kind === "background" && (name === "clip" || name === "origin")) || items(theirs)[0] === value)) continue;
+      if ((name === "position" || name === "size") && [`${kind}-${name}`, ...(name === "position" ? [`${kind}-position-x`, `${kind}-position-y`] : [])].some(n => transitioned(cs, n))) return null;
       out.push(`${kind}-${name}: ${count ? layered(theirs, count, value) : value} !important`);
     }
     return out.join("; ");
@@ -329,11 +337,21 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // re-read with the paint on, so the paint's turn starts nothing (Firefox's transition styles see the animation).
   const paintRule = (el, state) => {
     if (!el.closest("#exact-root")) return "";
+    // What is kept holds only while the node's own inputs (its inline style: its opacity and colour, its pressed
+    // values; its class) are as they were when it was written, and no sheet, scheme or token changed: else the look
+    // beneath is read again (a base change, which the node's transition times, D8).
+    const inputs = `${el.getAttribute("style")}|${el.getAttribute("class")}`, was = state.kept ?? {}, before = new Set(el.getAnimations());
+    if (state.inputs !== inputs || state.stale) state.kept = {};
+    state.inputs = inputs; state.stale = false;
     const kept = state.kept ?? {};
     // Re-read with only the kept declarations on, under the same key: the look beneath of what isn't kept, and the
     // node's own images and masks.
     if (state.rule) hold(el, state, Object.values(kept).join("; "));
     const cs = getComputedStyle(el), own = name => el.style.getPropertyValue(name) ? cs.getPropertyValue(name).trim() : "";
+    // A transition the read itself started (Firefox's transition styles see the animation, so taking a kept
+    // declaration off is a change there) toward the very look beneath the kept one was written from: none of the
+    // node's, cancelled at once. One toward another look is the base's own move, the node's to time (D8).
+    for (const a of el.getAnimations()) if (!before.has(a) && a.transitionProperty in was && String(a.effect.getKeyframes().at(-1)?.[PAINTED_KEY[a.transitionProperty]]) === state.keptBase?.[a.transitionProperty]) a.cancel();
     const p = "var(--exact-press-paint)", out = [], next = {};
     const number = (name, copy) => { if (!own(name)) return null; const v = parseFloat(cs.getPropertyValue(copy)); return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null; };
     const settle = () => { if (paints.get(el) === state) repaint(el); };
@@ -341,6 +359,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (own("--exact-press-background-color")) {
       const bg = layer(cs, "background", `linear-gradient(color-mix(in srgb, var(--exact-press-background-color) calc(${p} * 100%), transparent) 0 0)`);
       if (bg) out.push(bg);
+      state.background = !!bg;
     }
     const to = number("--exact-press-opacity-to", "--exact-press-opacity-to-number"), share = number("--exact-press-opacity", "--exact-press-opacity-number");
     const held = el.computedStyleMap?.().get("opacity")?.value, base = Number.isFinite(held) ? held : Number(cs.opacity);
@@ -370,6 +389,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       } else if (!transitioned(cs, "color")) out.push(`color: color-mix(in srgb, var(--exact-press-color) calc(${p} * 100%), ${cs.color}) !important`);
     }
     state.kept = next;
+    state.keptBase = { opacity: next.opacity ? String(held ?? base) : undefined, color: next.color ? cs.color : undefined };
     return [...out, ...Object.values(next)].join("; ");
   };
   // What a painting node shows, as the page can't read it from the node's computed style (the paint is on images):
@@ -381,7 +401,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!state) return null;
     const cs = getComputedStyle(el), paint = Number(cs.getPropertyValue("--exact-press-paint")) || 0;
     const shown = { paint, opacity: String(+(Number(cs.opacity) * (state.factor?.(paint) ?? 1)).toPrecision(6)), color: cs.color, backgroundColor: cs.backgroundColor };
-    if (el.style.getPropertyValue("--exact-press-background-color") && typeof OffscreenCanvas === "function") {
+    if (state.background && typeof OffscreenCanvas === "function") {
       const g = new OffscreenCanvas(1, 1).getContext("2d");
       if (!g) return shown;
       g.fillStyle = cs.backgroundColor; g.fillRect(0, 0, 1, 1);
@@ -422,20 +442,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (at >= 0) sheet.deleteRule(at);
   };
   // The look beneath changed: the ease goes on from where it is, over the rest of its time.
-  const repaint = el => {
+  // `stale`: a sheet, the scheme or a token changed, which no attribute of the node's says.
+  const repaint = (el, stale = false) => {
     const state = paints.get(el);
     if (!state) return;
+    if (stale) state.stale = true;
     const t = state.animation.effect.getComputedTiming();
     paint(el, state, Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)));
   };
-  globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el); });
+  globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el, true); });
   // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
   // modes and tokens (the JS target's), which change no style of the node's own (LLP 1121 D8).
-  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el); });
+  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el, true); });
   // A painting node gone from the page (removed, re-rendered) ends its paint and lets go of its rule at once.
   const gone = new MutationObserver(() => { for (const [el, state] of paints) if (!el.isConnected) endPaint(el, state); });
   // The JS target writes its tokens and tuples through the CSSOM, which no observer sees: it calls this (modes.js).
-  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el); };
+  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el, true); };
   // `now`: the press ends at once (the window or the page went), as it does
   // for a node no longer in the page.
   const showPaint = (el, down, now = false) => {
