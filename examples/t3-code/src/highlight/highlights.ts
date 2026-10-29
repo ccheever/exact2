@@ -32,7 +32,7 @@ const STALE_ASKS = 60;
 const KEPT = 400, KEPT_CHARS = 4_000_000;
 /** The recent lexed texts of a language a longer text may extend, and the documents kept (highlights.rs DOCUMENTS). */
 const EXTENDABLE = 24, DOCUMENTS = 8;
-/** streamOf's answer for a text that needs a new document while every document kept has work in flight. */
+/** streamOf's answer for a text that needs a new document while the one it would drop has work in flight. */
 const FULL = 'full';
 /** highlightCode's `line` for a document with lines left, one to start again, and lexers that trapped. */
 const MORE = -1, AGAIN = -2, FAILED = -3;
