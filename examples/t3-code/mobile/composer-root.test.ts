@@ -200,7 +200,8 @@ test('inline file context opens the owned draft preview through Root and refuses
   expect(result).toMatchObject({attachmentId:id,message:'',owner:owner.target.owner,visit:f.input.visit});
   const root=contractComponent('mobile/app.contract','App'),opened:string[][]=[];
   const scope={richComposerChanged:result,richComposer:f.view(),composerEditor:f.input.editorId,composerOwner:owner.target.owner,
-    nav:{id:f.input.visit},top:(v:unknown)=>v,openDraftMedia:(...args:string[])=>opened.push(args)};
+    nav:{id:f.input.visit},top:(v:unknown)=>v,nativeNewTask:false,showMobileNotice:()=>{},showDraftMedia:(...args:string[])=>opened.push(args),
+    composerReply:(reply:unknown)=>reply};
   root.call('didRichComposerChange',{},scope,[]);expect(opened).toEqual([[id,owner.target.owner]]);
   root.call('didRichComposerChange',{}, {...scope,nav:{id:'other-visit'}},[]);expect(opened).toHaveLength(1);
   for(const patch of [{mountId:'retired'},{eventCount:callback.eventCount-1},{value:'changed'},
@@ -280,4 +281,15 @@ test('inline image preview rereads context ownership after saving while its inve
     held.resolve();await expect(opening).rejects.toMatchObject({kind:'superseded'});
     expect(storage==='snapshot'?f.client.local.snapshotDrafts[f.client.draftKey]:f.client.local.composerFiles).toHaveLength(1);
   }
+});
+
+test('confirmed NewTask resume clears pre-picker focus before Root schedules restoration', () => {
+  const root = contractComponent('mobile/app.contract', 'App');
+  const result = { visit: 'visit', effectKind: 'new-task', navigation: 'focus', message: '' };
+  const state: Env = { composerFocusIdentity: 'editor:owner', composerReturn: {} };
+  root.call('didRichComposerChange', state, { richComposerChanged: result, composerReply: (value: unknown) => value,
+    nav: { id: 'visit' }, top: (value: unknown) => value, nativeNewTask: true, showMobileNotice: () => {},
+    composerEditor: 'editor', composerOwner: 'owner', ComposerFocusReturn: (value: unknown) => value }, []);
+  expect(state.composerFocusIdentity).toBe('');
+  expect(state.composerReturn).toMatchObject({ editorId: 'editor', owner: 'owner', phase: 'pending', attempts: 0 });
 });

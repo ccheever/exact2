@@ -11,8 +11,12 @@ use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
 use ProviderIcon from "./provider-icon.contract"
 use ThreadSendButton from "./thread-composer.contract"
 use VoiceSnapshot, VoiceColors, VoiceStartAction, VoiceDictationToolbar, VoiceErrorStatus from "./voice-controls.contract"
+use ComposerRootView from "./composer-root.contract"
 component NewTaskDraft
   props
+    rich: ComposerRootView
+    richEvent: action
+    richMessage: action
     routeId: string
     editorId: string
     data: NewTaskSnapshot
@@ -103,11 +107,17 @@ component NewTaskDraft
         t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true material-appearance=(dark ? "dark" : "light") material-radius=26 material-surface=threadColors.composerSurface material-border=threadColors.composerBorder
         column id=`new-task-foreground-${routeId}` position="relative" min-width=0
           ComposerAttachmentStrip(data=attachments, open=openAttachment, remove=removeAttachment, colors=threadColors)
-          textarea id=editorId value=data.composer.draft input=typedDraft key=typedKey focus=focusChanged(true, data.composer.contentOwner, editorId) blur=focusChanged(false, data.composer.contentOwner, editorId) placeholder="Ask anything…"
-            readonly=(not data.canSelect or dictating) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
-            data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
-            field-sizing="content" min-height=72 max-height=160 min-width=0 margin-left=14 margin-right=14 padding-top=4 padding-bottom=4 padding-left=0 padding-right=0
-            box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground border-width=0 background-color="transparent" testId="thread-composer"
+          if data.pendingEditor
+            textarea id=editorId value=data.composer.draft input=typedDraft key=typedKey focus=focusChanged(true, data.composer.contentOwner, editorId) blur=focusChanged(false, data.composer.contentOwner, editorId) placeholder="Ask anything…"
+              readonly=(not data.canSelect or dictating) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
+              data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
+              field-sizing="content" min-height=72 max-height=160 min-width=0 margin-left=14 margin-right=14 padding-top=4 padding-bottom=4 padding-left=0 padding-right=0
+              box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground border-width=0 background-color="transparent" testId="thread-composer"
+          else if rich.enabled and rich.routeVisit == routeId and rich.editorId == editorId
+            for port in [rich.admission] key=port
+              t3-composer-editor id=editorId configuration=rich.configuration change=richEvent message=richMessage height=72 max-height=160 min-width=0 margin-left=14 margin-right=14 padding-top=4 padding-bottom=4 box-sizing="border-box" testId="thread-composer"
+          else
+            text rich.message min-height=72 margin-left=14 margin-right=14 font-size=13 color=colors.muted
           view height=3.5
           row align-items="center" gap=0 retainFocus=true
             if not voicePresented

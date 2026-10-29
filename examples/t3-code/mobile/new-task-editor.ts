@@ -143,9 +143,11 @@ function admission(client: MobileDraftClient, route: NewTaskEditorRoute): { draf
   return { draft: { key: draft.key, createdAt: draft.createdAt, origin: draft.origin,
     environmentId: draft.environmentId, projectId: draft.projectId }, owner: target.owner, revision: draft.revision };
 }
+function sameVisit(entry: Entry, route: NewTaskEditorRoute): boolean {
+  return entry.route.owner === route.owner && entry.route.visit === route.visit && entry.route.location === route.location;
+}
 function matchingRoute(entry: Entry, route: NewTaskEditorRoute): boolean {
-  return entry.route.owner === route.owner && entry.route.visit === route.visit && entry.route.location === route.location
-    && entry.route.editorId === route.editorId;
+  return sameVisit(entry, route) && entry.route.editorId === route.editorId;
 }
 function activeEntry(client: MobileDraftClient, route: NewTaskEditorRoute): Entry | null {
   const captured = admission(client, route);
@@ -747,7 +749,7 @@ export function mobileNewTaskEditorRouteFor(client: MobileDraftClient, owner: st
   return entry ? { ...entry.route } : null;
 }
 export function mobileNewTaskEditorEffect(client: MobileDraftClient, route: NewTaskEditorRoute): NewTaskProducerEffect | null {
-  return ledger(client).entries.findLast(entry => matchingRoute(entry, route) && entry.effect)?.effect ?? null;
+  return ledger(client).entries.findLast(entry => sameVisit(entry, route) && entry.effect)?.effect ?? null;
 }
 export function mobileNewTaskEditorFlushKey(client: MobileDraftClient, route: NewTaskEditorRoute): string {
   const entry = activeEntry(client, route);
@@ -1022,7 +1024,7 @@ export async function mobileNewTaskEditorAction(client: MobileDraftClient, route
     return { accepted: true, message: owner.problem };
   }
   if (intent.kind === 'claim') {
-    const entry = ledger(client).entries.find(candidate => matchingRoute(candidate, route) && candidate.effect?.id === intent.id);
+    const entry = ledger(client).entries.find(candidate => sameVisit(candidate, route) && candidate.effect?.id === intent.id);
     if (!entry?.effect || !mobileNewTaskFlowCurrent(route.owner, route.visit, route.location, client))
       return { accepted: false, message: '' };
     const effect = entry.effect; entry.effect = null; return { accepted: true, message: '', effect };

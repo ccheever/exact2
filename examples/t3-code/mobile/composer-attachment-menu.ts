@@ -32,6 +32,10 @@ export function mobileComposerAttachmentMenuSnapshot(client:T3Client,route:Compo
  * native answer. An old button cannot choose into a new visit or editor mount. */
 export function mobileComposerAttachmentMenuAction(event:string,route:ComposerAttachmentMenuRoute,expectedOwner:string,
   native:Native|null|undefined,storage:Files,client:T3Client=mobileClient) {
+  const source=mobileComposerAttachmentMenuChoice(event,route,expectedOwner,client);
+  return mobileComposerAttachmentAction(source,'',native,storage,client,expectedOwner);
+}
+export function mobileComposerAttachmentMenuChoice(event:string,route:ComposerAttachmentMenuRoute,expectedOwner:string,client:T3Client):'photos'|'files' {
   let value:Record<string,unknown>={};
   try {if(event.length<=8192)value=obj(JSON.parse(event))}catch {/* Refuse malformed native events. */}
   const current=identity(client,route);
@@ -40,5 +44,5 @@ export function mobileComposerAttachmentMenuAction(event:string,route:ComposerAt
     ||value.source!=='photos'&&value.source!=='files'
     ||value.source==='files'&&!mobileComposerAttachments(client).supportsFiles)
     throw new ClientError('The attachment button changed. Choose an action in the current composer.','superseded');
-  return mobileComposerAttachmentAction(value.source,'',native,storage,client,current.owner);
+  return value.source;
 }

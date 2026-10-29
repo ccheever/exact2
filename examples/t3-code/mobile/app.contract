@@ -1,5 +1,4 @@
-use HomeArrangementData from "./home-arrangement.contract"
-use AutomationCreditConfirmation, automationReplyPlan, automationCreditHandoff, HtmlRenderContext, HtmlRenderResult, htmlRenderReply, ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors, threadSubmissionNoticeMessage, changeNoticeMessage, fileNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage, TerminalAttachChange, SnapshotRead, HomeReplyPlan, homeReplyPlan, pairingReplyPlan, modelReplyPlan, taskReplyPlan, PairingUi, PairingPrepared, pairingUiInitial, pairingUiVisit, pairingUiPreparing, pairingUiPreparedReply, followedLocation, SettingsVisit, settingsVisitOwner, settingsVisitSelection, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveVisit, archiveDefaultFilters, archiveVisitFilters, archiveLiveRecords, archiveEventRecords, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches, IncomingShareInbox, IncomingSharePresentation, MobileKeyboardSnapshot, MobileKeyboardResult, MobileGitFeedbackSnapshot, MobileGitFeedbackResult, ArchiveChromeSnapshot, ArchiveChromeEvent, ProjectFaviconImages, ProjectFaviconAdmission, ProjectFaviconPrepared, MobileOutboxDrive, MobileOutboxEdit, ComposerRootInput, ComposerRootView, ComposerRootResult, homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileInspectorPanel, MobileWorkspaceOverlays, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation, ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, SettingsSelection, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewPreparation, previewMayRetry, previewDiscoveryActive, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, ScheduledClockTime, AutomationPrepared, AutomationData, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, FileActionResult, FileUi, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource, SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, ArchiveScope, ArchiveRead, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
+use HomeArrangementData, AutomationCreditConfirmation, automationReplyPlan, automationCreditHandoff, HtmlRenderContext, HtmlRenderResult, htmlRenderReply, ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors, terminalReply, composerReply, selectedThreadReply, preparedDraftReply, editedOutboxReply, threadSelectionNotice, projectRenameSaved, noticeChoice, noticeReceived, threadSubmissionNoticeMessage, changeNoticeMessage, fileNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage, TerminalAttachChange, SnapshotRead, HomeReplyPlan, homeReplyPlan, pairingReplyPlan, modelReplyPlan, taskReplyPlan, PairingUi, PairingPrepared, pairingUiInitial, pairingUiVisit, pairingUiPreparing, pairingUiPreparedReply, followedLocation, SettingsVisit, settingsVisitOwner, settingsVisitSelection, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveVisit, archiveDefaultFilters, archiveVisitFilters, archiveLiveRecords, archiveEventRecords, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches, IncomingShareInbox, IncomingSharePresentation, MobileKeyboardSnapshot, MobileKeyboardResult, MobileGitFeedbackSnapshot, MobileGitFeedbackResult, ArchiveChromeSnapshot, ArchiveChromeEvent, ProjectFaviconImages, ProjectFaviconAdmission, ProjectFaviconPrepared, MobileOutboxDrive, MobileOutboxEdit, ComposerRootInput, ComposerRootView, ComposerRootResult, homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileInspectorPanel, MobileWorkspaceOverlays, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation, ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, SettingsSelection, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewPreparation, previewMayRetry, previewDiscoveryActive, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, ScheduledClockTime, AutomationPrepared, AutomationData, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, FileActionResult, FileUi, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource, SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, ArchiveScope, ArchiveRead, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
 use mobileRouteFormSheet, mobileRoutePresentation, mobileRouteDetent from "./mobile-root-state.contract"
 font "DM Sans" // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
   400 = "assets/fonts/DMSans_400Regular.ttf"
@@ -109,15 +108,12 @@ component App
   mutation outboxChanged as shape Change refreshes data, threadData, outbox
   mutation outboxEdited as shape MobileOutboxEdit then didEditOutbox
   action didEditOutbox
-    match outboxEdited
-      case some(result)
-        if result.requestRoute == `${top(nav).id}`
-          if result.message != ""
-            send notice = alert("info", "Could not open draft", result.message)
-          else if result.nextLocation != ""
-            nav = replace(nav, result.nextLocation)
-      case none
-        newTaskOperation = ""
+    let reply = editedOutboxReply(outboxEdited, `${top(nav).id}`)
+    showMobileNotice("Could not open draft", reply.message)
+    if reply.location != ""
+      nav = replace(nav, reply.location)
+    else if not reply.received
+      newTaskOperation = ""
   task readOutbox mount
     after(1, readOutbox)
   action readOutbox
@@ -252,7 +248,9 @@ component App
   action reconcileVoice
     send voiceReconciled = voiceAction("reconcile", voiceFocus.label, voiceFocus.owner, taskGuardOwner, taskGuardRoute)
   action voiceAction(op: string)
-    if op == "cancel"
+    if nativeNewTask and op == "start"
+      richComposerAction("new-task", richComposer.admission, "voice", "")
+    else if op == "cancel"
       send voiceCancelled = voiceAction(op, voiceFocus.label, voiceFocus.owner, taskGuardOwner, taskGuardRoute)
     else if not pending(voiceChanged)
       send voiceChanged = voiceAction(op, voiceFocus.label, voiceFocus.owner, taskGuardOwner, taskGuardRoute)
@@ -316,15 +314,9 @@ component App
   action didScopedSettingChange
     showMobileNotice("Could not save setting", settingNoticeMessage(threadPreferencesChanged, `${top(nav).id}`))
   action didProjectRename
-    match projectRenamed
-      case some(result)
-        if result.requestRoute == `${top(nav).id}`
-          if result.message != ""
-            send notice = alert("info", "Could not rename project", result.message)
-          else if result.saved
-            projectSavedRevision = projectSavedRevision + 1
-      case none
-        projectSavedRevision = projectSavedRevision
+    showMobileNotice("Could not rename project", settingNoticeMessage(projectRenamed, `${top(nav).id}`))
+    if projectRenameSaved(projectRenamed, `${top(nav).id}`)
+      projectSavedRevision = projectSavedRevision + 1
   resource serverSettings = serverSettings(top(nav).params.serverPage, settingsData.serverScope, top(nav).name == "settingsServer", data.revision) as shape ServerSettingsData
   resource providerPrepared = providerAccounts(settingsData.environmentIds, top(nav).name == "settingsProviders", data.revision) as shape ProviderSettingsData
   resource providerAccounts = providerSnapshot(settingsData.environmentIds, top(nav).name == "settingsProviders", providerPrepared) as shape ProviderSettingsData
@@ -404,12 +396,10 @@ component App
     providerLogoutKey = key
     send providerLogoutConfirmation = alert("sign-out", title, message)
   action didConfirmProviderLogout
-    match providerLogoutConfirmation
-      case some(result)
-        if result.choice == "sign-out"
-          providerAction("logout-confirmed", providerLogoutKey, "")
-      case none
-        providerLogoutKey = ""
+    if noticeChoice(providerLogoutConfirmation) == "sign-out"
+      providerAction("logout-confirmed", providerLogoutKey, "")
+    else if not noticeReceived(providerLogoutConfirmation)
+      providerLogoutKey = ""
   action settingsEnvironment(key: string)
     nav = push(nav, path("environmentDetail", key))
   mutation preferenceChanged as shape Change refreshes preferences, shelves, data then didPreferenceChange
@@ -521,7 +511,8 @@ component App
         case none
           streamHaptics = streamHaptics.concat([StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=0)])
   state richComposerLatch = ""
-  derive richComposerInput = ComposerRootInput(active=top(nav).name == "thread", visit=`${top(nav).id}`, url=top(nav).url, environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, editorId=composerEditor, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, scheme=appearance.scheme, themeId=appearance.themeId, enterBehavior=appearance.enterBehavior, focusSerial=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}`, focusAttempt=composerReturn.attempts, focusOperation=(composerReturn.phase == "restoring" and composerReturn.editorId == composerEditor ? "focus" : "none"), now=wallTime.epochAtZero + elapsed)
+  derive nativeNewTask = top(nav).name == "newTaskDraft" and not newTaskFlow.pendingEditor
+  derive richComposerInput = ComposerRootInput(surface=(nativeNewTask ? "new-task" : top(nav).name == "thread" ? "thread" : newTaskFlow.pendingEditor ? "pending-task" : "inactive"), flowOwner=newTaskFlow.owner, active=(top(nav).name == "thread" or nativeNewTask), visit=`${top(nav).id}`, url=top(nav).url, environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, editorId=composerEditor, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, scheme=appearance.scheme, themeId=appearance.themeId, enterBehavior=appearance.enterBehavior, focusSerial=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}`, focusAttempt=composerReturn.attempts, focusOperation=(composerReturn.phase == "restoring" and composerReturn.editorId == composerEditor ? "focus" : "none"), now=wallTime.epochAtZero + elapsed)
   resource richComposer = composerRoot(richComposerInput, richComposerLatch, data.revision) as shape ComposerRootView
   mutation richComposerFiles as shape ComposerRootResult queue refreshes data, richComposer, threadSubmission
   mutation richComposerImmediate as shape ComposerRootResult refreshes richComposer
@@ -568,17 +559,28 @@ component App
   action claimRichEffect
     richComposerAction("claim-effect", richComposer.admission, richComposer.effectId, "")
   action didRichComposerChange
-    match richComposerChanged
-      case some(result)
-        if result.visit == `${top(nav).id}` and result.admission == richComposer.admission and result.editorId == composerEditor and result.owner == composerOwner
-          if result.attachmentId != ""
-            openDraftMedia(result.attachmentId, result.owner)
-          else if result.effectKind == "submit"
-            threadAction(result.alternate ? "send-alternate" : "send", result.owner, "")
-          else if result.effectKind == "focus" or result.effectKind == "blur"
-            composerFocus(result.effectKind == "focus", result.owner, result.editorId)
-      case none
-        richComposerLatch = richComposerLatch
+    let result = composerReply(richComposerChanged)
+    if result.visit == `${top(nav).id}` and result.effectKind == "new-task" and nativeNewTask
+      showMobileNotice("New task", result.message)
+      if result.navigation == "focus"
+        composerFocusIdentity = ""
+        composerReturn = ComposerFocusReturn(editorId=composerEditor, owner=composerOwner, sheetId=composerEditor, phase="pending", attempts=0)
+      else if result.attachmentId != ""
+        showDraftMedia(result.attachmentId, result.owner)
+      else if result.navigation == "push"
+        openComposerSheet(result.location)
+      else if result.navigation == "thread"
+        nav = open(nav, result.location)
+      else if result.navigation == "back"
+        nav = back(go(nav, path("newTask")))
+    else if result.visit == `${top(nav).id}` and result.admission == richComposer.admission and result.editorId == composerEditor and result.owner == composerOwner
+      showMobileNotice("Composer", result.message)
+      if result.attachmentId != ""
+        showDraftMedia(result.attachmentId, result.owner)
+      else if result.effectKind == "submit"
+        threadAction(result.alternate ? "send-alternate" : "send", result.owner, "")
+      else if result.effectKind == "focus" or result.effectKind == "blur"
+        composerFocus(result.effectKind == "focus", result.owner, result.editorId)
   derive threadSubmissionInput = ThreadSubmissionInput(editorAdmission=richComposer.admission, visit=`${top(nav).id}`, url=top(nav).url, active=(top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")), environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, contextImporting=(pending(terminalAttached) or pending(reviewChanged) or pending(documentChanged) or (lastOperation == "attachments" and pending(changed))), now=wallTime.epochAtZero + elapsed, viewportHeight=viewport.height, dark=appearance.scheme == "dark")
   resource threadSubmission = threadSubmission(threadSubmissionInput, data.revision) as shape ThreadSubmission
   resource threadLocalLook = threadLocalColors(appearance.scheme, appearance.themeId) as shape ThreadLocalColors
@@ -617,12 +619,7 @@ component App
     after(1, back)
   mutation routeSelected as shape ThreadSelection refreshes data then didLoadRouteThread
   action didLoadRouteThread
-    match routeSelected
-      case some(result)
-        if result.requestRoute == `${top(nav).id}` and result.message != ""
-          send notice = alert("info", "Could not open thread", result.message)
-      case none
-        composerFocusIdentity = composerFocusIdentity
+    showMobileNotice("Could not open thread", threadSelectionNotice(routeSelected, `${top(nav).id}`))
   mutation selected as shape ThreadSelection refreshes data then didSelectThread
   mutation draftChanged as shape Change refreshes data
   task selectRouteThread when not pending(selected) and not pending(workspaceNavigation) and (top(nav).name.startsWith("thread") or top(nav).name.startsWith("git")) and threadData.selectionRoute == top(nav).url and (threadData.selectionReady or threadData.queuedCanSelect) and (not threadData.queued or threadData.queuedCanSelect) and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId or threadData.selectionReopen) key=`${top(nav).id}:${top(nav).url}:${threadData.selectionKey}`
@@ -631,14 +628,12 @@ component App
     if not pending(selected) and not pending(workspaceNavigation)
       send routeSelected = selectThread(top(nav).params.threadEnvironment == data.environmentId ? top(nav).params.threadId : `fleet:${top(nav).params.threadEnvironment}:${top(nav).params.threadId}`, `${top(nav).id}`)
   action didSelectThread
-    match selected
-      case some(result)
-        if result.requestRoute == `${top(nav).id}` and result.message != ""
-          send notice = alert("info", "Could not open thread", result.message)
-        else if result.requestRoute == `${top(nav).id}` and result.threadId != ""
-          send workspaceNavigation = workspaceThreadSelection(workspaceEntries, workspace.usesSplitView, result.environmentId, result.threadId)
-      case none
-        composerFocusIdentity = ""
+    let result = selectedThreadReply(selected, `${top(nav).id}`)
+    showMobileNotice("Could not open thread", result.message)
+    if result.threadId != ""
+      send workspaceNavigation = workspaceThreadSelection(workspaceEntries, workspace.usesSplitView, result.environmentId, result.threadId)
+    else if not result.received
+      composerFocusIdentity = ""
   action editDraft(value: string, owner: string)
     if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
       send draftChanged = command("draft", owner, value, "0", taskGuardOwner, taskGuardRoute)
@@ -737,12 +732,7 @@ component App
     if not pending(previewChanged)
       send previewChanged = previewMenuAction(kind, value, previewOwner.owner, `${top(nav).id}`)
   action didPreviewChange
-    match previewChanged
-      case some(result)
-        if result.requestRoute == `${top(nav).id}` and result.message != ""
-          send notice = alert("info", "Preview", result.message)
-      case none
-        terminalId = terminalId
+    showMobileNotice("Preview", informationNoticeMessage(previewChanged, `${top(nav).id}`))
   task refreshBrowser when (browserData.needsRefresh or previewMayRetry(previewPrepared, previewOwner, previewRetried, previewReadsAllowed, pending(previewPrepared))) and previewOwner.owner != "" and not pending(previewChanged) and not pending(previewPrepared) key=`${previewOwner.admissionKey}:${previewPrepared.retryable}:${previewRetried}:${browserData.needsRefresh}`
     after(1, refreshBrowserNow)
   action refreshBrowserNow
@@ -774,17 +764,14 @@ component App
     if workspaceRouteReady
       send terminalChanged = terminalAction(op, terminalData.terminalId, value)
   action didTerminalChange
-    match terminalChanged
-      case some(result)
-        if result.environmentId == data.environmentId and result.threadId == data.threadId and top(nav).name == "threadTerminal"
-          if result.message != ""
-            send notice = alert("info", "Terminal", result.message)
-          else if result.closed
-            nav = back(nav)
-          else
-            terminalId = result.terminalId
-      case none
-        terminalId = terminalId
+    let reply = terminalReply(terminalChanged)
+    if reply.received and reply.value.environmentId == data.environmentId and reply.value.threadId == data.threadId and top(nav).name == "threadTerminal"
+      if reply.value.message != ""
+        send notice = alert("info", "Terminal", reply.value.message)
+      else if reply.value.closed
+        nav = back(nav)
+      else
+        terminalId = reply.value.terminalId
   action terminalEvent(value: string)
     send terminalReceived = terminalEvent(value, terminalData.sessionKey)
   action didTerminalEvent
@@ -1079,6 +1066,11 @@ component App
     if result.clearComposerFocus
       composerFocusIdentity = ""
   action openDraftMedia(id: string, owner: string)
+    if nativeNewTask and owner == composerAttachments.contentOwner
+      richComposerAction("new-task", richComposer.admission, "preview", id)
+    else
+      showDraftMedia(id, owner)
+  action showDraftMedia(id: string, owner: string)
     if owner == composerAttachments.contentOwner
       mediaContentOwner = owner
       mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
@@ -1095,16 +1087,27 @@ component App
     send composerPreviewsPrepared = composerPreviewsPrepare(composerAttachments.contentOwner, composerAttachments.previewRequest, wallTime.epochAtZero + performanceNow())
   action removeAttachment(kind: string, id: string, owner: string)
     lastOperation = "attachments"
-    send changed = attachmentAction(kind, id, taskGuardOwner, taskGuardRoute, owner, `${top(nav).id}`, top(nav).url, attachmentMenuActive)
+    if nativeNewTask and owner == composerAttachments.contentOwner
+      richComposerAction("new-task", richComposer.admission, kind, id)
+    else
+      send changed = attachmentAction(kind, id, taskGuardOwner, taskGuardRoute, owner, `${top(nav).id}`, top(nav).url, attachmentMenuActive)
   action pickAttachments(value: string)
     lastOperation = "attachments"
-    send changed = attachmentAction("choice", value, taskGuardOwner, taskGuardRoute, composerAttachments.contentOwner, `${top(nav).id}`, top(nav).url, attachmentMenuActive)
+    if nativeNewTask
+      richComposerAction("new-task", richComposer.admission, "attachment", value)
+    else
+      send changed = attachmentAction("choice", value, taskGuardOwner, taskGuardRoute, composerAttachments.contentOwner, `${top(nav).id}`, top(nav).url, attachmentMenuActive)
   action openModelSettings
     modelQuery = ""
     modelFilter = ""
-    if not newTaskActive
-      send modelChanged = composerAction("open", "", "", taskGuardOwner, taskGuardRoute, `${top(nav).id}`)
-    let destination = push(nav, top(nav).name.startsWith("newTask") ? path("newTaskModel") : path("threadModel", data.environmentId, data.threadId))
+    if nativeNewTask
+      richComposerAction("new-task", richComposer.admission, "model", "")
+    else
+      if not newTaskActive
+        send modelChanged = composerAction("open", "", "", taskGuardOwner, taskGuardRoute, `${top(nav).id}`)
+      openComposerSheet(top(nav).name.startsWith("newTask") ? path("newTaskModel") : path("threadModel", data.environmentId, data.threadId))
+  action openComposerSheet(location: string)
+    let destination = push(nav, location)
     composerReturn = ComposerFocusReturn(editorId=composerEditor, owner=composerOwner, sheetId=`thread-composer-${top(destination).id}`, phase=(composerFocused or layout.keyboardDocked or composerReturn.phase == "restoring" ? "pending" : "expanded"), attempts=0)
     blur()
     composerFocusIdentity = ""
@@ -1168,22 +1171,21 @@ component App
   derive modelFilterOwner = [encodeURIComponent(data.environmentId), data.generation.toString(), encodeURIComponent(data.projectId), encodeURIComponent(data.threadId), encodeURIComponent(taskGuardOwner)].join(":")
   task prepareNewTask when newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared) key=`${newTaskFlow.owner}:${top(nav).id}:${top(nav).url}:${newTaskFlow.shareAttempt}`
     after(1, prepareNewTask)
-  task redirectNewTask when newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared) key=`${newTaskFlow.owner}:${top(nav).id}:${newTaskFlow.nextLocation}`
+  task redirectNewTask when newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared) and not pending(richComposerChanged) and richComposer.effectId == "" key=`${newTaskFlow.owner}:${top(nav).id}:${newTaskFlow.nextLocation}`
     after(1, redirectNewTask)
   action prepareNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared)
       send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + performanceNow(), preferences.ready, preferences.serialized, false)
   action redirectNewTask
-    if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared)
+    if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared) and not pending(richComposerChanged) and richComposer.effectId == ""
       nav = open(nav, newTaskFlow.nextLocation)
   mutation taskPrepared as shape NewTaskFlowResult refreshes data, newTaskFlow then didTaskPrepare
   action didTaskPrepare
-    match taskPrepared
-      case some(result)
-        if result.requestRoute == `${top(nav).id}` and result.nextLocation != ""
-          nav = open(nav, result.nextLocation)
-      case none
-        newTaskOperation = ""
+    let reply = preparedDraftReply(taskPrepared, `${top(nav).id}`)
+    if reply.location != ""
+      nav = open(nav, reply.location)
+    else if not reply.received
+      newTaskOperation = ""
   resource newTaskCachedBranches = newTaskCachedPrepare(branchQuery, newTaskActive and top(nav).name != "newTask", newTaskContextRevision, data.ready, data.environmentId, data.projectId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, data.revision) as shape NewTaskPreparation
   resource newTaskBranchesReady = newTaskPrepare(branchQuery, newTaskActive and newTaskFlow.ready and top(nav).name != "newTask", newTaskContextRevision, data.ready, data.environmentId, data.projectId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, newTaskCachedBranches.revision) as shape NewTaskPreparation
   resource newTaskClone = newTaskClone(newTaskFlow.owner, `${top(nav).id}`, top(nav).url, newTaskFlow.ready or newTaskFlow.busy, data.revision) as shape NewTaskCloneSnapshot
@@ -1221,7 +1223,9 @@ component App
   action openRuntime
     nav = push(nav, top(nav).name.startsWith("newTask") ? path("newTaskRuntime") : path("threadRuntime", data.environmentId, data.threadId))
   action taskAction(kind: string, id: string, value: string)
-    if not pending(taskChanged) and not pending(taskPrepared)
+    if nativeNewTask and (kind == "send" or kind == "send-alternate") and id == composerOwner
+      richComposerAction("new-task", richComposer.admission, kind, "")
+    else if not pending(taskChanged) and not pending(taskPrepared)
       newTaskOperation = kind
       send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + performanceNow(), preferences.ready, preferences.serialized, false)
   action didTaskChange
@@ -1251,13 +1255,18 @@ component App
     branchQuery = value
   action chooseNewProject
     if top(nav).name == "newTaskDraft" and newTaskFlow.ready
-      nav = push(nav, path("newTask") + "?draftRoute=" + encodeURIComponent(`${top(nav).id}`))
+      chooseNewSheet("project", path("newTask") + "?draftRoute=" + encodeURIComponent(`${top(nav).id}`))
     else
       nav = go(nav, path("newTask"))
   action chooseNewEnvironment
-    nav = push(nav, path("newTaskEnvironments"))
+    chooseNewSheet("environment", path("newTaskEnvironments"))
   action chooseNewBranch
-    nav = push(nav, path("newTaskBranches"))
+    chooseNewSheet("branch", path("newTaskBranches"))
+  action chooseNewSheet(kind: string, location: string)
+    if nativeNewTask
+      richComposerAction("new-task", richComposer.admission, kind, "")
+    else
+      nav = push(nav, location)
   state archiveVisits = [ArchiveVisit(routeKey="", filters=archiveDefaultFilters())].slice(0, 0)
   state archiveRefresh = 0
   state archiveDelete = ArchiveDeleteTarget(environment="", project="", thread="")
@@ -1299,12 +1308,10 @@ component App
     else
       send archived = archiveAction(kind, environmentId, projectId, threadId)
   action didConfirmArchive
-    match archiveConfirmation
-      case some(result)
-        if result.choice == "delete"
-          send archived = archiveAction("delete", archiveDelete.environment, archiveDelete.project, archiveDelete.thread)
-      case none
-        archiveDelete = ArchiveDeleteTarget(archiveDelete, thread="")
+    if noticeChoice(archiveConfirmation) == "delete"
+      send archived = archiveAction("delete", archiveDelete.environment, archiveDelete.project, archiveDelete.thread)
+    else if not noticeReceived(archiveConfirmation)
+      archiveDelete = ArchiveDeleteTarget(archiveDelete, thread="")
   action didArchiveChange
     showMobileNotice("Could not update thread", changeNoticeMessage(archived))
   state settledCount = 10
@@ -1340,8 +1347,7 @@ component App
     if result.nextLocation != ""
       nav = push(push(nav, path("newTask")), result.nextLocation)
   action didHomeCopy
-    let result = homeReplyPlan(archiveRefresh, homeCopied, `${top(nav).id}`)
-    showMobileNotice(result.alertTitle, result.message)
+    showMobileNotice(homeReplyPlan(archiveRefresh, homeCopied, `${top(nav).id}`).alertTitle, homeReplyPlan(archiveRefresh, homeCopied, `${top(nav).id}`).message)
   action chooseThread(id: string)
     if not pending(selected) and not pending(workspaceNavigation)
       send workspaceNavigation = workspaceThreadSelection(workspaceEntries, workspace.usesSplitView, data.environmentId, id)
@@ -1413,18 +1419,18 @@ component App
   action didPreparePairing
     pairingUi = pairingUiPreparedReply(pairingUi, prepared, `${top(nav).id}`)
   action didConfirmRemove
-    match removal
-      case some(result)
-        if result.choice == "remove"
-          send changed = command("forget", pendingRemove, "", "0", taskGuardOwner, taskGuardRoute)
-      case none
-        pendingRemove = ""
+    if noticeChoice(removal) == "remove"
+      send changed = command("forget", pendingRemove, "", "0", taskGuardOwner, taskGuardRoute)
+    else if not noticeReceived(removal)
+      pendingRemove = ""
   action addEnvironment
     targetEnvironment = ""
     pairingUi = PairingUi(pairingUiVisit(pairingUi), scannerOpen=false)
     nav = push(nav, path("connect"))
   action closeNewTask
-    if newTaskFlow.pendingEditor
+    if nativeNewTask
+      richComposerAction("new-task", richComposer.admission, "back", "")
+    else if newTaskFlow.pendingEditor
       taskAction("pending-close", "", "")
     else
       nav = back(go(nav, path("newTask")))
@@ -1432,7 +1438,7 @@ component App
     if top(nav).name == "notfound"
       nav = replace(nav, path("home"))
   action back
-    if top(nav).name == "newTaskDraft" and newTaskFlow.pendingEditor
+    if top(nav).name == "newTaskDraft"
       closeNewTask()
     else if top(nav).name == "settingsScheduledNew" or top(nav).name == "settingsScheduledEdit"
       automationAction("close", "", "", "")
@@ -1463,12 +1469,10 @@ component App
     else
       send detailChanged = environmentDetailCommand(kind, key, value)
   action didConfirmDetail
-    match detailConfirmation
-      case some(result)
-        if result.choice == "remove" or result.choice == "update"
-          send detailChanged = environmentDetailCommand(confirmKind, confirmKey, confirmValue)
-      case none
-        confirmKind = ""
+    if noticeChoice(detailConfirmation) == "remove" or noticeChoice(detailConfirmation) == "update"
+      send detailChanged = environmentDetailCommand(confirmKind, confirmKey, confirmValue)
+    else if not noticeReceived(detailConfirmation)
+      confirmKind = ""
   action setEnabled(id: string, enabled: bool)
     send changed = command("environment-enabled", id, enabled ? "on" : "off", "0", taskGuardOwner, taskGuardRoute)
   action changeRouting(id: string, permission: string)

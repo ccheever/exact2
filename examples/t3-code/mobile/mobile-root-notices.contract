@@ -39,3 +39,48 @@ fn threadSubmissionNoticeMessage(reply: option<ThreadSubmissionResult>, visit: s
   case some(result) => result.visit == visit and result.owner == owner ? result.message : "",
   case none => ""
 }
+
+use ThreadSelection, Notice from "./app-shapes.contract"
+fn threadSelectionNotice(reply: option<ThreadSelection>, visit: string): string = match reply { case some(result) => result.requestRoute == visit ? result.message : "", case none => "" }
+fn projectRenameSaved(reply: option<SettingsWrite>, visit: string): bool = match reply { case some(result) => result.requestRoute == visit and result.message == "" and result.saved, case none => false }
+fn noticeChoice(reply: option<Notice>): string = match reply { case some(result) => result.choice, case none => "" }
+fn noticeReceived(reply: option<Notice>): bool = match reply { case some(result) => true, case none => false }
+
+use NewTaskFlowResult from "./new-task-flow.contract"
+use MobileOutboxEdit from "./mobile-outbox-drive.contract"
+shape DraftNavigationReply
+  received: bool
+  message: string
+  location: string
+fn preparedDraftReply(reply: option<NewTaskFlowResult>, visit: string): DraftNavigationReply = match reply {
+  case some(result) => DraftNavigationReply(received=true, message="", location=result.requestRoute == visit ? result.nextLocation : ""),
+  case none => DraftNavigationReply(received=false, message="", location="")
+}
+fn editedOutboxReply(reply: option<MobileOutboxEdit>, visit: string): DraftNavigationReply = match reply {
+  case some(result) => DraftNavigationReply(received=true, message=result.requestRoute == visit ? result.message : "", location=result.requestRoute == visit and result.message == "" ? result.nextLocation : ""),
+  case none => DraftNavigationReply(received=false, message="", location="")
+}
+
+use ComposerRootResult from "./composer-root.contract"
+fn composerReply(reply: option<ComposerRootResult>): ComposerRootResult = match reply {
+  case some(result) => result,
+  case none => ComposerRootResult(revision=0, message="", visit="", owner="", editorId="", admission="", effectId="", effectKind="", alternate=false, attachmentId="", navigation="", location="")
+}
+shape SelectedThreadReply
+  received: bool
+  message: string
+  environmentId: string
+  threadId: string
+fn selectedThreadReply(reply: option<ThreadSelection>, visit: string): SelectedThreadReply = match reply {
+  case some(result) => SelectedThreadReply(received=true, message=result.requestRoute == visit ? result.message : "", environmentId=result.environmentId, threadId=result.requestRoute == visit and result.message == "" ? result.threadId : ""),
+  case none => SelectedThreadReply(received=false, message="", environmentId="", threadId="")
+}
+
+use MobileTerminalResult from "./terminal-mobile.contract"
+shape TerminalReply
+  received: bool
+  value: MobileTerminalResult
+fn terminalReply(reply: option<MobileTerminalResult>): TerminalReply = match reply {
+  case some(result) => TerminalReply(received=true, value=result),
+  case none => TerminalReply(received=false, value=MobileTerminalResult(revision=0, message="", terminalId="", closed=false, choice="", environmentId="", threadId=""))
+}

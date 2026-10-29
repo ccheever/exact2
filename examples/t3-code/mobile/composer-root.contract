@@ -1,6 +1,8 @@
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 use ComposerCommandPopoverData, ComposerCommandColors from "./composer-command-popover.contract"
 shape ComposerRootInput
+  surface: string
+  flowOwner: string
   active: bool
   visit: string
   url: string
@@ -62,3 +64,5 @@ shape ComposerRootResult
   effectKind: string
   alternate: bool
   attachmentId: string
+  navigation: string
+  location: string

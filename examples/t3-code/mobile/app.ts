@@ -1,8 +1,9 @@
+import { mobileNewTaskEditorRouteFor, mobileNewTaskEditorAction } from './new-task-editor';
 import { mobileHtmlRenderContext, mobileHtmlRenderEvent, mobileHtmlRenderCanOpen,
   mobileHtmlRenderDocumentSource, mobileHtmlRenderSelection } from './html-render-owner';
 import { mobilePendingInput, mobilePendingInputObserveRoute, mobilePendingInputRouteCurrent } from './pending-input';
 import { mobileHtmlRenderDocument, mobileHtmlRenderDocumentAction } from './html-render-document';
-import { mobileComposerRootSnapshot, mobileComposerRootAction } from './composer-root';
+import { mobileComposerSurfaceInput, mobileComposerSurfaceSnapshot as mobileComposerRootSnapshot, mobileComposerSurfaceAction as mobileComposerRootAction } from './composer-surface';
 import { mobileThreadSendRootSnapshot, mobileThreadSendRootAction } from './thread-send-root';
 import { mobileThreadForkObserveRoute, mobileThreadForkAction } from './thread-fork';
 import { mobileDraftRecoveryHandles } from './mobile-draft-recovery';
@@ -120,16 +121,16 @@ const sources: Sources = {
     const selected = mobileHtmlRenderSelection(mobileClient, event.openKey);
     return { ...result, ...event, attachmentId: selected?.reference.attachmentId ?? '', openKey: selected ? event.openKey : '' };
   },
-  composerRoot: args => mobileComposerRootSnapshot(mobileClient, args[0], args[1]),
+  composerRoot: args => mobileComposerRootSnapshot(mobileClient, mobileComposerSurfaceInput(args[0]), args[1]),
   composerRootAction: async (args, _store, suppliedStorage, nativeInput) => {
     const input = sourceNative('composerRootAction', args, nativeInput);
     const handle = input?.available ? letGoAware(mobileNative(input)) : input;
     const { native, storage } = mobileDraftRecoveryHandles(mobileClient, handle,
       handle?.available ? nativeFiles(handle) : suppliedStorage!);
-    const op = (['event', 'rich', 'pick', 'dismiss', 'retry', 'prepare-files', 'cleanup-files', 'immediate', 'wake', 'claim-effect'] as const).find(value => value === args[1]);
+    const op = (['event', 'rich', 'pick', 'dismiss', 'retry', 'prepare-files', 'cleanup-files', 'immediate', 'wake', 'claim-effect', 'new-task'] as const).find(value => value === args[1]);
     if (!native?.available || !op) return { revision: mobileClient.revision, message: 'This editor action is unavailable.',
-      visit: args[0].visit, owner: '', editorId: args[0].editorId, admission: args[2], effectId: '', effectKind: '', alternate: false, attachmentId: '' };
-    return mobileComposerRootAction(mobileClient, { ...args[0], now: args[5] },
+      visit: args[0].visit, owner: '', editorId: args[0].editorId, admission: args[2], effectId: '', effectKind: '', alternate: false, attachmentId: '', navigation: '', location: '' };
+    return mobileComposerRootAction(mobileClient, mobileComposerSurfaceInput({ ...args[0], now: args[5] }),
       { op, admission: args[2], key: args[3], payload: args[4] }, native, storage);
   },
   threadSubmission: args => mobileThreadSendRootSnapshot(mobileClient, args[0]),
@@ -251,8 +252,15 @@ const sources: Sources = {
     const native = nativeInput;
     return newTaskFlow(args, native);
   },
-  newTaskAction: (args, _store, storage, nativeInput) => {
+  newTaskAction: async (args, _store, storage, nativeInput) => {
     const native = sourceNative('newTaskAction', args, nativeInput);
+    const route = mobileNewTaskEditorRouteFor(mobileClient, str(args[0]), str(args[1]));
+    if (native?.available && route && (args[2] === 'workspace' || args[2] === 'interaction')) {
+      const handle = letGoAware(mobileNative(native)), handles = mobileDraftRecoveryHandles(mobileClient, handle, nativeFiles(handle));
+      const result = await mobileNewTaskEditorAction(mobileClient, route, { kind: 'setting', name: args[2], value: str(args[4]) }, handles.native, handles.storage);
+      return { revision: mobileClient.revision, requestRoute: route.visit, nextLocation: '', message: result.message,
+        alertTitle: '', submitted: false, environmentId: mobileClient.environmentId, projectId: mobileClient.projectId, threadId: '' };
+    }
     return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!, mobileClient, fleet, Number(args[5]), { ready: args[6] === true, serialized: str(args[7]) }, args[8] === true);
   },
   threadPreferences: (args, _store, storage, nativeInput) => {
