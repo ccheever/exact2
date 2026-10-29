@@ -15,10 +15,11 @@ import UIKit
     }
     private final class Disk: @unchecked Sendable {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("file-holds-" + UUID().uuidString)
-        var failBefore = false, failAfter = false, saves = 0
+        var failBefore = false, failAfter = false, failPreferences = false, saves = 0
         let entered = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0)
         var pause = false
         func replace(_ bytes: Data, _ url: URL) throws {
+            if failPreferences && url.lastPathComponent == "t3-code.json" { throw CocoaError(.fileWriteUnknown) }
             if url.lastPathComponent == "mobile-queued-edit.json" {
                 saves += 1
                 if pause { pause = false; entered.signal(); _ = resume.wait(timeout: .now() + 5) }
@@ -36,9 +37,10 @@ import UIKit
         let url: URL
         let port: T3MobileComposerEditor
         let request: [String: Any]
+        let operations: T3MobileComposerOperations
     }
-    private func port(_ registry: T3MobileComposerFileHolds, owner: String) throws -> T3MobileComposerEditor {
-        let port = T3MobileComposerEditor(voice: voice.editor, fileHolds: registry,
+    private func port(_ registry: T3MobileComposerFileHolds, owner: String, operations: T3MobileComposerOperations? = nil) throws -> T3MobileComposerEditor {
+        let port = T3MobileComposerEditor(voice: voice.editor, operations: operations, fileHolds: registry,
             events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1))
         port.view.frame = CGRect(x: 20, y: 100, width: 400, height: 120); host.addSubview(port.view)
         let control: [String: Any] = ["owner": owner, "editorId": "file-composer", "routeVisit": UUID().uuidString,
@@ -49,21 +51,27 @@ import UIKit
         try port.setProps(["configuration": String(decoding: json(control), as: UTF8.self)])
         return port
     }
-    private func fixture() throws -> Fixture {
+    private func fixture(newTask: Bool = false) throws -> Fixture {
         let disk = Disk(), coordinator = T3MobileQueuedEdit(root: disk.root, replace: disk.replace)
         let registry = T3MobileComposerFileHolds(coordinator: coordinator), id = UUID().uuidString.lowercased()
-        let file: [String: Any] = ["id": id, "contextId": "file-context", "draftKey": "env:thread", "environmentId": "env",
+        let key = newTask ? "new-task:picker" : "env:thread", created = "2026-10-29T02:00:00.000Z"
+        let file: [String: Any] = ["id": id, "contextId": "file-context", "draftKey": key, "environmentId": "env",
             "name": "note.txt", "mimeType": "text/plain", "sizeBytes": 5, "source": "attached", "status": "staged", "attachmentId": ""]
         try FileManager.default.createDirectory(at: disk.root.appendingPathComponent("composer-files"), withIntermediateDirectories: true)
         let url = disk.root.appendingPathComponent("composer-files").appendingPathComponent(id)
         try Data("hello".utf8).write(to: url)
-        try json(["composerFiles": [file], "drafts": ["env:thread": ""], "pending": [:]]).write(to: disk.root.appendingPathComponent("t3-code.json"))
-        let owner = String(decoding: try json(["ordinary", "https://file.test", "env", 1, "env:thread"]), as: UTF8.self)
-        let port = try self.port(registry, owner: owner)
+        var preferences: [String: Any] = ["version": 1, "composerFiles": [file], "snapshotDrafts": [:], "drafts": [key: ""], "pending": [:]]
+        if newTask { preferences["mobileNewTaskDrafts"] = ["version": 1, "records": [key: ["key": key, "origin": "https://file.test", "environmentId": "env", "projectId": "project", "createdAt": created, "revision": 2, "choices": NSNull()]], "receipts": [:], "claims": [:], "fileReleases": []] }
+        try json(preferences).write(to: disk.root.appendingPathComponent("t3-code.json"))
+        let fields: [Any] = ["ordinary", "https://file.test", "env", 1, key] + (newTask ? [created] : [])
+        let owner = String(decoding: try json(fields), as: UTF8.self), operations = T3MobileComposerOperations()
+        let port = try self.port(registry, owner: owner, operations: operations)
+        let target = newTask ? ["kind": "new-task", "origin": "https://file.test", "environmentId": "env", "projectId": "project", "draftKey": key, "createdAt": created]
+            : ["origin": "https://file.test", "environmentId": "env", "threadId": "thread", "draftKey": key]
         let request: [String: Any] = ["op": "composerFileHold", "action": "acquire", "generation": 1,
             "identity": port.composerIdentity!.json, "requestId": UUID().uuidString.lowercased(),
-            "target": ["origin": "https://file.test", "environmentId": "env", "threadId": "thread", "draftKey": "env:thread"], "file": file]
-        return Fixture(disk: disk, coordinator: coordinator, registry: registry, file: file, url: url, port: port, request: request)
+            "target": target, "file": file]
+        return Fixture(disk: disk, coordinator: coordinator, registry: registry, file: file, url: url, port: port, request: request, operations: operations)
     }
     private func perform(_ f: Fixture, _ request: [String: Any]? = nil) async -> [String: Any] {
         await withCheckedContinuation { continuation in f.registry.perform(request ?? f.request) { continuation.resume(returning: $0) } }
@@ -73,12 +81,151 @@ import UIKit
     }
     private func remove(_ f: Fixture) throws -> [String: Any] { try f.coordinator.removeAttachment(["op": "composerAttachRemove", "id": f.file["id"]!]) }
     private func saved(_ f: Fixture, _ files: Any) throws {
-        try f.coordinator.writePreferences(String(decoding: json(["composerFiles": files, "drafts": ["env:thread": ""], "pending": [:]]), as: UTF8.self))
+        var preferences = try JSONSerialization.jsonObject(with: Data(contentsOf: f.disk.root.appendingPathComponent("t3-code.json"))) as! [String: Any]
+        preferences["composerFiles"] = files
+        try f.coordinator.writePreferences(String(decoding: json(preferences), as: UTF8.self))
     }
     private func receipt(_ reply: [String: Any]) -> [String: Any] { (reply["value"] as? [String: Any])?["receipt"] as? [String: Any] ?? [:] }
     private func cleanup(_ f: Fixture) { f.registry.destroy(); f.port.destroy(); f.port.view.removeFromSuperview() }
     private func idle(_ f: Fixture) async {
         await withCheckedContinuation { continuation in f.registry.whenIdle { continuation.resume() } }
+    }
+    private func refuses(_ name: String, _ operation: () throws -> Void) {
+        do { try operation(); check(false, name) } catch { check(true, name) }
+    }
+    private func preferences(_ f: Fixture) throws -> [String: Any] {
+        try JSONSerialization.jsonObject(with: Data(contentsOf: f.disk.root.appendingPathComponent("t3-code.json"))) as! [String: Any]
+    }
+    private func save(_ f: Fixture, _ preferences: [String: Any]) throws {
+        try f.coordinator.writePreferences(String(decoding: json(preferences), as: UTF8.self))
+    }
+    private func newTaskHolds() async throws {
+        let f = try fixture(newTask: true); defer { cleanup(f) }
+        let identity = f.port.composerIdentity!, original = try preferences(f), key = f.file["draftKey"] as! String
+        var control = identity.json
+        control.merge(["acknowledgedEventCount": f.port.composerEventCount, "ackCommandId": "", "active": true, "editable": true, "readOnly": false,
+            "focusIntent": ["serial": "", "attempt": 0, "operation": "none"], "command": NSNull(),
+            "document": ["value": "", "selection": ["start": 0, "end": 0], "tokensJson": "[]", "isNativeEcho": true]]) { _, next in next }
+        try f.port.setProps(["configuration": String(decoding: json(control), as: UTF8.self)])
+        _ = try f.port.handoff(T3ComposerHandoffRequest(["op": "composerEditorHandoff", "generation": 1, "identity": identity.json,
+            "action": "freeze", "operationId": UUID().uuidString, "operationRevision": 1, "retireUndo": false]))
+        check(f.port.composerIdentity == identity && f.port.composerFileHoldEligible && !f.port.composerMounted, "frozen NewTask retains its exact eligible native claim")
+        check(await perform(f)["ok"] as? Bool == true, "registered frozen NewTask acquires exact saved file")
+        for field in ["origin", "environmentId", "projectId", "createdAt", "key", "revision"] {
+            var bad = original, store = bad["mobileNewTaskDrafts"] as! [String: Any], rows = store["records"] as! [String: [String: Any]], record = rows[key]!
+            record[field] = field == "revision" ? true : "changed" as Any; rows[key] = record; store["records"] = rows; bad["mobileNewTaskDrafts"] = store
+            try save(f, bad)
+            var request = f.request; request["requestId"] = UUID().uuidString.lowercased()
+            check(await perform(f, request)["ok"] as? Bool == false, "NewTask initial hold refuses changed saved \(field)")
+        }
+        try save(f, original)
+        var wrongGeneration = f.request; wrongGeneration["generation"] = 2
+        check(await perform(f, wrongGeneration)["ok"] as? Bool == false, "NewTask hold compares owner generation")
+        try saved(f, [])
+        check(await perform(f)["ok"] as? Bool == true, "NewTask acquired replay survives removal from live inventory")
+        check(try remove(f)["retained"] as? Bool == true, "NewTask native Undo claim protects removed metadata")
+        _ = await release(f); _ = try f.coordinator.releaseAttachments()
+        check(!FileManager.default.fileExists(atPath: f.url.path), "NewTask release allows guarded cleanup")
+    }
+    private func pickerPublication(newTask: Bool) throws {
+        let f = try fixture(newTask: newTask); defer { cleanup(f) }
+        let identity = f.port.composerIdentity!, claim = T3ComposerFileClaim(identity: identity), target = f.request["target"] as! [String: String]
+        let incarnation = target["createdAt"] ?? "thread-incarnation", key = target["draftKey"]!, operationId = UUID().uuidString.lowercased()
+        let input: [String: Any] = ["op": "composerPickerIntake", "action": "pick", "operationId": operationId, "generation": 1,
+            "identity": identity.json, "target": target, "document": ["incarnation": incarnation, "revision": 2], "source": "files", "remaining": 3, "fileLimit": 100]
+        if newTask {
+            for field in ["generation", "incarnation", "createdAt", "kind", "pending", "projectId", "extra"] {
+                var bad = input, badTarget = target
+                switch field {
+                case "generation": bad["generation"] = 2
+                case "incarnation": bad["document"] = ["incarnation": "other", "revision": 2]
+                case "pending": badTarget["draftKey"] = "new-task:pending-one"; bad["target"] = badTarget
+                case "extra": badTarget["threadId"] = "thread"; bad["target"] = badTarget
+                default: badTarget[field] = ""; bad["target"] = badTarget
+                }
+                refuses("NewTask picker refuses invalid \(field)") { _ = try T3PickerRequest(bad) }
+            }
+        }
+        let request = try T3PickerRequest(input), (op, opened, _) = try f.coordinator.beginPicker(request, claim: claim)
+        check(opened, "\(newTask) picker opens once")
+        check(try f.coordinator.beginPicker(request, claim: claim).1 == false, "\(newTask) lost pick reply does not reopen UI")
+        var changed = input; changed["remaining"] = 2
+        refuses("\(newTask) picker capture is immutable") { _ = try f.coordinator.beginPicker(T3PickerRequest(changed), claim: claim) }
+        let file = try f.coordinator.stagePicker(op, bytes: Data("picked".utf8), metadata: ["kind": "file", "name": "picked.txt", "mimeType": "text/plain"])
+        let image = try f.coordinator.stagePicker(op, bytes: Data([1, 2, 3]), metadata: ["kind": "image", "name": "image.png", "mimeType": "image/png"])
+        let discard = try f.coordinator.stagePicker(op, bytes: Data("discard".utf8), metadata: ["kind": "file", "name": "discard.txt", "mimeType": "text/plain"])
+        check(try f.coordinator.completePicker(op, error: "")["status"] as? String == "staged", "\(newTask) copied bytes reach recoverable staged status")
+        var adopted = file; adopted.removeValue(forKey: "kind")
+        adopted.merge(["contextId": "picked-file", "draftKey": key, "environmentId": "env", "source": "attached", "status": "staged", "attachmentId": ""]) { _, next in next }
+        func follow(_ action: String, _ extra: [String: Any] = [:]) throws -> T3PickerRequest {
+            try T3PickerRequest(["op": "composerPickerIntake", "action": action, "operationId": operationId, "generation": 1, "identity": identity.json].merging(extra) { _, next in next })
+        }
+        var hold = f.request; hold["file"] = adopted; hold["requestId"] = UUID().uuidString.lowercased()
+        let held = try f.coordinator.performPicker(follow("hold", ["request": hold]), claim: claim)
+        check(held["status"] as? String == "held", "\(newTask) issued file hold precedes saved metadata")
+        var saved = try preferences(f)
+        let text = "hello 🙂", images = [image], files = [f.file, adopted]
+        let ids = [image["id"] as! String, f.file["id"] as! String, file["id"] as! String]
+        saved["drafts"] = [key: text]; saved["snapshotDrafts"] = [key: images]; saved["composerFiles"] = files; saved["mobileAttachmentOrder"] = [key: ids]
+        var after: [String: Any] = ["text": text, "images": images, "files": files, "attachmentIds": ids, "attachmentOrder": ids]
+        if newTask {
+            var store = saved["mobileNewTaskDrafts"] as! [String: Any], records = store["records"] as! [String: [String: Any]], record = records[key]!
+            record["revision"] = 3
+            record["context"] = ["version": 1, "records": [["version": 1, "kind": "mention", "contextId": "mention-one", "label": "path", "path": "README.md"]]]
+            records[key] = record; store["records"] = records; saved["mobileNewTaskDrafts"] = store; after["record"] = record
+        } else {
+            let document: [String: Any] = ["origin": target["origin"]!, "environmentId": "env", "threadId": "thread", "draftKey": key, "incarnation": incarnation, "revision": 3, "selection": NSNull()]
+            let scope = String(decoding: try json([target["origin"]!, "env", key]), as: UTF8.self)
+            saved["mobileComposerEditor"] = ["version": 1, "documents": [scope: document]]; after["document"] = document; after["context"] = NSNull()
+        }
+        let accepted = [file["id"] as! String, image["id"] as! String], discarded = [discard["id"] as! String]
+        func finish(_ after: [String: Any], partition: ([String], [String])? = nil) throws -> T3PickerRequest {
+            try follow("finish", ["publication": ["after": after, "acceptedIds": partition?.0 ?? accepted, "discardedIds": partition?.1 ?? discarded]])
+        }
+        let modes = ["order", "inventory", "partition", "metadata"] + (newTask ? ["project", "birth", "revision", "context", "context-null", "record", "registry", "discarded"] : [])
+        for mode in modes {
+            var badSaved = saved, badAfter = after, badAccepted = accepted, badDiscarded = discarded
+            switch mode {
+            case "order": badSaved["mobileAttachmentOrder"] = [key: ids.reversed().map { $0 }]
+            case "inventory": badSaved["composerFiles"] = [f.file]
+            case "partition": badAccepted = []; badDiscarded = []
+            case "metadata": var changedFile = adopted; changedFile["name"] = "changed"; badAfter["files"] = [f.file, changedFile]; badSaved["composerFiles"] = [f.file, changedFile]
+            case "record": var record = after["record"] as! [String: Any]; record["choices"] = ["modelId": "other"]; badAfter["record"] = record
+            case "registry": badSaved["mobileNewTaskDrafts"] = ["version": true, "records": [:]]
+            case "discarded": badAccepted = [image["id"] as! String]; badDiscarded = [file["id"] as! String, discard["id"] as! String]
+            default:
+                var record = after["record"] as! [String: Any]
+                switch mode {
+                case "project": record["projectId"] = "other"
+                case "birth": record["createdAt"] = "other"
+                case "revision": record["revision"] = 1
+                case "context-null": record["context"] = NSNull()
+                default: record["context"] = ["version": 1, "records": [["contextId": "duplicate", "kind": "mention"], ["contextId": "duplicate", "kind": "mention"]]]
+                }
+                var store = saved["mobileNewTaskDrafts"] as! [String: Any]; store["records"] = [key: record]; badSaved["mobileNewTaskDrafts"] = store; badAfter["record"] = record
+            }
+            try save(f, badSaved)
+            refuses("\(newTask) publication refuses \(mode)") { _ = try f.coordinator.performPicker(finish(badAfter, partition: (badAccepted, badDiscarded)), claim: claim) }
+            check(op.status == "staged", "\(newTask) failed \(mode) proof retains staged custody")
+        }
+        try save(f, saved)
+        f.coordinator.endFileHoldOwner(claim)
+        check(try f.coordinator.performPicker(follow("status"), claim: nil)["status"] as? String == "staged", "\(newTask) exact status survives native owner retirement")
+        refuses("\(newTask) retired owner cannot acquire another issued hold") { _ = try f.coordinator.performPicker(follow("hold", ["request": hold]), claim: claim) }
+        let completion = try finish(after)
+        f.disk.failPreferences = true
+        refuses("\(newTask) failed durable preference replace cannot finish") { _ = try f.coordinator.performPicker(completion, claim: nil) }
+        check(op.status == "staged", "\(newTask) failed save keeps exact issued operation")
+        f.disk.failPreferences = false
+        check(try f.coordinator.performPicker(completion, claim: nil)["status"] as? String == "finished", "\(newTask) retired operation adopts exact saved publication")
+        var newer = saved; newer["drafts"] = [key: "newer text"]; try save(f, newer)
+        check(try f.coordinator.performPicker(completion, claim: nil)["status"] as? String == "finished", "\(newTask) lost finish reply replays after newer edits")
+        refuses("\(newTask) finished partition cannot change") { _ = try f.coordinator.performPicker(finish(after, partition: ([], accepted + discarded)), claim: nil) }
+        refuses("\(newTask) finished adoption cannot cancel") { _ = try f.coordinator.performPicker(follow("cancel"), claim: nil) }
+        let fresh = T3MobileQueuedEdit(root: f.disk.root); _ = try fresh.releaseAttachments()
+        check(FileManager.default.fileExists(atPath: f.disk.root.appendingPathComponent("composer-files").appendingPathComponent(file["id"] as! String).path), "\(newTask) cold cleanup retains adopted file")
+        check(FileManager.default.fileExists(atPath: f.disk.root.appendingPathComponent("snapshots/drafts").appendingPathComponent(image["id"] as! String).path), "\(newTask) cold cleanup retains adopted image")
+        check(!FileManager.default.fileExists(atPath: f.disk.root.appendingPathComponent("composer-files").appendingPathComponent(discard["id"] as! String).path), "\(newTask) cold cleanup removes discarded file")
     }
     func run() async -> [String: Any] {
         await attempt("basic") {
@@ -211,6 +358,8 @@ import UIKit
             let fresh = T3MobileQueuedEdit(root: f.disk.root); _ = try fresh.releaseAttachments()
             check(!FileManager.default.fileExists(atPath: f.url.path), "persisted release candidate enables cleanup after process-local history loss")
         }
+        await attempt("new task native holds") { try await newTaskHolds() }
+        for newTask in [false, true] { await attempt("picker publication \(newTask)") { try pickerPublication(newTask: newTask) } }
         voice.destroy()
         return ["passed": checks.filter { $0["pass"] as? Bool == true }.count, "failed": checks.filter { $0["pass"] as? Bool == false }.count, "checks": checks]
     }

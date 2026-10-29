@@ -1373,7 +1373,11 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             } else {
                 guard claim.records.count < 4096 else { throw T3ComposerFileRequest.error("This editor's file hold request limit was reached.") }
                 if let issued { _ = try pickerIntakes.issuedFile(request, operation: issued) }
-                else { try T3ComposerFileRequest.saved(file, preferences: readJSON(preferences)) }
+                else {
+                    let saved = try readJSON(preferences), destination = try request.destination()
+                    if case .newTask = destination.kind { _ = try destination.savedNewTask(in: saved) }
+                    try T3ComposerFileRequest.saved(file, preferences: saved)
+                }
                 let fingerprint = try T3ComposerFileRequest.fingerprint(root: root, file: file)
                 guard claim.live else { throw T3ComposerFileRequest.error("The native file owner ended while reading.") }
                 let receipt: [String: Any] = ["identity": claim.identity.json, "requestId": request.requestId,

@@ -272,6 +272,15 @@ textarea. The exported native presentation remains unwired. Activation still
 requires producer integration, token projection, voice and paste ownership
 acceptance, and native node recreation after a factory refusal. Direct
 editor-object retry alone does not qualify recovery through the host.
+The existing native picker intake now admits a closed NewTask destination and
+proves adoption against its exact saved record, source, inventory and mixed order.
+It retains the existing operation, native claim and durable cleanup owner.
+The UIKit fixture passes 149 checks, including frozen saved-file acquisition,
+issued holds, refused ownership changes, retirement, failed saves, terminal
+replay and cold cleanup for ordinary and NewTask drafts. All 3,871 mobile tests,
+strict TypeScript, boot, the Rust checks and the normal native build pass.
+Independent source review finds no introduced blocker. This verifies the native
+boundary; NewTask caller integration and system-picker activation remain open.
 
 A large-catalogue cold launch exposed a blank transcript, unready Send and a
 Hermes allocation failure. Composer preparation copied and fingerprinted command

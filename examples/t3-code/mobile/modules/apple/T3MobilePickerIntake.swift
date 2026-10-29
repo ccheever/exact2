@@ -7,6 +7,49 @@ import CryptoKit
 import Darwin
 
 typealias T3PickerObject = [String: Any]
+struct T3ComposerFileDestination {
+    enum Kind { case ordinary(threadId: String), newTask(projectId: String, createdAt: String) }
+    let origin: String
+    let environmentId: String
+    let draftKey: String
+    let kind: Kind
+    init(target: Any?, identity: T3ComposerIdentity, generation: Int) throws {
+        guard let target = target as? [String: String], target.values.allSatisfy({ !$0.isEmpty }),
+              let origin = target["origin"], let environment = target["environmentId"], let key = target["draftKey"],
+              let owner = try? JSONSerialization.jsonObject(with: Data(identity.owner.utf8)) as? [Any],
+              owner.count == 5 || owner.count == 6, owner[0] as? String == "ordinary", owner[1] as? String == origin,
+              owner[2] as? String == environment, T3ComposerFileRequest.integer(owner[3]) == generation,
+              owner[4] as? String == key else { throw T3ComposerFileRequest.error("The captured attachment destination is invalid.") }
+        self.origin = origin; environmentId = environment; draftKey = key
+        if Set(target.keys) == Set(["origin", "environmentId", "threadId", "draftKey"]),
+           let thread = target["threadId"], !thread.hasPrefix("new:"), !key.contains("~queued-edit~"), key == environment + ":" + thread {
+            kind = .ordinary(threadId: thread)
+        } else if Set(target.keys) == Set(["kind", "origin", "environmentId", "projectId", "draftKey", "createdAt"]),
+                  target["kind"] == "new-task", let project = target["projectId"], let created = target["createdAt"],
+                  let draft = identity.independentDraft, draft.origin == origin, draft.environment == environment,
+                  draft.key == key, draft.incarnation == created, created.utf16.count <= 128 {
+            kind = .newTask(projectId: project, createdAt: created)
+        } else { throw T3ComposerFileRequest.error("Only a captured thread or new task draft can retain attachments.") }
+    }
+    static func newTaskRecords(_ raw: Any?) throws -> [String: T3PickerObject] {
+        guard let store = raw as? T3PickerObject, T3ComposerFileRequest.integer(store["version"]) == 1,
+              let records = store["records"] as? [String: T3PickerObject], store["receipts"] is T3PickerObject,
+              store["claims"] is [String: String], store["fileReleases"] is [String] else {
+            throw T3ComposerFileRequest.error("The saved new task ownership is invalid.")
+        }
+        return records
+    }
+    func savedNewTask(in preferences: T3PickerObject) throws -> T3PickerObject {
+        guard case let .newTask(project, created) = kind,
+              let record = try Self.newTaskRecords(preferences["mobileNewTaskDrafts"])[draftKey],
+              record["key"] as? String == draftKey, record["origin"] as? String == origin,
+              record["environmentId"] as? String == environmentId, record["projectId"] as? String == project,
+              record["createdAt"] as? String == created, T3ComposerFileRequest.integer(record["revision"]) != nil else {
+            throw T3ComposerFileRequest.error("The captured saved new task changed.")
+        }
+        return record
+    }
+}
 struct T3PickerRequest {
     let object: T3PickerObject
     let action: String
@@ -29,15 +72,12 @@ struct T3PickerRequest {
         let extra: [String] = action == "pick" ? ["target", "document", "source", "remaining", "fileLimit"] : action == "hold" ? ["request"] : action == "finish" ? ["publication"] : []
         guard Set(object.keys) == Set(["op", "action", "operationId", "generation", "identity"] + extra), object["op"] as? String == "composerPickerIntake" else { throw Self.error("The picker request fields are invalid.") }
         if action == "pick" {
-            guard let target = object["target"] as? [String: String], Set(target.keys) == Set(["origin", "environmentId", "threadId", "draftKey"]),
-                  target.values.allSatisfy({ !$0.isEmpty }), let key = target["draftKey"], let env = target["environmentId"], let thread = target["threadId"],
-                  !thread.hasPrefix("new:"), !key.contains("~queued-edit~"), key == env + ":" + thread,
-                  let owner = try? JSONSerialization.jsonObject(with: Data(identity.owner.utf8)) as? [Any], owner.count == 5 || owner.count == 6,
-                  owner[0] as? String == "ordinary", owner[1] as? String == target["origin"], owner[2] as? String == env, Self.integer(owner[3]) == generation, owner[4] as? String == key,
-                  let document = object["document"] as? T3PickerObject, Set(document.keys) == Set(["incarnation", "revision"]),
+            let destination = try T3ComposerFileDestination(target: object["target"], identity: identity, generation: generation)
+            guard let document = object["document"] as? T3PickerObject, Set(document.keys) == Set(["incarnation", "revision"]),
                   let incarnation = document["incarnation"] as? String, !incarnation.isEmpty, incarnation.utf16.count <= 128, Self.integer(document["revision"]) != nil,
                   let source = object["source"] as? String, ["photos", "files"].contains(source), let count = Self.integer(object["remaining"]), (1...100).contains(count),
-                  let limit = Self.integer(object["fileLimit"]), limit <= T3MobileAttachments.maxFileBytes, source != "files" || limit > 0 else { throw Self.error("Only a captured ordinary draft can open this picker.") }
+                  let limit = Self.integer(object["fileLimit"]), limit <= T3MobileAttachments.maxFileBytes, source != "files" || limit > 0 else { throw Self.error("The captured picker document or limits are invalid.") }
+            if case let .newTask(_, created) = destination.kind, incarnation != created { throw Self.error("The captured new task incarnation changed.") }
         }
         self.object = object; self.action = action; operationId = id; self.generation = generation; self.identity = identity
     }
@@ -47,6 +87,7 @@ struct T3PickerRequest {
 final class T3PickerOperation: @unchecked Sendable {
     let request: T3PickerRequest
     let claim: T3ComposerFileClaim
+    let destination: T3ComposerFileDestination
     var status = "picking"
     var presented = false
     var files: [T3PickerObject] = []
@@ -55,7 +96,10 @@ final class T3PickerOperation: @unchecked Sendable {
     var error = ""
     var terminal: Data?
     var terminalOrder = 0
-    init(_ request: T3PickerRequest, claim: T3ComposerFileClaim) { self.request = request; self.claim = claim }
+    init(_ request: T3PickerRequest, claim: T3ComposerFileClaim) throws {
+        self.request = request; self.claim = claim
+        destination = try T3ComposerFileDestination(target: request.object["target"], identity: request.identity, generation: request.generation)
+    }
 }
 struct T3PickerStage: @unchecked Sendable {
     let coordinator: T3MobileQueuedEdit
@@ -87,7 +131,7 @@ final class T3MobilePickerIntakeStore {
             guard T3PickerRequest.equal(prior.request.object, request.object) else { throw T3PickerRequest.error("A picker operation cannot change its captured input.") }; return (prior, !prior.presented)
         }
         guard (operations[key]?.count ?? 0) < 4096 else { throw T3PickerRequest.error("This editor's picker request limit was reached.") }
-        let op = T3PickerOperation(request, claim: claim); operations[key, default: [:]][request.operationId] = op; return (op, true)
+        let op = try T3PickerOperation(request, claim: claim); operations[key, default: [:]][request.operationId] = op; return (op, true)
     }
     func operation(_ request: T3PickerRequest, claim: T3ComposerFileClaim?) throws -> T3PickerOperation { try known(request, claim: claim) }
     func protects(_ id: String) -> Bool { operations.values.contains { $0.values.contains { op in
@@ -214,6 +258,7 @@ final class T3MobilePickerIntakeStore {
             }
         }
         guard orders.allSatisfy({ !$0.key.isEmpty && $0.value.allSatisfy { !$0.isEmpty } && Set($0.value).count == $0.value.count }) else { throw T3PickerRequest.error("The saved attachment order is invalid.") }
+        if let raw = preferences["mobileNewTaskDrafts"] { _ = try T3ComposerFileDestination.newTaskRecords(raw) }
     }
     private static func descriptor(_ row: T3PickerObject, owner: String, ids: inout [String: Set<String>]) throws {
         guard let id = row["id"] as? String, !id.isEmpty, !owner.isEmpty, ids[owner, default: []].insert(id.lowercased()).inserted,
@@ -221,11 +266,18 @@ final class T3MobilePickerIntakeStore {
     }
     private func publication(_ raw: Any?, op: T3PickerOperation, preferences: T3PickerObject) throws {
         guard let p = raw as? T3PickerObject, Set(p.keys) == Set(["after", "acceptedIds", "discardedIds"]), let after = p["after"] as? T3PickerObject,
-              Set(after.keys) == Set(["document", "text", "context", "images", "files", "attachmentIds", "attachmentOrder"]),
               let accepted = p["acceptedIds"] as? [String], let discarded = p["discardedIds"] as? [String],
               Set(accepted + discarded).count == accepted.count + discarded.count,
               Set(accepted + discarded) == Set(op.files.map { $0["id"] as! String }) else { throw T3PickerRequest.error("The picker publication partition is invalid.") }
         try Self.validateInventory(preferences)
+        if case .newTask = op.destination.kind {
+            try newTaskPublication(after, op: op, preferences: preferences)
+            try inventoryPublication(after, accepted: accepted, op: op, preferences: preferences)
+            let ids = after["attachmentIds"] as! [String]
+            guard Set(ids).isDisjoint(with: discarded) else { throw T3PickerRequest.error("A discarded picker member is still saved.") }
+            return
+        }
+        guard Set(after.keys) == Set(["document", "text", "context", "images", "files", "attachmentIds", "attachmentOrder"]) else { throw T3PickerRequest.error("The picker publication fields are invalid.") }
         let target = op.request.object["target"] as! [String: String], key = target["draftKey"]!, origin = target["origin"]!, env = target["environmentId"]!
         guard let registry = preferences["mobileComposerEditor"] as? T3PickerObject, T3PickerRequest.integer(registry["version"]) == 1,
               let documents = registry["documents"] as? [String: T3PickerObject], let document = after["document"] as? T3PickerObject,
@@ -243,11 +295,7 @@ final class T3MobilePickerIntakeStore {
         let matches = documents.filter { entry in
             guard let fields = try? JSONSerialization.jsonObject(with: Data(entry.key.utf8)) as? [String] else { return false }; return fields == [origin, env, key]
         }
-        guard matches.count == 1, T3PickerRequest.equal(matches.first!.value, document),
-              let images = preferences["snapshotDrafts"] as? [String: [T3PickerObject]], let files = (preferences["composerFiles"] ?? [T3PickerObject]()) as? [T3PickerObject],
-              let orders = (preferences["mobileAttachmentOrder"] ?? T3PickerObject()) as? [String: [String]],
-              T3PickerRequest.equal(images[key] ?? [], after["images"]), T3PickerRequest.equal(files.filter { $0["draftKey"] as? String == key }, after["files"]),
-              T3PickerRequest.equal(orders[key].map { $0 as Any } ?? NSNull(), after["attachmentOrder"]) else { throw T3PickerRequest.error("The saved picker inventory or document changed.") }
+        guard matches.count == 1, T3PickerRequest.equal(matches.first!.value, document) else { throw T3PickerRequest.error("The saved picker document changed.") }
         let contexts: T3PickerObject
         if let raw = preferences["mobileComposerContexts"] {
             guard let registry = raw as? T3PickerObject, T3PickerRequest.integer(registry["version"]) == 1, let entries = registry["entries"] as? T3PickerObject else { throw T3PickerRequest.error("The saved context registry is invalid.") }; contexts = entries
@@ -260,7 +308,31 @@ final class T3MobilePickerIntakeStore {
         let contextMatches = contexts.filter { entry in
             guard let fields = try? JSONSerialization.jsonObject(with: Data(entry.key.utf8)) as? [String] else { return false }; return fields == [origin, env, key]
         }
-        guard contextMatches.count <= 1, T3PickerRequest.equal(contextMatches.first?.value ?? NSNull(), after["context"]), let ids = after["attachmentIds"] as? [String],
+        guard contextMatches.count <= 1, T3PickerRequest.equal(contextMatches.first?.value ?? NSNull(), after["context"]) else { throw T3PickerRequest.error("The saved picker context changed.") }
+        try inventoryPublication(after, accepted: accepted, op: op, preferences: preferences)
+    }
+    private func newTaskPublication(_ after: T3PickerObject, op: T3PickerOperation, preferences: T3PickerObject) throws {
+        let destination = op.destination, record = try destination.savedNewTask(in: preferences)
+        guard Set(after.keys) == Set(["record", "text", "images", "files", "attachmentIds", "attachmentOrder"]),
+              T3PickerRequest.equal(record, after["record"]), let text = after["text"] as? String, text.utf16.count <= 1_000_000,
+              let drafts = preferences["drafts"] as? [String: String], Array((drafts[destination.draftKey] ?? "").utf16) == Array(text.utf16),
+              let captured = op.request.object["document"] as? T3PickerObject,
+              (T3PickerRequest.integer(record["revision"]) ?? -1) >= (captured["revision"] as! Int),
+              record["choices"] is NSNull || record["choices"] is T3PickerObject else { throw T3PickerRequest.error("The saved new task publication changed.") }
+        if let raw = record["context"] {
+            guard let context = raw as? T3PickerObject, T3PickerRequest.integer(context["version"]) == 1,
+                  let records = context["records"] as? [T3PickerObject], records.count <= 200,
+                  records.allSatisfy({ ($0["contextId"] as? String)?.isEmpty == false && ($0["kind"] as? String)?.isEmpty == false }),
+                  Set(records.compactMap { $0["contextId"] as? String }).count == records.count else { throw T3PickerRequest.error("The saved new task context is invalid.") }
+        }
+        guard let files = after["files"] as? [T3PickerObject], files.allSatisfy({ $0["environmentId"] as? String == destination.environmentId }) else { throw T3PickerRequest.error("The saved new task file owner changed.") }
+    }
+    private func inventoryPublication(_ after: T3PickerObject, accepted: [String], op: T3PickerOperation, preferences: T3PickerObject) throws {
+        let key = op.destination.draftKey
+        guard let images = preferences["snapshotDrafts"] as? [String: [T3PickerObject]], let files = (preferences["composerFiles"] ?? [T3PickerObject]()) as? [T3PickerObject],
+              let orders = (preferences["mobileAttachmentOrder"] ?? T3PickerObject()) as? [String: [String]],
+              T3PickerRequest.equal(images[key] ?? [], after["images"]), T3PickerRequest.equal(files.filter { $0["draftKey"] as? String == key }, after["files"]),
+              T3PickerRequest.equal(orders[key].map { $0 as Any } ?? NSNull(), after["attachmentOrder"]), let ids = after["attachmentIds"] as? [String],
               Set(ids).count == ids.count, Set(ids) == Set((images[key] ?? []).compactMap { $0["id"] as? String } + files.filter { $0["draftKey"] as? String == key }.compactMap { $0["id"] as? String }),
               T3PickerRequest.equal(after["attachmentOrder"], ids.isEmpty ? NSNull() : ids as Any) else { throw T3PickerRequest.error("The saved picker context or mixed order changed.") }
         for id in accepted {

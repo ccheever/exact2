@@ -47,16 +47,14 @@ struct T3ComposerFileRequest {
     }
     static func encoded(_ value: Any) throws -> Data { try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed]) }
     var signature: Data { get throws { try Self.encoded(["generation": generation, "target": object["target"] ?? NSNull(), "file": object["file"] ?? NSNull()]) } }
+    func destination() throws -> T3ComposerFileDestination {
+        try .init(target: object["target"], identity: identity, generation: generation)
+    }
     func file() throws -> [String: Any] {
-        guard let target = object["target"] as? [String: String], let origin = target["origin"], !origin.isEmpty,
-              let environment = target["environmentId"], !environment.isEmpty, let thread = target["threadId"], !thread.isEmpty,
-              !thread.hasPrefix("new:"), let key = target["draftKey"], key == "\(environment):\(thread)", !key.contains("~queued-edit~"),
-              let owner = try? JSONSerialization.jsonObject(with: Data(identity.owner.utf8)) as? [Any],
-              owner.count == 5 || owner.count == 6, owner[0] as? String == "ordinary", owner[1] as? String == origin,
-              owner[2] as? String == environment, Self.integer(owner[3]) == generation, owner[4] as? String == key,
-              let file = object["file"] as? [String: Any], Self.validFile(file),
-              file["source"] as? String == "attached", file["draftKey"] as? String == key,
-              file["environmentId"] as? String == environment else { throw Self.error("Only this ordinary draft's saved attached files can be held.") }
+        let destination = try destination()
+        guard let file = object["file"] as? [String: Any], Self.validFile(file),
+              file["source"] as? String == "attached", file["draftKey"] as? String == destination.draftKey,
+              file["environmentId"] as? String == destination.environmentId else { throw Self.error("Only this draft's saved attached files can be held.") }
         return file
     }
     static func validFile(_ file: [String: Any]) -> Bool {
