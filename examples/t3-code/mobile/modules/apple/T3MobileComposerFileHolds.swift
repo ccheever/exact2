@@ -8,14 +8,17 @@ import Darwin
 
 /// Only the native port registry creates claims. End never waits for disk I/O.
 final class T3ComposerFileClaim: @unchecked Sendable {
+    private enum Phase { case active, detached, ended }
     let identity: T3ComposerIdentity
     private let lock = NSLock()
-    private var ended = false
-    // The coordinator mutex exclusively owns records; the small lock owns only ended.
+    private var phase = Phase.active
+    // The coordinator mutex owns records; this lock closes admission without waiting for I/O.
     var records: [String: T3ComposerFileRecord] = [:]
     init(identity: T3ComposerIdentity) { self.identity = identity }
-    func end() { lock.lock(); ended = true; lock.unlock() }
-    var live: Bool { lock.lock(); defer { lock.unlock() }; return !ended }
+    func detach() { lock.lock(); if phase == .active { phase = .detached }; lock.unlock() }
+    func end() { lock.lock(); phase = .ended; lock.unlock() }
+    var live: Bool { lock.lock(); defer { lock.unlock() }; return phase == .active }
+    var ended: Bool { lock.lock(); defer { lock.unlock() }; return phase == .ended }
 }
 struct T3ComposerFileRecord {
     let request: Data
@@ -131,7 +134,12 @@ final class T3MobileComposerFileHolds {
         guard let entry = entries.removeValue(forKey: ObjectIdentifier(port)) else { return }
         retire(entry.claim)
     }
-    private func retire(_ claim: T3ComposerFileClaim) {
+    func detach(_ port: T3MobileComposerEditor) -> T3ComposerFileClaim? {
+        guard let entry = entries.removeValue(forKey: ObjectIdentifier(port)) else { return nil }
+        entry.claim.detach()
+        return entry.claim
+    }
+    func retire(_ claim: T3ComposerFileClaim) {
         claim.end()
         queue.async { [weak self, coordinator] in
             coordinator.endFileHoldOwner(claim)

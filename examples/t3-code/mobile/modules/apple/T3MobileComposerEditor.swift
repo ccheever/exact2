@@ -362,8 +362,8 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
             finalEvent = state.event("retired", snapshot: snapshot)
         } else { finalEvent = nil }
         applying = true
-        operations?.unregister(self, finalEvent: finalEvent)
-        fileHolds?.unregister(self)
+        if let operations { operations.unregister(self, finalEvent: finalEvent, fileHolds: fileHolds) }
+        else { fileHolds?.unregister(self) }
         if let identity = state?.identity { paste?.retire(identity) }
         voice?.unregister(self)
         editor?.destroyOwned(); editor?.removeFromSuperview(); editor = nil; root.editor = nil

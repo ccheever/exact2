@@ -1400,7 +1400,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     private func retireEndedFileHolds(_ value: inout [String: Any]) {
         pickerIntakes.retireEnded(queue: &value, save: save)
-        for (id, claim) in fileHoldOwners where !claim.live {
+        for (id, claim) in fileHoldOwners where claim.ended {
             do {
                 // A failed acquire may have left no durable candidate. Do not drop its hold first.
                 try saveFileHoldCandidates(claim, value: &value)

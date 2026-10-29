@@ -17,13 +17,14 @@ import UIKit
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("file-holds-" + UUID().uuidString)
         var failBefore = false, failAfter = false, failPreferences = false, saves = 0
         var pickerAnnouncements = 0, pickerAnnouncementsOnMain = true
-        let entered = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0)
+        var sourceAnnouncements = 0
+        let entered = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0), leftPause = DispatchSemaphore(value: 0)
         var pause = false
         func replace(_ bytes: Data, _ url: URL) throws {
             if failPreferences && url.lastPathComponent == "t3-code.json" { throw CocoaError(.fileWriteUnknown) }
             if url.lastPathComponent == "mobile-queued-edit.json" {
                 saves += 1
-                if pause { pause = false; entered.signal(); _ = resume.wait(timeout: .now() + 5) }
+                if pause { pause = false; entered.signal(); _ = resume.wait(timeout: .now() + 5); leftPause.signal() }
                 if failBefore { throw CocoaError(.fileWriteUnknown) }
                 try T3MobileQueuedEdit.durableReplace(bytes, url)
                 if failAfter { throw CocoaError(.fileWriteUnknown) }
@@ -67,7 +68,8 @@ import UIKit
         if newTask { preferences["mobileNewTaskDrafts"] = ["version": 1, "records": [key: ["key": key, "origin": "https://file.test", "environmentId": "env", "projectId": "project", "createdAt": created, "revision": 2, "choices": NSNull()]], "receipts": [:], "claims": [:], "fileReleases": []] }
         try json(preferences).write(to: disk.root.appendingPathComponent("t3-code.json"))
         let fields: [Any] = ["ordinary", "https://file.test", "env", 1, key] + (newTask ? [created] : [])
-        let owner = String(decoding: try json(fields), as: UTF8.self), operations = T3MobileComposerOperations()
+        let owner = String(decoding: try json(fields), as: UTF8.self)
+        let operations = T3MobileComposerOperations(changed: { disk.sourceAnnouncements += 1 })
         let port = try self.port(registry, owner: owner, operations: operations)
         let target = newTask ? ["kind": "new-task", "origin": "https://file.test", "environmentId": "env", "projectId": "project", "draftKey": key, "createdAt": created]
             : ["origin": "https://file.test", "environmentId": "env", "threadId": "thread", "draftKey": key]
@@ -89,7 +91,7 @@ import UIKit
         try f.coordinator.writePreferences(String(decoding: json(preferences), as: UTF8.self))
     }
     private func receipt(_ reply: [String: Any]) -> [String: Any] { (reply["value"] as? [String: Any])?["receipt"] as? [String: Any] ?? [:] }
-    private func cleanup(_ f: Fixture) { f.registry.destroy(); f.port.destroy(); f.port.view.removeFromSuperview() }
+    private func cleanup(_ f: Fixture) { f.registry.destroy(); f.operations.destroy(); f.port.destroy(); f.port.view.removeFromSuperview() }
     private func idle(_ f: Fixture) async {
         await withCheckedContinuation { continuation in f.registry.whenIdle { continuation.resume() } }
     }
@@ -101,6 +103,21 @@ import UIKit
     }
     private func save(_ f: Fixture, _ preferences: [String: Any]) throws {
         try f.coordinator.writePreferences(String(decoding: json(preferences), as: UTF8.self))
+    }
+    private func ready(_ f: Fixture) throws {
+        var control = f.port.composerIdentity!.json
+        control.merge(["acknowledgedEventCount": f.port.composerEventCount, "ackCommandId": "", "active": true, "editable": true, "readOnly": false,
+            "focusIntent": ["serial": "", "attempt": 0, "operation": "none"], "command": NSNull(),
+            "document": ["value": "", "selection": ["start": 0, "end": 0], "tokensJson": "[]", "isNativeEcho": true]]) { _, next in next }
+        try f.port.setProps(["configuration": String(decoding: json(control), as: UTF8.self)])
+    }
+    private func finals(_ f: Fixture) -> [[String: Any]] {
+        let reply = f.operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 1, "action": "read"])
+        return (reply["value"] as? [String: Any])?["receipts"] as? [[String: Any]] ?? []
+    }
+    private func acknowledge(_ f: Fixture, _ receiptId: String) -> Bool {
+        let reply = f.operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 1, "action": "acknowledge", "receiptId": receiptId])
+        return (reply["value"] as? [String: Any])?["acknowledged"] as? Bool == true
     }
     private func newTaskHolds() async throws {
         let f = try fixture(newTask: true); defer { cleanup(f) }
@@ -234,7 +251,8 @@ import UIKit
             check(op.status == "staged", "\(newTask) failed \(mode) proof retains staged custody")
         }
         try save(f, saved)
-        f.coordinator.endFileHoldOwner(claim)
+        if newTask { claim.detach(); _ = try f.coordinator.releaseAttachments() }
+        else { f.coordinator.endFileHoldOwner(claim) }
         check(try f.coordinator.performPicker(follow("status"), claim: nil)["status"] as? String == "staged", "\(newTask) exact status survives native owner retirement")
         refuses("\(newTask) retired owner cannot acquire another issued hold") { _ = try f.coordinator.performPicker(follow("hold", ["request": hold]), claim: claim) }
         let completion = try finish(after)
@@ -255,8 +273,176 @@ import UIKit
         check(FileManager.default.fileExists(atPath: f.disk.root.appendingPathComponent("composer-files").appendingPathComponent(file["id"] as! String).path), "\(newTask) cold cleanup retains adopted file")
         check(FileManager.default.fileExists(atPath: f.disk.root.appendingPathComponent("snapshots/drafts").appendingPathComponent(image["id"] as! String).path), "\(newTask) cold cleanup retains adopted image")
         check(!FileManager.default.fileExists(atPath: f.disk.root.appendingPathComponent("composer-files").appendingPathComponent(discard["id"] as! String).path), "\(newTask) cold cleanup removes discarded file")
+        f.coordinator.endFileHoldOwner(claim)
     }
+    private func unobservedFinalUndo() async throws {
+        let f = try fixture(newTask: true); defer { cleanup(f) }
+        let identity = f.port.composerIdentity!, restored = "[note.txt](t3-context://v1/file/file-context)"
+        var control = identity.json
+        control.merge(["acknowledgedEventCount": f.port.composerEventCount, "ackCommandId": "", "active": true, "editable": true, "readOnly": false,
+            "focusIntent": ["serial": "", "attempt": 0, "operation": "none"], "command": NSNull(),
+            "document": ["value": restored, "selection": ["start": restored.utf16.count, "end": restored.utf16.count], "tokensJson": "[]", "isNativeEcho": false]]) { _, next in next }
+        try f.port.setProps(["configuration": String(decoding: json(control), as: UTF8.self)])
+        check(await perform(f)["ok"] as? Bool == true, "Final Undo acquires its actual saved file hold")
+        func editor(_ root: UIView) -> T3MobileOwnedComposerView? {
+            if let found = root as? T3MobileOwnedComposerView { return found }
+            return root.subviews.lazy.compactMap(editor).first
+        }
+        guard let view = editor(f.port.view) else { throw CocoaError(.coderValueNotFound) }
+        view.textView.becomeFirstResponder()
+        view.applyReplacement(value: "", selection: .init(start: 0, end: 0), tokensJson: "[]")
+        while let undo = view.textView.undoManager, undo.groupingLevel > 0 { undo.endUndoGrouping() }
+        try saved(f, [])
+        view.textView.undoManager?.undo()
+        check(f.port.composerSnapshot?.value == restored, "Actual UIKit Undo restores the unobserved file reference")
+        f.port.destroy(); await idle(f)
+        let reply = f.operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 1, "action": "read"])
+        let retained = (reply["value"] as? [String: Any])?["receipts"] as? [[String: Any]] ?? []
+        check(retained.count == 1 && (retained.first?["event"] as? [String: Any])?["value"] as? String == restored,
+              "Retired source receipt retains the actual final Undo")
+        _ = try f.coordinator.releaseAttachments()
+        check(FileManager.default.fileExists(atPath: f.url.path), "Final source receipt protects Undo bytes before its durable ACK")
+        guard let id = retained.first?["receiptId"] as? String else { throw CocoaError(.coderValueNotFound) }
+        check(!acknowledge(f, UUID().uuidString), "A foreign final receipt cannot release Undo bytes")
+        check(await perform(f)["ok"] as? Bool == false, "Detached source custody cannot acquire through its former native port")
+        var restoredPreferences = try preferences(f)
+        restoredPreferences["composerFiles"] = [f.file]; restoredPreferences["drafts"] = [f.file["draftKey"] as! String: restored]
+        f.disk.failPreferences = true
+        refuses("Failed final-source persistence cannot publish restored inventory") { try save(f, restoredPreferences) }
+        f.disk.failPreferences = false
+        _ = try f.coordinator.releaseAttachments()
+        check((try preferences(f)["composerFiles"] as? [[String: Any]])?.isEmpty == true && FileManager.default.fileExists(atPath: f.url.path)
+              && finals(f).first?["receiptId"] as? String == id, "Failed save leaves the exact final source and its canonical bytes retryable")
+        try save(f, restoredPreferences)
+        check(acknowledge(f, id), "The exact durable final source is acknowledged")
+        await idle(f); _ = try f.coordinator.releaseAttachments()
+        check(finals(f).isEmpty && (try? Data(contentsOf: f.url)) == Data("hello".utf8), "Restored saved inventory keeps canonical bytes after final acknowledgment")
+        check(f.disk.pickerAnnouncements == 1 && f.disk.pickerAnnouncementsOnMain, "Final-source release announces settled coordinator cleanup on main")
+        check(!acknowledge(f, id), "Duplicate final acknowledgment has no custody to release")
+        await idle(f)
+        check(f.disk.pickerAnnouncements == 1 && f.disk.sourceAnnouncements == 2, "Duplicate final acknowledgment announces neither another release nor another source change")
+        try saved(f, []); _ = try f.coordinator.releaseAttachments()
+        check(!FileManager.default.fileExists(atPath: f.url.path), "Final acknowledgment ends the claim after restored inventory later releases the file")
+    }
+
+    private func frozenSourceCustody(savedBeforeTeardown: Bool) async throws {
+        let f = try fixture(newTask: true); defer { cleanup(f) }
+        try ready(f)
+        check(await perform(f)["ok"] as? Bool == true, "Frozen custody acquires its saved file")
+        try saved(f, [])
+        _ = try f.port.handoff(T3ComposerHandoffRequest(["op": "composerEditorHandoff", "generation": 1, "identity": f.port.composerIdentity!.json,
+            "action": "freeze", "operationId": UUID().uuidString, "operationRevision": 1, "retireUndo": false]))
+        guard let id = finals(f).first?["receiptId"] as? String else { throw CocoaError(.coderValueNotFound) }
+        if savedBeforeTeardown {
+            check(acknowledge(f, id), "Mounted frozen source acknowledges its exact receipt")
+            check(await perform(f)["ok"] as? Bool == true, "Mounted frozen acknowledgment preserves live hold admission")
+            _ = try f.coordinator.releaseAttachments()
+            check(FileManager.default.fileExists(atPath: f.url.path), "Mounted frozen acknowledgment preserves Undo bytes")
+        }
+        f.port.destroy(); await idle(f)
+        if savedBeforeTeardown {
+            check(finals(f).isEmpty && !FileManager.default.fileExists(atPath: f.url.path), "Already-saved frozen teardown retires normally without new source custody")
+            check(!acknowledge(f, id), "Old saved frozen acknowledgment has no pending source to release")
+        } else {
+            _ = try f.coordinator.releaseAttachments()
+            check(finals(f).first?["receiptId"] as? String == id && finals(f).first?["retired"] as? Bool == true
+                  && FileManager.default.fileExists(atPath: f.url.path), "Unsaved frozen teardown keeps the same receipt and canonical bytes")
+            check(acknowledge(f, id), "Retired frozen source accepts its exact acknowledgment")
+            await idle(f)
+            check(!FileManager.default.fileExists(atPath: f.url.path), "Unreferenced frozen bytes clean up after final acknowledgment")
+        }
+    }
+
+    private func detachedWorkers() async throws {
+        let f = try fixture(newTask: true); defer { cleanup(f) }
+        try ready(f)
+        check(await perform(f)["ok"] as? Bool == true, "Detached worker baseline acquires saved bytes")
+        try saved(f, [])
+        f.disk.pause = true
+        async let active = perform(f)
+        let entered = await Task.detached { f.disk.entered.wait(timeout: .now() + 3) == .success }.value
+        check(entered, "Acquire replay reaches its held durable save before detachment")
+        let request = f.request
+        let pick: [String: Any] = ["op": "composerPickerIntake", "action": "pick", "operationId": UUID().uuidString.lowercased(),
+            "generation": 1, "identity": f.port.composerIdentity!.json, "target": f.request["target"]!,
+            "document": ["incarnation": (f.request["target"] as! [String: String])["createdAt"]!, "revision": 2], "source": "files", "remaining": 1, "fileLimit": 100]
+        let attachments = T3MobileAttachments(dataRoot: f.disk.root, agent: true)
+        let pending: [[String: Any]] = await withCheckedContinuation { continuation in
+            var answers: [[String: Any]] = []
+            func receive(_ reply: [String: Any]) { answers.append(reply); if answers.count == 2 { continuation.resume(returning: answers) } }
+            f.registry.perform(request, reply: receive)
+            f.registry.performPicker(pick, attachments: attachments, reply: receive)
+            f.port.destroy()
+            check(f.disk.leftPause.wait(timeout: .now()) == .timedOut, "Detachment closes admission without waiting for the disk worker")
+            f.disk.resume.signal()
+        }
+        check(await active["ok"] as? Bool == false, "An in-flight acquire cannot publish success after detachment")
+        check(pending.count == 2 && pending.allSatisfy { $0["ok"] as? Bool == false }, "Queued acquire and pick refuse when their claim detaches before execution")
+        let status = try f.coordinator.performPicker(T3PickerRequest(["op": "composerPickerIntake", "action": "status",
+            "operationId": pick["operationId"]!, "generation": 1, "identity": pick["identity"]!]), claim: nil)
+        check(status["status"] as? String == "absent", "Queued pick refusal creates no issued operation")
+        await idle(f); _ = try f.coordinator.releaseAttachments()
+        check(FileManager.default.fileExists(atPath: f.url.path), "Worker refusal cannot discard the detached final source's bytes")
+        guard let id = finals(f).first?["receiptId"] as? String else { throw CocoaError(.coderValueNotFound) }
+        check(acknowledge(f, id), "Detached worker source can be acknowledged after its failed admissions")
+        await idle(f)
+        check(!FileManager.default.fileExists(atPath: f.url.path), "Acknowledgment cleans unreferenced bytes after queued workers finish")
+    }
+
+    private func detachedCleanup(shutdown: Bool) async throws {
+        let f = try fixture(newTask: true); defer { cleanup(f) }
+        try ready(f); f.disk.failBefore = true
+        check(await perform(f)["ok"] as? Bool == false, "Uncertain acquire retains its claim without a durable cleanup candidate")
+        try saved(f, []); f.port.destroy(); await idle(f)
+        guard let id = finals(f).first?["receiptId"] as? String else { throw CocoaError(.coderValueNotFound) }
+        check(try remove(f)["retained"] as? Bool == true, "Detached uncertain acquire protects final-source bytes")
+        if shutdown { f.registry.destroy(); f.operations.destroy() }
+        else { check(acknowledge(f, id), "Final source acknowledgment releases uncertain byte custody") }
+        await idle(f)
+        check(try remove(f)["retained"] as? Bool == true, "Failed retirement candidate save retains ended byte ownership")
+        f.disk.failBefore = false; _ = try f.coordinator.releaseAttachments()
+        check(!FileManager.default.fileExists(atPath: f.url.path), "Explicit drain repairs retirement durability and removes unreferenced bytes")
+        if shutdown {
+            let reply = f.operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 1, "action": "read"])
+            check(reply["ok"] as? Bool == false && f.disk.pickerAnnouncements == 0, "Module closure refuses source reads and suppresses cleanup announcements")
+        } else { check(!acknowledge(f, id), "A completed source acknowledgment remains idempotent after cleanup retry") }
+    }
+
+    private func resumedReceiptIsolation() async throws {
+        let f = try fixture(newTask: true); defer { cleanup(f) }
+        try ready(f); check(await perform(f)["ok"] as? Bool == true, "Resumed source acquires its saved file")
+        try saved(f, [])
+        let operationId = UUID().uuidString, identity = f.port.composerIdentity!
+        _ = try f.port.handoff(T3ComposerHandoffRequest(["op": "composerEditorHandoff", "generation": 1, "identity": identity.json,
+            "action": "freeze", "operationId": operationId, "operationRevision": 1, "retireUndo": false]))
+        guard let old = finals(f).first?["receiptId"] as? String else { throw CocoaError(.coderValueNotFound) }
+        check(acknowledge(f, old), "The first frozen source is saved before resume")
+        _ = try f.port.handoff(T3ComposerHandoffRequest(["op": "composerEditorHandoff", "generation": 1, "identity": identity.json,
+            "action": "resume", "operationId": operationId, "operationRevision": 1, "receiptId": old,
+            "document": ["value": "after resume", "selection": ["start": 12, "end": 12], "tokensJson": "[]", "isNativeEcho": false]]))
+        f.port.destroy(); await idle(f)
+        guard let current = finals(f).first?["receiptId"] as? String else { throw CocoaError(.coderValueNotFound) }
+        check(current != old && (finals(f).first?["event"] as? [String: Any])?["value"] as? String == "after resume", "Resumed teardown retains a new exact source receipt")
+        check(!acknowledge(f, old), "An old frozen acknowledgment cannot end the resumed source's custody")
+        _ = try f.coordinator.releaseAttachments()
+        check(FileManager.default.fileExists(atPath: f.url.path), "Current receipt protects bytes after an older acknowledgment")
+        check(acknowledge(f, current), "Only the current retired receipt ends resumed byte custody")
+        await idle(f)
+        check(!FileManager.default.fileExists(atPath: f.url.path), "Current acknowledgment cleans unreferenced resumed bytes")
+    }
+
     func run() async -> [String: Any] {
+        await attempt("unobserved final Undo") { try await unobservedFinalUndo() }
+        for saved in [false, true] { await attempt("frozen source custody \(saved)") { try await frozenSourceCustody(savedBeforeTeardown: saved) } }
+        await attempt("detached workers") { try await detachedWorkers() }
+        for shutdown in [false, true] { await attempt("detached cleanup \(shutdown)") { try await detachedCleanup(shutdown: shutdown) } }
+        await attempt("resumed receipt isolation") { try await resumedReceiptIsolation() }
+        await attempt("independent seed retirement") {
+            let f = try fixture(newTask: true); defer { cleanup(f) }
+            check(await perform(f)["ok"] as? Bool == true, "Unacknowledged seed acquires its saved file")
+            try saved(f, []); f.port.destroy(); await idle(f)
+            check(finals(f).isEmpty && !FileManager.default.fileExists(atPath: f.url.path), "Seed teardown without a final receipt retires byte custody normally")
+        }
         await attempt("picker retirement announcement") {
             let f = try fixture(); defer { cleanup(f) }
             f.port.destroy()

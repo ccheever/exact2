@@ -401,6 +401,20 @@ key creates a fresh callback nonce, handle and Ready event. After acknowledgment
 the replacement accepts real UIKit typing and retains its final source through
 teardown. This covers host lifecycle; full native NewTask acceptance remains open.
 
+Independent editor teardown now retains file bytes with its pending final source.
+Actual UIKit Undo previously restored a file reference whose bytes were deleted
+before Root could save that receipt. Detached claims now refuse queued acquire
+and picker work while protecting existing bytes until exact acknowledgment.
+Mounted frozen acknowledgment keeps its live claim; saved frozen teardown and
+ordinary retirement retain their existing cleanup. All 225 native custody checks
+pass, including the reproduced failure, save/cleanup retries and old receipt
+isolation. The 88 standalone operations and 37 protocol checks, all 3,988 mobile
+tests, boot and normal build pass. Independent review finds no introduced defect.
+The normal app receives `FINAL_SOURCE_CUSTODY_OK`, imports and previews a real
+Markdown file, removes it, and restores the reply, environment and empty composer
+after restart. Native NewTask resume and history handback remain open. This
+checkpoint is outside the delivered TestFlight build.
+
 Two normal NewTask Files drives return to Choose project after selection or
 Cancel. The typed draft survives in Unsent, but the selected file is not retained.
 An instrumented Cancel drive returns correctly with the authored route and native

@@ -209,8 +209,10 @@ import UIKit
 
 final class T3MobileComposerOperations {
     private struct Entry { weak var port: T3MobileComposerEditor? }
+    private struct SourceCustody { let claim: T3ComposerFileClaim; let owner: T3MobileComposerFileHolds }
     private var entries: [ObjectIdentifier: Entry] = [:]
     private let finalizations = T3ComposerFinalizations()
+    private var sourceCustody: [String: SourceCustody] = [:]
     private let changed: () -> Void
     private var alive = true
     init(changed: @escaping () -> Void = {}) { self.changed = changed }
@@ -220,9 +222,15 @@ final class T3MobileComposerOperations {
         entries = entries.filter { $0.value.port != nil }
         entries[ObjectIdentifier(port)] = Entry(port: port)
     }
-    func unregister(_ port: T3MobileComposerEditor, finalEvent: [String: Any]?) {
+    func unregister(_ port: T3MobileComposerEditor, finalEvent: [String: Any]?, fileHolds: T3MobileComposerFileHolds? = nil) {
+        defer { fileHolds?.unregister(port) }
         guard entries.removeValue(forKey: ObjectIdentifier(port)) != nil, let identity = port.composerIdentity else { return }
-        if finalizations.retire(identity, event: finalEvent) { changed() }
+        let retired = finalizations.retire(identity, event: finalEvent)
+        if let receipt = finalizations.pending.first(where: { $0.identity == identity && $0.retired }),
+           let fileHolds, let claim = fileHolds.detach(port) {
+            sourceCustody[receipt.id] = SourceCustody(claim: claim, owner: fileHolds)
+        }
+        if retired { changed() }
     }
     func freeze(_ port: T3MobileComposerEditor, event: [String: Any]) throws -> T3ComposerFinalizations.Receipt {
         guard alive, entries[ObjectIdentifier(port)]?.port === port, let identity = port.composerIdentity else {
@@ -264,7 +272,10 @@ final class T3MobileComposerOperations {
             case .acknowledge:
                 let acknowledged = finalizations.acknowledge(request.receiptId!)
                 value = ["acknowledged": acknowledged]
-                if acknowledged { changed() }
+                if acknowledged {
+                    if let custody = sourceCustody.removeValue(forKey: request.receiptId!) { custody.owner.retire(custody.claim) }
+                    changed()
+                }
             }
             return ["ok": true, "generation": request.generation, "value": value]
         } catch {
@@ -288,6 +299,10 @@ final class T3MobileComposerOperations {
             return ["ok": false, "generation": generation, "error": ["kind": failure.kind, "message": failure.message]]
         }
     }
-    func destroy() { alive = false; entries.removeAll(); finalizations.destroy() }
+    func destroy() {
+        alive = false; entries.removeAll(); finalizations.destroy()
+        let custody = sourceCustody.values; sourceCustody.removeAll()
+        for source in custody { source.owner.retire(source.claim) }
+    }
 }
 #endif
