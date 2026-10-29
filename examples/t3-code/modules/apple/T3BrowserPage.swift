@@ -249,8 +249,8 @@ final class T3BrowserPages {
     /// `browser-screenshot-<site>-<millis36>-<8 hex>.png` (the first eight characters of a v4 UUID, so two captures in one
     /// millisecond never share a file), and an agent's finished download under `app:/tmp/browser-downloads` as
     /// `browser-download-<millis36>-<8 hex>-<its name>`. `reveal`, `stage` and `copy-path` act on a file inside the
-    /// directory only. `stage` copies one under `app:/tmp/copy-image`, where the data module reads it for Copy image
-    /// (copyArtifactToClipboard, browser-capture.ts): the directory is the local server's, outside the module's files.
+    /// directory only. `stage` copies one under `app:/tmp/copy-image` for Copy image (copyArtifactToClipboard,
+    /// browser-capture.ts): data code reads only the app's own files, and the directory is the local server's.
     private func artifact(_ request: [String: Any], answer: ([String: Any]) -> Void, refuse: (String, String) -> Void) {
         if request["action"] as? String == "adopt" {
             let raw = request["path"] as? String ?? "", root = temporaryRoot?.standardizedFileURL.path ?? "/nonexistent"

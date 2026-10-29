@@ -541,8 +541,10 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   source, LLP 1020.002 D8, waits on B10), the agent's cursor drawn on the page's view and the separate preview window's
   snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
   files, where a capture moves in and Reveal in Finder acts, which has no framework call; a saved recording's bytes
-  go to the environment from there, since the data module reads only the app's files. Copy image has the module copy
-  the artifact into the app's files (`stage`) and writes it through `@exact/clipboard` (`browser-capture.ts`).
+  go to the environment from there, since the data module reads only the app's files.
+- `T3BrowserPage.swift`'s `stage`: Copy image of a Browser artifact needs its pixels, and data code reads only the
+  app's own files, where the artifact directory is the local server's. The module copies the artifact into
+  `app:/tmp/copy-image`; data code draws it into a PNG and writes it through `@exact/clipboard` (`browser-capture.ts`).
 - `T3MediaActions.swift`: the media menu, Save, and Copy image of an SVG. Save opens in Downloads first and then
   in the session's last folder, as Electron's download dialog does, where `saveFile` names no
   folder; the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens

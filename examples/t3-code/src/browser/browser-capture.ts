@@ -401,8 +401,9 @@ export async function artifactLocal(client: T3Client, native: Native, action: st
   host.native = native;
   const toastId = Number(toastValue) || 0;
   try {
-    // copyArtifactToClipboard: any artifact by its path, as a PNG through @exact/clipboard (media-copy-image.ts). The
-    // artifact directory is the local server's, which the module copies from (`stage`).
+    // copyArtifactToClipboard: any artifact by its path, as a PNG through @exact/clipboard (media-copy-image.ts). Data
+    // code reads only the app's own files and the artifact directory is the local server's, so the module copies the
+    // artifact into them first (`stage`).
     if (action === 'copy-image') await copyImageFile(str((await nativeCall(host, { op: 'browserArtifact', action: 'stage', path })).path));
     else await nativeCall(host, { op: 'browserArtifact', action, path });
     if (action !== 'reveal' && toastId > 0) markActionCopied(client, toastId, `shelllocal:surface-browser-artifact-${action}`);
