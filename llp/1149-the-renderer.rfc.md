@@ -569,11 +569,17 @@ its manifest, per platform as the manifest is shaped: `host.windows.painter: "in
 painter it has today (the CPU painter on Windows, vello or the CPU painter on Linux, the
 Canvas host or vello on Android). `EXACT_PAINTER=ink|gpu|cpu` overrides it for the agent,
 the smoke and tests, as it does today. Nothing shipped changes when the renderer lands.
-**On Windows, ink defaults to wgpu**; `EXACT_INK_DEVICE=d3d11` selects the qualified
-DirectX 11 composition path and `warp` its software device.
-The default flip is S2's next chunk once the startup tail is localized: S2.9's maxima
-are 209.389 versus softbuffer's 152.851 ms fresh at 1920×1080 and 196.758 versus
-137.028 ms retained at 1024×720, failing D15's tail gate (`host/ink/MEASUREMENTS.md`).
+**On Windows, ink defaults to DirectX 11**; `EXACT_INK_DEVICE=wgpu` selects wgpu's
+DirectX 12 device and `warp` forces DirectX 11's software device. S2.9b's ordinary
+Shelf launches reached the first screen at 859 ms through wgpu's shader translation,
+pipeline build, readback and `softbuffer` present, against 142 ms through DirectX 11
+composition. D15 compares ink with the platform's existing painter; the manifest chooses
+that painter, while ink uses the better device. The startup tail is S2's next chunk in
+`QUEUE.md`, not a gate on this device default: the worst of ten launches was 209 versus
+153 ms fresh at 1920×1080 and 197 versus 137 ms retained at 1024×720 against the CPU
+painter. The stall between runner boot and layout did not recur in 76 diagnostic
+launches; the device thread holding the loader lock remains an unproven hypothesis.
+See `host/ink/MEASUREMENTS.md`, “S2.9”.
 On Apple the native host stays the default — what an
 author leaves unsaid is the platform's (LLP 1115) — and an app chooses the painted presenter
 in its manifest, per platform as the manifest is shaped: `host.macos.presenter: "painted"`,
@@ -1126,8 +1132,8 @@ them, and C6f landed the second blind code review's fixes (`58adeb76e8`, `94865d
 recordings are never kept (both arms); the direct Windows path blinks its caret, survives a
 resize (the waitable object reacquired), skips an occluded present and recovers a lost
 device on the CPU painter through the same composition with backoff from 250 ms to 30 s;
-the RichEdit spike is test-only; Windows ink defaults to the wgpu device with the `softbuffer`
-present, DirectX 11 by `EXACT_INK_DEVICE=d3d11` and WARP only when asked; oversized retained
+the RichEdit spike is test-only; Windows ink defaults to DirectX 11 composition,
+wgpu by `EXACT_INK_DEVICE=wgpu` and WARP only when asked or needed for fallback; oversized retained
 coverage rasterizes its visible region; a fractional-pixel scroll re-records hinted rows and
 replays coverage clips at their phase; CPU-written Metal textures stay `Shared`; each device
 has an in-flight eviction test; the harness records its sampler, asserts its fixtures' hashes

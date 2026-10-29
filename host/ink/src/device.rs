@@ -13,10 +13,10 @@ mod selected;
 pub mod wgpu;
 pub use selected::Selected;
 
-/// Explicit Windows direct-device choices; `Some(true)` forces WARP.
+/// Windows' default and explicit direct-device choices; `Some(true)` forces WARP.
 pub fn direct_d3d11(value: Option<&str>) -> Option<bool> {
     match value {
-        Some("d3d11") => Some(false),
+        None | Some("d3d11") => Some(false),
         Some("warp") => Some(true),
         _ => None,
     }

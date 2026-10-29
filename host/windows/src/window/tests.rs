@@ -3,7 +3,7 @@ use winit::platform::windows::WindowAttributesExtWindows;
 #[test]
 fn only_direct_ink_devices_prepare_asynchronously() {
     use exact_linux::presenter::PainterChoice::*;
-    assert!(!direct_device(Ink, None));
+    assert!(direct_device(Ink, None));
     assert!(!direct_device(Ink, Some("wgpu")));
     assert!(direct_device(Ink, Some("d3d11")));
     assert!(direct_device(Ink, Some("warp")));

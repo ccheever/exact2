@@ -316,7 +316,7 @@ fn d3d11_preserves_submitted_frames_during_atlas_and_pool_eviction() {
 
 #[test]
 fn direct_device_selection_is_shared_by_carrier_painter_and_recovery() {
-    assert_eq!(super::direct_d3d11(None), None);
+    assert_eq!(super::direct_d3d11(None), Some(false));
     assert_eq!(super::direct_d3d11(Some("d3d11")), Some(false));
     assert_eq!(super::direct_d3d11(Some("warp")), Some(true));
     for name in ["wgpu", "metal", "invalid"] {
