@@ -3,6 +3,9 @@ import { mobileNewTaskEditorAction as action, mobileNewTaskEditorView as view, m
 import { fixture, picker, config, event, receipt, mounted, intakeReply, continuation } from './new-task-editor-test-support';
 import { obj } from './shared/domain';
 import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftNoteBranch, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
+import { mobileComposerTarget } from './composer-target';
+import { mobileVoiceAction, mobileVoiceSnapshot } from './voice-data';
+import { resetVoiceInputGlobalsForTests } from './voice-controller';
 
 for (const destination of ['model', 'branch', 'environment', 'project', 'back'] as const) test(`NewTask ${destination} saves and acknowledges the actual final source before navigation`, async () => {
   const f = await fixture(); picker(f);
@@ -90,4 +93,50 @@ test('confirmed cancelled picker settles after the acknowledged receipt is consu
   await f.reread();
   expect(f.calls.some(call => call.action === 'resume')).toBe(false);
   expect(view(f.client, await f.resume()).kind).toBe('mounting');
+});
+
+for (const alternate of [false, true]) test(`NewTask ${alternate ? 'alternate' : 'button'} submit cannot dispatch past a failed final source save`, async () => {
+  const f = await fixture(); picker(f);
+  f.writeHook(async () => { throw Error('disk full'); });
+  await action(f.client, f.route, { kind: 'send', alternate, now: 1791420000000,
+    preferences: { ready: true, serialized: '{}' } }, f.native, f.storage);
+  expect(f.client.local.drafts[f.key]).toBe('🙂 picked here');
+  expect(f.calls.filter(call => call.action === 'freeze')).toHaveLength(1);
+  expect(f.calls.some(call => call.action === 'acknowledge' || call.op === 'mobileOutbox')).toBe(false);
+  expect(effect(f.client, f.route)).toBeNull();
+  expect(view(f.client, f.route).kind).toBe('frozen');
+});
+
+test('frozen NewTask voice uses final UTF16 offsets and hands its committed caret back through resume', async () => {
+  resetVoiceInputGlobalsForTests();
+  const f = await fixture(); picker(f);
+  const target = mobileComposerTarget(f.client), prior = f.native.later;
+  let session = '';
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.op !== 'mobileVoice') return prior(input);
+    f.calls.push(request);
+    if (request.action === 'selection' || request.action === 'selection-commit') throw Error('Frozen rich port cannot own voice selection');
+    if (request.action !== 'status') session = String(request.session);
+    const value = request.action === 'status' ? { available: true, locale: 'en-US', session, event: 0, levels: [], elapsed: 0 }
+      : request.action === 'permission' ? { granted: true, canAskAgain: true }
+      : request.action === 'prepare' ? { locale: 'en-US' }
+      : request.action === 'recorder-prepare' || request.action === 'stop' ? { uri: 'file:///voice-fixture.m4a' }
+      : request.action === 'transcribe' ? { transcript: 'spoken' } : {};
+    return { ok: true, generation: f.client.generation, value };
+  };
+  f.resumeHook(async request => ({ ok: true, generation: request.generation, value: { event: {
+    ...event(f.identity, String(obj(request.document).value), 5, 'resumed'), selection: obj(request.document).selection,
+    operationId: request.operationId, operationRevision: request.operationRevision, receiptId: request.receiptId,
+  } } }));
+  await action(f.client, f.route, { kind: 'voice', label: 'New task', owner: target.editorOwner }, f.native, f.storage);
+  expect(mobileVoiceSnapshot(target.editorOwner, f.client).phase).toBe('recording');
+  expect(obj(f.disk().drafts)[f.key]).toBe('🙂 picked here');
+  expect(f.calls.some(call => call.action === 'resume')).toBe(false);
+  expect((await mobileVoiceAction('stop', -1, -1, 'New task', target.editorOwner, f.native, f.storage, f.client)).message).toBe('');
+  await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  expect(obj(f.disk().drafts)[f.key]).toBe('🙂 spoken here');
+  expect(f.calls.find(call => call.action === 'resume')?.document).toMatchObject({ value: '🙂 spoken here', selection: { start: 9, end: 9 } });
+  expect(f.calls.some(call => call.action === 'selection' || call.action === 'selection-commit')).toBe(false);
+  expect(view(f.client, f.route).kind).toBe('editing');
 });
