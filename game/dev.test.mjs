@@ -240,7 +240,7 @@ test('TypeScript producer callback publishes success, reports failure and accept
     const pending=new Map(), clients=new Set(), MODULE_FILES={web:'app.js'}, app={id:'test'}, tamber=null;
     const readFileSync=()=>new Uint8Array([1]), resolve=(...p)=>p.join('/'), captureAssets=()=>[], moduleCards=()=>{}, designBytes=()=> 'built-hash', contractBytes=()=> 'built-hash';
     let contractStamp, contractTreeStamp; const contractInputsStamp=()=> 'tree'; ${source.match(/function contractReady[^\n]+/)[0]}
-    const captureGeneration=()=>publications.push(seq), push=()=>{}, announcement=()=>({}), watchPackages=()=>{}, rmSync=()=>{};
+    const captureGeneration=()=>publications.push(seq), push=()=>{}, announcement=()=>({}), watchPackages=()=>{}, rmSync=()=>{}, sayReady=line=>console.log(line);
     ${callback}
     return (ok, design='built-hash')=>{active={id:++moduleRun,design,contract:design,output:'out',stage:'stage',started:Date.now()}; currentModule=null; child.stdout.reply(JSON.stringify({id:moduleRun,ok,error:ok?undefined:'bad TypeScript'})+'\\n');return contractStamp;};
   `)({phase:(producer,phase)=>phases.push([producer,phase])},{log(){},error:message=>errors.push(message)},publications);
