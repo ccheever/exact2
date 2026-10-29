@@ -133,6 +133,7 @@ component T3Code
     richComposer
     richComposerOwner
     composerMoved
+    composerPressed
     composerBeforeInput
     composerIntentNotice
     composerLanguage
@@ -141,6 +142,7 @@ component T3Code
     composerCopied
     attachFiles
     chooseAttachments
+    composerUploads
     threadFind
     serverMiniFrame
     serverFrame

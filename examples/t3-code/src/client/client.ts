@@ -72,6 +72,7 @@ import { detachDraftLaunch, isDraftLaunch, launchId, restoreDetachedLaunch } fro
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { windowAppearanceMode } from '../appearance/settings-appearance-look'; // the window draws in the resolved mode
 import { heldImageIds } from '../composer/composer-copied-chips'; // the latest composer copy's images keep their bytes
+import { holdUpload, settleUploads, uploadRunning } from '../composer/composer-uploads'; // a draft image's upload at attach
 
 type Selection = { projectId: string; threadId: string };
 export type AttachmentUpload = { status: 'uploading' | 'ready' | 'failed'; progress: number; reason: string; attachmentId: string };
@@ -1074,8 +1075,10 @@ export class T3Client {
     const draftKey = this.draftKey, generation = this.generation, owner = this.snapshotOwner;
     const current = () => { assertOwner?.(); return draftKey === this.draftKey && generation === this.generation && owner === this.snapshotOwner; };
     const attachments: Obj[] = [];
+    settleUploads(this); // an upload that landed since the root's last pump names its attachment
     for (const image of this.local.snapshotDrafts[key] || []) {
       if (!current()) throw new ClientError('The draft changed before upload.');
+      if (!str(image.uploadId) && uploadRunning(this, str(image.id))) throw new ClientError('Attachment still uploading');
       const attachmentId = str(image.uploadId) || await this.uploadDraftImage(native, storage, image, current);
       attachments.push({ type: 'image', id: attachmentId, name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes, source: image.source });
     }
@@ -1083,9 +1086,9 @@ export class T3Client {
     return attachments;
   }
   /**
-   * Uploads one draft image now and returns its attachment id; one already uploaded returns its id. The reference
-   * starts this when the image is attached (attachmentUploadQueue.ts), so `attachmentUploads` says how it goes. exact2's
-   * fetch reports no bytes sent, so its progress is 0 until the reply.
+   * The send's upload of a draft image whose upload at attach did not land (composer-uploads.ts): one that failed, which
+   * the reference's send retries, or one attached while the server staged no uploads. It returns the attachment id, one
+   * already uploaded its id. It is awaited, so it tells no progress, and no upload resource takes the image meanwhile.
    */
   async uploadDraftImage(native: Native, storage: Files, image: Obj, current: () => boolean = () => true): Promise<string> {
     const id = str(image.id), uploaded = str(image.uploadId);
@@ -1097,10 +1100,11 @@ export class T3Client {
     let dropped: Promise<void> = Promise.resolve();
     if (running) { running.cancelled = true; dropped = this.dropDraftUpload(native, running); }
     const job: DraftUpload = { environmentId: this.environmentId, upload: Promise.resolve(''), cancelled: false, attachmentId: '', dropped: false };
+    const release = holdUpload(this, id);
     job.upload = this.runDraftUpload(native, storage, image, () => !job.cancelled && job.environmentId === this.environmentId && current(), job);
     this.uploadsRunning.set(id, job);
     try { return await job.upload; }
-    finally { if (this.uploadsRunning.get(id) === job) this.uploadsRunning.delete(id); await dropped; }
+    finally { release(); if (this.uploadsRunning.get(id) === job) this.uploadsRunning.delete(id); await dropped; }
   }
   /** Deletes the attachment `job` minted, once, on the environment it was minted on. */
   private async dropDraftUpload(native: Native, job: DraftUpload): Promise<void> {

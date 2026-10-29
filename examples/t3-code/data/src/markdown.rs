@@ -37,6 +37,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "composerAttach",
             "composerEditor",
             "composerRich",
+            // A draft image's upload, a stream that tells its bytes sent (src/composer/composer-uploads.ts).
+            "composerUpload",
             "composerField",
             "composerFieldObserved",
             "composerFieldAcknowledged",

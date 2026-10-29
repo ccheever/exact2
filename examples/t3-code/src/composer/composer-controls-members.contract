@@ -3,6 +3,8 @@ use promptPreviewSample from "../appearance/settings-prompt-preview.contract"
 use ComposerRichView, ComposerFieldObservation from "./composer-rich.contract"
 use layoutFrame, optionsTriggerId from "../shell/layout-frames.contract"
 use routeKeyboardComplete from "../connections/connections-routes.contract"
+use ComposerUpload from "./composer-shapes.contract"
+use Change from "../shared/shapes.contract"
 members T3Code
   derive composerOwner = data.composerOwner // `${serverUrl}:${projectId}:${threadId}`; a draft Auto balance moved keeps its own (auto-balance-owner.ts)
   derive composerText = draftOwner == `${composerOwner}${data.requestKey}` ? draft : data.draft
@@ -213,6 +215,25 @@ members T3Code
       case none
   action chooseAttachments
     showPicker("composer-attach-input")
+  // attachmentUploadQueue.ts: a draft image uploads as it joins the draft, three at once, each in one of these streams,
+  // whose fetch tells the bytes it has sent (composer-uploads.ts), so no answer waits on one. An image keeps its
+  // resource until its upload ends, since new arguments let a running upload go.
+  resource composerUpload0 = composerUpload(0, data.composer.uploads.u0.id, data.composer.uploads.u0.attachmentId) as shape ComposerUpload
+  resource composerUpload1 = composerUpload(1, data.composer.uploads.u1.id, data.composer.uploads.u1.attachmentId) as shape ComposerUpload
+  resource composerUpload2 = composerUpload(2, data.composer.uploads.u2.id, data.composer.uploads.u2.attachmentId) as shape ComposerUpload
+  derive composerUploads = [composerUpload0, composerUpload1, composerUpload2]
+  // An upload that ended, by its resource's answer for the attachment it carries now; one cut off on its way fails
+  // with no answer. The root's `cclocal:uploads` lands or fails them and starts the images waiting for a resource.
+  derive composerUploadEnd0 = composerUpload0.attachmentId != "" and composerUpload0.attachmentId == data.composer.uploads.u0.attachmentId and (composerUpload0.status == "ready" or composerUpload0.status == "failed")
+  derive composerUploadEnd1 = composerUpload1.attachmentId != "" and composerUpload1.attachmentId == data.composer.uploads.u1.attachmentId and (composerUpload1.status == "ready" or composerUpload1.status == "failed")
+  derive composerUploadEnd2 = composerUpload2.attachmentId != "" and composerUpload2.attachmentId == data.composer.uploads.u2.attachmentId and (composerUpload2.status == "ready" or composerUpload2.status == "failed")
+  derive composerUploadsCut = [(data.composer.uploads.u0.id != "" and failed(composerUpload0) ? "0" : ""), (data.composer.uploads.u1.id != "" and failed(composerUpload1) ? "1" : ""), (data.composer.uploads.u2.id != "" and failed(composerUpload2) ? "2" : "")].filter((slot) => slot != "").join(" ")
+  derive composerUploadsDue = data.composer.uploads.pending != "" or data.composer.uploads.settle > 0 or composerUploadEnd0 or composerUploadEnd1 or composerUploadEnd2 or composerUploadsCut != ""
+  mutation uploadsChanged as shape Change queue refreshes data
+  task composerUploadsRun when composerUploadsDue key=`${data.composer.uploads.pending}|${data.composer.uploads.settle}|${composerUploadEnd0}:${data.composer.uploads.u0.attachmentId}|${composerUploadEnd1}:${data.composer.uploads.u1.attachmentId}|${composerUploadEnd2}:${data.composer.uploads.u2.attachmentId}|${composerUploadsCut}`
+    after(1, composerUploadsNow)
+  action composerUploadsNow
+    send uploadsChanged = command("cclocal:uploads", "", composerUploadsCut, 0)
   action command(op: string, id: string, value: string, n: number)
     if op == "sidebar:undo" and id != ""
       undoHeldKey = id // the undo chord's key (keyboard-dispatch.ts chordKey), whose repeats modifierKey cancels

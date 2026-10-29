@@ -33,8 +33,7 @@ members T3Code
   // history arriving and the follow of the end do not), and the pulls toward the end made while already there, which
   // let a grown composer's reservation through (composer-overlay.ts). The snapshot reads them (transcript-facts.ts).
   // A focused composer rests too, keeping its focus (ChatComposer canScrollCollapseComposer); a focus coming in
-  // (composerFocus) or an edit (restTyped) brings it back. The reference's press on the editor does too; the native
-  // field here reports no pointer events, so a press on a field that already has the focus leaves it resting.
+  // (composerFocus), a press in the prompt (composerPressed) or an edit (restTyped) brings it back.
   derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerText.includes("\n") and data.approvals.length == 0 and data.questions.length == 0 and not data.settled
   state restOwner = ""
   state restResting = false

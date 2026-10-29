@@ -10,6 +10,7 @@ import { queuedEditView, settleQueuedEdits } from './composer-controls-queue';
 import { endSummary, threadNowProbes } from './thread-end';
 import { subagentBar } from './composer-controls-subagent';
 import { attachOffered, preparingImages } from './composer-controls-attach';
+import { uploadTable } from './composer-uploads';
 import { fanoutSelections, fanoutView } from './composer-controls-fanout';
 import { composerSelection } from './composer-provider-selection';
 import { chordGlyphs, displayModelName, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
@@ -301,6 +302,8 @@ export function composerSnapshot(client: T3Client, now = 0) {
     endSummary: endSummary(client),
     // Images taken into the draft and still being prepared: their tiles show at once, disabled (preparingComposerImages).
     preparingImages: preparingImages(client),
+    // The draft images' uploads, which start as each joins the draft (composer-uploads.ts).
+    uploads: uploadTable(client),
     // The shown approval's reason and why full access still asked (ComposerPendingApprovalPanel).
     approvalReason: requests.approvals[0]?.reason ?? '', approvalWhy: requests.approvals[0]?.whyAsked ?? '',
     notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), ...usageResetClock(client, now) }, rootFontSize);

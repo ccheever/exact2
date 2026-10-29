@@ -455,6 +455,10 @@ members T3Code
   action composerKeyReleased(k: string, e: KeyboardEvent)
     composerShift = e.shiftKey
     composerCommand = e.metaKey or e.ctrlKey
+  // A press in the prompt expands a resting composer, one whose field already has the focus too (ChatComposer's
+  // onPointerDownCapture); focus coming in does as well (onFocusCapture, composerFocus).
+  action composerPressed
+    restResting = false
   // Focus coming into the composer expands a resting one (ChatComposer onFocusCapture).
   action composerFocus
     composerFocused = true

@@ -12,6 +12,8 @@ use Control from "../shared/shapes.contract"
 use Primary from "../shared/shapes.contract"
 use ImageDraftTile from "../composer/composer-editor.contract"
 use PreparingImageTile from "../composer/composer-editor.contract"
+use UploadMeter, uploadShows from "../composer/composer-editor.contract"
+use ComposerUpload, ComposerUploadImage, ComposerUploads from "../composer/composer-shapes.contract"
 use PreparingImage from "../composer/composer-shapes.contract"
 use ComposerVideo from "../composer/composer-video.contract"
 use VideoDraftTile from "../composer/composer-video.contract"
@@ -234,6 +236,9 @@ component SnapshotTile
     ask: action
     command: action
     after: string
+    // Its upload, if any, and the upload resources' answers (composer-editor.contract UploadMeter).
+    uploads: ComposerUploadImage[]
+    live: ComposerUpload[]
   state hovering = false
   action setHover(over: bool)
     hovering = over
@@ -249,7 +254,7 @@ component SnapshotTile
     column hover=setHover position="relative" width="13rem" max-width="100%" height="7rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff10)" background-color="light-dark(#fcfcfc, #000000)" testId=`snapshot-draft-${image.id}`
       button press=command("editorlocal:chip-image-open", image.id, "", 0) focus=setHover(true) blur=setHover(false) aria-label=`Preview ${image.name}` testId=`preview-image-${image.id}` id=`preview-image-${image.id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" cursor="zoom-in" title=""
         box hatch="t3-snapshot-tile" data-snapshot-id=image.id position="absolute" top=0 left=0 right=0 bottom=0 testId=`snapshot-thumbnail-${image.id}`
-      row position="absolute" left=0 right=0 bottom=0 gap="0.375rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="1.5rem" padding-bottom="0.5rem" box-sizing="border-box" min-width=0 background-image="linear-gradient(to top, #000000d9, #0000008c, #00000000)"
+      row position="absolute" left=0 right=0 bottom=(uploadShows(uploads, live) == "failed" ? "2rem" : uploadShows(uploads, live) == "uploading" ? "1rem" : "0px") gap="0.375rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="1.5rem" padding-bottom="0.5rem" box-sizing="border-box" min-width=0 background-image="linear-gradient(to top, #000000d9, #0000008c, #00000000)"
         row width="1.75rem" height="1.75rem" border-radius="0.5rem" flex-shrink=0 align-items="center" justify-content="center" background-color="#ffffff33"
           text image.letter font-size="0.625rem" font-weight=500 line-height="0.875rem" color="#ffffff"
         column flex=1 min-width=0
@@ -265,6 +270,8 @@ component SnapshotTile
                 scroll max-height="16rem" width="100%" border-radius="0.25rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f573, #ffffff0a)"
                   text (image.contents != "" ? image.contents : image.included ? "Structured accessibility elements were included, but they have no readable names or values." : "The app or capture backend did not provide verified accessibility data.") font-size="0.6875rem" line-height="1rem" font-family=(image.contents != "" ? "monospace" : "system-ui") white-space="pre-wrap" overflow-wrap="anywhere" padding="0.625rem" color=(image.contents != "" ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
           text image.title font-size="0.625rem" line-height="0.875rem" color="#ffffffb3" line-clamp=1
+      for upload in uploads key=upload.id
+        UploadMeter(upload=upload, live=live, name=image.name, command=command)
       row position="absolute" top="0.25rem" right="0.25rem" opacity=(hovering ? 1 : 0)
         // As ImageDraftTile's: a focused Remove that asks first names where the focus goes after the confirmed removal.
         if image.referenced
@@ -292,6 +299,9 @@ component SnapshotDrafts
     // Images still being prepared, after the ready ones (ComposerAttachmentStrip's preparingImages).
     preparing: PreparingImage[]
     command: action
+    // The images' uploads (composer-uploads.ts uploadTable) and the upload resources' answers.
+    uploads: ComposerUploads
+    live: ComposerUpload[]
   derive snapshots = images.filter((image) => image.snapshot).length > 0
   view
     // The strip scrolls sideways only once it holds a SnapShot frame; plain images and videos wrap, so no scroll
@@ -300,11 +310,11 @@ component SnapshotDrafts
       row width="100%" gap="0.5rem" flex-wrap=(snapshots ? "nowrap" : "wrap") overflow-x=(snapshots ? "scroll" : "visible") padding-bottom=(snapshots ? "0.25rem" : "0px") box-sizing="border-box" testId="snapshot-drafts"
         for image, i in images key=image.id
           if image.snapshot
-            SnapshotTile(image=image, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i))
+            SnapshotTile(image=image, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i), uploads=uploads.images.filter((upload) => upload.id == image.id), live=live)
           else
-            ImageDraftTile(id=image.id, name=image.name, referenced=image.referenced, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i))
+            ImageDraftTile(id=image.id, name=image.name, referenced=image.referenced, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i), uploads=uploads.images.filter((upload) => upload.id == image.id), live=live)
         for image in preparing key=image.id
-          PreparingImageTile(id=image.id, name=image.name, source=image.source, command=command)
+          PreparingImageTile(id=image.id, name=image.name, source=image.source, command=command, uploading=uploads.supported)
         for video, i in videos key=video.id
           VideoDraftTile(video=video, disabled=disabled, command=command, after=videoFocusAfter(videos, i))
 

@@ -16,6 +16,7 @@ import type { T3Client } from '../client/client';
 import { followUpBehavior, isCompacting, planFollowUp, resolveDispatchMode, resumeState, sendQueuesBehindSetup } from './composer-controls';
 import { usageNotices, type UsageAccountView } from './composer-controls-usage';
 import { feedbackNotices, feedbackUploading } from './composer-feedback'; // Codex /feedback
+import { uploadBlock } from './composer-uploads'; // attachmentUploadBlockReason
 import { subagentTitle } from '../timeline/timeline-events';
 import { keepsFullHistory, latestTokenUsage, resumeCompactionTokens } from './composer-controls-resume';
 import { pendingRequests } from './requests';
@@ -114,7 +115,7 @@ export function primaryAction(client: T3Client, phase: string) {
   const providerBlock = chosen?.provider ? antigravitySendBlockReason(chosen.provider, chosen.model) : '';
   const status = unavailable ? 'Environment disconnected' : !client.scopes.includes('orchestration:operate') ? 'This connection cannot change threads.'
     : pendingThreadImports(client) ? 'Loading thread context…' : machineChanging(client) ? 'Preparing machine' : feedbackUploading(client) ? 'Sending feedback' : preparing ? 'Preparing worktree'
-      : projectCloneBlock(client) || providerBlock || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
+      : projectCloneBlock(client) || uploadBlock(client) || providerBlock || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
   const plan = planFollowUp(client);
   const alternate = followUp === 'queue' ? 'steer' : 'queue';
   // alternateShortcutLabel: composer.sendAlternate's effective binding, as formatShortcutLabel prints it (⌘Enter).

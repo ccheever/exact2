@@ -1,5 +1,7 @@
-// ComposerPromptEditorTiptap's source projection at T3 Code 9c161462c9; plain list lines at 74541bab17.
+// ComposerPromptEditorTiptap's source projection at T3 Code 9c161462c9; plain list lines at 74541bab17; the lines'
+// directions (composer-text-direction.ts) at 7c3b3b3605ef.
 import { composerMarkdown, type ComposerBlockOrigin, type ComposerRange } from './composer-markdown';
+import { composerParagraphDirs } from './composer-text-direction';
 import { codeLanguageEntry, codeLanguageLabel, languageOfInfoString } from './composer-code-languages';
 import { composerChips, composerChipsInBlocks, type ComposerChip } from './composer-source-chips';
 import type { ComposerMode } from './composer-source-session';
@@ -7,7 +9,8 @@ import { plainListLines } from './composer-list-continuation';
 
 export type ComposerCodeHeader = ComposerRange & { infoStart: number; infoEnd: number; info: string; language: string; label: string };
 export type ComposerSourceBlock = ComposerRange & { kind: string; contentStart: number; bodyStart: number; bodyEnd: number; bodyLine: boolean };
-export type ComposerRichProjection = { owner: string; value: string; mode: ComposerMode; headers: ComposerCodeHeader[]; chips: ComposerChip[]; blocks: ComposerSourceBlock[] };
+/** `dirs`: the rich field's `paragraphDirs`, one word per source line ("" in the plain and literal fields, which take none). */
+export type ComposerRichProjection = { owner: string; value: string; mode: ComposerMode; headers: ComposerCodeHeader[]; chips: ComposerChip[]; blocks: ComposerSourceBlock[]; dirs: string };
 export type ComposerRichInput = {
   owner: string; value: string; styling: boolean; literal: boolean;
   blockOrigins?: readonly ComposerBlockOrigin[];
@@ -40,5 +43,7 @@ export function composerRichProjection(input: ComposerRichInput): ComposerRichPr
       if (index >= 0) blocks[index] = { ...blocks[index]!, kind: 'list' };
     }
   }
-  return { owner: input.owner, value: input.value, mode: input.literal ? 'literal' : input.styling ? 'rich' : 'plain', headers, blocks, chips: composerChipsInBlocks(input.value, parsed.blocks, chips) };
+  const inBlocks = composerChipsInBlocks(input.value, parsed.blocks, chips), rich = input.styling && !input.literal;
+  return { owner: input.owner, value: input.value, mode: input.literal ? 'literal' : input.styling ? 'rich' : 'plain', headers, blocks, chips: inBlocks,
+    dirs: rich ? composerParagraphDirs(input.value, parsed.blocks, inBlocks) : '' };
 }

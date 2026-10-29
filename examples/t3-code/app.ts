@@ -20,6 +20,7 @@ import { archivedSettings, licenseSettings, storageSettings } from './src/settin
 import { T3Client } from './src/client/client';
 import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './src/composer/composer-editor';
 import { composerRichSource } from './src/composer/composer-rich-source';
+import { uploadSource } from './src/composer/composer-uploads'; // a draft image's upload, a stream that tells its bytes sent
 import { composerFieldOwner } from './src/composer/auto-balance-owner';
 import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource } from './src/composer/composer-field-bridge';
 import { composerIntentAnswer } from './src/composer/composer-intent-source';
@@ -113,6 +114,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
       : { ...event, x: event.offsetX, y: event.offsetY, phase: args[2], width: args[3], height: args[4] };
     return serverStreamInput(client, String(args[0] ?? ''), kind === 'control' ? String(args[1] ?? '') : kind, value);
   }
+  if (source === 'composerUpload') return uploadSource(client, Number(args[0]) || 0, String(args[1] ?? ''), String(args[2] ?? ''));
   if (source === 'transportSocket') return transport.socket(Number(args[0]) || 0, String(args[1] ?? ''));
   if (source === 'transportConnect') return transport.connect(Number(args[0]) || 0, String(args[1] ?? ''), Number(args[2]) || 0, Number(args[3]) || 0, native);
   if (source === 'transportUpdateStep') return transport.updateStep(Number(args[0]) || 0, String(args[1] ?? ''), Number(args[2]) || 0);

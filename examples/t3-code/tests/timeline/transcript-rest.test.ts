@@ -90,3 +90,18 @@ describe('the composer rests on a reader\'s movement away from the end', () => {
     expect(calls).toEqual([true, false, true, false, true]);
   });
 });
+
+describe('a press in the prompt expands a resting composer', () => {
+  const card = contractComponent('composer.contract', 'ComposerCard');
+  test('the prompt region hears the press, whose field may already have the focus (ChatComposer onPointerDownCapture)', () => {
+    const presses: unknown[] = [];
+    // On macOS a press in the text area reaches its ancestors' pointerdown (exact2 #1105).
+    const scope: Env = { composerPressed: () => presses.push('press'), richComposer: { chips: [] }, text: '',
+      data: { canSend: false, snapshotDrafts: [], composer: { compactTokens: '', canResume: false, queueEditing: '' } } };
+    (card.attribute('testId="composer-scroll-region"', 'pointerdown', {}, scope) as () => void)();
+    expect(presses).toEqual(['press']);
+    const state: Env = { restResting: true };
+    root.call('composerPressed', state, {}, []);
+    expect(state.restResting).toBe(false);
+  });
+});

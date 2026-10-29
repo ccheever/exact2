@@ -3,6 +3,7 @@
 // the prompt-length line (ComposerPromptLengthValidation.tsx) and the stash.
 // The composer's own key action takes ↑ ↓ ↩ ⇥ and Escape while a menu is open
 // (app.contract composerKeyEvent).
+use ComposerUpload, ComposerUploadImage from "./composer-shapes.contract"
 
 shape ComposerMenuRow
   id: string
@@ -189,6 +190,8 @@ component StashGlyph
         path d="M18 6 6 18M6 6l12 12"
       if name == "chevron-down"
         path d="m6 9 6 6 6-6"
+      if name == "refresh-cw"
+        path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"
 
 // ComposerStashBadge: a shoulder tab at the composer's top-right (22pt in),
 // whose last 17pt the card covers, beside the banners (app.contract puts it
@@ -325,6 +328,9 @@ component ImageDraftTile
     command: action
     // Where the focus goes when its focused Remove removes it (snapshot.contract draftFocusAfter).
     after: string
+    // Its upload, if any (composer-uploads.ts), and the upload resources' answers.
+    uploads: ComposerUploadImage[]
+    live: ComposerUpload[]
   state removeFocused = false
   action removeFocus(on: bool)
     removeFocused = on
@@ -335,6 +341,8 @@ component ImageDraftTile
   view
     column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff10)" background-color="light-dark(#fcfcfc, #000000)" testId=`image-draft-${id}`
       ImagePreviewButton(id=id, name=name, command=command)
+      for upload in uploads key=upload.id
+        UploadMeter(upload=upload, live=live, name=name, command=command)
       row position="absolute" top="0.25rem" right="0.25rem"
         // Asking first, a focused Remove names where the focus goes after the confirmed removal; the confirm moves the
         // focus there on Confirm, or back to this Remove on Cancel, before it closes (app.contract confirmUi).
@@ -355,6 +363,8 @@ component PreparingImageTile
     // ComposerImageThumbnail: a 256 px thumbnail of the taken image; "" until it is made (or for none), when the name shows.
     source: string
     command: action
+    // The server stages uploads: the tile's upload line shows at once, at 0% (supportsAttachmentUploads).
+    uploading: bool
   view
     column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff10)" background-color="light-dark(#fcfcfc, #000000)" testId=`preparing-image-${id}`
       button disabled=true aria-label=`Preview ${name}` testId=`preview-image-${id}` position="absolute" left=0 top=0 right=0 bottom=0 padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
@@ -362,9 +372,42 @@ component PreparingImageTile
           image source aria-hidden=true position="absolute" left=0 top=0 width="100%" height="100%" object-fit="cover" testId=`preparing-thumbnail-${id}`
         else
           text name font-size="0.625rem" line-height="0.875rem" text-align="center" color="light-dark(#71717a, #a1a1a1)" line-clamp=3 overflow-wrap="anywhere"
+      if uploading
+        UploadLine(id=id, label="0%")
       row position="absolute" top="0.25rem" right="0.25rem"
         button press=command("cclocal:preparing-image-cancel", id, "", 0) aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
           StashGlyph(name="x", size=14, color="#ffffff")
+
+// The upload of a draft image's tile (ComposerAttachmentStrip): its percentage along the tile's foot while it uploads
+// (formatAttachmentUploadProgress), from 0% while it waits for a resource, and a Retry at the lower left once it failed,
+// whose tip is the reason (retryAttachmentUpload). A resource's answer counts for the attachment it carries now.
+fn uploadPercent(progress: number): string = `${floor(max(0, min(1, progress)) * 100)}%`
+fn uploadLive(upload: ComposerUploadImage, live: ComposerUpload[]): ComposerUpload[] = live.filter((each) => upload.status == "slot" and each.attachmentId == upload.attachmentId and each.id == upload.id)
+fn uploadLabel(upload: ComposerUploadImage, live: ComposerUpload[]): string = upload.status == "queued" ? "0%" : upload.status != "slot" ? "" : uploadLive(upload, live).length == 0 ? "0%" : uploadLive(upload, live).filter((each) => each.status == "uploading").map((each) => uploadPercent(each.progress)).join("")
+fn uploadFailure(upload: ComposerUploadImage, live: ComposerUpload[]): string = upload.status == "failed" ? upload.reason : uploadLive(upload, live).filter((each) => each.status == "failed").map((each) => each.reason).join("")
+// Whether a tile's upload line or Retry shows, for the SnapShot details above them.
+fn uploadShows(uploads: ComposerUploadImage[], live: ComposerUpload[]): string = uploads.map((upload) => uploadFailure(upload, live) != "" ? "failed" : uploadLabel(upload, live) != "" ? "uploading" : "").join("")
+
+component UploadMeter
+  props
+    upload: ComposerUploadImage
+    live: ComposerUpload[]
+    name: string
+    command: action
+  view
+    if uploadLabel(upload, live) != ""
+      UploadLine(id=upload.id, label=uploadLabel(upload, live))
+    if uploadFailure(upload, live) != ""
+      button press=command("cclocal:upload-retry", upload.id, "", 0) aria-label=`Retry upload for ${name}` title=uploadFailure(upload, live) testId=`retry-upload-${upload.id}` position="absolute" left="0.25rem" bottom="0.25rem" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#000000b3" display="flex" align-items="center" justify-content="center"
+        StashGlyph(name="refresh-cw", size=14, color="#ffffffa6")
+
+// The upload's percentage along a tile's foot: bg-background/85, 10/14 text.
+component UploadLine
+  props
+    id: string
+    label: string
+  view
+    text label position="absolute" left=0 right=0 bottom=0 padding-left="0.25rem" padding-right="0.25rem" background-color="light-dark(#fcfcfcd9, #000000d9)" font-size="0.625rem" line-height="0.875rem" text-align="center" color="light-dark(#18181b, #f5f5f5)" pointer-events="none" font-variant-numeric="tabular-nums" testId=`upload-progress-${id}`
 
 // The draft image's thumbnail as its "Preview <name>" button (ChatComposer's
 // `image.previewUrl` button, cursor-zoom-in): a press opens the expanded preview

@@ -90,6 +90,37 @@ shape PreparingImage
   name: string
   // A 256 px thumbnail of the taken image (an `app:/` PNG); "" until it is made, or for none.
   source: string
+// One upload resource's answer (composer-uploads.ts UploadValue): the image it carries and how its upload goes, status
+// "uploading" with its progress (0 to 1), "ready", "failed" with the reason, or "" while it carries none.
+shape ComposerUpload
+  slot: number
+  id: string
+  attachmentId: string
+  status: string
+  progress: number
+  reason: string
+// The image an upload resource carries, under the attachment its upload URL was minted for ("" for none).
+shape ComposerUploadSlot
+  id: string
+  attachmentId: string
+// A draft image's upload (ImageUpload): "queued" for a slot, in a "slot" (whose answer has its percentage), or "failed".
+shape ComposerUploadImage
+  id: string
+  attachmentId: string
+  status: string
+  progress: number
+  reason: string
+// The draft's uploads (composer-uploads.ts uploadTable): what each resource carries, the images waiting while one is
+// free (the root then starts them), the slots and attachments to settle, and each image's upload; `supported`: the
+// server stages uploads.
+shape ComposerUploads
+  u0: ComposerUploadSlot
+  u1: ComposerUploadSlot
+  u2: ComposerUploadSlot
+  supported: bool
+  pending: string
+  settle: number
+  images: ComposerUploadImage[]
 // An attachment the queued edit keeps.
 shape QueueEditAttachment
   id: string
@@ -210,6 +241,8 @@ shape ComposerView
   endSummary: string
   // The draft's images still being prepared: the strip shows their tiles at once, disabled.
   preparingImages: PreparingImage[]
+  // Its images' uploads, which start as each joins the draft (attachmentUploadQueue.ts).
+  uploads: ComposerUploads
   contextShow: bool
   contextAria: string
   contextPercent: string

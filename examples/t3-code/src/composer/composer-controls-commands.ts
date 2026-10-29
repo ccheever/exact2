@@ -13,6 +13,7 @@ import { wokeAt as sidebarWokeAt } from '../sidebar/sidebar-model';
 import { beginQueuedEdit, cancelQueuedEdit, queueState, removeQueuedEditAttachment, toggleQueueShownInFull } from './composer-controls-queue';
 import { copyBranchName, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachIncoming, cancelPreparingImage, type IncomingFiles } from './composer-controls-attach';
+import { retryDraftUpload, runDraftUploads } from './composer-uploads';
 import { foldPaste, heldPaste } from './composer-editor-files';
 import { uuid } from '../transport/transport-wire';
 import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
@@ -264,6 +265,9 @@ export function announcePickerShortcut(client: T3Client, kind: string, id: strin
 export async function composerLocal(client: T3Client, _native: Native, _storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op === 'queued-edit') { beginQueuedEdit(client, id); return ''; }
   if (op === 'picker-provider-key' || op === 'picker-model-key') { announcePickerShortcut(client, op === 'picker-provider-key' ? 'provider' : 'model', id, value); return ''; }
+  // The root's upload pump (composer-uploads.ts): `value` names the upload resources that failed with no answer.
+  if (op === 'uploads') { await runDraftUploads(client, _native, value.split(' ').filter(Boolean).map(Number)); return ''; }
+  if (op === 'upload-retry') { retryDraftUpload(client, id); return ''; }
   if (op === 'env-mode') { setEnvMode(client, value); return ''; }
   if (op === 'previous-worktree') { setEnvMode(client, 'previous'); return ''; }
   if (op === 'attach-files') { // a drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles)

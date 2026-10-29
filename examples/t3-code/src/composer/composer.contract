@@ -1,5 +1,6 @@
 use Snapshot from "../shared/shapes.contract"
 use QueueEditAttachment from "./composer-shapes.contract"
+use ComposerUpload from "./composer-shapes.contract"
 use Viewport from "../shared/shapes.contract"
 use ProviderInstanceMark from "../shared/icons-kit.contract"
 use SnapshotDrafts from "../snapshot/snapshot.contract"
@@ -72,6 +73,8 @@ component ComposerCard
     richComposerOwner: string
     composerFieldInputSerial: number
     composerMoved: action
+    // A press in the prompt: a resting composer expands (composer-members.contract).
+    composerPressed: action
     composerBeforeInput: action
     composerIntentNotice: string
     composerKeyEvent: action
@@ -84,6 +87,8 @@ component ComposerCard
     composerChipPress: action
     // A drop, a paste or Attach files (app.contract attachFiles, composer-controls-attach.ts).
     attachFiles: action
+    // The upload resources' answers (composer-controls-members.contract), for the image tiles' percentages.
+    composerUploads: ComposerUpload[]
   props
     editor: ComposerEditorView
     data: Snapshot
@@ -189,7 +194,7 @@ component ComposerCard
       // Resting, the prompt row reserves the floating actions' width: the send, and the Compact chip beside it.
       column padding-top=(resting ? "0.4375rem" : "1rem") padding-bottom=(resting ? "0.4375rem" : "0.5rem") padding-left="1rem" padding-right=(resting ? (restingChip ? `${3.5 * rem + data.composer.compactWidth + 0.5 * rem}px` : "3.5rem") : "1rem") gap="0.5rem" box-sizing="border-box" width="100%"
         // SnapShot attachment frames are snapshot.contract's.
-        SnapshotDrafts(images=data.snapshotDrafts, disabled=(busy or data.uncertain), remove=removeSnapshot, ask=askRemove, videos=data.composerVideos, preparing=data.composer.preparingImages, command=command)
+        SnapshotDrafts(images=data.snapshotDrafts, disabled=(busy or data.uncertain), remove=removeSnapshot, ask=askRemove, videos=data.composerVideos, preparing=data.composer.preparingImages, command=command, uploads=data.composer.uploads, live=composerUploads)
         // The queued message's own attachments while it is edited (removable; new ones attach as usual).
         if data.composer.queueEditing != "" and data.composer.queueEditAttachments.length > 0
           row width="100%" gap="0.5rem" flex-wrap="wrap" align-items="center" testId="queued-edit-attachments"
@@ -204,13 +209,14 @@ component ComposerCard
         // focus: `outline="none"` (main #459, issues/closed/20261009-field-outline-none.md).
         // Its -m-1 p-1 sits in a flow-root container, so the text and the placeholder both start at the container's top;
         // the field here has neither margin nor padding (a negative margin would collapse through the wrap and lift both).
-        box width="100%" max-height=(resting ? "2rem" : "12.5rem") overflow-y=(resting ? "hidden" : "auto") testId="composer-scroll-region"
+        box width="100%" max-height=(resting ? "2rem" : "12.5rem") overflow-y=(resting ? "hidden" : "auto") pointerdown=composerPressed testId="composer-scroll-region"
           box position="relative" width="100%" id="composer-field-wrap"
             if text == ""
               text data.composer.placeholder font-family=data.look.promptFont position="absolute" left=0 top=0 right=0 font-size="0.875rem" line-height=(resting ? "2rem" : "1.421875rem") line-clamp=(resting ? 1 : 3) color="light-dark(#71717a, #a1a1a1)" pointer-events="none" aria-hidden=true testId="composer-placeholder"
-            // Switching threads lands the focus here, so the field's name says the thread (ChatComposer ariaLabel).
+            // Switching threads lands the focus here, so the field's name says the thread (ChatComposer ariaLabel). Each source
+            // line reads in its block's majority direction (ComposerTextDirectionExtension); on macOS the arrow keys follow it.
             if richComposer.mode == "rich"
-              textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied markup="markdown" atoms="citation context file mention skill" atomFaces=faces atompress=richAtom selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "2.5rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
+              textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied markup="markdown" atoms="citation context file mention skill" atomFaces=faces paragraphDirs=richComposer.dirs atompress=richAtom selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "2.5rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
             else
               // With Markdown formatting off the field is plain source: the editor draws atoms only where it styles Markdown
               // (LLP 1045.000 D3), so a reference shows its source there. A literal answer has no chips (the reference's too).

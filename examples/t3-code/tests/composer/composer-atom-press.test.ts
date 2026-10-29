@@ -129,7 +129,7 @@ describe('ordinary code-language control retains the current source owner', () =
 });
 
 describe('a chip\'s face is its pill', () => {
-  const fns = contractFns('src/composer/composer-rich.contract', {AtomFace: (face: Env) => face}) as {
+  const fns = contractFns('src/composer/composer-rich.contract', {AtomFace: (face: Env) => face, ...contractFns('src/timeline/markdown-chip-inks.contract')}) as {
     composerAtomFace: (chip: Env) => Env; composerAtomSymbol: (icon: string) => string;
   };
   const face = (patch: Env) => ({kind: 'mention', label: 'README.md', suffix: '', icon: 'at-sign', fileToken: '', imageId: '', available: true,
@@ -142,6 +142,24 @@ describe('a chip\'s face is its pill', () => {
     // A citation's tooltip says how its comment opens; the preview's citation has no comment.
     expect(fns.composerAtomFace({source: '[q](t3-citation://v1/e/t/m)', face: face({kind: 'citation', label: 'the quote', icon: 'quote', tip: 'the quote', comment: true})}))
       .toMatchObject({icon: 'symbol:sf/quote.opening', title: 'the quote\n⌥-click to comment'});
+  });
+  test('a document chip takes its type\'s accent over its kind\'s paint (documentIconColorForFileName)', () => {
+    const paint = (chip: Env) => { const {color, backgroundColor} = fns.composerAtomFace(chip); return [color, backgroundColor]; };
+    // A workspace mention by its path, in either spelling of the source.
+    expect(paint({kind: 'mention', source: '@docs/Report.PDF', path: 'docs/Report.PDF', face: face({label: 'Report.PDF'})}))
+      .toEqual(['light-dark(#4c2e2f, #fcd8d4)', 'light-dark(#d52c361c, #ff67621c)']);
+    expect(paint({kind: 'mention', source: '[plan.xlsx](plan.xlsx)', path: 'plan.xlsx', face: face({label: 'plan.xlsx'})}))
+      .toEqual(['light-dark(#2d4032, #d7edd8)', 'light-dark(#199f431c, #5ecc711c)']);
+    // An attached file by its name; one whose bytes were lost draws unresolved, with its kind's paint.
+    const attached = (patch: Env) => ({kind: 'context', source: '[brief.docx](t3-context://v1/file/f1)', label: 'brief.docx',
+      face: face({kind: 'file', label: 'brief.docx', icon: 'file', ...patch})});
+    expect(paint(attached({}))).toEqual(['light-dark(#2b3b4c, #d7e7f9)', 'light-dark(#1a85d41c, #69b1ff1c)']);
+    expect(paint(attached({available: false}))).toEqual(['', '']);
+    // Anything else keeps its kind's paint: a source file, a folder, a video, a skill.
+    expect(paint({kind: 'mention', source: '@src/app.ts', path: 'src/app.ts', face: face({})})).toEqual(['', '']);
+    expect(paint({kind: 'mention', source: '@docs', path: 'docs', face: face({icon: 'folder'})})).toEqual(['', '']);
+    expect(paint({...attached({kind: 'video', icon: 'film'}), label: 'clip.pdf'})).toEqual(['', '']);
+    expect(paint({kind: 'skill', source: '$deck.pptx', name: 'deck.pptx', face: face({kind: 'skill'})})).toEqual(['', '']);
   });
   test('each glyph the faces use has an SF Symbol, and an unknown one the dashed circle', () => {
     const symbols = Object.fromEntries(['at-sign', 'file', 'folder', 'sparkles', 'film', 'quote', 'image', 'messages-square', 'square-terminal',
