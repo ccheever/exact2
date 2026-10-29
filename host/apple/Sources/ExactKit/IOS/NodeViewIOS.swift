@@ -697,16 +697,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush(); materializeJoiningGlass() }
         if window == nil, textRaster != nil { DispatchQueue.main.async { [weak self] in self?.dropTextRasterOffWindow() } }
     }
-    /// Still off every window a turn later (a tab not shown, a covered
-    /// route, a parked row; not a view moved within a batch), its text lets
-    /// go of its pixels, as Core Animation lets go of a backing store there.
-    /// `display` paints them again when it is back: at once where it shows.
-    private func dropTextRasterOffWindow() {
-        guard window == nil, textRaster != nil else { return }
-        dropTextRaster()
-        layer.setNeedsDisplay()
-    }
-
     /// Glass content participates in UIKit's interactive effect. Other
     /// materials remain background siblings of the authored children. A
     /// glass group is innermost (`GlassGroup.swift`).
@@ -1143,6 +1133,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if disabled { pressEpoch &+= 1; cancelPressContact() }
         if props["inert"] == "true" { cancelPressContactsInSubtree() }
         swipeOwner = props["swipeContent"] != nil
+        if isParagraph, set["textOffset"] != nil || clear.contains("textOffset") { textRasterGeometryChanged() } // its lines' place in its box
         if set["groupedSeparator"] != nil || clear.contains("groupedSeparator") { applyGroupedSeparator() }
         if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten")
             || set["symbolFillRule"] != nil || clear.contains("symbolFillRule") { updateSymbol() }

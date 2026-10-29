@@ -10,10 +10,38 @@ struct TextRasterKey: Hashable {
     let box: CGRect
     let scale: CGFloat
     var clip: CGRect? = nil
+    /// Where ink is kept, in the box's space, with `maxInkOverflow` past it
+    /// (runs' shadows `maxShadowReach`): on iOS, where the box has a space of
+    /// its own, the view's bounds; nil means the box, which is then the
+    /// view's bounds.
+    var room: CGRect? = nil
     func hash(into h: inout Hasher) {
         h.combine(spec); h.combine(size.width); h.combine(size.height)
         for v in [box.minX, box.minY, box.width, box.height, scale] { h.combine(v) }
         if let clip { for v in [clip.minX, clip.minY, clip.width, clip.height] { h.combine(v) } }
+        if let room { for v in [room.minX, room.minY, room.width, room.height] { h.combine(v) } }
+    }
+
+    /// This key whatever its room: the kept-pixel cache's (`TextRasterizer.keep`).
+    var anyRoom: TextRasterKey { var key = self; key.room = nil; return key }
+
+    /// Whether pixels painted for this key are exactly `key`'s: the same
+    /// words in a box of the same size at the same scale, their ink and box
+    /// cut the same by both keys' rooms and clips (a band's rows). `ink` and
+    /// `shadows` are what the lines painted, uncut (`TextRasterImage`):
+    /// shadows past a room widen what the job keeps, so pixels whose shadows
+    /// pass either room serve only their own. A view's padding that changes
+    /// about its text keeps the text's pixels.
+    func serves(_ key: TextRasterKey, ink: CGRect, shadows: CGRect) -> Bool {
+        guard spec == key.spec, size == key.size, box == key.box, scale == key.scale else { return false }
+        func kept(_ k: TextRasterKey) -> CGRect? {
+            let limit = (k.room ?? k.box).insetBy(dx: -TextRasterJob.maxInkOverflow, dy: -TextRasterJob.maxInkOverflow)
+            guard shadows.isNull || limit.contains(shadows) else { return nil }
+            return limit.intersection(k.clip ?? .infinite)
+        }
+        guard let was = kept(self), let will = kept(key) else { return room == key.room && clip == key.clip }
+        let shown = ink.union(box)
+        return ink.intersection(was) == ink.intersection(will) && shown.intersection(was) == shown.intersection(will)
     }
 }
 
@@ -37,6 +65,9 @@ struct TextRasterImage {
     var cast: IOSurface? = nil
     #endif
     var castHeadroom: Float = 0
+    /// What the lines painted, and their shadows alone, uncut by the job's
+    /// limit or clip, in the box's space (`TextRasterKey.serves`).
+    var ink = CGRect.null, shadows = CGRect.null
     /// The one colour the paragraph paints in, when `image` is its coverage
     /// alone (one byte a pixel) for a layer to show in that colour
     /// (`TextRasterJob.tints`); nil when `image` holds the colours.
@@ -87,6 +118,8 @@ struct TextRasterJob {
     let size: CGSize
     let scale: CGFloat
     var clip: CGRect? = nil
+    /// Where ink is kept (`TextRasterKey.room`); nil, the box.
+    var room: CGRect? = nil
     /// CSS `text-overflow: ellipsis`: a line wider than the box ends in "…"
     /// as it paints (`Paragraph.ellipsized`, the draw path's).
     var ellipsis = false
@@ -110,6 +143,25 @@ struct TextRasterJob {
     var measuredColor: CGColor? = nil
 
     static let maxInkOverflow: CGFloat = 256
+    /// What a job's pixels answer for, and where its bitmap lies, from the
+    /// ink its lines `painted`: the box and that ink, and for a band (`clip`)
+    /// its rows of the `room`, ink or none. A cropped bitmap holds the ink
+    /// alone; a band with none in it (one in the padding) is one clear pixel
+    /// at its corner, which answers for the band without a band's bitmap.
+    static func extents(painted: CGRect, bounds: CGRect, room: CGRect, limit: CGRect, clip: CGRect?, crop: Bool,
+                        scale: CGFloat) -> (covered: TextRasterExtent, frame: TextRasterExtent) {
+        func aligned(_ r: CGRect) -> TextRasterExtent { alignedExtent(r, bounds: bounds, limit: limit, clip: clip, scale: scale) }
+        let covered = aligned((painted.isNull ? bounds : bounds.union(painted)).union(clip == nil ? .null : room))
+        guard crop else { return (covered, covered) }
+        if !painted.isNull {
+            let ink = aligned(painted)
+            if !ink.rect.isNull, !ink.rect.isEmpty { return (covered, ink) }
+        }
+        guard clip != nil, !covered.rect.isNull, !covered.rect.isEmpty else { return (covered, covered) }
+        let pixel = CGRect(origin: covered.rect.origin, size: CGSize(width: 1 / scale, height: 1 / scale))
+        return (covered, TextRasterExtent(rect: pixel, pixels: CGSize(width: 1, height: 1)))
+    }
+
     /// `input` within `limit` (the box and its ink allowance) and `clip`, out
     /// to whole device pixels. The box itself is kept as laid out. A span
     /// is `right - left` pixels: `(right / scale - left / scale) * scale`
@@ -172,12 +224,17 @@ struct TextRasterJob {
     /// `down`: the port travels that way (true, toward the paragraph's end),
     /// so three quarters of the room is ahead of it; nil centres it.
     static func band(_ spec: Spec, width: CGFloat, port: CGRect, scale: CGFloat, maximumBytes: CGFloat, down: Bool? = nil) -> CGRect {
-        let reach = spec.shadowReach
-        let wide = width + 64 + reach.left + reach.right
-        let rowBytes = max(1, wide * scale * scale * 4)
+        var band = bandColumns(spec, width: width)
+        let rowBytes = max(1, band.width * scale * scale * 4)
         let height = max(port.height, min(port.height * 2, maximumBytes / rowBytes))
         let behind = (height - port.height) * (down.map { $0 ? 0.25 : 0.75 } ?? 0.5)
-        return CGRect(x: -32 - reach.left, y: max(-32, port.minY - behind), width: wide, height: height)
+        band.origin.y = max(-32, port.minY - behind); band.size.height = height
+        return band
+    }
+    /// A band's columns in a box `width` wide (`band`), with no rows.
+    static func bandColumns(_ spec: Spec, width: CGFloat) -> CGRect {
+        let reach = spec.shadowReach
+        return CGRect(x: -32 - reach.left, y: 0, width: width + 64 + reach.left + reach.right, height: 0)
     }
     /// Whether a band `clip` that holds `port` still serves it, the port
     /// travelling `down` or up in a paragraph `height` tall: until the port
@@ -225,8 +282,9 @@ struct TextRasterJob {
         // overhang can paint beyond any edge; include that ink in the bitmap.
         let bounds = CGRect(origin: .zero, size: size)
         var painted = CGRect.null
-        // Ink may pass the box by `maxInkOverflow`; runs' shadows further.
-        var limit = bounds.insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow)
+        // Ink may pass the room by `maxInkOverflow`; runs' shadows further.
+        let room = room ?? bounds
+        var limit = room.insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow), shadowed = CGRect.null
         for (line, position) in zip(lines, positions) {
             let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
             if !ink.isNull, !ink.isEmpty {
@@ -239,8 +297,8 @@ struct TextRasterJob {
                     shadows = shadows.union(glyphs.offsetBy(dx: s.offset.width, dy: s.offset.height).insetBy(dx: -spread, dy: -spread))
                 }
                 if !shadows.isNull {
-                    painted = painted.union(shadows)
-                    let most = bounds.insetBy(dx: -Self.maxShadowReach, dy: -Self.maxShadowReach)
+                    painted = painted.union(shadows); shadowed = shadowed.union(shadows)
+                    let most = room.insetBy(dx: -Self.maxShadowReach, dy: -Self.maxShadowReach)
                     limit = limit.union(shadows.intersection(most))
                 }
             }
@@ -252,15 +310,7 @@ struct TextRasterJob {
             }
             for fill in TextLinePaint.backgrounds(line, at: position) { painted = painted.union(fill.rect) }
         }
-        func aligned(_ r: CGRect) -> TextRasterExtent {
-            Self.alignedExtent(r, bounds: bounds, limit: limit, clip: clip, scale: scale)
-        }
-        let coveredExtent = aligned(painted.isNull ? bounds : bounds.union(painted))
-        var frameExtent = coveredExtent
-        if crop, !painted.isNull {
-            let ink = aligned(painted)
-            if !ink.rect.isNull, !ink.rect.isEmpty { frameExtent = ink }
-        }
+        let (coveredExtent, frameExtent) = Self.extents(painted: painted, bounds: bounds, room: room, limit: limit, clip: clip, crop: crop, scale: scale)
         let covered = coveredExtent.rect, frame = frameExtent.rect
         let pixelWidth = frameExtent.pixels?.width ?? (frame.width * scale).rounded(.up)
         let pixelHeight = frameExtent.pixels?.height ?? (frame.height * scale).rounded(.up)
@@ -276,6 +326,7 @@ struct TextRasterJob {
                 paint(lines, positions, frame: frame, height: height, scale: scale, pass: .ink, into: $0)
             }) else { return nil }
             var out = TextRasterImage(mask.pixels, frame: frame, covered: covered, headroom: 0)
+            out.ink = painted; out.shadows = shadowed
             // The colour's alpha is in the coverage already.
             out.tint = tint.copy(alpha: 1)
             return out
@@ -289,6 +340,7 @@ struct TextRasterJob {
             paint(lines, positions, frame: frame, height: height, scale: scale, pass: .ink, into: $0)
         }) else { return nil }
         var out = TextRasterImage(ink.pixels, frame: frame, covered: covered, headroom: headroom)
+        out.ink = painted; out.shadows = shadowed
         // What casts each HDR shadow: the ink itself for the paragraph's,
         // the glyphs of its runs for a run's own.
         var casts: [(CGImage, TextRunShadow)] = []
@@ -334,12 +386,8 @@ struct TextRasterJob {
             }
             if crop, line.box.width > 0 { painted = painted.union(line.box.offsetBy(dx: position.x, dy: position.y)) }
         }
-        let covered = Self.alignedExtent(painted.isNull ? bounds : bounds.union(painted), bounds: bounds, clip: clip, scale: scale)
-        var extent = covered
-        if crop, !painted.isNull {
-            let ink = Self.alignedExtent(painted, bounds: bounds, clip: clip, scale: scale)
-            if !ink.rect.isNull, !ink.rect.isEmpty { extent = ink }
-        }
+        let limit = (room ?? bounds).insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow)
+        let (covered, extent) = Self.extents(painted: painted, bounds: bounds, room: room ?? bounds, limit: limit, clip: clip, crop: crop, scale: scale)
         let frame = extent.rect
         let w = extent.pixels?.width ?? (frame.width * scale).rounded(.up)
         let h = extent.pixels?.height ?? (frame.height * scale).rounded(.up)
@@ -366,6 +414,7 @@ struct TextRasterJob {
             ctx.flush()
         }) else { return nil }
         var out = TextRasterImage(pixels.pixels, frame: frame, covered: covered.rect, headroom: 0)
+        out.ink = painted
         if tints { out.tint = color.copy(alpha: 1) }
         return out
     }
