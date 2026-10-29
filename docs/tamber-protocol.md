@@ -1272,9 +1272,10 @@ list is unchanged: it keeps its own.
     black for each scheme, whichever reaches 4.5:1 on that scheme's fill (`light-dark(…)` when they differ);
     `contrast` is `{light, dark}`, the ratio the ink reaches, cut to two places as the checker's are, or null on a
     fill that isn't opaque, where `note` says so. Like a role override, it is off until ticked, and a bare `accept`
-    leaves out one with a `note` (unless it was chosen in a partial accept). An `edit-held` of the accent drops the
-    brand offers set to it, with a `notes` line saying so, and a partial accept that keeps one but not its accent's
-    operation leaves it out;
+    leaves out one with a `note` (unless it was chosen in a partial accept). Held again (a partial accept, an `edit-held`, or a recompute
+    after the files moved), a brand offer stays only whole and with what its ink was measured on: kept in part, without
+    an operation that writes its accent or a token that value names, with that edited, or, the files having moved,
+    measured on a value the design holds, it goes, its operations with it, and `notes` says so;
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).

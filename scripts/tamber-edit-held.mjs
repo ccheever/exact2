@@ -9,6 +9,7 @@
 // fails leaves the old one held as it was.
 
 import { carried, staleChoice } from './tamber-held-choice.mjs';
+import { brandsLeftOut, goneNote } from './tamber-brands.mjs';
 
 /** The edit `request` makes of held proposal `p` (`{ops, review}`, the ops kept and the review for them), or a
  * refusal (`{status, error}`). */
@@ -22,7 +23,11 @@ export function edited(request, p) {
   if (when !== undefined && (op.op !== 'add-token' || !Number.isInteger(when) || when < 1 || !Array.isArray(op.whens) || when > op.whens.length)) return bad(`\`when\` is one of an \`add-token\`'s ${op.op === 'add-token' ? op.whens?.length ?? 0 : 0} \`when\` branches, from 1`);
   if (typeof value !== 'string' || !value.trim()) return bad('`value` is the new value, a string');
   if (items !== undefined && (!Array.isArray(items) || items.some(i => !Number.isInteger(i) || i < 0 || i >= p.ops.length))) return bad(`\`items\` lists indices of the proposal's ${p.ops.length} operations`);
-  const kept = items === undefined ? p.ops.map((_, i) => i) : [...new Set(items)].sort((a, b) => a - b);
+  const chosen = items === undefined ? p.ops.map((_, i) => i) : [...new Set(items)].sort((a, b) => a - b);
+  // A brand offer whose accent this edits, or kept in part or without what its ink was measured on (*1.18*), goes,
+  // its operations with it: its ink was chosen for the accent's old value (tamber-brands.mjs).
+  const { drop, gone } = brandsLeftOut(p.shown.review, p.ops, chosen, { edited: op.name });
+  const kept = chosen.filter(i => !drop.has(i));
   if (!kept.includes(index)) return bad('`items` keeps the operation it edits');
   const copy = { ...op, ...(op.whens ? { whens: op.whens.map(w => ({ ...w })) } : {}) };
   if (when === undefined) copy.value = value.trim(); else copy.whens[when - 1].value = value.trim();
@@ -32,10 +37,9 @@ export function edited(request, p) {
   const review = old && {
     ...old, kept: true, from: p.shown.proposal,
     offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
-    // Its brand offers (*1.18*) as its offers, but one whose accent this edits: its ink was chosen for the accent's
-    // old value, so it goes, and the review says so (an import again offers it with an ink for the new one).
-    ...(old.brands === undefined ? {} : { brands: old.brands.filter(b => b.token !== op.name).map(b => ({ ...b, items: (b.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })).filter(b => b.items.length) }),
-    ...(old.brands?.some(b => b.token === op.name) ? { notes: [...(old.notes ?? []), `\`${op.name}\` changed in this edit, so the brand fills set to it aren't offered: import again to have them, with inks for its new value`] } : {}),
+    // Its brand offers (*1.18*) as its offers, those left out gone, and the review says so.
+    ...(old.brands === undefined ? {} : { brands: old.brands.map(b => ({ ...b, items: (b.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })).filter(b => b.items.length) }),
+    ...(gone.length ? { notes: [...(old.notes ?? []), goneNote(gone)] } : {}),
     ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
   };
   if (review) { delete review.dials; delete review.pins; }
@@ -61,6 +65,8 @@ export async function editHeld(request, scope, { expire, proposals, hold, announ
   let fresh;
   try { fresh = await hold(p.client, made.ops, undefined, id, made.review, own, scope, undefined, p.restoring, request.client, made.choice); } finally { p.busy = false; }
   if (!fresh.ok) return fresh;
+  // The brand offers a partial accept chose stay chosen through an edit (*1.18*, tamber-server.mjs `brandsChosen`).
+  if (p.brandsChosen && proposals.get(fresh.ok.proposal)) proposals.get(fresh.ok.proposal).brandsChosen = true;
   announce({ event: 'proposal-dropped', proposal: id, client: request.client, reason: 'edited', replacedBy: fresh.ok.proposal, editedBy: request.client });
   return { ok: { recomputed: true, replaces: id, ...fresh.ok } };
 }

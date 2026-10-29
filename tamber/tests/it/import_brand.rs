@@ -161,3 +161,30 @@ fn an_ink_the_app_varies_by_mode_is_one_value_in_every_mode() {
         follow.ops
     );
 }
+
+#[test]
+fn a_dial_the_accent_override_or_a_brand_line_alone_reads_is_left_as_it_is() {
+    // AccentColor alone reads the dial `brand`, so its override isn't offered,
+    // but the imported accent is a fill of its own: the brand fills still are.
+    let dialed = "tamber app\n\ndials\n  brand: color = #111111\n\ntheme\n  AccentColor = brand\n";
+    let both = offered(dialed, &theme("#006aff", "#006aff"));
+    assert_eq!(both.len(), 2, "{both:?}");
+    // FollowButton's own fill line alone reads a dial: setting it over would
+    // leave the dial unused, so only EmptyState's is offered.
+    let own = "tamber app\n\ndials\n  pop: color = #ff0000\n\ntheme\n  actions.follow-fill = pop\n";
+    let sets: Vec<String> = offered(own, &theme("#006aff", "#006aff"))
+        .into_iter()
+        .map(|b| b.sets)
+        .collect();
+    assert_eq!(sets, ["cards.empty-button"]);
+}
+
+#[test]
+fn a_design_that_checks_only_with_its_packages_still_gets_its_brand_fills() {
+    // `page.fill` names a package token, so the design alone doesn't check: the
+    // accent's own value is measured instead.
+    let packaged = "tamber app\n\ntheme\n  page.fill = actions.follow-fill\n";
+    let both = offered(packaged, &theme("#ffd400", "#ffd400"));
+    assert_eq!(both.len(), 2, "{both:?}");
+    assert_eq!(set(&both[0].ops[1]), ("actions.follow-ink", "#000000"));
+}

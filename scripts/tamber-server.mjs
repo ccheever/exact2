@@ -99,7 +99,7 @@ import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
-import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs'; import { replacedProposals } from './tamber-replaced.mjs'; import { accepted as acceptedOf, choose } from './tamber-held-choice.mjs';
+import { packageDesigns } from './tamber-package-designs.mjs'; import { brandsLeftOut, goneNote } from './tamber-brands.mjs'; import { editHeld } from './tamber-edit-held.mjs'; import { replacedProposals } from './tamber-replaced.mjs'; import { accepted as acceptedOf, choose } from './tamber-held-choice.mjs';
 import { serveTool, toolPage } from './tamber-tool-files.mjs'; import { generationOf } from '../host/web/generations.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 export { op } from './tamber-op.mjs';
@@ -1060,10 +1060,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: request.client, reason: 'replaced', replacedBy: fresh.ok.proposal });
       return { ok: { recomputed: true, replaces: id, ...fresh.ok } };
     };
-    const recompute = async (ops, kept = ops.map((_, i) => i)) => {
+    const recompute = async (ops, kept = ops.map((_, i) => i), gone = []) => {
       const old = p.shown.review;
       const review = old && {
         ...old,
+        ...(gone.length ? { notes: [...(old.notes ?? []), goneNote(gone)] } : {}),
         offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
         ...brandsKept(old, kept),
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
@@ -1083,12 +1084,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
     };
     const some = items && new Set(items).size < p.ops.length;
     if (some) {
-      let kept = [...new Set(items)].sort((a, b) => a - b);
-      // A brand offer kept without the accent operation it sets its fill to (*1.18*) is left out too: its ink was
-      // chosen for that accent's value, not for whatever the design has under that name.
-      const accentAt = b => p.ops.findIndex(op => (op.op === 'add-token' || op.op === 'set-token') && op.name === b.token);
-      for (const b of p.shown.review?.brands ?? []) if (accentAt(b) >= 0 && !kept.includes(accentAt(b))) kept = kept.filter(i => !(b.items ?? []).includes(i));
-      return recompute(kept.map(i => p.ops[i]), kept);
+      // A brand offer kept in part, or without what its ink was measured on (*1.18*), is left out (tamber-brands.mjs).
+      const chosen = [...new Set(items)].sort((a, b) => a - b), { drop, gone } = brandsLeftOut(p.shown.review, p.ops, chosen);
+      const kept = chosen.filter(i => !drop.has(i));
+      return recompute(kept.map(i => p.ops[i]), kept, gone);
     }
     // A bare accept (no `items`, nothing chosen, not a partial accept's proposal held again) takes every operation but
     // a brand offer whose ink falls below 4.5:1 in a scheme (*1.18*, theme2's 03:04 ruling): a contrast failure lands
@@ -1105,7 +1104,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
     };
     const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: writing, ...(Object.keys(p.guards).length ? { requires: p.guards } : {}), restore: p.restoring }, { acceptedBy: request.client, proposal: id }, settled);
     waiting = false;
-    if (done.error?.conflict) return reverted ? replan() : warned.size ? recompute(writing, p.ops.map((_, i) => i).filter(i => !warned.has(i))) : recompute(p.ops);
+    if (done.error?.conflict) {
+      if (reverted) return replan();
+      // The design moved: a brand offer measured on a value the design holds goes, its ink no longer known to fit.
+      const written = p.ops.map((_, i) => i).filter(i => !warned.has(i)), { drop, gone } = brandsLeftOut(p.shown.review, p.ops, written, { moved: true });
+      const kept = written.filter(i => !drop.has(i));
+      return recompute(kept.map(i => p.ops[i]), kept, gone);
+    }
     return done;
   }
 

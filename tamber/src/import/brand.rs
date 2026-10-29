@@ -92,10 +92,9 @@ pub struct Brand {
 /// The brand offers an import makes for `pairs`, each a package's brand
 /// fill and its ink's token that the app's packages declare, planned on
 /// `current` (the design's text, `design` parsed). None without the
-/// importer's accent, when its `AccentColor` override is refused (it varies
-/// by an app axis, keeps `when` lines, or would orphan a dial), when the
-/// accent folds to no colour of its own on the design the import proposes,
-/// or for a pair the app already sets to the accent and that ink.
+/// importer's accent, when the accent varies by an app axis or folds to no
+/// colour of its own, for a pair the app already sets to the accent and that
+/// ink, or for one whose own line is the only use of a dial.
 pub fn brands(
     import: &Import,
     design: &Design,
@@ -106,22 +105,43 @@ pub fn brands(
     let Some(accent) = import.accent.clone() else {
         return Vec::new();
     };
-    if import
-        .offers
-        .iter()
-        .any(|o| o.role == "AccentColor" && o.ops.is_empty())
-    {
-        return Vec::new();
-    }
     // The accent as the design the import proposes folds it: a value naming
-    // another of its tokens (`var(--brand)`) reads that one.
+    // another of its tokens (`var(--brand)`) reads that one. One that varies
+    // by an app axis is no one fill (a role's own rule), so none is offered.
     let proposed = crate::apply_all(current, &import.ops, vocab)
         .map(|a| a.text)
         .unwrap_or_else(|_| current.to_string());
-    let Some(ink) = crate::check(&proposed, vocab).ok().and_then(|f| {
+    let measured = crate::check(&proposed, vocab).ok().and_then(|f| {
         let token = f.tokens.iter().find(|t| t.name == accent)?;
-        ink_over(token.values.first()?.color()?)
-    }) else {
+        let first = token.values.first()?;
+        if token.values.iter().any(|v| v.css() != first.css()) {
+            return Some(None);
+        }
+        Some(ink_over(first.color()?))
+    });
+    let ink = match measured {
+        Some(ink) => ink,
+        // A design that checks only with its packages (a token naming a
+        // package's): the accent's own value, when the import writes one that
+        // folds alone, unless its AccentColor override was refused.
+        None if import
+            .offers
+            .iter()
+            .any(|o| o.role == "AccentColor" && o.ops.is_empty()) =>
+        {
+            None
+        }
+        None => import.ops.iter().rev().find_map(|op| match op {
+            Op::AddToken {
+                name, value, whens, ..
+            } if *name == accent && whens.is_empty() => ink_on(value, vocab),
+            Op::SetToken {
+                name, value, when, ..
+            } if *name == accent && when.is_empty() => ink_on(value, vocab),
+            _ => None,
+        }),
+    };
+    let Some(ink) = ink else {
         return Vec::new();
     };
     let note = (ink.below[0] || ink.below[1]).then(|| {
@@ -161,9 +181,14 @@ pub fn brands(
     let already = |name: &str, value: &str| {
         own(name).is_some_and(|t| t.value.value.trim() == value && t.whens.is_empty())
     };
+    // A brand's own line that is the only use of a colour dial isn't set
+    // over: the dial would be left unused (`tamber-dial-inert`), refusing
+    // the whole import where the offer could only be left unticked.
+    let orphans = |name: &str| own(name).is_some_and(|t| super::orphaned_dial(design, t).is_some());
     pairs
         .iter()
         .filter(|(fill, ink_token)| !(already(fill, &accent) && already(ink_token, &ink.value)))
+        .filter(|(fill, ink_token)| !orphans(fill) && !orphans(ink_token))
         .map(|(fill, ink_token)| Brand {
             sets: fill.clone(),
             token: accent.clone(),
