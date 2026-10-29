@@ -165,6 +165,17 @@ shape Offer
   // flips it.
   on: bool
 
+// An import's accent offered as a package's brand fill (*1.18*, theme2's brand-fill ruling): the fill set to the
+// accent and its label's ink, together, off until ticked.
+shape Brand
+  sets: string
+  token: string
+  items: string
+  note: string
+  // The ratio its label's ink reaches on the light and dark fill.
+  words: string
+  on: bool
+
 shape Unmapped
   name: string
   value: string
@@ -206,6 +217,7 @@ shape Held
   importer: string
   mapped: Mapped[]
   offers: Offer[]
+  brands: Brand[]
   unmapped: Unmapped[]
   counted: string
   countOk: bool

@@ -21,8 +21,9 @@ export function chosenOf(proposal: string, picked: string, r: any, ops: unknown[
     const items = f.slice(proposal.length + 1).split(',').map(Number), was = items.every(begins);
     for (const i of items) if (was) on.delete(i); else on.add(i);
   }
-  // An override partly chosen (another client's choice can be) is off, as its box shows it: none of it is taken.
-  for (const o of (r?.offers ?? []) as { items?: number[] }[]) if ((o.items ?? []).some(i => !on.has(i))) for (const i of o.items ?? []) on.delete(i);
+  // An override or a brand fill partly chosen (another client's choice can be) is off, as its box shows it: none of it
+  // is taken.
+  for (const o of [...(r?.offers ?? []), ...(r?.brands ?? [])] as { items?: number[] }[]) if ((o.items ?? []).some(i => !on.has(i))) for (const i of o.items ?? []) on.delete(i);
   return [...on].sort((a, b) => a - b);
 }
 

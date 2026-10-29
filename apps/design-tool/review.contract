@@ -74,6 +74,14 @@ component Proposals
                 text `${o.role} = ${o.token}` font="-exact-footnote"
                 if o.note != ""
                   text o.note color="-exact-secondary-label" font="-exact-caption1" testId=`offer-note-${h.proposal}-${o.role}`
+            if h.brands.length > 0
+              text (h.kept ? "Brand fills, as ticked" : "Brand fills, off until ticked") role="heading" aria-level=3
+              for b in h.brands key=b.sets
+                row gap=8 align-items="center" flex-wrap="wrap" testId=`brand-${h.proposal}-${b.sets}`
+                  input type="checkbox" disabled=(writing or not canWrite) checked=(b.on != picked.includes(`${h.proposal}:${b.items}`)) change=toggleOffer(`${h.proposal}:${b.items}`, b.on) aria-label=`${b.sets} = ${b.token}` testId=`brand-take-${h.proposal}-${b.sets}`
+                  text `${b.sets} = ${b.token}, ${b.words}` font="-exact-footnote"
+                  if b.note != ""
+                    text b.note color="-exact-secondary-label" font="-exact-caption1" testId=`brand-note-${h.proposal}-${b.sets}`
             text `Not mapped (${h.unmapped.length})` role="heading" aria-level=3
             for u in h.unmapped key=u.key
               text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
