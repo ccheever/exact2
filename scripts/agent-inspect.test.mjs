@@ -264,3 +264,8 @@ test('perf … during subtracts each resource\'s asks', () => {
   const bare = { plan: 'p', incarnation: 1, seq: 1, clock: 0, sites: [] };
   expect(perfDelta(bare, bare).resources).toBeUndefined();
 });
+
+test('layout shows what a pressed paint shows, beside the computed base', () => {
+  const lines = render('layout', { viewport: { w: 400, h: 300 }, clock: 0, nodes: [], node: { id: 3, type: 'View', style: {}, press_shown: { paint: 1, opacity: '0.4', backgroundColor: 'rgb(0, 0, 255)', color: 'rgb(255, 0, 0)' } } });
+  expect(lines).toContain('press shows opacity=0.4 background="rgb(0, 0, 255)" color="rgb(255, 0, 0)" (paint 1)');
+});

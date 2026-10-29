@@ -66,7 +66,7 @@ check('a held state is the real one, until real input, its disabling or its goin
     await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const settle = () => evaluate(`(document.getAnimations().forEach(a => a.finish()), new Promise(r => requestAnimationFrame(() => r())))`);
     // As rgb(), whichever form it computes to (the press paint's is its look beneath's).
-    const face = async () => { await settle(); return evaluate(`(c => c.replace(/^color\\(srgb ([\\d.]+) ([\\d.]+) ([\\d.]+)( \\/ [\\d.]+)?\\)$/, (_, r, g, b, a) => { const v = [r, g, b].map(x => x * 255); return v.every(Number.isInteger) && !a ? 'rgb(' + v.join(', ') + ')' : _; }))(getComputedStyle(document.getElementById('card')).backgroundColor)`); };
+    const face = async () => { await settle(); return evaluate(`(c => c.replace(/^color\\(srgb ([\\d.]+) ([\\d.]+) ([\\d.]+)( \\/ [\\d.]+)?\\)$/, (_, r, g, b, a) => { const v = [r, g, b].map(x => x * 255); return v.every(Number.isInteger) && !a ? 'rgb(' + v.join(', ') + ')' : _; }))((exact.pressShown?.(document.getElementById('card')) ?? getComputedStyle(document.getElementById('card'))).backgroundColor)`); };
     const hold = (id, state) => evaluate(`(r => ({ held: r.held ?? null, reason: r.reason ?? null, el: r.el?.id ?? null }))(exact.hold(document.getElementById('${id}'), ${JSON.stringify(state)}, reason => dropped.push(reason)))`);
     const dropped = () => evaluate('dropped.splice(0)');
     // The glue says it has loaded, once, its hold there to call (a hold sent while it loads waits for this).

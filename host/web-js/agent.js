@@ -240,6 +240,8 @@ export function install(exact) {
     const n = record(el, 0);
     return {
       ...tags(), id: nid, type: n.type, parent, props: n.props, style,
+      // What a pressed paint shows (it is on the page's images: the computed opacity and background are the base).
+      ...(globalThis.exact?.pressShown?.(el) ? { press_shown: exact.pressShown(el) } : {}),
       // A development build names the element's plan node (emit.rs `data-site`).
       ...(el.dataset?.site != null ? { site: Number(el.dataset.site) } : {}),
       space: { viewport: rect(r), local: { w: r2(el.clientWidth), h: r2(el.clientHeight) }, capture: { scale: devicePixelRatio } },

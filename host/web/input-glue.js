@@ -247,17 +247,15 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
   // and on the same ease as the scale: an important rule of the node's own
   // (`paintRule`) paints its pressed values `--exact-press-paint` of the way
-  // (which this piece eases) over its look beneath, which this piece reads
-  // again whenever the node's style or class changes, the scheme flips, or
-  // the press turns. Its `color` reaches the subtree as CSS's does.
-  // The node's authored transitions run as authored, above the paint (a
-  // transition is above every declaration): the rule holds its values as
-  // plain numbers, so in the style a transition is computed from (which has
-  // no animation in it, so the paint at 0) it is exactly the look beneath, and
-  // the paint going on or off changes nothing a transition sees. (An earlier
-  // form read the values from the animation's custom properties, which that
-  // style lacks: every press started the node's transitions toward the
-  // properties' initial values.)
+  // (which this piece eases) over its look beneath, read again whenever the
+  // node's style or class changes, the scheme flips, or the press turns. It
+  // paints on images (a background layer, a mask), which no transition
+  // animates, so the node's authored transitions run as authored, beneath
+  // the paint. (An earlier form wrote the paint into opacity, background-
+  // color and color through custom properties only its animation supplied,
+  // which the style a transition is computed from lacks: every press started
+  // the node's transitions toward the properties' initial values.) Its
+  // `color` reaches the subtree as CSS's does.
   // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
   // LLP 1121 D8), eased from what shows at the press, a hover look's included.
   const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
@@ -271,7 +269,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const paint = (el, state, duration) => {
     const from = Number(getComputedStyle(el).getPropertyValue("--exact-press-paint")) || 0;
     el.removeAttribute("data-exact-painting");
-    const rule = paintRule(el);
+    const rule = paintRule(el, state);
     state.animation?.cancel();
     const animation = state.animation = el.animate([{ "--exact-press-paint": from }, { "--exact-press-paint": state.to }], { ...EASE, duration: agentMode ? 0 : duration });
     el.setAttribute("data-exact-painting", hold(el, state, rule));
@@ -288,75 +286,77 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     el.removeAttribute("data-exact-painting");
     drop(state);
   };
-  // The look beneath: what the node shows with the paint off, but where an authored transition runs (or is paused,
-  // as the agent's clock pauses it) on a painted property, the value it runs to: the style a transition is computed
-  // from has that, not where it is. (Its end as the engine names it: Chrome names a colour transition's in its
-  // interpolation space, oklab for oklch() or lab(), so over those Chrome may restart it toward an end that paints
-  // the same; an rgb() one it leaves untouched.) Opacity as the engine holds it where it can say (a serialization keeps six
-  // digits), so the rule at 0 is that very number.
-  const PAINTED = { opacity: "opacity", "background-color": "backgroundColor", color: "color" };
-  const beneathOf = el => {
-    const cs = getComputedStyle(el), look = {};
-    for (const property in PAINTED) look[property] = cs.getPropertyValue(property);
-    const held = el.computedStyleMap?.().get("opacity")?.value;
-    if (Number.isFinite(held)) look.opacity = String(held);
-    for (const a of el.getAnimations()) if (a.transitionProperty in PAINTED && (a.playState === "running" || a.playState === "paused")) look[a.transitionProperty] = String(a.effect.getKeyframes().at(-1)?.[PAINTED[a.transitionProperty]] ?? look[a.transitionProperty]);
-    return look;
+  // Whether the node declares a transition (of some length) on `property`, `all`, or a shorthand that holds it.
+  const HOLDS = { "background-color": ["background"], color: [], opacity: [] };
+  const transitioned = (cs, property) => {
+    const names = cs.transitionProperty.split(/\s*,\s*/), times = cs.transitionDuration.split(/\s*,\s*/);
+    return names.some((name, i) => (name === "all" || name === property || HOLDS[property].includes(name)) && parseFloat(times[i % times.length]) > 0);
   };
-  // A computed colour as its space and numbers: rgb() / rgba() (the legacy form), color(<space> …), lab(), lch(),
-  // oklab(), oklch(); `none` as 0. Null for anything else.
-  const SPACES = { rgb: "srgb", lab: "lab", lch: "lch", oklab: "oklab", oklch: "oklch" };
-  const COPIED = new Set(["srgb", "display-p3", "lab", "lch", "oklab", "oklch"]);
-  const colour = said => {
-    const m = /^(rgba?|color|lab|lch|oklab|oklch)\((.*)\)$/.exec(said.trim());
-    if (!m) return null;
-    const fn = m[1] === "rgba" ? "rgb" : m[1], [body, slash] = m[2].split("/").map(x => x.trim());
-    const parts = body.split(fn === "rgb" ? /\s*,\s*|\s+/ : /\s+/).filter(Boolean), space = fn === "color" ? parts.shift() : SPACES[fn];
-    const num = x => x === "none" ? 0 : x?.endsWith("%") ? parseFloat(x) / 100 : parseFloat(x);
-    const c = parts.slice(0, 3).map(num), a = num(slash ?? parts[3] ?? "1");
-    return space && c.length === 3 && [...c, a].every(Number.isFinite) ? { fn, space, c, a } : null;
-  };
-  // The node's important paint: its own pressed values `--exact-press-paint` of the way over `beneath`, the
-  // shell's former rules' arithmetic with every value but the progress written out. A colour in the look
-  // beneath's own space and form, so that at 0 it is that very value (another form is another value to a
-  // transition), mixed as CSS mixes colours (premultiplied; the shorter hue); its pressed colour comes through
-  // index.html's copies in each space (a token or light-dark resolved). An rgb() look beneath can't hold a wider
-  // gamut: toward such a pressed colour it eases in color(srgb …) instead, unless an authored transition on the
-  // property would see the change, where it keeps rgb() and the pressed colour clips.
-  const paintRule = el => {
+  // An authored transition running (or paused, as the agent's clock pauses it) on `property`.
+  const running = (el, property) => el.getAnimations().find(a => a.transitionProperty === property && (a.playState === "running" || a.playState === "paused"));
+  // The node's important paint (LLP 1061 D7), its own pressed values `--exact-press-paint` of the way over its look
+  // beneath, on properties no transition animates: the pressed colour as a background-image layer over the node's
+  // own background-color (its own images beneath; a colour at alpha p over another is CSS's premultiplied mix), the
+  // pressed opacity as a uniform mask-image (which multiplies as opacity does, shadows included). Images change
+  // discretely, so the paint going on or off starts no transition, and the node's own transitions run as authored,
+  // beneath it. Only what an image can't say is written to the property itself: the pressed text colour, and an
+  // `:active` opacity above the look beneath. Where the node declares a transition on that property, the rule must
+  // be exactly the look beneath at 0 (else a transition starts and, above every declaration, hides the paint), so
+  // it is written only from a look whose numbers round-trip (an opaque rgb()), and left out while a transition of
+  // the property runs, added when it ends.
+  const paintRule = (el, state) => {
     if (!el.closest("#exact-root")) return "";
-    const beneath = beneathOf(el), cs = getComputedStyle(el), own = name => el.style.getPropertyValue(name) ? cs.getPropertyValue(name).trim() : "";
+    const cs = getComputedStyle(el), own = name => el.style.getPropertyValue(name) ? cs.getPropertyValue(name).trim() : "";
     const p = "var(--exact-press-paint)", out = [];
     const number = (name, copy) => { if (!own(name)) return null; const v = parseFloat(cs.getPropertyValue(copy)); return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null; };
-    const base = Number(beneath.opacity), to = number("--exact-press-opacity-to", "--exact-press-opacity-to-number"), share = number("--exact-press-opacity", "--exact-press-opacity-number");
-    if (Number.isFinite(base)) {
-      if (to != null) out.push(`opacity: calc(${beneath.opacity} + ${to - base} * ${p}) !important`);
-      else if (share != null) out.push(`opacity: calc(${beneath.opacity} * (1 - ${p} * ${1 - share})) !important`);
+    const later = property => { const a = running(el, property); if (a && !state.waits?.has(a)) { (state.waits ??= new Set()).add(a); a.finished.then(() => { if (paints.get(el) === state) repaint(el); }, () => {}); } return !!a; };
+    if (own("--exact-press-background-color")) {
+      const images = cs.backgroundImage, mine = `linear-gradient(color-mix(in srgb, var(--exact-press-background-color) calc(${p} * 100%), transparent) 0 0)`;
+      out.push(images === "none" ? `background-image: ${mine} !important` : `background-image: ${mine}, ${images} !important; background-size: auto, ${cs.backgroundSize} !important`);
     }
-    const transitioned = property => { const list = cs.transitionProperty.split(/,\s*/); return list.includes(property) || list.includes("all"); };
-    for (const [property, given, copy] of [["background-color", "--exact-press-background-color", "--exact-press-background"], ["color", "--exact-press-color", "--exact-press-color"]]) {
-      if (!own(given)) continue;
-      let under = colour(beneath[property]);
-      // A look beneath in a space with no copy (rec2020, xyz…) eases as a mix of it, as the former rules did; at 0
-      // that is the look in sRGB, which an authored transition on the property would see.
-      if (!under || !COPIED.has(under.space)) { out.push(`${property}: color-mix(in srgb, var(${given}) calc(${p} * 100%), ${beneath[property]}) !important`); continue; }
-      const pressed = colour(cs.getPropertyValue(`${copy}-in-${under.space}`));
-      if (under.fn === "rgb" && pressed && pressed.c.some(x => x < 0 || x > 1) && !transitioned(property)) under = { ...under, fn: "color", c: under.c.map(x => x / 255) };
-      if (!pressed) continue;
-      const scale = under.fn === "rgb" ? 255 : 1, hue = under.space === "lch" || under.space === "oklch";
-      const x = pressed.c.map((v, i) => i < 3 && !(hue && i === 2) ? v * scale : v);
-      if (hue) x[2] += Math.round((under.c[2] - x[2]) / 360) * 360; // the shorter way round
-      const alpha = `(${under.a} + ${pressed.a - under.a} * ${p})`;
-      // Premultiplied, as CSS mixes: each channel weighted by its alpha (a hue isn't); straight where the look
-      // beneath is fully transparent, which has no colour to weigh (the pressed colour's, from the first frame).
-      const channel = (b, v, i) => hue && i === 2 ? `calc(${b} + ${v - b} * ${p})`
-        : under.a === 0 ? `calc(${b} + ${v - b} * min(1, ${p} * 1000000))`
-        : under.a === 1 && pressed.a === 1 ? `calc(${b} + ${v - b} * ${p})`
-        : `calc((${b * under.a} + ${v * pressed.a - b * under.a} * ${p}) / max(${alpha}, 0.000001))`;
-      const [c1, c2, c3] = [0, 1, 2].map(i => channel(under.c[i], x[i], i)), a = `calc${alpha}`;
-      out.push(`${property}: ${under.fn === "rgb" ? `rgb(${c1} ${c2} ${c3} / ${a})` : under.fn === "color" ? `color(${under.space} ${c1} ${c2} ${c3} / ${a})` : `${under.fn}(${c1} ${c2} ${c3} / ${a})`} !important`);
+    const to = number("--exact-press-opacity-to", "--exact-press-opacity-to-number"), share = number("--exact-press-opacity", "--exact-press-opacity-number");
+    // Opacity: where the engine says its own number (computedStyleMap; a single float, exact, unlike a colour's
+    // text), the property itself, left out while a transition of it runs; elsewhere (Firefox) a uniform mask,
+    // which multiplies as opacity does (WebKit's would clip the node's shadow away, so WebKit takes the number).
+    const held = el.computedStyleMap?.().get("opacity")?.value, base = Number.isFinite(held) ? held : Number(cs.opacity);
+    state.factor = null;
+    if ((to != null || share != null) && Number.isFinite(base)) {
+      if (Number.isFinite(held) || (to != null && to > base && !transitioned(cs, "opacity"))) {
+        if (!later("opacity")) out.push(`opacity: ${to != null ? `calc(${held ?? base} + ${to - base} * ${p})` : `calc(${held ?? base} * (1 - ${p} * ${1 - share}))`} !important`);
+      } else if (to == null || (base > 0 && to <= base)) {
+        const factor = to != null ? `calc((${base} + ${to - base} * ${p}) / ${base})` : `calc(1 - ${p} * ${1 - share})`;
+        state.factor = paint => to != null ? (base + (to - base) * paint) / base : 1 - paint * (1 - share);
+        const masks = cs.maskImage, mine = `linear-gradient(rgb(0 0 0 / ${factor}) 0 0)`;
+        out.push(masks === "none" ? `mask-image: ${mine} !important; mask-clip: no-clip !important` : `mask-image: ${mine}, ${masks} !important; mask-clip: no-clip, ${cs.maskClip} !important; mask-size: auto, ${cs.maskSize} !important; mask-composite: intersect, ${cs.maskComposite} !important`);
+      }
+    }
+    if (own("--exact-press-color") && !later("color")) {
+      const m = /^rgba?\((\d+), (\d+), (\d+)\)$/.exec(cs.color), x = /^color\(srgb ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)(?: \/ ([\d.]+))?\)$/.exec(cs.getPropertyValue("--exact-press-color-in-srgb").trim());
+      if (m && x) {
+        const b = m.slice(1, 4).map(Number), v = x.slice(1, 4).map(Number), a = x[4] == null ? 1 : Number(x[4]);
+        // Opaque beneath: premultiplied over it is (b + (v·a − b)·p) / (1 + (a − 1)·p), exactly b at 0.
+        const c = b.map((bi, i) => a === 1 ? `calc(${bi} + ${v[i] * 255 - bi} * ${p})` : `calc((${bi} + ${v[i] * 255 * a - bi} * ${p}) / (1 + ${a - 1} * ${p}))`);
+        out.push(`color: rgb(${c.join(" ")}${a === 1 ? "" : ` / calc(1 + ${a - 1} * ${p})`}) !important`);
+      } else if (!transitioned(cs, "color")) out.push(`color: color-mix(in srgb, var(--exact-press-color) calc(${p} * 100%), ${cs.color}) !important`);
     }
     return out.join("; ");
+  };
+  // What a painting node shows, as the page can't read it from the node's computed style (the paint is on images):
+  // its opacity times the mask, its background with the pressed colour over it (as pixels, 8-bit), its colour.
+  // The agent's node detail reports it (scripts/agent-inspect.mjs), and the press tests read it.
+  (globalThis.exact ??= {}).pressShown = el => {
+    const state = paints.get(el);
+    if (!state) return null;
+    const cs = getComputedStyle(el), paint = Number(cs.getPropertyValue("--exact-press-paint")) || 0;
+    const shown = { paint, opacity: String(+(Number(cs.opacity) * (state.factor?.(paint) ?? 1)).toPrecision(6)), color: cs.color, backgroundColor: cs.backgroundColor };
+    if (el.style.getPropertyValue("--exact-press-background-color") && typeof OffscreenCanvas === "function") {
+      const g = new OffscreenCanvas(1, 1).getContext("2d");
+      g.fillStyle = cs.backgroundColor; g.fillRect(0, 0, 1, 1);
+      g.globalAlpha = Math.min(1, Math.max(0, paint)); g.fillStyle = cs.getPropertyValue("--exact-press-background-in-srgb").trim(); g.fillRect(0, 0, 1, 1);
+      const [r, gr, b, a] = g.getImageData(0, 0, 1, 1).data;
+      shown.backgroundColor = a === 255 ? `rgb(${r}, ${gr}, ${b})` : `rgba(${r}, ${gr}, ${b}, ${Math.round(a / 255 * 1000) / 1000})`;
+    }
+    return shown;
   };
   // Each painting node's rule, in one sheet on its root (a document or a shadow root; a frame's own), keyed by
   // the value of its data-exact-painting, an attribute the paint sets anyway, so no observer sees anything new.
