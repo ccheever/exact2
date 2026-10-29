@@ -480,7 +480,8 @@ test('an upload goes by XMLHttpRequest: its bytes sent are messages, its reply t
     xhr.upload.onprogress({ lengthComputable: true, loaded: 8, total: 8 });
     xhr.answer(201, '{"id":"a1"}');
     const end = await done;
-    assert.deepEqual(sent, [['exact:progress', '{"loaded":4,"total":8}'], ['exact:progress', '{"loaded":8,"total":8}']]);
+    // Its start, just before it went out, then its bytes sent (LLP 1016.000 D10).
+    assert.deepEqual(sent, [['exact:sending', ''], ['exact:progress', '{"loaded":4,"total":8}'], ['exact:progress', '{"loaded":8,"total":8}']]);
     assert.deepEqual([end.kind, end.status, end.headers, decode(end)], [0, 201, 'content-type: application/json', '{"id":"a1"}']);
 
     const away = request(op, host([]));

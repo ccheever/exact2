@@ -968,7 +968,7 @@ fn an_uploads_deadline_ends_it_as_a_timeout() {
     let mut held = upload(1, "/hold", 4000);
     held.request.timeout_ms = Some(50);
     core.run_owned(held, None).unwrap();
-    let (_, end) = next(&core, &woke);
+    let (_, end) = after_start(&core, &woke);
     assert!(
         matches!(&end, Outcome::Failed { kind: FailureKind::Timeout, message } if message == "the request timed out after 50 ms"),
         "{end:?}"
