@@ -128,10 +128,16 @@ sent their completion and called `request_repaint`; subsequent frames uploaded
 the results and marked the scene complete. Evidence is retained under
 `target/g4b/readiness-{before,1,2,3}.json`, their `.ready` files and logs.
 
-The original delay did not reproduce. Its cause remains unestablished; neither
-a lost wake nor first-use driver work is proven. No scheduling workaround or
-polling timer is added. These brief launches posted no input and are diagnostic
-runs, excluded from the cold-start series.
+The original delay did not reproduce. Its retained macOS log places the app
+frontmost at 14:58:55.741 and visible at 14:58:55.835. All 17 logged Metal
+compilations for that process finished by 14:58:55.921 (380 ms summed across
+workers), before the first presented drawable at about 14:59:09. The logged
+compiler work therefore does not explain the remaining gap. The source makes
+image requests inside the UI pass, after eframe installs its repaint callback.
+The original frame and worker timeline is missing, so the cause remains
+unestablished. No scheduling workaround or polling timer is added. These brief
+launches posted no input and are diagnostic runs, excluded from the cold-start
+series. The scoped system logs are `target/g4b/readiness-original-*.log`.
 
 G4b preparation at `994b003388`, rebased onto `0312b493fc`, built all four
 release arms into `target/g4b/`. The signed bundle copies carry identical
