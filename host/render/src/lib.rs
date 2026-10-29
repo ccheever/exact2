@@ -27,6 +27,7 @@ mod generations;
 mod linger;
 mod page;
 mod pages;
+mod requests;
 mod serve;
 mod source;
 mod stream;
@@ -791,7 +792,10 @@ pub fn settle<D: DataSource>(
 ) -> Result<Settled, RunnerError> {
     let mut held = Held::default();
     loop {
-        hand_out(runner, executor, &mut held);
+        requests::hand_out(runner, executor, &mut held);
+        if requests::settle_aborts(runner, executor)? {
+            continue;
+        }
         let outcomes = executor.drain();
         if !outcomes.is_empty() {
             for (ticket, outcome, elapsed_ms) in outcomes {
@@ -850,35 +854,6 @@ struct Held {
     refused: BTreeSet<u64>,
     /// Turned away at the executor's limits: the render is busy.
     busy: BTreeSet<u64>,
-}
-
-fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &mut Held) {
-    executor.forget(|ticket| runner.holds(ticket));
-    lift(executor, held);
-    for r in runner.take_requests() {
-        // Device capabilities: the environment has none; nor may a long poll run on other work (LLP 1016.000 D8).
-        if r.request.surface.is_some()
-            || r.request.storage.is_some()
-            || r.request.long_poll_refusal().is_some()
-        {
-            held.refused.insert(r.ticket);
-            continue;
-        }
-        let dispatch = match r.request.continuation {
-            Some(token) => runner.dispatch_work(token),
-            None if r.request.is_native() => runner.native_work(&r.request),
-            None => Dispatch::Missing,
-        };
-        run(executor, held, r, dispatch);
-    }
-    for (token, dispatch) in runner.release_work() {
-        if let Some(r) = held.parked.remove(&token) {
-            run(executor, held, r, dispatch);
-        }
-    }
-    // Again for what this batch put behind a refusal with nothing earlier
-    // in flight: no completion would come to lift it.
-    lift(executor, held);
 }
 
 /// The runner holds no refusals in a render, so the ordered fence lifts once

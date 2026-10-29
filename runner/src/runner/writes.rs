@@ -292,6 +292,7 @@ impl<D: DataSource> Runner<D> {
             .data
             .overlay(&source, args, answer.get(&self.plan), &list);
         drop(list);
+        self.hear_aborted();
         for line in self.data.take_logs() {
             self.log(line);
         }

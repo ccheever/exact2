@@ -2142,3 +2142,40 @@ fn a_connect_answer_follows_the_http_1_grammar() {
         );
     }
 }
+
+#[test]
+fn an_abort_while_the_socket_name_is_still_resolving_returns_at_once() {
+    // As a hung resolver: the lookup is held, and the abort returns the
+    // connect without waiting for it (`lookup`).
+    use super::super::lookup::gate::Gate;
+    let controller = AbortController::new();
+    let signal = controller.signal();
+    let (gated, gate) = channel();
+    let (done, connected) = channel();
+    std::thread::spawn(move || {
+        gated.send(Gate::hold_here()).unwrap();
+        let url = url::Url::parse("ws://resolving.invalid/").unwrap();
+        let result = TcpSocketTransport::new()
+            .connect(&url, 1024, &signal)
+            .map(|_| ());
+        let _ = done.send(result);
+    });
+    let gate = super::super::lookup::gate::Opens(gate.recv().unwrap());
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while gate.0.waiting() == 0 {
+        assert!(std::time::Instant::now() < end, "the lookup never began");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    let aborted = std::time::Instant::now();
+    controller.abort();
+    let result = connected
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("returned at the abort");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        aborted.elapsed() < std::time::Duration::from_millis(500),
+        "returned at the abort"
+    );
+    assert!(error.contains("abort"), "{error}");
+    drop(gate);
+}

@@ -247,6 +247,8 @@ impl<D: DataSource> Bridge<D> {
             if !h.runner_mut().intersect_due().is_empty() {
                 x.notify();
             }
+            // An app's aborted fetches first (any method), then what the runner let go.
+            x.cancel(&h.runner_mut().take_explicit_aborts());
             x.forget(&|ticket| h.runner().holds(ticket));
             if !h.has_ordered_request_refusals() {
                 for (ticket, reason) in x.resume_ordered() {
@@ -300,6 +302,10 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, dispatch);
                 }
             }
+            // An abort made in this batch's turns is answered at the next pump: wake it.
+            if h.runner_mut().collected_aborts() {
+                x.notify();
+            }
             presenter.presences(h.runner_mut().take_presence_asks());
             h.runner_mut().publish_sockets(|batch| x.socket(batch)); // LLP 1016.000 D7
             presenter.prepend_to(&mut s);
@@ -333,46 +339,6 @@ impl<D: DataSource> Bridge<D> {
             h.refuse_request(ticket, reason, ordered);
             x.notify();
         }
-    }
-
-    /// The executor's queued outcomes into the runner (LLP 1016 D2): the
-    /// presenter calls this on its thread after the wake; the output is the
-    /// batch of every reply's commit.
-    pub fn pump(&mut self, now_ms: f64) -> u32 {
-        self.refusal_turn = !self.refusal_turn;
-        let outcomes = match (self.host.as_mut(), self.executor.as_deref()) {
-            (Some(host), Some(executor)) => {
-                executor.begin_pump();
-                let mut outcomes = if self.refusal_turn {
-                    host.take_request_refusal(executor.ordered_idle())
-                        .into_iter()
-                        .map(|(ticket, outcome)| (ticket, outcome, None))
-                        .collect()
-                } else {
-                    executor.drain()
-                };
-                if outcomes.is_empty() {
-                    outcomes = if self.refusal_turn {
-                        executor.drain()
-                    } else {
-                        host.take_request_refusal(executor.ordered_idle())
-                            .into_iter()
-                            .map(|(ticket, outcome)| (ticket, outcome, None))
-                            .collect()
-                    };
-                }
-                if host.has_request_refusals(executor.ordered_idle()) {
-                    executor.notify();
-                }
-                outcomes
-            }
-            _ => vec![],
-        };
-        let out = match self.host.as_mut() {
-            Some(h) => h.fulfill_all(outcomes, now_ms),
-            None => not_booted(),
-        };
-        self.emit(out)
     }
 
     /// Whether the current runner still owns a presenter-work ticket.
@@ -1468,6 +1434,7 @@ mod boot;
 use boot::PreparedHost;
 mod colors;
 mod preparation;
+mod pump;
 mod registry;
 mod snapshot;
 #[cfg(test)]

@@ -184,6 +184,7 @@ fn request_json(request: &Request) -> Json {
         "held": request.held.then_some(true),
         "due_ms": request.due_ms,
         "wake_ms": request.wake_ms,
+        "fetch": request.fetch,
     })
 }
 
@@ -288,6 +289,7 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         held: json["held"].as_bool().unwrap_or(false),
         due_ms: json["due_ms"].as_u64(),
         wake_ms: json["wake_ms"].as_u64(),
+        fetch: json["fetch"].as_u64(),
     };
     // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
     match request.long_poll_refusal() {
@@ -384,6 +386,19 @@ mod tests {
         let outcome = encode(Ok(Answer::Later(request)), &mut Store::default(), vec![]);
         match apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap() {
             Answer::Later(r) => assert!(r.stream && !r.socket && !r.bytes, "{r:?}"),
+            _ => panic!("a yield"),
+        }
+    }
+
+    #[test]
+    fn a_worker_fetch_keeps_the_module_ticket_an_abort_names_it_by() {
+        let request = Request {
+            fetch: Some(42),
+            ..Request::get("https://x.test/held")
+        };
+        let outcome = encode(Ok(Answer::Later(request)), &mut Store::default(), vec![]);
+        match apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap() {
+            Answer::Later(r) => assert_eq!(r.fetch, Some(42)),
             _ => panic!("a yield"),
         }
     }

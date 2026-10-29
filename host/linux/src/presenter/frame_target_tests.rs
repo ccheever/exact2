@@ -8,11 +8,15 @@ use tiny_skia::Transform;
 
 struct PresentPaint {
     name: &'static str,
+    lost: bool,
     inner: Raster,
     targets: Rc<RefCell<Vec<FrameTarget>>>,
     omit_capture: Rc<Cell<bool>>,
 }
 impl Backend for PresentPaint {
+    fn lost_device_needs_cpu(&self) -> bool {
+        self.lost
+    }
     fn name(&self) -> &'static str {
         self.name
     }
@@ -95,6 +99,7 @@ fn window_geometry_and_capture_have_distinct_consumers() {
     let targets = Rc::new(RefCell::new(Vec::new()));
     let omit_capture = Rc::new(Cell::new(false));
     p.brush.replace_backend(Box::new(PresentPaint {
+        lost: false,
         name: "test-presenter",
         inner: Raster::new(),
         targets: targets.clone(),
@@ -249,8 +254,12 @@ fn geometry_without_pixels_preserves_hits_fields_and_the_next_image() {
 }
 
 #[test]
-fn explicit_ink_reports_device_failure_while_auto_repaints_on_cpu() {
-    for choice in [PainterChoice::Ink, PainterChoice::Auto] {
+fn explicit_ink_refuses_paint_errors_but_a_lost_readback_device_repaints_on_cpu() {
+    for (choice, lost) in [
+        (PainterChoice::Ink, false),
+        (PainterChoice::Auto, false),
+        (PainterChoice::Ink, true),
+    ] {
         let (mut p, _) = Presenter::boot_with(
             &crate::test_plan("component App\n  view\n    text \"Frame\"\n"),
             (),
@@ -262,16 +271,20 @@ fn explicit_ink_reports_device_failure_while_auto_repaints_on_cpu() {
         .unwrap();
         p.choice = choice;
         p.brush.replace_backend(Box::new(PresentPaint {
+            lost,
             name: "ink",
             inner: Raster::new(),
             targets: Default::default(),
             omit_capture: Rc::new(Cell::new(true)),
         }));
         p.frame();
-        assert_eq!(p.last_frame_succeeded(), choice == PainterChoice::Auto);
+        assert_eq!(
+            p.last_frame_succeeded(),
+            choice == PainterChoice::Auto || lost
+        );
         assert_eq!(
             p.brush.backend(),
-            if choice == PainterChoice::Auto {
+            if choice == PainterChoice::Auto || lost {
                 "cpu"
             } else {
                 "ink"

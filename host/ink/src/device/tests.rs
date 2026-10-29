@@ -8,6 +8,7 @@ struct Delayed {
     submitted: Submission,
     done: Submission,
     textures: HashMap<TextureId, Submission>,
+    uploads: HashMap<TextureId, Submission>,
     retired: Vec<(TextureId, Submission)>,
 }
 impl Device for Delayed {
@@ -35,9 +36,12 @@ impl Device for Delayed {
         _: &[u8],
     ) -> Result<Submission> {
         assert!(
-            self.textures[&id] <= self.done,
+            self.textures[&id] <= self.done || self.uploads.get(&id) == Some(&self.textures[&id]),
             "overwrote an in-flight atlas page"
         );
+        self.submitted.0 += 1;
+        self.textures.insert(id, self.submitted);
+        self.uploads.insert(id, self.submitted);
         Ok(self.submitted)
     }
     fn last_use(&self, id: TextureId) -> Result<Submission> {
@@ -98,6 +102,23 @@ impl Device for Delayed {
 }
 
 #[test]
+fn atlas_appends_ordered_uploads_without_waiting_for_completion() {
+    let mut d = Delayed::default();
+    let mut atlas = Atlas::paths();
+    atlas.begin(&mut d).unwrap();
+    let first = atlas.insert(&mut d, vec![0], [8, 8], &[73; 64]).unwrap();
+    for key in 1..32 {
+        let entry = atlas.insert(&mut d, vec![key], [8, 8], &[181; 64]).unwrap();
+        assert_eq!(entry.texture, first.texture);
+        assert_ne!(entry.uv, first.uv);
+    }
+    assert_eq!(atlas.stats().entries, 32);
+    assert_eq!(atlas.stats().overflow_textures, 0);
+    assert_eq!(d.submitted, Submission(32));
+    assert_eq!(d.done, Submission(0));
+}
+
+#[test]
 fn a_delayed_device_keeps_pool_targets_and_atlas_uploads_separate() {
     let mut d = Delayed::default();
     let mut pool = Pool::default();
@@ -152,6 +173,81 @@ fn device_loss_retry_deadlines_advance_and_back_off() {
         assert!(!retry.ready(now));
         now = due;
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn consecutive_atlas_uploads(d: &mut impl Device) {
+    let mut atlas = Atlas::new([16, 8], Format::Alpha, 0, 1);
+    atlas.begin(d).unwrap();
+    let mut pixels = [73; 64];
+    let first = atlas.insert(d, vec![0], [8, 8], &pixels).unwrap();
+    let first_target = d.create_target(8, 8).unwrap();
+    let mut encoder = Encoder::new(8, 8);
+    let mut instance = Instance::new(Kind::Coverage, Brush::Solid, [0., 0., 8., 8.]);
+    instance.uv = first.uv;
+    encoder
+        .push(
+            instance,
+            Bindings {
+                path: first.texture,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    d.render(&encoder.finish(), first_target, Some([0.; 4]))
+        .unwrap();
+    pixels.fill(211);
+    let second = atlas.insert(d, vec![1], [8, 8], &pixels).unwrap();
+    pixels.fill(0);
+    let target = d.create_target(16, 8).unwrap();
+    let mut encoder = Encoder::new(16, 8);
+    for (x, entry) in [(0., first), (8., second)] {
+        let mut instance = Instance::new(Kind::Coverage, Brush::Solid, [x, 0., 8., 8.]);
+        instance.uv = entry.uv;
+        encoder
+            .push(
+                instance,
+                Bindings {
+                    path: entry.texture,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    d.render(&encoder.finish(), target, Some([0.; 4])).unwrap();
+    d.upload_texture(first.texture, [0, 0], [8, 8], &[19; 64])
+        .unwrap();
+    assert!(d
+        .readback(first_target)
+        .unwrap()
+        .iter()
+        .all(|c| c.abs_diff(73) <= 1));
+    let result = d.readback(target).unwrap();
+    for (i, pixel) in result.chunks_exact(4).enumerate() {
+        let expected = if i % 16 < 8 { 73 } else { 211 };
+        assert!(
+            pixel.iter().all(|c| c.abs_diff(expected) <= 1),
+            "pixel {i}: {pixel:?}"
+        );
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn wgpu_draws_both_consecutive_atlas_uploads() {
+    consecutive_atlas_uploads(&mut super::wgpu::Wgpu::new().unwrap());
+}
+
+#[cfg(exact_ink_metal)]
+#[test]
+fn metal_draws_both_consecutive_atlas_uploads() {
+    consecutive_atlas_uploads(&mut super::metal::Metal::new().unwrap());
+}
+
+#[cfg(windows)]
+#[test]
+fn d3d11_draws_both_consecutive_atlas_uploads() {
+    consecutive_atlas_uploads(&mut super::d3d11::D3d11::new().unwrap());
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -216,4 +312,14 @@ fn metal_preserves_submitted_frames_during_atlas_and_pool_eviction() {
 #[test]
 fn d3d11_preserves_submitted_frames_during_atlas_and_pool_eviction() {
     in_flight_storage(&mut super::d3d11::D3d11::new().unwrap());
+}
+
+#[test]
+fn direct_device_selection_is_shared_by_carrier_painter_and_recovery() {
+    assert_eq!(super::direct_d3d11(None), Some(false));
+    assert_eq!(super::direct_d3d11(Some("d3d11")), Some(false));
+    assert_eq!(super::direct_d3d11(Some("warp")), Some(true));
+    for name in ["wgpu", "metal", "invalid"] {
+        assert_eq!(super::direct_d3d11(Some(name)), None);
+    }
 }

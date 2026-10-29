@@ -214,9 +214,9 @@ impl Drop for Lease {
         }
     }
 }
-/// Keep system DNS on the caller's executor. ureq's timeout resolver otherwise
-/// spawns a detached thread per lookup. OS name resolution itself cannot be
-/// interrupted; check cancellation and elapsed time on both sides of it.
+/// System DNS on a bounded helper (`lookup`): OS name resolution itself
+/// cannot be interrupted, so the request waits for the answer, its abort or
+/// its deadline, whichever comes first, and returns at once on the latter two.
 struct Resolver(Context);
 impl std::fmt::Debug for Resolver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -234,21 +234,29 @@ impl ureq::unversioned::resolver::Resolver for Resolver {
         RESOLVER_CALLS.fetch_add(1, Ordering::SeqCst);
         let signal = self.0.lock().unwrap().signal.clone().expect("active lease");
         signal.check().map_err(interrupted)?;
-        let started = Instant::now();
+        let deadline = timeout
+            .not_zero()
+            .map(|duration| Instant::now() + *duration);
         let sync = NextTimeout {
             after: ureq::unversioned::transport::time::Duration::NotHappening,
             reason: timeout.reason,
         };
-        let result =
-            ureq::unversioned::resolver::DefaultResolver::default().resolve(uri, config, sync);
-        signal.check().map_err(interrupted)?;
-        if timeout
-            .not_zero()
-            .is_some_and(|duration| started.elapsed() >= *duration)
-        {
-            return Err(ureq::Error::Timeout(timeout.reason));
+        let (uri, config) = (uri.clone(), config.clone());
+        let found = super::lookup::off_thread(&signal, deadline, move || {
+            ureq::unversioned::resolver::DefaultResolver::default().resolve(&uri, &config, sync)
+        });
+        match found {
+            Ok(result) => result,
+            Err(super::lookup::Unanswered::Aborted) => {
+                Err(interrupted(signal.check().err().unwrap_or_else(|| {
+                    HostError::Failed("AbortError: The operation was aborted".into())
+                })))
+            }
+            Err(super::lookup::Unanswered::TimedOut) => Err(ureq::Error::Timeout(timeout.reason)),
+            Err(super::lookup::Unanswered::Failed(why)) => {
+                Err(ureq::Error::Io(std::io::Error::other(why)))
+            }
         }
-        result
     }
 }
 
@@ -580,6 +588,44 @@ mod tests {
     fn tls_test_lock() -> MutexGuard<'static, ()> {
         static LOCK: Mutex<()> = Mutex::new(());
         LOCK.lock().unwrap()
+    }
+
+    #[test]
+    fn an_abort_while_its_name_is_still_resolving_returns_the_request_at_once() {
+        // As a hung resolver: the lookup is held, and the abort returns the
+        // request without waiting for it (`lookup`).
+        use super::super::lookup::gate::Gate;
+        let transport = RustlsHttpTransport::new();
+        let controller = crate::stdlib::abort::AbortController::new();
+        let signal = controller.signal();
+        let (gated, gate) = mpsc::channel();
+        let (done, opened) = mpsc::channel();
+        std::thread::spawn(move || {
+            gated.send(Gate::hold_here()).unwrap();
+            let result = transport
+                .open(&Request::get("http://resolving.invalid/"), &signal)
+                .map(|_| ());
+            let _ = done.send(result);
+        });
+        let gate = super::super::lookup::gate::Opens(gate.recv().unwrap());
+        let end = Instant::now() + Duration::from_secs(5);
+        while gate.0.waiting() == 0 {
+            assert!(Instant::now() < end, "the lookup never began");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let aborted = Instant::now();
+        controller.abort();
+        let result = opened
+            .recv_timeout(Duration::from_secs(5))
+            .expect("returned at the abort");
+        let error = result.unwrap_err().to_string();
+        assert!(
+            aborted.elapsed() < Duration::from_millis(500),
+            "returned at the abort"
+        );
+        assert!(error.contains("abort"), "{error}");
+        assert_eq!(gate.0.waiting(), 1, "the lookup itself still runs");
+        drop(gate);
     }
 
     #[test]

@@ -26,12 +26,14 @@ impl Selected {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn open(value: Option<&str>) -> Result<Self> {
+        #[cfg(windows)]
+        if let Some(warp) = direct_d3d11(value) {
+            return d3d11::D3d11::open_with_fallback(warp).map(|d| Self::D3d11(Box::new(d)));
+        }
         match value {
-            None | Some("wgpu") => wgpu::Wgpu::new().map(Into::into),
-            #[cfg(windows)]
-            Some("d3d11") => d3d11::D3d11::new().map(|d| Self::D3d11(Box::new(d))),
-            #[cfg(windows)]
-            Some("warp") => d3d11::D3d11::open(true).map(|d| Self::D3d11(Box::new(d))),
+            #[cfg(not(windows))]
+            None => wgpu::Wgpu::new().map(Into::into),
+            Some("wgpu") => wgpu::Wgpu::new().map(Into::into),
             Some("metal") => {
                 #[cfg(exact_ink_metal)]
                 {
@@ -229,6 +231,14 @@ impl Device for Selected {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[test]
-fn unspecified_device_uses_the_portable_layer() {
-    assert!(matches!(Selected::open(None).unwrap(), Selected::Wgpu(_)));
+fn unspecified_device_uses_the_platform_default() {
+    let device = Selected::open(None).unwrap();
+    #[cfg(windows)]
+    assert!(matches!(device, Selected::D3d11(_)));
+    #[cfg(not(windows))]
+    assert!(matches!(device, Selected::Wgpu(_)));
+    assert!(matches!(
+        Selected::open(Some("wgpu")).unwrap(),
+        Selected::Wgpu(_)
+    ));
 }

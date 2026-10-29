@@ -44,8 +44,10 @@ pub(crate) const RUST_ABI: u32 = 4;
 /// `exactLongPoll` (LLP 1016.000 D8), which an older prelude would ignore and
 /// open as an event stream. 4: `fetch`'s `exactBodyTo` (LLP 1108 D6 R2),
 /// which an older prelude would ignore, reading the body into memory and
-/// writing no file.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 4;
+/// writing no file. 5: an aborted `fetch`'s request cancelled on the wire and
+/// its answer resumed at the abort (docs/reference.md), which an older
+/// prelude would leave running, its reply (a 429 included) dropped.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 5;
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 

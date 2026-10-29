@@ -450,6 +450,16 @@ inside that rule is Charlie's (§5 Q14); the proposal is a **replacement excepti
 in §8 with S0's and S3's measured numbers per platform, not a withdrawal that leaves the
 behaviour the exception was written for.
 
+**Windows (S2.8):** the bounded fallback is CPU painting through WARP. It still
+requires a prepared D3D11 device. A composition device created with
+`DCompositionCreateDevice2(None)` cannot provide a device-independent CPU surface:
+Microsoft specifies `E_INVALIDARG` from `CreateSurface` and `CreateVirtualSurface`
+when no rendering device was supplied ([API contract](https://learn.microsoft.com/windows/win32/api/dcomp/nf-dcomp-dcompositioncreatedevice2)).
+For a `WS_EX_NOREDIRECTIONBITMAP` window, delayed hardware and delayed WARP therefore
+delay first pixel beyond the preparation deadline. The 25 ms WARP allowance is a
+warm-driver observation, not a cache-cold guarantee. The forced late-WARP measurement
+and driver-cache-cold series remain required before qualifying this exception.
+
 ### D7 — Presentation and pacing
 
 A frame is drawn when the painter has damage or the reader has motion, never otherwise; an
@@ -559,12 +569,18 @@ its manifest, per platform as the manifest is shaped: `host.windows.painter: "in
 painter it has today (the CPU painter on Windows, vello or the CPU painter on Linux, the
 Canvas host or vello on Android). `EXACT_PAINTER=ink|gpu|cpu` overrides it for the agent,
 the smoke and tests, as it does today. Nothing shipped changes when the renderer lands.
-**On Windows, ink's device defaults to wgpu with the `softbuffer` present at the first
-landing**; the DirectX 11 composition path of S0 C6 stays behind `EXACT_INK_DEVICE=d3d11`
-until S2 proves it on a desktop (the second blind code review, Sol and Muse, both asked for
-this: resize and occlusion on the composition swap chain, caret blink and the RichEdit spike
-were not product-ready at `e83558a4d6`; `llp/reviews/` records nothing for code reviews, the
-lane's `target/review-*.md` holds them, and C6f's commit names each finding's disposition). On Apple the native host stays the default — what an
+**On Windows, ink defaults to DirectX 11**; `EXACT_INK_DEVICE=wgpu` selects wgpu's
+DirectX 12 device and `warp` forces DirectX 11's software device. S2.9b's ordinary
+Shelf launches reached the first screen at 859 ms through wgpu's shader translation,
+pipeline build, readback and `softbuffer` present, against 142 ms through DirectX 11
+composition. D15 compares ink with the platform's existing painter; the manifest chooses
+that painter, while ink uses the better device. The startup tail is S2's next chunk in
+`QUEUE.md`, not a gate on this device default: the worst of ten launches was 209 versus
+153 ms fresh at 1920×1080 and 197 versus 137 ms retained at 1024×720 against the CPU
+painter. The stall between runner boot and layout did not recur in 76 diagnostic
+launches; the device thread holding the loader lock remains an unproven hypothesis.
+See `host/ink/MEASUREMENTS.md`, “S2.9”.
+On Apple the native host stays the default — what an
 author leaves unsaid is the platform's (LLP 1115) — and an app chooses the painted presenter
 in its manifest, per platform as the manifest is shaped: `host.macos.presenter: "painted"`,
 `host.ios.presenter: "painted"` (`scripts/app.schema.json`; the native host is the absent
@@ -742,6 +758,188 @@ comparison on the same screen, driven the same way, with what is not comparable 
 
 The numbers land here as each G lands.
 
+**S2.1, 2026-10-28** (`lane/ink-s2` at `dfd41f041d`; qualifying the DirectX 11 composition
+path on the NucBox desktop). Six desktop journeys pass as native tests the desktop session
+runs: drag-resize, minimize and restore, a DPI round trip (100% to 150% and back, Shelf
+reactivated after the change), the idle caret, forced device loss (CPU composition
+presented, the hardware device back 1,020 ms later with backoff) and sleep and wake (the
+physical display waited for); lock and unlock is untested, having no unlock operator on
+that machine. Startup: the D3D11 device is now created on a thread while fonts load and the
+first layout runs, the first frame waiting only at the join; the composition path's paired
+overhead over today's `softbuffer` first screen fell from 59.2 to 26.8 ms at 1024×720 and
+from 48.9 to 17.1 ms at 1920×1080 (ten interleaved samples each), the remainder being the
+join's wait on a 46.5 ms hardware device creation (the swap chain 1.0 to 1.1 ms, the
+composition 0.7, the first present 1.3). That is above the 10 ms the stage's first chunk set
+for flipping the default, so **Windows ink still defaults to wgpu**; S2.2 presents the first
+frames through `softbuffer` and migrates to the composition swap chain when the device is
+ready, which takes the device off the first frame's path entirely. The pinned suites and
+`exact-windows`'s tests pass with both devices on the NucBox; the six checks on the Mac.
+
+**S2.2, 2026-10-28** (`lane/ink-s2` at `ac5742d498`): the device is off the first frame's
+path. The window presents its first frame through `softbuffer` from the CPU painter (about
+695 ms cheaper to first pixel than wgpu's readback would have been), the D3D11 device
+readies on its thread, and the composition swap chain takes over on frame two; twenty of
+twenty launches did exactly that. The paired overhead over today's `softbuffer` first
+screen is now 6.3 ms at 1024×720 and 9.7 ms at 1920×1080, within the stage's 10 ms bar;
+the first composition frame is displayed 187 to 197 ms after process start in the
+`gpu-dev` build. **The default is still wgpu**, because the migration is not yet
+qualified: the handoff fixture fails on `WS_EX_NOREDIRECTIONBITMAP`, which a window that
+began on GDI cannot acquire after creation (three fix rounds, stopped; the fix is a change
+of approach, S2.3: the window is created for composition from the start and its first
+frames come through a WARP device, which creates in 14 ms, with the hardware swap chain
+replacing WARP's when the hardware device is ready); the 150% DPI capture shows faint
+residual text; the frame intervals across the migration include the synchronization
+probe, so a switch without a late frame is not established; lock and unlock stays untested.
+Every pinned suite and `exact-windows`'s tests pass with both devices on the NucBox.
+
+**S2.3, 2026-10-28** (`lane/ink-s2` at `d9b189480e`): the window is a composition window from
+creation (`WS_EX_NOREDIRECTIONBITMAP`, never GDI), its first frames through a WARP device
+while the hardware device readies, the hardware swap chain replacing WARP's on the shared
+visual. Mica matched before and after and the sampled pixels did not change across the
+switch, but the approach costs what it saves: the paired overhead over `softbuffer` rose to
+14.2 ms at 1024×720 and 29.5 ms at 1920×1080 (WARP's own first frames), and the frame after
+the switch ran 21 to 36 ms, past 25 ms in five and eight launches of ten, with 50 ms
+sampling gaps that cannot exclude a one-refresh flash. The 150% DPI residue is gone (the
+post-round-trip capture matches a fresh launch at 0.001/255); the return to 100% leaves a
+1030×737 client instead of 1024×720 (`QUEUE.md`). **The orchestrator's correction**: the
+10 ms bar the S2 chunks were held to was stricter than D15's own boot gate, which is no more
+than 10% regression against the platform's existing painter (34 ms on Shelf's 342 ms first
+screen); by D15, S2.1's 17 to 27 ms with no migration at all already passed. S2.4 therefore
+takes the simplest shape: the composition window from creation (S2.3's), the hardware
+device created at process start, the first frame waiting only for it, no WARP and no
+switch to qualify.
+
+**S2.4, 2026-10-28** (`lane/ink-s2` at `3882f640fe`): that shape. The hardware device is
+prepared before the app boots (the driver's UMD loads in 1.7 ms; the device creation proper
+still takes 44.7 ms, all of it hidden: the receiving thread waits 4 to 8 µs for it);
+startup passes D15's gate: Shelf's complete first screen 174.3 against 165.7 ms at 1024×720
+(5.2% over `softbuffer`) and 181.7 against 173.5 at 1920×1080 (4.7%), paired overhead 9.8
+and 6.1 ms, the `gpu-dev` build on the NucBox, ten interleaved launches each. Mica, resize,
+minimize and restore, the DPI round trip (now 1024×720 at 96 DPI on both returns), the idle
+caret, forced device loss (WARP recovery with completion-based retirement) and sleep and
+wake pass. **What still holds the default**: in the probe-free series the interval from the
+first frame to the second exceeded 25 ms in seven launches of ten at 1024×720 and five at
+1920×1080, with two later gaps of 111 and 117 ms. Whether that is the renderer's or the
+app's first second (data activation and image arrival after first paint, which the
+`softbuffer` path pays too) was not compared: S2.5 measures the `softbuffer` arm's first
+second with the same instrument and flips the default if the composition path's cadence is
+within it.
+
+**S2.5, 2026-10-28** (`lane/ink-s2` at `6e94ab1fa3`): measured, and the gate holds. With the
+probe out of the timed path and host frame-start timestamps (not scanout), ten interleaved
+launches per arm and size, the `softbuffer` arm had 0 of 600 intervals over 25 ms at
+1024×720 and 2 of 600 at 1920×1080; the composition arm 0 of 600 at both, after the one
+renderer fix the comparison exposed: consecutive atlas uploads waited on each other
+needlessly, and the first paint fell from 13.3 to 4.9 ms (a regression test fails before and
+passes after). Startup: 170.7 to 178.8 ms at 1024×720 (+4.7%) and 179.1 to 174.7 at
+1920×1080 (−2.5%). **Windows ink now defaults to the DirectX 11 composition path**
+(`EXACT_INK_DEVICE=wgpu` the override; D12 says so). Still named: neither painter meets the
+absolute 100 ms first-screen budget in the `gpu-dev` build (the app's boot, not the
+renderer's, to be argued phase by phase when S2 lands); one 304 ms startup outlier before
+the first frame is unlocalized; the RichEdit bound to Shelf's search field, DirectWrite's
+audit and lock and unlock are S2's next chunks.
+
+**S2.6, 2026-10-28** (`lane/ink-s2` at `d235bec1cc`): the two blind code reviews of S2.1 to
+S2.5 (GPT-6.1 Sol and Muse Wonder Full 1.0; the lane's `target/review-{sol,muse}-s2.md`)
+converged on holding the default flip until the failure paths worked, and S2.6 fixed eleven
+of their twelve items with tests: the boot fallback chain (hardware, then WARP, then the
+error, reported in `state`; forced on the NucBox), hardware recovery independent of WARP
+opening, the `fxc`-less stub's rerun trigger restored (unchanged `PATH`: 0 to 2,892 bytes of
+DXBC, where the old trigger stayed at 0), a latency-wait timeout treated as occlusion, Mica
+non-fatal, a retirement queue drained from non-present paths too, the atlas-ordering fix
+proven by a real-device test on all three layers, one function answering the device
+selection for every caller, the measurement prints gated, the obsolete scheduling check
+removed. It localized the repeating 300 ms startup tail: 207 of 330 ms is the Windows Shell
+jump-list setup before the first frame (`host/windows/src/jump_list.rs`), the device being
+ready at 64 ms. It stopped, at the three-round limit, on the bounded wait's CPU fallback (a
+bitmap child in the composition window stays black); S2.7 changes the approach: the
+fallback presents through WARP's composition swap chain, which exists as the recovery
+transport, and the jump list leaves the boot path.
+
+**S2.7, 2026-10-28** (`lane/ink-s2` at `b346631509`): the bounded wait's fallback presents the
+CPU painter's frames through WARP's composition swap chain and the hardware swap chain takes
+over on the shared visual (forced: WARP ready within 100 ms of host entry, its first present
+back at 134.7 ms; ordinary launches never open WARP); the bitmap child is gone; the jump
+list runs after first pixel, and the 300 ms tail with it: Shelf's first screen by the DWM
+proxy is now 131.4 ms on `softbuffer` and 134.8 on composition at 1024×720 (+2.6%), 142.2 and
+140.5 at 1920×1080 (−1.2%), fresh cache, ten interleaved launches; the retained-cache
+medians pass the same 10% gate; a refused Mica shows the platform's opaque window colour
+(LLP 1095's), tested by injection. **The orchestrator's reading of D15**: the relative gate
+holds **on the DWM proxy** (within 10% of the platform's painter, no late frames); the absolute 100 ms p50 is not
+met by either painter (the displayed first screen 148 to 158 ms on composition, the
+`softbuffer` proxy 131 to 142), and D15 as the panel wrote it says a baseline already past
+the budget makes further regression an explicit trade, which a −1.2% to +2.6% change is not:
+the remaining debt is the app's boot, written phase by phase in `MEASUREMENTS.md` S2.7 for
+LLP 1030's and the host's owners, and the `gpu-dev` build is not the shipped profile. The
+default therefore stands, and the branch lands after a review of S2.6 and S2.7's failure
+paths. Composition's displayed medians are bounded against its own proxy plus one
+refresh: 13.189/13.204 ms later with fresh storage and 12.401/12.665 ms later with
+retained storage, below this display's 16.667 ms refresh. Softbuffer has no measured
+scanout timestamp; this is not a displayed-versus-displayed comparison.
+Unqualified: a driver-cache-cold launch; lock and unlock.
+
+**S2.8, 2026-10-28** (`lane/ink-s2` at `721433fee6`): the third blind review (Sol and Muse on
+S2.6 and S2.7, the lane's `target/review-{sol,muse}-s2b.md`) converged on one blocker, both
+devices refused leaving a black window that retried forever and reported itself as the CPU
+painter, and added the rest; S2.8 fixed every item, none refuted: both devices exhausted is a
+terminal boot error naming both failures; a hardware retry after loss is gated on a pending
+hardware attempt only; the retirement queue drains while idle and releases on GPU completion
+after a bounded number of failed statistics checks; the agent's `state` carries the painter,
+the device and API, the recovery status and the last refusal; WARP is spawned against the
+t+75 ms mark and the hardware channel re-polled while waiting; the device worker starts at
+process entry again; a skipped present's retry follows the display's refresh; the Mica
+colour test covers both schemes; the atlas test overwrites a region under an in-flight read;
+the jump-list thread is built with a logged spawn failure and detached so quitting in the
+first second does not wait on the Shell. The Mac checks pass; the native Windows validation
+and the two deferred qualifications (a late WARP, a driver-cache-cold launch) are S2.8b's,
+and the branch lands when they pass.
+
+**S2.8b, 2026-10-28** (`lane/ink-s2` at `9aaa49a54d`): the native validation on the NucBox.
+DirectX 11 passes every S2.8 regression, every S2.1 journey, the pinned suites and
+`exact-windows`'s tests; startup medians improved again (the DWM proxy 130.1 ms at 1024×720
+and 128.7 at 1920×1080 fresh; displayed 142.9 and 141.6; retained 126.0 and 133.1, displayed
+138.9 and 145.9). Three findings hold the landing: the wgpu arm (the override) fails forced
+device loss with an invalid readback buffer; the late-preparation fallback is slower than
+waiting (both preparations forced past the bound: an empty client at 199 ms and the complete
+screen at 814 ms; the retained-cache 1920×1080 maximum 368 ms with three launches of ten
+taking the WARP path because the hardware device merely missed the 100 ms bound); and the
+two deferred qualifications ran: a driver-cache-cold hardware launch, after AMD's supported
+shader-cache reset, displays at 251 to 255 ms (about 110 ms of the driver's compile over the
+142 warm), which is the Windows number for §8's replacement exception. S2.9 fixes the wgpu
+recovery and retunes the bound to what was measured: the first frame waits for the hardware
+device up to a bound just above the cold case, and WARP is the fallback only past it or on a
+failure, since the detour cost more than the cold path it was meant to hide.
+
+**S2.9, 2026-10-28** (`lane/ink-s2` at `e0cddcc2be`): wgpu's recovery on Windows preserves
+device loss and rejects invalid submissions and readbacks (the Linux adapter repaints on the
+CPU after a loss); the hardware deadline is one named 300 ms, set from the cold launch; §8
+carries the proposed Windows exception. All forty ordinary launches stayed on hardware; cold
+launches display at 246.5 and 250.0 ms; both devices pass every journey, the pinned suites
+and `exact-windows`'s tests. What remains is the tail D15's guard names: the worst launch of
+ten runs 37 to 44% past the `softbuffer` arm's worst (209.4 against 152.9 ms fresh at
+1920×1080; 196.8 against 137.0 retained at 1024×720), a stall between runner boot and
+layout, before the renderer draws, which 76 diagnostic launches across three traces did not
+reproduce; and the forced case of both preparations past the deadline shows no pixels until
+355 ms and the complete screen at 997 ms, the price of a device that is effectively broken.
+**The orchestrator's decision**: S2 lands now with Windows ink's device at wgpu by default,
+every fix and qualification kept, `EXACT_INK_DEVICE=d3d11` the qualified composition path;
+the flip is S2's next chunk once the tail is localized (the hypothesis to test first: the
+device thread's driver load holding the loader lock while the runner boots), because a
+repeating worst-run regression is a failure until repaired or traded, and the trade is
+Charlie's.
+
+**S2.9, 2026-10-28** (`aa474f525b`): wgpu device loss now repaints on the CPU;
+both devices pass all six native journeys, the pinned suites and `exact-windows` tests.
+The hardware deadline is 300 ms from process creation. All 40 measured normal launches
+and both cold-cache launches stay on hardware; the cold screens display at 250 and 247 ms.
+The earlier three S2.8b launches opened WARP but displayed their first complete screen on
+AMD hardware. Their two largest stalls precede data activation and the jump-list thread,
+between runner boot and layout completion. The blocking call remains unproven after three
+trace runs that did not reproduce the stall. Two S2.9 maxima still exceed softbuffer's by
+more than 10% (209 versus 153 ms, 197 versus 137 ms), so the branch is not ready to land.
+`host/ink/MEASUREMENTS.md`, “S2.9”, gives the complete series and verbatim test results;
+§8 carries the proposed Windows exception.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
@@ -753,8 +951,16 @@ bundles: cold start from `ri_proc_start_abstime` to GPUI's first presented drawa
 the same milestone and are reported as such; a display-link sampler for frame intervals and
 late frames; `proc_pid_rusage` for CPU and footprint). Its `RESULTS.md` records the
 non-comparables and the inspected screenshots. The series itself was refused by its own
-preflight because other lanes were compiling on this Mac; it runs quiet after the landing
-(G1m), and the tables are empty until then.
+preflight because other lanes were compiling on this Mac, then by the locked screen, then
+by focus loss (Chrome, Ocho) during the flings; four runs kept three clean pairs of five
+(`c237d4a22a`), which are **diagnostic, not the verdict**: fling CPU 89 ms/s for GPUI against
+121 for the native Apple host; rest CPU 5.1 against 1.1 (the immediate-mode redraw LLP 1148
+F2 named); peak fling footprint 398 against 224 MiB; cold milestones 338 against 597 ms by
+two different instruments (GPUI's first presented drawable; the native host's first settled
+layer snapshot), so not a comparison; frame smoothness not rankable (display-link cadence on
+the native arm). The driver now activates its target and verifies the key window before
+each sample. The full series (five pairs, ten cold launches each) needs three minutes of an
+untouched desktop and is run on Charlie's word; ink joins at G3.
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
@@ -926,8 +1132,8 @@ them, and C6f landed the second blind code review's fixes (`58adeb76e8`, `94865d
 recordings are never kept (both arms); the direct Windows path blinks its caret, survives a
 resize (the waitable object reacquired), skips an occluded present and recovers a lost
 device on the CPU painter through the same composition with backoff from 250 ms to 30 s;
-the RichEdit spike is test-only; Windows ink defaults to the wgpu device with the `softbuffer`
-present, DirectX 11 by `EXACT_INK_DEVICE=d3d11` and WARP only when asked; oversized retained
+the RichEdit spike is test-only; Windows ink defaults to DirectX 11 composition,
+wgpu by `EXACT_INK_DEVICE=wgpu` and WARP only when asked or needed for fallback; oversized retained
 coverage rasterizes its visible region; a fractional-pixel scroll re-records hinted rows and
 replays coverage clips at their phase; CPU-written Metal textures stay `Shared`; each device
 has an in-flight eviction test; the harness records its sampler, asserts its fixtures' hashes
@@ -1085,6 +1291,11 @@ control arm) were decided before S0 and stand on its numbers.
   per platform, with the numbers S0 (Metal, DirectX 11) and S3 (Vulkan, the minisforum's first
   launch) measure written into the entry, and names the budget each is held to. It is written
   when those numbers exist, not before.
+- **Windows, proposed (S2.9):** admit the driver's compilation from shipped DXBC at launch
+  (2.7 ms warm; about 110 ms additional compilation with a cold driver cache, the complete
+  screen displayed at 251–255 ms against 142 ms warm on the NucBox), preparing hardware
+  asynchronously and waiting until 300 ms from process entry before WARP is opened, or
+  opening WARP immediately when hardware fails.
 - Unchanged: a canvas's module compiles at first use, after first pixel (LLP 1009 D5); games
   stay on wgpu and the wasm target; the GPU module's ABI (`gpu/README.md`).
 - Separate commitments (§5 Q24): S0's prototype; the Apple carrier; the painted web; the

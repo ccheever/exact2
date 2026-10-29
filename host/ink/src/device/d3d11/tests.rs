@@ -2,6 +2,114 @@ use super::*;
 use crate::instance::Encoder;
 
 #[test]
+#[ignore = "fresh process; INK_UMD names the adapter's DX11 DLL, INK_UMD_PRELOAD=1 loads it first"]
+fn device_startup_phases() {
+    use windows::{
+        core::PCWSTR,
+        Win32::{Foundation::FreeLibrary, System::LibraryLoader::*},
+    };
+    let path = std::env::var("INK_UMD").expect("adapter's absolute UMD path");
+    assert!(std::path::Path::new(&path).is_absolute());
+    let wide: Vec<_> = path.encode_utf16().chain(Some(0)).collect();
+    let path = PCWSTR(wide.as_ptr());
+    assert!(
+        unsafe { GetModuleHandleW(path) }.is_err(),
+        "UMD already loaded"
+    );
+    let preload = std::env::var("INK_UMD_PRELOAD").as_deref() == Ok("1");
+    let start = Instant::now();
+    let library = preload.then(|| unsafe {
+        LoadLibraryExW(
+            path,
+            None,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
+        )
+        .unwrap()
+    });
+    let load_ms = start.elapsed().as_secs_f64() * 1000.;
+    let start = Instant::now();
+    let (device, context, adapter) = setup::open(false).unwrap();
+    let device_ms = start.elapsed().as_secs_f64() * 1000.;
+    assert!(
+        unsafe { GetModuleHandleW(path) }.is_ok(),
+        "DX11 did not load this UMD"
+    );
+    let start = Instant::now();
+    let pipeline = setup::pipeline(&device).unwrap();
+    let shaders_ms = start.elapsed().as_secs_f64() * 1000.;
+    println!(
+        "S2_DEVICE preload={preload} load_ms={load_ms:.3} device_ms={device_ms:.3} shaders_ms={shaders_ms:.3} adapter={adapter}"
+    );
+    drop((pipeline, context, device));
+    if let Some(library) = library {
+        unsafe { FreeLibrary(library).unwrap() };
+    }
+}
+
+#[test]
+fn failed_and_disconnected_device_workers_are_reported() {
+    let (send, receive) = std::sync::mpsc::channel();
+    send.send(Err(Error::Device("test device refusal".into())))
+        .unwrap();
+    assert!(
+        matches!(Preparing { receive, worker: None, force_warp: false }.finish(), Err(Error::Device(e)) if e == "test device refusal")
+    );
+    let (send, receive) = std::sync::mpsc::channel();
+    drop(send);
+    assert!(
+        matches!(Preparing { receive, worker: None, force_warp: false }.finish(), Err(Error::Device(e)) if e.contains("disconnected"))
+    );
+}
+
+#[test]
+fn expired_preparation_budget_keeps_the_worker_for_later() {
+    let (release, wait) = std::sync::mpsc::channel();
+    let mut preparing = Preparing::start_with(true, move || {
+        wait.recv().unwrap();
+        Prepared::open(true)
+    })
+    .unwrap();
+    assert!(preparing.finish_until(Instant::now()).is_none());
+    release.send(()).unwrap();
+    let mut device = preparing
+        .finish_until(Instant::now() + Duration::from_secs(10))
+        .expect("worker completed")
+        .unwrap();
+    let target = device.create_target(1, 1).unwrap();
+    device
+        .render(&Frame::default(), target, Some([1., 0., 0., 1.]))
+        .unwrap();
+    assert_eq!(device.readback(target).unwrap(), [255, 0, 0, 255]);
+}
+
+#[test]
+fn dropping_preparation_joins_its_worker() {
+    let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let worker_finished = finished.clone();
+    let preparing = Preparing::start_with(false, move || {
+        worker_finished.store(true, std::sync::atomic::Ordering::SeqCst);
+        Err(Error::Device("injected refusal".into()))
+    })
+    .unwrap();
+    drop(preparing);
+    assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[test]
+fn prepared_device_draws_on_the_receiving_thread() {
+    let mut device = Preparing::start(true).unwrap().finish().unwrap();
+    let target = device.create_target(3, 2).unwrap();
+    device
+        .render(&Frame::default(), target, Some([0.25, 0., 0., 0.5]))
+        .unwrap();
+    assert!(device
+        .readback(target)
+        .unwrap()
+        .chunks_exact(4)
+        .all(|p| p == [64, 0, 0, 128]));
+}
+
+#[test]
 fn readback_scissors_uploads_mips_and_retirement() {
     let mut d = D3d11::new().unwrap();
     let target = d.create_target(12, 4).unwrap();
