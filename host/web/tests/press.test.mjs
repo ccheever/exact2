@@ -745,7 +745,7 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     // frame, so they are still pending when the paint goes on, and Chrome drops them. Taking the paint off then made
     // Chrome start new transitions from the properties' initial values (opacity 1, transparent): the release eased
     // toward that base and, the paint ended, the node showed it for the transition's second. Both the paint's base and
-    // the look after its end lie on the authored segment (0.8 white to 0.6 yellow), never on those initial values.
+    // every look on the way stay between the paint's and the authored values, never toward those initial values.
     await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = 'background-color 1s linear, opacity 1s linear'; el.style.backgroundColor = 'rgb(255, 255, 0)'; el.style.opacity = '0.6'; getComputedStyle(el).opacity; setTimeout(() => { const end = performance.now() + 300; while (performance.now() < end); }, 0); }`);
     await Promise.all([mouse('mousePressed', painted), mouse('mouseReleased', painted)]);
     const stalled = await evaluate(`new Promise(ok => {
@@ -757,9 +757,13 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
       };
       look();
     })`);
-    const authored = (said) => { const [o, ...c] = said.split(' '), v = parseFloat(o); return v >= 0.599 && v <= 0.801 && /^rgb\(255, 255, \d+\)$/.test(c.join(' ')); };
-    expect(stalled.filter(x => x.base !== null && !authored(x.base)).map(x => x.base), 'the paint eases toward the authored base').toEqual([]);
-    expect(stalled.filter(x => !x.painting && !authored(x.look)).map(x => x.look), 'the look after the paint is the authored one').toEqual([]);
+    // Spellings vary (rgb, color(srgb ...), oklab after a mix), so a look is read as its opacity and its background's alpha.
+    const parts = (said) => { const [o, ...c] = said.split(' '), bg = c.join(' '), a = /rgba\([^)]*,\s*([\d.]+)\)$/.exec(bg) ?? /\/\s*([\d.]+)\s*\)$/.exec(bg); return [parseFloat(o), a ? parseFloat(a[1]) : 1]; };
+    // The base on the authored segment (0.8 to 0.6, opaque); any look between the paint's (0.4) and the authored, opaque.
+    const based = (said) => { const [o, a] = parts(said); return o >= 0.599 && o <= 0.801 && a === 1; };
+    const shown = (said) => { const [o, a] = parts(said); return o >= 0.399 && o <= 0.801 && a === 1; };
+    expect(stalled.filter(x => x.base !== null && !based(x.base)).map(x => x.base), 'the paint eases toward the authored base').toEqual([]);
+    expect(stalled.filter(x => !shown(x.look)).map(x => x.look), 'never the initial values (opacity 1, transparent) on the way').toEqual([]);
     expect(stalled.some(x => !x.painting), 'the paint ended').toBe(true);
     await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = ''; el.style.backgroundColor = 'rgb(255, 255, 255)'; el.style.opacity = '0.8'; }`);
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
