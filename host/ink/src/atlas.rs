@@ -174,17 +174,13 @@ impl Atlas {
                 "atlas entry exceeds device texture limit".into(),
             ));
         }
-        let mut completed = device.completed()?;
+        let completed = device.completed()?;
         let mut busy = std::collections::HashSet::new();
         for p in &self.pages {
             let last = device.last_use(p.id)?;
-            if last > completed && last == p.upload {
-                // Finish this page's upload before appending; a draw still in flight
-                // makes the page unavailable instead. @ref LLP 1149 D11.
-                device.wait(last)?;
-                completed = device.completed()?;
-            }
-            if last > completed {
+            // The device orders consecutive uploads; only an unfinished draw
+            // prevents appending to the page. @ref LLP 1149 D11, S2.5.
+            if last > completed && last != p.upload {
                 busy.insert(p.id);
             }
         }
