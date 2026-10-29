@@ -515,11 +515,8 @@ function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
   console.log(classification.map(line=>`  ${line}`).join('\n'));
 }
 
-let dev = null;
-let announced = false;
-// A ready line waits for the server to listen (a test or an agent connects on it); early, it already does.
-let listening = !!early; const readyLines = [];
-const sayReady = line => { if (listening) console.log(line); else readyLines.push(line); };
+// A ready line waits for the server to listen and its doors to open (a test or an agent connects on it); early, it is.
+let dev = null, announced = false, listening = !!early; const readyLines = [], sayReady = line => { if (listening) console.log(line); else readyLines.push(line); };
 let contractStamp, contractTreeStamp, compiledContract; const readinessContracts = new Set([source]);
 const contractBytes = () => { try { return createHash('sha256').update(readFileSync(source)).digest('hex'); } catch { return null; } };
 const contractInputsStamp = () => createHash('sha256').update([...readinessContracts].sort().map(path => { try { return path + ':' + readFileSync(path); } catch { return path + ':missing'; } }).join('\0')).digest('hex');
@@ -570,7 +567,7 @@ function startCompiler() {
         // The first ready plan completes discovery. Every subscriber reconciles
         // its full generation; only later saves contribute edit timings.
         if (first) { first = false; for (const res of clients) res.write(`data: ${hello()}\n\n`); if (!announced) { announced = true; sayReady(`plan ready: ${bytes} bytes (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) — edit ${source.replace(root + '/', '')} and watch`); } continue; }
-        console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → candidate plan ready`);
+        sayReady(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → candidate plan ready`);
         push({ ...announcement(), bytes });
       } else if (kind === 'error') {
         contractStamp = contractBytes(); contractTreeStamp = contractInputsStamp(); early?.phase('contract','failed');
@@ -1483,9 +1480,8 @@ const serve = async (req, res) => {
 };
 const server = early?.server ?? createServer(serve);
 let six = null; server.on('error', async (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); six?.close(); killCompiler(); await tamber?.close(); process.exit(1); });
-await readStaticFileAsync(dist, '/index.html'); // warm the reader before advertising readiness
+await readStaticFileAsync(dist, '/index.html'); if (!early) await listenDelay(); // warm the reader before advertising readiness (a test may wait too)
 // (and on [::1], for a localhost URL: the design tool's canvas)
-if (!early) await listenDelay();
 if (servedAs == null) six = await alsoOnIPv6Loopback(server, port).catch(async (e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); killCompiler(); await tamber?.close(); process.exit(1); });
 early?.phase('host', 'ready'); early?.serve(serve);
 const banner = () => {
@@ -1498,6 +1494,6 @@ const banner = () => {
   if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 };
-if (early) banner(); else await new Promise(ok => server.listen(port, host, () => { banner(); listening = true; for (const line of readyLines.splice(0)) console.log(line); ok(); }));
+if (early) banner(); else await new Promise(ok => server.listen(port, host, () => { banner(); ok(); }));
 startup.handoff(stop); doors = servedAs == null && tamber ? await openRemoteCanvas(tamber, remoteAsked, `http://127.0.0.1:${port}`).catch(async (e) => { console.error(`cannot listen: ${e.message}`); server.close(); server.closeAllConnections?.(); process.exitCode = 1; await stop(); }) : null;
-watchLauncher(stop);
+watchLauncher(stop); listening = true; for (const line of readyLines.splice(0)) console.log(line); // once it answers and its doors are open

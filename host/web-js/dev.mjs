@@ -243,6 +243,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   if (error) console.log(`JS target: ${app.name} does not build; its errors show in the page\n${error}`);
   else console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
   warn(built.warnings);
+  // Ready lines wait for the server to answer (and its doors), as a test or an agent connects on them.
+  let listening = false; const held = [], sayReady = (line) => { if (listening) console.log(line); else held.push(line); };
   // The design server's wire, once made below (a rebuild may come first).
   let tamber = null, doors = null;
   const clients = new Set();
@@ -643,7 +645,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       if (changedTokens.length) tamber?.channel.broadcast(framed({ kind: 'tamber-batch', structure: next.shape, base: from.digest, design: next.digest, tokens: changedTokens }));
       logicRevision = built.logic;
       pending.set(++seq, at);
-      console.log(`edit → plan ready ${Date.now() - at} ms (rebuilt in ${Date.now() - t} ms) · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
+      sayReady(`edit → plan ready ${Date.now() - at} ms (rebuilt in ${Date.now() - t} ms) · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
       warn(built.warnings);
       push({ reload: seq, revision: logicRevision }); gallery.appChanged(); // after the app's reload is published
     }
@@ -1162,5 +1164,6 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   console.log(`  (dev loop on the JS target: ${app.dir.replace(root + '/', '')} and host/web-js rebuild and reload the page; a native client's requests go to the resident loop's producers, started at the first; ${lan ? 'LAN bind — any peer on this network can read the app and its compile errors' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
   // Said once the server answers, not at the first build: a test or an agent takes it as the cue to connect.
   console.log('plan ready');
+  listening = true; for (const line of held.splice(0)) console.log(line);
   await new Promise(() => {});
 }
