@@ -148,7 +148,8 @@ impl<D: DataSource> Runner<D> {
             self.ids.theme.faces_read(view, tokens);
             if !refused.is_empty() {
                 for text in refused {
-                    let line = crate::instance::invalid_face(view, text, "its faces stay as they were");
+                    let line =
+                        crate::instance::invalid_face(view, text, "its faces stay as they were");
                     self.notes.push(line);
                 }
                 continue;

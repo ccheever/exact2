@@ -165,7 +165,14 @@ component App
                 "-exact-platform-color(web systemRedColor, #ff0000)",
                 "var(--accent)"
             ],
-            ["@c", "", "", "", "light-dark(currentcolor, #000)", "inh\\65rit"],
+            [
+                "@c",
+                "",
+                "",
+                "",
+                "light-dark(currentcolor, #000)",
+                "inh\\65rit"
+            ],
             ["@d", "", "", "", "notacolour", "var(--inherit)"],
         ]);
         let got = record(&faces, &crate::style::color_map(&plan));
@@ -181,7 +188,12 @@ component App
         );
         assert_eq!(paint(1, "backgroundColor"), "var(--accent)", "{got}");
         assert_eq!(paint(3, "backgroundColor"), "var(--inherit)", "{got}");
-        for (i, key) in [(1, "color"), (2, "color"), (2, "backgroundColor"), (3, "color")] {
+        for (i, key) in [
+            (1, "color"),
+            (2, "color"),
+            (2, "backgroundColor"),
+            (3, "color"),
+        ] {
             assert_eq!(paint(i, key), "", "{i} {key}: {got}");
         }
         let journal: Vec<&str> = got["journal"]
