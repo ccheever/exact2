@@ -887,6 +887,22 @@ first second does not wait on the Shell. The Mac checks pass; the native Windows
 and the two deferred qualifications (a late WARP, a driver-cache-cold launch) are S2.8b's,
 and the branch lands when they pass.
 
+**S2.8b, 2026-10-28** (`lane/ink-s2` at `9aaa49a54d`): the native validation on the NucBox.
+DirectX 11 passes every S2.8 regression, every S2.1 journey, the pinned suites and
+`exact-windows`'s tests; startup medians improved again (the DWM proxy 130.1 ms at 1024×720
+and 128.7 at 1920×1080 fresh; displayed 142.9 and 141.6; retained 126.0 and 133.1, displayed
+138.9 and 145.9). Three findings hold the landing: the wgpu arm (the override) fails forced
+device loss with an invalid readback buffer; the late-preparation fallback is slower than
+waiting (both preparations forced past the bound: an empty client at 199 ms and the complete
+screen at 814 ms; the retained-cache 1920×1080 maximum 368 ms with three launches of ten
+taking the WARP path because the hardware device merely missed the 100 ms bound); and the
+two deferred qualifications ran: a driver-cache-cold hardware launch, after AMD's supported
+shader-cache reset, displays at 251 to 255 ms (about 110 ms of the driver's compile over the
+142 warm), which is the Windows number for §8's replacement exception. S2.9 fixes the wgpu
+recovery and retunes the bound to what was measured: the first frame waits for the hardware
+device up to a bound just above the cold case, and WARP is the fallback only past it or on a
+failure, since the detour cost more than the cold path it was meant to hide.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
