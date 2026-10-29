@@ -733,6 +733,9 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await settle();
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     await settle();
+    // The paint's end, waited for in frames as above: on a loaded machine the release's ease can have finished
+    // while its finish event, sent with a frame, has not come yet, and the paint still shows.
+    expect(await evaluate(`new Promise(ok => { const end = performance.now() + 2000, look = () => { const on = document.getElementById('painted').hasAttribute('data-exact-painting'); if (!on || performance.now() > end) ok(on); else requestAnimationFrame(look); }; look(); })`)).toBe(false);
     expect(await look('painted')).toBe('0.6 rgb(255, 255, 0) rgb(0, 0, 0)');
     await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = ''; el.style.backgroundColor = 'rgb(255, 255, 255)'; el.style.opacity = '0.8'; }`);
     expect(await ink('label')).toBe('rgb(0, 0, 0)');
