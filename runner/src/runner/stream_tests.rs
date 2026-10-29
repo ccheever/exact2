@@ -756,6 +756,23 @@ fn a_refused_commit_puts_the_marks_back() {
     assert_eq!(r.uploads, before);
 }
 
+/// Bytes sent mark an upload as having reached the network, and a refused
+/// commit of their message does not undo it (LLP 1016.000 D10): let go, it
+/// is cut off whatever the host then says, and `refresh` sends nothing.
+#[test]
+fn a_refused_progress_commit_leaves_the_upload_sent() {
+    let mut r = uploads();
+    let a = one(&mut r);
+    r.data().bad_message = true;
+    let progress = Outcome::Message(Message::upload_progress(10, 100));
+    assert!(r.fulfill(a, progress).unwrap().is_some());
+    assert!(!r.holds(a), "a message it cannot take lets it go");
+    r.uploads_started(&[]);
+    r.data().bad_message = false;
+    r.act("refresh", vec![]).unwrap();
+    assert!(r.take_requests().is_empty(), "not sent again");
+}
+
 /// New arguments that make the same request keep the upload going (LLP
 /// 1054.000.000 D3): nothing more is sent, and both arguments answer as it
 /// ends, so neither is sent again when it comes back.

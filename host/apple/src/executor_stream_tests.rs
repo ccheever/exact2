@@ -1185,14 +1185,17 @@ fn an_uploads_file_is_read_once_it_has_room() {
 /// LLP 1016.000 D10: a burst of uploads at a photo's size, in the budget a
 /// device has, goes three at a time, as upstream T3 Code sends them, and
 /// leaves the app's other streams their places: an event stream opened
-/// before twenty 2 MB uploads and one opened after them both open at once,
-/// and every upload ends with its reply.
+/// before fifteen 2 MB uploads and one opened after them both open at once,
+/// and every upload ends with its reply. The budget alone would start all
+/// fifteen, which with the first stream take all 16 places; fifteen is as
+/// many as the independent lane admits at once on the asynchronous core,
+/// which also reserves the portable transport's copy of each body.
 #[test]
 fn a_burst_of_photo_uploads_goes_three_at_a_time_and_leaves_other_streams_their_places() {
     let (core, script, woke) = setup();
     core.run_owned(stream(100, "/events", 1024), None).unwrap();
     let before = feed(&script, 0);
-    for ticket in 1..=20 {
+    for ticket in 1..=15 {
         core.run_owned(upload(ticket, "/upload", 2 << 20), None)
             .unwrap();
     }
@@ -1202,17 +1205,17 @@ fn a_burst_of_photo_uploads_goes_three_at_a_time_and_leaves_other_streams_their_
     let after = feed(&script, 4);
     assert_eq!(
         core.shared.uploads.waiting(),
-        (17, 3 * (2 << 20) * super::COPIES)
+        (12, 3 * (2 << 20) * super::COPIES)
     );
     for (fed, ticket) in [(&before, 100), (&after, 101)] {
         fed.send(format!("id: {ticket}\ndata: {ticket}\n\n").into_bytes())
             .unwrap();
         while !matches!(next(&core, &woke), (t, Outcome::Message(_)) if t == ticket) {}
     }
-    // Feed each upload as it opens, whatever its order, until all twenty replied.
+    // Feed each upload as it opens, whatever its order, until all fifteen replied.
     let (mut fed, mut replies) = (going, 0);
     let mut opened = 5;
-    while replies < 20 {
+    while replies < 15 {
         for step in fed.drain(..) {
             for _ in 0..3 {
                 step.send(Vec::new()).unwrap();

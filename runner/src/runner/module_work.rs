@@ -89,7 +89,7 @@ impl<D: DataSource> Runner<D> {
             let end = super::UploadEnd::Failed(super::uploads::interrupted());
             self.upload_over(p.ticket, true, end);
         } else if p.upload && (p.refusal.is_some() || p.refused) {
-            self.upload_over(p.ticket, false, super::UploadEnd::Gone);
+            self.uploads.unmark(p.ticket);
         } else if p.upload {
             self.upload_let_go(p.ticket);
         }

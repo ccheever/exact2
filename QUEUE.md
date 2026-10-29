@@ -1560,6 +1560,12 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - **EX5 upload progress (2026-10-13):** the Snapback adapter's upload progress is indeterminate.
   Make it determinate with `fetch`'s `exactUploadProgress` (LLP 1016.000 D10), which tells an
   upload's bytes sent as they go on every host, `exactBodyFrom` included.
+- **A waiting upload holds its lane's admission** (2026-10-29, LLP 1016.000 D10, "Memory,
+  natively"). An upload in the executor's queue is charged its buffers and its reply's ceiling in
+  the independent lane from admission, so about thirty file uploads at the default 1 MiB ceiling
+  fill the lane's 64 MiB and the app's next independent fetch is refused. Charge a waiting upload
+  its buffers alone and its ceiling when it starts (`executor_upload.rs` `start`, which would then
+  wait for the lane's room as well).
 
 - **EX7 broader game verification (2026-10-14):** of three `game/new.test.mjs` failures that reproduced without the EX7 changes, the missing `.vscode` and the shell CLI fixture's `scripts/app.mjs` were fixed by 38f528f58; the SDK union lock was stale and is unchecked since. Repair it in the game lane if `game/new.test.mjs` still fails on it.
 - **Grey box's game proof on Windows fails 3 checks** (2026-10-16; `issues/20261006-platform-specific-lane-coverage.md`): its Linux branches (`host === 'linux'`) leave Windows on the web's path, so it taps `world:player` through the presenter and expects `platform` delivery; then the continuation save differs from the pin, and the journal lacks `loop wind on`. Its `pins.json` names linux and web only.
