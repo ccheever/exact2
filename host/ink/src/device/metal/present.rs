@@ -129,13 +129,17 @@ impl Renderer {
         source: &ProtocolObject<dyn MTLTexture>,
         command: &ProtocolObject<dyn MTLCommandBuffer>,
     ) -> Result<()> {
-        self.ring.acquire()?;
+        if let Err(error) = self.ring.acquire() {
+            command.commit();
+            return Err(error);
+        }
         let transaction = self.layer.live_resize.load(Ordering::Acquire);
         self.layer.raw.setPresentsWithTransaction(transaction);
         let Some(drawable) = self.layer.raw.nextDrawable() else {
             // A hidden or closing window may have no drawable. Commit the empty
             // buffer so resource retirement and a later screenshot can complete.
             command.commit();
+            self.layer.retry();
             return Ok(());
         };
         if let Err(error) = encode(
@@ -185,11 +189,7 @@ fn encode(
     let width = target.width() as f32;
     let height = target.height() as f32;
     let viewport = [width, height, 0., 0.];
-    let instance = Instance::new(
-        Kind::Layer,
-        crate::Brush::Image,
-        [0., 0., width, height],
-    );
+    let instance = Instance::new(Kind::Layer, crate::Brush::Image, [0., 0., width, height]);
     encoder.setRenderPipelineState(pipeline);
     encoder.setViewport(MTLViewport {
         originX: 0.,
@@ -252,6 +252,13 @@ impl Ring {
     fn retire(&mut self, command: &ProtocolObject<dyn MTLCommandBuffer>) {
         self.commands[self.next] = Some(command.retain());
         self.next = (self.next + 1) % self.commands.len();
+    }
+}
+
+impl Drop for Window {
+    fn drop(&mut self) {
+        let _ = self.wait();
+        self._layer.update();
     }
 }
 

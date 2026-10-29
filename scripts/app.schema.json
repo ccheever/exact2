@@ -790,6 +790,10 @@
           "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
+            "presenter": {
+              "enum": ["native", "painted"],
+              "description": "Absent: native. Painted builds the app’s <macos-crate>-painted binary as a benchmark carrier; distribution is refused until LLP 1149’s accessibility gate."
+            },
             "icon": {
               "type": "string",
               "minLength": 1,

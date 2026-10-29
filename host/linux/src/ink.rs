@@ -24,7 +24,7 @@ mod svg;
 mod tests;
 mod text;
 
-/// Headless instanced painter; its premultiplied pixels use the presenter's ordinary path.
+/// Instanced painter with window presentation and premultiplied pixel readback.
 pub struct Ink {
     device: Selected,
     encoder: Encoder,

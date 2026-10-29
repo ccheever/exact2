@@ -1,5 +1,8 @@
 //! Separable area reduction of premultiplied image pixels. @ref LLP 1149 D2.6.
 
+#[cfg(target_os = "macos")]
+pub mod apple;
+
 pub fn reduce(pixels: &[u8], from: [u32; 2], to: [u32; 2]) -> Vec<u8> {
     assert!(from[0] >= to[0] && from[1] >= to[1] && !to.contains(&0));
     let mut horizontal = vec![[0.; 4]; to[0] as usize * from[1] as usize];

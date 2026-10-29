@@ -16,11 +16,14 @@ use std::{
     },
 };
 
+type Transactions = Arc<Mutex<Vec<Box<dyn FnOnce() + Send>>>>;
+
 struct Inner {
     view: Retained<NSView>,
     layer: Retained<CAMetalLayer>,
     live_resize: Arc<AtomicBool>,
-    transactions: Arc<Mutex<Vec<Box<dyn FnOnce() + Send>>>>,
+    retry: Arc<AtomicBool>,
+    transactions: Transactions,
     wake: Arc<dyn Fn() + Send + Sync>,
     _owner: Rc<dyn HasWindowHandle>,
 }
@@ -63,6 +66,7 @@ impl Layer {
             view,
             layer,
             live_resize: Arc::new(AtomicBool::new(false)),
+            retry: Arc::new(AtomicBool::new(false)),
             transactions: Default::default(),
             wake: Arc::new(wake),
             _owner: owner,
@@ -95,10 +99,30 @@ impl Layer {
         }
     }
 
+    pub fn retry_requested(&self) -> bool {
+        self.0.retry.swap(false, Ordering::AcqRel)
+    }
+
+    /// A posted wheel event carries its own point without moving the cursor.
+    pub fn wheel_position(&self) -> Option<[f32; 2]> {
+        let event = NSApplication::sharedApplication(MainThreadMarker::new()?).currentEvent()?;
+        let point = self
+            .0
+            .view
+            .convertPoint_fromView(event.locationInWindow(), None);
+        let y = if self.0.view.isFlipped() {
+            point.y
+        } else {
+            self.0.view.bounds().size.height - point.y
+        };
+        Some([point.x as f32, y as f32])
+    }
+
     pub(crate) fn render_layer(&self) -> RenderLayer {
         RenderLayer {
             raw: self.0.layer.clone(),
             live_resize: self.0.live_resize.clone(),
+            retry: self.0.retry.clone(),
             transactions: self.0.transactions.clone(),
             wake: self.0.wake.clone(),
         }
@@ -108,10 +132,15 @@ impl Layer {
 pub(crate) struct RenderLayer {
     pub raw: Retained<CAMetalLayer>,
     pub live_resize: Arc<AtomicBool>,
-    transactions: Arc<Mutex<Vec<Box<dyn FnOnce() + Send>>>>,
+    retry: Arc<AtomicBool>,
+    transactions: Transactions,
     wake: Arc<dyn Fn() + Send + Sync>,
 }
 impl RenderLayer {
+    pub fn retry(&self) {
+        self.retry.store(true, Ordering::Release);
+        (self.wake)();
+    }
     pub fn transaction(&self, present: impl FnOnce() + Send + 'static) {
         self.transactions.lock().unwrap().push(Box::new(present));
         (self.wake)();

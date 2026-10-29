@@ -302,6 +302,10 @@ impl Images {
     pub fn stats(&self) -> Stats {
         self.backend.session.stats()
     }
+    /// Whether a current image assignment was refused, including decode failure.
+    pub fn has_refusals(&self) -> bool {
+        self.views.values().any(|view| view.refusal.is_some())
+    }
     /// Where an embedded relative source resolves; selected assets expose bytes.
     pub fn resolve(&self, source: &str) -> Option<PathBuf> {
         self.assets.path(source)

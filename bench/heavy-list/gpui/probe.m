@@ -1,4 +1,4 @@
-// Linked into both benchmark copies. @ref LLP 1149 §4; heavy-list/probe/probe.m.
+// Linked into the native, GPUI and ink benchmark copies. @ref LLP 1149 §4; heavy-list/probe/probe.m.
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <Metal/Metal.h>
@@ -12,10 +12,12 @@
 static double processStart, loaded, firstDrawable, firstComplete;
 static mach_port_t mainThread;
 static atomic_bool completeScene;
+static atomic_uint drawableCalls, mainThreadDrawableCalls, drawableCount;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static NSMutableArray<NSNumber *> *presented;
 static NSString *output;
-static BOOL gpui;
+static BOOL painted;
+static NSString *arm;
 static double tickSeconds;
 static size_t topItem;
 static float topOffset;
@@ -27,6 +29,9 @@ void g1_ready(int complete, size_t item, float offset) {
 }
 
 static id nextDrawable(id layer, SEL selector) {
+    atomic_fetch_add(&drawableCalls, 1);
+    if (NSThread.isMainThread) atomic_fetch_add(&mainThreadDrawableCalls, 1);
+    atomic_store(&drawableCount, (unsigned)[(CAMetalLayer *)layer maximumDrawableCount]);
     static IMP original;
     if (!original) original = class_getMethodImplementation([CAMetalLayer class], @selector(g1_originalDrawable));
     id<MTLDrawable> drawable = ((id (*)(id, SEL))original)(layer, selector);
@@ -196,14 +201,14 @@ static NSData *signature(NSView *view) {
     double now = CACurrentMediaTime();
     if (!NSApp.active || !self.window.keyWindow || !self.hadFocus) [self observeFocus];
     if (self.phase == 0) {
-        if (!gpui) {
+        if (!painted) {
             [self.coldPixels addObject:signature(self.window.contentView)];
             [self.coldTimes addObject:@(link.timestamp)];
         }
         pthread_mutex_lock(&lock);
         BOOL ready = firstComplete > 0;
         pthread_mutex_unlock(&lock);
-        if (now - self.windowAt >= 2 && (!gpui || ready)) [self ready];
+        if (now - self.windowAt >= 2 && (!painted || ready)) [self ready];
         if (now - processStart > 30) { fprintf(stderr, "probe: first complete frame timed out\n"); exit(2); }
     } else if (self.phase == 1) {
         if (!NSApp.active || !self.window.keyWindow) self.inactiveTicks++;
@@ -213,7 +218,7 @@ static NSData *signature(NSView *view) {
     }
 }
 - (void)ready {
-    if (!gpui) {
+    if (!painted) {
         NSData *final = self.coldPixels.lastObject;
         const unsigned char *b = final.bytes;
         NSUInteger ink = 0;
@@ -234,7 +239,12 @@ static NSData *signature(NSView *view) {
     self.result[@"coldMs"] = @((firstComplete - processStart) * 1000);
     self.result[@"preMainMs"] = @((loaded - processStart) * 1000);
     if (firstDrawable) self.result[@"firstDrawableMs"] = @((firstDrawable - processStart) * 1000);
-    self.result[@"arm"] = gpui ? @"gpui" : @"native";
+    self.result[@"arm"] = arm;
+    if (painted) {
+        self.result[@"drawableCalls"] = @(atomic_load(&drawableCalls));
+        self.result[@"mainThreadDrawableCalls"] = @(atomic_load(&mainThreadDrawableCalls));
+        self.result[@"maximumDrawableCount"] = @(atomic_load(&drawableCount));
+    }
     self.result[@"pid"] = @(getpid());
     self.result[@"scale"] = @(self.window.backingScaleFactor);
     self.result[@"size"] = @[@(self.window.contentView.bounds.size.width), @(self.window.contentView.bounds.size.height)];
@@ -290,7 +300,7 @@ static NSData *signature(NSView *view) {
         self.ticks = nil; self.link.paused = YES;
         NSScrollView *scroll = scrollView(self.window.contentView);
         if (scroll) self.result[@"nativeOffsetEnd"] = @(scroll.contentView.bounds.origin.y);
-        if (gpui) self.result[@"gpuiOffsetEnd"] = @{@"item": @(topItem), @"withinItem": @(topOffset)};
+        if (painted) self.result[[arm isEqual:@"ink"] ? @"inkOffsetEnd" : @"gpuiOffsetEnd"] = @{@"item": @(topItem), @"withinItem": @(topOffset)};
         self.start = usage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue];
         self.samples = [NSMutableArray arrayWithObject:self.start];
         self.phase = 2;
@@ -315,13 +325,14 @@ __attribute__((constructor)) static void initialize(void) {
         mach_timebase_info(&timebase);
         tickSeconds = (double)timebase.numer / timebase.denom / 1e9;
         output = @(path);
-        gpui = strcmp(getenv("G1_ARM") ?: "", "gpui") == 0;
+        arm = @(getenv("G1_ARM") ?: "native");
+        painted = ![arm isEqual:@"native"];
         mainThread = mach_thread_self();
         struct rusage_info_v4 initial = {0};
         if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&initial) || !initial.ri_proc_start_abstime) abort();
         processStart = initial.ri_proc_start_abstime * tickSeconds;
         presented = [NSMutableArray array];
-        if (gpui) {
+        if (painted) {
             Method method = class_getInstanceMethod(CAMetalLayer.class, @selector(nextDrawable));
             class_addMethod(CAMetalLayer.class, @selector(g1_originalDrawable), method_getImplementation(method), method_getTypeEncoding(method));
             method_setImplementation(method, (IMP)nextDrawable);

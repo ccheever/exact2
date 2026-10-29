@@ -49,6 +49,7 @@ struct App<D: DataSource> {
     frames: u64,
     paint_ms: f64,
     wheel_phases: [u64; 2],
+    benchmark_complete: bool,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -80,7 +81,15 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
     app::show_neutral_look();
     let mut config = Config::from_env(plan, compat);
     if std::env::var_os("EXACT_ASSETS").is_none() {
-        if let Some(resources) = std::env::current_exe().ok().and_then(|exe| exe.parent()?.parent().map(|contents| contents.join("Resources"))).filter(|path| path.is_dir()) {
+        if let Some(resources) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| {
+                exe.parent()?
+                    .parent()
+                    .map(|contents| contents.join("Resources"))
+            })
+            .filter(|path| path.is_dir())
+        {
             config.assets = resources;
         }
     }
@@ -133,6 +142,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         frames: 0,
         paint_ms: 0.,
         wheel_phases: [0; 2],
+        benchmark_complete: false,
     };
     if let Err(error) = events.run_app(&mut state) {
         eprintln!("{error}");
@@ -210,6 +220,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         p.tick(now);
         if p.dirty() {
             if std::env::var_os("G1_OUTPUT").is_some() {
+                self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
                 let target = std::env::var("EXACT_BENCH_SCROLL_TARGET")
                     .unwrap_or_else(|_| "messages".into());
                 let k = p.host().kernel();
@@ -218,7 +229,7 @@ impl<D: DataSource + Default + 'static> App<D> {
                     .first()
                     .and_then(|key| k.node_by_key(*key))
                     .map_or(0., |node| p.scroll_of(node.id).1);
-                exact_ink::device::apple::benchmark_frame(!p.images().pending(), offset);
+                exact_ink::device::apple::benchmark_frame(self.benchmark_complete, offset);
             }
             p.apple_window_frame()?;
             self.paint_ms += started.elapsed().as_secs_f64() * 1000.;
@@ -320,6 +331,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 if let Some(p) = &mut self.presenter {
                     let request: serde_json::Value =
                         serde_json::from_str(&line).unwrap_or_default();
+                    if request["platform"] == true && request.get("wheel").is_some() {
+                        let _ = reply.send(serde_json::json!({"error":"platform wheel placement is not available in the benchmark agent; use ordinary wheel operations or the G1 process-targeted driver"}).to_string());
+                        return;
+                    }
                     if request["op"] == "quit" {
                         let _ = reply.send("{\"quit\":true}".into());
                         events.exit();
@@ -414,6 +429,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 self.wheel_phases = exact_ink::device::apple::wheel_phases();
+                let [x, y] = self
+                    .layer
+                    .as_ref()
+                    .and_then(Layer::wheel_position)
+                    .unwrap_or([x, y]);
                 let (dx, dy) = match delta {
                     MouseScrollDelta::PixelDelta(d) => (
                         d.x as f32 / self.scale as f32,
@@ -473,6 +493,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         let Some(p) = &mut self.presenter else {
             return;
         };
+        if self.layer.as_ref().is_some_and(Layer::retry_requested) {
+            p.repaint();
+        }
         let now = if self.config.agent {
             p.host().now()
         } else {
@@ -482,6 +505,15 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         p.run_commands(D::default);
         p.hatch_turn();
         p.poll_images();
+        // Offscreen metadata can finish after the last visible image. Submit a
+        // complete scene for the probe even when that completion owes no damage.
+        if std::env::var_os("G1_OUTPUT").is_some()
+            && !self.benchmark_complete
+            && !p.images().pending()
+            && !p.images().has_refusals()
+        {
+            p.repaint();
+        }
         if !self.config.agent {
             p.admit_idle_timer(now);
         }

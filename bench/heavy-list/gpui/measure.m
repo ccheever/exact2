@@ -77,7 +77,10 @@ static BOOL lostFocus(NSString *output) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc < 5 || argc > 8) fail(@"measure <result-dir> <native-executable> <gpui-executable> <exact-wheel> [rounds=5] [first-round=1] [cold-only]");
+        if (argc < 5 || argc > 8) fail(@"measure <result-dir> <native-executable> <gpui-executable> <exact-wheel> [rounds=5] [first-round=1] [cold-only]; G3_PAINTED_BIN adds ink as a third target; G3_ONLY_INK=1 runs only it");
+        NSString *ink = NSProcessInfo.processInfo.environment[@"G3_PAINTED_BIN"];
+        BOOL onlyInk = [NSProcessInfo.processInfo.environment[@"G3_ONLY_INK"] boolValue];
+        if (onlyInk && !ink.length) fail(@"G3_ONLY_INK needs G3_PAINTED_BIN");
         if (!CGPreflightPostEventAccess()) fail(@"this terminal lacks Accessibility permission for CGEvent.postToPid");
         NSString *directory = [@(argv[1]) stringByStandardizingPath];
         NSFileManager *files = NSFileManager.defaultManager;
@@ -87,7 +90,9 @@ int main(int argc, const char **argv) {
         BOOL coldOnly = argc == 8 && strcmp(argv[7], "cold-only") == 0;
         if (rounds < 1 || first < 1 || (argc == 8 && !coldOnly)) fail(@"invalid rounds, first round or cold-only argument");
         for (int round = first; round < first + rounds; round++) {
-            NSArray *arms = round % 2 ? @[@"native", @"gpui"] : @[@"gpui", @"native"];
+            NSArray *arms = onlyInk ? @[@"ink"] : ink.length
+                ? (round % 3 == 0 ? @[@"ink", @"native", @"gpui"] : round % 3 == 1 ? @[@"native", @"gpui", @"ink"] : @[@"gpui", @"ink", @"native"])
+                : (round % 2 ? @[@"native", @"gpui"] : @[@"gpui", @"native"]);
             for (NSString *arm in arms) {
               for (int attempt = 0; attempt < 2; attempt++) {
                 NSString *name = [NSString stringWithFormat:@"%@-%d%@", arm, round, attempt ? @"-retry" : @""];
@@ -103,7 +108,7 @@ int main(int argc, const char **argv) {
                 NSString *logPath = [directory stringByAppendingPathComponent:[name stringByAppendingString:@".log"]];
                 [files createFileAtPath:logPath contents:nil attributes:nil];
                 NSFileHandle *log = [NSFileHandle fileHandleForWritingAtPath:logPath];
-                NSTask *app = launch([arm isEqual:@"native"] ? @(argv[2]) : @(argv[3]), @[], env, log);
+                NSTask *app = launch([arm isEqual:@"ink"] ? ink : [arm isEqual:@"native"] ? @(argv[2]) : @(argv[3]), @[], env, log);
                 runningApp = app;
                 fprintf(stdout, "%s pid=%d\n", name.UTF8String, app.processIdentifier); fflush(stdout);
                 activate(app);
@@ -168,6 +173,7 @@ int main(int argc, const char **argv) {
                 }
                 if (!coldOnly && [arm isEqual:@"native"] && [result[@"nativeOffsetEnd"] doubleValue] < 500) fail(@"native list did not scroll");
                 if (!coldOnly && [arm isEqual:@"gpui"] && [result[@"gpuiOffsetEnd"][@"item"] intValue] == 0) fail(@"GPUI list did not scroll");
+                if (!coldOnly && [arm isEqual:@"ink"] && [result[@"inkOffsetEnd"][@"withinItem"] doubleValue] < 500) fail(@"ink list did not scroll");
                 if ([result[@"thermalStart"] intValue] != [result[@"thermalEnd"] intValue]) fail(@"thermal state changed; retain this run but do not compare it");
                 fprintf(stdout, "%s cold=%.3f ms\n", name.UTF8String, [result[@"coldMs"] doubleValue]); fflush(stdout);
                 break;

@@ -121,7 +121,7 @@ pub(super) fn pipelines(
         desc.setVertexFunction(Some(&vertex));
         desc.setFragmentFunction(Some(&fragment));
         desc.setVertexDescriptor(Some(&vertex_layout));
-        // SAFETY: attachment zero exists; RGBA8 is the device trait's target.
+        // SAFETY: attachment zero exists; its format matches the render target.
         let color = unsafe { desc.colorAttachments().objectAtIndexedSubscript(0) };
         color.setPixelFormat(format);
         color.setBlendingEnabled(blend);

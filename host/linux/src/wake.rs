@@ -1,5 +1,5 @@
-//! Platform wake transport. Unix keeps pollable sockets; Windows posts the
-//! presenter's event-loop wake and retains one coalesced readiness bit.
+//! Unix keeps pollable sockets; macOS also wakes its window loop. Windows
+//! posts the event-loop wake and retains one coalesced readiness bit.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub(crate) use std::os::unix::net::UnixStream as Stream;
 
@@ -16,7 +16,17 @@ mod macos {
     type Notify = Arc<dyn Fn() + Send + Sync>;
     static NOTIFY: Mutex<Option<Notify>> = Mutex::new(None);
     pub(crate) struct Stream(UnixStream);
+    impl std::ops::Deref for Stream {
+        type Target = UnixStream;
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
     impl Stream {
+        #[cfg(test)]
+        pub(crate) fn try_clone(&self) -> io::Result<Self> {
+            self.0.try_clone().map(Self)
+        }
         pub(crate) fn pair() -> io::Result<(Self, Self)> {
             UnixStream::pair().map(|(a, b)| (Self(a), Self(b)))
         }

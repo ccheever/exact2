@@ -196,10 +196,12 @@ impl Renderer {
             ::wgpu::CurrentSurfaceTexture::Success(t)
             | ::wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             ::wgpu::CurrentSurfaceTexture::Timeout | ::wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(self.queue.submit([]))
+                self.layer.retry();
+                return Ok(self.queue.submit([]));
             }
             ::wgpu::CurrentSurfaceTexture::Outdated | ::wgpu::CurrentSurfaceTexture::Lost => {
                 self.surface.configure(&self.device, &self.config);
+                self.layer.retry();
                 return Ok(self.queue.submit([]));
             }
             other => return Err(Error::Device(format!("acquire Metal surface: {other:?}"))),
@@ -280,5 +282,12 @@ impl Renderer {
         *last = Some(index.clone());
         self.next = (self.next + 1) % self.ring.len();
         Ok(index)
+    }
+}
+
+impl Drop for Window {
+    fn drop(&mut self) {
+        let _ = self.thread.drain();
+        self._layer.update();
     }
 }
