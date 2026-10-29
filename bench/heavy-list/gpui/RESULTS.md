@@ -1312,3 +1312,188 @@ All budgets within cap. 10 categories inspected.
 
 The caps log is `target/s1-3m-20261029/caps.log`. The implementation test
 summaries above belong to S1.3; no code test suite was rerun for S1.3m.
+
+## S1.4 — trace the late frames (2026-10-29)
+
+**No pacing or memory-policy change.** Image removal retains the late cadence.
+Most late intervals have little main-thread work and a GPU completion before
+the next nominal refresh. The missing evidence is which drawable Core Animation
+selected, and who owns the unstacked graphics charge. Neither supports a
+one-change prediction. This chunk stops at that boundary; S1 is not qualified.
+
+### Recording and sample limits
+
+The painted carrier did not implement the native host's trace exporter. It now
+exposes opt-in intervals to the existing benchmark probe with `G1_TRACE=1`.
+`probe.m` records Core Animation clock timestamps, thread IDs, presented times,
+and dropped-event counts in fixed storage. It exports after the fling, on a
+live-agent `SIGUSR1`, or when a rejected traced process receives `SIGTERM`.
+The existing reader accepts the result:
+
+```sh
+bun scripts/agent.mjs trace target/s1-4/g3-before/ink-1.json.trace.json
+```
+
+`EXACT_AGENT=1 EXACT_AGENT_LIVE=1` keeps the wall clock and display link running.
+A socket request such as `{"op":"tap","at":[400,400],"wheel":[0,11.3],"phase":"changed"}`
+leaves damage for the window instead of the headless agent's synchronous pixel
+readback. Use `began` and `ended` at the gesture boundaries. A regression test
+checks that input changes scroll position, preserves pending damage and does
+not advance the clock. Occlusion still suspends display work.
+
+The ten-second socket drives sent 1,200 requests. Early drives included headless
+readback; later ones omitted gesture phases or became occluded. They are not G3
+cadence samples. Their fractional scrolling created oversized clip masks that
+the posted G3 fling did not reproduce. Raw records remain under `target/s1-4/`.
+
+G3's existing `target/s1-3/measure` and `target/g3/exact-wheel` then drove Ink
+alone at 800×768 points, 2×, on the 120 Hz display, with direct Metal and
+`BENCH_LIVE=0`. Four recorded gesture windows completed before the first focus
+loss in both retained **fling diagnostics** below. Neither entire process was
+accepted by G3: the normal run lost focus during rest; the control lost focus
+78 ms after its fourth gesture, before the fling phase ended. No quiet-run
+qualification or comparison with a freshly measured GPUI arm is claimed.
+
+| Gesture-window measurement | Normal images | Images disabled |
+|---|---:|---:|
+| Presented interval p50 / p95 / p99, ms | 8.33 / 16.67 / 16.67 | 8.33 / 16.67 / 25.00 |
+| Late intervals / gesture seconds | 54 / 4.5413 | 55 / 4.6081 |
+| Late intervals/s | 11.891 | 11.936 |
+| Presented intervals | 335 | 328 |
+| Trace events dropped | 0 | 0 |
+| Image decodes / uploads during the fling | 32 / 32 | 0 / 0 |
+
+These are `g3-before/ink-1.json` and `g3-control/ink-1.json`, with sibling
+`.trace.json` files. The control uses an empty `EXACT_ASSETS` directory;
+`G1_ALLOW_IMAGE_REFUSALS=1` lets its probe start with empty image boxes. Its
+startup timing is not a complete-scene measurement. The trace additions between
+these runs add demand, wheel and encode markers; no pacing policy changed.
+The control executable SHA-256 is
+`8f30fb9c420dfe254946d556519e8434adbd1274cb26926baedf6b92156893c2`;
+its probe is `35b8a2fe7d02bc6d32bf1aa75ef5990570576be339a2cad4ae34b96b5179ef2e`.
+The final code also factors the live-wheel handler for its regression test and
+removes an unused text-instance marker. `g3-no-images` lost focus during its
+second gesture; `g3-traced` lost focus before any gesture. Neither supplies a
+cadence result. No failed attempt was silently replaced.
+
+### Where the time went
+
+Normal-run inclusive spans during the ten-second fling, in milliseconds:
+
+| Phase | Calls | Total | p99 | Maximum |
+|---|---:|---:|---:|---:|
+| Main-thread walk, including nested work | 391 | 70.852 | 1.101 | 5.039 |
+| Glyph rasterization on cache misses | 481 | 9.501 | 0.178 | 0.277 |
+| Path rasterization on cache misses | 1 | 0.144 | 0.144 | 0.144 |
+| Image decode, off main thread | 32 | 142.622 | 15.313 | 15.313 |
+| Image upload preparation, main thread | 32 | 6.518 | 0.496 | 0.496 |
+| Mip encoding, nested in upload preparation | 32 | 2.524 | 0.179 | 0.179 |
+| Finish, including scene encoding | 391 | 30.402 | 0.181 | 0.225 |
+| Handoff queue delay | 356 | 57.575 | 3.148 | 5.815 |
+| Worker upload, including staging wait | 506 | 48.527 | 0.400 | 2.672 |
+| Staging-ring completion wait | 506 | 37.542 | 0.372 | 2.645 |
+| Worker `nextDrawable` | 355 | 15.790 | 0.206 | 0.725 |
+| Presentation GPU command | 355 | 518.799 | 2.614 | 2.815 |
+
+The walk can also run for input geometry; its count is not a presentation count.
+CPU spans nest; worker waits overlap GPU execution. The table must not be summed.
+The control additionally separates scene encoding and drawable-copy encoding.
+The display callback to main-thread wake delay was p50 **0.016 ms**, p99
+**0.062 ms**, maximum **0.070 ms** during the normal gesture windows.
+
+`g3-before-late-frames.json` and `g3-control-late-frames.json` attribute **every**
+late interval in those windows: main-thread spans are charged to the innermost
+recorded phase; worker/GPU overlap is reported separately. Normal-run exclusive
+main-thread work per late interval was p50 **0.842 ms**, maximum **2.447 ms**.
+Only five of 54 late intervals overlap an image upload, seven overlap a decode,
+five overlap glyph rasterization, and one overlaps path rasterization.
+
+Of 54 late intervals, 51 contain two presentation commits. Independently, 51
+contain a presentation GPU completion before the next nominal 8.33 ms boundary.
+This is temporal attribution, not a drawable-to-frame join: the trace does not
+yet connect a drawable ID to the compositor's selection. It rules out a long
+walk, synchronous decode or three-drawable exhaustion as the common observed
+stall. It does not prove that finishing before vblank meets Core Animation's
+presentation deadline. The image-disabled control still has 55 late intervals;
+45 contain two display callbacks with pending display demand at both callbacks.
+A fifth scheduling change without that missing correlation would be a guess.
+
+### The memory transient, with stacks
+
+`g3-stacks` runs the posted fling with `MallocStackLogging=full`. On this OS,
+`MallocStackLogging=1` selects lite logging and `malloc_history -highWaterMark`
+refuses it. `vmmap --verbose -fullStacks` and `malloc_history -allBySize
+-fullStacks` captured **584.7 MiB** live footprint and **610.5 MiB** lifetime
+peak. Focus was lost during the first gesture and stack collection perturbs
+execution; this is allocation evidence, not a cadence sample.
+
+The largest captured allocation stacks include the following. Sizes are live
+allocations grouped by stack, not quantities to add to the footprint again.
+Release frames in the app are addresses because the executable is stripped;
+the complete stacks and addresses are retained in `g3-stacks/malloc.txt`.
+
+| Live size / allocations | Allocator stack, caller → allocation |
+|---|---|
+| 22.53 MiB / 15 | `CGContextDrawImage → ripc_DrawImage → img_data_lock → create_image_data_handle → calloc` |
+| 21.49 MiB / 7 | `CGImageSourceCreateThumbnailAtIndexEx → IIOImageSource::createThumbnailAtIndex → CGImageCreateCopyWithParametersNew → img_data_lock_depth → calloc` |
+| 17.92 MiB / 17 | App decode-worker frames → `calloc` (the separate symbolized development capture reaches `exact_ink::image::apple::decode → Pixmap::new`) |
+| 12.81 MiB / 4; 10.02 MiB / 3 | App texture-creation frames → `AGXTexture → IOGPUMetalTexture → IOGPUResourceCreate` |
+| 19.00 MiB / 2 | `CAMetalLayer nextDrawable → get_unused_drawable → CAIOSurfaceCreate → IOSurfaceCreate → IOSurfaceClientCreateChild` |
+| 4.77 MiB / 2 | Render-worker frames → `AGXBuffer → IOGPUMetalBuffer → IOGPUResourceCreate` (the staging ring) |
+
+The vmmap totals are **51.1 MiB resident IOAccelerator graphics**, **28.5 MiB
+resident IOSurface**, and **339.8 MiB resident owned-unmapped graphics**. The last
+category supplies object IDs but **no allocation stacks**. It is not accounted
+for by the two staging buffers or the three drawables. In the normal unstacked
+trace, 38 image texture allocations, including mip chains, total **50.094 MiB**;
+all tracked textures total **60.656 MiB**. None retires during this short drive.
+This drive does not exercise bitmap eviction, so it does not establish whether
+texture retirement follows the painter's eviction in operation.
+The image-disabled fling still samples **474.345 MiB** peak versus **138.876 MiB**
+at its end: removing images leaves a **335.469 MiB** transient.
+
+A 15-second `xctrace` Metal System Trace attached to the carrier succeeded
+(`metal-system/capture.trace`). It captured resource allocation stacks, but its
+kernel-resource-allocation table is empty. Its app Metal allocation counter
+ranges from **70.078 to 96.859 MiB**. Texture views share backing storage and
+must not be counted again. This run lost focus before its drive and is not a
+performance comparison. It does not identify the owned-unmapped charge.
+A launch-time retry (`metal-launch`) never reached the probe's ready state;
+Instruments left the carrier stopped and failed to finish saving after its
+20-second limit and a further 90-second wait. Export reported `Document Missing
+Template Error`. The recorded processes were stopped; this attempt contributes
+no allocation result.
+The development socket stack capture's 224 MiB of oversized path/clip textures
+is a different workload; G3's single path rasterization rejects it as an
+explanation of this peak. No atlas eviction policy was changed.
+
+**Prediction and decision:** no supported one-change prediction can be made
+for the remaining presentation deadline or the unidentified graphics charge.
+No optimization was applied, so the predicted improvement from this chunk is
+**zero late intervals/s**. The required next evidence is a launch-time graphics
+allocation capture and a drawable-ID join through GPU completion, compositor
+selection and presentation. The existing traces narrow those questions but do
+not answer them; no after-fix measurement or G3 qualification is claimed.
+
+### Validation
+
+All six checks pass, including the workspace check and caps' wasm32 check.
+The first default-member test run timed out in `workers_start_with_the_first_request`
+inside the Apple executor's nested async suite; the full command passed on retry
+with `RUST_TEST_THREADS=2`. No test or timeout was changed. The full Linux run
+passed: 1,576 library tests and 293 integration tests, excluding child reruns.
+`exact-ink`: 33 passed; carrier: 2 passed; trace reader: 24 passed.
+The named suites used `EXACT_INK_DEVICE=metal EXACT_REQUIRED=1 RUST_TEST_THREADS=2`:
+
+```text
+paint: test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 23.20s
+borders: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 6.81s
+tint: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 7.19s
+backdrop: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 8.59s
+gradients: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 8.95s
+visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 9.33s
+materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 10.13s
+image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 8.09s
+```
+
+Logs are in `target/s1-4/checks/`; carrier and reader logs are in `target/s1-4/`.
