@@ -55,6 +55,11 @@ session was shut down after this check. The local simulator's existing catalog
 and credentials remain intact. This integration is outside the delivered
 TestFlight build.
 
+Text-only bold table cells still take the literal Markdown fallback. The private
+preview compiles, but its EAS process exits before its first screen. Native table
+acceptance remains unqualified and this slice has no production edits. Parser
+and projection checks and the normal app's unpaired startup pass.
+
 These earlier implementation checkpoints are available on GitHub:
 
 | Work | Commit | Branch |
