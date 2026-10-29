@@ -12,7 +12,7 @@ import { standIns } from './stand-ins.mjs';
 // (gpu-glue.js's guards are the same test; surface-record.test.mjs sends them its fixture's events.)
 // rt.js beside the modules it imports: the real ones it binds with, stand-ins for the rest (as form-chrome.test.mjs).
 const webJs = resolve(import.meta.dir, '../../web-js');
-const REAL = ['rt.js', 'open-streams.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js'];
+const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js'];
 const STUBS = standIns(REAL);
 const chords = ['../glue.js', '../document-glue.js'].map(file => `(() => { ${glueDeclarations(readFileSync(new URL(file, import.meta.url), 'utf8'), ['keyChord'])}; return keyChord; })()`);
 let server;

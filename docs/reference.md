@@ -1326,9 +1326,12 @@ others answer as their upload ended, without asking the source. Its `with`
 context is not among them: a change there sends nothing. Of a resource's
 uploads the newest 32 that ended keep their answers; an older one's
 arguments, asked again, fail with `failure(x).reason` `already-sent` and send
-nothing. A reload and an update of the data module keep this; an upload one
-of them, or new arguments, cut off on its way comes back failed, its
-`failure(x).reason` `interrupted`, and is not sent again. A launch starts
+nothing. A plan reload and an update of the data module keep this, but for
+the web JS target's development reload, a new page, which asks again an
+upload the page still shows. An upload one of them, or new arguments, cut
+off after it began to go out comes back failed, its `failure(x).reason`
+`interrupted`, and is not sent again; one that had not begun is asked
+again. A launch starts
 afresh, so a relaunched app that still shows the resource at those arguments
 sends the upload again: record what it answered in the store (the server's
 id for an attachment, as upstream T3 Code keeps its attachment ids) and stop

@@ -1,6 +1,4 @@
 import { resourceInspection } from "./resource-inspection.js";
-import { uploadAnswer, uploadAt, uploadEnded, uploadSent } from "./uploads.js";
-import { Open, closeLetGo } from "./open-streams.js";
 import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
 export { liveTime } from "./live-time.js";
 import { commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
@@ -379,8 +377,8 @@ function unpark() { if (Parked >= 0 && Rev !== Parked) { Parked = -1; paint(); }
 /** The app's data sources (LLP 1016). `answer(source, args, store)` gives
  * `{v}` now, `{req}` (an HTTP request the host runs, then `parse`s),
  * a Promise (an executor-local continuation: TypeScript), or `null` while
- * the source is not ready; `ready(f)` calls `f` once it is. */
-export const data = { answer: () => null, parse: null, q: [], ready: f => data.q.push(f) };
+ * the source is not ready; `ready(f)` calls `f` once it is. `uploads`: the uploads asked, none until ts-data.js installs uploads.js's `ledger` (LLP 1016.000 D10). */
+export const data = { answer: () => null, parse: null, q: [], ready: f => data.q.push(f), uploads: { at() {}, ends: (r, t, ...c) => c, kept: r => r.value } };
 const DEVELOPMENT_STORE = null; // a development build's app directory, as storage-environment.js's (host/web-js/build.mjs writes both)
 /** The page's `localStorage` keys of a kind: "exact.<kind>.<name>", or in a development build "exact.<kind>.@<digest>/<name>", its app's own on the origin the dev server's apps share (LLP 1116.004 D8). Persisted state's kind is "state" (persist.js); the durable store's (LLP 1018, `Store`: name → text, kept after a commit stands) is "secret". */
 export const Kept = kind => `exact.${kind}.${DEVELOPMENT_STORE ? `@${DEVELOPMENT_STORE}/` : ''}`;
@@ -423,6 +421,16 @@ function send(t, land) {
     } else if (t.req) data.fetch(t.req).then(done, failed);
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }));
   });
+}
+/** Open streams: one whose ticket its resource or mutation let go (new arguments, `refresh`, a failure,
+ * its region ended) is closed once the commit that let it go stands, as the runner's forget path (D2). */
+const Open = new Set();
+function closeLetGo() {
+  for (const t of Open) if (!t.held() || t.r?.gone) {
+    Open.delete(t); longPollEnded(t); t.closed = true; t.ctl.abort();
+    if (t.waiting) { t.waiting = false; counted(t, inflight); }
+    say(`close stream ${t.id}: its ticket was let go`);
+  }
 }
 function ask(source, args, name, mutation = false) {
   if (["startActivity", "updateActivity", "endActivity"].includes(source)) throw new Refusal(`${source} is not linked into this artifact`);
@@ -467,26 +475,20 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     r.checked = v;
     r.value = v; r.settled = a; r.origin = origin; Inspections.take(r, generation);
   };
-  const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
+  const land = t => reply(t, name, source, () => r.ticket === t, ...data.uploads.ends(r, t, (p, o) => { // an upload keeps how it ended (uploads.js)
     if (t.call?.seen?.read || p.store) r.store = t.read = true; if (p.req) { if (o.more) { const n = { id: ++Ticket, name, owner: r, args: t.args, req: p.req, r, origin: t.origin, generation: t.generation }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
     if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin, t.generation); r.failed = null; r.error = r.code = r.reason = undefined; if (!o.more) r.ticket = null; again(t);
-    if (t.upload && !o.more) uploadEnded(r, t, { v: p.v }); // the answer an upload ended with (LLP 1016.000 D10)
     W(pend, !!(o.more && t.upload)); W(fail, null); W(ver, ver.n.v + 1); // an upload is pending until its reply
-  }, "it keeps its last value", (error, code, reason) => {
-    if (t.upload) uploadEnded(r, t, { failed: [error, code, reason] });
-    if (t.call?.seen?.read || t.read || data.threwRead?.()) r.store = true; r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r);
-  });
+  }, "it keeps its last value", (error, code, reason) => { if (t.call?.seen?.read || t.read || data.threwRead?.()) r.store = true; r.ticket = null; r.failed = t.args; r.error = error; r.code = code; r.reason = reason; write(pend.n, false); write(fail.n, failure()); Inspections.fail(r); }));
   const m = memo(() => Ov.shown(r, (() => {
     ver();
     const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
-    const forced = r.forced, rev = r.rev, reconciling = r.reconciling; // `reconciling`: asked after a write ended, a refusal fails it (overlay.js)
+    const forced = r.forced, rev = r.rev, reconciling = r.reconciling, mk = data.uploads.at(r, a); // `reconciling`: asked after a write ended, a refusal fails it (overlay.js); `mk`: an upload asked at these arguments, not asked again (LLP 1016.000 D10)
     r.forced = r.rev = r.reconciling = false;
-    const mk = uploadAt(r, a); // an upload asked at these arguments is not asked again (LLP 1016.000 D10)
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs), but not an upload's. `fail` follows.
     if (r.failed && (forced && !mk?.failed || !equal(a, r.failed))) { r.failed = null; r.error = r.code = r.reason = undefined; }
     flag(fail, failure());
-    if (r.failed) return r.value;
-    if (mk) return uploadAnswer(r, mk, a, { take, fails, release }); // as it ended, or still going for these arguments
+    if (r.failed || mk) return r.failed ? r.value : data.uploads.answer(r, mk, a, { take, fails, release }); // an upload answers as it ended, or goes on
     const baked = r.baked; r.baked = false;
     if (!forced && !rev) {
       // Arguments compare as the runner's do (`equal`: `-0` is `0`, NaN asks again); a bake is asked once anyway (LLP 1048.003 D6).
@@ -513,15 +515,13 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     if (ans && !forced && !rev && r.ticket && !equal(a, r.ticket.args) && (ans.req && r.ticket.req && sameReq(ans.req, r.ticket.req) || ans.upload && ans.upload === r.ticket.upload)) { // a Rust request, or an upload (LLP 1016.000 D10)
       say(`keep request ${r.ticket.id} (${name}): the same request for newer arguments`);
       r.ticket.args = a; r.ticket.generation = r.inspection?.request;
-      if (r.ticket.upload) uploadSent(r, a, r.ticket);
-      return r.value;
+      return data.uploads.kept(r, a); // what it shows meanwhile; an upload's mark covers these arguments too
     }
     if (ans && (ans.req || ans.promise || ans.stream)) {
       hold();
       const t = { id: ++Ticket, name, owner: r, args: a, req: ans.req, promise: ans.promise, call: ans.call, stream: ans.stream, upload: ans.upload, baked, r, origin: Ov.tick(), generation: r.inspection?.request }; if (baked) say(`${name} shows its build-time answer until its source answers`);
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
-      if (t.upload) uploadSent(r, a, t);
       return r.value;
     }
     // Not ready (Rust loads after first paint): the bake's answer stands, not pending, asked at `ready` as at data_ready (review B3); another compiled

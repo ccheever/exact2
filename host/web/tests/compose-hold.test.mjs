@@ -51,7 +51,7 @@ const page = `<!doctype html><meta charset="utf-8"><div id="exact-root">
   window.tell = v => commit(() => W(told, v));
   window.ready = true;
 </script>`;
-const REAL = ['rt.js', 'open-streams.js', 'held.js', 'font-family.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'elements.js'];
+const REAL = ['rt.js', 'held.js', 'font-family.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'elements.js'];
 const STUBS = standIns(REAL);
 const module = name => REAL.includes(name) ? readFileSync(resolve(WEB_JS, name))
   : STUBS.get(name) ?? null;

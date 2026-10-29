@@ -200,3 +200,15 @@ test('of many uploads, the newest keep their answers and the older answer that t
   expect([0, 7, 8, 39].map(at)).toEqual(['failed', 'failed', 'took 8', 'took 39']);
   expect(reasons).toEqual(['already-sent', 'already-sent']);
 });
+
+// uploads.js's cut-off: an upload whose ticket was let go (rt.js `closeLetGo` closes it once that commit stood) is cut off
+// if it reached the network, and forgotten, to be asked again, if it never did.
+test('an upload let go is cut off if it went out, and forgotten if it never did', async () => {
+  const { uploadAt, uploadSent } = await import('./uploads.js');
+  const r = { marks: [], context: 0, ticket: null };
+  const out = { ctl: { sent: true } }, never = { ctl: { sent: false } };
+  uploadSent(r, [1], out);
+  uploadSent(r, [2], never);
+  out.closed = never.closed = true;
+  expect([uploadAt(r, [1])?.failed?.[2], uploadAt(r, [2])]).toEqual(['interrupted', undefined]);
+});
