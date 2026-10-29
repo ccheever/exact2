@@ -11,6 +11,7 @@ import { ClientError, type Native } from '../client/protocol';
 import type { MinimapRow } from './timeline-minimap';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
+import { sleep } from '../client/command-waits';
 
 type CitedHistoryOutcome = 'found' | 'aborted' | { title: string; description: string };
 const MAX_CITATION_PAGES = 20;
@@ -72,9 +73,8 @@ export function citationJump(rows: readonly MinimapRow[], index: number): string
 export async function revealCitation(client: T3Client, native: Native, threadId: string, messageId: string, rows: () => readonly MinimapRow[], place: (key: string) => void,
   unfold: (messageId: string) => boolean = () => false): Promise<string> {
   if (!threadId || !client.shell.threads.some(thread => thread.id === threadId)) throw new ClientError('Thread no longer available');
-  const access = client.restAccess(native);
   if (threadId !== client.threadId) await client.openSelected(native, threadId);
-  const outcome = await loadCitedHistory(client, native, threadId, messageId, () => access.call({ op: 'timelineSleep', ms: 180 }).catch(() => undefined));
+  const outcome = await loadCitedHistory(client, native, threadId, messageId, () => sleep(180));
   if (outcome === 'aborted') return '';
   if (outcome !== 'found') { pushToast(client, { kind: 'warning', ...outcome }); return ''; }
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -90,7 +90,7 @@ export async function revealCitation(client: T3Client, native: Native, threadId:
       if (quoteChanged(current, index, messageId)) pushToast(client, { kind: 'warning', title: 'The quoted text has changed', description: 'Showing the source response. The saved quote is unchanged.' });
       return '';
     }
-    await access.call({ op: 'timelineSleep', ms: 180 }).catch(() => undefined);
+    await sleep(180);
   }
   return '';
 }

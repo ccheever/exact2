@@ -10,7 +10,7 @@ import { applyShell, obj, str, type Obj, type Shell } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
 import { EnvironmentFleet, type FleetEntry } from '../connections/settings-b-fleet';
-import { settle, wakeShell } from '../client/command-waits';
+import { sleep, wakeShell } from '../client/command-waits';
 
 /** The Scratch project was created, but it never reached this client. */
 export const SCRATCH_NOT_LOADED = 'The folder for threads without a project has not reached this device yet. Try again.';
@@ -27,10 +27,10 @@ export const isScratch = (project: Obj | undefined, root: string): boolean => !!
  * Waits until `has` sees the project, rereading through `reread` between polls, for up to
  * 10 seconds (the store wait in openScratch). Throws SCRATCH_NOT_LOADED when it never arrives.
  */
-export async function awaitScratchProject(native: Native, has: () => boolean, reread: () => Promise<void>, wait = SCRATCH_WAIT_MS): Promise<void> {
+export async function awaitScratchProject(has: () => boolean, reread: () => Promise<void>, wait = SCRATCH_WAIT_MS): Promise<void> {
   for (let waited = 0; !has(); waited += SCRATCH_POLL_MS) {
     if (waited >= wait) throw new ClientError(SCRATCH_NOT_LOADED);
-    await settle(native, SCRATCH_POLL_MS);
+    await sleep(SCRATCH_POLL_MS);
     await reread().catch(() => undefined);
   }
 }
@@ -75,7 +75,7 @@ export async function openRemoteScratch(client: T3Client, native: Native, entry:
     const projectId = str((await call({ op: 'request', method: 'projects.ensureScratch', payload: {} })).projectId);
     if (!projectId) throw new ClientError(SCRATCH_NOT_LOADED);
     const has = () => entry.shell.projects.some(project => project.id === projectId);
-    await awaitScratchProject(native, has, async () => { entry.shell = applyShell(entry.shell, await call({ op: 'http', path: '/api/orchestration/shell' })); });
+    await awaitScratchProject(has, async () => { entry.shell = applyShell(entry.shell, await call({ op: 'http', path: '/api/orchestration/shell' })); });
     return projectId;
   } finally { changing.set(client, (changing.get(client) ?? 1) - 1); await wakeShell(native); }
 }
@@ -83,7 +83,7 @@ export async function openRemoteScratch(client: T3Client, native: Native, entry:
 /** The focused machine's Scratch project after projects.ensureScratch (openScratch's wait, at most 10 s). */
 export async function awaitFocusedScratch(client: T3Client, native: Native, projectId: string): Promise<void> {
   const has = () => client.shell.projects.some(project => project.id === projectId);
-  await awaitScratchProject(native, has, async () => {
+  await awaitScratchProject(has, async () => {
     client.shell = applyShell(client.shell, await client.restAccess(native).http('/api/orchestration/shell'));
   });
 }

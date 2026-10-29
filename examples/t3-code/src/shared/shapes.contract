@@ -557,6 +557,9 @@ shape Snapshot
   // General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).
   legacy: LegacySidebarView
   messages: Message[]
+  // The transcript's rows its window keeps mounted (timeline-kept-rows.ts): the first and last message, a playing
+  // sound's row and a full-screen app's.
+  transcriptKeep: string[]
   historyError: string
   revertPending: string
   minimap: MinimapItem[]

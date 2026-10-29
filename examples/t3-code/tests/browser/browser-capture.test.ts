@@ -94,7 +94,7 @@ function fakeModule(handlers: Record<string, (request: Call) => Obj | Promise<Ob
     const call = request as Call;
     calls.push(call);
     const key = call.action ? `${call.op}:${call.action}` : call.op;
-    const handler = handlers[key] ?? handlers[call.op] ?? (call.op === 'timelineSleep' ? timelineSleep : undefined);
+    const handler = handlers[key] ?? handlers[call.op];
     if (!handler) return { ok: true, generation: 0, value: {} };
     try { return { ok: true, generation: 0, value: await handler(call) }; }
     catch (error) { return { ok: false, generation: 0, error: { kind: (error as { kind?: string }).kind ?? 'Fake', message: (error as Error).message } }; }
@@ -121,8 +121,6 @@ const annotation = {
   id: 'annotation_1', pageUrl: 'https://example.com/', pageTitle: 'Example', comment: 'Tighten this spacing', elements: [], regions: [{ id: 'region_1', rect: { x: 1, y: 2, width: 30, height: 40 } }],
   strokes: [], styleChanges: [], screenshot: null, createdAt: '2026-07-27T00:00:00.000Z',
 };
-/** The module's sleep, scaled down: a timeout still loses to an answer that comes at once. */
-const timelineSleep = (request: Call) => new Promise<Obj>(resolve => setTimeout(() => resolve({}), Math.min(Number(request.ms) || 0, 40)));
 const crop = { id: '0f8c1b52-9a4c-4d2e-8a0b-3c2d1e0f9a8b', name: 'preview-annotation-annotation_1.png', sizeBytes: 812, width: 120, height: 80, cropRect: { x: 0, y: 0, width: 60, height: 40 } };
 
 describe('PreviewChromeRow: Annotate, Capture and Float preview', () => {
@@ -370,7 +368,7 @@ describe('handleCapture', () => {
   it('a failed Reveal says nothing; a recording\'s failed Copy path keeps only Reveal, a screenshot\'s keeps its buttons', async () => {
     const client = fakeClient(), dir = '/lane/t3-home/userdata/browser-artifacts';
     fakePage(() => null);
-    const saved = fakeModule({ timelineSleep, 'browserArtifact:adopt': () => ({ id: 'browser-screenshot-a', path: `${dir}/browser-screenshot-a.png`, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }),
+    const saved = fakeModule({ 'browserArtifact:adopt': () => ({ id: 'browser-screenshot-a', path: `${dir}/browser-screenshot-a.png`, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }),
       'browserRecord:capture': () => ({ width: 800, height: 600, frameRate: 30 }), 'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }),
       'browserRecord:finish': () => ({ path: '/var/folders/x/T/r.mp4', mimeType: 'video/mp4;codecs=avc1', sizeBytes: 9 }),
       'browserRecord:save': request => ({ id: 'browser-recording-b', tabId: request.tab, path: `${dir}/browser-recording-b.mp4`, mimeType: request.mimeType, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }) });
@@ -403,7 +401,7 @@ describe('handleCapture', () => {
     (client.local.clientSettings as Obj).browserRecordingFrameRate = 60;
     const encoded = '/var/folders/x/T/t3-recording-1.mp4';
     const module = fakeModule({
-      timelineSleep, 'browserRecord:arm': () => ({ armed: true }), 'browserRecord:capture': request => ({ width: 1280, height: 800, frameRate: request.frameRate }),
+      'browserRecord:arm': () => ({ armed: true }), 'browserRecord:capture': request => ({ width: 1280, height: 800, frameRate: request.frameRate }),
       'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }), 'browserRecord:disarm': () => ({ armed: false }),
       'browserRecord:finish': () => ({ path: encoded, mimeType: 'video/mp4;codecs=avc1', sizeBytes: 4096, frames: 90 }), 'browserRecord:release': () => ({}),
       'browserRecord:save': request => ({ id: 'browser-recording-x', tabId: request.tab, path: '/lane/t3-home/userdata/browser-artifacts/browser-recording-x.mp4', mimeType: request.mimeType, sizeBytes: 4096, createdAt: '2026-10-09T00:00:00.000Z' }),
@@ -423,13 +421,13 @@ describe('handleCapture', () => {
 
   it('reports a recording that cannot start, and turns decorations on only when a setting asks', async () => {
     const client = fakeClient();
-    const module = fakeModule({ timelineSleep, 'browserRecord:arm': () => { throw new Error('The page could not be captured.'); } });
+    const module = fakeModule({ 'browserRecord:arm': () => { throw new Error('The page could not be captured.'); } });
     await captureLocal(client, module.native, browserPanel(), 'capture', target, 'record');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Unable to start recording',
       description: 'Preview capture failed during recording-start. Check the preview host and target tab before retrying.' });
     const decorated = fakeClient();
     Object.assign(decorated.local.clientSettings as Obj, { browserRecordingShowKeyPresses: true });
-    const ok = fakeModule({ timelineSleep, 'browserRecord:capture': () => ({ width: 800, height: 600, frameRate: 30 }), 'browserRecord:decorate': () => ({ active: true }), 'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }) });
+    const ok = fakeModule({ 'browserRecord:capture': () => ({ width: 800, height: 600, frameRate: 30 }), 'browserRecord:decorate': () => ({ active: true }), 'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }) });
     await captureLocal(decorated, ok.native, browserPanel(), 'capture', target, 'record');
     expect(ok.calls.find(call => call.action === 'decorate')).toMatchObject({ showKeyPresses: true, showMousePresses: false, primaryColor: '#1b4ed8' });
     expect(ok.calls.find(call => call.action === 'arm')).toMatchObject({ showKeyPresses: true, showMousePresses: false });

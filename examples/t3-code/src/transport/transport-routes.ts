@@ -10,7 +10,8 @@
 // address answered as this environment, and never over plain HTTP it was not paired over
 // (connection-routes.ts sendsTokenInClear: such a route is left out of the walk and the checks). Checks run in the answer that connects (it may fetch); the
 // 60 s cadence is the transport's tick. The walk's shared head start is a second check of each direct route with a
-// 500 ms deadline, since a data module has no timers (LLP 1016.000 D7).
+// 500 ms deadline, which the host keeps: natively a timer raced against the answer's own fetch runs only once the fetch
+// lands (LLP 1027.000 D1, Fetches), so a 500 ms sleep would wait out a dead route's whole check.
 import { TransportFailure, letGoAbort, origin as parseOrigin, path, trimmed } from './transport-wire';
 import type { Catalog, Entry } from './transport-catalog';
 import { sendsCredentialInClear, type ConnectionRoute } from '../connections/connection-routes';

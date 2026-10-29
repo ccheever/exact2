@@ -17,6 +17,7 @@ import { arr, num, obj, str, type Obj } from '../client/domain';
 import { capitalizeTerm, terminologyOf } from '../details/git-logic';
 import { ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
+import { sleep } from '../client/command-waits';
 import { pushToast } from '../shell/toast';
 import { buildDiffReviewComment, diffReviewLines, findDiffReviewLineIndex, type SelectedLineRange, type SelectionSide } from '../diff/diff-comments';
 import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDrag, type LineDrag, type LinePoint, type RowIndex } from '../diff/diff-line-drag';
@@ -135,7 +136,7 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
   // The Viewed ticks gather FLUSH_DELAY_MS after the last press, then go in one write.
   if (code.viewed.flushable()) {
     const presses = code.viewed.key();
-    await sleep(native, FLUSH_DELAY_MS);
+    await sleep(FLUSH_DELAY_MS);
     if (code.viewed.key() === presses) await flushViewed(client, native, code, reference, listedOn);
   }
   if (viewedOn && code.viewed.due) {
@@ -553,10 +554,6 @@ async function flushViewed(client: T3Client, native: Native, code: CodeState, re
     // A partly applied batch: the marks are read again rather than left where the revert put them.
     if (!answer.interrupted && reverted) { pushToast(client, { kind: 'error', title: 'Could not update viewed files' }); code.viewed.due = true; }
   });
-}
-/** The native sleep (command-waits.ts settle), but a let-go answer stops here. */
-async function sleep(native: Native, ms: number): Promise<void> {
-  try { await native.later({ op: 'timelineSleep', ms }); } catch (error) { if (letGo(error)) throw error; }
 }
 
 // ── The tab's host writes (pageslocal:pr-act-code-agent, thread-*) ──────────

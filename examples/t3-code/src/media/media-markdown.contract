@@ -90,7 +90,7 @@ component MarkdownMedia
     // `urls`, into each of the chip's reads.
     if kind == "audio" and access != "blocked"
       for sound in [audioSource(urls, target, access)] key=target
-        AudioChip(name=tip, src=sound.src, failed=sound.failed, open=local("media-open-file", source, ""), id=nodeId)
+        AudioChip(name=tip, src=sound.src, failed=sound.failed, open=local("media-open-file", source, ""), report=local("audio-playing", owner), id=nodeId)
     if visual and access != "blocked" and refused
       MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
         if kind == "video"

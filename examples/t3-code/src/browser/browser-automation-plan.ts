@@ -53,9 +53,9 @@ export function resolveHostWaitBudgetMs(requestTimeoutMs: number): number {
   return Math.max(0, requestTimeoutMs - reservedMs);
 }
 export type Timers = { now: () => number; setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (handle: unknown) => void };
-/** Both readiness probes and polling delays share the request's host deadline. A data source has no clock and no
- *  timers (LLP 1027.000), so the executor runs this rule over the module's sleeps (browser-automation-run.ts
- *  `waitUntil`); this port, over an injected clock, is the rule's tested statement. */
+/** Both readiness probes and polling delays share the request's host deadline. A data source has no clock (LLP
+ *  1027.000 D2), so the executor runs this rule over its own sleeps (browser-automation-run.ts `waitUntil`); this port,
+ *  over an injected clock, is the rule's tested statement. */
 export async function waitForHostReadiness(deadlineMs: number, isReady: () => Promise<boolean>, timers: Timers): Promise<boolean> {
   while (timers.now() < deadlineMs) {
     let timeout: unknown;

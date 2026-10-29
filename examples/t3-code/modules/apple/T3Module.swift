@@ -47,7 +47,7 @@ final class T3Module: ExactModule {
     }
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
     /// calls `next` for the rest; what no area owns is the module's own (`status`). No two areas share an op. A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.localOps, T3Module.activationOps, T3Module.browserOps]
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.localOps, T3Module.activationOps, T3Module.browserOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
@@ -71,6 +71,7 @@ final class T3Module: ExactModule {
         composer.install(element); promptPreview.install(element); chrome.install(element); menus.install(element); devices.install(element)
         mediaFocus.install(element); browserPages.install(element)
         activationElement(element) // `t3 app`: the window whose closing fails its requests (T3Module+Activation.swift)
+        if let window = element.view?.window { textMenu.attachTail(to: window) } // the shell's menu for a request no node answers
         if element.hatch == .t3Composer { snapShot.setComposer(key: ObjectIdentifier(element), owner: element.data[.snapshotOwner] ?? "", view: element.view, focus: { [weak element] in element?.focus() }) }
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.installTile(id: element.data[.snapshotId] ?? "", view: view) }
     }
