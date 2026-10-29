@@ -121,6 +121,9 @@ enum ResetGate {
         "hostBack(_:now:)": "a back gesture the teardown set off is the old navigation's",
         "hostBack(from:to:now:)": "a back the teardown set off is the old navigation's",
         "beforeunload(_:now:)": "the old page's unload as it goes",
+        "surfaceRecord(_:_:)": "an old canvas publisher released as the teardown ends it: the new runner starts with no surface records (none is carried), and the new tree's publishers record their own",
+        "regionComplete(_:)": "an old generation's region artifact: `RegionController` drops one from another generation before it is told, and the new tree asks its own",
+        "fulfillSurface(_:kind:body:now:)": "an old-tree surface completing as its view goes: `completeSurface` drops a completion from another generation before it is told",
         // Told again before the reset returns (Session `presentCommitted`, `applyTogether`): moot.
         "setPreferences(_:)": "the person's preferences: `tellTime` tells the new runtime them again (`tellPreferences`)",
         "reportColors(tint:)": "the window's tint: `treeIsIn` flushes `colorsOwed`, and `tellPreferences` reports it again",
@@ -146,28 +149,28 @@ enum ResetGate {
         "setLaunchPlace(locale:timeZone:seed:formatLocale:)": "the launch place, told at boot, outside the hold",
     ]
 
-    /// Held calls dropped though what they carry is lost: an arrival from outside the tree that can land in a
-    /// teardown, whose content the new runtime then never hears until its source says it again. Dropped as any
-    /// unlisted call is, and kept apart from the drops above, which are moot over a reset: each is a known loss to
-    /// triage (QUEUE: "ResetGate's known losses"), and none may be added (host/apple tests/it/reset_gate.rs).
+    /// Held calls dropped though what they carry is lost: an arrival from outside the tree whose content the new
+    /// runtime never hears until its source says it again. Kept apart from the drops above, which are moot over a
+    /// reset, and none may be added (host/apple tests/it/reset_gate.rs). Triaged 2026-10-29: most come from the main
+    /// queue, which the hold never drains (the teardown is synchronous and turns the run loop in none of the common
+    /// modes, even ending an open sheet or restarting several windows together: ResetHoldTests), so they can't reach a
+    /// held runtime. They stay
+    /// listed so the scan stays honest, and become real losses if ResetHoldTests ever fails.
     static let knownLoss: [String: String] = [
         "storeChanged(retryOnly:)": "a peer's persisted write: the window shows the old value until the store changes again",
-        "fulfillSurface(_:kind:body:now:)": "a native surface's reply: its ticket is never answered",
         "canvasImage(_:width:height:ok:)": "a Canvas 2D image decoded (or not): the canvas never hears its size",
         "canvasDisplay(scale:memory:)": "the display's scale and memory for Canvas 2D: the runner keeps the old ones",
         "textReady(index:generation:revision:)": "a text's asynchronous shaping finished: its measure stays provisional",
         "activities(_:)": "an activity snapshot or a send's completion from the arm: not heard",
         "midi(_:)": "a MIDI message or port change: not heard",
         "preferExtension(_:)": "an extension preference: not heard",
-        "surfaceRecord(_:_:)": "a surface's record: not heard",
         "designRows(_:)": "a live design frame: the old design shows until the next",
         "setModes(_:check:)": "mode pins: not applied",
-        "regionComplete(_:)": "a region artifact completed: not heard",
         "navigate(_:_:now:)": "a URL opened from outside (`openIncoming`), or a navigation from the old tree: the URL is not followed",
         "hostGo(_:now:)": "a forward the platform delivers, or the old navigation's: not taken",
         "share(_:now:)": "an incoming share: its inbox is deleted after delivery (`ShareReceive.claimInbox`), so it is gone",
         "picked(_:_:now:)": "a picker's chosen files, copied before the pick is told: told once, not again",
-        "change(_:_:selection:now:)": "an edit a teardown ends is the old field's (moot), but a document's delivered file paths ride it too (`ExactDocuments.deliver`): lost",
+        "change(_:_:selection:now:)": "an edit the teardown ends (the Mac commits it as its field goes) is the old field's, moot; but a document's delivered file paths ride it too (`ExactDocuments.deliver`), and are lost",
         "deliverySync()": "the delivery facts after an app-level event: `applyTogether` asks again after its resets, but a dev-menu fresh boot or a single session's `apply` does not",
         "controlTextChanged()": "the platform's control text (Dynamic Type, appearance): the measurement caches took the new traits, so no later call tells the runtime",
     ]
