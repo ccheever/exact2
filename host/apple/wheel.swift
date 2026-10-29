@@ -7,7 +7,8 @@
 //    "form":"fling"|"hold"|"release","wheel":[dx,dy]}
 // `point` is in the window from its top left, `screen` in the display from
 // the main screen's top left, and `wheel` is the finger's travel in the web's
-// sign (a positive dy scrolls down). It prints {"posted":n,"periodMs":p}.
+// sign (a positive dy scrolls down). It prints the post count, measured
+// display period and longest host-clock interval between consecutive posts.
 //   fling   began, the travel over 100 ms, a zero-delta ended, then momentum
 //           from the finger's last velocity, decaying by 0.95 a period, ended
 //           under half a point or after 2 s
@@ -60,6 +61,8 @@ final class Pacing {
     var firstTick: Double?
     var intervals = 0
     var period = 0.0
+    var lastPost: Double?
+    var maxGap = 0.0
 
     func tick(_ link: CVDisplayLink, pid: Int32) {
         let now = Double(CVGetCurrentHostTime()) / CVGetHostClockFrequency()
@@ -78,6 +81,9 @@ final class Pacing {
         if previous == 0 && period > 0 { measured.signal() }
         if let event = pending {
             pending = nil
+            let postedAt = Double(CVGetCurrentHostTime()) / CVGetHostClockFrequency()
+            if let lastPost { maxGap = max(maxGap, postedAt - lastPost) }
+            lastPost = postedAt
             event.postToPid(pid)
             delivered.signal()
         }
@@ -166,5 +172,6 @@ guard pacing.measured.wait(timeout: .now() + 3) == .success else {
 CVDisplayLinkStop(link)
 pacing.lock.lock()
 let measuredPeriod = pacing.period
+let maxGap = pacing.maxGap
 pacing.lock.unlock()
-print(#"{"posted":\#(posted),"periodMs":\#((measuredPeriod * 1000 * 100).rounded() / 100)}"#)
+print(#"{"posted":\#(posted),"periodMs":\#((measuredPeriod * 1000 * 100).rounded() / 100),"maxGapMs":\#((maxGap * 1000 * 1000).rounded() / 1000)}"#)

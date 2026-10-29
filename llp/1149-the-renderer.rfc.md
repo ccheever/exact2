@@ -988,20 +988,32 @@ decodes the JPEGs at full size. S1.2 fixes that (an idle app submits nothing, D7
 per frame, D11; the complete frame's present; the decode at the drawn size), and G3 is run
 again before any ink number is cited against GPUI.
 
-**S1.2 to S1.5 and G3b, 2026-10-29**: S1.2–S1.3 removed the carrier's idle
+**S1.2 to S1.5 and G3c, 2026-10-29**: S1.2–S1.3 removed the carrier's idle
 timer spin, overlapped the next frame's walk with rendering, repaired the complete-frame
 retry and decoded thumbnails at their drawn size. S1.4–S1.5 attributed much of G3's cadence
 difference to gaps in the driver's input and GPUI's re-presentation between inputs, then paced the
-driver by the display. G3b's quiet verification at `26646bb58e` failed its input gate:
-390 of 415 within-gesture gaps were in [8.0, 8.7) ms, but three reached 12 ms
-(16.672, 41.629 and 12.481 ms); 424 events were posted and 419 received.
-The one accepted traced sample had 1.474 late intervals per gesture second and an
-8.333 ms p95, but the required zero long input gaps was not met, so the three-arm
-series stopped before collection. There are no new comparative cold-start, CPU per
-second or frame, rest-CPU or footprint distributions against GPUI and the native host;
-D15's separate renderer and device-arm verdicts are unchanged, and this verification
-qualifies neither the carrier nor its boot budget. S1.4's roughly 340 MiB graphics
-transient during the fling remains open (`bench/heavy-list/gpui/RESULTS.md`, “G3b”).
+driver by the display. G3c reused G3b's three release arms, with five quiet interleaved
+fling/rest samples and ten fresh-process launches each. Medians for Ink on direct Metal,
+GPUI and the native host, respectively: cold to first complete frame **343.83, 312.17,
+370.26 ms** (presented drawable for Ink/GPUI, layer snapshot for native); fling process
+CPU **82.02, 87.31, 133.41 ms/s**, with **2.540 and 0.965 ms per presented frame**
+for Ink and GPUI over the same ten-second phase (GPUI includes unchanged re-presentations;
+native presented frames are unmeasured); rest CPU **1.393, 4.917, 1.200 ms/s**.
+Ink and GPUI both have **8.33 ms p95 and 1.249 late intervals/gesture second**;
+Ink's late range is 0.250–2.247/s and GPUI's 0.750–1.720/s. Native's different,
+display-link instrument gives 8.33 ms p95 and 0.800 late intervals/s. Ink received
+**420/424** posted inputs (406–424), GPUI **416/424** (412–421); native's local monitor
+records 8/424 because AppKit tracking bypasses it. Driver maximum posting gaps have
+medians **17.017, 16.849, 17.212 ms**, so neither posting nor delivery is uniformly
+one event per refresh; raw cadence retains those effects. Peak / end-of-fling /
+end-of-rest footprint is **591.52 / 245.97 / 238.59 MiB** for Ink,
+**409.20 / 389.34 / 208.95 MiB** for GPUI and **228.70 / 212.03 / 211.35 MiB**
+for native. Ink's CPU/s is lower than GPUI's with overlapping ranges, while its
+peak and rest footprint remain higher; cold medians all exceed D15's 100 ms budget,
+and this retained-cache series does not test the empty-cache requirement. Without
+improved vello or the wgpu Ink arm, G3c cannot decide D15's C-over-B or D-over-C
+comparisons or qualify D12's carrier. S1.4's roughly 340 MiB graphics transient
+remains open (`bench/heavy-list/gpui/RESULTS.md`, “G3c”).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and

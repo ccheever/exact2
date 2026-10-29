@@ -1760,3 +1760,181 @@ image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered 
 ```
 
 The logs and command exit codes are in `target/g3b/checks/`.
+
+G3c below replaces the received-gap gate with posting measurements; the orchestrator diagnosed
+the gaps in G3b's third gesture as a roughly 30 ms window-server stall, with input absent for
+41.6 ms and a drawable presented 29 ms after commit instead of the usual 18 ms, around
+1253670.011, 1253670.028 and 1253670.070 s in
+`target/g3b/verification/ink-1-retry.json.trace.json`.
+
+## G3c: window to window, the driver paced by the display
+
+@ref LLP 1149 §4.1, D7, D12, D15; measured 2026-10-29 on `lane/ink-s1`,
+starting at `ab2455a502`. The three release bundles, linked probes and measurement
+binary in `target/g3b/` are unchanged from G3b, verified by SHA-256.
+Only `host/apple/wheel.swift` changed: `maxGapMs` reports the longest host-clock
+interval between consecutive posts in one gesture. Both `target/g3/exact-wheel`
+and the source-hash helper (`7313757cdcce07dd`) compiled from that source.
+`target/g3c/plan.txt` holds the launch commands; `provenance.json` holds the hashes.
+
+The machine and instruments are G3's: M5 Max, 18 CPU cores, 128 GiB,
+macOS 27.0.1 (26A434), built-in 120 Hz display, 800×800-point outer windows
+at 2×. Native's 800×800 content includes the title-bar safe area; GPUI and
+Ink have 800×768 content. Ink uses direct Metal; live mode and tracing are off.
+Four 600-point flings start at 0, 2.5, 5 and 7.5 seconds, followed by ten
+seconds at rest. Each retained sample posted four sets of 106 events.
+
+### Three-arm results
+
+Values are **median (minimum–maximum)** across five qualified fling/rest
+samples and ten qualified fresh-process launches per arm. The first five
+launches supply the fling/rest samples; slots 6–10 are cold-only. Application,
+filesystem and driver caches were retained: these are new processes, not
+empty-cache launches. **Every retained sample was quiet.**
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal |
+|---|---:|---:|---:|
+| Cold to first complete frame, ms; native snapshot / GPUI and Ink presented drawable | 370.26 (340.06–452.06) | 312.17 (293.53–483.95) | 343.83 (314.39–452.01) |
+| Fling process CPU, ms/s | 133.41 (116.98–140.29) | 87.31 (77.78–89.03) | 82.02 (78.19–93.23) |
+| Fling process CPU per presented frame, ms | — | 0.965 (0.881–1.005) | 2.540 (2.429–2.834) |
+| Fling main-thread CPU, ms/s | 89.29 (80.85–94.19) | 41.35 (36.54–42.49) | 38.77 (38.16–44.88) |
+| Rest process CPU, ms/s | 1.200 (1.115–1.370) | 4.917 (4.476–5.698) | 1.393 (1.193–3.628) |
+| Rest main-thread CPU, ms/s | 0.582 (0.552–0.687) | 3.147 (2.905–3.718) | 1.266 (1.105–2.906) |
+| Peak footprint during fling, MiB | 228.70 (222.94–235.72) | 409.20 (396.78–414.75) | 591.52 (590.41–592.25) |
+| End-of-fling footprint, MiB | 212.03 (207.02–225.81) | 389.34 (386.24–396.50) | 245.97 (244.92–246.69) |
+| End-of-rest footprint, MiB | 211.35 (206.28–225.05) | 208.95 (203.58–213.39) | 238.59 (237.59–239.39) |
+
+GPUI and Ink use the same drawable hook and `MTLDrawable.presentedTime`;
+their first presented drawable was the first complete scene in all twenty
+retained launches. Native's layer-snapshot milestone remains a different
+instrument. CPU per frame divides the process CPU used in the full ten-second
+fling phase by presented frames in that same phase: GPUI **886 (883–923)**,
+Ink **326 (322–330)**. GPUI's count includes unchanged re-presentations, so
+its lower CPU per presented frame is not a cost per newly drawn content frame.
+
+Native's cadence below is the display link over the ten-second fling;
+GPUI's and Ink's are presented drawables inside the gesture windows. As in
+G3, quantiles use `floor(p × count)`, late means strictly over 12.5 ms, and
+only adjacent timestamps with both endpoints inside one gesture window form
+a drawable interval. Late counts are divided by those windows' total duration.
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal |
+|---|---:|---:|---:|
+| Fling interval p50, ms | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) |
+| Fling interval p95, ms | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) |
+| Fling interval p99, ms | 8.33 (8.33–13.37) | 16.67 (8.33–16.67) | 16.67 (8.33–16.67) |
+| Late intervals/s | 0.800 (0.600–1.300) | 1.249 (0.750–1.720) | 1.249 (0.250–2.247) |
+| Gesture-window duration, s | 4.004 (3.996–4.070) | 4.003 (4.002–4.070) | 4.004 (4.000–4.006) |
+| Presented frames/s inside gesture windows | — | 103.69 (103.16–104.43) | 81.45 (80.38–82.42) |
+| Inputs received / posted per sample | 8/424 (8–8/424) | 416/424 (412–421/424) | 420/424 (406–424/424) |
+| Driver maxGapMs; maximum of four gestures | 17.212 (16.635–32.586) | 16.849 (16.654–16.936) | 17.017 (16.765–24.811) |
+
+The receive counts are the probe's `wheelEvents`; all denominators are the
+four driver `posted` counts summed. Native's asynchronous AppKit scrolling
+bypasses the local event monitor, so **8/424 is not 416 lost inputs**. GPUI
+recorded 97.17–99.29% of posts and Ink 95.75–100%; those deficits and the
+posting gaps remain beside the raw cadence. Every sample had a driver gap
+longer than one refresh; the reported `periodMs` values were 8.33–8.83 ms. Neither that period
+estimate nor the new maximum establishes one received input on every refresh,
+and this untraced series cannot assign each late interval to posting, delivery
+or rendering.
+
+### S1.5 prediction, checked line by line
+
+| Prediction | Result |
+|---|---|
+| Ink late intervals fall from about 12 to at most about 2/gesture second | **Met at the median:** 1.249/s (0.250–2.247), against G3's 12.124/s; one of five samples exceeded 2/s. |
+| Ink p95 falls to 8.33 ms | **Met:** 8.33 ms in all five samples, against G3's 16.67 ms. |
+| GPUI's rows remain inside G3's ranges | **Not met:** cold 312.17 ms is below 336.84–506.50; fling process/main CPU 87.31/41.35 ms/s is below 90.02–94.82/42.67–46.32; rest process/main CPU 4.917/3.147 ms/s is below 5.370–5.767/3.525–3.760. |
+| Native's rows remain inside G3's ranges | **Not met:** cold 370.26 ms is below 386.23–493.05; fling process/main CPU 133.41/89.29 ms/s exceeds 113.99–124.02/78.57–86.02; late cadence is 0.800/s against 0.100–0.500; end-of-fling/rest footprints 212.03/211.35 MiB are just below 212.33–228.72/211.64–227.97. |
+| Ink fling CPU/s rises about 40%, read per frame too | **Not met:** 82.02 against S1.3m's 105.34 ms/s, **−22.1%**; 2.540 against 3.164 ms/presented frame, **−19.7%**. Presented frames over the ten-second phase fell from 335 (329–340) to 326 (322–330); phase frames/s fell 2.7%. S1.3m was loaded, so this is not a controlled attribution to pacing. |
+
+The prediction of 464–490 intervals per 4.5 seconds is **withdrawn, not tested**:
+GPUI re-presents through the tail of each gesture window and Ink does not, so
+counts per window measure that padding as well as renderer activity.
+The replacement row reports **103.69 (103.16–104.43)** presented frames/s for
+GPUI and **81.45 (80.38–82.42)** for Ink during the actual gesture windows,
+with that same padding caveat; these are not equivalent rates of changed content.
+
+### Qualification, focus and window inspection
+
+`GO` appeared at **13:20:40 PDT**. The timed series ran **13:21:05–13:27:24**;
+the three screenshots finished at **13:27:43**. No window or input was launched
+before GO, and no verification fling, extra arm or extra round ran. All **77**
+five-second machine observations met the quiet rule, with maximum 1/5/15-minute
+loads **11.40/10.42/12.02** and no compiler processes. Every retained sample
+had `fair` thermal endpoints, Low Power Mode off, and successful activation,
+frontmost-PID and key-window checks before measurement and each gesture.
+Ink slots 1 and 2 needed another startup focus handshake before their windows
+became key; no input preceded the successful handshake.
+
+Native slot 1 lost focus during its second gesture to **Google Chrome**
+(`com.google.Chrome`, PID 60411). Its single retake completed. No other sample
+lost focus or required a retake; there were no startup timeouts or thermal
+rejections. Thus 31 timed process attempts yielded all 30 requested launches
+and 15 fling/rest samples. Raw attempts, focus sidecars, driver logs and quiet
+observations are in `target/g3c/series/{fling,cold}/`; `summary.json` records
+all retained paths, per-sample values and distributions. Each phase interleaves
+native/GPUI/Ink, GPUI/Ink/native, Ink/native/GPUI according to the existing
+driver's round number, without additional rounds.
+
+The [native](g3c-native-top.png), [GPUI](g3c-gpui-top.png) and
+[Ink](g3c-ink-top.png) screenshots are unscaled **1600×1600** captures at row
+zero, taken in three separate launches outside timing and visually inspected.
+All show Ava, Ben and Chloé, styled text, avatars and loaded photos. G3's
+visible differences remain: Ink's wrapping, emoji and code face, full-width
+separators and photo crops differ, while native and GPUI differ in text
+spacing and title-bar treatment. These captures do not establish pixel parity.
+
+G3's non-comparables remain: Ink is a benchmark carrier without the shipping
+accessibility, IME and menu surface; its Parley/swash text differs from platform
+text; GPUI owns its tree, layout, virtualization and platform layer, without
+Exact's kernel or runner; native carries AppKit views and Core Animation;
+native and Ink boot a baked plan while GPUI parses JSON. Equal input does not
+mean equal work: native ended at **8,403–9,322 points**, GPUI at item **18 +
+255 points**, and Ink at **6,172 points**. Row geometry, caches and scheduling
+differ. Native startup and cadence use different instruments. S1.5 adds that
+GPUI re-presents unchanged content between inputs and for about a second after
+each gesture, while Ink submits only changed frames. The rest-CPU row measures
+their different idle behavior. The posting gaps and receive deficits above limit
+the one-input-per-refresh comparison. No input-to-photon latency is measured.
+
+**Finding.** Ink's median fling CPU/s is below GPUI's, with overlapping ranges;
+its CPU per presented frame is higher, with GPUI's unchanged frames counted.
+Ink's median late cadence matches GPUI's here and its p95 is 8.33 ms, but the
+input gaps remain part of both measurements. Ink uses less rest CPU than GPUI,
+more peak footprint than either arm, and more end-of-rest footprint than either.
+Its 343.83 ms fresh-process cold median is above GPUI's 312.17 ms and below
+native's differently instrumented 370.26 ms; none meets D15's 100 ms boot
+budget. This comparison includes neither improved vello nor Ink on wgpu, so
+it cannot decide D15's C-over-B or D-over-C arms, nor qualify D12's shipping
+carrier. **S1.4's roughly 340 MiB graphics transient remains open:** the fling
+peak is 591.52 MiB against 245.97 MiB at its end, with no renderer change here.
+
+### Validation
+
+All six repository checks passed, including clippy, fmt, the workspace
+all-target check and caps' wasm32 check. The default-member and Linux tests
+used `RUST_TEST_THREADS=2`; Linux and the named suites also used
+`EXACT_INK_DEVICE=metal EXACT_REQUIRED=1`. The full Linux run passed
+1,576 library tests and 293 integration tests, excluding child reruns.
+No test retries were needed. The filtered suite results are verbatim:
+
+```text
+paint: test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 6.95s
+borders: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 3.27s
+tint: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 3.00s
+backdrop: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 3.44s
+gradients: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 3.05s
+visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 4.44s
+materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 3.78s
+image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 3.03s
+```
+
+Logs and exit codes are in `target/g3c/checks/`. Both wheel-helper builds
+passed, and the series exercised the new `maxGapMs` output in all sixty
+retained gestures. The aggregation reproduced G3's existing cadence, CPU
+and footprint distributions before applying the same formulas to G3c;
+the per-frame CPU uses matching time bounds, and every measured phase was
+ten seconds within 50 ms. All three screenshots were inspected at 1600×1600.
+`git diff --check` passed; the RFC diff is confined to the requested paragraph.
