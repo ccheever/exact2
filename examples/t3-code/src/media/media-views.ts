@@ -261,7 +261,7 @@ export function markdownInlineImages(text: string): InlineImage[] {
   const out: InlineImage[] = [];
   let fence: { marker: string; width: number } | null = null;
   for (const line of text.split('\n')) {
-    const trimmed = line.trimStart().replace(/\r$/, '');
+    const trimmed = line.trimStart(); // the fence checks count markers from its start and trim the rest, a CRLF's `\r` too
     if (fence) {
       const count = leading(trimmed, fence.marker);
       if (count >= fence.width && !trimmed.slice(count).trim()) fence = null;
@@ -269,7 +269,8 @@ export function markdownInlineImages(text: string): InlineImage[] {
     }
     const first = trimmed[0] ?? '';
     if ((first === '`' || first === '~') && leading(trimmed, first) >= 3) { fence = { marker: first, width: leading(trimmed, first) }; continue; }
-    if (!line.includes('![')) continue;
+    // An image's `]` is followed by its `(`: a line with no `](` holds none, and is not read past these searches.
+    if (!line.includes('![') || !line.includes('](')) continue;
     const marks = lineMarks(line), opened: number[] = [];
     let at = 0;
     while (at < line.length) {

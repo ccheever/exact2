@@ -180,7 +180,7 @@ export function markdownLinkLabels(text: string): string {
 export function shouldCollapseUserMessage(text: string): boolean {
   const linkLabels = markdownLinkLabels;
   let visible = '', cursor = 0;
-  for (const match of text.matchAll(COMPOSER_CITATION)) {
+  if (text.includes('](t3-citation:')) for (const match of text.matchAll(COMPOSER_CITATION)) {
     const citation = parseAssistantCitationHref(match[1]!);
     if (!citation) continue;
     visible += linkLabels(text.slice(cursor, match.index)) + assistantCitationLabel(citation);
@@ -219,7 +219,7 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     // A link chip's `target` is what the link wrote from the workspace root, which the workspace search can resolve.
     add({ href: `t3-file:${link.href}`, kind: 'link', label: link.label, size: '', tip: fileLinkTarget(link.href, root), detail: '', icon: fileIconToken(link.href), target: workspaceLookupPath(link.href, root, media.cwd || root) });
   }
-  if (root) for (const match of text.matchAll(/(`+)([^`]+)\1/g)) {
+  if (root && text.includes('`')) for (const match of text.matchAll(/(`+)([^`]+)\1/g)) {
     const code = match[2]!.trim(), candidate = inlineCodeFilePathCandidate(code);
     if (candidate === null) continue;
     const cwd = media.cwd || root;

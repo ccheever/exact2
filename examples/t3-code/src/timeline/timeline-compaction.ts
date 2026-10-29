@@ -24,7 +24,10 @@ export const IDLE_COMPACTION_TITLES: Record<IdleCompaction, string> = {
 
 /** isCompactionCommandMessage: a prompt that only asks the provider to compact, so its turn is the compaction itself. */
 export function isCompactionCommand(item: Obj): boolean {
-  return item.type === 'user_message' && str(item.text).trim().toLowerCase() === '/compact' && arr(item.attachments).length === 0;
+  if (item.type !== 'user_message') return false;
+  // Measured before it is lowercased: a long message is no command, and lowercasing it each turn costs its length.
+  const text = str(item.text).trim();
+  return text.length === '/compact'.length && text.toLowerCase() === '/compact' && arr(item.attachments).length === 0;
 }
 
 /** idleCompactionOf: why T3 Code sent this `/compact` on its own, or undefined for one someone asked for. */
