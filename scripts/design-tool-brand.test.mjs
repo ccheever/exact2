@@ -263,21 +263,28 @@ test('a brand kept in part is left out; a chosen one stays chosen through an unr
   } finally { await server3.close(); rmSync(app3, { recursive: true, force: true }); }
 }, 900_000);
 
-test('a brand is held again only with what its ink was measured through, transitively', async () => {
-  const { brandsLeftOut } = await import('./tamber-brands.mjs');
-  const ops = [
-    { op: 'add-token', name: 'shadcn.brand', value: '#ffd400' },
-    { op: 'add-token', name: 'shadcn.primary', value: 'shadcn.brand' },
-    { op: 'set-token', name: 'actions.follow-fill', value: 'shadcn.primary' },
-    { op: 'set-token', name: 'actions.follow-ink', value: '#000000' },
-  ];
-  const review = { brands: [{ sets: 'actions.follow-fill', token: 'shadcn.primary', items: [2, 3] }] };
-  expect(brandsLeftOut(review, ops, [0, 1, 2, 3]).gone).toEqual([]);
-  // Without the token the accent names, or edited through it, or in part: gone.
-  expect(brandsLeftOut(review, ops, [1, 2, 3]).gone).toEqual(['actions.follow-fill']);
-  expect(brandsLeftOut(review, ops, [0, 1, 2, 3], { edited: 'shadcn.brand' }).gone).toEqual(['actions.follow-fill']);
-  expect([...brandsLeftOut(review, ops, [0, 1, 2]).drop]).toEqual([2, 3]);
-  // The design moved and the accent is the design's: gone; the proposal's own, kept.
-  expect(brandsLeftOut({ brands: [{ ...review.brands[0], items: [0, 1] }] }, ops.slice(2), [0, 1], { moved: true }).gone).toEqual(['actions.follow-fill']);
-  expect(brandsLeftOut(review, ops, [0, 1, 2, 3], { moved: true }).gone).toEqual([]);
+test('a brand is held again only whole, and leaving its operations renumbers the rest', async () => {
+  const { brandsLeftOut, withoutItems } = await import('./tamber-brands.mjs');
+  const review = { tokens: 2, offers: [{ role: 'AccentColor', items: [1] }], brands: [{ sets: 'actions.follow-fill', items: [2, 3] }, { sets: 'cards.empty-button', items: [4, 5] }] };
+  expect(brandsLeftOut(review, [0, 1, 2, 3]).gone).toEqual([]);
+  expect(brandsLeftOut(review, [0, 1, 2, 4, 5]).gone).toEqual(['actions.follow-fill']);
+  const { ops, review: after, choice } = withoutItems(['a', 'b', 'c', 'd', 'e', 'f'], review, { choice: [0, 3, 4] }, new Set([2, 3]));
+  expect(ops).toEqual(['a', 'b', 'e', 'f']);
+  expect(after.brands).toEqual([{ sets: 'cards.empty-button', items: [2, 3] }]);
+  expect(after.offers[0].items).toEqual([1]);
+  expect(choice.choice).toEqual([0, 2]);
 });
+
+test('measured again on the design as it is: an edited ink, a moved accent, or an alias changed under it drops the brand, operations and all', async () => {
+  const app = gate(), server = await wire(app);
+  try {
+    // An edit of the brand's own ink to its fill's blue: the measure no longer finds it white, so it goes.
+    const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
+    const ink = held.ok.ops.findIndex(o => o.op.name === 'actions.follow-ink');
+    const edited = await server.call({ method: 'edit-held', client: 'agent:t', proposal: held.ok.proposal, index: ink, value: '#006aff' });
+    expect(edited.status, JSON.stringify(edited).slice(0, 300)).toBe(200);
+    expect(edited.ok.review.brands.map(b => b.sets)).toEqual(['cards.empty-button']);
+    expect(edited.ok.ops.some(o => /^actions\.follow/.test(o.op.name ?? ''))).toBe(false);
+    await server.call({ method: 'drop', client: 'agent:t', proposal: edited.ok.proposal });
+  } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
+}, 600_000);

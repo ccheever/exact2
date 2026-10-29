@@ -19,7 +19,8 @@ const USAGE: &str =
 /// A request the serve may plan: a held re-import's marks, and nothing of
 /// a source (a source is read alone, `plan_alone`).
 pub(crate) fn marks_only(request: &Value) -> bool {
-    request["marks"].is_array()
+    // (or a held import's brand offers measured again, *1.18*: no source either)
+    (request["marks"].is_array() || request["brands"].is_array())
         && ["source", "sources", "baseline"]
             .iter()
             .all(|k| request[*k].is_null())
@@ -265,6 +266,55 @@ pub fn plan(
         return Ok(
             json!({"dials": dials_json(&dials), "pins": pins_json(&pins), "digest": digest}),
         );
+    }
+    // A held import's brand offers measured again (*1.18*, scripts/tamber-brands.mjs): each `{sets, token, items}`
+    // on the design as it is with the operations `ops` it is held with; one whose fill or ink no longer fits goes.
+    if request["brands"].is_array() {
+        let ops: Vec<Op> = crate::tamber_ops::parse_ops(&request["ops"], "")?
+            .into_iter()
+            .map(|(_, op)| op)
+            .collect();
+        let vocab = contract_lower::tamber_vocab();
+        let items = |b: &Value| -> Vec<usize> {
+            b["items"]
+                .as_array()
+                .map(|all| {
+                    all.iter()
+                        .filter_map(|i| i.as_u64())
+                        .map(|i| i as usize)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let brands = request["brands"].as_array().cloned().unwrap_or_default();
+        let every: Vec<usize> = brands.iter().flat_map(items).collect();
+        let out: Vec<Value> = brands
+            .iter()
+            .map(|b| {
+                let (sets, token) = (
+                    b["sets"].as_str().unwrap_or(""),
+                    b["token"].as_str().unwrap_or(""),
+                );
+                match exact_tamber::import::brand::recheck(
+                    current,
+                    &ops,
+                    &items(b),
+                    &every,
+                    sets,
+                    token,
+                    &vocab,
+                ) {
+                    Some(ink) => json!({
+                        "sets": sets,
+                        "keep": true,
+                        "contrast": {"light": ink.contrast[0], "dark": ink.contrast[1]},
+                        "note": exact_tamber::import::brand::note_for(token, &ink),
+                    }),
+                    None => json!({"sets": sets, "keep": false}),
+                }
+            })
+            .collect();
+        return Ok(json!({ "brands": out }));
     }
     let kind = field("kind")?.ok_or_else(|| bad("`kind` is shadcn, tailwind, dtcg or pen"))?;
     // Astryx's theme resolved by a Bun install on this machine (`resolved`,

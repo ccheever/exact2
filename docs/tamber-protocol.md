@@ -1273,9 +1273,11 @@ list is unchanged: it keeps its own.
     `contrast` is `{light, dark}`, the ratio the ink reaches, cut to two places as the checker's are, or null on a
     fill that isn't opaque, where `note` says so. Like a role override, it is off until ticked, and a bare `accept`
     leaves out one with a `note` (unless it was chosen in a partial accept). Held again (a partial accept, an `edit-held`, or a recompute
-    after the files moved), a brand offer stays only whole and with what its ink was measured on: kept in part, without
-    an operation that writes its accent or a token that value names, with that edited, or, the files having moved,
-    measured on a value the design holds, it goes, its operations with it, and `notes` says so;
+    after the files moved), a brand offer stays only whole, and is measured again on the design as it is with the
+    operations it is then held with: one whose fill or ink was edited, whose accent changed under it, or that lost an
+    operation its ink was measured through goes, its operations with it, and `notes` says so; one kept has its
+    `contrast` and `note` as they are now, and the brand offers a partial accept keeps are recorded as chosen (its
+    `choice`, *1.18*), so its next bare accept takes them;
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).

@@ -9,7 +9,7 @@
 // fails leaves the old one held as it was.
 
 import { carried, staleChoice } from './tamber-held-choice.mjs';
-import { brandsLeftOut, goneNote } from './tamber-brands.mjs';
+import { brandsLeftOut, goneNote, remeasured } from './tamber-brands.mjs';
 
 /** The edit `request` makes of held proposal `p` (`{ops, review}`, the ops kept and the review for them), or a
  * refusal (`{status, error}`). */
@@ -24,9 +24,9 @@ export function edited(request, p) {
   if (typeof value !== 'string' || !value.trim()) return bad('`value` is the new value, a string');
   if (items !== undefined && (!Array.isArray(items) || items.some(i => !Number.isInteger(i) || i < 0 || i >= p.ops.length))) return bad(`\`items\` lists indices of the proposal's ${p.ops.length} operations`);
   const chosen = items === undefined ? p.ops.map((_, i) => i) : [...new Set(items)].sort((a, b) => a - b);
-  // A brand offer whose accent this edits, or kept in part or without what its ink was measured on (*1.18*), goes,
-  // its operations with it: its ink was chosen for the accent's old value (tamber-brands.mjs).
-  const { drop, gone } = brandsLeftOut(p.shown.review, p.ops, chosen, { edited: op.name });
+  // A brand offer kept in part goes, its operations with it (*1.18*); those kept are measured again as the edit
+  // holds them (editHeld, tamber-brands.mjs).
+  const { drop, gone } = brandsLeftOut(p.shown.review, chosen);
   const kept = chosen.filter(i => !drop.has(i));
   if (!kept.includes(index)) return bad('`items` keeps the operation it edits');
   const copy = { ...op, ...(op.whens ? { whens: op.whens.map(w => ({ ...w })) } : {}) };
@@ -50,23 +50,24 @@ export function edited(request, p) {
  * the held caps, while its edit is planned, marked `busy` (an `accept`, `drop`, `edit-held` or expiry meanwhile
  * passes it by); `hold` puts the new one in its place in one turn (`replaces`), and a plan that fails leaves it as it
  * was. `announce(event)` sends an event. */
-export async function editHeld(request, scope, { expire, proposals, hold, announce, stale = () => null }) {
+export async function editHeld(request, scope, { expire, proposals, hold, announce, stale = () => null, ask = async () => ({}) }) {
   expire();
   const id = request.proposal, p = proposals.get(id);
   if (!p || p.busy) return (!p && stale(id)) || { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
   // A revert is planned from its commit, never from operations a client changed: dropped and reverted again instead.
   if (p.shown.review?.revert !== undefined) return { status: 400, error: { message: 'a held revert is planned from its commit: drop it and revert again to change it' } };
   // (A `choiceAt` named, 1.18: the choice it carries the one the client saw, checked in the turn it is taken.)
-  const made = staleChoice(request, p, 'edit') ?? edited(request, p);
-  if (made.error) return made;
+  const first = staleChoice(request, p, 'edit') ?? edited(request, p);
+  if (first.error) return first;
+  // Its brand offers measured again as the edit holds them (*1.18*): one whose fill, ink or accent the edit changes
+  // so its ink no longer fits goes, its operations with it.
+  const made = await remeasured(ask, first.ops, first.review, first.choice);
   // Its guards stay its guards (not those it inferred); planned on the files as they are, as a re-hold is.
   const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
   p.busy = true;
   let fresh;
   try { fresh = await hold(p.client, made.ops, undefined, id, made.review, own, scope, undefined, p.restoring, request.client, made.choice); } finally { p.busy = false; }
   if (!fresh.ok) return fresh;
-  // The brand offers a partial accept chose stay chosen through an edit (*1.18*, tamber-server.mjs `brandsChosen`).
-  if (p.brandsChosen && proposals.get(fresh.ok.proposal)) proposals.get(fresh.ok.proposal).brandsChosen = true;
   announce({ event: 'proposal-dropped', proposal: id, client: request.client, reason: 'edited', replacedBy: fresh.ok.proposal, editedBy: request.client });
   return { ok: { recomputed: true, replaces: id, ...fresh.ok } };
 }

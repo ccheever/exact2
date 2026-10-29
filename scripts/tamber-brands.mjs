@@ -1,53 +1,51 @@
-// A held import's brand offers (*1.18*, theme2's brand-fill ruling) through a partial accept, an edit or a conflict's
-// recompute: each is held again only whole, with the accent it was measured on, so a brand never lands with an ink
-// chosen for another accent. Its ink was measured on the accent's value as the import proposed it, which reads the
-// operations that write the accent and the tokens its value names; one of those left out, edited, or (the design
-// having moved) read from the design rather than the proposal, and the brand goes, its operations with it.
+// A held import's brand offers (*1.18*, theme2's brand-fill ruling) held again: by a partial accept, an edit or a
+// recompute after the files moved. Each is held again only whole (its fill and its ink), and measured again on the
+// design as it is with the operations it is held with (`contract tamber import-plan`'s `brands`, the importer's own
+// measure): one whose fill or ink was edited, whose accent changed under it, or that lost an operation its ink was
+// measured through goes, its operations with it, and the review's notes say so. One kept has its contrast as it is now.
 
-const named = op => (op?.op === 'add-token' || op?.op === 'set-token' ? op.name : null);
-const valuesOf = op => [op?.value ?? '', ...(op?.whens ?? []).map(w => w.value ?? '')].join(' ');
-// A token's name in a value, whole (`shadcn.brand`, not `shadcn.brand-2`).
-const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const mentions = (text, name) => new RegExp(`(^|[^\\w.-])${escape(name)}($|[^\\w.-])`).test(text);
-
-/** The operations (indices into `ops`) brand `b`'s ink was measured through: its accent's, and those of the tokens
- * that value names, transitively; and whether the value names a dotted token no operation writes (the design's). */
-function measuredOn(b, ops) {
-  const at = new Map(ops.map((op, i) => [named(op), i]).filter(([n]) => n));
-  const need = new Set();
-  let outside = false;
-  const walk = name => {
-    const i = at.get(name);
-    if (i === undefined) { outside = true; return; }
-    if (need.has(i)) return;
-    need.add(i);
-    const text = valuesOf(ops[i]);
-    for (const n of at.keys()) if (mentions(text, n)) walk(n);
-    // (a dotted name no operation writes: a token of the design's)
-    if ((text.match(/[A-Za-z_][\w-]*(?:\.[\w-]+)+/g) ?? []).some(n => !at.has(n))) outside = true;
-  };
-  walk(b.token);
-  return { need, outside };
-}
-
-/** The brand offers of `review` left out when the operations `kept` (indices into `ops`) are held again: one kept in
- * part, or without an operation its ink was measured through, or whose accent (or a token it names) the edit of
- * `edited` changes, or, with the design moved since (`moved`), measured on a value the design holds. `{drop, gone}`:
- * the items to leave out, and the brand fills (`sets`) that go. */
-export function brandsLeftOut(review, ops, kept, { edited = null, moved = false } = {}) {
+/** The brand offers of `review` kept only in part when the operations `kept` (indices into the proposal's) are held
+ * again: `{drop, gone}`, their items to leave out and the brand fills (`sets`) that go. */
+export function brandsLeftOut(review, kept) {
   const keep = new Set(kept), drop = new Set(), gone = [];
   for (const b of review?.brands ?? []) {
     const items = b.items ?? [];
-    if (!items.some(i => keep.has(i))) continue;
-    const { need, outside } = measuredOn(b, ops);
-    const out = !items.every(i => keep.has(i))
-      || [...need].some(i => !keep.has(i))
-      || (edited !== null && [...need].some(i => named(ops[i]) === edited))
-      || (moved && outside);
-    if (out) { for (const i of items) drop.add(i); gone.push(b.sets); }
+    if (items.some(i => keep.has(i)) && !items.every(i => keep.has(i))) { for (const i of items) drop.add(i); gone.push(b.sets); }
   }
   return { drop, gone };
 }
 
 /** The review's note for the brand fills `gone`, as a held proposal's `notes` line. */
-export const goneNote = gone => `${gone.join(' and ')} ${gone.length > 1 ? 'aren\'t' : 'isn\'t'} offered here: its ink was measured on the accent as the import proposed it, which this one doesn't hold whole; import again to have ${gone.length > 1 ? 'them' : 'it'}`;
+export const goneNote = gone => `${gone.join(' and ')} ${gone.length > 1 ? 'aren\'t' : 'isn\'t'} offered here: its ink no longer fits what this one holds (the fill or the ink edited, the accent changed, or not kept whole); import again to have ${gone.length > 1 ? 'them' : 'it'}`;
+
+/** `ops` without the operations `drop` (indices), the review's offers and brands and a recorded `choice`
+ * renumbered to what is left. (A brand's operations come after the tokens', so `tokens` is unchanged.) */
+export function withoutItems(ops, review, choice, drop) {
+  if (!drop.size) return { ops, review, choice };
+  const at = i => i - [...drop].filter(d => d < i).length;
+  const renumber = list => list.map(o => ({ ...o, items: (o.items ?? []).filter(i => !drop.has(i)).map(at) }));
+  return {
+    ops: ops.filter((_, i) => !drop.has(i)),
+    review: review && { ...review, offers: renumber(review.offers ?? []), ...(review.brands ? { brands: renumber(review.brands).filter(b => b.items.length) } : {}) },
+    choice: choice && { ...choice, choice: (choice.choice ?? []).filter(i => !drop.has(i)).map(at) },
+  };
+}
+
+/** The brand offers of `review` measured again with `ask` (the design server's), held with `ops`: those that no
+ * longer fit dropped with their operations (and from `choice`), the rest with their contrast and note as they are
+ * now. A measure that can't be had drops them all, since none is known to fit. `{ops, review, choice}`. */
+export async function remeasured(ask, ops, review, choice) {
+  const brands = review?.brands ?? [];
+  if (!brands.length) return { ops, review, choice };
+  const m = await ask({ method: 'import-plan', brands: brands.map(({ sets, token, items }) => ({ sets, token, items })), ops });
+  const results = m?.ok?.brands ?? [];
+  const drop = new Set(), gone = [];
+  const kept = brands.flatMap((b, k) => {
+    const r = results[k];
+    if (r?.keep && r.sets === b.sets) { const { note: _was, ...rest } = b; return [{ ...rest, contrast: r.contrast, ...(r.note ? { note: r.note } : {}) }]; }
+    for (const i of b.items ?? []) drop.add(i);
+    gone.push(b.sets);
+    return [];
+  });
+  return withoutItems(ops, { ...review, brands: kept, ...(gone.length ? { notes: [...(review.notes ?? []), goneNote(gone)] } : {}) }, choice, drop);
+}

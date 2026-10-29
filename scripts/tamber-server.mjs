@@ -99,7 +99,7 @@ import { planAlone, stopImports } from './tamber-isolate.mjs';
 import { designPath, manifestTamber } from './tamber-design-path.mjs'; export { designPath };
 import { importReview, marked } from './tamber-import-review.mjs'; export { importTheme } from './tamber-import-review.mjs';
 import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck, canvasCheck, canvasLine } from './tamber-frame.mjs';
-import { packageDesigns } from './tamber-package-designs.mjs'; import { brandsLeftOut, goneNote } from './tamber-brands.mjs'; import { editHeld } from './tamber-edit-held.mjs'; import { replacedProposals } from './tamber-replaced.mjs'; import { accepted as acceptedOf, choose } from './tamber-held-choice.mjs';
+import { packageDesigns } from './tamber-package-designs.mjs'; import { brandsLeftOut, goneNote, remeasured } from './tamber-brands.mjs'; import { editHeld } from './tamber-edit-held.mjs'; import { replacedProposals } from './tamber-replaced.mjs'; import { accepted as acceptedOf, choose } from './tamber-held-choice.mjs';
 import { serveTool, toolPage } from './tamber-tool-files.mjs'; import { generationOf } from '../host/web/generations.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 export { op } from './tamber-op.mjs';
@@ -750,7 +750,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope, undefined, local && !!request.review?.importer);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request); if (request.method === 'choose') return needsClient(request) ?? choose(request, { expire, proposals, stale: replacedIds.stale, bump: () => heldRevision++, announce: shown => send({ event: 'proposal', seq: ++seq, epoch, ...shown }) }); // (tamber-held-choice.mjs)
-    if (request.method === 'edit-held') return needsClient(request) ?? editHeld(request, scope, { expire, proposals, hold, stale: replacedIds.stale, announce: e => send({ ...e, seq: ++seq, epoch }) }); // (tamber-edit-held.mjs)
+    if (request.method === 'edit-held') return needsClient(request) ?? editHeld(request, scope, { expire, proposals, hold, ask, stale: replacedIds.stale, announce: e => send({ ...e, seq: ++seq, epoch }) }); // (tamber-edit-held.mjs)
     if (request.method === 'history') return history(request);
     // Which app this server is, and which run of it, so `tamber tool` can
     // tell its own from another's and a client can tell a restart.
@@ -1053,24 +1053,26 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       if (!plan.ok) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'stale' }); return plan; }
       return replaced(await hold(p.client, plan.ok.ops, plan.ok.files, id, plan.ok.review, undefined, 'write', undefined, true));
     };
-    const replaced = (fresh, chose = false) => {
+    const replaced = fresh => {
       if (!fresh.ok) { restore(id, p); return fresh; } else if (p.reimport) proposals.get(fresh.ok.proposal).reimport = true;
-      // The brand offers a partial accept kept were chosen (*1.18*): a bare accept of the proposal held again takes them.
-      if (chose) proposals.get(fresh.ok.proposal).brandsChosen = true;
       send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: request.client, reason: 'replaced', replacedBy: fresh.ok.proposal });
       return { ok: { recomputed: true, replaces: id, ...fresh.ok } };
     };
-    const recompute = async (ops, kept = ops.map((_, i) => i), gone = []) => {
+    const recompute = async (keptOps, kept = keptOps.map((_, i) => i), gone = []) => {
       const old = p.shown.review;
-      const review = old && {
+      const renumbered = old && {
         ...old,
         ...(gone.length ? { notes: [...(old.notes ?? []), goneNote(gone)] } : {}),
         offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
         ...brandsKept(old, kept),
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
+      // Its brand offers measured again on the design as it is with what it now holds (*1.18*, tamber-brands.mjs),
+      // and, any left, recorded as chosen: they were kept by this accept, so its next bare accept, or a tool's, takes them.
+      const { ops, review } = await remeasured(ask, keptOps, renumbered, undefined);
+      const choice = review?.brands?.length ? { choice: ops.map((_, i) => i), choiceBy: request.client, choiceAt: 1 } : undefined;
       let fresh; // A re-import (the server's own mark, never its review's fields) is marked again on the design as it is, and held on that same text, else marked again (stage 10b).
-      const remark = async () => { const m = await ask({ method: 'import-plan', marks: ops }); if (!m.ok) return m; delete review.dials; delete review.pins; Object.assign(review, marked(ops, m.ok.dials.map(d => ({ ...d, from: old.dials?.find(o => o.dial === d.dial)?.from ?? [] })), m.ok.pins)); return hold(p.client, ops, m.ok.digest ? { [relative(appDir, designPath(appDir) ?? resolve(appDir, design))]: m.ok.digest } : undefined, id, review, own, 'write', undefined, p.restoring); };
+      const remark = async () => { const m = await ask({ method: 'import-plan', marks: ops }); if (!m.ok) return m; delete review.dials; delete review.pins; Object.assign(review, marked(ops, m.ok.dials.map(d => ({ ...d, from: old.dials?.find(o => o.dial === d.dial)?.from ?? [] })), m.ok.pins)); return hold(p.client, ops, m.ok.digest ? { [relative(appDir, designPath(appDir) ?? resolve(appDir, design))]: m.ok.digest } : undefined, id, review, own, 'write', undefined, p.restoring, undefined, choice); };
       // Some of a revert's items: on the files it was planned on, or that
       // selection planned again.
       if (reverted) review.revert = { ...review.revert, only: ops.map(revertKey) };
@@ -1078,21 +1080,21 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       // moved since, checks what the whole was planned on.
       const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
       if (!p.reimport && review) { delete review.dials; delete review.pins; } // a client's own marks are not carried past its operations
-      try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own, 'write', undefined, p.restoring, p.shown.editedBy); } catch (e) { restore(id, p); throw e; }
+      try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own, 'write', undefined, p.restoring, p.shown.editedBy, choice); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
-      return replaced(fresh, true);
+      return replaced(fresh);
     };
     const some = items && new Set(items).size < p.ops.length;
     if (some) {
-      // A brand offer kept in part, or without what its ink was measured on (*1.18*), is left out (tamber-brands.mjs).
-      const chosen = [...new Set(items)].sort((a, b) => a - b), { drop, gone } = brandsLeftOut(p.shown.review, p.ops, chosen);
+      // A brand offer kept in part is left out (*1.18*); those kept are measured again as it holds them (recompute).
+      const chosen = [...new Set(items)].sort((a, b) => a - b), { drop, gone } = brandsLeftOut(p.shown.review, chosen);
       const kept = chosen.filter(i => !drop.has(i));
       return recompute(kept.map(i => p.ops[i]), kept, gone);
     }
-    // A bare accept (no `items`, nothing chosen, not a partial accept's proposal held again) takes every operation but
+    // A bare accept (no `items`, nothing chosen) takes every operation but
     // a brand offer whose ink falls below 4.5:1 in a scheme (*1.18*, theme2's 03:04 ruling): a contrast failure lands
     // only when it is named.
-    const warned = request.items === undefined && !p.shown.choice && !p.brandsChosen ? new Set((p.shown.review?.brands ?? []).filter(belowContrast).flatMap(b => b.items ?? [])) : new Set();
+    const warned = request.items === undefined && !p.shown.choice ? new Set((p.shown.review?.brands ?? []).filter(belowContrast).flatMap(b => b.items ?? [])) : new Set();
     const writing = warned.size ? p.ops.filter((_, i) => !warned.has(i)) : p.ops;
     // The write's own end, whenever the server answers (a client told it
     // timed out included): accepted, or held again unless it went stale.
@@ -1106,10 +1108,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
     waiting = false;
     if (done.error?.conflict) {
       if (reverted) return replan();
-      // The design moved: a brand offer measured on a value the design holds goes, its ink no longer known to fit.
-      const written = p.ops.map((_, i) => i).filter(i => !warned.has(i)), { drop, gone } = brandsLeftOut(p.shown.review, p.ops, written, { moved: true });
-      const kept = written.filter(i => !drop.has(i));
-      return recompute(kept.map(i => p.ops[i]), kept, gone);
+      // The design moved: its brand offers are measured again on it (recompute), and go where their ink no longer fits.
+      const kept = p.ops.map((_, i) => i).filter(i => !warned.has(i));
+      return recompute(kept.map(i => p.ops[i]), kept);
     }
     return done;
   }
