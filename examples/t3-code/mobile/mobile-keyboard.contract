@@ -1,7 +1,4 @@
 // @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#navigation-and-data-ownership
-// Pinned365aa87982 HardwareKeyboardCommandProvider / GitActionProgressOverlay.
-// Fallback surface staged here; source interactive tinted iOS26 glass and
-// enter/exit/layout animations remain a separate visual acceptance gap.
 use ThreadColors from "./thread-shapes.contract"
 shape MobileKeyboardResult
   revision: number

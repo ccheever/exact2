@@ -1,6 +1,4 @@
 // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#semantic-colors
-// Home chrome occupies only its toolbar band. A native view returning no hit
-// does not make its full authored wrapper transparent to pointer input.
 component HomeChrome
   props
     routeKey: string

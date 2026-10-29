@@ -69,6 +69,8 @@ All 4,091 mobile tests, strict app and owner TypeScript, and the six repository
 checks pass. Host diagnostics are restored byte for byte. Connected cloud flows,
 hardware keyboard input and full phone parity remain unqualified. This fix is
 outside the delivered TestFlight build.
+Independent review finds no introduced P1 or P2 issue and repeats all 83 focused
+tests. Its five stale comment lines are removed; both decision references remain.
 
 Text-only bold table cells still take the literal Markdown fallback. The private
 preview compiles, but its EAS process exits before its first screen. Native table
