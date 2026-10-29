@@ -153,7 +153,7 @@ component DetailsBody
             button id="details-add-script" press=act("ui:add-script", "", "") hover=hover("script") aria-label="Add project script" testId="details-add-script" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "script" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
               box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
                 ShellIcon(name="plus", size=14, color="light-dark(#18181bcc, #f5f5f5cc)")
-              text "Add project script" flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=400 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+              text "Add project script" flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
         if details.cwd != ""
           column width="100%" id="frame-details-vcs" resize=frameMoved
             DetailsSection(title="Version Control", separated=(density == "full"), heading=false)
@@ -240,7 +240,7 @@ component LineageGroups
       // folded and a chevron that turns -90° when folded.
       button press=togglePrevious hover=hover("previous") aria-expanded=previousOpen testId="details-previous-agents" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "previous" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
         ShellIcon(name="bot", size=16, color="light-dark(#71717b, #a1a1a1)")
-        text "Previous agents" flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=400 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)"
+        text "Previous agents" flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)"
         if details.previousFailed > 0
           text `${details.previousFailed} failed` flex-shrink=0 font-size="0.625rem" line-height="0.625rem" color="light-dark(#c10007, #ff6467)"
         if not previousOpen
@@ -346,7 +346,7 @@ component RunContextLabel
     Tip(label=details.git.runTip, side="top", align="center", offset=20)
       box margin-left=-1 margin-right=-1 display="flex" flex-shrink=0
         CnMachineIcon(kind=details.envKind, size=18, color="light-dark(#71717b, #a1a1a1)")
-    text details.envLabel flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=400 line-height="1.21875rem" color=(locked ? "light-dark(#18181bcc, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") testId="details-environment-label" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+    text details.envLabel flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=(locked ? "light-dark(#18181bcc, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") testId="details-environment-label" text-box-trim="trim-both" text-box-edge="cap alphabetic"
     Tip(label=details.git.workspaceTip, side="top", align="center", offset=20)
       ShellIcon(name=details.envIcon, size=16, color="light-dark(#71717b, #a1a1a1)")
 
@@ -439,7 +439,7 @@ component OpenInRow
           ShellEditorIcon(editor=details.editorId, size=16)
         else
           box width="1rem" height="1rem" flex-shrink=0
-        text details.editorLabel flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=400 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+        text details.editorLabel flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
       box width=1 height="1rem" flex-shrink=0 background-color=(hovered != "" or open ? "light-dark(#e4e4e7a6, #ffffff10)" : "#00000000")
       box position="relative" flex-shrink=0
         button id="details-choose-editor" popovertarget="details-editors-menu" key=triggerKey hover=hover("editor-menu") aria-label="Choose editor" aria-haspopup="menu" aria-expanded=open testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color=(open or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""

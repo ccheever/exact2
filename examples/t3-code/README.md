@@ -353,10 +353,11 @@ item (`-exact-menu="none"`) but one that stands in for a host item (⌘Z, ⌘,),
 per chord (⌘N and ⇧⌘O both start a thread with no text field focused). While the sidebar's undo
 notice claims ⌘Z, thread.undo stands in for Edit › Undo. ⌘W closes the active right-panel surface
 tab (its neighbour becomes active; the last tab closes the panel; on the Pull Requests page the open
-pull request) or the focused terminal, and never the window: the window root's capture handler hears
-it ahead of the menu (`app-window.contract` `modifierDown`) and holds a ⌘W that closes nothing, as the
-reference's File › Close Window has no key equivalent (the host's menu still shows ⌘W there); a held
-⌘W's repeats are dropped.
+pull request) or the focused terminal, and never the window: File › Close Window has no key
+equivalent, as in the reference, and AppKit's Close All goes with it (the window root's
+`-exact-menu-keys` and `-exact-menu-remove`, LLP 1021 §5.3.3). The root's capture handler hears ⌘W
+ahead of the menu (`app-window.contract` `modifierDown`) and prevents one that closes nothing, which
+AppKit would answer with a beep; a held ⌘W's repeats are dropped.
 The Quit shortcut setting's hold (Hold ⌘Q or press twice) is the window root's `key` handler, ahead
 of the menu's Quit (`quit-hold.contract`). Edit's Paste as Text (⇧⌘V) stays the module's
 (`T3Menus.swift`): it is the responder chain's `pasteAsPlainText:`, which a button's press is not. The surface launcher takes the focus when it mounts (`autofocus`), and
@@ -370,7 +371,8 @@ picker's Copy branch name (on its trigger and on each ref in the open picker, wh
 web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
 `external-link-menu.ts` and `file-link-menu.ts`). A draft
 row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
-xmpp or fragment link has no menu of its own, so its right-click is the desktop shell's. The media menu and
+xmpp or fragment link has no menu of its own, so its right-click and its ContextMenu key get the desktop shell's
+(`T3TextContextMenu.swift`). The media menu and
 the legacy sidebar's choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
@@ -465,13 +467,22 @@ filed were moved there or closed). The gaps someone using this app runs into:
   ([`issues/20261009-popover-css-flip-fallbacks.md`](../../issues/20261009-popover-css-flip-fallbacks.md),
   #112). The clone's popovers, hover cards and colour picker use its `position-try-fallbacks`;
   the record stays open for the rest of the placement work.
-- Data modules have no timers ([`issues/closed/20261009-typescript-failure-parity.md`](../../issues/closed/20261009-typescript-failure-parity.md),
-  #124; closed with timers still deferred). Time is an argument, and debounces and cooldowns are
-  Contract tasks.
-- The ContextMenu key and VoiceOver's show menu on a reply's mailto, irc, xmpp or fragment link open nothing,
-  where the reference opens the desktop shell's menu: those links write no `contextmenu`, and on macOS a
-  keyboard or VoiceOver menu request that no node answers ends (`MouseEventsMac.swift` `contextTarget`),
-  while a right-click goes on to the shell's menu. Chrome sends the request on to the default menu.
+- A data module's timer lives inside the answer that armed it (LLP 1027.000 D1), so the waits in the
+  middle of a flow (View source's and Edit from here's polls, the Browser's paint and capture
+  timeouts, the debounces) are the flow's own, on the app's clock. Natively a timer raced against a
+  host call its answer awaits runs only once that call lands (main's `QUEUE.md`), so Annotate's 5 s
+  crop deadline and a recording's capture timeout wait out a capture that hangs, where the
+  reference gives up. A flow whose answer is let go while it waits on a timer stops there, its
+  `finally` unrun, so each flow that holds state across a wait has a send no other flow replaces
+  (`app.contract`): View source, a transcript chip's or the composer's (`citationShown`); the
+  Browser's Capture, whose Record start waits for two frames (`capturePressed`, queued); the
+  checkout dialog's edits, whose next edit takes the debounce over (`prCheckoutTyped`); and the
+  prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
+  Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
+  graces) is Contract tasks.
+- Text a platform view draws keeps AppKit's font smoothing (LLP 1019 D12): with Font smoothing on,
+  the composer's and the fields' typed text is a shade heavier than the reference's, which draws
+  all of its text `antialiased`.
 - On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
   reference opens it at the click.
 - View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
@@ -542,9 +553,7 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   opens are Contract's `openURL`, with the editors' schemes in `app.json` `open_url`),
   `T3InstalledFonts.swift` (no `queryLocalFonts`), `T3WindowChrome.swift` (the traffic lights at the
   reference's x = 16: the host's tall title row, `display_override`, leaves them where AppKit puts
-  them, LLP 1039 D8), `T3RootFont.swift` (the native views' rem), and the data module's sleep
-  (`timelineSleep`: data modules have no timers, and an answer that awaits a promise another
-  answer settles is refused as pending on nothing when no fetch or storage step is in flight).
+  them, LLP 1039 D8) and `T3RootFont.swift` (the native views' rem).
 - The composer's OS adapter (`T3Composer`) keeps type-to-focus. The send chords, the queued edit's ⌥↑ and
   the open menus' keys are the composer's own `key` action (`app.contract` `composerKeyEvent`); the
   layouts' window-space boxes are `frame` reads on `resize` (`layoutFrames`, `src/shell/layout-frames.ts`),
@@ -595,11 +604,11 @@ Differences that belong to the app:
   1016.000 D7); HTTP goes through `fetch` (`net.fetch http:` and `https:`). The answer or command
   that asks for a request sends it on that socket itself and awaits the reply (#736, D7's amendment
   of 2026-10-18); a frame no turn may send yet (the socket is not open) waits in the outbox, which
-  the mapper sends when the socket opens and after each frame. A data module has no timers, so a
-  mutation the window runs, the tick, keeps the deadlines, Pings, probes and reconnect ladder: every
-  250 ms while something is near, every second while connected, and once to publish the socket
-  table each time an answer that may wait on the server starts or ends or the delivering answer
-  reports a table the tick has not published. Nothing polls while an answer waits. A request's
+  the mapper sends when the socket opens and after each frame. A data module's timer lives only
+  inside an answer, which the sessions outlive, so a mutation the window runs, the tick, keeps the
+  deadlines, Pings, probes and reconnect ladder: every 250 ms while something is near, every second
+  while connected, and once to publish the socket table each time an answer that may wait on the
+  server starts or ends or the delivering answer reports a table the tick has not published. Nothing polls while an answer waits. A request's
   deadline counts from the tick's last reading of the clock, which can be up to a second old, so
   its timeout can come up to a second early. A connect replies once the socket's URL is in, not
   once the socket opens, since an answer may await only what this module's fetch, storage or open

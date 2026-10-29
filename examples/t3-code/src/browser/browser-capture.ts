@@ -118,15 +118,6 @@ export function captureFailure(kind: string, stage: PreviewCaptureFailureStage):
   if (kind === 'CapturePage') return new PreviewCaptureFailure('capture-failed', 'capture-page');
   return new PreviewCaptureFailure('capture-failed', stage);
 }
-/** The module's sleep (timelineSleep): the data module has no timers. A sleep whose answer was let go sleeps on through the newest native. */
-async function sleep(host: Host, ms: number): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const native = host.native;
-    if (!native?.available) return;
-    try { await native.later({ op: 'timelineSleep', ms: Math.max(0, Math.round(ms)) }); return; }
-    catch (error) { if (!letGo(error) || host.native === native) return; }
-  }
-}
 const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 /** The H.264 MP4 forms the module's encoder writes (T3BrowserRecording.supports). */
 export const NATIVE_RECORDING_TYPES = new Set(['video/mp4;codecs=avc1', 'video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1.42e01e', 'video/mp4']);
@@ -166,7 +157,6 @@ const recordingSettings = browserRecordingSettings;
 
 function nativeRecordingHost(client: T3Client, host: Host): RecordingHost {
   const record = (tabId: string, action: string, extra: Obj = {}) => nativeCall(host, { op: 'browserRecord', tab: tabId, action, ...extra });
-  let frames = 0;
   return {
     bridge: {
       startScreencast: async tabId => {
@@ -203,10 +193,11 @@ function nativeRecordingHost(client: T3Client, host: Host): RecordingHost {
     acquireSurfaceActivity: () => () => undefined,
     // The panel reads the recordings at its next projection.
     publish: () => undefined,
-    requestAnimationFrame: callback => { const id = ++frames; void sleep(host, 16).then(() => callback(0)); return id; },
-    cancelAnimationFrame: () => undefined,
-    setTimeout: (fn, ms) => { const handle = { cancelled: false }; void sleep(host, ms).then(() => { if (!handle.cancelled) fn(); }); return handle; },
-    clearTimeout: handle => { if (handle && typeof handle === 'object') (handle as { cancelled: boolean }).cancelled = true; },
+    // The recorder's answer's own timers (LLP 1027.000 D1). A data module has no frame callbacks: a frame is 16 ms.
+    requestAnimationFrame: callback => setTimeout(() => callback(0), 16) as unknown as number,
+    cancelAnimationFrame: id => clearTimeout(id),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
     now: () => new Date(composerNow(client) || 0).toISOString(),
   };
 }

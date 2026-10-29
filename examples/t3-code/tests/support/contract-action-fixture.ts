@@ -4,10 +4,10 @@
 // (LLP 1116.003 D6) finds an action reading a slot its start branch has just reset; sidebar-sweep.test.ts and
 // queued-drag.test.ts run the bodies that had it. Statements: `let`, a slot write, `if` / `else if` / `else`,
 // `refresh <resource>` (the scope's `refresh(name)`), and a call (an action prop such as ThreadSection's `hoverCard`, an
-// injected action, a host command such as `preventDefault()`, a mutation's `send`, whose command the scope records),
-// made with the reads as they stand at its line. `drawn` says whether a view line is drawn: the `if` / `else if` /
-// `else` arms around it hold (legacy-sidebar-full.test.ts runs the legacy rows' hover and focus through it, as the host
-// delivers them).
+// injected action, a host command such as `preventDefault()`, a mutation's `send`, whose command the scope records and
+// whose mutation a `sent(mutation, command)` in the scope is told), made with the reads as they stand at its line.
+// `drawn` says whether a view line is drawn: the `if` / `else if` / `else` arms around it hold (legacy-sidebar-full.test.ts
+// runs the legacy rows' hover and focus through it, as the host delivers them).
 import { readFileSync } from 'node:fs';
 import { appPath, appText } from './app-files';
 
@@ -132,8 +132,10 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
     } else if ((m = /^let (\w+) = (.+)$/.exec(line))) {
       if (m[1]! in env) throw new Error(`a local cannot shadow ${m[1]}`);
       env[m[1]!] = value(m[2]!, env);
-    } else if ((m = /^send \w+ = (.+)$/.exec(line))) {
-      value(m[1]!, env); // a mutation's send: its command, a call the scope records
+    } else if ((m = /^send (\w+) = (.+)$/.exec(line))) {
+      // A mutation's send: its command, a call the scope records, and the mutation it goes on, told to the scope's `sent`.
+      const command = value(m[2]!, env);
+      if (typeof env.sent === 'function') env.sent(m[1]!, command);
     } else if ((m = /^refresh (\w+)$/.exec(line))) {
       if (typeof env.refresh !== 'function') throw new Error(`refresh ${m[1]} needs a refresh(name) in the scope`);
       env.refresh(m[1]!);

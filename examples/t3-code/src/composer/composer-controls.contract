@@ -215,9 +215,8 @@ component SendArt
         path d="M-12 88C-12 74 0 63 14 63C18 50 30 41 44 41C58 41 70 49 74 62C79 57 86 54 94 54C110 54 123 66 124 82C132 83 138 88 141 96H-12V88Z" fill="url(#send-cloud)"
         path d="M150 96C151 84 161 75 173 75C176 64 186 57 198 57C210 57 220 64 223 75C231 75 238 80 241 87C250 87 257 91 260 96H150Z" fill="url(#send-cloud)" opacity=0.8
 
-// ComposerControl size "sm" (h-7 px-2 gap-1.5 text-sm, foreground/80) or the resting "xs"
-// (foreground/70, dark muted-foreground; its icons and chevron take that ink). The "sm" label's font-medium is drawn
-// regular: that is how the reference app shows it, under its default grayscale font smoothing.
+// ComposerControl size "sm" (h-7 px-2 gap-1.5 text-sm font-medium, foreground/80) or the resting "xs"
+// (font-normal, foreground/70, dark muted-foreground; its icons and chevron take that ink).
 component ModelTrigger
   props
     data: Snapshot
@@ -249,7 +248,7 @@ component ModelTrigger
       // The tooltip (label · ⇧⌘M) belongs to the label, 4pt above it (ProviderModelPicker TooltipTrigger).
       if label
         box position="relative" display="flex" flex-direction="row" min-width=0 flex-shrink=1
-          text (data.composer.fanout ? data.composer.fanoutLabel : data.modelShortLabel == "" ? "Choose model" : data.modelShortLabel) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=400 line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"
+          text (data.composer.fanout ? data.composer.fanoutLabel : data.modelShortLabel == "" ? "Choose model" : data.modelShortLabel) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"
           TipBubble(label=data.composer.modelTip, side="top", align="center", offset=(xs ? 20 : 24), inset=0, shown=over)
         // An unavailable model's Badge (variant outline, size sm) after its name, as ProviderModelPicker draws it.
         if data.modelUnavailable and not data.composer.fanout
@@ -271,7 +270,7 @@ component ProviderUnavailable
   view
     button press=press hover=hover class=Control aria-label=label testId="provider-unavailable" disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.5625rem") padding-right=(xs ? "0.4375rem" : "0.5625rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
       CcIcon(name="circle-alert", size=(xs ? 12 : 16), color=(xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
-      text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=400 line-height=(xs ? "1rem" : "1.25rem") color=(over and not disabled ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") white-space="nowrap"
+      text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over and not disabled ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") white-space="nowrap"
 
 // The traits trigger: the gauge glyph (TraitsPicker GaugeIcon since 3816296021), then the label ("High Fast · 1M"),
 // which icon-only compact layouts leave out.
@@ -292,7 +291,7 @@ component TraitsTrigger
       button -exact-menu="none" press=press hover=hover class=Control aria-label=label aria-expanded=open aria-keyshortcuts=keyEffort testId="reasoning-effort" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 max-width="12rem" flex-shrink=(iconOnly ? 0 : 1) height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.5625rem") padding-right=(xs ? "0.4375rem" : "0.5625rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         CcIcon(name="gauge", size=(xs ? 12 : 16), color=(xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
         if not iconOnly and label != ""
-          text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=400 line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") line-clamp=1 min-width=0
+          text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") line-clamp=1 min-width=0
         box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0
           CcIcon(name="chevron-down", size=(xs ? 12 : 14), color=(xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#71717a, #a1a1a1)"), weight=2.25)
       TipBubble(label=label, side="top", align="center", offset=(xs ? 28 : 32), inset=0, shown=over)
@@ -316,7 +315,7 @@ component RuntimeTrigger
       button -exact-menu="none" press=press hover=hover class=Control aria-label="Runtime mode" aria-expanded=open aria-keyshortcuts=keyMode testId="runtime-mode" disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.5625rem") padding-right=(xs ? "0.4375rem" : "0.5625rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         CcIcon(name=icon, size=(xs ? 12 : 16), color=(xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
         if not iconOnly
-          text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=400 line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") line-clamp=1
+          text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") line-clamp=1
         box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0
           CcIcon(name="chevron-down", size=(xs ? 12 : 14), color=(xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#71717a, #a1a1a1)"), weight=2.25)
       TipBubble(label=tip, side="top", align="center", offset=(xs ? 28 : 32), inset=0, shown=over)
@@ -337,7 +336,7 @@ component PlanToggle
       button press=press hover=hover class=Control aria-label=(active ? "Plan mode. Click to return to normal build mode" : "Default mode. Click to enter plan mode") aria-pressed=active testId="interaction-mode" disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.5625rem") padding-right=(xs ? "0.4375rem" : "0.5625rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(active ? (over ? "light-dark(#f4f4f5cc, #ffffff08)" : "light-dark(#f4f4f5, #ffffff0a)") : over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         CcIcon(name=(active ? "pencil-ruler" : "bot"), size=(xs ? 12 : active ? 16 : 18), color=(active ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
         if not iconOnly
-          text (active ? "Plan" : "Build") font-size=(xs ? "0.75rem" : "0.875rem") font-weight=400 line-height=(xs ? "1rem" : "1.25rem") color=(active or over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)")
+          text (active ? "Plan" : "Build") font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(active or over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)")
       TipBubble(label=(active ? "Plan mode. Click to return to normal build mode" : "Default mode. Click to enter plan mode"), side="top", align="center", offset=(xs ? 28 : 32), inset=0, shown=over)
 
 // CompactComposerControlsMenu's trigger, an icon-only
