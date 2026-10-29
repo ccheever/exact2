@@ -959,8 +959,34 @@ F2 named); peak fling footprint 398 against 224 MiB; cold milestones 338 against
 two different instruments (GPUI's first presented drawable; the native host's first settled
 layer snapshot), so not a comparison; frame smoothness not rankable (display-link cadence on
 the native arm). The driver now activates its target and verifies the key window before
-each sample. The full series (five pairs, ten cold launches each) needs three minutes of an
-untouched desktop and is run on Charlie's word; ink joins at G3.
+each sample. The full series ran on 2026-10-28 evening on Charlie's word (`222cbbb54a`, landed with the
+bench): five pairs and ten launches per app, three pairs fully quiet. GPUI against the native
+Apple host, medians: fling CPU 94 against 124 ms/s; rest CPU 5.1 against 1.1; peak fling
+footprint 398 against 219 MiB; cold milestones 373 against 464 ms by different instruments.
+G1x (`bdbed84d73`) split the native host's 143 ms/s fling CPU: Core Animation 46.6, native
+view setup 22.6, image processing 21.0, native drawing and text 8.8, the runner and rows
+5.9, the kernel's layout and text 3.0, binding 0.4, no data-source queries during the
+fling: the kernel, runner and data path are six percent; the native view layer, Core
+Animation and the image pipeline are what GPUI's app does not pay and what ink's carrier
+replaces.
+
+**S1.1 and G3, 2026-10-29** (`lane/ink-s1` at `52e617043c`, `34e5e524ef`): the Mac benchmark
+carrier (`host/apple-painted`, a winit window over the shared presenter, a `CAMetalLayer` ink
+presents into on direct Metal and on wgpu, `CVDisplayLink` pacing, the agent's socket, no
+IME, menus or accessibility yet), the heavy list in it with ImageIO decoding its JPEGs, and
+G1's driver and probe taking it as the third target. G3 ran clean, every arm quiet, five
+pairs and ten launches each, ink and GPUI on the same presented-drawable instrument. Ink's
+cold start to its first presented drawable, 375 ms, is GPUI's 386 and better than the native
+host's 459 by its other instrument, but with three timeouts in fourteen launches waiting for
+the complete frame; and the rest of the ink column is the carrier, not the renderer: 860 ms/s
+of main-thread CPU **at rest** (the native host 0.6, GPUI 3.6), 569 ms/s during the fling
+(119, 92), presented intervals at a p95 of 16.67 ms against GPUI's 8.33 with twelve late
+intervals a second, and a transient 576 MiB footprint during the fling (226 at its end). A
+renderer that paints this screen in 0.5 to 1.4 ms headless and encodes in 0.065 ms does not
+cost 860 ms/s doing nothing; the carrier never sleeps, reads back or redraws per tick, and
+decodes the JPEGs at full size. S1.2 fixes that (an idle app submits nothing, D7; one frame
+per frame, D11; the complete frame's present; the decode at the drawn size), and G3 is run
+again before any ink number is cited against GPUI.
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
