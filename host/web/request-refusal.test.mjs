@@ -1491,9 +1491,9 @@ test('the web build\'s deadline covers a stalled body, and keeps the caller\'s o
     } finally { quick.stop(true); }
     const aborted = new AbortController(); aborted.abort();
     const own = await fetchWith(set, new Request(origin.url.href, { signal: aborted.signal }), { exactTimeout: 5000 }).catch(e => e);
-    // The caller's own abort is the native executor's `Aborted` (513450bda, LLP 1109 D3), not a lost connection.
-    expect([own.name, own.kind]).toEqual(['FetchError', 'Aborted']);
+    // The caller's own abort rejects with its signal's reason, as Fetch and native do, never a lost connection (LLP 1109 D3).
+    expect([own === aborted.signal.reason, own.name]).toEqual([true, 'AbortError']);
     const kept = await fetchWith(set, new Request(origin.url.href, { signal: aborted.signal }), { signal: undefined, exactTimeout: 5000 }).catch(e => e);
-    expect(kept.kind).toBe('Aborted');
+    expect(kept).toBe(aborted.signal.reason);
   } finally { origin.stop(true); }
 });
