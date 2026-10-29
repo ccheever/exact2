@@ -18,8 +18,6 @@ shape CorePalette
   sidebarIcon: string
   text: string
   muted: string
-  heading: string
-  description: string
   card: string
   cardBorder: string
   divider: string
@@ -33,6 +31,8 @@ shape CorePalette
   popover: string
   popoverBorder: string
   highlight: string
+  optionHighlight: string
+  optionSelected: string
   kbd: string
   output: string
   line: string

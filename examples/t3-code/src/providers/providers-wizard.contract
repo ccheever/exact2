@@ -1,14 +1,20 @@
 use DialogFinalFocus from "../shared/dialog-trap.contract"
+use Tip from "../shell/shell-tip.contract"
+use MorphLock from "../shell/shell-morph.contract"
 use FieldPlaceholder from "../shared/field-placeholder.contract"
 use PvField from "../settings/providers-kit.contract"
 use PvOutline from "../settings/providers-kit.contract"
 use PvGhost from "../settings/providers-kit.contract"
 use PvPrimary from "../settings/providers-kit.contract"
 use PvIconButton from "../settings/providers-kit.contract"
+use PvMicro from "../settings/providers-kit.contract"
+use PvRemoveButton from "../settings/providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
 use DriverMark from "./provider-icons-kit.contract"
 use AcpRegistryAgentIcon from "./provider-icons-kit.contract"
 use ProviderOption from "./providers.contract"
+use SettingsSelect from "../settings/settings-kit.contract"
+use SelectOption from "../settings/settings-kit.contract"
 use ProviderHub from "./providers.contract"
 use ProviderMark from "../shared/icons.contract"
 use ProviderWizardAuth, wizardCredentialStops from "./providers-setup.contract"
@@ -25,6 +31,11 @@ shape WizardDriver
   id: string
   label: string
   selected: bool
+// A local ACP command's environment variable while Add provider is open (ProviderEnvironmentSection's draft row).
+shape WizardVariable
+  name: string
+  value: string
+  sensitive: bool
 shape WizardField
   rowKey: string
   key: string
@@ -44,7 +55,9 @@ shape AcpAgent
   id: string
   name: string
   description: string
-  link: string
+  link: string // the search row's About link: the website, else the repository (AcpRegistrySearchStep aboutUrl)
+  website: string
+  repository: string
   icon: string
   iconUrl: string
   version: string
@@ -127,6 +140,25 @@ component MultipleAccountsNote
         text `We do not recommend managing multiple ${name} accounts in T3 Code. `
         text "More info" href="https://github.com/pingdotgg/t3code/blob/main/docs/user/faq.md#can-i-add-a-bunch-of-accounts-for-one-provider" color="light-dark(#71717b, #a1a1a1)" text-decoration-line="underline"
 
+// The prepared agent's card on the Identity step (AddProviderInstanceDialog): Docs for its website, Source for its
+// repository.
+component AcpAgentCard
+  props
+    agent: AcpAgent
+  view
+    row width="100%" gap="0.75rem" padding-bottom="0.75rem" margin-bottom="1rem" align-items="flex-start" justify-content="space-between" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)"
+      column flex=1 min-width=0
+        text agent.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" line-clamp=1
+        text `v${agent.version} · ${agent.distribution}` font-size="0.75rem" line-height="1rem" margin-top="0.125rem" color="light-dark(#71717b, #a1a1a1)"
+      row flex-shrink=0 gap="0.5rem"
+        if agent.website != ""
+          text "Docs" href=agent.website font-size="0.6875rem" color="light-dark(#71717b, #a1a1a1)" aria-label=`Open documentation for ${agent.name} (${agent.id})`
+        if agent.repository != ""
+          text "Source" href=agent.repository font-size="0.6875rem" color="light-dark(#71717b, #a1a1a1)" aria-label=`Open source for ${agent.name} (${agent.id})`
+
+// ENVIRONMENT_VARIABLE_NAME_PATTERN (ProviderInstanceCard.tsx): /^[a-zA-Z_][a-zA-Z0-9_]*$/.
+fn envNameValid(name: string): bool = name != "" and not "0123456789".includes(name.slice(0, 1)) and name.split("").filter((c) => not "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_".includes(c)).length == 0
+
 // AddProviderInstanceDialog.tsx: Provider → Identity → Config, or the ACP
 // Registry's Provider → Identity → Sign in. Config drafts are row state, so
 // every opening starts empty.
@@ -162,6 +194,84 @@ component AddProviderDialog
   state f3 = ""
   state f4 = ""
   state commandArgs: string[] = []
+  state variables: WizardVariable[] = []
+  // ProviderEnvironmentSection's lastPublished, which the add sends: the rows publish as a field is left, a lock toggled
+  // or a row removed, and only while every name is valid (a row left as added is skipped); else the last set stands.
+  state published: WizardVariable[] = []
+  action addVariable
+    variables = variables.concat([WizardVariable(name="", value="", sensitive=true)])
+  action editVariableName(index: number, value: string)
+    variables = variables.map((variable, at) => at == index ? WizardVariable(name=value, value=variable.value, sensitive=variable.sensitive) : variable)
+  action editVariableValue(index: number, value: string)
+    variables = variables.map((variable, at) => at == index ? WizardVariable(name=variable.name, value=value, sensitive=variable.sensitive) : variable)
+  // DraftInput's commit: the name is kept trimmed.
+  action commitVariables
+    let rows = variables.map((variable) => WizardVariable(name=variable.name.trim(), value=variable.value, sensitive=variable.sensitive))
+    variables = rows
+    publishVariables(rows)
+  action toggleVariableSensitive(index: number)
+    let rows = variables.map((variable, at) => at == index ? WizardVariable(name=variable.name, value=variable.value, sensitive=not variable.sensitive) : variable)
+    variables = rows
+    publishVariables(rows)
+  action removeVariable(index: number)
+    let rows = variables.filter((variable, at) => at != index)
+    variables = rows
+    publishVariables(rows)
+  action publishVariables(rows: WizardVariable[])
+    if rows.filter((row) => not envNameValid(row.name) and (row.name != "" or row.value != "" or not row.sensitive)).length == 0
+      published = rows.filter((row) => envNameValid(row.name))
+  // AcpRegistrySearchStep's Local ACP command (AddProviderInstanceDialog handleLocalAcpConfiguration): the ACP Registry
+  // configured by hand with the local source, no arguments or variables yet, labelled "Local ACP" (providerUi "local").
+  action localCommand
+    f0 = "local"
+    f1 = ""
+    f2 = ""
+    f3 = ""
+    f4 = ""
+    commandArgs = []
+    variables = []
+    published = []
+    ui("local", "")
+  // The reference keeps the ACP Registry's config draft apart from other drivers' (configByDriver): Enter manually
+  // starts it empty (handleManualAcpConfiguration), a registry agent's Add replaces it (handleAcpPrepared), and a
+  // provider picked after it does not show it. Here every driver's draft is these fields, so each of those clears them.
+  action clearAcpDraft
+    f0 = ""
+    f1 = ""
+    f2 = ""
+    f3 = ""
+    f4 = ""
+    commandArgs = []
+    variables = []
+    published = []
+  action manualEntry
+    clearAcpDraft()
+    ui("manual", "true")
+  action prepareAgent(agentId: string, name: string)
+    clearAcpDraft()
+    op("acp-prepare", "", agentId, name, true)
+  action pickDriver(what: string, value: string)
+    if isAcp
+      clearAcpDraft()
+    ui(what, value)
+  // resolveWizardNavigation: a step past an unmet prerequisite is blocked, stays on the Provider step and marks the
+  // attempt, which shows the error (providerUi "blocked"). An agent from the registry has no Sign in step before its
+  // instance exists: going there saves it, as applyWizardNavigation does; an invalid ID stops on Identity (the root).
+  // Like applyWizardNavigation, nothing moves while a save or prepare runs or once the instance exists: its derived ID
+  // has moved on to a free one by then, so the ID's error would not stop a second add.
+  action go(what: string, value: string)
+    let target = value == "back" ? step - 1 : (value == "next" ? step + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
+    if wizard.created == "" and not busy
+      if what == "step" and step == 0 and target > 0 and selectionError != ""
+        ui("blocked", "")
+      else if what == "step" and isAcp and not localAcp and target == 2 and wizard.idError == ""
+        save()
+      else
+        ui(what, value)
+  // handleSave: an agent added from the search brings its own config (handleAcpPrepared), so only a configuration by
+  // hand sends the fields; a local command sends its published variables.
+  action save
+    add(wizard.driver, shownLabel, shownId, accent, isAcp and not manual ? ["", "", "", "", ""] : [f0, f1, f2, f3, f4], commandArgs, localAcp ? published.map((variable) => `${variable.sensitive ? "1" : "0"}${variable.name}=${variable.value}`) : [])
   action addArgument
     commandArgs = commandArgs.concat([""])
   action editArgument(index: number, value: string)
@@ -202,8 +312,12 @@ component AddProviderDialog
   action clearAccent
     accent = ""
     accentOpen = false
-  derive localAcp = wizard.driver == "acpRegistry" and f0 == "local"
+  // AddProviderInstanceDialog's isLocalAcp: configured by hand with the local source.
+  derive localAcp = wizard.driver == "acpRegistry" and manual and f0 == "local"
   derive isAcp = wizard.driver == "acpRegistry"
+  // acpSelectionError: past the Provider step, a local command needs its Executable, any other ACP an agent added from
+  // the search or an ID entered by hand.
+  derive selectionError = not isAcp ? "" : (localAcp ? (f2.trim() == "" ? "Executable is required." : "") : (wizard.prepared.length > 0 or (manual and f1.trim() != "") ? "" : "Select an ACP or configure one manually."))
   derive shownLabel = labelSet ? label : wizard.label
   derive shownId = idSet ? id : wizard.instanceId
   derive lastStep = isAcp ? 1 : 2
@@ -224,10 +338,10 @@ component AddProviderDialog
           text "Add provider" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
           text `Add an account or configure a provider on ${wizard.environment}.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
           row width="100%" height="2.75rem" box-sizing="border-box" padding="0.25rem" gap="0.25rem" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color=wizardSteps role="list" aria-label="Setup progress"
-            WizardStep(number=0, title="Provider", summary=(shownStep > 0 ? (isAcp ? wizard.label : wizard.driverLabel) : ""), current=shownStep, disabled=(wizard.created != ""), go=ui)
-            WizardStep(number=1, title="Identity", summary=(shownStep > 1 ? wizard.preview : ""), current=shownStep, disabled=(wizard.created != ""), go=ui)
+            WizardStep(number=0, title="Provider", summary=(shownStep > 0 ? (isAcp ? (localAcp ? "Local ACP command" : wizard.label) : wizard.driverLabel) : ""), current=shownStep, disabled=(wizard.created != ""), go=go)
+            WizardStep(number=1, title="Identity", summary=(shownStep > 1 ? wizard.preview : ""), current=shownStep, disabled=(wizard.created != ""), go=go)
             if not localAcp
-              WizardStep(number=2, title=(isAcp ? "Sign in" : "Config"), summary="", current=shownStep, disabled=(wizard.created != ""), go=ui)
+              WizardStep(number=2, title=(isAcp ? "Sign in" : "Config"), summary="", current=shownStep, disabled=(wizard.created != ""), go=go)
         scroll width="100%" flex=1 min-height=0 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color=wizardPanel testId="add-provider-panel"
           column width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" gap=0
             if shownStep == 0
@@ -235,7 +349,7 @@ component AddProviderDialog
                 text "Provider" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
                 row width="100%" gap="0.75rem" flex-wrap="wrap" role="radiogroup" aria-label="Provider"
                   for driver in wizard.drivers key=driver.id
-                    WizardDriverOption(driver=driver, manual=manual, ui=ui)
+                    WizardDriverOption(driver=driver, manual=manual, ui=pickDriver)
                 if wizard.accountsNote != ""
                   MultipleAccountsNote(name=wizard.accountsNote)
               // Show more: Button variant="ghost-muted" size="xs", its chevron turning over as the fold opens.
@@ -248,7 +362,7 @@ component AddProviderDialog
               column width="100%" gap="1rem" padding-top="1rem" testId="add-provider-more"
                 row width="100%" gap="0.75rem" flex-wrap="wrap" role="radiogroup" aria-label="More providers"
                   for driver in wizard.moreDrivers key=driver.id
-                    WizardDriverOption(driver=driver, manual=manual, ui=ui)
+                    WizardDriverOption(driver=driver, manual=manual, ui=pickDriver)
                 row width="100%" gap="0.75rem" align-items="center"
                   box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff12)"
                   text "Or choose from ACP Registry" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
@@ -257,39 +371,73 @@ component AddProviderDialog
                   column width="100%" gap="1rem" testId="acp-manual"
                     row width="100%" gap="0.75rem" align-items="flex-start" justify-content="space-between"
                       column gap="0.125rem" flex=1 min-width=0
-                        text "Enter manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
-                        text "Enter an official registry ID and any local executable or auth override." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+                        text (localAcp ? "Local ACP command" : "Enter manually") font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
+                        text (localAcp ? `Run an installed ACP executable on ${wizard.environment}.` : "Enter an official registry ID and any local executable or auth override.") font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
                       button press=ui("manual", "false") class=PvGhost height="1.5rem" testId="acp-search-registry" id="acp-search-registry" data-focus-stop="enabled"
                         text "Search registry" font-size="0.75rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+                    // SettingsGroup variant="plain" (space-y-1): the form's rows, then a local command's Arguments and Variables.
                     for session in wizard.sessions key=session.key
                       column width="100%" gap="0.25rem"
                         for field in wizard.fields key=field.key
                           if not localAcp or field.key == "source" or field.key == "commandPath"
                             WizardFieldRow(field=field, local=localAcp, value=(field.index == 0 ? f0 : (field.index == 1 ? f1 : (field.index == 2 ? f2 : (field.index == 3 ? f3 : f4)))), set=setField)
-                    if localAcp
-                      column gap="0.5rem"
-                        text "Arguments" font-size="0.875rem" font-weight=500
-                        text "One literal argument per row, in launch order." font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)"
-                        for arg, index in commandArgs key=index
-                          row gap="0.5rem"
-                            input value=arg input=editArgument(index) aria-label=`Argument ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 testId=`new-provider-argument-${index}` id=`field-new-provider-argument-${index}` data-editable="yes" data-focus-stop="enabled"
-                            button press=removeArgument(index) class=PvIconButton aria-label=`Remove argument ${index + 1}` title=""
-                              PvIcon(name="x", size=12, color="light-dark(#71717b, #a1a1a1)")
-                        button press=addArgument class=PvOutline testId="new-provider-add-argument" id="new-provider-add-argument" data-focus-stop="enabled"
-                          text "Add argument" font-size="0.8125rem"
-                    if attempted and (localAcp ? f2 == "" : f1 == "")
-                      text "Select an ACP or configure one manually." font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" role="alert"
+                        if localAcp
+                          // ProviderCommandArguments: a SettingsRow whose control is the outline sm Add argument, with the rows
+                          // below it (mt-3 space-y-2 pb-2), each a mono field and its ghost-destructive remove.
+                          column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom=(commandArgs.length > 0 ? "0.25rem" : "0.75rem") testId="new-provider-arguments"
+                            row width="100%" gap="2rem" align-items="center"
+                              column flex=1 min-width=0 gap="0.25rem"
+                                text "Arguments" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
+                                text "One literal argument per row, in launch order." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
+                              button press=addArgument class=PvOutline testId="new-provider-add-argument" id="new-provider-add-argument" data-focus-stop="enabled"
+                                PvIcon(name="plus", size=16, color="light-dark(#71717b, #a1a1a1)")
+                                text "Add argument" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+                            if commandArgs.length > 0
+                              column width="100%" min-width=0 gap="0.5rem" margin-top="0.75rem" padding-bottom="0.5rem"
+                                for arg, index in commandArgs key=index
+                                  row width="100%" min-width=0 gap="0.375rem" align-items="center"
+                                    input value=arg input=editArgument(index) aria-label=`Argument ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" testId=`new-provider-argument-${index}` id=`field-new-provider-argument-${index}` data-editable="yes" data-focus-stop="enabled"
+                                    PvRemoveButton(label=`Remove argument ${index + 1}`, buttonId=`new-provider-argument-remove-${index}`, icon="x", size="micro", iconSize=16, disabled=false, stop="enabled", press=removeArgument(index))
+                          // ProviderEnvironmentSection for the local command: rows of name, value (hidden while sensitive, the default)
+                          // and the lock; a row whose name is blank is left out when the instance is added.
+                          column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom=(variables.length > 0 ? "0.25rem" : "0.75rem") testId="new-provider-variables"
+                            row width="100%" gap="2rem" align-items="center"
+                              column flex=1 min-width=0 gap="0.25rem"
+                                text "Variables" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
+                                text "API keys, base URLs, and other per-instance CLI settings." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
+                              button press=addVariable class=PvOutline disabled=busy testId="new-provider-add-variable" id="new-provider-add-variable" data-focus-stop=(busy ? "" : "enabled")
+                                PvIcon(name="plus", size=12, color="light-dark(#71717b, #a1a1a1)")
+                                text "Add variable" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+                            if variables.length > 0
+                              column width="100%" min-width=0 gap="0.5rem" margin-top="0.75rem" padding-bottom="0.5rem"
+                                for variable, index in variables key=index
+                                  row width="100%" min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" testId=`new-provider-variable-${index}`
+                                    input value=variable.name input=editVariableName(index) blur=commitVariables submit=commitVariables placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${index + 1}` autocorrect="off" spellcheck="false" class=PvField width="11rem" flex-shrink=0 font-family="ui-monospace" font-size="0.8125rem" testId=`new-provider-variable-name-${index}` id=`field-new-provider-variable-name-${index}` data-editable="yes" data-focus-stop="enabled"
+                                    text "=" font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
+                                    input value=variable.value input=editVariableValue(index) blur=commitVariables submit=commitVariables placeholder="value" type=(variable.sensitive ? "password" : "text") aria-label=`Environment variable value ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" testId=`new-provider-variable-value-${index}` id=`field-new-provider-variable-value-${index}` data-editable="yes" data-focus-stop="enabled"
+                                    Tip(label=(variable.sensitive ? "Sensitive, stored separately" : "Plain text"), side="top", align="center", offset=24)
+                                      button press=toggleVariableSensitive(index) class=PvMicro aria-pressed=variable.sensitive aria-label=(variable.name != "" ? `Mark environment variable ${variable.name} as sensitive` : `Mark environment variable ${index + 1} as sensitive`) testId=`new-provider-variable-sensitive-${index}` title="" id=`new-provider-variable-sensitive-${index}` data-focus-stop="enabled"
+                                        MorphLock(on=variable.sensitive, size=12, color="light-dark(#71717b, #a1a1a1)", weight=2, still=false)
+                                    PvRemoveButton(label=(variable.name != "" ? `Remove environment variable ${variable.name}` : `Remove environment variable ${index + 1}`), buttonId=`new-provider-variable-remove-${index}`, icon="x", size="micro", iconSize=12, disabled=false, stop="enabled", press=removeVariable(index))
+                                text "Sensitive values are stored separately and never returned to the app." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+                    if attempted and selectionError != ""
+                      text selectionError font-size="0.6875rem" color="light-dark(#fb2c36, #fb414a)" testId="acp-selection-error"
                 else
                   column width="100%" gap="0.75rem" testId="acp-search"
-                    row width="100%" gap="0.5rem" align-items="center"
+                    row width="100%" gap="0.5rem" align-items="center" flex-wrap="wrap"
                       row flex=1 min-width="10rem" height="1.75rem" box-sizing="border-box" padding-left="0.5rem" gap="0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff08)" align-items="center"
                         PvIcon(name="search", size=16, color="light-dark(#71717b, #a1a1a1)")
                         input value=query input=ui("acp") submit=op("upkeep:registry-refresh", query, "", "", true) placeholder="Search agents…" class=FieldPlaceholder aria-label="Search ACP Registry" disabled=busy flex=1 min-width=0 height="1.125rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" testId="acp-registry-search" autocorrect="off" id="field-acp-registry-search" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
-                      button press=ui("manual", "true") class=PvGhost height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy testId="acp-enter-manually" id="acp-enter-manually" data-focus-stop=(busy ? "" : "enabled")
+                      button press=manualEntry class=PvGhost height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy testId="acp-enter-manually" id="acp-enter-manually" data-focus-stop=(busy ? "" : "enabled")
                         text "Enter manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
+                      // AcpRegistrySearchStep's Local ACP command: Button variant="outline" size="sm" after Enter manually.
+                      button press=localCommand class=PvOutline height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy testId="acp-local-command" id="acp-local-command" data-focus-stop=(busy ? "" : "enabled")
+                        text "Local ACP command" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
                     text acp.status font-size=1 color="#00000000" role="status" height=1 overflow="hidden"
                     if acp.error != "" or (error != "" and step == 0)
-                      text (error != "" ? error : acp.error) font-size="0.75rem" line-height="1rem" padding="0.5rem" border-radius="0.5rem" color="light-dark(#e7000b, #ff6467)" background-color="light-dark(#e7000b0d, #ff64671a)" role="status" testId="acp-error"
+                      // Alert variant="error" (ui/alert.tsx): rounded-xl, px-3.5 py-3, border error/32 over error-surface, and the
+                      // description in error-foreground/80.
+                      text (error != "" ? error : acp.error) font-size="0.875rem" line-height="1.25rem" padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#fb2c3652, #fb414a52)" background-color="light-dark(#fb2c3614, #fb414a29)" color="light-dark(#c10007cc, #ff6467cc)" role="status" testId="acp-error"
                     if not acp.ready
                       row min-height="5rem" align-items="center" justify-content="center"
                         text "Searching the registry..." font-size="0.875rem" color="light-dark(#71717b, #a1a1a1)"
@@ -314,17 +462,14 @@ component AddProviderDialog
                                 if agent.link != ""
                                   link cursor="pointer" href=agent.link aria-label=`About ${agent.name}` width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" border-radius="0.5rem" testId=`acp-about-${agent.id}` title=""
                                     PvIcon(name="external", size=14, color="light-dark(#71717b, #a1a1a1)")
-                                button press=op("acp-prepare", "", agent.id, agent.name, true) class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" font-size="0.75rem" disabled=(agent.added or busy) aria-label=`${agent.added ? "Already added" : (busy ? "Preparing" : "Add")} ${agent.name}` testId=`acp-add-${agent.id}` id=`acp-add-${agent.id}` data-focus-stop=(agent.added or busy ? "" : "enabled")
+                                button press=prepareAgent(agent.id, agent.name) class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" font-size="0.75rem" disabled=(agent.added or busy) aria-label=`${agent.added ? "Already added" : (busy ? "Preparing" : "Add")} ${agent.name}` testId=`acp-add-${agent.id}` id=`acp-add-${agent.id}` data-focus-stop=(agent.added or busy ? "" : "enabled")
                                   text (agent.added ? "Added" : "Add") font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+                    if attempted and selectionError != ""
+                      text selectionError font-size="0.6875rem" color="light-dark(#fb2c36, #fb414a)" testId="acp-selection-error"
             if shownStep == 1
               column width="100%" gap="0.25rem" min-height=(isAcp ? "18rem" : "0px")
                 for agent in wizard.prepared key=agent.id
-                  row width="100%" gap="0.75rem" padding-bottom="0.75rem" margin-bottom="1rem" align-items="flex-start" justify-content="space-between" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)"
-                    column flex=1 min-width=0
-                      text agent.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" line-clamp=1
-                      text `v${agent.version} · ${agent.distribution}` font-size="0.75rem" line-height="1rem" margin-top="0.125rem" color="light-dark(#71717b, #a1a1a1)"
-                    if agent.link != ""
-                      text "Docs" href=agent.link font-size="0.6875rem" color="light-dark(#71717b, #a1a1a1)" aria-label=`Open documentation for ${agent.name} (${agent.id})`
+                  AcpAgentCard(agent=agent)
                 WizardRow(title="Label", description="Shown in the provider list.", status="")
                   input value=shownLabel input=ui("label") placeholder="e.g. Work" aria-label="Label" class=PvField width="14rem" testId="new-provider-name" autocorrect="off" id="field-new-provider-name" data-editable="yes" data-focus-stop="enabled"
                 WizardRow(title="Instance ID", description="Letters, digits, '-', or '_'.", status=(attempted ? wizard.idError : ""))
@@ -351,7 +496,7 @@ component AddProviderDialog
             for auth in wizard.auth key=auth.instanceId
               ProviderWizardAuthStep(auth=auth, scheme=scheme, wide=true, busy=setupBusy, op=op, askSignOut=askSignOut)
             if error != "" and shownStep > 0
-              text error font-size="0.75rem" line-height="1rem" padding-top="0.75rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="add-provider-error"
+              text error font-size="0.75rem" line-height="1rem" padding-top="0.75rem" role="alert" color="light-dark(#fb2c36, #fb414a)" testId="add-provider-error"
         row width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end" align-items="center" flex-shrink=0
           // WizardFooter of the Sign in step: Done once signed in, else Skip for now; held while a sign-in runs.
           for auth in wizard.auth key=auth.instanceId
@@ -361,16 +506,16 @@ component AddProviderDialog
             button press=ui(step == 0 ? "close" : "step", step == 0 ? "" : "back") class=(step == 0 ? PvGhost : PvOutline) height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy aria-keyshortcuts=(step == 0 ? "Escape" : "") testId=(step == 0 ? "close-add-provider" : "wizard-back") id=(step == 0 ? "close-add-provider" : "wizard-back") data-focus-stop=(busy ? "" : "enabled")
               text (step == 0 ? "Cancel" : "Back") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(step == 0 ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)")
             if step == 0 and wizard.driver == "codex" and not manual
-              button press=ui("step", "next") class=PvOutline testId="configure-manually" id="configure-manually" data-focus-stop="enabled"
+              button press=go("step", "next") class=PvOutline testId="configure-manually" id="configure-manually" data-focus-stop="enabled"
                 text "Configure manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
               button press=ui("open", "chatgpt") class=PvPrimary disabled=busy testId="continue-with-chatgpt" id="continue-with-chatgpt" data-focus-stop=(busy ? "" : "enabled")
                 ProviderMark(driver="codex", size=16, color="#ffffff")
                 text "Continue with ChatGPT" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
             if (step == 0 and (wizard.driver != "codex" or manual)) or (step == 1 and not isAcp)
-              button press=ui("step", "next") class=PvPrimary disabled=busy testId="wizard-next" id="wizard-next" data-focus-stop=(busy ? "" : "enabled")
+              button press=go("step", "next") class=PvPrimary disabled=busy testId="wizard-next" id="wizard-next" data-focus-stop=(busy ? "" : "enabled")
                 text "Next" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
             if step == lastStep
-              button press=add(wizard.driver, shownLabel, shownId, accent, [f0, f1, f2, f3, f4], commandArgs) class=PvPrimary disabled=busy testId="create-provider" id="create-provider" data-focus-stop=(busy ? "" : "enabled")
+              button press=save class=PvPrimary disabled=busy testId="create-provider" id="create-provider" data-focus-stop=(busy ? "" : "enabled")
                 text (busy ? "Adding..." : (isAcp and not localAcp ? "Continue to sign-in" : "Add instance")) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
         button id="close-add-provider-x" press=ui("close", "") class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-add-provider-x" title="" data-focus-stop=(busy ? "" : "enabled")
           PvIcon(name="x", size=16, color="light-dark(#71717b, #a1a1a1)")
@@ -392,28 +537,30 @@ component WizardRow
     row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="2rem" align-items="center"
       column flex=1 min-width=0 gap="0.25rem"
         text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
-        text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
+        if description != ""
+          text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
         if status != ""
-          text status font-size="0.75rem" line-height="1rem" padding-top="0.125rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="new-provider-id-error"
+          text status font-size="0.75rem" line-height="1rem" padding-top="0.125rem" role="alert" color="light-dark(#fb2c36, #fb414a)" testId="new-provider-id-error"
       row flex-shrink=0 justify-content="flex-end" align-items="center"
         children
 
-// One driver setting in the wizard's Config step (ProviderSettingsForm).
+// One driver setting in the wizard's Config step (ProviderSettingsForm): a local command's commandPath is its
+// Executable, with that form's own description and placeholder.
 component WizardFieldRow
   props
     local: bool
     field: WizardField
     value: string
     set: action
+  derive choices = field.options.map((option) => SelectOption(value=option.value, label=option.label, selected=option.selected))
+  derive chosen = field.options.filter((option) => value == "" ? option.selected : option.value == value).map((option) => option.label).join("")
   view
     WizardRow(title=(local and field.key == "commandPath" ? "Executable" : field.label), description=(local and field.key == "commandPath" ? "Executable name or path on this environment." : field.description), status="")
       if field.control == "select"
-        row gap="0.25rem" role="radiogroup" aria-label=field.label flex-wrap="wrap" justify-content="flex-end" max-width="20rem"
-          for option in field.options key=option.value
-            button press=set(field.index, option.value) role="radio" aria-checked=(value == option.value or (value == "" and option.selected)) class=PvOutline height="1.75rem" background-color=(value == option.value or (value == "" and option.selected) ? "light-dark(#1b4ed814, #346bf126)" : "light-dark(#ffffff, #ffffff08)") testId=`new-provider-${field.key}-${option.value}`
-              text option.label font-size="0.8125rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+        // ProviderSettingsSelect, as on the instance's own editor.
+        SettingsSelect(selectId=`new-provider-${field.key}`, label=field.label, valueLabel=chosen, empty=false, value=value, width=224, disabled=false, options=choices, choose=set(field.index))
       else
-        input value=value input=set(field.index) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width="14rem" testId=`new-provider-${field.key}` id=`field-new-provider-${field.key}` data-editable="yes" data-focus-stop="enabled"
+        input value=value input=set(field.index) placeholder=(local and field.key == "commandPath" ? "e.g. dsh" : field.placeholder) aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width="14rem" testId=`new-provider-${field.key}` id=`field-new-provider-${field.key}` data-editable="yes" data-focus-stop="enabled"
 
 style PvOverlay
   position="absolute" left=0 right=0 top=0 bottom=0
@@ -461,7 +608,7 @@ component UsageHubDialog
             text "Label (optional)" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
             input id="usage-hub-label" value=label input=editLabel submit=save(label, url, secret, true) placeholder="Defaults to the hub's host name" aria-label="Label (optional)" class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" width="100%" testId="usage-hub-label" autocorrect="off" data-focus-stop="enabled" data-editable="yes"
           if error != ""
-            text error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="usage-hub-error"
+            text error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#fb2c36, #fb414a)" testId="usage-hub-error"
         row padding="1.5rem" padding-top="0.75rem" gap="0.5rem" justify-content="flex-end"
           button id="usage-hub-cancel" press=close class=PvOutline disabled=busy aria-keyshortcuts="Escape" testId="usage-hub-cancel" data-focus-stop=(busy ? "" : "enabled")
             text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
@@ -496,8 +643,8 @@ component HubRemoveDialog
         row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#f4f4f580, #ffffff05)"
           button id="usage-hub-remove-cancel" press=cancel class=PvOutline disabled=busy aria-keyshortcuts="Escape" testId="usage-hub-remove-cancel" data-focus-stop=(busy ? "" : "enabled")
             text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
-          button id="usage-hub-remove-confirm" press=confirm class=PvPrimary background-color="#e7000b" disabled=busy testId="usage-hub-remove-confirm" data-focus-stop=(busy ? "" : "enabled")
-            text "Remove" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
+          button id="usage-hub-remove-confirm" press=confirm class=PvPrimary background-color="light-dark(#fb2c36, #fb414a)" disabled=busy testId="usage-hub-remove-confirm" data-focus-stop=(busy ? "" : "enabled")
+            text "Remove hub" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
         FocusGuard(guardId="usage-hub-remove-guard-end", targets=dialogTargets, popup="usage-hub-remove-dialog")
 
 // AddCodexAccountDialog.tsx: name the account; Continue creates its managed Codex instance

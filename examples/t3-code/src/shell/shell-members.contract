@@ -185,6 +185,7 @@ members T3Code
       settingsMenu = ""
       settingsQuery = ""
       settingsFocusTarget = value
+      settingsJumpOpened = "" // a new jump starts with its first pass (settings-members.contract focusSettingsTarget)
       modalError = ""
     if op.startsWith("upkeep:")
       send providerUpdateRun = providerChange(op, target, "", value, "", "") // a toast's update: the launch prompt's own environments, never the page's
@@ -258,6 +259,8 @@ members T3Code
       settingsProjectId = ""
       settingsRoute = "scheduled-tasks"
       settingsOpen = true
+      settingsFocusTarget = "" // a jump left open when Settings closed is no longer this visit's (openSettings)
+      settingsJumpOpened = ""
       restEditor = target == "" ? "" : "task"
       restSubject = target == "" ? "" : `link|${value}|${target}`
       modalError = ""

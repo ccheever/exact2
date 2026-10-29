@@ -183,7 +183,7 @@ const pages: Record<string, [file: string, component: string, props: Env]> = {
     branches: [{}], worktrees: [{}], worktreesAdvanced: [{}], keepSupported: true, project: false, databaseNotices: [], artifacts: [], cleanupAvailable: false, cleanupReports: [], diagnostics: [] } }],
   maintenance: ['settings-storage.contract', 'StoragePanel', { ...host, view: 'maintenance', data: { available: true, error: '', notice: '', databaseNotices: [{}], artifacts: [{}],
     cleanupAvailable: true, cleanupReports: [{}], diagnostics: [{}], creation: [], creationAdvanced: [], branches: [] } }],
-  providers: ['providers.contract', 'ProvidersPanel', { busy: false, page: { available: true, writable: true, macos: true, rows: [{}], editors: [{}], hubs: [{}] } }],
+  providers: ['providers.contract', 'ProvidersPanel', { busy: false, page: { available: true, writable: true, macos: true, rows: [{}], editors: [{}], hubs: [{}], advanced: [{ id: 'compact-idle-threads', kind: 'select' }] } }],
   projects: ['settings-projects.contract', 'ProjectsPanel', { ...host, data: { ready: true, selected: true } }],
   keybindings: ['settings-keybindings.contract', 'KeybindingsPanel', { busy: false, error: '', adding: false, data: { available: true, error: '', writable: true, groups: [{ rows: [{}] }] } }],
   archived: ['settings-archive.contract', 'ArchivedPanel', { busy: false, error: '', data: { available: true, groups: [{ id: 'g1', first: true, threads: [{}] }, { id: 'g2', first: false, threads: [{}] }] } }],

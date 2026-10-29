@@ -30,8 +30,9 @@ import { CLIENT_VERSION } from '../connections/connections';
 import { isPrimaryEnvironment, primaryEnvironmentId } from '../connections/local-primary';
 import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, projectScopeMenuGroups, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
   settingsScopeProjectMachines, type ResolvedSettingsScope, type ScopeGroup } from './settings-scope';
-import { persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource,
-  selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan, type ScopedSettingsTarget } from './scoped-settings-plan';
+import { IDLE_COMPACTION_MODES, globalIdleCompaction, persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, readsIdleCompactionModes,
+  resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource, selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan,
+  type ScopedSettingsTarget } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from '../browser/browser-defaults'; // Restore defaults' browser rows
@@ -241,14 +242,14 @@ function markOf(name: string) { const identity = projectIdentity(name); return {
 
 // ── Server rows ───────────────────────────────────────────────────────────
 export const PROJECT_SCOPED = new Set(['worktreeCleanup', 'defaultModelSelection', 'defaultRuntimeMode', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
-  'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection', 'sourceControlWriterModelSelection',
+  'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection', 'threadTitleInstructions', 'sourceControlWriterModelSelection',
   'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod', 'sidebarAutoSettleOnMerge',
   'sidebarAutoSettleAfterDays', 'sidebarAutoSettleKeepPullRequests', 'continueThreadsAfterServerUpdate', 'responseStreamingMode']);
 export const SERVER_DEFAULTS: Record<string, Json> = {
   defaultModelSelection: null, defaultRuntimeMode: 'full-access', defaultThreadEnvMode: null, worktreeSubmodules: null, autoResumeLimitedThreads: false,
   snoozeLimitedThreads: false, compactIdleThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, sidebarAutoSettleKeepPullRequests: false, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
   continueThreadsAfterServerUpdate: true, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
-  addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] },
+  addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] }, threadTitleInstructions: '',
   enableAgentBrowserAccess: true,
 };
 const FILE_BACKED: Record<string, [string, string]> = { defaultThreadEnvMode: ['defaultThreadEnvMode', 'local'], worktreeSubmodules: ['worktreeSubmodules', 'recursive'] };
@@ -289,6 +290,8 @@ export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string
   local?: object };
 /** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
 function targetValue(target: ScopedSettingsTarget, key: string): Json {
+  // scopedIdleCompaction: targets compare by the mode each resolves to, whichever field its server keeps it in.
+  if (key === 'idleCompaction') return globalIdleCompaction(target.settings);
   const value = (key in target.settings ? target.settings[key] : SERVER_DEFAULTS[key]) as Json;
   return (value === null || value === undefined) && FILE_BACKED[key] ? FILE_BACKED[key]![1] : value ?? null;
 }
@@ -302,7 +305,9 @@ function serverState(context: ServerContext, key: string) {
   const scoped = PROJECT_SCOPED.has(key);
   const environmentWide = project && !scoped;
   const source = project ? scopedSettingsSource(targets, [key]) : 'environment';
-  const customized = !same(settings[key], SERVER_DEFAULTS[key]) && key in SERVER_DEFAULTS;
+  // The idle compaction row reads both of its keys (settingKeys idleCompaction, compactIdleThreads).
+  const customized = key === 'idleCompaction' ? settings.idleCompaction !== undefined || !same(settings.compactIdleThreads ?? false, false)
+    : !same(settings[key], SERVER_DEFAULTS[key]) && key in SERVER_DEFAULTS;
   const inheritance = mixed ? ['mixed', 'Mixed across selected targets'] : project && source === 'project' ? ['overridden', 'Overridden for this project']
     : project && source === 't3.json' ? ['inherited', "Inherited from the repository's t3.json"]
     : project && scoped ? ['inherited', `Inherited from ${context.environmentLabel}`]
@@ -473,6 +478,7 @@ export function generalSections(client: T3Client, context: ServerContext, route 
   const mod = '⌘';
   const textState = value('textGenerationModelSelection'), textSelection = obj(textState.value);
   const textControl = modelControl(context, textSelection, true); // a Mixed text generation model keeps its Traits picker
+  const titleInstructions = value('threadTitleInstructions');
   const newThreads: CoreRow[] = [
     serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : scope.connected && !modelState.mixed && modelState.source !== 'project' && modelState.value === null ? 'Default model for new threads, selected automatically. Projects can override it.' : 'Default model for new threads. Projects can override it.', 'model',
       { status: '', resetLabel: 'default model',
@@ -495,7 +501,6 @@ export function generalSections(client: T3Client, context: ServerContext, route 
     serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Resume after usage limits', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
     serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze until limits reset', 'Snooze usage-limit stops until reset. Pair with resume to continue on wake.', 'switch', {}, false),
     deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
-    serverRow(context, 'compactIdleThreads', 'compact-idle-threads', 'Compact idle Claude threads (beta)', 'Compact long idle Claude threads just before their prompt cache expires, so coming back costs less.', 'switch', { resetLabel: 'compact idle Claude threads' }, false),
     ...(autoSettle ? [
       serverRow(context, 'sidebarAutoSettleOnMerge', 'auto-settle-merged-threads', 'Auto-settle merged threads', 'Settle a thread when its pull request merges. Closed pull requests still settle automatically.', 'switch', { resetLabel: 'auto-settle on merge' }),
       serverRow(context, 'sidebarAutoSettleAfterDays', 'auto-settle-inactive-threads', 'Auto-settle inactive threads', 'Sidebar threads with no activity for this long settle automatically.', 'switch', { checked: days.value !== null, resetLabel: 'auto-settle' }),
@@ -552,7 +557,12 @@ export function generalSections(client: T3Client, context: ServerContext, route 
   ];
   const textGeneration: CoreRow[] = [serverRow(context, 'textGenerationModelSelection', 'text-generation-model', 'Text generation model',
     'Used for thread titles and other generated text on connected devices with this provider. Source control can override it.', 'model',
-    scope.connected ? { ...textControl, ...(textState.mixed && textControl.kind !== 'text-only' ? { label: 'Mixed', mixed: true } : {}) } : { kind: 'text-only', label: 'Connect an environment to choose its text generation model.' })];
+    scope.connected ? { ...textControl, ...(textState.mixed && textControl.kind !== 'text-only' ? { label: 'Mixed', mixed: true } : {}) } : { kind: 'text-only', label: 'Connect an environment to choose its text generation model.' }),
+    // ThreadTitleInstructionsSettings: a 4-row textarea saved when the field is left (CoreTextArea).
+    serverRow(context, 'threadTitleInstructions', 'thread-title-instructions', 'Thread title instructions', 'Appended to the prompt for new and regenerated thread titles.', 'textarea',
+      { value: titleInstructions.mixed ? '' : str(titleInstructions.value), mixed: titleInstructions.mixed, resetLabel: 'thread title instructions',
+        placeholder: titleInstructions.mixed ? 'Mixed. Enter instructions to apply to all selected targets.' : 'Keep titles to a few words. Lead with the main subject.' },
+      titleInstructions.mixed || str(titleInstructions.value) !== '')];
   // AboutVersionTitle: this app's own release (APP_VERSION), not the connected server's.
   const about = aboutRows(client, CLIENT_VERSION); // settings-a-about.ts: the update button and Update track
   const diagnostics = [
@@ -567,8 +577,8 @@ export function generalSections(client: T3Client, context: ServerContext, route 
   const rows = new Map([...newThreads, ...organization, ...behavior, ...projects, ...confirmations, ...textGeneration, ...about, ...diagnostics, ...legacy].map(row => [row.id, row]));
   const pick = (id: string, title: string, ids: string[], advanced: string[] = []): CoreSection =>
     ({ id, title, collapsible: false, toggle: false, rows: ids.flatMap(rowId => rows.get(rowId) ?? []), advanced: advanced.flatMap(rowId => rows.get(rowId) ?? []) });
-  // Not where the reference puts it: Compact idle Claude threads is on its Providers page. Worktrees' Creation and
-  // Maintenance's Diagnostics are drawn by the storage panel between its own sections (settings-data.ts worktreeRows).
+  // Worktrees' Creation and Maintenance's Diagnostics are drawn by the storage panel between its own sections
+  // (settings-data.ts worktreeRows); Providers' Compact idle threads by the Providers page (idleCompactionRow).
   const pages: Record<string, CoreSection[]> = {
     general: [pick('notifications', 'Notifications', ['thread-notifications', 'in-app-notifications']), pick('sidebar', 'Sidebar', ['project-grouping', 'project-order', 'working-shelf']),
       pick('confirmations', 'Confirmations', ['unpin-confirmation', 'archive-confirmation', 'delete-confirmation', 'quit-confirmation']), pick('display', 'Display', ['time-format'])],
@@ -576,9 +586,9 @@ export function generalSections(client: T3Client, context: ServerContext, route 
     diffs: [pick('diffs', 'Diffs', ['diff-layout', 'hide-whitespace-changes', 'default-diff-file-state', 'diff-color-scheme']),
       pick('pull-requests', 'Pull requests', ['proactive-panels', 'pull-request-links-open-in-app'])],
     threads: [pick('new-projects', 'New projects', ['add-project-starts-in']), pick('project-defaults', 'New threads', ['default-model', 'default-permissions', 'new-threads']),
-      pick('usage-limits', 'Usage limits', ['auto-resume-limited-threads', 'snooze-limited-threads', 'compact-idle-threads']),
+      pick('usage-limits', 'Usage limits', ['auto-resume-limited-threads', 'snooze-limited-threads']),
       pick('auto-settle', 'Auto-settle', ['auto-settle-merged-threads', 'auto-settle-inactive-threads', 'days-before-auto-settle', 'keep-threads-with-pr']),
-      pick('text-generation', 'Text generation', ['text-generation-model'], ['response-streaming'])],
+      pick('text-generation', 'Text generation', ['text-generation-model'], ['thread-title-instructions', 'response-streaming'])],
     worktrees: [pick('worktree-creation', 'Creation', ['start-from-origin'], ['worktree-submodules'])],
     maintenance: [pick('updates', 'Updates', ['provider-update-checks', 'continue-threads-after-server-update']), pick('background', 'Background activity', ['background-activity'])],
     about: [pick('about', 'App', about.map(row => row.id)), pick('legal', 'Legal', ['open-source-licenses'])],
@@ -590,6 +600,20 @@ export function generalSections(client: T3Client, context: ServerContext, route 
  *  draws its own top border, AdvancedSettings' `border-t`). */
 export const dividedSection = (section: CoreSection): CoreSection => ({ ...section,
   rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })), advanced: (section.advanced ?? []).map((row, index) => ({ ...row, divider: index > 0 })) });
+/**
+ * CompactIdleThreadsRow (SettingsPanels.tsx), last under Providers › Advanced: the mode the scope's targets resolve
+ * (scopedIdleCompaction). "Never" needs every target to store modes; a server with only the switch cannot.
+ */
+export function idleCompactionRow(context: ServerContext): CoreRow {
+  const modes = context.targets.map(target => globalIdleCompaction(target.settings));
+  const mode = modes[0] ?? globalIdleCompaction(context.settings), mixed = modes.some(entry => entry !== mode);
+  const neverAvailable = context.targets.every(target => readsIdleCompactionModes(target.settings));
+  return serverRow(context, 'idleCompaction', 'compact-idle-threads', 'Compact idle threads',
+    'When to compact an idle Claude thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude provider can override this.', 'select',
+    { value: mode, label: mixed ? 'Mixed' : IDLE_COMPACTION_MODES.find(([id]) => id === mode)?.[1] ?? mode, width: 224, resetLabel: 'compact idle threads',
+      options: IDLE_COMPACTION_MODES.map(([id, label]) => option(id, label, !mixed && id === mode, { disabled: id === 'off' && !neverAvailable })) },
+    globalIdleCompaction(context.settings) !== 'onReturn');
+}
 /** Maintenance's Diagnostics row: its own page for one environment at a time (isEnvironmentScope). */
 export function diagnosticsRow(envScope: boolean): CoreRow {
   return coreRow('diagnostics', 'Diagnostics', envScope ? 'Inspect processes, resource use, and logs on this environment.' : 'Inspect processes, resource use, and logs on one environment at a time.', 'link', { label: 'View diagnostics', target: 'diagnostics', width: 0 });
@@ -668,14 +692,17 @@ export function settingPlan(client: T3Client, scope: CoreScope, key: string, val
   const environments = connectedOf(client, scope, settings);
   const project = scope.kind === 'project' || scope.kind === 'checkout';
   if (clear && project) return planScopedSettingsClear(scope.resolved, environments, [key]);
-  return planScopedSettingsPatch(scope.resolved, environments, { [key]: clear ? SERVER_DEFAULTS[key] ?? null : value as Json });
+  // An idle compaction reset writes the default's mode (globalIdleCompaction of the defaults), in each target's form.
+  const fallback = key === 'idleCompaction' ? 'onReturn' : SERVER_DEFAULTS[key] ?? null;
+  return planScopedSettingsPatch(scope.resolved, environments, { [key]: clear ? fallback : value as Json });
 }
 const SERVER_ROW_KEYS: Record<string, string> = {
   'default-model': 'defaultModelSelection', 'default-permissions': 'defaultRuntimeMode', 'new-threads': 'defaultThreadEnvMode', 'worktree-submodules': 'worktreeSubmodules',
-  'auto-resume-limited-threads': 'autoResumeLimitedThreads', 'snooze-limited-threads': 'snoozeLimitedThreads', 'compact-idle-threads': 'compactIdleThreads', 'auto-settle-merged-threads': 'sidebarAutoSettleOnMerge',
+  'auto-resume-limited-threads': 'autoResumeLimitedThreads', 'snooze-limited-threads': 'snoozeLimitedThreads', 'compact-idle-threads': 'idleCompaction', 'auto-settle-merged-threads': 'sidebarAutoSettleOnMerge',
   'keep-threads-with-pr': 'sidebarAutoSettleKeepPullRequests', 'auto-settle-inactive-threads': 'sidebarAutoSettleAfterDays', 'days-before-auto-settle': 'sidebarAutoSettleAfterDays', 'response-streaming': 'responseStreamingMode',
   'provider-update-checks': 'enableProviderUpdateChecks', 'continue-threads-after-server-update': 'continueThreadsAfterServerUpdate', 'background-activity': 'backgroundActivity',
   'background-advanced': 'backgroundActivity', 'start-from-origin': 'newWorktreesStartFromOrigin', 'add-project-starts-in': 'addProjectBaseDirectory', 'text-generation-model': 'textGenerationModelSelection',
+  'thread-title-instructions': 'threadTitleInstructions',
 };
 /** Decode one control's string payload into the schema value, refusing anything the reference would not write. */
 export function serverValue(key: string, raw: string, context: ServerContext, part = ''): Json {
@@ -695,6 +722,9 @@ export function serverValue(key: string, raw: string, context: ServerContext, pa
       if (!(raw in BACKGROUND)) throw new ClientError('Advanced background activity needs one environment.');
       return { schemaVersion: 1, profile: raw, overrides: {} };
     case 'addProjectBaseDirectory': if (raw.length > 4096) throw new ClientError('Use a shorter directory.'); return raw.trim();
+    // TrimmedString, of any length: the field saves its text without surrounding whitespace.
+    case 'threadTitleInstructions': return raw.trim();
+    case 'idleCompaction': if (!IDLE_COMPACTION_MODES.some(([mode]) => mode === raw)) throw new ClientError('Choose a supported idle compaction mode.'); return raw;
     case 'defaultModelSelection': case 'textGenerationModelSelection': return modelValue(raw, part, key, context);
     default: return bool();
   }
@@ -736,6 +766,7 @@ const SERVER_LABELS: Record<string, string> = {
   sidebarAutoSettleKeepPullRequests: 'Keep threads with a PR', sidebarAutoSettleAfterDays: 'Auto-settle inactive threads', responseStreamingMode: 'Response streaming', enableProviderUpdateChecks: 'Provider update checks',
   continueThreadsAfterServerUpdate: 'Continue threads after restarts', backgroundActivity: 'Background activity', defaultThreadEnvMode: 'New thread mode',
   newWorktreesStartFromOrigin: 'New worktrees start from remote', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
+  threadTitleInstructions: 'Thread title instructions',
 };
 /** useSettingsRestore lists and re-grants Agent browser access after the browser rows (SettingsPanels.tsx: "the confirmation dialog
  *  lists it by name, so a user restoring defaults is told the agent regains access"). An environment setting, written like the rest. */
@@ -772,7 +803,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['New thread mode', 'server', ['defaultThreadEnvMode']], ['New worktrees start from remote', 'server', ['newWorktreesStartFromOrigin']],
   ['Add project base directory', 'server', ['addProjectBaseDirectory']], ['Unpin confirmation', 'device', ['confirmThreadUnpin']],
   ['Archive confirmation', 'device', ['confirmThreadArchive']], ['Delete confirmation', 'device', ['confirmThreadDelete']], ['Quit shortcut', 'device', ['confirmQuit']],
-  ['Text generation model', 'server', ['textGenerationModelSelection']], ['', 'browser', []], ['Agent browser access', 'server', ['enableAgentBrowserAccess']],
+  ['Text generation model', 'server', ['textGenerationModelSelection']], ['Thread title instructions', 'server', ['threadTitleInstructions']], ['', 'browser', []], ['Agent browser access', 'server', ['enableAgentBrowserAccess']],
 ];
 /**
  * useSettingsRestore: the labels its confirmation lists. Its environment values are useScopedSettings', the scope's representative

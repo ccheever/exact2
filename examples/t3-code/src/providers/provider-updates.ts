@@ -17,7 +17,7 @@ const isInterrupted = (result: CommandResult<unknown>) => result._tag === 'Failu
 
 /** PROVIDER_DISPLAY_NAMES (packages/contracts/src/model.ts). */
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = { antigravity: 'Antigravity', codex: 'Codex', claudeAgent: 'Claude', cursor: 'Cursor',
-  grok: 'Grok', muse: 'Muse Code', acpRegistry: 'ACP Registry', pi: 'Pi', opencode: 'OpenCode' };
+  grok: 'Grok', fx: 'fx', muse: 'Muse Code', acpRegistry: 'ACP Registry', pi: 'Pi', opencode: 'OpenCode' };
 export const providerDisplayName = (driver: string) => PROVIDER_DISPLAY_NAMES[driver] ?? driver;
 
 const advisoryOf = (provider: Obj) => obj(provider.versionAdvisory);

@@ -252,7 +252,7 @@ component CodexSetupRow
               for key in [setup.formKey] key=key
                 CodexCallbackForm(stop=stop, setup=setup, busy=busy, op=op)
       if setup.error != ""
-        text setup.error padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)" color="light-dark(#e7000b, #ff6467)" testId=`codex-error-${setup.instanceId}`
+        text setup.error padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)" color="light-dark(#fb2c36, #fb414a)" testId=`codex-error-${setup.instanceId}`
 
 // CodexWelcomeCard: the welcome's one calm row per Codex instance (presentation "onboarding"),
 // for the existing-CLI choice, the pending setup and ManagedCodexSetup alike.
@@ -316,7 +316,7 @@ component CodexWelcomeCard
               for key in [setup.formKey] key=key
                 CodexCallbackForm(stop="enabled", setup=setup, busy=busy, op=op)
           if setup.error != ""
-            text setup.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId=`welcome-codex-error-${setup.instanceId}`
+            text setup.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#fb2c36, #fb414a)" testId=`welcome-codex-error-${setup.instanceId}`
 
 // CodexManagedRuntimeFields in a FoldedSettingsSection ("Runtime", closed until its chevron opens it).
 component CodexRuntimeSection

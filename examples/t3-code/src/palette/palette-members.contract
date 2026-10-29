@@ -169,6 +169,7 @@ members T3Code
       settingsOpen = true
       settingsRoute = op == "project-settings" ? "projects" : arg
       settingsFocusTarget = op == "settings" ? arg2 : ""
+      settingsJumpOpened = "" // a new jump starts with its first pass (settings-members.contract focusSettingsTarget)
       settingsThemeDialog = editing ? settingsThemeDialog : ""
       settingsThemeSubject = editing ? settingsThemeSubject : ""
       settingsQuery = ""

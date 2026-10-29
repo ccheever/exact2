@@ -10,7 +10,9 @@ export type DriverField = {
 };
 export type Driver = {
   id: string; label: string; enabledByDefault: boolean; defaultSlot: boolean;
-  fields: DriverField[]; env: DriverField[]; legacyDefault: Obj | null; modelPlaceholder: string; color: string;
+  fields: DriverField[]; env: DriverField[]; legacyDefault: Obj | null; color: string;
+  /** ProviderModelsSection's CUSTOM_MODEL_PLACEHOLDER_BY_KIND: the custom model field's placeholder; a driver without one shows none. */
+  modelPlaceholder?: string;
   /** `false` lists the provider under Add provider's "Show more" instead of up front. */
   featured?: boolean;
   /** A badge beside the provider's name in Add provider. */
@@ -30,6 +32,14 @@ export const ANTIGRAVITY_AUTH_METHODS = [
   { value: 'agent-platform', label: 'Agent Platform (Vertex AI)' },
 ];
 
+/** ClaudeSettings `idleCompaction` (INSTANCE_IDLE_COMPACTION_MODES): an instance's own mode, or the environment's. */
+export const INSTANCE_IDLE_COMPACTION_MODES = [
+  { value: 'default', label: 'Use default' },
+  { value: 'onReturn', label: 'When you return' },
+  { value: 'beforeCacheExpires', label: 'Before the cache expires (beta)' },
+  { value: 'off', label: 'Never' },
+];
+
 export const DRIVERS: Driver[] = [
   { id: 'codex', label: 'Codex', enabledByDefault: true, defaultSlot: true, color: 'light-dark(#000000, #ffffff)', modelPlaceholder: 'gpt-6.7-codex-ultra-preview',
     acpRegistryAgentIds: ['codex-acp'],
@@ -44,21 +54,26 @@ export const DRIVERS: Driver[] = [
     fields: [binary('Path to the Claude binary used by this instance.', 'claude'),
       field('homePath', 'CLAUDE_CONFIG_DIR path', 'Custom Claude home and config directory. Keeps .claude.json and .claude separate.', '~/.claude'),
       field('autoCompactWindow', 'Auto-compact after', "Compact after 100,000 to 1,000,000 tokens. Leave empty to use Claude's default.", 'e.g. 300000'),
+      field('idleCompaction', 'Compact idle threads', 'When to compact an idle thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Overrides the default in Providers > Advanced.', '',
+        { control: 'select', options: INSTANCE_IDLE_COMPACTION_MODES }),
       field('launchArgs', 'Launch arguments', 'Additional CLI arguments passed on session start.', 'e.g. --chrome')] },
   { id: 'cursor', label: 'Cursor', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#26251E, #EDECEC)', modelPlaceholder: 'claude-sonnet-4-6',
     acpRegistryAgentIds: ['cursor'],
     legacyDefault: { enabled: false, customModels: [] }, fields: [],
     env: [field('CURSOR_API_KEY', 'Cursor API key', 'Optional. Overrides browser sign-in for this provider.', 'Paste API key', { control: 'password' })] },
-  { id: 'grok', label: 'Grok', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', modelPlaceholder: 'model-slug',
+  { id: 'grok', label: 'Grok', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)',
     acpRegistryAgentIds: ['grok-build'],
     legacyDefault: { enabled: false, binaryPath: 'grok', customModels: [] }, env: [], fields: [binary('Path to the Grok CLI binary.', 'grok')] },
+  // packages/provider-fx: listed under Add provider's Show more.
+  { id: 'fx', label: 'fx', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', featured: false,
+    legacyDefault: { enabled: false, binaryPath: 'fx', customModels: [] }, env: [], fields: [binary('Path to the fx binary. All fx instances on this machine share its fx login.', 'fx')] },
   { id: 'opencode', label: 'OpenCode', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#211E1E, #F1ECEC)', modelPlaceholder: 'openai/gpt-5',
     acpRegistryAgentIds: ['opencode', 'opencode-v2'],
     legacyDefault: { enabled: false, binaryPath: 'opencode', serverUrl: '', serverPassword: '', customModels: [] }, env: [],
     fields: [binary('Path to the OpenCode binary.', 'opencode'),
       field('serverUrl', 'Server URL', 'Leave blank to let T3 Code spawn the server when needed.', 'http://127.0.0.1:4096'),
       field('serverPassword', 'Server password', 'Stored separately on the host.', 'Optional', { control: 'password' })] },
-  { id: 'antigravity', label: 'Antigravity', enabledByDefault: false, defaultSlot: true, color: '#5b87bf', modelPlaceholder: 'model-slug',
+  { id: 'antigravity', label: 'Antigravity', enabledByDefault: false, defaultSlot: true, color: '#5b87bf',
     acpRegistryAgentIds: ['antigravity-acp'],
     legacyDefault: { enabled: false, authMethod: 'oauth-personal', apiKey: '', gcpProject: '', gcpLocation: '', binaryPath: '', customModels: [] }, env: [],
     fields: [field('authMethod', 'Sign-in method', 'Google accounts use your subscription; API keys and Agent Platform bill usage.', '', { control: 'select', options: ANTIGRAVITY_AUTH_METHODS }),
@@ -66,7 +81,7 @@ export const DRIVERS: Driver[] = [
       field('gcpProject', 'GCP project', 'Required for Gemini Enterprise. Agent Platform uses it when no API key is set.', 'my-project-id'),
       field('gcpLocation', 'GCP location', 'Region for Gemini Enterprise or Agent Platform.', 'us-central1'),
       field('binaryPath', 'Binary path', 'Custom ACP executable. Leave empty to select automatically.', 'Automatic', { persist: true })] },
-  { id: 'muse', label: 'Muse Code', enabledByDefault: false, defaultSlot: true, color: '#0081fb', modelPlaceholder: 'model-slug',
+  { id: 'muse', label: 'Muse Code', enabledByDefault: false, defaultSlot: true, color: '#0081fb',
     legacyDefault: { enabled: false, binaryPath: 'muse', customModels: [] }, env: [],
     fields: [binary('Path to the Muse Code binary on this environment. Sign in with muse login on that host.', 'muse')] },
   { id: 'pi', label: 'Pi', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', modelPlaceholder: 'anthropic/claude-sonnet-5',
@@ -74,9 +89,9 @@ export const DRIVERS: Driver[] = [
     legacyDefault: { enabled: false, binaryPath: 'pi', launchArgs: '', customModels: [] }, env: [],
     fields: [binary('Path to the Pi coding agent binary.', 'pi'),
       field('launchArgs', 'Launch arguments', 'Additional CLI arguments passed to pi --mode rpc on session start.')] },
-  { id: 'acpRegistry', label: 'ACP Registry', enabledByDefault: true, defaultSlot: false, color: 'light-dark(#000000, #ffffff)', modelPlaceholder: 'model-slug',
+  { id: 'acpRegistry', label: 'ACP Registry', enabledByDefault: true, defaultSlot: false, color: 'light-dark(#000000, #ffffff)',
     legacyDefault: null, env: [],
-    fields: [field('source', 'ACP source', 'Install a registry agent or run a command on this environment.', 'registry', { control: 'select', options: [{ value: 'registry', label: 'ACP Registry' }, { value: 'local', label: 'Local command' }] }),
+    fields: [field('source', 'ACP source', '', 'registry', { control: 'select', options: [{ value: 'registry', label: 'ACP Registry' }, { value: 'local', label: 'Local command' }] }),
       field('agentId', 'Registry agent ID', "Agent identifier from the official ACP Registry, for example 'devin'.", 'devin', { persist: true }),
       field('commandPath', 'Executable override', 'Executable on this environment. For registry agents, overrides the distribution executable while keeping its arguments and environment.', 'Registry default'),
       field('authMethodId', 'Authentication method', 'Optional ACP authentication method ID. By default, the first agent-managed method is selected.', 'auto')] },

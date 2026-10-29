@@ -464,7 +464,7 @@ component CustomModelEditor
             PvIcon(name="plus", size=12, color="light-dark(#71717b, #a1a1a1)")
             text "Custom option" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
       if editor.error != ""
-        text editor.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="custom-model-error"
+        text editor.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#fb2c36, #fb414a)" testId="custom-model-error"
       row gap="0.5rem"
         button press=op("upkeep:cm-save", editor.instanceId, "", "", true) class=PvOutline testId="custom-model-save" id="custom-model-save" data-focus-stop="enabled page"
           text "Save" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"

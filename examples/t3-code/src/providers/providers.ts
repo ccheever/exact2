@@ -35,7 +35,7 @@ export interface ProviderHost {
   setupTarget?(instanceId: string): string;
 }
 type Row = { id: string; instance: Obj; driver: string; isDefault: boolean; isDirty: boolean };
-export type AcpAgent = { id: string; name: string; description: string; link: string; icon: string; iconUrl: string; version: string; distribution: string; added: boolean };
+export type AcpAgent = { id: string; name: string; description: string; link: string; website: string; repository: string; icon: string; iconUrl: string; version: string; distribution: string; added: boolean };
 const ENV_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const settingsOf = (host: ProviderHost) => obj(host.config.settings);
 const liveProviders = (host: ProviderHost) => arr(host.config.providers);
@@ -86,6 +86,8 @@ function rowStatus(row: Row, provider: Obj | undefined) {
   return { enabled, statusKey, summary, needsAttention, inlineDetail, authenticated, authEmail: str(auth.email).trim(), authLabel: authenticated ? str(auth.label) || str(auth.type) : '' };
 }
 
+/** A field's text to save: ProviderSettingsSelect saves its first option, the field's default, by leaving the key out. */
+const fieldText = (field: DriverField, value: unknown) => { const text = str(value).trim(); return field.control === 'select' && text === field.options?.[0]?.value ? '' : text; };
 const fieldRow = (instanceId: string, field: DriverField, value: string, extra: { placeholder?: string; redacted?: boolean; clearable?: boolean } = {}, first = false) => ({
   rowKey: `${instanceId}:${field.key}:${field.control === 'password' ? String(value.length > 0) : value}`, key: field.key, first, label: field.label, description: field.description,
   placeholder: field.control === 'password' && value.length > 0 ? 'Configured' : extra.placeholder ?? field.placeholder, control: field.control as string,
@@ -216,7 +218,7 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
     }),
     modelSummary: `${models.length} model${models.length === 1 ? '' : 's'}${favoriteCount > 0 ? ` · ${favoriteCount} favorite${favoriteCount === 1 ? '' : 's'}` : ''}${hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ''}`,
     bulkLabel: builtIn.length ? (builtIn.every(entry => hiddenSet.has(entry.model.slug)) ? 'Enable all' : 'Disable all') : '',
-    modelPlaceholder: meta?.modelPlaceholder || 'model-slug', canAddModel: row.driver !== 'antigravity',
+    modelPlaceholder: meta?.modelPlaceholder ?? '', canAddModel: row.driver !== 'antigravity',
   };
 }
 
@@ -281,6 +283,8 @@ let acpCreated: { serial: number; instanceId: string } | null = null;
 let chatgptCreated: { serial: number; instanceId: string; displayName: string } | null = null;
 let acpLastAgents: AcpAgent[] = [];
 let wizardSerial = -1;
+// The wizard's agent epoch (app.contract wizardAgentEpoch): it moves as Add provider is configured by hand.
+let wizardAgentEpoch = 0;
 function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string) {
   const meta = driverMeta(driverId) ?? DRIVERS[0]!, existing = existingIds(settings), isAcp = meta.id === 'acpRegistry';
   const prepared = isAcp && acpPrepared?.serial === wizardSerial ? acpPrepared.agent : null;
@@ -300,8 +304,11 @@ function multipleAccountsNote(host: ProviderHost, driver: string): string {
 }
 
 /** The Add provider wizard's derived identity and the selected driver's config fields. */
-export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string, dialog = '', target = '') {
+export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string, dialog = '', target = '',
+  agentEpoch = 0) {
   if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; acpCreated = null; chatgptCreated = null; }
+  // Enter manually and Local ACP command drop an agent added before them (handleManualAcpConfiguration's selectedAcp = null).
+  if (agentEpoch !== wizardAgentEpoch) { wizardAgentEpoch = agentEpoch; acpPrepared = null; }
   const identity = wizardIdentity(settingsOf(host), driverId, labelSet, label, idSet, id);
   const prepared = identity.meta.id === 'acpRegistry' && acpPrepared?.serial === serial ? acpPrepared.agent : null;
   const created = open && acpCreated?.serial === serial ? acpCreated.instanceId : '';
@@ -353,7 +360,7 @@ export function refreshAcpRegistry(host: ProviderHost, query: string): void { ac
 /** AcpRegistrySearchStep's results: the agents T3 Code ships first-class are left out, the configured ones marked added. */
 function acpRegistryView(answer: Obj[], configured: string[]) {
   const agents: AcpAgent[] = answer.filter(agent => !FIRST_CLASS_REGISTRY_AGENT_IDS.has(str(agent.id))).map(agent => ({ id: str(agent.id), name: str(agent.name), description: str(agent.description),
-    link: str(agent.website) || str(agent.repository), icon: str(agent.icon), version: str(agent.version), distribution: str(agent.distribution),
+    link: str(agent.website) || str(agent.repository), website: str(agent.website), repository: str(agent.repository), icon: str(agent.icon), version: str(agent.version), distribution: str(agent.distribution),
     iconUrl: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: 'acpRegistry', agentId: str(agent.id), iconUrl: str(agent.icon) || undefined }) ?? '',
     added: configured.includes(str(agent.id)) }));
   return { ready: true, error: '', agents, status: `${agents.length} compatible ${agents.length === 1 ? 'agent' : 'agents'} found.` };
@@ -480,7 +487,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     const agentId = str(input.key || input.agentId).trim();
     if (!agentId) throw new ClientError('Select an ACP or configure one manually.');
     const result = await host.rpc(native, 'server.prepareAcpRegistryAgent', { agentId }, true);
-    const agent: AcpAgent = acpLastAgents.find(candidate => candidate.id === agentId) ?? { id: agentId, name: str(input.value) || agentId, description: '', link: '', icon: '', iconUrl: '', version: '', distribution: '', added: false };
+    const agent: AcpAgent = acpLastAgents.find(candidate => candidate.id === agentId) ?? { id: agentId, name: str(input.value) || agentId, description: '', link: '', website: '', repository: '', icon: '', iconUrl: '', version: '', distribution: '', added: false };
     acpPrepared = { serial: wizardSerial, agent: { ...agent, id: str(result.agentId) || agentId, version: str(result.version) || str(agent.version), distribution: str(result.distribution) || str(agent.distribution) } };
     return '';
   }
@@ -543,7 +550,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     } else if (op === 'provider-field') {
       const field = meta?.fields.find(candidate => candidate.key === str(input.key));
       if (!field) throw new ClientError('That setting is not available for this provider.');
-      const text = str(input.value).trim();
+      const text = fieldText(field, input.value);
       if (text === str(config[field.key]).trim()) return '';
       next = { ...instance, config: text || field.persist || field.control === 'password' ? { ...config, [field.key]: text } : withKey(config, field.key, undefined) };
     } else if (op === 'provider-env-field') {
@@ -623,8 +630,8 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   if (op === 'provider-create' && !label) throw new ClientError('Provider name cannot be empty.');
   const values = op === 'provider-add' ? obj(input.fields) : { binaryPath: input.binaryPath, homePath: input.homePath };
   const config: Obj = {};
-  for (const field of meta.fields) { const text = str(values[field.key]).trim(); if (text) config[field.key] = text; }
-  const prepared = driver === 'acpRegistry' && acpPrepared?.serial === wizardSerial ? acpPrepared.agent : null;
+  for (const field of meta.fields) { const text = fieldText(field, values[field.key]); if (text) config[field.key] = text; }
+  const prepared = driver === 'acpRegistry' && config.source !== 'local' && acpPrepared?.serial === wizardSerial ? acpPrepared.agent : null;
   if (prepared && !str(config.agentId)) {
     // handleAcpPrepared: only an icon on the official Registry CDN is saved (resolveOfficialAcpRegistryIconUrl).
     config.agentId = str(prepared.id);
@@ -633,12 +640,21 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   }
   if (driver === 'acpRegistry' && config.source === 'local' && !str(config.commandPath)) throw new ClientError('Executable is required.');
   if (driver === 'acpRegistry' && config.source === 'local') config.commandArgs = (Array.isArray(input.commandArgs) ? input.commandArgs : []).filter((arg): arg is string => typeof arg === 'string');
+  // A local command's variables from Add provider (its ProviderEnvironmentSection), each `<1|0><name>=<value>`, 1 for
+  // sensitive: a row with no name is left out, and a name that is not a variable name refuses the add.
+  const environment = driver === 'acpRegistry' && config.source === 'local' ? (Array.isArray(input.environment) ? input.environment : []).flatMap(entry => {
+    const text = str(entry), at = text.indexOf('='), name = (at < 0 ? text.slice(1) : text.slice(1, at)).trim();
+    if (!name) return [];
+    if (!ENV_NAME.test(name)) throw new ClientError('Use letters, digits and underscores for variable names, starting with a letter or underscore.');
+    return [{ name, value: at < 0 ? '' : text.slice(at + 1), sensitive: text.startsWith('1') }];
+  }) : [];
   if (driver === 'acpRegistry' && config.source !== 'local' && !str(config.agentId)) throw new ClientError('Select an ACP or configure one manually.');
   if (driver === 'acpRegistry') config.distribution = 'auto';
   if (driver === 'codex') config.setupMode = 'existing';
   const accent = str(input.accentColor).trim();
   if (accent && !/^#[0-9a-fA-F]{6}$/.test(accent)) throw new ClientError('Choose a six-digit hex color.');
-  const instance = { driver, enabled: true, ...(label ? { displayName: label } : {}), ...(accent ? { accentColor: accent } : {}), ...(Object.keys(config).length ? { config } : {}) };
+  const instance = { driver, enabled: true, ...(label ? { displayName: label } : {}), ...(accent ? { accentColor: accent } : {}), ...(Object.keys(config).length ? { config } : {}),
+    ...(environment.length ? { environment } : {}) };
   await host.rpc(native, 'server.updateSettings', { patch: {}, providerInstanceMutation: { operation: 'create', instanceId, instance } }, true);
   await refreshConfig(host, native);
   // An ACP Registry instance continues to its sign-in step instead (AddProviderInstanceDialog).

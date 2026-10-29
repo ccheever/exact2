@@ -115,6 +115,8 @@ component T3Code
   members "./src/browser/server-browser-members.contract"
   provide
     interacted
+    pickerAnnounce
+    modelPickTaken
     renameHoldsKeys
     renameFocused
     inlineDocumentViewportWidth
@@ -487,6 +489,7 @@ component T3Code
   mutation inlineDocumentChanged as shape Change queue refreshes data
   mutation secretAnswered as shape Change queue refreshes data then dispatchTimelineReads
   mutation localChanged as shape Change refreshes data
+  mutation pickerAnnounced as shape Change queue refreshes shell // the model picker's shortcut announcements (pickerAnnounce)
   // A pull request surface's remembered tab (prSetTab); queued, so quick tab presses land in order.
   mutation prTabSaved as shape Change queue
   // A drop on the chat column or a legacy row, a paste into the composer, or Attach files' picks (composer-controls-attach.ts
@@ -538,6 +541,7 @@ component T3Code
   state providerLinkTarget = "" // the instance the route names (the last link's), apart from the page's own pick (providerSelected)
   state providerDialog = ""
   state providerSerial = 0
+  state wizardAgentEpoch = 0 // moves as Add provider is configured by hand, so its answer forgets an agent added before (providers.ts)
   state providerCreated = ""
   state providerTarget = ""
   state wizardDriver = "codex"
@@ -556,7 +560,7 @@ component T3Code
   task providerClock mount
     every(1000, providerTick)
   resource providerPage = providerPage(providerSelected, settingsOpen and settingsRoute == "providers", data.revision, wallTime.epochAtZero + max(elapsed, providerNow), settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId) as shape ProviderPage // the scope's environment (providers-scope.ts): its page and its actions name `providerPage.environment`
-  resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision, providerDialog, providerTarget, providerPage.environment) as shape ProviderWizard
+  resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision, providerDialog, providerTarget, providerPage.environment, wizardAgentEpoch) as shape ProviderWizard
   state connectionRemove = ""
   state connectionMenu = ""
   resource connectionsPage = connectionsPage(settingsOpen and (settingsRoute == "connections" or settingsRoute == "access"), data.revision, data.status, data.connected, data.connecting, wallTime.epochAtZero + max(elapsed, providerNow), transportFleetSeen) as shape ConnectionsPage
@@ -979,6 +983,9 @@ component T3Code
     browseProvider = id
     modelQuery = ""
     focus("model-search")
+  // Whether selectModel takes a pick now: a scheduled task's or a source control row's at once, any other only while no
+  // command is in flight (its last branch drops it then).
+  derive modelPickTaken = modelTarget.id.startsWith("task-model:") or modelTarget.id.startsWith("source-control-writer-model:") or modelTarget.id.startsWith("review-guide-model:") or not commandPending
   action selectModel(id: string, provider: string, additive: bool)
     if id != "" and modelTarget.id.startsWith("task-model:")
       taskModelPick = `${provider}:${id}`
@@ -994,6 +1001,13 @@ component T3Code
       send changed = command(modelTarget.id == "" ? "model" : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
       modelsOpen = additive and modelTarget.id == "" and catalog.multiple
       focus(additive and modelTarget.id == "" and catalog.multiple ? "model-search" : (modelTarget.id == "" ? "composer" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`))
+  // ModelPickerContent announces the tab or model its shortcut picked (composer-controls-commands.ts
+  // announcePickerShortcut), and its announce blocks nothing: the announcement waits for no command in flight and
+  // refreshes only the shell, whose live regions speak it, so a quick second press is announced too and a pick right
+  // after is not refused. Each send runs in turn (`queue`). settings-shortcuts.contract calls it after a tab, and after
+  // a model only when selectModel took it (modelPickTaken), as handleModelSelect's slug gates the announcement.
+  action pickerAnnounce(op: string, id: string, value: string)
+    send pickerAnnounced = command(op, id, value, 0)
   state taskModelPick = "" // the open scheduled task editor's picked `instance:model`, until it closes
   action pickModel(row: string, context: string)
     openModels()

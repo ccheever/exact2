@@ -155,10 +155,14 @@ component ProjectActionEditor
           ActionSwitchRow(label="Run in the thread's worktree when the thread settles", checked=settle, enabled=true, busy=busy, rowId="action-settle", flip=flipSettle)
           ActionSwitchRow(label="Open preview automatically when this action runs", checked=autoOpen, enabled=(previewUrl != ""), busy=busy, rowId="action-auto-preview", flip=flipAuto)
           if error != ""
-            text error font-size="0.875rem" line-height="1.25rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="action-error"
+            text error font-size="0.875rem" line-height="1.25rem" role="alert" color="light-dark(#fb2c36, #fb414a)" testId="action-error"
         row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" align-items="center" justify-content="flex-end"
           if editing
-            button id="action-delete" press=askDelete(true) disabled=busy class=AeOutline border-color="light-dark(#e7000b40, #ff646740)" testId="action-delete" data-focus-stop=(busy ? "" : "enabled")
+            // Button variant="destructive-outline": the input border at rest; hovered, border destructive/32 over destructive/4.
+            button id="action-delete" press=askDelete(true) disabled=busy class=AeOutline testId="action-delete" data-focus-stop=(busy ? "" : "enabled")
+              :hover
+                border-color="light-dark(#fb2c3652, #fb414a52)"
+                background-color="light-dark(#fb2c360a, #fb414a0a)"
               text "Delete" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#c10007, #ff6467)"
           box flex=1
           // While "Delete action?" shows over this dialog, Escape is that dialog's Cancel (Base UI closes the topmost dialog).
@@ -183,7 +187,7 @@ component ProjectActionEditor
             row gap="0.5rem" justify-content="flex-end"
               button id="action-delete-cancel" press=askDelete(false) class=AeOutline aria-keyshortcuts="Escape" testId="action-delete-cancel" data-focus-stop="enabled"
                 text "Cancel" font-size="0.875rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
-              button id="action-delete-confirm" press=raw("sb:action-delete", scope, payload) disabled=busy display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="#e7000b" testId="action-delete-confirm" data-focus-stop=(busy ? "" : "enabled")
+              button id="action-delete-confirm" press=raw("sb:action-delete", scope, payload) disabled=busy display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#fb2c36, #fb414a)" testId="action-delete-confirm" data-focus-stop=(busy ? "" : "enabled")
                 text "Delete action" font-size="0.875rem" font-weight=500 color="#ffffff"
             FocusGuard(guardId="action-delete-guard-end", targets=dialogTargets2, popup="action-delete-dialog")
 
