@@ -48,8 +48,8 @@ for (const loop of LOOPS) {
         if (Date.now() > end || run.dev.exitCode !== null) throw new Error(`no 'plan ready': ${run.said().slice(-4000)}`);
         await Bun.sleep(50);
       }
-      expect(run.said()).toContain(`dev: TEST delay ${loop.delay} ms before listening (EXACT_TEST_TIMING=1)`);
       expect(await answer).toBe(200);
+      expect(run.said()).toContain(`dev: TEST delay ${loop.delay} ms before listening (EXACT_TEST_TIMING=1)`);
     } finally { await run.dev.stop(15_000); run.done(); }
   }, 620_000);
 
