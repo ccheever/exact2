@@ -158,7 +158,7 @@ impl Prepared {
                 std::thread::sleep(Duration::from_millis(1500));
                 eprintln!("exact-ink: injected startup WARP finished");
             } else if !force_warp {
-                std::thread::sleep(Duration::from_millis(80));
+                std::thread::sleep(Duration::from_millis(350));
             }
         }
         let start = Instant::now();

@@ -360,10 +360,7 @@ pub fn boot_presenter_with_device<D: DataSource + Default>(
         viewport,
         PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
     )?;
-    presenter.install_prepared_painter(
-        preparing,
-        config.clock_started.unwrap_or_else(std::time::Instant::now),
-    )?;
+    presenter.install_prepared_painter(preparing)?;
     Ok((presenter, warning))
 }
 

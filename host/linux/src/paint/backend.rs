@@ -61,6 +61,10 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
+    /// A lost device whose carrier can present CPU pixels without that device.
+    fn lost_device_needs_cpu(&self) -> bool {
+        false
+    }
     /// Collect completed devices without repainting; return those still retiring.
     #[cfg(windows)]
     fn collect_retired_devices(&mut self) -> usize {
@@ -330,6 +334,9 @@ pub trait Backend {
 }
 
 impl super::Painter {
+    pub(crate) fn lost_device_needs_cpu(&self) -> bool {
+        self.backend.lost_device_needs_cpu()
+    }
     #[cfg(windows)]
     pub(crate) fn collect_retired_devices(&mut self) -> usize {
         self.backend.collect_retired_devices()

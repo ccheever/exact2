@@ -315,3 +315,26 @@ fn odd_mip_levels_average_every_source_pixel() {
         1,
     );
 }
+
+#[test]
+fn lost_device_refuses_readback_allocation_and_submission() {
+    let mut device = Wgpu::new().expect("native adapter");
+    let target = device.create_target(4, 4).unwrap();
+    let submitted = device
+        .render(&Frame::default(), target, Some([1.; 4]))
+        .unwrap();
+    device.device.destroy();
+    for result in [
+        device.wait(submitted),
+        device.readback(target).map(|_| ()),
+        device.create_target(8, 8).map(|_| ()),
+        device.render(&Frame::default(), target, None).map(|_| ()),
+        device.completed().map(|_| ()),
+    ] {
+        assert!(matches!(result, Err(Error::DeviceLost(_))), "{result:?}");
+    }
+    assert_eq!(
+        device.submitted, submitted,
+        "loss must not submit more work"
+    );
+}

@@ -32,7 +32,7 @@ pub struct Info {
     pub cached: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Error {
     NoAdapter(String),
     Device(String),

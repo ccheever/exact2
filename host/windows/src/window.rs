@@ -166,7 +166,6 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     let preparing = if direct {
         match exact_ink::device::d3d11::Startup::start(
             exact_ink::device::direct_d3d11(device.as_deref()).unwrap(),
-            started,
         ) {
             Ok(p) => Some(p),
             Err(error) => {

@@ -282,9 +282,8 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn install_prepared_painter(
         &mut self,
         preparing: exact_ink::device::d3d11::Startup,
-        started: std::time::Instant,
     ) -> Result<(), String> {
-        let (startup, device) = crate::surfaces::window::Startup::wait(preparing, started)?;
+        let (startup, device) = crate::surfaces::window::Startup::wait(preparing)?;
         if let Some(device) = device {
             let ink =
                 crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(Box::new(device)));

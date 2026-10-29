@@ -302,6 +302,9 @@ impl Backend for Ink {
         Ok(false)
     }
 
+    fn lost_device_needs_cpu(&self) -> bool {
+        self.device_lost && matches!(self.device, Selected::Wgpu(_))
+    }
     fn name(&self) -> &'static str {
         "ink"
     }
@@ -632,13 +635,19 @@ impl Backend for Ink {
         if let Some(e) = &self.error {
             return Err(e.clone());
         }
-        while !self.groups.is_empty() {
-            self.close_group().map_err(|e| e.to_string())?;
-        }
-        let target = self.flush().map_err(|e| e.to_string())?;
+        let mut readback = Instant::now();
+        let result = (|| {
+            while !self.groups.is_empty() {
+                self.close_group()?;
+            }
+            let target = self.flush()?;
+            readback = Instant::now();
+            self.device.readback(target)
+        })();
+        let bytes = self
+            .accept(result)
+            .ok_or_else(|| self.error.clone().unwrap())?;
         let render_ms = self.layer_ms;
-        let readback = Instant::now();
-        let bytes = self.device.readback(target).map_err(|e| e.to_string())?;
         let pixels = Pixmap::from_vec(
             bytes,
             tiny_skia::IntSize::from_wh(self.size[0], self.size[1]).unwrap(),

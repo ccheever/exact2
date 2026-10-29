@@ -1,7 +1,11 @@
-//! Device preparation starts before configuration; WARP races from the host's
-//! 75 ms mark. Both completions wake the same receiver. @ref LLP 1149 D6.3.
+//! Hardware prepares before configuration; WARP starts only after failure or
+//! the measured startup bound. @ref LLP 1149 D6.3, S2.9.
 use super::*;
 use std::sync::{mpsc, Arc};
+
+// NucBox S2.8b: a driver-cache-cold screen displayed at 251–255 ms;
+// the 100 ms bound opened WARP unnecessarily and cost up to 380 ms displayed.
+const STARTUP_DEVICE_BUDGET: Duration = Duration::from_millis(300);
 
 type Arrival = (bool, Option<Result<Prepared>>);
 
@@ -10,15 +14,22 @@ pub struct Startup {
     workers: Vec<std::thread::JoinHandle<()>>,
     pending: [bool; 2],
     force_warp: bool,
+    deadline: Instant,
 }
 
 impl Startup {
-    pub fn start(force_warp: bool, started: Instant) -> Result<Self> {
+    pub fn start(force_warp: bool) -> Result<Self> {
+        let now = Instant::now();
+        let age = Duration::from_secs_f64(super::super::process_ms()? / 1000.);
         Self::start_with(
             force_warp,
-            started + Duration::from_millis(75),
+            now + STARTUP_DEVICE_BUDGET.saturating_sub(age),
             Prepared::open,
         )
+    }
+
+    pub fn deadline(&self) -> Instant {
+        self.deadline
     }
 
     fn start_with(
@@ -76,6 +87,7 @@ impl Startup {
             workers,
             pending: [!force_warp, true],
             force_warp,
+            deadline: warp_at,
         })
     }
 

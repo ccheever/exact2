@@ -199,10 +199,9 @@ pub(crate) struct Startup {
 impl Startup {
     pub(crate) fn wait(
         mut attempts: exact_ink::device::d3d11::Startup,
-        started: std::time::Instant,
     ) -> Result<(Self, Option<exact_ink::device::d3d11::D3d11>), String> {
         let joined = std::time::Instant::now();
-        let deadline = started + std::time::Duration::from_millis(100);
+        let deadline = attempts.deadline();
         let mut startup = Self::new(attempts.force_warp());
         startup.warp_attempted = true;
         let mut selected = None;
@@ -859,9 +858,7 @@ mod tests {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
         let mut direct = DirectWindow::new(window.clone());
-        direct.startup.attempts = Some(
-            exact_ink::device::d3d11::Startup::start(false, std::time::Instant::now()).unwrap(),
-        );
+        direct.startup.attempts = Some(exact_ink::device::d3d11::Startup::start(false).unwrap());
         let due = std::time::Instant::now() - std::time::Duration::from_millis(1);
         direct.poll_due = due;
         p.surfaces.direct_window = Some(direct);
