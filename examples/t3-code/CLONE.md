@@ -668,7 +668,8 @@ inventory together. Focused tests cover retained-file deletion and Undo, cleared
 upload state on restoration, duplicate equivalent holds, stale captures,
 malformed metadata, preserved images and shelf files, and persistence through an
 actual client reload. Evicted context payloads stay unresolved even if their file
-holds remain. The helper is not wired into the native editor yet. Independent
-review is pending because T3's Codex provider reports that its CLI is not
-authenticated. Native NewTask activation, resume cycles and producer acceptance
-remain open; this prerequisite adds no TestFlight qualification.
+holds remain. All 3,995 mobile tests, strict application TypeScript and boot
+checks pass. Independent review reports no introduced findings, with 127 focused
+tests and 36 additional boundary probes passing. The helper is not wired into
+the native editor yet. Native NewTask activation, resume cycles and producer
+acceptance remain open; this prerequisite adds no TestFlight qualification.
