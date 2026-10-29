@@ -14,6 +14,7 @@ use crate::syntax::same_conds;
 use crate::{Design, Diagnostic};
 
 pub mod astryx;
+pub mod brand;
 pub mod dtcg;
 mod engine;
 mod kinds;
