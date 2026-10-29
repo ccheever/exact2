@@ -660,3 +660,61 @@ test('a jump past a kept row settles', async () => {
   })()`);
   expect(result).toEqual([['done', 4800], ['done', 4800]]);
 }, 60_000);
+
+
+test('vertical rubber-band travel does not trigger collection scroll corrections', async () => {
+  const result = await evaluate(`(async () => {
+    const results = [];
+    for (const nested of [false, true]) {
+      const port = document.createElement('div');
+      port.style.cssText = 'height:100px;width:200px;overflow:auto';
+      document.getElementById('exact-root').append(port);
+      const el = nested ? document.createElement('div') : port;
+      if (nested) {
+        const before = document.createElement('div'); before.style.height = '50px'; port.append(before, el);
+      }
+      const own = rt.scope(() => list.vl(el, () => Array.from({length:40}, (_, i) => i), i => i(), (wrapper, item) => {
+        const row = document.createElement('div'); row.textContent = String(item()); row.style.height = '20px'; wrapper.append(row);
+      }, {est:20, pw:[], ph:[100]}));
+      rt.settled();
+      await exact.lists.pending(); await exact.lists.settle();
+      const maximum = port.scrollHeight - port.clientHeight;
+      const native = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+      const scrollTo = port.scrollTo.bind(port), writes = [], offsets = [];
+      const rect = el.getBoundingClientRect.bind(el);
+      let bounced;
+      port.scrollTo = options => {
+        writes.push(options.top); bounced = Math.max(0, Math.min(options.top, maximum)); scrollTo(options);
+      };
+      for (const edge of [0, maximum]) {
+        native.set.call(port, edge);
+        await exact.lists.settle();
+        bounced = edge;
+        Object.defineProperty(port, 'scrollTop', { configurable:true, get:() => bounced, set:value => {
+          writes.push(value); bounced = Math.max(0, Math.min(value, maximum)); native.set.call(port, bounced);
+        }});
+        if (nested) el.getBoundingClientRect = () => {
+          const r = rect(), bounce = bounced - Math.max(0, Math.min(bounced, maximum));
+          return new DOMRect(r.x, r.y - bounce, r.width, r.height);
+        };
+        // Model Safari's out-of-range reads during a pull and its return to the edge
+        for (const distance of [10, 30, 60, 40, 20, 5, 0]) {
+          bounced = edge + (edge === 0 ? -distance : distance);
+          port.dispatchEvent(new Event('scroll'));
+          await exact.lists.settle();
+          offsets.push(el.$list.geometry.offset);
+        }
+        delete port.scrollTop;
+        if (nested) delete el.getBoundingClientRect;
+      }
+      rt.end(own); port.remove(); rt.settled();
+      results.push({maximum, writes, offsets});
+    }
+    return results;
+  })()`);
+  expect(result.map(arm => arm.maximum)).toEqual([700, 750]);
+  for (const arm of result) {
+    expect(arm.writes).toEqual([]);
+    expect(arm.offsets).toEqual([...Array(7).fill(0), ...Array(7).fill(700)]);
+  }
+}, 60000);
