@@ -22,5 +22,6 @@ exact-runner = { path = "../../../runner" }
 t3-code-data = { path = "../data" }
 
 [dev-dependencies]
+exact-kernel = { path = "../../../kernel" }
 exact-plan = { path = "../../../plan" }
 exact-runner = { path = "../../../runner" }

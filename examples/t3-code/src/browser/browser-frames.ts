@@ -59,7 +59,7 @@ export type FrameCommand = { serial: number; kind: 'navigate' | 'traverse' | 're
 const NO_COMMAND: FrameCommand = { serial: 0, kind: '', id: '', url: '', delta: 0, flag: false };
 
 type Waiter = { frameId: string; test: (entry: FrameEntry, event: string) => boolean; done: (ok: boolean) => void };
-/** The module's sleep (the data module has no timers, browser-capture.ts `sleep`). */
+/** A wait of `ms` on the app's clock (command-waits.ts `sleep`). */
 export type Sleep = (ms: number) => Promise<void>;
 type Frames = {
   entries: Map<string, FrameEntry>; byFrame: Map<string, string>;
@@ -203,7 +203,7 @@ export function frameNav(entry: FrameEntry): { kind: 'Idle' | 'Loading' | 'Succe
   return { kind: entry.pending || entry.record?.loading ? 'Loading' : 'Success', url: current, title };
 }
 
-/** Waits for a frame's record that passes `test`, at most `ms` of the module's sleep; false when it never came. */
+/** Waits for a frame's record that passes `test`, at most `ms`; false when it never came. */
 export function waitForFrame(owner: object, frameId: string, test: (entry: FrameEntry, event: string) => boolean, sleep: Sleep, ms: number): Promise<boolean> {
   return new Promise(done => {
     const waiter: Waiter = { frameId, test, done };

@@ -20,6 +20,9 @@ component AudioChip
     failed: bool
     // Opens the file beside the thread (InlineAudioPreview's onOpen).
     open: action
+    // Told "1" or "0" and the chip's id as its sound starts or stops: the transcript keeps a playing row mounted
+    // (MessagesTimeline's playingAudioRows, timeline-kept-rows.ts).
+    report: action
     id: string
   state paused = true
   state ready = false
@@ -42,13 +45,16 @@ component AudioChip
     elapsed = seconds
   action started
     playing = true
+    report(`1${id}`)
   action stopped
     playing = false
     paused = true
+    report(`0${id}`)
   action refused(code: string)
     broken = true
     playing = false
     paused = true
+    report(`0${id}`)
   action hover(over: bool)
     hovered = over
   derive down = failed or broken

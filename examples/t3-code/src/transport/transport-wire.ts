@@ -3,7 +3,7 @@
 // protocol.ts and session.ts frame JSON with effect's RpcSerialization.layerJson;
 // connection/compatibility.ts, supervisor.ts retryDelayMs, rpc/client.ts's expected-failure
 // retry; authorization/remote.ts bootstrapRemoteBearerSession; connection/errors.ts
-// mapRemoteEnvironmentError). Effect itself is not imported: a data module has no timers.
+// mapRemoteEnvironmentError). Effect itself is not imported: its runtime reads the clock, which a data module refuses.
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Frame = Record<string, unknown>;

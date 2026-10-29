@@ -1,7 +1,7 @@
 // A first connection made from Add environment toasts and leaves Settings alone,
 // a failed one leaves no trace of the failed origin, and PullRequestThreadDialog debounces its
 // lookup by 450 ms with "Resolving pull request..." drawn while it waits.
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test';
 import { runConnectionOp } from '../../src/connections/connections';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import { toasts } from '../../src/shell/toast';
@@ -91,16 +91,16 @@ describe('Add environment with nothing connected', () => {
   });
 });
 
-// A module whose sleeps end when the test says so; wakes are counted.
+// A module whose wakes are counted. The debounce is the command's own timer (command-waits.ts `sleep`), on fake timers
+// that `elapse` moves past it.
 class Clock implements Native {
-  available = true; ops: string[] = []; sleeps: (() => void)[] = [];
+  available = true; ops: string[] = [];
   watch() {}
   later(input: unknown): Promise<unknown> {
-    const request = obj(input); this.ops.push(String(request.op));
-    if (request.op === 'timelineSleep') return new Promise(done => this.sleeps.push(() => done({ ok: true, generation: 0, value: {} })));
+    this.ops.push(String(obj(input).op));
     return Promise.resolve({ ok: true, generation: 0, value: {} });
   }
-  async elapse() { const due = this.sleeps.splice(0); due.forEach(done => done()); await new Promise(done => setTimeout(done, 0)); }
+  async elapse() { jest.advanceTimersByTime(450); await tick(); }
 }
 function dialogClient() {
   const lookups: string[] = [];
@@ -117,19 +117,21 @@ function dialogClient() {
   return { client, lookups };
 }
 
-const tick = () => new Promise(done => setTimeout(done, 0));
+const tick = async () => { for (let turn = 0; turn < 32; turn++) await Promise.resolve(); };
 describe('PullRequestThreadDialog shows its lookup after a 450 ms debounce (HEAD build, measured)', () => {
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
   test('an edit is looked up at once, but "Resolving pull request..." stays until the 450 ms pass', async () => {
     const { client, lookups } = dialogClient(), clock = new Clock();
     await checkoutLocal(client, clock, 'open', '101');
     expect(lookups).toEqual(['101']); // the opening reference resolves at once (debounced value starts there)
     const typing = checkoutLocal(client, clock, 'text', '#102');
     await tick();
-    expect(clock.ops).toEqual(['wake', 'timelineSleep']);
+    expect(clock.ops).toEqual(['wake']);
     expect(lookups).toEqual(['101', '102']); // the answer is in the cache already...
     expect(checkoutView(client)).toMatchObject({ resolving: true, resolvingLabel: 'Resolving pull request...', prTitle: '', canConfirm: false, settled: '101' });
     await clock.elapse(); await typing; // ...and shows when the wait ends
-    expect(clock.ops).toEqual(['wake', 'timelineSleep', 'wake']);
+    expect(clock.ops).toEqual(['wake', 'wake']);
     expect(checkoutView(client)).toMatchObject({ resolving: false, prTitle: 'PR 102', canConfirm: true, settled: '102' });
   });
   test('edits inside the wait each look up; only the last one settles', async () => {

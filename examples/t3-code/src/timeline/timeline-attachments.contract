@@ -68,7 +68,7 @@ component MessageAttachments
       if audio.length > 0
         column max-width="100%" margin-bottom="0.5rem" gap="0.25rem" align-items="flex-start"
           for sound in audio key=sound.id
-            AudioChip(name=sound.name, src=urls.filter((entry) => entry.id == sound.id).map((entry) => entry.url).join(""), failed=(urls.filter((entry) => entry.id == `failed:${sound.id}`).length > 0), open=local("surface-linked-attachment", sound.id, ""), id=sound.id)
+            AudioChip(name=sound.name, src=urls.filter((entry) => entry.id == sound.id).map((entry) => entry.url).join(""), failed=(urls.filter((entry) => entry.id == `failed:${sound.id}`).length > 0), open=local("surface-linked-attachment", sound.id, ""), report=local("audio-playing", messageId), id=sound.id)
       if files.length > 0
         column margin-bottom="0.5rem" gap="0.25rem"
           for file in files key=file.id

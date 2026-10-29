@@ -1,16 +1,21 @@
-// Wall-clock waits for a command in flight. A command's own
-// native requests are in flight, so their replies arrive; a detached promise's
-// may not. `settle` waits inside the command (the native module's sleep), and
-// `wakeShell` asks the shell resource to read again now (T3LatinChords.swift
-// emits `t3.notify`, which shellView watches), so a state a command set before
-// waiting is drawn while it waits. Without a native module (unit tests) neither
-// waits.
-import type { Native } from './protocol';
+// Waits for a command in flight. `sleep` waits on a timer of the answer that awaits it (LLP 1027.000 D1), on the app's
+// clock, so under the agent `clock +N` moves it. Its answer owns it: one let go meanwhile never resumes, and a sleep
+// begun after its answer was let go or gave its value is refused, which reads as that answer's let-go (let-go.ts), so
+// the flow unwinds as it does at a let-go native call. `wakeShell` asks the shell resource to read again now
+// (T3LatinChords.swift emits `t3.notify`, which shellView watches), so a state a command set before waiting is drawn
+// while it waits; without a native module (unit tests) it wakes nothing.
+import { ClientError, type Native } from './protocol';
 
-/** Resolves after `ms` of wall time (useDebouncedValue's wait); at once without a module. */
-export async function settle(native: Native, ms: number): Promise<void> {
-  try { await native.later({ op: 'timelineSleep', ms }); } catch { /* no module: no wait */ }
+/** Resolves after `ms` on the app's clock. */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try { setTimeout(resolve, Math.max(0, ms)); }
+    catch (error) { reject(new ClientError(error instanceof Error ? error.message : 'This operation was superseded.', 'superseded')); }
+  });
 }
+
+/** useDebouncedValue's wait, and a poll's: `sleep`, for the command flows that hand their module along. */
+export const settle = (_native: Native, ms: number): Promise<void> => sleep(ms);
 
 /** The shell resource reads again now (its answer shows the command's state so far). */
 export async function wakeShell(native: Native): Promise<void> {

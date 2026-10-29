@@ -62,6 +62,19 @@ describe('citation View source (AssistantCitationSource)', () => {
     await expect(chatLocal(client, native, 'chip-citation', 'gone', 'a2')).rejects.toThrow('Thread no longer available');
     expect(timelineSnapshot(client).citing).toBe(false);
   });
+  // A newer View source lets the older go where it waits, on its own timer, so the older one's `finally` never runs.
+  test('a newer View source clears the flag the one it replaced left set', async () => {
+    const client = new T3Client();
+    Object.assign(client, { threadId: 't1', connection: 'connected', thread: loaded(['u1', 'a1', 'u2', 'a2']) });
+    client.shell.threads = [{ id: 't1' }, { id: 't2' }] as typeof client.shell.threads;
+    timelineView(client).lastRows = { threadId: 't1', rows };
+    const native = { available: true, watch() {}, async later(request: Record<string, unknown>) { return { ok: true, generation: request.generation, value: {} }; } } as unknown as Native;
+    client.openSelected = () => new Promise(() => {}); // the replaced one never gets past opening its thread
+    void chatLocal(client, native, 'chip-citation', 't2', 'b1');
+    expect(timelineSnapshot(client).citing).toBe(true);
+    await chatLocal(client, native, 'chip-citation', 't1', 'a2');
+    expect([timelineSnapshot(client).citing, timelineSnapshot(client).citeJump.key]).toEqual([false, '["t1","a2"]']);
+  });
 });
 
 describe('a quote that no longer reads in its answer', () => {

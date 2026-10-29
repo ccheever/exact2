@@ -15,6 +15,7 @@ import { ClientError, type Native, type Files } from './protocol';
 import { dismissPromptLink } from '../prompt-links/prompt-link-handler';
 import { carryNewThreadModelSelection } from '../composer/composer-provider-selection';
 import { pushToast } from '../shell/toast';
+import { sleep } from './command-waits';
 
 const RELATED_THREAD_SHELL_WAIT_MS = 1_000;
 /**
@@ -28,7 +29,7 @@ async function openRelatedThread(client: T3Client, native: Native, storage: File
   if (live() && !shell()) {
     const threadId = client.threadId;
     for (let waited = 0; waited < RELATED_THREAD_SHELL_WAIT_MS && !shell(); waited += 200) {
-      await client.restAccess(native).call({ op: 'timelineSleep', ms: 200 }).catch(() => undefined);
+      await sleep(200);
       await client.refresh(native, storage);
     }
     if (client.threadId !== threadId) return false;

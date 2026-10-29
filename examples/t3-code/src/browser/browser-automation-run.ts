@@ -10,11 +10,12 @@
 // CDP: scripts run with `callFunction` in the host's sandbox (browser-automation-scripts.ts), `preview_evaluate` in the
 // page's world; a click is `performActions`' pointer input, a key its key input (trusted on macOS); the screenshot is
 // `captureScreenshot`; locators and the ARIA snapshot come from Playwright's injected script. The data module has no
-// clock: a request's deadline counts the module's sleeps and the snapshot's wall time, whichever ran further.
+// clock: a request's deadline counts the run's sleeps and the snapshot's wall time, whichever ran further.
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { obj, str, type Json, type Obj } from '../client/domain';
 import { letGo } from '../client/let-go';
+import { sleep as timer } from '../client/command-waits';
 // @ts-ignore: the bake types the package from its exact.json (`__exact_modules`); a bare tsc sees no module.
 import * as packageCalls from '@exact/browser-automation';
 import { composerNow } from '../composer/composer-controls';
@@ -268,7 +269,7 @@ export function hostErrorJson(failure: Failure, context: Context): HostErrorJson
 export type Context = {
   plan: Obj; requestId: string; connectionId: string; clientId: string; operation: PreviewAutomationOperation; environmentId: string; threadId: string;
   tabId: string | null; runtimeId: string | null; input: Obj; timeoutMs: number; generation: number; budgetMs: number; fleet: string;
-  /** The module's sleeps so far, and the snapshot's wall time when the run started. */
+  /** The run's sleeps so far, and the snapshot's wall time when the run started. */
   slept: number; startedAt: number;
 };
 export function readContext(plan: Obj, now: number): Context {
@@ -279,8 +280,8 @@ export function readContext(plan: Obj, now: number): Context {
     timeoutMs, generation: Number(plan.generation) || 0, budgetMs: typeof plan.budgetMs === 'number' ? plan.budgetMs : timeoutMs, fleet: str(plan.fleet), slept: 0, startedAt: now,
   };
 }
-/** What the run needs from its slot: the send's native (its sleep), an RPC on the request's connection, and the host's
- *  adoption of a tab it opened (into the thread's store, shown or suppressed, with a frame). */
+/** What the run needs from its slot: the send's native, an RPC on the request's connection, and the host's adoption of a
+ *  tab it opened (into the thread's store, shown or suppressed, with a frame). */
 export type RunDeps = {
   native: Native;
   rpc: (method: string, payload: Obj) => Promise<Obj>;
@@ -294,7 +295,7 @@ const remaining = (run: Run): number => run.context.budgetMs - elapsed(run);
 async function sleep(run: Run, ms: number): Promise<void> {
   const wait = Math.max(0, Math.round(ms));
   run.context.slept += wait;
-  try { await run.deps.native.later({ op: 'timelineSleep', ms: wait }); } catch (error) { if (letGo(error)) throw error; }
+  await timer(wait);
 }
 const iso = (run: Run): string => new Date((run.context.startedAt || 0) + elapsed(run)).toISOString();
 

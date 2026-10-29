@@ -510,6 +510,7 @@ component T3Code
           focus("composer")
       case none
   mutation fragmentChanged as shape Change refreshes data then fragmentOpened
+  mutation citationShown as shape Change refreshes data // View source waits on its own timers there: only a newer one lets it go
   action fragmentOpened
     match fragmentChanged
       case some(result)
@@ -715,9 +716,9 @@ component T3Code
   derive speedModeHeld = speedModifiers(speedModifierState)
   action modifierKey(down: bool, e: KeyboardEvent, editable: bool)
     quitHoldKey(down, e)
-    // DesktopWindow.ts: a held ⌘W can outlive the panel or terminal that took its first press, so its repeats never
-    // reach File › Close Window. W by its key, or by its physical key where the source types no Latin character there
-    // (Korean 2-Set's ㅈ); AZERTY's W key types Z.
+    // DesktopWindow.ts: a held ⌘W closes one tab or terminal, not each one behind it, so its repeats are dropped. W by
+    // its key, or by its physical key where the source types no Latin character there (Korean 2-Set's ㅈ); AZERTY's W
+    // key types Z.
     if down and e.repeat and e.metaKey and not e.altKey and not e.shiftKey and (e.key.toLowerCase() == "w" or (e.code == "KeyW" and e.key.length == 1 and not quitTypesLatin(e.key)))
       preventDefault()
     // ThreadUndoShortcut: a held undo chord undoes once, so its repeats are cancelled even after the notice is gone,
@@ -1072,6 +1073,8 @@ component T3Code
       send frameReported = command(`chatlocal:${op}`, id, value, 0)
     else if op == "link-open" and value.startsWith("#")
       send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // fragmentOpened
+    else if op == "chip-citation"
+      send citationShown = command(`chatlocal:${op}`, id, value, 0)
     else
       send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // a table popup's trigger frame
   state foldHold = false

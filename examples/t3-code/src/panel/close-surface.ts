@@ -2,7 +2,7 @@
 // reference's ChatView does (MIT, see LICENSE-T3: components/ChatView.tsx `rightPanel.close` →
 // closeRightPanelSurface(activeRightPanelSurface) → rightPanelStore.closeSurface): the
 // neighbour at the closed index becomes active, the last tab closes the panel, and with no
-// active surface the chord keeps its native meaning (Close Window). The Pull Requests page
+// active surface the chord closes nothing (File › Close Window has no key equivalent). The Pull Requests page
 // closes its open pull request (routes/_chat.pull-requests.tsx closeActiveSurfaceFromShortcut).
 import type { T3Client } from '../client/client';
 import { panelState, syncDiff } from './panel-surfaces';

@@ -1734,6 +1734,7 @@ dependencies = [
  "exact-apple",
  "exact-js",
  "exact-js-bake",
+ "exact-kernel",
  "exact-logic",
  "exact-plan",
  "exact-runner",
