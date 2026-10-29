@@ -2,7 +2,7 @@
 import Foundation
 
 /// The app's bundled scripts (the Browser's recording, annotation and Playwright scripts): `EXACT_ASSETS`
-/// in a development run, else the bundle's `assets/`, as T3Notifications.soundURL looks them up.
+/// in a development run, else the bundle's `assets/`.
 enum T3Assets {
     static func fileURL(_ file: String, assets: String? = ProcessInfo.processInfo.environment["EXACT_ASSETS"], resources: URL? = Bundle.main.resourceURL) -> URL? {
         var candidates: [URL] = []

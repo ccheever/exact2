@@ -44,17 +44,6 @@ final class Fixture {
     deinit { listener.cancel() }
 }
 
-/// A raster of the given size and type, drawn here.
-func raster(width: Int, height: Int, type: UTType) -> Data {
-    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.9, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-    let data = NSMutableData()
-    let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil)!
-    CGImageDestinationAddImage(destination, context.makeImage()!, nil)
-    CGImageDestinationFinalize(destination)
-    return data as Data
-}
-
 /// A real grayscale PNG of width × height (70,000,000 pixels compress to a few hundred KB).
 func grayPng(width: Int, height: Int) -> Data {
     let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)!
@@ -137,20 +126,13 @@ final class MediaActionsTests: XCTestCase {
         XCTAssertEqual(board.string(forType: .string), "/repo/screens/logo.png")
     }
 
-    func testCopyImageWritesPngOfTheSamePixelSize() throws {
-        let png = raster(width: 31, height: 17, type: .png), jpeg = raster(width: 40, height: 24, type: .jpeg)
-        fixture.routes["/api/assets/a/shot.png"] = (200, "image/png", png)
-        fixture.routes["/api/assets/a/photo.jpg"] = (200, "image/jpeg", jpeg)
+    /// An SVG, which the data module's image codec does not draw (media-copy-image.ts copies every other image).
+    func testCopyImageDrawsAnSvgAtItsOwnSize() throws {
         fixture.routes["/api/assets/a/mark.svg"] = (200, "image/svg+xml", Data("<svg xmlns='http://www.w3.org/2000/svg' width='48' height='20'><rect width='48' height='20' fill='red'/></svg>".utf8))
-        XCTAssertEqual(run(["op": "mediaCopyImage", "url": "\(fixture.base)/api/assets/a/shot.png"])["ok"] as? Bool, true)
-        XCTAssertEqual(board.data(forType: .png), png, "a PNG goes to the pasteboard as it is")
-        let jpegReply = run(["op": "mediaCopyImage", "url": "\(fixture.base)/api/assets/a/photo.jpg"])
-        XCTAssertEqual(jpegReply["ok"] as? Bool, true)
-        XCTAssertEqual(pastedSize().map { [$0.0, $0.1] }, [40, 24])
         let svgReply = run(["op": "mediaCopyImage", "url": "\(fixture.base)/api/assets/a/mark.svg"])
         XCTAssertEqual(svgReply["ok"] as? Bool, true, "\(svgReply)")
         XCTAssertEqual(pastedSize().map { [$0.0, $0.1] }, [48, 20])
-        print("copy image: png 31x17 bytes equal; jpeg 40x24 -> png \(jpegReply["width"] ?? "?")x\(jpegReply["height"] ?? "?"); svg -> png \(svgReply["width"] ?? "?")x\(svgReply["height"] ?? "?")")
+        print("copy image: svg -> png \(svgReply["width"] ?? "?")x\(svgReply["height"] ?? "?")")
     }
 
     func testCopyImageRefusalsUseTheReferenceSentences() {

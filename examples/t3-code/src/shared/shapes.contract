@@ -400,8 +400,13 @@ shape UpdateEverythingView
 shape ExternalOpen
   serial: number
   url: string
+// The ChatGPT sign-in's loopback receiver's answer (codex-setup-host.ts codexReceive): "idle", "received", "failed" or "gone".
+shape CodexReceive
+  phase: string
 shape Snapshot
   externalOpen: ExternalOpen
+  // The ChatGPT sign-in whose callback the loopback receiver waits for (codex-setup-host.ts): app.contract codexLoopback.
+  codexReceiving: string
   updateEverything: UpdateEverythingView
   serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool

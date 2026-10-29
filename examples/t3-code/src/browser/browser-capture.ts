@@ -41,6 +41,7 @@ import { reservedAttachments } from '../composer/composer-editor-attach';
 import type { PanelState } from '../panel/panel-surfaces';
 import { previewPdfAssetUrl } from './browser-url';
 import { appFiles } from '../media/save-file';
+import { writePng } from '../media/media-copy-image';
 import { frameEntry, frameIdOf } from './browser-frames';
 import { agentDriving } from './browser-automation-run';
 import { fleet } from '../connections/settings-b-fleet';
@@ -79,12 +80,15 @@ type Host = {
   miniSize: { key: string; width: number; height: number } | null;
   /** Screenshots taken, which name each capture's file under app:/tmp/browser-shots. */
   shots: number;
+  /** A saved screenshot's path → the copy of its capture kept under app:/tmp/browser-shots, which Copy image writes
+   *  (the artifact folder is outside what the data module reads). */
+  copies: Map<string, string>;
 };
 const hosts = new WeakMap<T3Client, Host>();
 export function captureHost(client: T3Client): Host {
   let host = hosts.get(client);
   if (!host) {
-    const fresh: Host = { native: null, recordings: null as unknown as BrowserRecordings, applied: new Map(), sendSerial: 0, sendTarget: null, cancelled: new Map(), scheme: 'light', miniSize: null, shots: 0 };
+    const fresh: Host = { native: null, recordings: null as unknown as BrowserRecordings, applied: new Map(), sendSerial: 0, sendTarget: null, cancelled: new Map(), scheme: 'light', miniSize: null, shots: 0, copies: new Map() };
     fresh.recordings = new BrowserRecordings(nativeRecordingHost(client, fresh));
     hosts.set(client, fresh);
     host = fresh;
@@ -349,12 +353,14 @@ async function capture(client: T3Client, host: Host, target: CaptureTarget, reco
     // Manager.ts captureScreenshot: the frame's picture at its own pixels, then into the artifact directory.
     const entry = frameEntry(client, target.runtimeId);
     if (!entry) throw new PreviewCaptureFailure('renderer-unavailable', 'screenshot');
-    const path = `app:/tmp/browser-shots/${entry.frameId}-${++host.shots}.png`;
+    const path = `app:/tmp/browser-shots/${entry.frameId}-${++host.shots}.png`, kept = path.replace(/\.png$/, '-copy.png');
     await appFiles().fs.mkdir('app:/tmp/browser-shots', { recursive: true });
     try { await automationCalls().captureScreenshot({ id: entry.frameId, path }); }
     catch (error) { if (letGo(error)) throw error; throw new PreviewCaptureFailure('capture-failed', 'capture-page'); }
+    await (appFiles().fs as unknown as { copyFile(from: string, to: string): Promise<unknown> }).copyFile(path, kept);
     const value = await nativeCall(host, { op: 'browserArtifact', action: 'adopt', path, url: entry.record?.url ?? '' }, 'screenshot');
     artifact = { id: str(value.id), tabId: target.runtimeId, path: str(value.path), mimeType: 'image/png', sizeBytes: num(value.sizeBytes), createdAt: str(value.createdAt) };
+    host.copies.set(artifact.path, kept);
   } catch (error) {
     if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Unable to capture screenshot', description: errorText(error) });
@@ -400,7 +406,12 @@ export async function artifactLocal(client: T3Client, native: Native, action: st
   host.native = native;
   const toastId = Number(toastValue) || 0;
   try {
-    await nativeCall(host, { op: 'browserArtifact', action, path });
+    // copyArtifactToClipboard: the screenshot's PNG through @exact/clipboard (media-copy-image.ts).
+    if (action === 'copy-image') {
+      const kept = host.copies.get(path);
+      if (!kept) throw new ClientError('The screenshot could not be read.');
+      await writePng(kept);
+    } else await nativeCall(host, { op: 'browserArtifact', action, path });
     if (action !== 'reveal' && toastId > 0) markActionCopied(client, toastId, `shelllocal:surface-browser-artifact-${action}`);
   } catch (error) {
     if (letGo(error)) throw error;

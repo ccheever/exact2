@@ -17,6 +17,7 @@ import { buildMultiSelectThreadContextMenuItems, getLatestThreadForProject, isTr
   orderItemsByPreferredIds, relativeTimeLabel, reorderProjects, resolveAdjacentThreadId, resolveProjectStatusIndicator, resolveThreadStatusPill,
   sortProjectsForSidebar, sortThreads, type StatusPill } from '../../src/sidebar/legacy-sidebar-model';
 import { legacyGroups, legacySession, legacySidebarSnapshot, legacyTraversal, legacyVisibleThreadIds } from '../../src/sidebar/legacy-sidebar-view';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const thread = (id: string, extra: Obj = {}): Obj => ({ id, projectId: 'p1', title: `Thread ${id}`, status: 'idle', latestRunId: null, activeProviderThreadId: null,
@@ -189,8 +190,8 @@ describe('legacy menus (LegacySidebar.tsx)', () => {
 
 interface Fake { client: T3Client; calls: Obj[]; writes: Obj[]; dispatched: Obj[]; drafts: string[]; opened: string[] }
 const identity = (name: string) => ({ projectMark: name.slice(0, 2), projectInk: 'ink', projectSurface: 'surface' });
-function fake(threads: Obj[], options: { settings?: Obj; threadId?: string; picks?: string[]; projects?: Obj[] } = {}): Fake {
-  const calls: Obj[] = [], writes: Obj[] = [], dispatched: Obj[] = [], drafts: string[] = [], opened: string[] = [], picks = [...(options.picks ?? [])];
+function fake(threads: Obj[], options: { settings?: Obj; threadId?: string; projects?: Obj[] } = {}): Fake {
+  const calls: Obj[] = [], writes: Obj[] = [], dispatched: Obj[] = [], drafts: string[] = [], opened: string[] = [];
   let ids = 0;
   const client = {
     shell: { projects: options.projects ?? [{ id: 'p1', title: 'Alpha', workspaceRoot: '/alpha', createdAt: at(0), updatedAt: at(0) }, { id: 'p2', title: 'Beta', workspaceRoot: '/beta', createdAt: at(1), updatedAt: at(1) }], threads },
@@ -209,7 +210,6 @@ function fake(threads: Obj[], options: { settings?: Obj; threadId?: string; pick
       write: async (_storage: Files, pending: Obj) => { writes.push(pending); return {}; },
       call: async (request: Obj) => {
         calls.push(request);
-        if (request.op === 'sidebarMenu') return { id: picks.shift() ?? null };
         return {};
       },
     }),
@@ -354,13 +354,30 @@ describe('legacy gestures (LegacySidebar.tsx handlers)', () => {
     expect(await sidebarCommand(client, native, files, 'legacy-new-thread', 'env:/beta', '')).toBe('sidebar:new-thread');
     expect(drafts).toEqual(['p2']);
   });
-  test('New thread on a project of several members asks which in the module\'s menu at the pointer (handleCreateThreadClick)', async () => {
+  test('New thread on a project of several members opens their menu at the click (handleCreateThreadClick)', async () => {
     const repositoryIdentity = { canonicalKey: 'github.com/acme/app' };
-    const { client, calls, drafts } = fake([], { picks: ['env:/beta'], projects: [{ id: 'p1', title: 'App', workspaceRoot: '/alpha', repositoryIdentity, createdAt: at(0), updatedAt: at(0) },
+    const { client, drafts } = fake([], { projects: [{ id: 'p1', title: 'App', workspaceRoot: '/alpha', repositoryIdentity, createdAt: at(0), updatedAt: at(0) },
       { id: 'p2', title: 'App', workspaceRoot: '/beta', repositoryIdentity, createdAt: at(1), updatedAt: at(1) }] });
-    expect(await sidebarCommand(client, native, files, 'legacy-new-thread', 'github.com/acme/app', '')).toBe('sidebar:new-thread');
-    const menus = calls.filter(call => call.op === 'sidebarMenu');
-    expect(menus.map(call => [(call.items as Obj[]).map(item => item.label), 'anchor' in call])).toEqual([[['/alpha', '/beta'], false]]);
+    const project = legacySidebarSnapshot(client, NOW, { projectIdentity: identity }).projects.find(entry => entry.key === 'github.com/acme/app')!;
+    expect(project.members.map(row => [row.id, row.label])).toEqual([['env:/alpha', '/alpha'], ['env:/beta', '/beta']]);
+    expect(legacySidebarSnapshot(fake([]).client, NOW, { projectIdentity: identity }).projects.map(entry => entry.members)).toEqual([[], []]);
+    // The button's press names the menu's project and the click's point, then shows the menu from the button (LLP 1021 D2);
+    // a project of one creates at once.
+    const row = contractComponent('src/sidebar/legacy-sidebar.contract', 'LegacyProject'), asked: unknown[][] = [], shown: unknown[][] = [], ran: unknown[][] = [];
+    const scope = (p: Obj) => ({ p, members: (...args: unknown[]) => asked.push(args), showPopover: (...args: unknown[]) => shown.push(args), run: (...args: unknown[]) => ran.push(args) });
+    row.call('newThreadPress', {}, scope(project), [{ clientX: 70, clientY: 38 }]);
+    expect([asked, shown, ran]).toEqual([[['github.com/acme/app', 70, 38]], [['legacy-members-menu', { source: 'legacy-new-thread-github.com/acme/app' }]], []]);
+    row.call('newThreadPress', {}, scope({ ...project, members: [] }), [{ clientX: 70, clientY: 38 }]);
+    expect(ran).toEqual([['legacy-new-thread', 'github.com/acme/app', '']]);
+    // A key's press is at 0, 0: the menu keeps no point and hangs from the button.
+    const sidebar = contractComponent('src/sidebar/legacy-sidebar.contract', 'LegacySidebar'), menu = { membersProject: '', membersPointed: false, membersX: 0, membersY: 0 };
+    sidebar.call('membersMenu', menu, {}, ['github.com/acme/app', 70, 38]);
+    expect(menu).toEqual({ membersProject: 'github.com/acme/app', membersPointed: true, membersX: 70, membersY: 38 });
+    sidebar.call('membersMenu', menu, {}, ['github.com/acme/app', 0, 0]);
+    expect(menu.membersPointed).toBe(false);
+    // A row of the menu creates on its member.
+    expect(await sidebarCommand(client, native, files, 'legacy-new-thread', 'github.com/acme/app', 'env:/beta')).toBe('sidebar:new-thread');
+    expect(await sidebarCommand(client, native, files, 'legacy-new-thread', 'github.com/acme/app', '')).toBe('');
     expect(drafts).toEqual(['p2']);
   });
   test('⇧-click ranges over the project list', async () => {
@@ -385,7 +402,6 @@ describe('legacy gestures (LegacySidebar.tsx handlers)', () => {
     expect(sidebarSession(client).dialog).toEqual({ kind: 'delete', threadIds: ['a'], title: 'Thread a' });
     await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'copy-thread-id');
     expect(toasts(client).at(-1)).toMatchObject({ title: 'Thread ID copied', description: 'a' });
-    expect(calls.filter(call => call.op === 'sidebarMenu')).toEqual([]);
   });
   test('a right press on a row outside the selection clears it; one on a selected row keeps it', async () => {
     const { client } = fake([thread('a'), thread('b'), thread('c')]);

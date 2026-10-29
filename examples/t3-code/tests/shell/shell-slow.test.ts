@@ -382,7 +382,6 @@ describe('shellView settles live traces', () => {
     const native = { available: true, watch() {}, later: async (input: unknown) => {
       const request = input as Obj; reads.push(String(request.op));
       if (request.op === 'status') return { ok: true, generation: 3, value: { state: 'connected', environmentId: 'env-a', traces: listed } };
-      if (request.op === 'notifyStatus') return { ok: true, generation: 3, value: { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' } };
       return { ok: true, generation: 3, value: {} };
     } };
     await shellView(client, native, files as never, T0, '', false);

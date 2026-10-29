@@ -29,8 +29,9 @@ export type CodexFlow = {
   continueWithSignIn: string; openRequested: boolean; openedFlow: string;
   requestedMethodId: string;
   autoStart: boolean; autoStartHandled: boolean; displayName: string;
-  /** The authorization URL the loopback listener holds (receivingCallback), and its flow. */
-  receiving: string; receivingFlow: string;
+  /** The authorization URL whose callback the loopback receiver waits for (receivingCallback), its flow, and when
+   *  the snapshot's clock first saw it (0 until then). */
+  receiving: string; receivingFlow: string; receivingSince: number;
   /** The flow whose success already asked for a provider refresh. */
   refreshedFlow: string;
   /** Bumped when a pasted redirect URL connected, so the field starts empty. */
@@ -40,7 +41,7 @@ export type CodexFlow = {
 
 const flows = new WeakMap<object, Map<string, CodexFlow>>();
 const freshFlow = (): CodexFlow => ({ pending: false, error: '', awaiting: '', continueWithSignIn: '', openRequested: false, openedFlow: '',
-  requestedMethodId: 'chatgpt', autoStart: false, autoStartHandled: false, displayName: '', receiving: '', receivingFlow: '', refreshedFlow: '',
+  requestedMethodId: 'chatgpt', autoStart: false, autoStartHandled: false, displayName: '', receiving: '', receivingFlow: '', receivingSince: 0, refreshedFlow: '',
   cleared: 0, handoff: null, transferFailed: false, importedAttempt: '', handoffSequence: 0 });
 export function codexFlows(host: object): Map<string, CodexFlow> {
   let map = flows.get(host);

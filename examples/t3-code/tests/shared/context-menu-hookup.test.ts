@@ -43,9 +43,9 @@ describe('right-click hookup', () => {
     const sent: unknown[][] = [], state: Obj = { fileMenuTip: '', fileMenuTarget: '', fileMenuRows: [] };
     const rows = [{ id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }];
     const windowScope = { chatLocal: (...args: unknown[]) => sent.push(args) };
-    const buttonScope = { tip: '/srv/project/README.md', target: 'README.md', menu: rows, local: (...args: unknown[]) => sent.push(args),
+    const buttonScope = { tip: '/srv/project/README.md', target: 'README.md', menu: rows, local: (...args: unknown[]) => sent.push(args), fileLinkPressMenu: false,
       fileLinkMenu: (...args: unknown[]) => window.call('fileLinkMenu', state, windowScope, args) };
-    button.call('press', {}, buttonScope, []);
+    button.call('press', {}, buttonScope, [{ clientX: 40, clientY: 12 }]);
     expect(state).toEqual({ fileMenuTip: '/srv/project/README.md', fileMenuTarget: 'README.md', fileMenuRows: rows });
     window.call('fileLinkPick', state, windowScope, ['copy-full']);
     expect(sent).toEqual([['surface-file-link', '/srv/project/README.md', 'README.md'], ['surface-files-link-pick', '/srv/project/README.md', 'copy-full\nREADME.md']]);

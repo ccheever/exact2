@@ -848,7 +848,7 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
       applyDeviceSetting(local, value, String(fallback));
       const size = FONT_SIZE_KEYS[value];
       if (size) applyDeviceSetting(local, size, String(CLIENT_DEFAULTS[size as keyof typeof CLIENT_DEFAULTS]));
-    } else if (target.part === 'notificationMode' && !(await notificationPermission(client, native, value))) { // shell-notify.ts permission gate
+    } else if (target.part === 'notificationMode' && !(await notificationPermission(client, value))) { // shell-notify.ts permission gate
       return '';
     } else if ((target.part === 'fontFamilyCode' || target.part === 'fontFamilyTerminal') && value.trim() &&
       (await installedFonts(client, native)).some(font => font.family.toLowerCase() === value.trim().toLowerCase() && !font.monospace)) {

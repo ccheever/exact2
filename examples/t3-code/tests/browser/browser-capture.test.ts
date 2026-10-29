@@ -14,6 +14,7 @@ import { automationTick, toggleFrameMute, useAutomationCalls, type AutomationCal
 import { serveRecordingRequests } from '../../src/browser/browser-automation-recording';
 import { annotateState } from '../../src/browser/browser-annotate';
 import { adoptAppFiles } from '../../src/media/save-file';
+import { useClipboardCalls } from '../../src/media/media-copy-image';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { browserMiniSessions, browserHost, browserView } from '../../src/browser/browser-surface';
 import { previewRuntimeTabId } from '../../src/browser/browser-state';
@@ -71,7 +72,7 @@ function fakePage(next: () => unknown | Promise<unknown>, fail: Partial<Record<'
     async setDownloadBehavior(options) { calls.push({ call: 'setDownloadBehavior', ...options }); return {}; },
   };
   useAutomationCalls(fake);
-  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(812), writeFile: async () => {}, mkdir: async () => {} } });
+  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(812), writeFile: async () => {}, mkdir: async () => {}, copyFile: async (from: string, to: string) => { calls.push({ call: 'copyFile', from, to }); } } });
   return calls;
 }
 /** Annotate on the tab, then the window's queued send its pick waits in (browser-annotate.ts). */
@@ -323,8 +324,14 @@ describe('handleCapture', () => {
     expect(toast?.extra).toEqual({ label: 'Copy path', op: 'shelllocal:surface-browser-artifact-copy-path', id: path, value: String(toast?.id) });
     expect(toast?.secondary).toEqual({ label: 'Reveal in Finder', op: 'shelllocal:surface-browser-artifact-reveal', id: path, value: String(toast?.id) });
     shellState(client).now = 10_000;
+    // copyArtifactToClipboard: the capture's copy, kept before the module moved it, as a PNG through @exact/clipboard.
+    const kept = String(shot.path).replace(/\.png$/, '-copy.png'), written: Obj[][] = [];
+    expect(calls.find(call => call.call === 'copyFile')).toEqual({ call: 'copyFile', from: shot.path, to: kept });
+    useClipboardCalls({ write: async items => { written.push(items as Obj[]); }, ClipboardItem: class { constructor(items: Obj) { Object.assign(this, items); } } });
     await artifactLocal(client, module.native, 'copy-image', path, String(toast?.id));
-    expect(module.calls.at(-1)).toMatchObject({ op: 'browserArtifact', action: 'copy-image', path });
+    useClipboardCalls(null);
+    expect(written).toEqual([[{ 'image/png': kept }]]);
+    expect(module.calls.filter(call => call.op === 'browserArtifact').map(call => call.action)).toEqual(['adopt']);
     let [view] = toastViews(toasts(client), copiedToasts(client, 10_000), copiedActions(client));
     expect([view?.actionLabel, view?.actionDone, view?.extraLabel, view?.extraDone, view?.secondaryLabel]).toEqual(['Copied!', true, 'Copy path', false, 'Reveal in Finder']);
     shellState(client).now = 12_000;
@@ -380,6 +387,9 @@ describe('handleCapture', () => {
     const shotFailed = toasts(client).find(toast => toast.id === shot?.id);
     expect(shotFailed).toMatchObject({ kind: 'error', title: 'Unable to copy screenshot path' });
     expect([shotFailed?.action?.label, shotFailed?.extra?.label, shotFailed?.secondary?.label]).toEqual(['Copy image', 'Copy path', 'Reveal in Finder']);
+    // A screenshot whose capture this window kept no copy of (the reference: its image would not load).
+    await artifactLocal(client, failing.native, 'copy-image', `${dir}/browser-screenshot-elsewhere.png`, '');
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Unable to copy screenshot', description: 'The screenshot could not be read.' });
   });
 
   it('records on a Shift-click and stops on the next press, saving the recording with Reveal in Finder and Copy path', async () => {

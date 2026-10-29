@@ -109,6 +109,17 @@ component LegacySidebar
     menuThread = id
   action projectMenu(key: string)
     menuProject = key
+  // New thread's choice of members (LegacyMembersMenu): its project, and the click's point, which a key's press (0, 0)
+  // leaves unset so the menu hangs from the button.
+  state membersProject = ""
+  state membersPointed = false
+  state membersX = 0
+  state membersY = 0
+  action membersMenu(key: string, x: number, y: number)
+    membersProject = key
+    membersPointed = x != 0 or y != 0
+    membersX = x
+    membersY = y
   // The open row scrolls into view (block nearest) on each route change and once for each mount (useActiveRowReveal):
   // a marker mounts once the row is listed, and its first layout scrolls, as the row's own ref does. A row whose
   // project the virtualized list has not built yet takes two layouts: the first brings the project in by its key, and
@@ -134,6 +145,7 @@ component LegacySidebar
     column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="legacy-sidebar" id="legacy-sidebar" focusin=focusWithin(true) focusout=focusWithin(false) data-paint=`${(data.look.themed ? "sidebar" : "")} ${(data.look.themed ? "border" : "")}` data-pick=((data.look.themed ? "sidebar" : "") != "" ? (data.look.themed ? "sidebar" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
       LegacyThreadMenu(projects=legacy.projects, owner=menuThread, run=run)
       LegacyProjectMenu(projects=legacy.projects, owner=menuProject, run=run)
+      LegacyMembersMenu(projects=legacy.projects, owner=membersProject, pointed=membersPointed, x=membersX, y=membersY, run=run)
       if revealTarget != "" and revealRowNext == ""
         for target in [revealTarget] key=target
           box position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" aria-hidden=true resize=revealDue(target) testId="legacy-reveal"
@@ -172,7 +184,7 @@ component LegacySidebar
       // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
       list appearance="none" id="legacy-projects" reorderdrop=dropped virtualized=true estimated-item-height=120 flex=1 min-height=0 width="100%" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" overflow-x="hidden" aria-label="Projects" testId="legacy-project-list"
         for p in legacy.projects key=p.key
-          LegacyProject(reduced=reduced, p=p, legacy=legacy, now=now, page=page, busy=busy, open=open, local=local, run=run, menu=projectMenu, threadMenu=threadMenu)
+          LegacyProject(reduced=reduced, p=p, legacy=legacy, now=now, page=page, busy=busy, open=open, local=local, run=run, menu=projectMenu, threadMenu=threadMenu, members=membersMenu)
       if legacy.noProjects
         text "No projects yet" padding-left="0.5rem" padding-right="0.5rem" padding-top="1rem" font-size="0.75rem" line-height="1rem" text-align="center" color="light-dark(#71717b, #8f8f8f)" testId="legacy-no-projects" flex-shrink=0
       // SidebarChromeFooter: the undo notice, the provider pill and the utility menu.
@@ -325,6 +337,8 @@ component LegacyProject
     // The header's and each row's context popover owner (LegacySidebar).
     menu: action
     threadMenu: action
+    // New thread's members menu: its project and the click's point (LegacySidebar `membersMenu`).
+    members: action
   state over = false
   // group-focus-within/project-header: the focus on the header or its New thread shows New thread and hides the badge.
   state inside = false
@@ -348,6 +362,14 @@ component LegacyProject
     // author's choice, and LLP 1115.000 D7 keeps a focus an action set over D7.1's default.
     focus(`legacy-project-toggle-${p.key}`)
     menu(p.key)
+  // handleCreateThreadClick: a project of one member creates at once; several show their menu where the button was
+  // clicked (api.contextMenu.show at the event's clientX, clientY), and a key's press shows it from the button.
+  action newThreadPress(e: MouseEvent)
+    if p.members.length > 0
+      members(p.key, e.clientX, e.clientY)
+      showPopover("legacy-members-menu", source=`legacy-new-thread-${p.key}`)
+    else
+      run("legacy-new-thread", p.key, "")
   derive pointed = over or inner
   derive revealed = pointed or inside
   view
@@ -381,7 +403,7 @@ component LegacyProject
             CnMachineIcon(kind=p.remoteMachine, size=12, color="light-dark(#71717b, #a3a3a3)")
         box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")
           LegacyRowTip(label=legacy.newThreadTip, side="top", align="end", tipId=`legacy-tip-new-${p.key}`, shown=true, relay=innerHover)
-            button cursor="pointer" press=run("legacy-new-thread", p.key, "") focus=within(true) blur=within(false) aria-label=p.newThreadLabel testId="new-thread-button" width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+            button cursor="pointer" press=newThreadPress focus=within(true) blur=within(false) aria-label=p.newThreadLabel testId="new-thread-button" id=`legacy-new-thread-${p.key}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               SidebarIcon(name="square-pen", size=14, color="light-dark(#71717b, #a3a3a3)")
       if p.threads.length > 0 or p.showEmpty or p.showMore or p.showLess
         column margin-left="0.25rem" margin-right="0.25rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" gap="0.25rem" border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" overflow="hidden" -exact-layout-transition=(reduced ? "none" : "180ms ease-out") -exact-exit-animation=(reduced ? "none" : "lsRowOut 180ms ease-out") role="list" testId=`legacy-threads-${p.key}`
@@ -647,6 +669,26 @@ component LegacyProjectMenu
                   if e.destructive
                     image "symbol:sf/trash" width=12 height=12 object-fit="contain"
                   text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#18181b, #f5f5f5)")
+
+// handleCreateThreadClick's choice of members (LegacySidebar.tsx:1960-2010), one row per member, at the click (LLP 1021
+// D2): macOS pops it up as an NSMenu at that point, as Electron's Menu.popup({x, y}) does; the web and the agent paint it
+// there. Opened from a key, it hangs from the New thread button.
+component LegacyMembersMenu
+  props
+    projects: LegacyProjectRow[]
+    owner: string
+    pointed: bool
+    x: number
+    y: number
+    run: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="legacy-members-menu" popover="auto" role="menu" class=SidebarMenuCard margin=0 left=(pointed ? `${x}px` : "auto") top=(pointed ? `${y}px` : "auto") testId="legacy-members-menu"
+        for p in projects key=p.key
+          if p.key == owner
+            for e in p.members key=e.id
+              button press=run("legacy-new-thread", owner, e.id) popovertarget="legacy-members-menu" popovertargetaction="hide" role="menuitem" testId=`legacy-members-menu-${e.id}` class=SidebarMenuItem
+                text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
 
 component LegacyRowTip
   inject

@@ -1,8 +1,8 @@
 import AppKit
 import XCTest
 
-// Where a keyboard-opened native menu goes (T3Sidebar.anchorPoint, which the media menu's
-// `anchor` uses, T3MediaActions.swift), measured on the f870c419fc reference in Chrome on macOS:
+// Where a keyboard-opened native menu goes (T3MediaActions.anchorPoint, the media menu's `anchor`),
+// measured on the f870c419fc reference in Chrome on macOS:
 // a focused view's centre, as Chromium's keyboard contextmenu (127, 238 for the 239×78 card
 // at 8, 199), or its bottom-left corner (8, 180 for the card at 8, 102).
 final class FocusRow: NSView { override var acceptsFirstResponder: Bool { true } }
@@ -25,11 +25,11 @@ final class SidebarMenuAnchorTests: XCTestCase {
     func testThreadRowCentreAndDraftRowBottomLeftMatchTheReference() {
         for flipped in [false, true] {
             let (_, content, thread) = window(flipped: flipped, rowTop: 199)
-            let centre = T3Sidebar.anchorPoint("center", focus: thread, in: content)
+            let centre = T3MediaActions.anchorPoint("center", focus: thread, in: content)
             XCTAssertEqual(centre?.topLeft, NSPoint(x: 127, y: 238), "flipped \(flipped)")
             XCTAssertEqual(centre?.point, flipped ? NSPoint(x: 127, y: 238) : NSPoint(x: 127, y: 840 - 238))
             let (_, content2, draft) = window(flipped: flipped, rowTop: 102)
-            let corner = T3Sidebar.anchorPoint("bottom-left", focus: draft, in: content2)
+            let corner = T3MediaActions.anchorPoint("bottom-left", focus: draft, in: content2)
             XCTAssertEqual(corner?.topLeft, NSPoint(x: 8, y: 180), "flipped \(flipped)")
             XCTAssertEqual(corner?.point, flipped ? NSPoint(x: 8, y: 180) : NSPoint(x: 8, y: 660))
         }
@@ -37,10 +37,10 @@ final class SidebarMenuAnchorTests: XCTestCase {
 
     func testNoFocusedRowFallsBackToThePointer() {
         let (_, content, row) = window(flipped: false, rowTop: 199)
-        XCTAssertNil(T3Sidebar.anchorPoint("center", focus: nil, in: content))
-        XCTAssertNil(T3Sidebar.anchorPoint("center", focus: content, in: content), "the window itself holds focus")
-        XCTAssertNil(T3Sidebar.anchorPoint("middle", focus: row, in: content), "unknown anchors are ignored")
-        XCTAssertNil(T3Sidebar.anchorPoint("center", focus: FocusRow(frame: .zero), in: content), "a view outside the window")
+        XCTAssertNil(T3MediaActions.anchorPoint("center", focus: nil, in: content))
+        XCTAssertNil(T3MediaActions.anchorPoint("center", focus: content, in: content), "the window itself holds focus")
+        XCTAssertNil(T3MediaActions.anchorPoint("middle", focus: row, in: content), "unknown anchors are ignored")
+        XCTAssertNil(T3MediaActions.anchorPoint("center", focus: FocusRow(frame: .zero), in: content), "a view outside the window")
     }
 }
 

@@ -97,26 +97,33 @@ test('focused references pin the actual owner across focus changes with identica
 test('shell watch suppresses the shown guide, settles once, and preserves the original owner in native Open guide', async () => {
   const { coordinateGuides, decodeGuideOpenTarget } = await import('../../src/pull-requests/pages-pr-guide');
   const { toasts } = await import('../../src/shell/toast');
+  const { notificationSounds, useNotificationCalls } = await import('../../src/shell/shell-notify');
+  const posts: Record<string, unknown>[] = [];
+  useNotificationCalls({ showNotification: async options => { posts.push(options); }, closeNotification: async () => {}, setAppBadge: async () => {}, clearAppBadge: async () => {},
+    notificationStatus: async () => ({ available: true, state: 'granted', badge: true }), requestNotificationPermission: async () => ({ available: true, state: 'granted', badge: true }) });
   const { client, native } = await connected();
   client.config.settings = { reviewGuidesEnabled: true };
   client.local.clientSettings = { notificationMode: 'notifications-and-sound', inAppNotificationsEnabled: true };
   const entry = guideEntry(client, reference), reader = guideReader(client), operations: Record<string, unknown>[] = [];
   const ready = { guide, run: null, currentHeadSha: 'head' };
   native.later = async input => { const request = obj(input); operations.push(request); return native.good(request.method === 'pullRequests.reviewGuide' ? ready : {}); };
-  const status = { active: true, authorization: 'granted', agent: false, opened: '', openedThread: '' };
+  const status = { active: true, authorization: 'granted', opened: '', openedThread: '' };
   const watch = () => reader.watches.set(entry.key, { entry, previousGuideAt: null, previousFailedAt: null, since: 0, sawRunning: true, polledAt: 0 });
   watch(); reader.shownKey = entry.key;
   await coordinateGuides(client, native, status, 5_000);
-  expect(reader.watches.size).toBe(0); expect(toasts(client)).toEqual([]); expect(operations.some(op => op.op === 'notifySound')).toBe(false);
+  expect(reader.watches.size).toBe(0); expect(toasts(client)).toEqual([]); expect(notificationSounds(client)).toEqual({ completion: 0, input: 0 });
   reader.shownKey = ''; watch();
   await coordinateGuides(client, native, status, 10_000);
   expect(toasts(client).at(-1)?.action).toMatchObject({ op: 'guide-open' });
   expect(JSON.parse(toasts(client).at(-1)!.action!.id!).environmentId).toBe(client.environmentId);
   const count = operations.length; await coordinateGuides(client, native, status, 15_000); expect(operations).toHaveLength(count);
   watch(); await coordinateGuides(client, native, { ...status, active: false }, 20_000);
-  const notification = operations.find(op => op.op === 'notifyPost')!;
-  expect(notification.tag).toBe(`guide:${entry.key}`); expect(JSON.parse(decodeGuideOpenTarget(String(notification.threadId))!).environmentId).toBe(entry.environmentId);
-  expect(operations.filter(op => op.op === 'notifySound')).toHaveLength(2);
+  const [notification] = posts;
+  expect([notification?.tag, notification?.silent]).toEqual([`guide:${entry.key}`, true]);
+  const target = new URLSearchParams(String(notification?.navigate).split('?')[1]).get('t')!;
+  expect(JSON.parse(decodeGuideOpenTarget(target)!).environmentId).toBe(entry.environmentId);
+  expect(notificationSounds(client).completion).toBe(2);
+  useNotificationCalls(null);
 });
 
 test('the tour loads later diff pages for its stop without replacing Code commit or whitespace scope', async () => {

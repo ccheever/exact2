@@ -151,17 +151,14 @@ final class BrowserCaptureTests: XCTestCase {
         XCTAssertNotEqual(T3BrowserPages.oldStoreIdentifier(environment: "env", profile: "default"), T3BrowserPages.oldStoreIdentifier(environment: "env", profile: "work"))
     }
 
+    /// Reveal and Copy path (Copy image is the data module's, through @exact/clipboard: browser-capture.ts).
     func testArtifactActionsOnlyTouchFilesInsideTheArtifactDirectory() throws {
         let inside = artifacts.appendingPathComponent("browser-screenshot-test.png")
-        let image = NSImage(size: NSSize(width: 4, height: 4)); image.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 4, height: 4).fill(); image.unlockFocus()
-        let png = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation))?.representation(using: .png, properties: [:]))
-        try png.write(to: inside)
+        try Data("png".utf8).write(to: inside)
         let reveal = op(["op": "browserArtifact", "action": "reveal", "path": inside.path])
         XCTAssertEqual(value(reveal)["revealed"] as? String, inside.resolvingSymlinksInPath().path, "an agent run records the reveal instead of opening Finder")
         let pasteboard = T3BrowserArtifacts.pasteboard(agent: true)
         XCTAssertNotEqual(pasteboard.name, NSPasteboard.general.name, "an agent run never writes the person's clipboard")
-        XCTAssertEqual(value(op(["op": "browserArtifact", "action": "copy-image", "path": inside.path]))["copied"] as? Bool, true)
-        XCTAssertNotNil(pasteboard.data(forType: .png))
         XCTAssertEqual(value(op(["op": "browserArtifact", "action": "copy-path", "path": inside.path]))["copied"] as? Bool, true)
         XCTAssertEqual(pasteboard.string(forType: .string), inside.resolvingSymlinksInPath().path)
         for outside in ["/tmp/t3/dev/settings.json", artifacts.appendingPathComponent("../escape.png").path, "relative.png"] {
@@ -169,8 +166,6 @@ final class BrowserCaptureTests: XCTestCase {
             XCTAssertEqual(refused["ok"] as? Bool, false, outside)
             XCTAssertEqual((refused["error"] as? [String: Any])?["kind"] as? String, "ArtifactPath")
         }
-        try Data("x".utf8).write(to: artifacts.appendingPathComponent("broken.png"))
-        XCTAssertEqual((op(["op": "browserArtifact", "action": "copy-image", "path": artifacts.appendingPathComponent("broken.png").path])["error"] as? [String: Any])?["kind"] as? String, "ArtifactImage")
     }
 
     func testTheSeparateWindowFloatsTheLivePageAndFollowsItsAspect() throws {

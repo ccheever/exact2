@@ -17,7 +17,7 @@ use PrAvatar from "./pages-prs.contract"
 use PrMenuBox from "./pages-prs.contract"
 use PrPageBack from "./pages-prs.contract"
 use PrLinkMenu from "./pages-prs.contract"
-use LinkMenuRow, LinkMenuPopover from "../timeline/link-menus.contract"
+use LinkMenuRow, LinkMenuPopover, LinkMenuPopoverAt from "../timeline/link-menus.contract"
 use PrSummaryView from "./pages-pr-summary.contract"
 use PrdSummary from "./pages-pr-summary.contract"
 use PrTimelineView from "./pages-pr-timeline.contract"
@@ -263,17 +263,23 @@ component PrdBody
       act("link-open", value)
     else if op == "surface-file" or op == "surface-file-link"
       act("file-open", `${surface}\n${id}`)
+    else if op == "file-link-at"
+      fileLeft = id == "0" and value == "0" ? "auto" : `${id}px`
+      fileTop = id == "0" and value == "0" ? "auto" : `${value}px`
     else
       local(op, id, value)
   // A file link's menu (link-menus.contract FileLinkButton) in this panel's text: the link's target and its rows, read in
   // the pull request's workspace (pages-pr-detail.ts). The page has no thread to preview media or open the Browser
-  // beside, and a file link's press opens the menu there, as MarkdownFileLink does with no primary action.
+  // beside, and a file link's press opens the menu where it was clicked, as MarkdownFileLink does with no primary action.
   provide
     fileLinkMenu = fileMenu
     fileLinkPopover = `pr-file-link-menu-${surface}`
     fileLinkPressMenu = (surface == "page")
   state fileTip = ""
   state fileRows: LinkMenuRow[] = []
+  // Where a press opened the page's menu (`file-link-at`, the click's clientX and clientY): LinkMenuPopoverAt's insets.
+  state fileLeft = "auto"
+  state fileTop = "auto"
   action fileMenu(tip: string, target: string, rows: LinkMenuRow[])
     fileTip = tip
     fileRows = surface == "page" ? rows.filter((row) => row.id != "preview-media" and row.id != "open-in-browser") : rows
@@ -341,6 +347,7 @@ component PrdBody
       PrUnavailable(detail=detail, reload=reload)
     if detail.phase == "content"
       LinkMenuPopover(menuId=`pr-file-link-menu-${surface}`, rows=fileRows, pick=filePick)
+      LinkMenuPopoverAt(menuId=`pr-file-link-menu-${surface}-press`, rows=fileRows, pick=filePick, left=fileLeft, top=fileTop)
       PrdConfirmEscape(actions=detail.actions, ref=detail.ref, local=local, layer="panel")
       PrdHeader(detail=detail, scheme=scheme, still=still, compact=compact, narrow=narrow, surface=surface, condensed=condensed, measureId=scrollId, reload=reload, act=act, copy=copy, local=local, select=select)
       row width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" align-items="center" gap="0.5rem" flex-shrink=0 -exact-layout-transition=(condensed or still ? "none" : "200ms ease-out") role="navigation" aria-label="Pull request tabs"

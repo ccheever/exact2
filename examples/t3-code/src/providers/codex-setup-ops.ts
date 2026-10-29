@@ -8,20 +8,25 @@ import { providerWritable } from './provider-permissions';
 // `codexSetupPrepare`, which the snapshot answer runs after every refresh (app.ts) for the
 // instances a row shows; a step that sends a request sets its guard first, because Exact may
 // let an answer go after the request left (let-go.ts). The desktop's receiveProviderAuthCallback
-// is the module's loopback listener (T3CodexAuth.swift): `codexAuthStart` binds and opens the
-// browser, the callback arrives as a `t3.codexAuth` change and is taken with `codexAuthTake`
-// (the parked-reply rule of #109). `returnUrl` is omitted from provider.auth.start (the server
+// is openAuthSession's loopback redirect (LLP 1133.005 D9): a flow names the authorization URL
+// whose callback it wants (`flow.receiving`), the window holds a resource on it (app.contract
+// `codexLoopback`), and that answer (`receiveCallback`) has the host bind the redirect's port,
+// open the browser and answer the one callback, then completes the flow; a new URL, or none, lets
+// the answer go, which frees the port. `returnUrl` is omitted from provider.auth.start (the server
 // does not use it in client mode; the clone registers no URL scheme) and is '' in the handoff.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { setupOf, watchedSetup } from './provider-setup';
 import { codexFlow, codexFlows, codexStatus, readCodexSetupMode, codexInstance, type CodexFlow, type CodexHost } from './codex-setup';
-import { isLoopbackHost } from './codex-auth-request';
+import { codexCallbackUrl, isLoopbackHost, readCodexAuthorizationRequest } from './codex-auth-request';
 import { CHATGPT_USAGE_URL, acknowledgeChatGptPlan } from './chatgpt-plan';
 import { driverMeta, legacyProviders } from './providers-meta';
 import { letGo } from '../client/let-go';
 
 export const RECEIVE_FAILED = 'Could not finish sign-in on this computer. Try again or paste the redirect URL below.';
+/** receiveCodexAuthCallback's bound: a sign-in whose browser has not called back in five minutes expires. */
+export const RECEIVE_MS = 300_000;
+declare function openAuthSession(url: string, options: { callback: string; state: string }): Promise<string>;
 const SETUP_FAILED = 'Codex setup failed. Try again.';
 import { HANDOFF_KEY, handoffHosts } from './codex-handoff-events';
 import { openExternal as openSystem } from '../client/external-open';
@@ -91,17 +96,38 @@ async function cancelSignIn(context: CodexContext): Promise<void> {
   await run(flow, () => call(context, 'provider.auth.cancel', { flowId: status.flowId }));
 }
 
-/** openPage: hand the authorization URL to the loopback listener (or open it again), else just open it. */
+/** openPage: hand the authorization URL to the loopback receiver (or open it again), else just open it. */
 async function openPage(context: CodexContext, url: string): Promise<void> {
   const flow = codexFlow(context.host, context.instanceId), flowId = statusOf(context).flowId;
   try {
     if (!flow.handoff && flowId) {
       if (flow.receiving === url) { await openExternal(context.module, url); return; }
-      flow.receiving = url; flow.receivingFlow = flowId;
-      const reply = await bridgeReply(context.module, { op: 'codexAuthStart', authorizationUrl: url });
-      if (!reply.ok) { flow.receiving = ''; throw new ClientError(reply.error?.message || RECEIVE_FAILED); }
+      if (!readCodexAuthorizationRequest(url)) throw new ClientError(RECEIVE_FAILED);
+      flow.receiving = url; flow.receivingFlow = flowId; flow.receivingSince = 0;
     } else if (!(await openExternal(context.module, url))) throw new ClientError(RECEIVE_FAILED);
   } catch (error) { if (letGo(error)) throw error; flow.error = RECEIVE_FAILED; }
+}
+
+/**
+ * receiveCodexAuthCallback's wait, as the window's resource on `flow.receiving` (app.contract `codexLoopback`):
+ * openAuthSession binds the redirect's 127.0.0.1 port before the browser opens and answers the one GET on its path
+ * with this sign-in's `state`; a callback with exactly one code or error (codexCallbackUrl) completes the flow. A refusal
+ * (the port in use, the browser, a cancel) is RECEIVE_FAILED, which leaves the pasted-URL form.
+ */
+export async function receiveCallback(context: CodexContext, url: string): Promise<'received' | 'failed' | 'gone'> {
+  const flow = codexFlow(context.host, context.instanceId), request = readCodexAuthorizationRequest(url);
+  const fail = () => { if (flow.receiving === url) { flow.receiving = ''; flow.error = RECEIVE_FAILED; } return 'failed' as const; };
+  if (!request) return fail();
+  let callbackUrl: string;
+  try {
+    callbackUrl = await openAuthSession(url, { callback: request.redirectUri, state: request.state });
+    codexCallbackUrl(callbackUrl, request.redirectUri, request.state);
+  } catch (error) { if (letGo(error)) throw error; return fail(); }
+  if (flow.receiving !== url) return 'gone';
+  const flowId = flow.receivingFlow;
+  flow.receiving = '';
+  if (flowId) await run(flow, () => call(context, 'provider.auth.complete', { flowId, callbackUrl }));
+  return 'received';
 }
 
 async function subscribeHandoff(context: CodexContext, flow: CodexFlow): Promise<void> {
@@ -215,20 +241,17 @@ export async function codexSetupOp(context: CodexContext, op: string, token: str
  * The effects, after every refresh, for each instance whose setup a row shows. Instances no
  * row shows let their listener go (the reference's unmount).
  */
-export async function codexSetupPrepare(contexts: CodexContext[]): Promise<void> {
+export async function codexSetupPrepare(contexts: CodexContext[], now = 0): Promise<void> {
   for (const context of contexts) {
     const flow = codexFlows(context.host).get(context.instanceId);
     if (!flow) continue;
     const watched = watchedSetup(context.host).has(context.instanceId);
-    if (!watched) {
-      if (flow.receiving) { const url = flow.receiving; flow.receiving = ''; await bridgeReply(context.module, { op: 'codexAuthCancel', authorizationUrl: url }).catch(() => null); }
-      continue;
-    }
-    await codexEffects(context, flow);
+    if (!watched) { flow.receiving = ''; continue; }
+    await codexEffects(context, flow, now);
   }
 }
 
-async function codexEffects(context: CodexContext, flow: CodexFlow): Promise<void> {
+async function codexEffects(context: CodexContext, flow: CodexFlow, now: number): Promise<void> {
   let status = statusOf(context);
   // Auth receipts and provider snapshots arrive apart: stay "Finishing sign-in..." until the snapshot is authenticated.
   if (status.authenticated || status.phase === 'failed' || status.phase === 'cancelled') flow.awaiting = '';
@@ -255,17 +278,13 @@ async function codexEffects(context: CodexContext, flow: CodexFlow): Promise<voi
     if (status.installPhase === 'failed' || status.installPhase === 'cancelled') flow.continueWithSignIn = '';
     else if (status.installed) { const methodId = flow.continueWithSignIn; flow.continueWithSignIn = ''; await signIn(context, methodId); status = statusOf(context); }
   }
-  // The listener belongs to one authorization URL: a new one (or none) lets it go.
-  if (flow.receiving && flow.receiving !== status.url) await bridgeReply(context.module, { op: 'codexAuthCancel', authorizationUrl: flow.receiving }).catch(() => null);
-  if (flow.receiving) {
-    context.module.watch('t3.codexAuth');
-    const taken = await bridgeReply(context.module, { op: 'codexAuthTake', authorizationUrl: flow.receiving }).catch(() => null);
-    const result = obj(taken?.value);
-    if (result.phase === 'received') {
-      const flowId = flow.receivingFlow, callbackUrl = str(result.callbackUrl);
-      flow.receiving = '';
-      if (flowId) await run(flow, () => call(context, 'provider.auth.complete', { flowId, callbackUrl }));
-    } else if (result.phase === 'failed') { flow.receiving = ''; flow.error = RECEIVE_FAILED; }
+  // The receiver belongs to one authorization URL: a new one (or none) lets it go, which the reference's waiting
+  // receive answers with its rejection (cancelProviderAuthCallback), and so does its five minutes' bound (`now`, the
+  // snapshot's clock; 0 has none).
+  if (flow.receiving && flow.receiving !== status.url) { flow.receiving = ''; flow.error = RECEIVE_FAILED; }
+  if (flow.receiving && now > 0) {
+    if (!flow.receivingSince) flow.receivingSince = now;
+    else if (now - flow.receivingSince >= RECEIVE_MS) { flow.receiving = ''; flow.error = RECEIVE_FAILED; }
   }
   status = statusOf(context);
   if (flow.openRequested && status.phase === 'waiting' && status.flowId && status.url && flow.openedFlow !== status.flowId) {
