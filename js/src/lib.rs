@@ -1472,4 +1472,6 @@ impl Drop for Module {
 }
 
 #[cfg(all(test, exact_js_engine))]
+mod adopt_tests;
+#[cfg(all(test, exact_js_engine))]
 mod bootstrap_tests;

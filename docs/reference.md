@@ -1030,7 +1030,14 @@ cancels its request, as a browser does, on every target and whatever its
 method: one already sent has its connection closed, one not yet sent is
 withdrawn, and its reply, if one comes, is never read. The answer that awaited
 it goes on with the rejection then, natively too, without waiting for the
-reply. So an app's own rule of one request in flight may count an aborted
+reply. The one exception is native: a write that runs to its end after its
+answer was let go (module work, LLP 1146 D2) rejects in the module turn that
+follows its cancel, not in the turn that called `abort()`, so what its
+continuation writes to the store stands even when that turn's commit is
+refused, and an answer that aborts it and then awaits it resumes in a later
+turn. On the JS target the fetch is the browser's and rejects at once, and
+its continuation runs after the aborting turn's commit, outside it, where a
+store write is kept whatever that commit does, so the end is the same. So an app's own rule of one request in flight may count an aborted
 request done when its fetch rejects: the request is closing and its reply will
 never be read. The one caveat is the cancel's own latency: the host's own
 capacity (its connections, per-origin places and buffers, and on some hosts
@@ -1046,8 +1053,9 @@ before. Natively and on the wasm target, a fetch made by a module callback
 that answers no resource or mutation (a payment sheet's or a tool's handler) is
 not cancelled yet: it rejects at once, and its request runs to its end.
 This is the TypeScript runtime 5: an older prelude would leave an aborted request
-running, so it moves `typescriptRuntime` to 5, and a native app whose
-TypeScript data module makes an abort signal needs a new binary once more.
+running, and would reject an aborted kept write in the turn that aborted it, so
+it moves `typescriptRuntime` to 5, and a native app whose TypeScript data module
+makes an abort signal needs a new binary once more.
 
 A poll loop (`for (;;) { await sleep(5000); … }`) belongs in a Contract
 `task`, not in an answer: an answer that always has a timer armed never
@@ -1329,7 +1337,8 @@ It must be an `http:` or `https:` request other than GET or HEAD, without
 follow), or it is a `TypeError`. On the web a cross-origin upload asks a CORS
 preflight, as any XMLHttpRequest with an upload listener does. An older
 prelude would ignore the option and read the reply as a byte stream, so a
-module that uses it needs `typescriptRuntime` 6: the bake records each
+module that uses it needs `typescriptRuntime` 5, which it shares with the
+abort changes above (no binary had shipped 5): the bake records each
 module's lowest runtime, and `push` refuses such a module to a cohort whose
 binary is older (it needs a new binary) while a module that uses nothing
 newer still pushes. A Rust source's stream takes `Request::upload_progress()`

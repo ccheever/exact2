@@ -18,6 +18,8 @@ use ibex2::boundary::HostError;
 use ibex2::stdlib::abort::AbortSignal;
 use ibex2::stdlib::fetch::{Headers, Response, StreamingResponse, Transport};
 use std::ffi::c_void;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Condvar, Mutex};
@@ -25,7 +27,8 @@ use std::time::Duration;
 
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/outlive.hbc"));
 const APP: &str = "test.outlive";
-const GRANTS: &str = "net.fetch https://outlive.test\nsecret.keep outlive.token\n";
+const GRANTS: &str =
+    "net.fetch https://outlive.test\nnet.fetch local-network development\nsecret.keep outlive.token\n";
 
 static DRIVE: Mutex<()> = Mutex::new(());
 /// Every request the transport saw: method, path and body.
@@ -166,10 +169,9 @@ fn pump_until<D: DataSource>(
         }
         if wakes.recv_timeout(HANG).is_err() {
             let logs = agent(bridge, r#"{"op":"logs"}"#);
-            panic!(
-                "no wake while waiting for {what}: {logs}\nasked: {:?}",
-                ASKED.lock().unwrap()
-            );
+            // Copied first: a panic holding the lock would poison it for the next test.
+            let asked = ASKED.lock().unwrap().clone();
+            panic!("no wake while waiting for {what}: {logs}\nasked: {asked:?}");
         }
     }
 }
@@ -328,4 +330,193 @@ fn a_refused_commit_keeps_what_a_reply_with_effects_wrote() {
         "the answer's commit was refused: {logs}"
     );
     assert_eq!(renewals(), ["POST /token 0"]);
+}
+
+/// A server on 127.0.0.1 for the abortable write, which runs beside the
+/// ordered lane (`exactIndependentHttp`) so that lane stays free for the
+/// answers that abort it: its one request, `POST /token`, is recorded,
+/// reached and held at the gate as the scripted one is.
+struct WriteServer {
+    port: u16,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl WriteServer {
+    fn start() -> WriteServer {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let thread = std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut first = String::new();
+            let _ = reader.read_line(&mut first);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some(n) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = n.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body);
+            let mut words = first.split(' ');
+            let (method, path) = (words.next().unwrap_or(""), words.next().unwrap_or(""));
+            ASKED
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(format!(
+                    "{method} {path} {}",
+                    String::from_utf8_lossy(&body)
+                ));
+            ENTERED.store(true, Ordering::SeqCst);
+            woke(std::ptr::null_mut());
+            let (open, opened) = &GATE;
+            drop(
+                opened
+                    .wait_timeout_while(open.lock().unwrap_or_else(|e| e.into_inner()), HANG, |o| {
+                        !*o
+                    })
+                    .unwrap_or_else(|e| e.into_inner()),
+            );
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nt1");
+        });
+        WriteServer {
+            port,
+            thread: Some(thread),
+        }
+    }
+}
+
+/// Ended however its test ends: the gate opens and its thread is joined, so
+/// the next test's gate is its own.
+impl Drop for WriteServer {
+    fn drop(&mut self) {
+        *GATE.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        GATE.1.notify_all();
+        if let Some(thread) = self.thread.take() {
+            // A write that never came leaves it accepting: a connection ends that.
+            if !ENTERED.load(Ordering::SeqCst) {
+                let _ = std::net::TcpStream::connect(("127.0.0.1", self.port));
+            }
+            let _ = thread.join();
+        }
+    }
+}
+
+/// A contract whose `write` resource asks the write server on `port` and
+/// whose `cancel` resource asks `cancel`: the timer takes `n` to 2.
+fn aborts(port: u16, cancel: &str) -> String {
+    format!(
+        "shape Row
+  text: string
+
+component App
+  state n = 0
+  resource token = token() as shape Row
+  resource write = write(n, \"http://127.0.0.1:{port}/token\") as shape Row else empty(text=\"\")
+  resource cancel = {cancel}(n) as shape Row
+  task bump mount
+    every(100, step)
+  action step
+    if n < 2
+      n = n + 1
+  view
+    column
+      text token.text testId=\"token\"
+      text write.text testId=\"write\"
+      text cancel.text testId=\"cancel\"
+"
+    )
+}
+
+/// Start the held write, let its answer go so the runner keeps it, then take
+/// the timer to the step whose `cancel` answer aborts it.
+fn kept_then_aborted(cancel: &str, server: &WriteServer) -> (Bridge<Module>, Receiver<()>) {
+    let (wake, wakes): (Sender<()>, Receiver<()>) = channel();
+    let mut bridge = boot(&aborts(server.port, cancel), wake);
+    pump_until(&mut bridge, &wakes, "the write to reach the server", |_| {
+        ENTERED.load(Ordering::SeqCst)
+    });
+    bridge.advance(100.0, 0);
+    bridge.pump(0.0);
+    let held = agent(&mut bridge, r#"{"op":"logs"}"#);
+    assert_eq!(
+        held.matches("so it runs to its end").count(),
+        1,
+        "the let-go write is kept: {held}"
+    );
+    bridge.advance(200.0, 0);
+    (bridge, wakes)
+}
+
+/// A fresh write server, with the gate closed and nothing asked yet.
+fn held_write() -> WriteServer {
+    ASKED.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    *GATE.0.lock().unwrap_or_else(|e| e.into_inner()) = false;
+    ENTERED.store(false, Ordering::SeqCst);
+    WriteServer::start()
+}
+
+/// An app aborts a kept write in a reply's turn whose commit is then refused:
+/// the write's rejection reaches its let-go answer's continuation in a module
+/// turn, outside that commit's checkpoint, so what the continuation writes
+/// stands (LLP 1146 D2).
+#[test]
+fn an_aborted_kept_write_s_continuation_writes_in_a_module_turn() {
+    let _one = DRIVE.lock().unwrap_or_else(|e| e.into_inner());
+    let server = held_write();
+    let (mut bridge, wakes) = kept_then_aborted("cancel", &server);
+    pump_until(
+        &mut bridge,
+        &wakes,
+        "the continuation's write to stand",
+        |b| text(b, "token").contains("aborted AbortError"),
+    );
+    drop(server);
+    let logs = agent(&mut bridge, r#"{"op":"logs"}"#);
+    let state = agent(&mut bridge, r#"{"op":"state"}"#);
+    *WOKE.lock().unwrap() = None;
+    assert!(
+        logs.contains("(cancel)") && logs.contains("refused"),
+        "the aborting answer's commit was refused: {logs}"
+    );
+    assert!(
+        logs.contains("module work 1: aborted: the app aborted the fetch"),
+        "the host cancelled the kept request and answered it aborted: {logs}"
+    );
+    assert!(
+        !state.contains("module work"),
+        "no module work is left pending: {state}"
+    );
+    assert_eq!(renewals(), ["POST /token w"]);
+}
+
+/// An answer that aborts a kept write and then awaits it is not left
+/// waiting on itself: its turn ends, the module turn rejects the write, and
+/// the answer resumes in a later turn.
+#[test]
+fn an_answer_that_aborts_a_kept_write_and_awaits_it_completes() {
+    let _one = DRIVE.lock().unwrap_or_else(|e| e.into_inner());
+    let server = held_write();
+    let (mut bridge, wakes) = kept_then_aborted("cancelAwait", &server);
+    pump_until(
+        &mut bridge,
+        &wakes,
+        "the aborting answer to take the write's end",
+        |b| text(b, "cancel").contains("awaited aborted AbortError"),
+    );
+    drop(server);
+    *WOKE.lock().unwrap() = None;
+    assert!(
+        text(&mut bridge, "token").contains("aborted AbortError"),
+        "the continuation's write stands: {}",
+        text(&mut bridge, "token")
+    );
+    assert_eq!(renewals(), ["POST /token w"]);
 }

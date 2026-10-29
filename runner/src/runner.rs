@@ -376,7 +376,9 @@ pub struct Runner<D: DataSource> {
     /// The requests whose fetch the app aborted, by ticket, until the host's
     /// next pump answers them aborted (`take_request_refusal`). Both lists are
     /// kept outside any commit's rollback: the module has already rejected
-    /// the fetch.
+    /// an ordinary fetch, and an adopted one (LLP 1146 D2) waits, pending,
+    /// for this answer to reject it in a module turn, so a refused aborting
+    /// commit still delivers it on the next pump.
     module_aborts: Vec<u64>,
     /// The tickets answered aborted, until the host cancels their requests
     /// whatever their method ([`Runner::take_explicit_aborts`]).

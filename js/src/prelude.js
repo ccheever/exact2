@@ -573,6 +573,11 @@
       }
     } catch (e) { /* an older host's door: the request runs, its reply dropped */ }
   }
+  // An adopted fetch's request, cancelled by the host (door 23), which then
+  // answers it aborted in a module turn: whether the host took it.
+  function cancelAdopted(ticket) {
+    try { host(23, String(ticket), ""); return true; } catch (e) { return false; }
+  }
   // A refused mutation's fetches, withdrawn before any was handed out.
   function withdrawFetches(call) {
     for (var i = 0; i < call.tickets.length; i++) { settled(call.tickets[i]); host(16, String(call.tickets[i]), ""); }
@@ -697,7 +702,12 @@
       pending.set(ticket, p);
       // The caller's abort also makes its socket handle stale (D7); the
       // stream itself runs until the runner lets its ticket go.
-      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; var was = settled(ticket); if (was) { if (p.module) work.landed(); reject(signal.reason); abortRequest(ticket, was); } }); // an adopted fetch aborted is retired here
+      // An adopted fetch (LLP 1146 D2) stays pending: the host cancels it and
+      // answers its kept ticket aborted, and `__exact_fulfill` rejects it in a
+      // module turn, not in the turn that aborted it, so what its let-go
+      // call's continuation writes stands when that turn's commit is refused.
+      // A host without door 23 leaves it to settle here, as before.
+      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (p.module && pending.get(ticket) === p && cancelAdopted(ticket)) return; var was = settled(ticket); if (was) { if (p.module) work.landed(); reject(signal.reason); abortRequest(ticket, was); } });
     });
   }
   // A local listener (LLP 1133.005 D1): a resource's answer, as `fetch(url, {exactStream})` is, whose events
@@ -1452,7 +1462,7 @@
   // A yielded answer's new turn: its yields resolve in the drain that follows.
   global.__exact_yielded = function (id) { var call = calls.get(Number(id)); if (call) { currentCall = call; endYields(call); } };
   global.__exact_turn = function (id) { var t = id === "module" ? work.MODULE : id ? calls.get(Number(id)) || null : null; currentCall = t === work.MODULE ? null : t; work.setTurn(t); }; global.__exact_module_discarded = function () { work.runDiscarded(); }; // the executor's turns (js/src/module_work.rs): the turn's call is current, so a plain `.then` reaction runs as it (LLP 1146 D2)
-  global.__exact_adopt = function (id, ticket) { var p = pending.get(Number(ticket)); if (!p || p.stream || p.module || p.call !== calls.get(Number(id))) return ""; p.module = true; work.adopted(); return "adopted"; }; // a let-go call's fetch with effects the runner keeps (LLP 1146 D2): forgetting the call leaves it in flight, unclaimed and outstanding, until its reply reaches the call's continuation in a module turn
+  global.__exact_adopt = function (id, ticket) { var p = pending.get(Number(ticket)); if (!p || !p.claimed || p.stream || p.module || p.call !== calls.get(Number(id))) return ""; p.module = true; work.adopted(); return "adopted"; }; // a let-go call's fetch with effects the runner keeps (LLP 1146 D2): only one handed out (`claimed`, the one the call parked on, so its abort is a cancel, door 23); forgetting the call leaves it in flight and outstanding until its reply reaches the call's continuation in a module turn
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;
