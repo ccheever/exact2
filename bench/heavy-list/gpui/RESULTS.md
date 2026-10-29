@@ -666,3 +666,268 @@ target/g1/measure "$PWD/target/g1/series-g1m8/cold" \
   "$PWD/target/g1/GPUI.app/Contents/MacOS/gpui-heavy-list" \
   "$PWD/target/g1/exact-wheel" 5 6 cold-only
 ```
+
+## G3: window to window
+
+@ref LLP 1149 §4.1, D7, D12; measured 2026-10-29 at `52e617043c` on
+`lane/ink-s1`. These are whole-window measurements of the native Apple host,
+GPUI 0.2.2 and S1.1's Ink benchmark carrier presenting through direct Metal.
+The native and GPUI release builds were made in this worktree; Ink used S1.1's
+release bundle. The renderer-only G2a run is superseded by this comparison.
+G1's tables above remain their own measurements.
+
+The machine is the same M5 Max, Mac17,6, 18 CPU cores and 128 GiB,
+macOS 27.0.1 (26A434), with the built-in 120 Hz display. Every qualified
+sample verified an **800×800-point outer window at 2×**. The native content
+view includes its 32-point title-bar safe area; GPUI and Ink have 800×768
+content beneath their title bars. The S1.1 driver set Ink's content height
+to 800, making its outer window 832 points tall. For this run only, the
+driver was compiled with Ink's height set to 768; the exact adjustment is
+below. No carrier, renderer, app or tracked driver source changed.
+
+All three bundles contain the same linked probe, signed SHA-256
+`b05ec540cc55014785584e922d0dbf43ec310fb817ad49585d22d01c99a22709`.
+The data passed `data.sha256`. Live mode was off. G1's process CPU,
+main-thread CPU, footprint and wheel instruments are unchanged: four
+600-point flings at 0, 2.5, 5 and 7.5 seconds, ten seconds of fling and ten
+at rest. Each gesture reported 106 events at an 8.33 ms nominal period.
+The probe is included in CPU and footprint; WindowServer and GPU execution
+are outside the process CPU counters.
+
+### Three-arm results
+
+Values are **median (minimum–maximum)** across five qualified fling/rest
+samples and ten qualified fresh-process launches per arm. The first five
+launches also supply the fling/rest samples; slots 6–10 are cold-only.
+Application and driver caches were retained, as in G1: “cold” means a new
+process, not an empty driver or filesystem cache. Startup failures below
+are excluded from these successful-launch timing distributions.
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal |
+|---|---:|---:|---:|
+| Cold to first complete frame, ms; native snapshot / GPUI and Ink presented drawable | 458.57 (386.23–493.05) | 386.03 (336.84–506.50) | 375.42 (343.21–439.01) |
+| Fling process CPU, ms/s | 119.01 (113.99–124.02) | 92.35 (90.02–94.82) | 569.06 (557.31–584.39) |
+| Fling main-thread CPU, ms/s | 82.47 (78.57–86.02) | 44.47 (42.67–46.32) | 531.09 (516.72–539.77) |
+| Rest process CPU, ms/s | 1.315 (1.170–1.395) | 5.485 (5.370–5.767) | 859.811 (855.368–861.521) |
+| Rest main-thread CPU, ms/s | 0.644 (0.556–0.707) | 3.586 (3.525–3.760) | 859.744 (855.301–861.454) |
+| Peak footprint during fling, MiB | 226.81 (215.85–234.47) | 399.34 (394.70–413.19) | 575.59 (573.03–577.53) |
+| End-of-fling footprint, MiB | 220.03 (212.33–228.72) | 387.77 (386.50–395.19) | 225.95 (223.72–230.31) |
+| End-of-rest footprint, MiB | 219.35 (211.64–227.97) | 207.64 (203.84–215.03) | 218.59 (216.39–223.02) |
+
+Ink and GPUI use the **same `CAMetalLayer.nextDrawable` hook and
+`MTLDrawable.presentedTime`**. In every qualified launch here, their first
+presented drawable was also their first complete scene with requested images
+loaded. The native milestone remains G1's layer-snapshot observation on a
+display turn. Its cold number is not measured with the same instrument.
+
+| Arm and instrument | Fling interval p50, ms | p95, ms | p99, ms | Late intervals/s |
+|---|---:|---:|---:|---:|
+| Native, display-link cadence | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 0.30 (0.10–0.50) |
+| GPUI, presented drawables | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–16.67) | 0.66 (0.22–1.77) |
+| Ink Metal, presented drawables | 8.33 (8.33–8.33) | 16.67 (16.67–16.67) | 16.67 (16.67–25.00) | 12.12 (11.24–16.98) |
+
+Native presented-frame intervals remain unmeasured. Its cadence cannot rank
+presentation smoothness against the other two. Quantiles use G1's
+`floor(p × count)` index and are summarized across runs. Late means strictly
+over 12.5 ms. Drawable intervals join timestamps only inside each recorded
+gesture window, excluding intentional idle gaps between gestures; their
+late counts are divided by those windows' combined durations. GPUI supplies
+464–490 intervals over 4.530–4.545 seconds per run; Ink supplies 300–339 over
+4.535–4.538 seconds. Native cadence covers the whole ten-second fling.
+No input-to-photon latency is inferred.
+
+Equal input still produces different scroll work. Native's five final
+offsets are 8,267, 8,622, 7,838, 8,689 and 8,326 points. GPUI ends at item 18,
+within-item offsets 55, 255, 255, 205 and 255. Ink ends at 6,172 points in
+every run; its probe's `withinItem` field carries the whole-list offset.
+These measurements do not normalize CPU by rows entered or distance traveled.
+
+### Qualification and failed attempts
+
+The primary series ran from **07:28:37 to 07:41:31 PDT**. All 123 five-second
+machine observations met G1m's quiet rule: no compiler processes, with maximum
+1/5/15-minute loads **16.59/24.87/18.07**, all below 30. Thus all 15 qualified
+fling/rest samples and all 30 qualified launches are quiet. Low Power Mode
+was off. Thermal endpoints were `fair` except native/GPUI fling slot 5 and
+Ink slots 4–5, which were `nominal`; every retained sample had matching
+endpoints. Quiet does not mean one thermal state throughout the series.
+
+The driver verified activation, the frontmost PID and the key window at
+startup and before every gesture. **No focus loss or foreground taker was
+recorded**, including during the failed startups. There were no focus retakes.
+The retained raw attempts, including failures, are under
+`target/g3/series-20261029/`:
+
+| Slots | Directory | Disposition |
+|---|---|---|
+| Fling 1–2, all arms | `fling` | retained |
+| Ink 3 | `fling`, then `round3-ink-retry` | complete-frame timeout; one successful retake |
+| Native/GPUI 3 | `round3-native-gpui` | retained |
+| Native/GPUI 4 | `round4-5` | retained |
+| Ink 4 | `round4-5`, then `round4-ink-thermal-retry` | fair→nominal; excluded and replaced once |
+| Fling 5, all arms | `round5` | retained |
+| Ink cold 6 | `cold`, then `cold6-ink-retry` | complete-frame timeout; one successful retake |
+| Native/GPUI cold 6 | `cold6-pair` | retained |
+| Cold 7–10 | `cold7-10` | retained except Ink 10 |
+| Ink cold 10 | `cold7-10`, then `cold10-ink-retry` | complete-frame timeout; one successful retake |
+
+Each timeout was the probe's 30-second wait for the first complete presented
+frame; the app had submitted a frame and passed the focus handshake. It is
+not evidence that nothing was visible. The driver exits on this error, so
+collection resumed in fresh directories after one retake for the failed slot.
+There were **three startup timeouts among 14 direct-Metal process attempts**:
+ten qualified launches, one thermal-changing launch and those three failures.
+The median cold number therefore does not establish reliable startup.
+
+Round order was native/GPUI/Ink, GPUI/Ink/native, Ink/native/GPUI,
+native/GPUI/Ink, GPUI/Ink/native, with the replacements above. Cold-only
+order was Ink/GPUI/native for slot 6, then native/GPUI/Ink,
+GPUI/Ink/native, Ink/native/GPUI and native/GPUI/Ink. Every attempt keeps
+its driver log, focus sidecars and five-second `quiet.jsonl`; completed
+attempts also keep the probe JSON. `summary.json` lists the qualified paths
+and derived metrics.
+
+### Optional Ink arm: wgpu
+
+The same carrier and probe ran with `EXACT_INK_DEVICE=wgpu` after the primary
+series, from **07:41:31 to 07:47:44 PDT**. This arm is not interleaved with
+the primary arms. **Four of five fling/rest slots and nine of ten launch
+slots qualified.** Values summarize those completed slots only.
+
+| Metric | Ink, wgpu on Metal |
+|---|---:|
+| Cold to first complete presented drawable, ms; 9 launches | 450.72 (376.91–632.46) |
+| Fling process CPU, ms/s; 4 samples | 584.91 (539.95–595.83) |
+| Fling main-thread CPU, ms/s | 541.13 (494.49–550.44) |
+| Rest process CPU, ms/s | 862.404 (855.976–911.027) |
+| Rest main-thread CPU, ms/s | 862.333 (855.085–910.938) |
+| Peak footprint during fling, MiB | 590.20 (584.61–596.61) |
+| End-of-fling footprint, MiB | 231.28 (229.95–236.41) |
+| End-of-rest footprint, MiB | 222.64 (221.08–229.00) |
+| Presented interval p50, ms | 16.67 (16.67–16.67) |
+| Presented interval p95, ms | 25.00 (25.00–25.00) |
+| Presented interval p99, ms | 41.67 (33.33–41.67) |
+| Late presented intervals/s | 34.72 (34.15–35.48) |
+
+All 89 machine observations were quiet, with maximum 1/5/15-minute loads
+13.73/11.29/13.23. All retained thermal endpoints were `fair`, Low Power
+Mode was off, and there were no recorded focus losses or foreground takers.
+The same 30-second complete-frame timeout occurred on slots 2, 3, 4, 7 and
+8. One retake recovered each except slot 4, whose retake also timed out;
+collection continued without a third attempt. That is **six startup timeouts
+among 15 process attempts**, with nine qualified launches. All six failed
+launches passed the focus handshake. The raw records are under
+`target/g3/wgpu-20261029/`: `fling` holds slot 1 and slot 2's failed launch;
+`roundN` and `roundN-retry` hold the continuation. `summary.json` lists the
+qualified records. Each retained first drawable was also the first complete
+scene. The four fling samples provide 186–197 presentation intervals over
+4.535–4.539 gesture seconds and end at 6,171–6,172 scroll points.
+
+### Window parity and non-comparables
+
+The new [native](g3-native-top.png), [GPUI](g3-gpui-top.png) and
+[Ink Metal](g3-ink-top.png) screenshots are unscaled 1600×1600 window captures,
+all at row zero, taken outside the timed series and visually inspected.
+They show the same Ava, Ben and Chloé messages, avatars, styled runs and
+two-photo grid, with loaded images rather than placeholders. They do not
+establish pixel parity: Ink wraps Ava's first paragraph into four lines
+where native and GPUI use five, its emoji and code face differ, its row
+separators span the window, and the photos' visible crops differ. Native
+and GPUI also differ in some text spacing and title-bar treatment, including
+GPUI's 16-point code runs against the specified 15 points. The differing row
+heights also change how much content fits in the viewport.
+
+| Difference | Consequence for this comparison |
+|---|---|
+| Ink is S1.1's benchmark carrier, with no accessibility, IME or menus yet | Its numbers do not qualify a shipping Apple presenter or price those missing features. |
+| Ink uses Parley shaping and swash rasterization; GPUI and the native host use platform text | Font metrics, wrapping, glyph appearance and text work differ; Core Text's Ink audit has not been substituted into this run. |
+| GPUI owns its element tree, Taffy layout, virtualization and platform layer, with no Exact kernel or runner | Whole-process differences cannot be assigned to the GPU renderer alone. |
+| The native Apple host carries AppKit views and Core Animation on this Mac; the Apple host uses UIKit on iOS | G1x's split above identifies native setup/drawing, kernel, runner and platform work. G3 does not reprofile or subtract those categories. |
+| Native and Ink use the baked Contract app; GPUI parses the shared JSON at startup | Boot includes different application work despite identical source data. |
+| Scroll distance, row geometry, caches and scheduling differ | Equal wheel events are a reproducible input, not proof of equal work. |
+| Native startup and cadence have different instruments | Only GPUI and Ink's drawable timestamps support a direct presentation comparison. |
+
+**Finding.** GPUI beats the current Ink carrier on fling CPU, presentation
+pacing and peak footprint on this screen: direct Metal uses about 6.2 times
+GPUI's fling CPU, twice its p95 frame interval and 44% more peak memory.
+Ink's end-of-fling footprint is close to native's and below GPUI's, but its
+rest CPU is nearly one core, almost entirely on the main thread. That rest
+cost and the complete-frame timeouts occur on both Ink device arms; their
+cause was not localized in this measurement. Direct Metal presents more
+smoothly than the later, incomplete wgpu set. Successful direct-Metal and
+GPUI cold medians are close with overlapping ranges; Ink's failed launches
+prevent claiming reliable startup superiority. These are findings about
+the complete current windows, including their differing work and carrier
+features, rather than an isolated renderer ranking.
+
+### Reproduction and validation
+
+G1's build, bundling and probe-linking steps above apply. The native release
+build used `EXACT_APP_DIR` and `CARGO_TARGET_DIR` pointing inside this
+worktree; GPUI used `--release --locked --target-dir target`. S1.1's Ink
+release carrier can be rebuilt with:
+
+```sh
+EXACT_APP_DIR="$PWD/bench/heavy-list/exact-heavylist" \
+EXACT_PAINTED_PROBE="$PWD/bench/heavy-list/gpui/probe.m" \
+  bun host/apple/build.mjs exact-heavylist-apple --painted-benchmark --release
+```
+
+The instrumented copies used here are `target/g3/{Native,GPUI,Ink}.app`.
+Their probes live at `Contents/Resources/benchmark-probe.dylib`, linked as
+`@executable_path/../Resources/benchmark-probe.dylib`, then ad-hoc signed.
+To reproduce the outer-window size adjustment without editing the driver:
+
+```sh
+python3 - <<'PY'
+from pathlib import Path
+import subprocess
+source = Path('bench/heavy-list/gpui/measure.m').read_text()
+old = 'env[@"EXACT_WINDOW_HEIGHT"] = @"800";'
+assert source.count(old) == 1
+source = source.replace(old,
+    'env[@"EXACT_WINDOW_HEIGHT"] = [arm isEqual:@"ink"] ? @"768" : @"800";')
+subprocess.run(['xcrun', 'clang', '-x', 'objective-c', '-fobjc-arc', '-O2',
+    '-Wall', '-Wextra', '-Werror', '-framework', 'AppKit', '-framework',
+    'QuartzCore', '-framework', 'CoreGraphics', '-', '-o', 'target/g3/measure'],
+    input=source, text=True, check=True)
+PY
+```
+
+With fresh result directories, no compiler processes and all loads below 30:
+
+```sh
+G3_PAINTED_BIN="$PWD/target/g3/Ink.app/Contents/MacOS/Heavy list" \
+EXACT_INK_DEVICE=metal target/g3/measure "$PWD/target/g3/new-series/fling" \
+  "$PWD/target/g3/Native.app/Contents/MacOS/Heavy list" \
+  "$PWD/target/g3/GPUI.app/Contents/MacOS/gpui-heavy-list" \
+  "$PWD/target/g3/exact-wheel" 5 1
+G3_PAINTED_BIN="$PWD/target/g3/Ink.app/Contents/MacOS/Heavy list" \
+EXACT_INK_DEVICE=metal target/g3/measure "$PWD/target/g3/new-series/cold" \
+  "$PWD/target/g3/Native.app/Contents/MacOS/Heavy list" \
+  "$PWD/target/g3/GPUI.app/Contents/MacOS/gpui-heavy-list" \
+  "$PWD/target/g3/exact-wheel" 5 6 cold-only
+```
+
+Use `G3_ONLY_INK=1 EXACT_INK_DEVICE=wgpu` for the optional continuation.
+Keep `EXACT_AGENT`, `EXACT_AGENT_SOCKET`, `DYLD_INSERT_LIBRARIES`,
+`BENCH_START_INDEX`, `EXACT_FONT`, `EXACT_ROWS` and `EXACT_ASSETS` unset.
+Monitor load and compiler processes every five seconds into `quiet.jsonl`;
+hold the display awake. On a startup or thermal failure, retain the failed
+attempt, use a fresh directory for one retake, and continue remaining slots.
+The per-directory `command.json` records each actual continuation command
+and selected device. Screenshots use G1's window capture procedure separately.
+
+Both new release builds passed. The driver and probe compiled with
+`-O2 -Wall -Wextra -Werror` (the probe also uses `-Wno-unused-parameter`).
+Validation checked all 39 qualified launches and 19 fling/rest samples for
+size, scale, display rate, focus, Low Power Mode and stable thermal endpoints;
+all 19 had four 106-event gestures, ten-second phases and monotonic CPU
+counters. Three new screenshots were inspected. No workspace or pinned test
+suite was rerun for this report-only change.
+
+`git diff --check` passed. `bun scripts/caps.mjs` passed:
+
+```text
+All budgets within cap. 10 categories inspected.
+```
