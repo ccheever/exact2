@@ -21,7 +21,9 @@ async function editor(engine, source, drive, runtime = false) {
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } }); // no data sources in this fixture
     if (runtime && path.endsWith('.js')) {
-      const js = resolve(WEB, '../web-js', path.slice(1));
+      // The JS target's modules over the host's glue; a module that
+      // re-exports the host's own reaches it through `../web/`.
+      const js = path.startsWith('/web/') ? resolve(WEB, path.slice(5)) : resolve(WEB, '../web-js', path.slice(1));
       return new Response(Bun.file(existsSync(js) ? js : resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     }
     return new Response(`<!doctype html><meta charset="utf-8"><textarea id="editor" markup="markdown" style="width:500px;height:240px"></textarea><pre id="echo"></pre>
