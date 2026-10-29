@@ -1341,3 +1341,178 @@ for both builds. Set `INK_SHELF` to that executable and run the individual
 ignored desktop filters with `--nocapture --test-threads=1`. The startup test
 now needs only this one executable; it no longer reads `INK_SHELF_BEFORE`.
 Do not run `shelf_lock_unlock` unattended.
+
+## S2.3
+
+**Windows Ink still defaults to wgpu.** The composition window now exists from
+creation, and the CPU painter presents through WARP until the hardware device
+is ready. The paired median overhead over softbuffer is **14.153 ms at
+1024×720 and 29.516 ms at 1920×1080**, above the 10 ms bar. Probe-free
+handoff intervals also exceed 25 ms, and the final 100% DPI return remains
+unqualified. `device/selected.rs` and D12 are unchanged.
+
+### Implementation and measurement
+
+- `host/windows/src/window.rs` creates direct Ink HWNDs with
+  `WS_EX_NOREDIRECTIONBITMAP`; neither startup nor migration creates a GDI
+  surface. CPU and wgpu selections retain their existing softbuffer path.
+- `host/ink/src/device/d3d11.rs` prepares WARP, then hardware, on the worker
+  while app boot continues. Starting both at once made WARP creation about
+  45 ms; ordering them gives medians of 15.095/13.692 ms at the two sizes.
+  Hardware creation is 33.733/34.810 ms; its pipeline objects take 2.700/2.680 ms.
+- `device/d3d11/composition.rs` shares one visual across both swap chains.
+  A replacement is populated before `SetContent` and `Commit`. WARP retires
+  after its GPU completion query and the replacement's displayed present.
+  Its final query needs a nonblocking flush because no later WARP frame will
+  submit it. The composition device has no rendering-device dependency.
+- `host/linux/src/surfaces/window.rs` uploads CPU startup frames to WARP;
+  `presenter/painter.rs` transfers that same picture to hardware and retains
+  WARP through retirement. `device/d3d11/desktop_tests.rs` adds the WARP Ink
+  control, a probe-free launch series and a second 150% comparison.
+
+Measured on the NucBox's signed-in 5120×1440, 60 Hz desktop at 100%, on
+2026-10-28. Shelf is the `gpu-dev` build of `719969db26`; native fixtures are
+`host-dev` at `7b4a4ec390`. Ten rounds rotate CPU/softbuffer, wgpu DX12,
+Ink/WARP, and CPU/WARP→hardware at each size, with fresh storage and 120
+frames per process. `WGPU_BACKEND=dx12` and `EXACT_REQUIRED=1` are set. No
+build or other test suite runs during the series. These are warm-machine
+fresh-process launches, not driver-cache-cold measurements.
+
+Milliseconds, median [minimum–maximum]. The DWM proxy is the same
+first-complete-screen measurement used in S2.1 and S2.2. It is distinct from
+the DXGI displayed timestamp and is the paired-overhead basis.
+
+| Pixels | Path | DWM first-complete-screen proxy |
+|---|---|---:|
+| 1024×720 | CPU / softbuffer | 175.590 [161.615–195.066] |
+| 1024×720 | Ink / wgpu DX12 / readback | 885.946 [861.282–1110.168] |
+| 1024×720 | Ink / WARP / composition | 213.603 [201.460–220.066] |
+| 1024×720 | CPU / WARP → hardware | 191.618 [177.967–216.641] |
+| 1920×1080 | CPU / softbuffer | 185.173 [171.379–211.597] |
+| 1920×1080 | Ink / wgpu DX12 / readback | 892.448 [859.299–1344.256] |
+| 1920×1080 | Ink / WARP / composition | 231.649 [219.635–294.953] |
+| 1920×1080 | CPU / WARP → hardware | 212.909 [189.690–224.935] |
+
+CPU painting on WARP is the cheaper first-complete-screen path. Paired
+candidate-minus-CPU differences are 14.153 [−0.496–46.084] ms and
+29.516 [−1.826–41.537] ms. All 20 candidates switch on frame two.
+Their first WARP presents have DXGI timestamps in all 20 runs:
+193.123 [180.795–200.564] ms and 208.509 [201.220–221.199] ms after process
+creation. The hardware first-complete-screen timestamps are
+199.792 [190.061–212.857] ms and 210.691 [201.456–228.990] ms.
+
+### Intervals without the synchronization probe
+
+A second 80-launch series sets `EXACT_AGENT_WINDOW_PROBE=off`. No DWM wait
+or DXGI synchronization retry runs in its timed frame path. In the startup
+series, the probe itself costs candidate medians of 26.477 and 15.848 ms;
+those durations are not subtracted from individual intervals. The separate
+probe-free series measures the actual frame-start intervals below.
+
+| Candidate interval, ms | 1024×720 | 1920×1080 |
+|---|---:|---:|
+| CPU frame 1 → migration frame 2 | 23.571 [22.486–28.144] | 26.449 [24.950–30.235] |
+| Migration frame 2 → Ink frame 3 | 20.968 [13.448–29.692] | 35.945 [21.937–41.387] |
+| Ink frame 3 → frame 4 | 16.872 [2.070–17.248] | 17.081 [16.917–18.000] |
+| Per-run interval p50 | 16.641 [16.607–16.696] | 16.639 [16.586–16.714] |
+| Per-run interval p95 | 17.142 [17.086–17.819] | 17.129 [17.079–17.883] |
+
+At 60 Hz, using S2.2's 25 ms late-interval threshold, frame 1→2 is late in
+3/10 and 9/10 runs; frame 2→3 in 5/10 and 8/10. The no-late-frame condition
+is refuted without the old synchronization probe. Across all 1,190 intervals
+per size, candidates have 8 and 20 late intervals, versus CPU's 0 and 5.
+The 1920×1080 candidate also has a later 154.451 ms maximum;
+that outlier is retained, not attributed to migration. These are frame-start
+intervals, not display-scanout timestamps for every frame.
+
+### Handoff and DPI
+
+The composition fixture's seven displayed-pixel samples all equal `0x336699`.
+Mica is `0xf0f3f4` before and after; `WS_EX_LAYERED` is absent and
+`WS_EX_NOREDIRECTIONBITMAP` is present. Completion-based WARP retirement
+passes after flushing its final query. Sampling gaps reach 49.87 ms, so this
+establishes no observed flash, not the absence of a one-refresh flash.
+
+The 150% capture no longer contains the faint old-scale text. The first and
+post-round-trip 150% captures each differ from a fresh 150% launch by a mean
+of 0.001454/255, with 0.001899% of pixels over 32. No glyph-atlas or layer
+invalidation change was needed. This supports the stale GDI redirection
+surface as the residue's cause; the new window never creates that surface.
+
+The full `shelf_dpi_roundtrip` journey did not pass. Attempt one lost the
+Settings scale control during restore. Attempt two timed out resizing after
+returning to 100%. Waiting for a painted frame at the new scale allowed
+attempt three's second 150% comparison, but the last 100% return still
+produced a 1030×737 client after requesting 1024×720. The external driver
+stopped that attempt after its marker deadline. There was no fourth attempt.
+The display was restored to 100%; the remaining resize qualification is in
+`QUEUE.md`. Lock/unlock was not attempted: this is Charlie's desktop session,
+with no person available to unlock it by hand.
+
+### Native and Mac checks
+
+The pinned filters use their CPU, Vello and Ink arms with `EXACT_REQUIRED=1`.
+The device column selects Ink; wgpu uses DX12. Results are verbatim.
+
+| Device | Suite | Result |
+|---|---|---|
+| d3d11 | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 4.92s` |
+| d3d11 | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 1.29s` |
+| d3d11 | tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 101 filtered out; finished in 0.57s` |
+| d3d11 | backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 0.63s` |
+| d3d11 | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.54s` |
+| d3d11 | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 1.56s` |
+| d3d11 | materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.57s` |
+| d3d11 | image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 0.54s` |
+| d3d11 | exact-windows --lib --tests | `test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.06s` |
+| wgpu | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 9.44s` |
+| wgpu | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 2.15s` |
+| wgpu | tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 101 filtered out; finished in 1.05s` |
+| wgpu | backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 1.07s` |
+| wgpu | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 1.08s` |
+| wgpu | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 2.19s` |
+| wgpu | materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 1.18s` |
+| wgpu | image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 1.30s` |
+| wgpu | exact-windows --lib --tests | `test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.15s` |
+| d3d11 | exact-ink --lib | `test result: ok. 26 passed; 0 failed; 13 ignored; 0 measured; 0 filtered out; finished in 8.12s` |
+| wgpu | exact-ink --lib | `test result: ok. 26 passed; 0 failed; 13 ignored; 0 measured; 0 filtered out; finished in 7.49s` |
+
+All six Mac checks pass, including both Clippy and `cargo fmt --all -- --check`,
+`cargo check --workspace --all-targets --keep-going`, caps and boot. The full
+`cargo test -p exact-linux --lib --tests --no-fail-fast` also passes. Its library
+reports `test result: ok. 1553 passed; 0 failed; 20 ignored; 0 measured; 0 filtered out; finished in 75.74s`.
+The complete pinned suite with `EXACT_REQUIRED=1` reports
+`test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.65s`.
+The image filter reports
+`test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 2.11s`.
+Windows GNU cross-checks of `exact-windows --all-targets` and MSVC cross-checks
+of `exact-ink --tests` pass; native builds supply the SDK-compiled DXBC.
+
+| Native desktop filter | Verbatim result |
+|---|---|
+| WARP handoff / Mica / retirement | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.58s` |
+| shelf_startup_series | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 214.80s` |
+| shelf_handoff_intervals | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 215.04s` |
+| shelf_resize | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 6.19s` |
+| shelf_minimize_restore | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 2.50s` |
+| shelf_idle_caret | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 3.23s` |
+| direct_window_blinks_without_a_softbuffer_surface | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.30s` |
+| shelf_device_loss | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 8.28s` |
+| shelf_sleep_wake | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 81.50s` |
+
+Forced device loss recovers from CPU/WARP to hardware after 1,015.979 ms;
+the recovered capture has zero error against a fresh launch. Sleep returns
+after 75,483 ms; its fresh-launch comparison has mean error 0.031193/255
+and no pixels over 32. Resize, minimize/restore and the caret comparisons
+have zero mean error. The unsuccessful DPI runs are described above;
+the second attempt reports
+`test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 34.07s`.
+The third attempt was stopped by the driver and has no Rust test verdict.
+
+Raw launch logs, parsed samples, native stdout/stderr and desktop captures
+are in `target/ink-s23-nucbox/`. Mac logs are `target/ink-s23-*.log`.
+The temporary desktop tasks were removed. Reproduction uses the S2.2 build
+commands above, then `shelf_startup_series` and `shelf_handoff_intervals`
+with `INK_SHELF` set. Both series rotate all four arms ten times per size.
+The DPI fixture needs Settings changes 100% → 150% → 100% → 150% → 100%;
+its final resize remains unresolved. No lock/unlock result is claimed.
