@@ -113,20 +113,44 @@ const faces = [
 console.log(JSON.stringify({{ out: JSON.parse(atomFacesRecord(faces, cm)), journal }}));
 "#
         );
-        let out = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
-            .args(["--eval", &script])
-            .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shape.js"))
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let out =
+            std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+                .args(["--eval", &script])
+                .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shape.js"))
+                .output()
+                .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let got: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         let paint = |i: usize, key: &str| got["out"][i][key].as_str().unwrap().to_string();
-        assert!(paint(0, "color").contains("d52c36"), "a theme entry's name: {got}");
-        assert_eq!(paint(0, "backgroundColor"), "Highlight", "an admitted platform colour");
-        for (i, key) in [(1, "color"), (2, "color"), (2, "backgroundColor"), (3, "color"), (3, "backgroundColor"), (4, "color")] {
+        assert!(
+            paint(0, "color").contains("d52c36"),
+            "a theme entry's name: {got}"
+        );
+        assert_eq!(
+            paint(0, "backgroundColor"),
+            "Highlight",
+            "an admitted platform colour"
+        );
+        for (i, key) in [
+            (1, "color"),
+            (2, "color"),
+            (2, "backgroundColor"),
+            (3, "color"),
+            (3, "backgroundColor"),
+            (4, "color"),
+        ] {
             assert_eq!(paint(i, key), "", "{i} {key}: {got}");
         }
-        let journal: Vec<&str> = got["journal"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+        let journal: Vec<&str> = got["journal"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l.as_str().unwrap())
+            .collect();
         assert_eq!(
             journal,
             [

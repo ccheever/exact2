@@ -45,8 +45,7 @@ pub(crate) fn apply(
         .chain(entries.values().map(|e| &e.plan))
         .any(binds)
     {
-        compat.inputs["atomFace"] =
-            serde_json::json!(exact_runner::decorations::ATOM_FACE_FIELDS);
+        compat.inputs["atomFace"] = serde_json::json!(exact_runner::decorations::ATOM_FACE_FIELDS);
         compat.id = crate::compat::compatibility_digest(&compat.inputs);
     }
     Ok(())
@@ -152,11 +151,18 @@ mod tests {
         for dir in ["apps", "packages"] {
             sources(&root.join(dir), &mut paths);
         }
-        assert!(paths.len() > 100, "no sources found under {}", root.display());
+        assert!(
+            paths.len() > 100,
+            "no sources found under {}",
+            root.display()
+        );
         // The app or package a source is in: `apps/<name>`, `packages/<name>`.
         let owner = |p: &Path| {
             let parts: Vec<_> = p.strip_prefix(&root).unwrap().iter().take(2).collect();
-            parts.join(std::ffi::OsStr::new("/")).to_string_lossy().into_owned()
+            parts
+                .join(std::ffi::OsStr::new("/"))
+                .to_string_lossy()
+                .into_owned()
         };
         let mut writers: Vec<String> = paths
             .iter()

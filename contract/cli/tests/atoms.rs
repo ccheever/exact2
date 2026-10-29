@@ -141,10 +141,20 @@ fn designed(name: &str, contract: &str) -> Runner<NoData> {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("app.tamber"), MODES).unwrap();
     std::fs::write(dir.join("app.contract"), contract).unwrap();
-    let plan = contract::bake(contract::compile_path(&dir.join("app.contract")).unwrap(), NoData)
-        .unwrap();
+    let plan = contract::bake(
+        contract::compile_path(&dir.join("app.contract")).unwrap(),
+        NoData,
+    )
+    .unwrap();
     let _ = std::fs::remove_dir_all(&dir);
-    Runner::boot(plan, NoData, Kernel::with_monospace(), Default::default(), "/").unwrap()
+    Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
 }
 
 /// A face's colour that names a token, here from state, is read again when
@@ -172,7 +182,11 @@ fn a_faces_token_colour_follows_set_mode_and_set_token() {
         "setMode reads it again in the new slice"
     );
     let (_, set) = r.set_token("brand", "#00ff00", &[]).unwrap();
-    assert_eq!(paint(&r, "backgroundColor"), "#00ff00ff", "and a token's new value");
+    assert_eq!(
+        paint(&r, "backgroundColor"),
+        "#00ff00ff",
+        "and a token's new value"
+    );
     assert_eq!(set, 1, "the faces, once");
     assert_eq!(paint(&r, "color"), "light-dark(#111111ff, #ccccccff)");
 }

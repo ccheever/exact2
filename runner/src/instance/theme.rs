@@ -316,7 +316,11 @@ impl super::NodeInst {
             }
             _ => {
                 let tuple = self.tuple;
-                let faces = ThemedFaces { text, tuple, tokens };
+                let faces = ThemedFaces {
+                    text,
+                    tuple,
+                    tokens,
+                };
                 u.ids.theme.faces.insert(self.view, faces);
             }
         }

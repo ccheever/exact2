@@ -668,7 +668,10 @@ mod tests {
         let role = face_paint("-exact-separator");
         assert!(role["sys"].is_string(), "{role}");
         let built_in = face_paint("color(--dci-p3 1 0 0)");
-        assert_eq!(built_in["cs"][0]["s"], "cg:kCGColorSpaceDCIP3", "{built_in}");
+        assert_eq!(
+            built_in["cs"][0]["s"], "cg:kCGColorSpaceDCIP3",
+            "{built_in}"
+        );
         {
             let _declared = profiled::declarations([("--press", "assets/press.icc", "perceptual")]);
             let text = "color(--press 0.1 0.8 0.2)";

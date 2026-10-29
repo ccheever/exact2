@@ -1008,9 +1008,7 @@ impl NodeInst {
                         let (id, mut refused) = (self.view, Vec::new());
                         let pv = bridge::icon_source(plan, prop, pv);
                         let value = match prop {
-                            exact_kernel::PropId::AtomFaces => {
-                                self.faces(u, i, pv, &mut refused)
-                            }
+                            exact_kernel::PropId::AtomFaces => self.faces(u, i, pv, &mut refused),
                             _ => pv,
                         };
                         for text in refused {
