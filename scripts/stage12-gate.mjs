@@ -20,7 +20,7 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realp
 import { homedir, release, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
-import { bindingShape, bindingsCheck, declaresSlot, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
+import { bindingShape, bindingsCheck, componentIR, irShape, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
 import { s15b2Stage } from './stage12-s15b2.mjs';
 import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from './scale-check.mjs';
 import { webDist } from './app.mjs';
@@ -485,7 +485,9 @@ export function consumerPixels(opts) {
   if (kept.length) return fail(`--copy still declares ${kept.map(x => x.line).join(', ')}: not the adoption`);
   if (unborn.length) return fail(`--before never declared ${unborn.map(x => x.line).join(', ')}: not the baseline`);
   // Theme2's option B: each binding draws nothing of its own and places only what it binds to (after's source map).
-  const bound = [...bindingsCheck(maps.after, BINDINGS), ...BINDINGS.map(b => ({ binding: b.component, ...bindingShape(maps.after, b) })), ...BINDINGS.map(b => { const slot = declaresSlot(readFileSync(join(opts.copy, b.file), 'utf8'), b.component); return { binding: b.component, ok: slot === false, said: slot === null ? `not declared in ${b.file}` : slot ? 'declares a slot of its own' : 'declares no slot' }; })];
+  // And its shape on the compiler's own parse of the copy (`contract lean --components`), which no formatting fools.
+  const lean = BINDINGS.length ? run(process.execPath, [join(opts.copy, 'exact.mjs'), 'contract', 'lean', 'app.contract', '--components', '--name', BINDINGS[0].component], { cwd: opts.copy }).out : '';
+  const bound = [...bindingsCheck(maps.after, BINDINGS), ...BINDINGS.map(b => ({ binding: b.component, ...bindingShape(maps.after, b) })), ...BINDINGS.map(b => ({ binding: b.component, ...irShape(componentIR(lean, b.component)) }))];
   if (bound.some(b => !b.ok)) return fail(...bound.map(b => `binding ${b.binding}: ${b.said}`));
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no

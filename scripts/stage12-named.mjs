@@ -191,16 +191,66 @@ export function bindingShape(map, { component, allowed }) {
   return { ok: true, said: `one PersonRow call${followSites.length ? ', its one FollowButton call in its slot' : ''}` };
 }
 
-/** Whether `component`'s declaration in `text` declares a slot of its own: a binding with one could place its
- * caller's nodes beside its PersonRow, nodes whose chains and walks never name it (Astra's re-check 3), so a
- * binding must have none. The declaration runs from `component <name>` to the next top-level declaration; its
- * `slot` is a line of that word alone. True, false, or null where `text` doesn't declare it. */
-export function declaresSlot(text, component) {
-  const lines = text.split('\n');
-  const at = lines.findIndex(l => new RegExp(`^component\\s+${component}(?=\\s|$|//)`).test(l));
+/** The compiler's own parse of a component: `contract lean <app> --components` prints every component as a Lean
+ * record (`name := "B", …, slot := false, …, view := [(.use 0 "PersonRow" [args] [children]), …]`). This reads the
+ * record named `component` from that text into {slot, view}, the view a tree of [kind, …] lists: `use` [name,
+ * children], `when` (an if) [then, else], `element` [tag, children], anything else [kind, children…]. Null where the
+ * text has no such record. */
+export function componentIR(lean, component) {
+  const at = lean.indexOf(`name := ${JSON.stringify(component)}, props :=`);
   if (at < 0) return null;
-  const top = /^(component|style|shape|use|enum|fn|test|derive|action|state|const)\b/;
-  let end = lines.findIndex((l, i) => i > at && top.test(l));
-  if (end < 0) end = lines.length;
-  return lines.slice(at + 1, end).some(l => /^\s+slot\s*(\/\/.*)?$/.test(l));
+  // The record's own text: to the brace that closes the one before its name.
+  let open = lean.lastIndexOf('{', at), depth = 0, end = open;
+  for (let i = open, str = false; i < lean.length; i++) {
+    const c = lean[i];
+    if (str) { if (c === '\\') i++; else if (c === '"') str = false; continue; }
+    if (c === '"') str = true; else if (c === '{' || c === '[' || c === '(') depth++; else if (c === '}' || c === ']' || c === ')') { if (--depth === 0) { end = i; break; } }
+  }
+  const rec = lean.slice(open, end + 1);
+  const slot = /\bslot := (true|false)\b/.exec(rec)?.[1] === 'true';
+  const v = rec.indexOf('view := ');
+  if (v < 0) return { slot, view: null };
+  // A small reader: lists `[…]`, tuples `(…)`, strings, words; commas separate.
+  let i = v + 'view := '.length;
+  const read = () => {
+    while (/\s|,/.test(rec[i])) i++;
+    const c = rec[i];
+    if (c === '[' || c === '(') {
+      const close = c === '[' ? ']' : ')', items = [];
+      i++;
+      for (;;) { while (/\s|,/.test(rec[i])) i++; if (rec[i] === close) { i++; break; } items.push(read()); }
+      return c === '[' ? { list: items } : { tuple: items };
+    }
+    if (c === '"') { let j = i + 1; while (rec[j] !== '"') j += rec[j] === '\\' ? 2 : 1; const t = JSON.parse(rec.slice(i, j + 1)); i = j + 1; return t; }
+    const m = /^[^\s,()\[\]]+/.exec(rec.slice(i)); i += m[0].length; return { word: m[0] };
+  };
+  const tree = read();
+  // A view entry: (.use n "Name" [args] [children]), (.when n cond [then] [else]), (.element "tag" … [children]).
+  const node = t => {
+    const [head, ...rest] = t.tuple ?? [];
+    const kind = head?.word?.replace(/^\./, '') ?? '?';
+    const lists = rest.filter(x => x.list);
+    if (kind === 'use') return { kind, name: rest.find(x => typeof x === 'string'), children: (lists.at(-1)?.list ?? []).map(node) };
+    if (kind === 'when') return { kind, then: (lists.at(-2)?.list ?? []).map(node), else: (lists.at(-1)?.list ?? []).map(node) };
+    if (kind === 'element') return { kind, tag: rest.find(x => typeof x === 'string'), children: (lists.at(-1)?.list ?? []).map(node) };
+    return { kind, children: lists.flatMap(l => l.list).filter(x => x.tuple).map(node) };
+  };
+  return { slot, view: (tree.list ?? []).map(node) };
+}
+
+/** Option B's shape on the compiler's parse (componentIR): no slot of its own (a slot would let its caller's nodes
+ * sit beside the row, naming it nowhere); its view exactly one use of `row`; under it nothing, or one `when` (an if)
+ * with no else whose only child is one use of `follow`, itself with nothing under it. {ok, said}. */
+export function irShape(ir, row = 'PersonRow', follow = 'FollowButton') {
+  if (!ir) return { ok: false, said: 'the compiler has no such component' };
+  if (ir.slot) return { ok: false, said: 'declares a slot of its own' };
+  const view = ir.view ?? [];
+  const say = n => (n.kind === 'use' ? `${n.name}` : n.kind === 'element' ? `a ${n.tag}` : `a ${n.kind}`);
+  if (view.length !== 1 || view[0].kind !== 'use' || view[0].name !== row) return { ok: false, said: `its view is ${view.map(say).join(', ') || 'empty'}, not one ${row}` };
+  const under = view[0].children;
+  if (!under.length) return { ok: true, said: `one ${row}, its slot empty` };
+  const [w] = under;
+  if (under.length !== 1 || w.kind !== 'when' || w.else.length || w.then.length !== 1 || w.then[0].kind !== 'use' || w.then[0].name !== follow || w.then[0].children.length)
+    return { ok: false, said: `in its ${row}'s slot: ${under.map(n => (n.kind === 'when' ? `an if of ${n.then.map(say).join(', ') || 'nothing'}${n.else.length ? ` else ${n.else.map(say).join(', ')}` : ''}` : say(n))).join(', ')}, not the if around one ${follow}` };
+  return { ok: true, said: `one ${row}, and in its slot the if around one ${follow}` };
 }

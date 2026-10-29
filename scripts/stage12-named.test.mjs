@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decodePng, encodePng } from './png.mjs';
-import { bindingShape, bindingsCheck, declaresSlot, identityOf, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
+import { bindingShape, bindingsCheck, componentIR, identityOf, irShape, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
 import { BINDINGS, NAMED, RETIRED, SCREENS, STAGES, comparePixels, useStage } from './stage12-gate.mjs';
 
 const img = (w, h, f) => { const data = new Uint8Array(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data.set(f(x, y), (y * w + x) * 4); return encodePng({ width: w, height: h, data }); };
@@ -126,10 +126,24 @@ test("option B's body shape on the map: one PersonRow call site, at most one Fol
   ]) expect(bindingShape(m, b)).toMatchObject({ ok: false, said: expect.stringContaining(why) });
 });
 
-test('a binding declares no slot of its own, by its declaration alone', () => {
-  const text = 'component B-old\n  slot\n  view\n    text "x"\n\ncomponent  B // the binding\n  props\n    p: P\n  view\n    Row(id="a",\n)\n      x\n\ncomponent C\n  slot\n  view\n    children\n';
-  expect([declaresSlot(text, 'B'), declaresSlot(text, 'C'), declaresSlot(text, 'B-old'), declaresSlot(text, 'D')]).toEqual([false, true, true, null]);
-  expect(declaresSlot('component B\n  slot // forwards\n  view\n    Row()\n    children\n', 'B')).toBe(true);
+test("option B's shape on the compiler's parse: no slot, one PersonRow, in its slot nothing or the if around one FollowButton", () => {
+  // `contract lean --components`' records, as it prints them (the copy's PersonResultRow, cut short).
+  const rec = (name, slot, view) => `  components := [{\n      name := "${name}", props := [{ name := "p", ty := .string, declared := true, action := false }], injects := [], provides := [], slot := ${slot},\n      states := [],\n      view := ${view} },\n    {\n      name := "Next", props := [], view := [] }]`;
+  const follow = '(.use 2 "FollowButton" [("id", (.template [(.str "f-"), (.var "p")])), ("press", (.call "go" [(.str "a, ]")]))] [])';
+  const row = children => `[(.use 0 "PersonRow" [("id", (.str "a")), ("name", (.call "f" [(.var "p")]))] [${children}])]`;
+  const when = (then, els = '') => `(.when 1 (.binary .and (.var "on") (.unary .not (.var "off"))) [${then}] [${els}])`;
+  expect(irShape(componentIR(rec('B', false, row(when(follow))), 'B'))).toEqual({ ok: true, said: 'one PersonRow, and in its slot the if around one FollowButton' });
+  expect(irShape(componentIR(rec('B', false, row('')), 'B'))).toEqual({ ok: true, said: 'one PersonRow, its slot empty' });
+  for (const [text, why] of [
+    [rec('B', true, row('')), 'declares a slot of its own'],
+    [rec('B', false, `[${row('').slice(1, -1)}, (.element "text" [(.str "x")] [] [] [])]`), 'its view is PersonRow, a text'],
+    [rec('B', false, row(when(follow, '(.element "text" [] [] [] [])'))), 'else a text'],
+    [rec('B', false, row(follow)), 'in its PersonRow\'s slot: FollowButton'],
+    [rec('B', false, row(`(.each 1 (.var "xs") "x" [${follow}])`)), 'a each'],
+    [rec('B', false, row(when(`${follow}, ${follow}`))), 'an if of FollowButton, FollowButton'],
+    [rec('B', false, `[${when(row('').slice(1, -1))}]`), 'its view is a when'],
+    [rec('C', false, row('')), 'the compiler has no such component'],
+  ]) expect(irShape(componentIR(text, 'B'))).toMatchObject({ ok: false, said: expect.stringContaining(why) });
 });
 
 test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindings and screens", () => {
