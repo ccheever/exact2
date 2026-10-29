@@ -320,8 +320,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
 - Settings: the reference's routes with project/environment scope, search, theme editor and
-  VS Code theme import, keybindings, providers (sign-in and runtime install), connections
-  (pairing, SSH, outdated-host update), scheduled tasks, SnapShots, diagnostics and licenses.
+  VS Code theme import, keybindings, providers (sign-in and runtime install; a ChatGPT sign-in's
+  callback comes back to `openAuthSession`'s loopback receiver on the port T3's server chose, LLP
+  1133.005 D9, `codex-setup-ops.ts` `receiveCallback`), connections (pairing, SSH, outdated-host
+  update), scheduled tasks, SnapShots, diagnostics and licenses.
 
 Return sends; Shift-Return inserts a newline, continues a Markdown list (renumbering the numbered
 items below) or leaves an empty item or quote line, with rich text on or off; IME marked text stays an
@@ -372,8 +374,10 @@ web and file link menus (`link-menus.contract`; their rows are computed before t
 `external-link-menu.ts` and `file-link-menu.ts`). A draft
 row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
 xmpp or fragment link has no menu of its own, so its right-click and its ContextMenu key get the desktop shell's
-(`T3TextContextMenu.swift`). The media menu and
-the legacy sidebar's choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
+(`T3TextContextMenu.swift`). The media menu stays the module's (`T3ContextMenu.swift` says why). The legacy
+sidebar's New thread shows a project's members, and a file link on the pull request page its menu, where the press
+was (LLP 1021 D2: the press's `clientX` and `clientY` as the popover's `left` and `top`; a key's press is at 0, 0,
+the window's corner, as the reference's `Menu.popup` puts it). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
 Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
@@ -483,8 +487,6 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - Text a platform view draws keeps AppKit's font smoothing (LLP 1019 D12): with Font smoothing on,
   the composer's and the fields' typed text is a shade heavier than the reference's, which draws
   all of its text `antialiased`.
-- On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
-  reference opens it at the click.
 - View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
   the module's native views, where Electron's page zoom scales the whole page.
 - A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
@@ -498,6 +500,14 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.
+- A ChatGPT sign-in's browser page, once the callback is in, reads "Return to T3 Code (Exact)" and "You can close
+  this tab." (the host's page, LLP 1133.005 D9), where the reference's adds "Your sign-in response has been received.
+  T3 Code is finishing the connection."
+- Two ChatGPT sign-ins cannot wait at once: a window holds one auth session (LLP 1069.006 D3), so the second waits
+  for the first to end, where the reference receives both, each on its port. A callback with the sign-in's `state`
+  but no `code` or `error` ends the receiver (Exact's listener accepts on `state` alone), where the reference answers
+  it 400 and keeps listening; the sign-in then has to start again.
+- The notification sounds are WAV copies of the reference's two MP3s, since `playSound` reads WAV.
 
 Main has closed records the clone was written around. The clone now uses these: a process
 relaunch for the Local environment switch, Network access and Tailscale HTTPS (`relaunch()`,
@@ -508,7 +518,12 @@ and capture-phase key handlers for the keybinding recorder and the reply's Markd
 (`keycapture`, [`issues/closed/20261009-capture-phase-key-events.md`](../../issues/closed/20261009-capture-phase-key-events.md)),
 and `repeating-linear-gradient()` with length stops for the usage bars and the diff's deletion bars
 ([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)),
-and `-exact-menu` for View › Reload and Force Reload ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
+and `-exact-menu` for View › Reload and Force Reload ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)),
+and the notification click ([`issues/closed/20261009-notification-default-click-design.md`](../../issues/closed/20261009-notification-default-click-design.md)):
+`@exact/notifications` (LLP 1133.004) posts the thread and review guide notifications from the data module
+without a sound, its click's `navigate` location opens the thread (`app.contract` `notificationOpen`), and it
+holds the Dock badge and the permission's fact and request (`shell-notify.ts`); their sounds are the reference's
+two, played with `playSound`.
 These it does not use, because on macOS they do not do what the reference does:
 
 - `showModal(id)` / `close(id)` ([`issues/closed/20261009-gui-dialog-action-commands.md`](../../issues/closed/20261009-gui-dialog-action-commands.md), #282).
@@ -523,13 +538,6 @@ These it does not use, because on macOS they do not do what the reference does:
   things stay the module's: the "Updates unavailable" box, which has no parent window where a Contract
   `alertdialog` is a sheet, and Paste as Text (`T3Menus.swift`). Settings… is the host's: it files the ⌘,
   dispatch button there.
-- The notification click ([`issues/closed/20261009-notification-default-click-design.md`](../../issues/closed/20261009-notification-default-click-design.md)).
-  Main's click needs a Contract `showNotification(navigate=)`, which always plays the system
-  sound (`Notify.swift` posts with `.default` and presents with `.sound`; the reference's notification is
-  `silent: true`, ThreadNotificationCoordinator.tsx:203-207), cannot be posted from the data module, and
-  is delivered to a navigation root the app does not have. Badges and a permission fact stay refused
-  (`rules/DEFERRED.md`). So the post, its click, the sounds, the Dock badge and the permission request stay
-  in `T3Notifications.swift`.
 - An inline link run as a Tab stop on macOS
   ([`issues/closed/20261012-macos-inline-link-run-tab-stop.md`](../../issues/closed/20261012-macos-inline-link-run-tab-stop.md)). This fix is the host's, so the
   clone gets it on main with no change of its own. No drive has tabbed to a link in a Markdown
@@ -542,13 +550,21 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   Browser tab's frame hands its `t3-browser-page` hatch (LLP 1020.002 tier 3). The recording (the frame as a capture
   source, LLP 1020.002 D8, waits on B10), the agent's cursor drawn on the page's view and the separate preview window's
   snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
-  files, where a capture moves in and Reveal in Finder and Copy image act, which have no framework call; a saved
-  recording's bytes go to the environment from there, since the data module reads only the app's files.
-- `T3MediaActions.swift`: the media menu, Copy image and Save. Save opens in Downloads first and then
+  files, where a capture moves in and Reveal in Finder acts, which has no framework call; a saved recording's bytes
+  go to the environment from there, since the data module reads only the app's files.
+- `T3BrowserPage.swift`'s `stage`: Copy image of a Browser artifact needs its pixels, and data code reads only the
+  app's own files, where the artifact directory is the local server's. The module copies the artifact into
+  `app:/tmp/copy-image`; data code draws it into a PNG and writes it through `@exact/clipboard` (`browser-capture.ts`).
+- `T3MediaActions.swift`: the media menu, Save, and Copy image of an SVG. Save opens in Downloads first and then
   in the session's last folder, as Electron's download dialog does, where `saveFile` names no
-  folder; Copy image needs an image clipboard write (`ClipboardItem`), which main does not have;
-  the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens
-  at the focused node's centre.
+  folder; the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens
+  at the focused node's centre. Copy image of any other image is `@exact/clipboard`'s `write`
+  (`media-copy-image.ts`, LLP 1133.006); the data module's image codec draws no SVG yet.
+- `T3ShellMenu.swift`'s Copy Image, in the window's own context menu over any image: it copies the bitmap ExactKit
+  decoded, which data code never sees, and the package's `write` is data code's alone (LLP 1133.006 §11 Q3).
+- `T3Module+Sidebar.swift`'s `sidebarNotify`: the sidebar's undo notice, provider pill, search results and Update
+  everything ask for the snapshot again after the answer that started them returned. A data module's timer ends with
+  its answer (LLP 1027.000 D1), and data code has no other way to ask Exact to read a resource again.
 - `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; the client's
   opens are Contract's `openURL`, with the editors' schemes in `app.json` `open_url`),
   `T3InstalledFonts.swift` (no `queryLocalFonts`), `T3WindowChrome.swift` (the traffic lights at the

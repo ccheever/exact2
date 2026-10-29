@@ -14,7 +14,6 @@ function setup() {
   const files = { fs: { async mkdir() {}, async readFile(): Promise<ArrayBuffer> { throw new Error('missing'); }, async atomicWriteFile() {} } };
   const native = { available: true, watch() {}, later: async (input: unknown) => {
     const request = input as Obj;
-    if (request.op === 'notifyStatus') return { ok: true, generation: 1, value: { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' } };
     return { ok: true, generation: 1, value: {} };
   } } as unknown as Native;
   const view = (now: number) => shellView(client, native, files as never, now, '', false);

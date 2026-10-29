@@ -42,6 +42,7 @@ import type { PanelState } from '../panel/panel-surfaces';
 import { previewPdfAssetUrl } from './browser-url';
 import { emptyViewerFrame, type ViewerFrameView } from '../panel/viewer-frames';
 import { appFiles } from '../media/save-file';
+import { copyImageFile } from '../media/media-copy-image';
 import { frameEntry, frameIdOf } from './browser-frames';
 import { agentDriving } from './browser-automation-run';
 import { fleet } from '../connections/settings-b-fleet';
@@ -392,7 +393,11 @@ export async function artifactLocal(client: T3Client, native: Native, action: st
   host.native = native;
   const toastId = Number(toastValue) || 0;
   try {
-    await nativeCall(host, { op: 'browserArtifact', action, path });
+    // copyArtifactToClipboard: any artifact by its path, as a PNG through @exact/clipboard (media-copy-image.ts). Data
+    // code reads only the app's own files and the artifact directory is the local server's, so the module copies the
+    // artifact into them first (`stage`).
+    if (action === 'copy-image') await copyImageFile(str((await nativeCall(host, { op: 'browserArtifact', action: 'stage', path })).path));
+    else await nativeCall(host, { op: 'browserArtifact', action, path });
     if (action !== 'reveal' && toastId > 0) markActionCopied(client, toastId, `shelllocal:surface-browser-artifact-${action}`);
   } catch (error) {
     if (letGo(error)) throw error;

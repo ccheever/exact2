@@ -1,21 +1,15 @@
-// T3Module's sidebar ops (T3Module.swift routes them): the legacy sidebar's
-// members menu and the sidebar's reads, and the thread notifications, sound and Dock badge.
+// T3Module's sidebar op (T3Module.swift routes it): `sidebarNotify`, the read again a sidebar change asks for, now or
+// after `delay` ms. Data code asks it when it learns something after its answer returned (a search's server answers, a
+// release lookup) or when the window must be drawn again as a notice or a pill expires; a data module's own timers end
+// with its answer (LLP 1027.000 D1).
 import Foundation
-import AppKit
 
 extension T3Module {
-    /// The members menu and timed repaints (T3Sidebar.swift); thread notifications (T3Notifications.swift).
     func sidebarOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
-        if let op = request["op"] as? String, op.hasPrefix("sidebar") {
-            // The members menu pops up outside a main-queue block (T3MenuTurn, T3ContextMenu.swift).
-            let work = { [weak self] in self?.sidebar.perform(request) { reply.send($0) }; return () }
-            if op == "sidebarMenu" { T3MenuTurn.run(work) } else { DispatchQueue.main.async(execute: work) }
-            return
-        }
-        if let op = request["op"] as? String, op.hasPrefix("notify") {
-            DispatchQueue.main.async { [weak self] in self?.notifications.perform(request) { reply.send($0) } }
-            return
-        }
-        next()
+        guard request["op"] as? String == "sidebarNotify" else { return next() }
+        let generation = request["generation"] as? Int ?? 0, changed = context.changed
+        let delay = max(0, (request["delay"] as? Double ?? 0) / 1000)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { changed("t3.status") }
+        reply.send(["ok": true, "generation": generation, "value": [:]])
     }
 }

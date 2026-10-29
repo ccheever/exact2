@@ -88,7 +88,7 @@ other host. It answers the head lookup, the lookup by number, the summary, the P
 listing (the search, a repository's list and the counts read after them)
 (`api-calls.log` there lists each request), and the detail panel (`github-api-detail.mjs`): the
 detail with four checks (passed, skipped, running, and a status without a link), an issue comment
-and a review, a review thread on `README.md` line 3 with a reply, the files viewed, each file's line
+and a review, a review thread on `README.md` line 3 (its first comment links `notes/plan.md`) with a reply, the files viewed, each file's line
 counts (the change breakdown: code, and docs for the Markdown), and a patch
 long enough to scroll (`GET pulls/7` as a diff). Comment and Close (and Reopen) change what the
 next read answers until the stand-in stops; Merge, reactions, edits and the rest are not answered.

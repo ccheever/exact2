@@ -1,7 +1,7 @@
 // The ChatGPT sign-in request and redirect rules, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // packages/shared/src/codexAuthHandoff.ts:27-80 (codexAuthorizationRequest, codexCallbackUrl).
-// The loopback listener (modules/apple/T3CodexAuth.swift) carries the same rules in Swift; this
-// copy decides which flows the app hands to it and which pasted redirect URLs it sends.
+// They decide which flows the app hands to openAuthSession's loopback receiver, which callback it
+// completes (codex-setup-ops.ts receiveCallback) and which pasted redirect URLs it sends.
 // Changes: none in the rules. The hosted-web delivery half of the file (codexAuthHandoffUrl,
 // readCodexAuthHandoff, codexAuthDeliveryUrl, readCodexAuthDelivery) is out of scope: the
 // clone registers no URL scheme and serves no hosted web client.

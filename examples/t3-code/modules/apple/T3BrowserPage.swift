@@ -6,7 +6,7 @@ import WebKit
 /// The `t3-browser-page` hatch: each Browser tab's partitioned frame (browser-frames.contract `BrowserFrame`) hands
 /// its WKWebView here (LLP 1020.002 §9, tier 3) for what the framework does not do yet. MIT reference, see LICENSE-T3,
 /// T3 Code 1e2ecbd975: apps/desktop/src/preview/Manager.ts (`startRecording`, `saveRecording`, `captureScreenshot`,
-/// `revealArtifact`, `copyArtifactToClipboard`, `openPictureInPicture`, RECORDING_ARM_GRACE_MS),
+/// `revealArtifact`, `openPictureInPicture`, RECORDING_ARM_GRACE_MS),
 /// apps/web/src/components/preview/AgentBrowserCursor.tsx.
 ///
 /// - The recording (T3BrowserRecorder.swift): the frame as a capture source is LLP 1020.002 D8, waiting on B10.
@@ -243,13 +243,14 @@ final class T3BrowserPages {
         answer(["open": true])
     }
 
-    // MARK: Artifacts (Manager.ts captureScreenshot's file, revealArtifact, copyArtifactToClipboard)
+    // MARK: Artifacts (Manager.ts captureScreenshot's file, revealArtifact)
 
     /// `adopt` moves a capture the frame wrote under `app:/tmp/browser-shots` into the artifact directory as
     /// `browser-screenshot-<site>-<millis36>-<8 hex>.png` (the first eight characters of a v4 UUID, so two captures in one
     /// millisecond never share a file), and an agent's finished download under `app:/tmp/browser-downloads` as
-    /// `browser-download-<millis36>-<8 hex>-<its name>`. `reveal`, `copy-image` and `copy-path` act on a file inside the
-    /// directory only.
+    /// `browser-download-<millis36>-<8 hex>-<its name>`. `reveal`, `stage` and `copy-path` act on a file inside the
+    /// directory only. `stage` copies one under `app:/tmp/copy-image` for Copy image (copyArtifactToClipboard,
+    /// browser-capture.ts): data code reads only the app's own files, and the directory is the local server's.
     private func artifact(_ request: [String: Any], answer: ([String: Any]) -> Void, refuse: (String, String) -> Void) {
         if request["action"] as? String == "adopt" {
             let raw = request["path"] as? String ?? "", root = temporaryRoot?.standardizedFileURL.path ?? "/nonexistent"
@@ -274,17 +275,19 @@ final class T3BrowserPages {
         }
         let pasteboard = T3BrowserArtifacts.pasteboard(agent: agent)
         switch request["action"] as? String {
+        case "stage":
+            guard let temporary = temporaryRoot else { return refuse("ArtifactPath", "The app's files are not ready.") }
+            let directory = temporary.appendingPathComponent("copy-image", isDirectory: true)
+            let name = "artifact-\(UUID().uuidString.lowercased())" + (target.pathExtension.isEmpty ? "" : ".\(target.pathExtension)")
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: target, to: directory.appendingPathComponent(name))
+            } catch { return refuse("ArtifactPath", "The artifact could not be read: \(error.localizedDescription)") }
+            answer(["path": "app:/tmp/copy-image/\(name)"])
         case "reveal":
             note("artifact reveal \(target.lastPathComponent)")
             if !agent { NSWorkspace.shared.activateFileViewerSelecting([target]) } // an agent run records it and opens no Finder window
             answer(["revealed": target.path])
-        case "copy-image":
-            guard let image = NSImage(contentsOf: target), let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
-                return refuse("ArtifactImage", "The screenshot could not be read.")
-            }
-            pasteboard.clearContents()
-            pasteboard.setData(png, forType: .png)
-            answer(["copied": true])
         default:
             pasteboard.clearContents()
             answer(["copied": pasteboard.setString(target.path, forType: .string)])

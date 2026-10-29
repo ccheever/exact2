@@ -59,7 +59,7 @@ import { highlightAsk, highlightStore, highlightView } from './src/highlight/hig
 import { noteServerUpdateClock } from './src/connections/server-update-notices';
 import { terminalDrawerView, terminalOpen } from './src/terminal/terminal-drawer-view';
 import { terminalFocused } from './src/terminal/terminal-focus';
-import { codexContext, codexPrepare, codexTarget } from './src/providers/codex-setup-host'; // ManagedCodexSetup's commands and effects
+import { codexContext, codexPrepare, codexReceive, codexReceiving, codexTarget } from './src/providers/codex-setup-host'; // ManagedCodexSetup's commands, effects and loopback callback
 import { codexSetupOp } from './src/providers/codex-setup-ops';
 import { chatGptPlanSnapshot } from './src/providers/chatgpt-plan-view';
 import { autoBalancePrepare } from './src/composer/auto-balance'; // Settings › Load balancing, read for the composer
@@ -84,8 +84,10 @@ export const appId = 'com.exact.t3code.macos';
 // file is t3-code.json (protocol.ts preferenceFiles). `browser.automation` lets data code drive a Browser tab's frame for
 // the agent's preview automation and Annotate (browser-automation.ts, browser-annotation.ts); a capture of a tab is written
 // under app:/tmp/browser-shots and an agent-driven tab's downloads under app:/tmp/browser-downloads before they move to the
-// artifact folder.
-export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/data/t3-code.json\nfs.write app:/data/t3-code.json\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.read app:/data/snapshots/drafts\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/browser-shots\nfs.write app:/tmp/browser-shots\nfs.read app:/tmp/browser-downloads\nfs.write app:/tmp/browser-downloads\nbrowser.automation\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\nfs.read app:/cache/media-preview\nfs.write app:/cache/media-preview\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone';
+// artifact folder. Copy image writes the media's bytes and their PNG under app:/tmp/copy-image (media-copy-image.ts).
+// Thread and review guide notifications post, badge and ask through @exact/notifications (shell-notify.ts); the ChatGPT
+// sign-in opens on auth.openai.com and comes back to a loopback port T3's server chose (codex-setup-ops.ts receiveCallback).
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/data/t3-code.json\nfs.write app:/data/t3-code.json\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.read app:/data/snapshots/drafts\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/browser-shots\nfs.write app:/tmp/browser-shots\nfs.read app:/tmp/browser-downloads\nfs.write app:/tmp/browser-downloads\nbrowser.automation\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\nfs.read app:/cache/media-preview\nfs.write app:/cache/media-preview\nfs.read app:/tmp/copy-image\nfs.write app:/tmp/copy-image\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone\ndevice.notifications purpose.notifications\nauth.session https://auth.openai.com\nauth.callback http://127.0.0.1/auth/callback';
 const client = new T3Client();
 const transport = new Transport();
 
@@ -132,6 +134,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'highlightAsk') return highlightAsk(); // the texts waiting for their tokens (app.contract highlightStep)
   if (source === 'highlightStore') return highlightStore(args[0] as { id: number; line: number; records: number[] }[]); // the lexers' answer
   if (source === 'promptLinkView') return promptLinkView(client);
+  if (source === 'codexReceive') return codexReceive(client, native, String(args[0] ?? '')); // the sign-in's loopback callback (codex-setup-ops.ts)
   if (source === 'promptLinksReady') return promptLinksReady(client);
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
@@ -150,7 +153,8 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     // waits for its tokens, so the root's highlight pump refreshes it when they land (app.contract highlightStoredThen).
     return highlightView('data', () => ({ ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[11] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
       linkMenu: chatLinkMenuView(client, native, storage), // a Markdown web link's menu rows (external-link-menu.ts)
-      externalOpen: externalOpenRequest() })); // the latest link to open outside the app (external-open.ts)
+      externalOpen: externalOpenRequest(), // the latest link to open outside the app (external-open.ts)
+      codexReceiving: codexReceiving(client, native) })); // the ChatGPT sign-in waiting on its loopback callback (app.contract codexLoopback)
   }
   if (source === 'threadFind') return native?.available ? threadFindTick(client, native, Number(args[1]) || 0, arr(args[2]).map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) })), String(args[3] || '')) : threadFindView(client);
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
@@ -232,7 +236,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'chatCanvas') noteLayoutFrames(client, args[11]);
   if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // args[7..8] re-ask when the player changes
   if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision
-  if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return highlightView('shell', () => shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden' }, args[7] !== false)); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown
+  if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return highlightView('shell', () => shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden', notifications: String(args[8] ?? '') }, args[7] !== false)); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown; args[8]: the notification permission
   // A drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles): composer-controls-attach.ts.
   if (source === 'composerAttach') return client.command('cclocal:attach-files', String(args[0] || ''), JSON.stringify({ files: (Array.isArray(args[1]) ? args[1] : []).map(String), picked: Array.isArray(args[2]) ? args[2] : [], asText: args[3] === true, target: String(args[4] ?? '') }), 0, native, storage);
   if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);

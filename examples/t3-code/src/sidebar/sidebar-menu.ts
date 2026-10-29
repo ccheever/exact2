@@ -4,9 +4,7 @@
 // desktop shell turns them into a native menu (ElectronMenu.ts). A row's
 // right-click shows them as the sidebar's context popover (`menuRows`,
 // sidebar-row.contract RowMenu), which macOS presents as an NSMenu with its
-// submenus (exact2 #223); a menu the keyboard opens at the focused row is the
-// module's (T3Sidebar.swift, `nativeTemplate`), since a context popover opens
-// only from the pointer.
+// submenus (exact2 #223).
 import { arr, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { canSnooze, capabilities, effectiveSnoozed, sectionOf, type Caps } from './sidebar-model';

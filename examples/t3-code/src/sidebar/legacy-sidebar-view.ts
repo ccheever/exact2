@@ -24,7 +24,7 @@ import { branchPrTooltip, branchPullRequest } from './sidebar-branch-pr';
 import { portLabels, rowPorts } from './legacy-sidebar-ports';
 import { formatWorktreePathForDisplay } from './worktree-cleanup';
 import { rowThread } from './legacy-sidebar-links';
-import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, buildMultiSelectThreadContextMenuItems, legacyProjectMenuItems, legacyThreadMenuItems, orderItemsByPreferredIds,
+import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, buildMultiSelectThreadContextMenuItems, legacyProjectMenuItems, legacyThreadMenuItems, memberActionLabel, orderItemsByPreferredIds,
   relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator, resolveAdjacentThreadId, resolveThreadStatusPill, sortProjectsForSidebar, sortThreads,
   type LegacyMember, type ProjectSortOrder, type StatusPill, type ThreadSortOrder } from './legacy-sidebar-model';
 
@@ -47,6 +47,8 @@ export interface LegacyProjectRow {
   hiddenLabel: string; hiddenDot: string; hiddenColor: string; hiddenPulse: boolean; newThreadLabel: string; enter: boolean;
   /** The header's context popover (legacy-sidebar.contract LegacyProjectMenu): handleProjectButtonContextMenu's items. */
   menu: MenuRow[];
+  /** New thread's choice of members (LegacyMembersMenu, handleCreateThreadClick); none for a project of one. */
+  members: MenuRow[];
 }
 export interface LegacySidebarView {
   enabled: boolean; projects: LegacyProjectRow[]; manual: boolean; projectSort: string; threadSort: string; previewCount: number;
@@ -318,6 +320,7 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
       showEmpty: view.expanded && threads.length === 0, showMore: view.expanded && view.overflowing && !view.listExpanded, showLess: view.expanded && view.overflowing && view.listExpanded,
       hiddenLabel: hidden.label, hiddenDot: hidden.dot, hiddenColor: hidden.color, hiddenPulse: hidden.pulse,
       newThreadLabel: `Create new thread in ${group.name}`, enter: entering(`project:${group.key}`), menu: menuRows(legacyProjectMenuItems(group.members)),
+      members: group.members.length > 1 ? menuRows(group.members.map(member => ({ id: member.physicalKey, label: memberActionLabel(member, group.members.length) }))) : [],
     };
   });
   // useActiveRowReveal: the route is recorded on each frame; the row scrolls once it is listed (legacy-sidebar.contract).

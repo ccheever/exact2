@@ -10,7 +10,8 @@ import { fleet, EnvironmentFleet, type FleetEntry } from '../connections/setting
 import { focusedOnPrimary, isPrimaryEnvironment, primary } from '../connections/local-primary';
 import { isLoopbackHost } from './codex-auth-request';
 import { codexFlows, codexPicker, type CodexHost } from './codex-setup';
-import { codexSetupPrepare, type CodexContext } from './codex-setup-ops';
+import { codexSetupPrepare, receiveCallback, type CodexContext } from './codex-setup-ops';
+import { composerNow } from '../composer/composer-controls';
 import { fleetSetupHost, fleetSetupHosts } from './codex-fleet-host';
 import { setCodexTargetResolver } from './providers';
 
@@ -48,14 +49,35 @@ setCodexTargetResolver((client, target) => {
   return host ? codexPicker(host, tab < 0 ? target : target.slice(tab + 1), target) : null;
 });
 
-/** The snapshot answer's step (app.ts): every instance with setup state, on the focus and in the background. */
-export async function codexPrepare(client: T3Client, native: Native | null | undefined): Promise<void> {
-  if (!native?.available) return;
+/**
+ * Every instance with setup state, on the focus and in the background: those whose connection is up for the effects,
+ * and every one for the loopback receiver, which keeps listening through a reconnect as the reference's receive does
+ * (CodexSetupSection's effect depends on the URL alone).
+ */
+function setupContexts(client: T3Client, native: Native, connected = true): CodexContext[] {
   const contexts: CodexContext[] = [];
-  if (client.connection === 'connected') for (const id of codexFlows(client).keys()) contexts.push(codexContext(client, native, id));
+  if (!connected || client.connection === 'connected') for (const id of codexFlows(client).keys()) contexts.push(codexContext(client, native, id));
   for (const host of fleetSetupHosts(fleet.entries.values())) {
-    if (!host.ready) continue;
+    if (connected && !host.ready) continue;
     for (const id of codexFlows(host).keys()) contexts.push(fleetCodexContext(client, native, host.entry, id));
   }
-  if (contexts.length) await codexSetupPrepare(contexts);
+  return contexts;
+}
+const receivingOf = (context: CodexContext) => codexFlows(context.host).get(context.instanceId)?.receiving ?? '';
+
+/** The snapshot answer's step (app.ts): each setup's effects, at the snapshot's clock. */
+export async function codexPrepare(client: T3Client, native: Native | null | undefined): Promise<void> {
+  if (!native?.available) return;
+  const contexts = setupContexts(client, native);
+  if (contexts.length) await codexSetupPrepare(contexts, composerNow(client));
+}
+/** The authorization URL a sign-in waits on the loopback for (the snapshot's `codexReceiving`), or ''. */
+export function codexReceiving(client: T3Client, native: Native | null | undefined): string {
+  return native?.available ? setupContexts(client, native, false).map(receivingOf).find(url => url !== '') ?? '' : '';
+}
+/** The window's resource on it (app.contract `codexLoopback`): that sign-in's callback, received and completed. */
+export async function codexReceive(client: T3Client, native: Native | null | undefined, url: string): Promise<{ phase: string }> {
+  if (!url || !native?.available) return { phase: 'idle' };
+  const context = setupContexts(client, native, false).find(entry => receivingOf(entry) === url);
+  return { phase: context ? await receiveCallback(context, url) : 'gone' };
 }

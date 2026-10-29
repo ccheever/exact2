@@ -52,7 +52,7 @@ const reviewThreads = () => ({ data: { viewer: { login: pr.author }, repository:
   reviewThreads: { totalCount: 1, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{
     id: "lane-thread-1", isResolved: false, isOutdated: false, path: "README.md", line: 3, diffSide: "RIGHT",
     comments: { totalCount: 1, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{
-      id: "lane-comment-1", author: { __typename: "User", login: "lane-reviewer", name: "Lane Reviewer" }, body: "Should this line link to notes/plan.md?",
+      id: "lane-comment-1", author: { __typename: "User", login: "lane-reviewer", name: "Lane Reviewer" }, body: "Should this line link to [notes/plan.md](notes/plan.md)?",
       createdAt: "2026-10-02T10:00:00Z", url: `${url}#discussion_r1`, reactionGroups: [] }] } }] } } } } });
 
 /** What the stand-in answers for one invocation: { out, code, err }. `stdin` is read only for `--input -`. */

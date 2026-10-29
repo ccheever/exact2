@@ -14,11 +14,11 @@
 //   saved to (Downloads at first). It answers `started` once the panel is up, as the reference's
 //   anchor click returns before the dialog closes; the bytes move when the person saves. Under the
 //   agent the file goes to the isolated data root's exports/ instead.
-// - `mediaCopyImage` {url}: readMediaPng: PNG bytes as they are, anything else decoded (SVG too)
-//   and re-encoded as PNG, refused over 64,000,000 pixels or without usable dimensions; written
-//   as PNG to the pasteboard.
+// - `mediaCopyImage` {url}: an SVG, which the data module's image codec does not draw yet
+//   (media-copy-image.ts copies every other image through @exact/clipboard): drawn at its own
+//   size as an `<img>` is, refused over 64,000,000 pixels or without usable dimensions, and
+//   written as PNG to the pasteboard.
 import AppKit
-import ImageIO
 import UniformTypeIdentifiers
 
 enum T3MediaActions {
@@ -102,10 +102,22 @@ enum T3MediaActions {
 
     // MARK: Menu
 
+    /// Where a keyboard-opened menu's top-left corner goes, for the focused view: its centre (Chromium's keyboard
+    /// contextmenu, truncated to whole points) or its bottom-left corner. `point` is in `view`'s coordinates; `topLeft`
+    /// in the window content's top-left space.
+    static func anchorPoint(_ anchor: String, focus: NSView?, in view: NSView) -> (point: NSPoint, topLeft: NSPoint)? {
+        guard let focus, focus !== view, focus.isDescendant(of: view), anchor == "center" || anchor == "bottom-left" else { return nil }
+        let rect = view.convert(focus.bounds, from: focus)
+        let top = view.isFlipped ? rect.minY : view.bounds.height - rect.maxY
+        let topLeft = anchor == "center" ? NSPoint(x: floor(rect.minX + rect.width / 2), y: floor(top + rect.height / 2))
+            : NSPoint(x: rect.minX, y: top + rect.height)
+        return (NSPoint(x: topLeft.x, y: view.isFlipped ? topLeft.y : view.bounds.height - topLeft.y), topLeft)
+    }
+
     static func menu(_ items: [[String: Any]], anchor: String?, agent: Bool) -> [String: Any] {
         let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { ($0.firstResponder as? NSView).map { $0 !== $0.window?.contentView } ?? false }
         let anchored = anchor.flatMap { anchor in
-            window.flatMap { window in window.contentView.flatMap { T3Sidebar.anchorPoint(anchor, focus: window.firstResponder as? NSView, in: $0) } }
+            window.flatMap { window in window.contentView.flatMap { anchorPoint(anchor, focus: window.firstResponder as? NSView, in: $0) } }
         }
         let labels = items.compactMap { item -> String? in
             guard let label = item["label"] as? String else { return nil }
@@ -212,20 +224,8 @@ enum T3MediaActions {
         return folder.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
     }
 
-    /// readMediaPng: PNG as it is; anything else decoded and re-encoded, within the pixel limit.
+    /// readMediaPng for an SVG: NSImage draws it at its own size, as an `<img>` does, within the pixel limit.
     static func pngData(_ data: Data, mimeType: String) throws -> (data: Data, width: Int, height: Int) {
-        let source = CGImageSourceCreateWithData(data as CFData, nil)
-        let properties = source.flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [CFString: Any] }
-        let pixelWidth = properties?[kCGImagePropertyPixelWidth] as? Int, pixelHeight = properties?[kCGImagePropertyPixelHeight] as? Int
-        if mimeType == "image/png" || (source.flatMap { CGImageSourceGetType($0) as String? } == UTType.png.identifier && mimeType.isEmpty) {
-            return (data, pixelWidth ?? 0, pixelHeight ?? 0)
-        }
-        if let source, let width = pixelWidth, let height = pixelHeight {
-            guard width > 0, height > 0, width * height <= pixelLimit else { throw MediaError(message: tooLarge) }
-            guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw MediaError(message: undecodable) }
-            return try encode(image)
-        }
-        // Not a raster ImageIO reads (SVG): NSImage decodes it at its own size, as an <img> does.
         guard let image = NSImage(data: data), image.isValid else { throw MediaError(message: undecodable) }
         let width = Int(image.size.width.rounded()), height = Int(image.size.height.rounded())
         guard width > 0, height > 0, width * height <= pixelLimit else { throw MediaError(message: tooLarge) }
@@ -238,11 +238,6 @@ enum T3MediaActions {
         NSGraphicsContext.restoreGraphicsState()
         guard let png = bitmap.representation(using: .png, properties: [:]) else { throw MediaError(message: notPng) }
         return (png, width, height)
-    }
-
-    static func encode(_ image: CGImage) throws -> (data: Data, width: Int, height: Int) {
-        guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { throw MediaError(message: notPng) }
-        return (png, image.width, image.height)
     }
 }
 

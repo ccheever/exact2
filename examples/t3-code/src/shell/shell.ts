@@ -23,7 +23,7 @@ import { shortcutLabel } from '../settings/keybinding-view';
 import { snoozePresets } from '../sidebar/sidebar-presentation';
 import { canSnooze, effectiveSnoozed } from '../sidebar/sidebar-model';
 import { diffNotGit } from '../diff/diff';
-import { threadNotifications, nativeNotifyStatus, notificationsWaiting, reportWindowFacts, type NotifyStatus } from './shell-notify';
+import { threadNotifications, notifyStatus, notificationSounds, notificationsWaiting, reportWindowFacts, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from '../client/protocol-reader'; // answered requests whose answer was let go end on the next shell read
 import { permissionUpdateNotices } from './permission-update-notice';
@@ -74,7 +74,7 @@ type ShellState = { clocks: Map<number, Clock>; handled: Set<string>; status: No
 const states = new WeakMap<T3Client, ShellState>();
 export function shellState(client: T3Client): ShellState {
   let state = states.get(client);
-  if (!state) { state = { clocks: new Map(), handled: new Set(), status: { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' }, now: 0, copied: new Map(), copiedActions: new Map() }; states.set(client, state); }
+  if (!state) { state = { clocks: new Map(), handled: new Set(), status: { active: true, authorization: 'unknown', opened: '', openedThread: '' }, now: 0, copied: new Map(), copiedActions: new Map() }; states.set(client, state); }
   return state;
 }
 
@@ -273,7 +273,7 @@ async function panelSaved<T>(client: T3Client, storage: Files, view: T): Promise
  * `page` is the window's `exactPage()` focus and visibility (exact2 #219).
  */
 export async function shellView(client: T3Client, native: Native | null | undefined, storage: Files, now: number, dismissed: string, paused: boolean, sheet = false,
-  page: { focused: boolean; visible: boolean } = { focused: true, visible: true }, chatShown = true) {
+  page: { focused: boolean; visible: boolean; notifications?: string } = { focused: true, visible: true }, chatShown = true) {
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
@@ -281,14 +281,14 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   if (native?.available) {
     if (client.writable) void migrateModelPreferences(client, native).catch(() => {});
     native.watch('t3.notify');
-    state.status = await nativeNotifyStatus(native, state.status, page.focused);
+    state.status = notifyStatus(client, state.status, page.focused, page.notifications ?? '');
     await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
     reportBrowserProfiles(client, native); // browser-profile-report.ts: server browsers keep this client's profiles and frame rate
     updateEverythingPass(client, native, now);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await coordinateGuides(client, native, state.status, now);
-    await threadNotifications(client, native, state.status, undefined, now); // every connected environment: the focus and the fleet (shell-notify.ts)
+    await threadNotifications(client, state.status, undefined, now); // every connected environment: the focus and the fleet (shell-notify.ts)
     if (tracking(client)) await settleLiveTraces(client, native);
   }
   slowRequests(client, now);
@@ -312,7 +312,8 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     prCheckout: checkoutView(client),
     addMachine: addMachineView(client), // Add to another machine (add-project-dialog.ts)
     composerFile: await composerFileView(client, native, now), // a composer file chip's preview (composer-chip-file.ts)
-    notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
+    notifications: `${state.status.authorization}${state.status.active ? '' : ' (window inactive)'}`,
+    notifySound: notificationSounds(client), // the thread and guide notifications' sounds (app.contract notifyCompletionSound)
     announce,
   };
 }

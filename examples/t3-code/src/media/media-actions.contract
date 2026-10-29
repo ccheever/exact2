@@ -10,6 +10,7 @@
 // for a key. The source is the JSON a view built (media-views.ts) or `attachment:<id>`.
 use ShellIcon from "../shell/shell-icons.contract"
 use hoverTipAtFrame from "../shell/hover-layer.contract" // the Markdown image's tooltip in the window's hover layer
+use ClipboardItem from "@exact/clipboard" // Copy image's write (media-copy-image.ts): a use here puts the package in the plan
 
 // A media slot (media-views.ts MediaView): kind "image" / "video" / "" (none); state "loading",
 // "ready" or "failed"; the open link ("" for none) and the Retry key ("" for no Retry).

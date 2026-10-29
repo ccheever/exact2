@@ -2,19 +2,18 @@
 // see LICENSE-T3): project expansion, Show more / Show less, Sidebar options,
 // manual project order, the choices of the project and thread context menus and
 // the multi-selection menu (context popovers drawn from legacy-sidebar-view.ts's
-// rows), the project New thread button, inline archive, and the
+// rows), the project New thread button and its choice of members, inline archive, and the
 // Rename project / Project grouping / remove project flows with the
 // reference's toasts. Local ops arrive as `sidebarlocal:legacy-*`, server ops
 // as `sidebar:legacy-*` (sidebar-commands.ts routes both here).
-import { obj, str, type Obj } from '../client/domain';
+import { str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
-import { nativeTemplate, type MenuItem } from './sidebar-menu';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { applyDeviceSetting } from '../settings/settings-core';
 import { archive, deleteThreads, markUnread, remember, rename } from './sidebar-commands';
-import { clampSidebarThreadPreviewCount, memberActionLabel, resolveProjectExpanded } from './legacy-sidebar-model';
+import { clampSidebarThreadPreviewCount, resolveProjectExpanded } from './legacy-sidebar-model';
 import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, sortedGroups, type LegacyGroup } from './legacy-sidebar-view';
 import { openBranchDraft, openRowPullRequest, rowThread } from './legacy-sidebar-links';
 import { startRename } from './sidebar-rename-wait';
@@ -77,11 +76,6 @@ export function reorderGroups(client: T3Client, dragged: string, before: string)
   sidebarPrefs(client).projectOrder = rest.flatMap(group => group.members.map(member => member.physicalKey));
 }
 
-/** The module's menu at the pointer: only New thread's choice of members, which opens where its button was clicked (T3Sidebar.swift). */
-async function showMenu(client: T3Client, native: Native, items: MenuItem[]): Promise<string> {
-  const reply = obj(await client.restAccess(native).call({ op: 'sidebarMenu', items: nativeTemplate(items) }));
-  return str(reply.id);
-}
 async function copy(client: T3Client, native: Native, text: string, title: string): Promise<void> {
   try { await client.restAccess(native).call({ op: 'copyText', text }); pushToast(client, { kind: 'success', title, description: text }); }
   catch (error) { toast(client, title === 'Path copied' ? 'Failed to copy path' : 'Failed to copy thread ID', error); }
@@ -102,7 +96,7 @@ export async function legacyCommand(client: T3Client, native: Native, storage: F
   if (op === 'thread-menu') { threadMenuOpened(client, id); return ''; }
   if (op === 'thread-choice') return threadChoice(client, native, storage, id, value);
   if (op === 'project-choice') return projectChoice(client, native, id, value);
-  if (op === 'new-thread') return newThread(client, native, id);
+  if (op === 'new-thread') return newThread(client, native, id, value);
   if (op === 'pr') return openRowPullRequest(client, native, id, value);
   if (op === 'port') return openRowPort(client, native, id);
   if (op === 'archive') { await attempt(client, 'Failed to archive thread', () => archiveRow(client, native, id)); return ''; }
@@ -245,15 +239,14 @@ async function removeProject(client: T3Client, native: Native, storage: Files, m
   delete client.local.drafts[`${client.environmentId}:new:${memberId}`];
 }
 
-/** handleCreateThreadClick: one member creates at once; several ask which (a native menu of members). */
-async function newThread(client: T3Client, native: Native, key: string): Promise<string> {
+/**
+ * handleCreateThreadClick: one member creates at once; with several, `physicalKey` is the one its members menu chose
+ * (legacy-sidebar.contract LegacyMembersMenu).
+ */
+async function newThread(client: T3Client, native: Native, key: string, physicalKey: string): Promise<string> {
   const group = groupOf(client, key);
   if (!group) return '';
-  let member = group.members.length === 1 ? group.members[0] : undefined;
-  if (!member) {
-    const choice = await showMenu(client, native, group.members.map(candidate => ({ id: candidate.physicalKey, label: memberActionLabel(candidate, group.members.length) })));
-    member = group.members.find(candidate => candidate.physicalKey === choice);
-  }
+  const member = group.members.length === 1 ? group.members[0] : group.members.find(candidate => candidate.physicalKey === physicalKey);
   if (!member) return '';
   // createThreadForProjectMember: a background member's draft on its own environment.
   try { if (member.remote) await openBackgroundDraft(client, native, member.id); else await (client as unknown as Navigator).openDraft?.(native, member.id); }
