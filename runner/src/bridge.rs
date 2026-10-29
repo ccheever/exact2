@@ -149,11 +149,13 @@ pub fn icon_of<'a>(
 
 /// @ref LLP 1045.000 D2 — a Markdown node's `atomFaces` with each face's
 /// `color` and `backgroundColor` read as a bound colour row of `plan` reads
-/// one (a theme entry's name as the colour it stands for, LLP 1095 D4; a
-/// `-exact-platform-color()` only as one of the plan's literals, D3) and
-/// written as the wire's text, which a host reads with no theme bound. One
-/// that is no colour is empty, so its kind's paint stands, and is added to
-/// `refused`. Any other prop as it is.
+/// one, in the tuple bound (a theme entry's name as the colour it stands
+/// for, LLP 1095 D4; a `-exact-platform-color()` only as one of the plan's
+/// literals, D3; a profile the plan declares, LLP 1100 D3) and written as
+/// the wire's text, which a host reads with no theme bound. One that is no
+/// colour is empty, so its kind's paint stands, and is added to `refused`.
+/// Any other prop as it is. A node's faces that read a token are read again
+/// when it or the tuple changes (`instance::theme`).
 pub fn atom_face_paint(
     plan: &exact_plan::Plan,
     prop: PropId,
@@ -169,6 +171,14 @@ pub fn atom_face_paint(
     };
     let _theme =
         (!plan.theme.is_empty()).then(|| exact_kernel::style::theme::bind(&theme_table(plan)));
+    // A profile the plan declares, as `set_plan_style` reads one.
+    let _profiles = (!plan.profiles.is_empty()).then(|| {
+        exact_kernel::style::profiled::declarations(
+            plan.profiles
+                .iter()
+                .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+        )
+    });
     for face in faces
         .iter_mut()
         .filter_map(serde_json::Value::as_object_mut)

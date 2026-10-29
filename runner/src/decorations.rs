@@ -154,10 +154,22 @@ pub fn from_value(value: &Value) -> Result<String, String> {
     Ok(encode(&decorations))
 }
 
-/// Convert the compiler's positional `AtomFace(source, label, icon, title,
-/// color, backgroundColor)` list to the named JSON of the `atomFaces` prop
-/// (LLP 1045.000 D2), the colours as written; the plan reads them next
-/// (`bridge::atom_face_paint`).
+/// `AtomFace`'s fields in the compiler's order (LLP 1045.000 D2): the
+/// record [`atom_faces`] reads, each its JSON name. A plan that binds
+/// `atomFaces` puts this list in its compatibility id (`exact_bake`), so a
+/// binary that reads other fields is never given it.
+pub const ATOM_FACE_FIELDS: [&str; 6] = [
+    "source",
+    "label",
+    "icon",
+    "title",
+    "color",
+    "backgroundColor",
+];
+
+/// Convert the compiler's positional `AtomFace` list to the named JSON of
+/// the `atomFaces` prop (LLP 1045.000 D2), the colours as written; the plan
+/// reads them next (`bridge::atom_face_paint`).
 pub fn atom_faces(value: &Value) -> Result<String, String> {
     let Value::List(faces) = value else {
         return Err("atomFaces: expected a list".into());
@@ -165,12 +177,13 @@ pub fn atom_faces(value: &Value) -> Result<String, String> {
     let rows = faces
         .iter()
         .map(|face| match face {
-            Value::Record(f) if f.len() == 6 => {
-                let text = |i: usize| f[i].as_str().ok_or("atomFaces: expected text");
-                Ok(json!({
-                    "source": text(0)?, "label": text(1)?, "icon": text(2)?, "title": text(3)?,
-                    "color": text(4)?, "backgroundColor": text(5)?,
-                }))
+            Value::Record(f) if f.len() == ATOM_FACE_FIELDS.len() => {
+                let mut row = serde_json::Map::new();
+                for (name, field) in ATOM_FACE_FIELDS.iter().zip(f.iter()) {
+                    let text = field.as_str().ok_or("atomFaces: expected text")?;
+                    row.insert((*name).into(), Json::String(text.into()));
+                }
+                Ok(Json::Object(row))
             }
             _ => Err("atomFaces: invalid record shape".to_string()),
         })

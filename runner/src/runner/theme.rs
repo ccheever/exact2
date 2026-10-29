@@ -127,6 +127,30 @@ impl<D: DataSource> Runner<D> {
         for (view, tokens) in read {
             self.ids.theme.looks_read(view, tokens);
         }
+        // A Markdown node's faces that read one, read again in their own
+        // tuple (LLP 1045.000 D2), as a row is.
+        let mut faces: Vec<_> = self
+            .ids
+            .theme
+            .faces()
+            .filter(|(view, f)| f.tokens & bits != 0 && kernel.node(*view).is_some())
+            .map(|(view, f)| (view, f.text.clone(), f.tuple))
+            .collect();
+        faces.sort_by_key(|(view, ..)| *view);
+        for (view, text, tuple) in faces {
+            let _tuple = Tuple::new(tuple);
+            exact_kernel::style::theme::take_named();
+            let prop = exact_kernel::PropId::AtomFaces;
+            let value = crate::bridge::atom_face_paint(&self.plan, prop, text, &mut Vec::new());
+            let tokens = exact_kernel::style::theme::take_named();
+            self.ids.theme.faces_read(view, tokens);
+            ops.push(Op::SetProp {
+                id: view,
+                prop,
+                value,
+            });
+            set += 1;
+        }
         Ok((self.apply(ops)?, set))
     }
 }

@@ -319,6 +319,9 @@ impl Said {
             for a in attrs {
                 let colour = colour_attr(&a.name);
                 computed |= colour && !literal(&a.value);
+                // A face's colours are read as a computed colour row's
+                // (LLP 1045.000 D2): any token may be named.
+                computed |= a.name == "atomFaces";
                 computed_measure |=
                     measure_attr(&a.name) && !literal(&a.value) && !number(&a.value);
                 // A colour row's own value must fold; a literal elsewhere in

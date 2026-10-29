@@ -202,6 +202,8 @@ pub fn compatibility_id_sources_with_entries(
     let mut owned = None;
     let entries = crate::icon_rules::entries(app_dir, entries, &mut owned)?;
     crate::icon_rules::apply(&mut compat, app_dir, plan.as_ref(), entries)?;
+    // A plan that binds `atomFaces` names the fields its record has (atom_faces.rs).
+    crate::atom_faces::apply(&mut compat, app_dir, plan.as_ref(), entries)?;
     if let Some(plan) = &plan {
         faces(&mut compat, plan, platform, target);
     }

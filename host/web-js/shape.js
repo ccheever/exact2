@@ -63,19 +63,27 @@ export function failureCode(e) {
 export const failureReason = e => e && typeof e === "object" && typeof e.reason === "string" ? e.reason : "";
 
 /** `atomFaces`' `AtomFace` records as the named JSON the runner's bridge writes (LLP 1045.000 D2), each face's colours
- * read as a bound colour row's are: through the build's colour map `cm`, which takes a theme entry's name and admits a
- * `-exact-platform-color()` only as one of the plan's literals (LLP 1095 D3, D4), then the browser. A keyword that
- * defers to the cascade, a `var()` and anything the browser refuses are no colour: empty, so the kind's paint stands,
- * and the journal says so, as the runner's does (`bridge::atom_face_paint`). */
+ * read as a bound colour row's are: written as the kernel reads a colour (a name, a hex, its colour functions), through
+ * the build's colour map `cm`, which takes a theme entry's name and a role and refuses, journalling it, a
+ * `-exact-platform-color()` none of the plan's literals is (LLP 1095 D3, D4), then as the browser takes it. A
+ * substitution (`var()`, `env()`, `attr()`), an escape and a keyword that defers to the cascade are no colour. One
+ * that is none is empty, so the kind's paint stands, said once in the journal. */
+const FUNCTIONS = /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|light-dark|-exact-platform-color)$/i;
 const DEFERS = /^\s*(initial|inherit|unset|revert|revert-layer|currentcolor)\s*$/i;
 export function atomFacesRecord(v, cm = c => c) {
-  const paint = c => {
-    if (typeof c !== "string" || !c.trim()) return "";
-    const m = /\bvar\(/i.test(c) ? "" : cm(c) ?? "";
-    if (m && !DEFERS.test(m) && (typeof CSS === "undefined" || CSS.supports("color", m))) return m;
+  const none = c => {
     const x = globalThis.exact;
     x?.journal?.push(`t=${x.now?.() ?? 0} invalid atomFaces colour ${JSON.stringify(c)}; its kind's paint stands`);
     return "";
+  };
+  const paint = c => {
+    if (typeof c !== "string" || !c.trim()) return "";
+    const calls = [...c.matchAll(/([-\w]+)\s*\(/g)].map(([, name]) => name);
+    if (c.includes("\\") || DEFERS.test(c) || !calls.every(name => FUNCTIONS.test(name))) return none(c);
+    const m = cm(c) ?? "";
+    // The map refused it and said so: `unset` is never a colour written here.
+    if (m === "unset") return "";
+    return typeof CSS === "undefined" || CSS.supports("color", m) ? m : none(c);
   };
   return v == null ? null : JSON.stringify(v.map(([source, label, icon, title, color, backgroundColor]) =>
     ({ source, label, icon, title, color: paint(color), backgroundColor: paint(backgroundColor) })));

@@ -74,4 +74,70 @@ component App
         );
         assert_eq!(js.matches("const $cm=").count(), 1);
     }
+
+    /// A face's colours through the build's own colour map, run in Bun
+    /// (`shape.js` `atomFacesRecord`): what the map takes is kept; what it
+    /// refuses it journals, once; what is no colour (a substitution, an
+    /// escape, a keyword, what the browser refuses) is journalled once more,
+    /// and each is empty, so its kind's paint stands.
+    #[test]
+    fn a_faces_colours_go_through_the_real_colour_map() {
+        let plan = contract::compile(
+            r#"theme
+  brand="light-dark(#d52c36, #ff6762)"
+atom mention prefix="@"
+component App
+  state name = "systemRedColor"
+  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brand", backgroundColor="-exact-platform-color(web Highlight, #ffffff)"), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(web ${name}, #ff0000)`, backgroundColor="")]
+  view
+    textarea value="@a @b " markup="markdown" atoms="mention" atomFaces=faces
+"#,
+        )
+        .unwrap();
+        let map = crate::style::color_map(&plan);
+        // `CSS.supports` stands for the browser's own check, which Bun lacks.
+        let script = format!(
+            r#"
+const {{ atomFacesRecord }} = await import(process.argv[1]);
+const journal = [];
+globalThis.exact = {{ journal, now: () => 7 }};
+globalThis.CSS = {{ supports: (property, value) => property === "color" && !value.includes("notacolour") }};
+const cm = {map};
+const faces = [
+  ["@a", "", "", "", "brand", "-exact-platform-color(web Highlight, #ffffff)"],
+  ["@b", "", "", "", "-exact-platform-color(web systemRedColor, #ff0000)", ""],
+  ["@c", "", "", "", "env(safe-area-inset-top)", "attr(data-c type(<color>))"],
+  ["@d", "", "", "", "v\\61r(--x)", "inherit"],
+  ["@e", "", "", "", "notacolour", ""],
+];
+console.log(JSON.stringify({{ out: JSON.parse(atomFacesRecord(faces, cm)), journal }}));
+"#
+        );
+        let out = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .args(["--eval", &script])
+            .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shape.js"))
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let got: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        let paint = |i: usize, key: &str| got["out"][i][key].as_str().unwrap().to_string();
+        assert!(paint(0, "color").contains("d52c36"), "a theme entry's name: {got}");
+        assert_eq!(paint(0, "backgroundColor"), "Highlight", "an admitted platform colour");
+        for (i, key) in [(1, "color"), (2, "color"), (2, "backgroundColor"), (3, "color"), (3, "backgroundColor"), (4, "color")] {
+            assert_eq!(paint(i, key), "", "{i} {key}: {got}");
+        }
+        let journal: Vec<&str> = got["journal"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+        assert_eq!(
+            journal,
+            [
+                r#"t=7 invalid color value "-exact-platform-color(web systemRedColor, #ff0000)"; unset"#,
+                r#"t=7 invalid atomFaces colour "env(safe-area-inset-top)"; its kind's paint stands"#,
+                r#"t=7 invalid atomFaces colour "attr(data-c type(<color>))"; its kind's paint stands"#,
+                r#"t=7 invalid atomFaces colour "v\\61r(--x)"; its kind's paint stands"#,
+                r#"t=7 invalid atomFaces colour "inherit"; its kind's paint stands"#,
+                r#"t=7 invalid atomFaces colour "notacolour"; its kind's paint stands"#,
+            ],
+            "one line a colour"
+        );
+    }
 }

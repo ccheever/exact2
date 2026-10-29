@@ -130,6 +130,84 @@ component App
     assert!(refused[1].contains(r#""light-dark(#d52c36 #ff6762)""#));
 }
 
+/// A design with a token whose slice the `dark-style` axis picks, and one
+/// that does not vary.
+const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n  brand = #c8102e\n";
+
+/// An app beside its design, booted from its baked plan.
+fn designed(name: &str, contract: &str) -> Runner<NoData> {
+    let dir = std::env::temp_dir().join(format!("exact2-atoms-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.tamber"), MODES).unwrap();
+    std::fs::write(dir.join("app.contract"), contract).unwrap();
+    let plan = contract::bake(contract::compile_path(&dir.join("app.contract")).unwrap(), NoData)
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    Runner::boot(plan, NoData, Kernel::with_monospace(), Default::default(), "/").unwrap()
+}
+
+/// A face's colour that names a token, here from state, is read again when
+/// the app's mode or the token changes, as a bound `color` is (LLP 1045.000
+/// D2): the pill recolours.
+#[test]
+fn a_faces_token_colour_follows_set_mode_and_set_token() {
+    let mut r = designed(
+        "modes",
+        "atom mention prefix=\"@\"\ncomponent App\n  state c = \"ink\"\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=c, backgroundColor=\"brand\")]\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  view\n    column\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n",
+    );
+    let paint = |r: &Runner<NoData>, key: &str| {
+        json_prop(r, "editor", PropId::AtomFaces)[0][key]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(paint(&r, "color"), "light-dark(#111111ff, #eeeeeeff)");
+    assert_eq!(paint(&r, "backgroundColor"), "#c8102eff");
+    let dim = id(&r, "dim");
+    r.dispatch(dim, Event::Press).unwrap();
+    assert_eq!(
+        paint(&r, "color"),
+        "light-dark(#111111ff, #ccccccff)",
+        "setMode reads it again in the new slice"
+    );
+    let (_, set) = r.set_token("brand", "#00ff00", &[]).unwrap();
+    assert_eq!(paint(&r, "backgroundColor"), "#00ff00ff", "and a token's new value");
+    assert_eq!(set, 1, "the faces, once");
+    assert_eq!(paint(&r, "color"), "light-dark(#111111ff, #ccccccff)");
+}
+
+/// A colour in a profile's space is read as a bound `color` reads it (LLP
+/// 1100 D3): a built-in space with no declaration, the app's own with its
+/// `color-profile`; the wire's text then names it, as Apple draws it.
+#[test]
+fn a_faces_profile_colour_is_read_as_a_bound_colours_is() {
+    let runner = boot(
+        "color-profile --press src=\"assets/press.icc\" rendering-intent=\"perceptual\"\natom mention prefix=\"@\"\ncomponent App\n  derive faces = [AtomFace(source=\"@a\", label=\"\", icon=\"\", title=\"\", color=\"color(--dci-p3 1 0 0)\", backgroundColor=\"color(--press 0.1 0.8 0.2)\")]\n  view\n    textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"editor\"\n",
+    );
+    let faces = json_prop(&runner, "editor", PropId::AtomFaces);
+    assert_eq!(faces[0]["color"], "color(--dci-p3 1 0 0)");
+    assert_eq!(faces[0]["backgroundColor"], "color(--press 0.1 0.8 0.2)");
+    assert!(
+        !runner.journal().any(|l| l.contains("invalid atomFaces")),
+        "{:?}",
+        runner.journal().collect::<Vec<_>>()
+    );
+}
+
+/// The bridge reads `AtomFace` in the compiler's field order, and its list
+/// is what a plan that binds faces puts in its compatibility id.
+#[test]
+fn the_bridge_reads_atom_face_in_the_compilers_order() {
+    let file = contract_syntax::parse("component G\n  view\n    column\n").unwrap();
+    let shapes = contract_types::check_declarations(&file).unwrap();
+    let fields: Vec<&str> = shapes.map["AtomFace"]
+        .iter()
+        .map(|(f, _)| f.as_str())
+        .collect();
+    assert_eq!(fields, exact_runner::decorations::ATOM_FACE_FIELDS);
+}
+
 #[test]
 fn an_atom_press_and_the_selected_atom_reach_the_actions() {
     let mut runner = boot(APP);

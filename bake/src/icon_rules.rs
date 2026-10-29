@@ -33,30 +33,44 @@ pub(crate) fn needed(
     if SKIP.with(std::cell::Cell::get) {
         return Ok(None);
     }
-    let shipped = out.map(|o| o.join("app.plan")).filter(|p| p.is_file());
-    let other = match (shipped, compiled) {
-        (Some(file), _) => {
-            let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-            Some(
-                exact_plan::Plan::decode(&bytes)
-                    .map_err(|e| format!("the baked plan is invalid: {e:?}"))?,
-            )
-        }
-        (None, Some(_)) => None,
-        (None, None) => {
-            let game = app_dir.join("app/app.contract");
-            if !game.is_file() {
-                return Ok(None);
-            }
-            Some(contract::compile_path(&game).map_err(|e| format!("app/app.contract: {e}"))?)
-        }
-    };
+    let other = shipped(app_dir, compiled, out)?;
     let main = other.as_ref().or(compiled);
     let mut any = false;
     for plan in main.into_iter().chain(entries.iter().copied()) {
         any |= even_odd(plan)?;
     }
     Ok(any.then(|| vec!["evenodd"]))
+}
+
+/// The plan that ships when it is not `compiled`, as [`needed`] reads it:
+/// the bake's `out/app.plan` when it wrote one, else a game's
+/// `app/app.contract` compiled here when there is no `compiled`; `None`
+/// when `compiled` is the one, or there is none. A plan that is there and
+/// doesn't decode or compile is an error.
+pub(crate) fn shipped(
+    app_dir: &Path,
+    compiled: Option<&exact_plan::Plan>,
+    out: Option<&Path>,
+) -> Result<Option<exact_plan::Plan>, String> {
+    let shipped = out.map(|o| o.join("app.plan")).filter(|p| p.is_file());
+    match (shipped, compiled) {
+        (Some(file), _) => {
+            let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+            Ok(Some(exact_plan::Plan::decode(&bytes).map_err(|e| {
+                format!("the baked plan is invalid: {e:?}")
+            })?))
+        }
+        (None, Some(_)) => Ok(None),
+        (None, None) => {
+            let game = app_dir.join("app/app.contract");
+            if !game.is_file() {
+                return Ok(None);
+            }
+            Ok(Some(
+                contract::compile_path(&game).map_err(|e| format!("app/app.contract: {e}"))?,
+            ))
+        }
+    }
 }
 
 /// The entry plans that ship beside the app's (widgets, activities:

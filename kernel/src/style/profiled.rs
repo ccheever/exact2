@@ -75,6 +75,20 @@ pub fn profiled(id: u16) -> Option<Arc<ProfiledValue>> {
     PROFILED.lock().ok()?.get(usize::from(id)).cloned()
 }
 
+/// The interned colour whose serialisation is `text`, whatever declared its
+/// profile: a colour a parse interned with a plan's declarations bound, read
+/// back from its text where none are (an atom face's, which the runner
+/// writes as text, LLP 1045.000 D2). The latest when two sources share a
+/// text; none on a host that shows no profile's colour.
+pub fn interned(text: &str) -> Option<ColorValue> {
+    if super::wide::limited() {
+        return None;
+    }
+    let table = PROFILED.lock().ok()?;
+    let i = table.iter().rposition(|p| *p.text == *text.trim())?;
+    Some(ColorValue::Profiled(u16::try_from(i).ok()?))
+}
+
 /// `color(--name c… [/ alpha])` interned; `None` for an unknown name, a
 /// wrong component count, or a host that can't show it.
 pub fn parse_profiled(text: &str) -> Option<ColorValue> {
