@@ -36,6 +36,8 @@ type PickWork =
   | { phase: 'freezing'; capture: PickCapture; operation: OperationIdentity }
   | { phase: 'frozen'; capture: PickCapture; operation: OperationIdentity; receipt: FrozenReceipt };
 interface Publication { receipt: Receipt; revision: number; slotReleased: boolean }
+interface FinalizationSnapshot { receipts: Receipt[]; reserved: ComposerMountedIdentity[] }
+interface ReleaseCandidate { entry: Entry; publication: Publication; operation: PickWork | null; attempt: number }
 type Progress =
   | { kind: 'unpublished' }
   | { kind: 'published'; publication: Publication }
@@ -127,7 +129,8 @@ export function mobileNewTaskEditorView(client: MobileDraftClient, route: NewTas
   if (!capture) return held('Wait for the current new task draft to be ready.');
   if (!owner.acceptedRead) return held('Wait for the previous editor sources to be checked.');
   let entry = activeEntry(client, route);
-  if (entry?.operation?.phase === 'frozen' && !entry.operation.receipt.retired)
+  if (entry?.operation?.phase === 'frozen' && !entry.operation.receipt.retired
+    && !(entry.progress.kind === 'saved' && entry.progress.publication.slotReleased))
     return presentation(entry, false, 'frozen', entry.problem || owner.problem || 'The editor source is held for the attachment operation.');
   if (entry?.operation && entry.operation.phase !== 'frozen' && entry.custody === 'native'
     && entry.progress.kind === 'unpublished' && !entry.problem)
@@ -190,19 +193,27 @@ function decodeReceipt(input: unknown): Receipt | null {
   }
   return { ...source, kind };
 }
-function decodeBatch(input: unknown): Receipt[] | null {
-  if (!record(input) || !Array.isArray(input.receipts) || input.receipts.length > CAPACITY) return null;
+function decodeSnapshot(input: unknown): FinalizationSnapshot | null {
+  if (!record(input) || !Array.isArray(input.receipts) || input.receipts.length > CAPACITY
+    || !Array.isArray(input.reserved) || input.reserved.length > CAPACITY) return null;
+  const reserved: ComposerMountedIdentity[] = [];
+  for (const value of input.reserved) {
+    if (!record(value) || !token(value.owner) || !token(value.editorId) || !token(value.routeVisit)
+      || !token(value.renderEpoch) || !token(value.mountId) || reserved.some(previous => previous.mountId === value.mountId)) return null;
+    reserved.push({ owner: value.owner, editorId: value.editorId, routeVisit: value.routeVisit,
+      renderEpoch: value.renderEpoch, mountId: value.mountId });
+  }
   const receipts: Receipt[] = [];
   for (const value of input.receipts) {
     const receipt = decodeReceipt(value);
-    if (!receipt) return null;
+    if (!receipt || !reserved.some(identity => sameIdentity(identity, receipt.identity))) return null;
     const duplicate = receipts.find(previous => previous.id === receipt.id || sameIdentity(previous.identity, receipt.identity));
     if (duplicate) {
       if (duplicate.id !== receipt.id || duplicate.fingerprint !== receipt.fingerprint) return null;
       duplicate.retired ||= receipt.retired;
     } else receipts.push(receipt);
   }
-  return receipts;
+  return { receipts, reserved };
 }
 function receiptOf(entry: Entry): Receipt | null {
   return entry.progress.kind === 'unpublished' ? entry.operation?.phase === 'frozen' ? entry.operation.receipt : null : entry.progress.kind === 'acknowledged'
@@ -215,7 +226,7 @@ function publish(client: MobileDraftClient, entry: Entry, receipt: Receipt): boo
       entry.problem = 'The retained editor source changed unexpectedly.'; return false;
     }
     previous.retired ||= receipt.retired;
-    if (entry.progress.kind === 'saved') releaseSlot(ledger(client), entry, entry.progress.publication);
+    if (entry.progress.kind === 'saved' && previous.retired) releaseSlot(ledger(client), entry, entry.progress.publication);
     return entry.progress.kind === 'published' || entry.progress.kind === 'durable';
   }
   if (entry.problem) return false;
@@ -242,7 +253,7 @@ function publish(client: MobileDraftClient, entry: Entry, receipt: Receipt): boo
   return true;
 }
 function releaseSlot(owner: Ledger, entry: Entry, publication: Publication): void {
-  if (!publication.receipt.retired || publication.slotReleased) return;
+  if (publication.slotReleased) return;
   publication.slotReleased = true;
   // A refused factory has no native handle. Only a new keyed seed can retry it.
   owner.entries = owner.entries.filter(candidate => candidate === entry || candidate.state.mountId
@@ -251,7 +262,30 @@ function releaseSlot(owner: Ledger, entry: Entry, publication: Publication): voi
 function acknowledge(owner: Ledger, entry: Entry, publication: Publication): void {
   entry.progress = publication.receipt.kind === 'frozen' && entry.operation?.phase === 'frozen'
     ? { kind: 'saved', publication } : { kind: 'acknowledged', receipt: publication.receipt };
-  releaseSlot(owner, entry, publication);
+  if (publication.receipt.retired) releaseSlot(owner, entry, publication);
+}
+function releaseCandidates(owner: Ledger, serial: number): ReleaseCandidate[] {
+  return owner.entries.flatMap(entry => {
+    const progress = entry.progress;
+    return progress.kind === 'saved' || progress.kind === 'durable' && progress.ackRead !== null && serial > progress.ackRead
+      ? [{ entry, publication: progress.publication, operation: entry.operation, attempt: entry.attempt }] : [];
+  });
+}
+function reconcileSnapshot(client: MobileDraftClient, owner: Ledger, serial: number,
+  snapshot: FinalizationSnapshot, candidates: ReleaseCandidate[]): void {
+  for (const candidate of candidates) {
+    const { entry, publication } = candidate, draft = registry(client, entry), progress = entry.progress;
+    if (!owner.entries.includes(entry) || entry.problem || entry.attempt !== candidate.attempt
+      || entry.operation !== candidate.operation || !draft || draft.revision < publication.revision
+      || progress.kind !== 'durable' && progress.kind !== 'saved' || progress.publication !== publication) continue;
+    if (progress.kind === 'durable') {
+      if (progress.ackRead === null || serial <= progress.ackRead
+        || snapshot.receipts.some(receipt => receipt.id === publication.receipt.id)) continue;
+      entry.attempt++; acknowledge(owner, entry, publication);
+    }
+    if (entry.progress.kind === 'saved' && !snapshot.reserved.some(identity => sameIdentity(identity, publication.receipt.identity)))
+      releaseSlot(owner, entry, publication);
+  }
 }
 function validCompletion(client: MobileDraftClient, owner: Ledger, entry: Entry, attempt: number, publication: Publication): boolean {
   const draft = registry(client, entry);
@@ -337,20 +371,16 @@ async function continuePick(client: MobileDraftClient, owner: Ledger, entry: Ent
 }
 async function recover(client: MobileDraftClient, native: Native, storage: Files): Promise<void> {
   const owner = ledger(client), serial = ++owner.serial, generation = client.generation;
+  const candidates = releaseCandidates(owner, serial);
   try {
     const response = await bridgeReply(native, { op: 'composerEditorFinalizations', generation, action: 'read' });
     if (serial < owner.acceptedRead || !mobileDraftRecoveryHydrated(client)) return;
     if (!response.ok || response.generation !== generation) throw new ClientError('The retained editor sources could not be read.');
-    const receipts = decodeBatch(response.value);
-    if (!receipts) throw new ClientError('The retained editor sources are invalid.');
+    const snapshot = decodeSnapshot(response.value);
+    if (!snapshot) throw new ClientError('The retained editor sources are invalid.');
+    const { receipts } = snapshot;
     owner.acceptedRead = serial; owner.problem = '';
-    for (const entry of owner.entries) {
-      const progress = entry.progress;
-      if (progress.kind === 'durable' && progress.ackRead !== null && serial > progress.ackRead
-        && !receipts.some(receipt => receipt.id === progress.publication.receipt.id) && registry(client, entry)) {
-        entry.attempt++; acknowledge(owner, entry, progress.publication);
-      }
-    }
+    reconcileSnapshot(client, owner, serial, snapshot, candidates);
     for (const receipt of receipts) {
       const entry = owner.entries.find(candidate => sameIdentity(mounted(candidate), receipt.identity));
       if (!entry) { owner.problem = 'An editor source has no captured draft owner.'; continue; }

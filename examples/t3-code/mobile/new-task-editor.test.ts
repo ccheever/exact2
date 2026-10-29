@@ -40,6 +40,7 @@ class CountingClient extends MobileDraftClient {
 async function fixture() {
   const client = new CountingClient(), fleet = new EnvironmentFleet(), calls: Obj[] = [], order: string[] = [], writes: Obj[] = [];
   let disk = JSON.stringify({ version: 1 }), receipts: unknown[] = [], allocated = 0;
+  let reserved: ComposerMountedIdentity[] = [];
   let writeHook: (() => Promise<void>) | null = null;
   let readHook: (() => Promise<unknown>) | null = null;
   let ackHook: (() => Promise<unknown>) | null = null;
@@ -59,8 +60,11 @@ async function fixture() {
     if (request.op === 'ids' && idsHook) return { ok: true, generation, value: await idsHook() };
     if (request.op === 'composerEditorHandoff' && handoffHook) return handoffHook(request);
     if (request.op === 'composerEditorFinalizations') {
-      if (request.action === 'read') return readHook ? readHook() : { ok: true, generation, value: { receipts } };
+      if (request.action === 'read') return readHook ? readHook() : { ok: true, generation, value: { receipts, reserved } };
       if (ackHook) return ackHook();
+      const source = receipts.find(value => obj(value).receiptId === request.receiptId);
+      if (obj(source).retired === true)
+        reserved = reserved.filter(identity => identity.mountId !== obj(obj(source).identity).mountId);
       receipts = receipts.filter(value => obj(value).receiptId !== request.receiptId);
       return { ok: true, generation, value: { acknowledged: true } };
     }
@@ -104,6 +108,7 @@ async function fixture() {
   const offer = view(client, route), identity = mounted(offer);
   expect(offer.kind).toBe('mounting');
   expect(view(client, route, event(identity, '')).kind).toBe('editing');
+  reserved.push(identity);
   writes.length = 0; calls.length = 0; order.length = 0;
   const reread = async () => { const current = handles(); await refresh(client, current.native, current.storage); };
   const detach = () => {
@@ -116,7 +121,17 @@ async function fixture() {
     if (!guard || !mobileNewTaskContextWrite(client, guard, text)) throw Error('write refused');
   };
   return { client, native, storage, route, key, identity, order, writes, calls, open, resume, detach, reread, writeText,
-    disk: () => obj(JSON.parse(disk)), receipts: (next: unknown[]) => { receipts = next; },
+    disk: () => obj(JSON.parse(disk)), receipts: (next: unknown[]) => {
+      receipts = next;
+      for (const source of next) {
+        const identity = obj(source).identity;
+        if (typeof identity === 'object' && identity !== null && !Array.isArray(identity)) {
+          const mount = { owner: str(identity.owner), editorId: str(identity.editorId), routeVisit: str(identity.routeVisit),
+            renderEpoch: str(identity.renderEpoch), mountId: str(identity.mountId) };
+          if (!reserved.some(previous => previous.mountId === mount.mountId)) reserved.push(mount);
+        }
+      }
+    }, reserved: (next: ComposerMountedIdentity[]) => { reserved = next; },
     writeHook: (next: typeof writeHook) => { writeHook = next; }, readHook: (next: typeof readHook) => { readHook = next; },
     ackHook: (next: typeof ackHook) => { ackHook = next; }, idsHook: (next: typeof idsHook) => { idsHook = next; },
     handoffHook: (next: typeof handoffHook) => { handoffHook = next; } };
@@ -219,7 +234,7 @@ test('an older pending read cannot resurrect a receipt already settled by a newe
   const f = await fixture(), gate = deferred<unknown>(), entered = deferred<void>(), source = receipt(f.identity);
   f.readHook(async () => { entered.resolve(); return gate.promise; });
   const older = f.reread(); await entered.promise; f.readHook(null); f.receipts([source]); await f.reread();
-  gate.resolve({ ok: true, generation: 3, value: { receipts: [source] } }); await older;
+  gate.resolve({ ok: true, generation: 3, value: { receipts: [source], reserved: [f.identity] } }); await older;
   expect(f.writes).toHaveLength(1); expect(f.calls.filter(call => call.action === 'acknowledge')).toHaveLength(1);
 });
 
@@ -238,7 +253,7 @@ for (const mutation of ['foreign', 'incarnation', 'destination', 'revision', 'te
     if (mutation === 'envelope') source.identity = { ...source.identity, mountId: 'another-envelope' };
     f.receipts(mutation === 'duplicate' ? [source, { ...source, event: { ...source.event, value: 'conflict' } }]
       : mutation === 'terminal' ? [{ ...source, event: { ...source.event, pendingCommand: { commandId: 'unresolved' } } }] : [source]);
-    if (mutation === 'wrong-generation') f.readHook(async () => ({ ok: true, generation: 99, value: { receipts: [source] } }));
+    if (mutation === 'wrong-generation') f.readHook(async () => ({ ok: true, generation: 99, value: { receipts: [source], reserved: [f.identity] } }));
     const before = f.client.local.drafts[f.key]; await f.reread();
     expect(f.client.local.drafts[f.key]).toBe(before); expect(f.writes).toHaveLength(0);
     expect(f.calls.filter(call => call.action === 'acknowledge')).toHaveLength(0);
@@ -335,7 +350,7 @@ test('lost hydration while a read is pending prevents publication and acknowledg
   f.readHook(async () => { entered.resolve(); return gate.promise; });
   const reading = f.reread(); await entered.promise;
   f.client.local = { ...f.client.local };
-  gate.resolve({ ok: true, generation: 3, value: { receipts: [receipt(f.identity)] } }); await reading;
+  gate.resolve({ ok: true, generation: 3, value: { receipts: [receipt(f.identity)], reserved: [f.identity] } }); await reading;
   expect(f.writes).toHaveLength(0); expect(f.calls.some(call => call.action === 'acknowledge')).toBe(false);
 });
 
@@ -608,4 +623,108 @@ test('ACK of a live frozen slot does not invalidate another pending factory seed
   gate.resolve(); await pending; f.writeHook(null);
   expect(view(f.client, route).node?.key).toBe(seed.node?.key);
   await f.reread(); expect(view(f.client, route).node?.key).toBe(seed.node?.key);
+});
+
+test('a complete reservation read distinguishes live saved custody from released source without completing the picker', async () => {
+  const f = await fixture(); await picker(f)();
+  await f.reread(); expect(view(f.client, f.route).kind).toBe('frozen');
+  const writes = f.writes.length, acknowledgments = f.calls.filter(call => call.action === 'acknowledge').length;
+  f.reserved([]); await f.reread();
+  expect(view(f.client, f.route)).toMatchObject({ kind: 'held', node: null });
+  expect(f.writes).toHaveLength(writes);
+  expect(f.calls.filter(call => call.action === 'acknowledge')).toHaveLength(acknowledgments);
+  expect(obj(f.disk().drafts)[f.key]).toBe('🙂 picked here');
+  f.reserved([f.identity]); await f.reread();
+  expect(view(f.client, f.route).node).toBeNull();
+  expect(f.writes).toHaveLength(writes);
+  expect(view(f.client, await f.resume('same-draft-after-release')).kind).toBe('held');
+});
+
+test('saved-slot release replaces an existing refused seed once while keeping picker work held', async () => {
+  const f = await fixture(); await picker(f)();
+  const route = await f.open('factory-after-saved-freeze'), seed = view(f.client, route);
+  const writes = f.writes.length;
+  expect(seed.kind).toBe('mounting');
+  await f.reread(); expect(view(f.client, route).node?.key).toBe(seed.node?.key);
+  f.reserved([]); await f.reread();
+  const replacement = view(f.client, route);
+  expect(replacement.node?.key).not.toBe(seed.node?.key);
+  await f.reread(); expect(view(f.client, route).node?.key).toBe(replacement.node?.key);
+  const identity = { ...mounted(replacement), mountId: 'acknowledged-replacement' };
+  expect(view(f.client, route, event(identity, '')).kind).toBe('editing');
+  f.reserved([f.identity]); await f.reread(); f.reserved([]); await f.reread();
+  expect(view(f.client, route).node?.key).toBe(replacement.node?.key);
+  expect(f.writes).toHaveLength(writes);
+});
+
+test('a read dispatched before freeze and ACK cannot release the newly saved operation', async () => {
+  const f = await fixture(), gate = deferred<unknown>(), entered = deferred<void>();
+  f.readHook(async () => { entered.resolve(); return gate.promise; });
+  const reading = f.reread(); await entered.promise;
+  await picker(f)();
+  gate.resolve({ ok: true, generation: 3, value: { receipts: [], reserved: [] } }); await reading;
+  expect(view(f.client, f.route).kind).toBe('frozen');
+  f.readHook(null); await f.reread(); expect(view(f.client, f.route).kind).toBe('frozen');
+  f.reserved([]); await f.reread(); expect(view(f.client, f.route).kind).toBe('held');
+  expect(f.writes).toHaveLength(1);
+});
+
+test('a newer released snapshot wins over an older snapshot retaining the saved slot', async () => {
+  const f = await fixture(); await picker(f)();
+  const gate = deferred<unknown>(), entered = deferred<void>();
+  f.readHook(async () => { entered.resolve(); return gate.promise; });
+  const older = f.reread(); await entered.promise;
+  f.readHook(null); f.reserved([]); await f.reread();
+  expect(view(f.client, f.route).kind).toBe('held');
+  gate.resolve({ ok: true, generation: 3, value: { receipts: [], reserved: [f.identity] } }); await older;
+  expect(view(f.client, f.route).kind).toBe('held'); expect(f.writes).toHaveLength(1);
+});
+
+for (const malformed of ['missing', 'overflow', 'duplicate', 'duplicate-mount', 'identity', 'receipt-membership']) {
+  test(`${malformed} reservation snapshot cannot release saved work or a refused seed`, async () => {
+    const f = await fixture(); await picker(f)();
+    const route = await f.open('snapshot-validation'), seed = view(f.client, route);
+    const writes = f.writes.length;
+    const value: Record<string, unknown> = { receipts: [], reserved: [] };
+    if (malformed === 'missing') delete value.reserved;
+    if (malformed === 'overflow') value.reserved = Array.from({ length: 9 }, (_, index) => ({ ...f.identity, mountId: `mount-${index}` }));
+    if (malformed === 'duplicate') value.reserved = [f.identity, f.identity];
+    if (malformed === 'duplicate-mount') value.reserved = [f.identity, { ...f.identity, renderEpoch: 'another-epoch' }];
+    if (malformed === 'identity') value.reserved = [{ ...f.identity, mountId: '' }];
+    if (malformed === 'receipt-membership') value.receipts = [receipt(f.identity)];
+    f.readHook(async () => ({ ok: true, generation: f.client.generation, value })); await f.reread();
+    f.readHook(null); await f.reread();
+    expect(view(f.client, route).node?.key).toBe(seed.node?.key);
+    expect(f.writes).toHaveLength(writes);
+    f.reserved([]); await f.reread();
+    expect(view(f.client, route).node?.key).not.toBe(seed.node?.key);
+  });
+}
+
+test('one complete read reconciles an uncertain ACK and released reservation together', async () => {
+  const f = await fixture(), pick = picker(f);
+  f.ackHook(async () => {
+    f.receipts([]); f.reserved([]);
+    throw new ClientError('ACK reply lost', 'superseded');
+  });
+  await expect(pick()).rejects.toThrow('ACK reply lost');
+  f.writeText('later owned text'); f.ackHook(null); await f.reread();
+  expect(view(f.client, f.route)).toMatchObject({ kind: 'held', node: null });
+  expect(f.client.local.drafts[f.key]).toBe('later owned text');
+  expect(f.writes).toHaveLength(1);
+  expect(f.calls.filter(call => call.action === 'acknowledge')).toHaveLength(1);
+  expect(await action(f.client, f.route, { kind: 'pick', source: 'files' }, f.native, f.storage)).toMatchObject({ accepted: false });
+});
+
+test('released snapshot supersedes an in-flight ACK without reopening or replaying work', async () => {
+  const f = await fixture(), pick = picker(f), entered = deferred<void>(), gate = deferred<unknown>();
+  f.ackHook(async () => { entered.resolve(); return gate.promise; });
+  const pending = pick(); await entered.promise;
+  f.receipts([]); f.reserved([]); f.ackHook(null); await f.reread();
+  expect(view(f.client, f.route)).toMatchObject({ kind: 'held', node: null });
+  gate.resolve({ ok: true, generation: 3, value: { acknowledged: true } }); await pending;
+  expect(view(f.client, f.route)).toMatchObject({ kind: 'held', node: null });
+  expect(f.writes).toHaveLength(1);
+  expect(f.calls.filter(call => call.action === 'acknowledge')).toHaveLength(1);
+  expect(f.calls.filter(call => call.op === 'composerEditorHandoff')).toHaveLength(1);
 });

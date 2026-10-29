@@ -57,11 +57,13 @@ import Foundation
         }
         try ledger.reserve(captured); try ledger.reserve(captured)
         check(ledger.pending.isEmpty, "Mount reservation is replayable and not a final source")
+        check(ledger.reserved == [captured], "Complete reservation reads include editing slots once")
         var state = T3ComposerProtocolState(identity: captured, mountId: captured.mountId)
         let text = "🙂 @file final", snapshot = T3ComposerSnapshot(value: text, selection: .init(start: 3, end: 8), composing: true, focused: true)
         let finalEvent = state.event("retired", snapshot: snapshot, extra: ["pendingCommand": ["commandId": "retained-command"]])
         check(ledger.retire(captured, event: finalEvent), "Actual final source replaces its reserved slot")
         let receipt = ledger.pending[0]
+        check(ledger.reserved == [captured], "A retired receipt keeps its reservation until save acknowledgment")
         check(!ledger.retire(captured, event: ["value": "older"]), "Duplicate retirement cannot overwrite final source")
         check(receipt.event["value"] as? String == text && (receipt.event["selection"] as? [String: Int])?["end"] == 8
               && receipt.event["composing"] as? Bool == true && (receipt.event["pendingCommand"] as? [String: String])?["commandId"] == "retained-command",
@@ -81,7 +83,7 @@ import Foundation
         try ledger.reserve(overflow)
         check(!ledger.retire(overflow, event: nil), "Unacknowledged seed releases its reservation without a save")
         try ledger.reserve(try identity("new-task:one"))
-        ledger.destroy(); check(ledger.pending.isEmpty, "Module shutdown clears process-local receipts")
+        ledger.destroy(); check(ledger.pending.isEmpty && ledger.reserved.isEmpty, "Module shutdown clears receipts and reservations")
 
         let read: [String: Any] = ["op": "composerEditorFinalizations", "generation": 4, "action": "read"]
         check(try T3ComposerFinalizationRequest(read).action == .read, "Read operation has strict generation and action")
@@ -109,6 +111,7 @@ import Foundation
         do { try ledger.resume(identity, receiptId: receipt.id); check(false, "Unsaved frozen source resumed") }
         catch { check((error as? T3ComposerOperationFailure)?.kind == "busy", "Resume requires explicit save acknowledgment") }
         check(ledger.acknowledge(receipt.id) && ledger.pending.isEmpty, "Save acknowledgment clears pending source while editor remains reserved")
+        check(ledger.reserved == [identity], "Saved frozen custody remains visible after pending receipts disappear")
         var reconnect = identity.json
         reconnect["owner"] = String(decoding: try JSONSerialization.data(withJSONObject: ["ordinary", "https://t3.test", "environment", 4, "new-task:held", "birth"]), as: UTF8.self)
         reconnect["mountId"] = "new-mount"
@@ -127,7 +130,9 @@ import Foundation
               "Detached receipt preserves the frozen event and marks retirement")
         _ = ledger.acknowledge(detached.id); try ledger.reserve(identity)
         let saved = try ledger.freeze(identity, event: ["value": "already saved"]); _ = ledger.acknowledge(saved.id)
-        check(!ledger.retire(identity, event: ["value": "older native copy"]) && ledger.pending.isEmpty, "Destroying an acknowledged held editor cannot resave stale bytes after a producer")
+        check(ledger.retire(identity, event: ["value": "older native copy"]) && ledger.pending.isEmpty && ledger.reserved.isEmpty,
+              "Saved teardown reports reservation release without republishing its older source")
+        check(!ledger.retire(identity, event: ["value": "duplicate"]), "Repeated saved teardown cannot report another release")
         try ledger.reserve(reconnected)
 
         let document: [String: Any] = ["value": "🙂 next", "selection": ["start": 7, "end": 7], "tokensJson": "[]", "isNativeEcho": false]

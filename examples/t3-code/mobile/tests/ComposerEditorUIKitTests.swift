@@ -7,7 +7,8 @@ final class ComposerEditorUIKitTests {
     private let host: UIView
     private let voiceOwner = T3MobileVoice(agent: true, audioSession: T3MobileAudioSession(), changed: { _ in })
     private var voice: T3MobileVoiceEditor { voiceOwner.editor }
-    private let operations = T3MobileComposerOperations()
+    private var finalizationChanges = 0
+    private lazy var operations = T3MobileComposerOperations(changed: { [weak self] in self?.finalizationChanges += 1 })
     private var instances: [T3MobileComposerEditor] = []
     private var events: [[String: Any]] = []
     init(host: UIView) { self.host = host }
@@ -430,8 +431,20 @@ final class ComposerEditorUIKitTests {
         let savedFreeze = handoffRequest(savedPort, retireUndo: false)
         let savedReceipt = (operations.performHandoff(savedFreeze)["value"] as! [String: Any])["receipt"] as! [String: Any]
         saveReceipt(savedReceipt["receiptId"] as! String)
+        let savedIdentity = savedPort.composerIdentity!
+        func reserved() -> [[String: Any]] {
+            let result = operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 4, "action": "read"])
+            return (result["value"] as? [String: Any])?["reserved"] as? [[String: Any]] ?? []
+        }
+        check(sourceReceipts().isEmpty && reserved().contains { $0 as NSDictionary == savedIdentity.json as NSDictionary },
+              "A real saved frozen editor remains reserved while pending source reads are empty")
+        let changes = finalizationChanges
         savedPort.destroy(); savedPort.view.removeFromSuperview()
-        check(sourceReceipts().isEmpty, "Teardown after a saved handoff cannot publish stale source after another producer")
+        check(sourceReceipts().isEmpty && !reserved().contains { $0 as NSDictionary == savedIdentity.json as NSDictionary },
+              "Saved UIKit teardown removes its exact reservation without republishing stale source")
+        check(finalizationChanges == changes + 1, "Saved editor teardown notifies the existing Root source subscription")
+        savedPort.destroy()
+        check(finalizationChanges == changes + 1, "Duplicate UIKit teardown does not notify another release")
     }
     private func handoffRefusal() throws {
         let owner = try json(["ordinary", "https://t3.test", "environment", 3, "new-task:handoff-refusal", "birth"])

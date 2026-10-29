@@ -153,6 +153,7 @@ final class T3ComposerFinalizations {
     private var slots: [Slot] = []
     static let capacity = 8
     var pending: [Receipt] { slots.compactMap { $0.phase.pending } }
+    var reserved: [T3ComposerIdentity] { slots.map(\.identity) }
     func reserve(_ identity: T3ComposerIdentity) throws {
         guard let draft = identity.independentDraft else { return }
         guard identity.admitted, !identity.mountId.isEmpty else {
@@ -186,7 +187,7 @@ final class T3ComposerFinalizations {
             slots[index].phase = .retired(.init(id: UUID().uuidString, identity: identity, event: event, retired: true))
         case .frozen(var receipt):
             receipt.retired = true; slots[index].phase = .retired(receipt)
-        case .saved: slots.remove(at: index); return false
+        case .saved: slots.remove(at: index)
         case .retired: return false
         }
         return true
@@ -259,7 +260,7 @@ final class T3MobileComposerOperations {
             guard alive else { throw T3ComposerOperationFailure("superseded", "The editor session was closed.") }
             let value: [String: Any]
             switch request.action {
-            case .read: value = ["receipts": finalizations.pending.map(\.json)]
+            case .read: value = ["receipts": finalizations.pending.map(\.json), "reserved": finalizations.reserved.map(\.json)]
             case .acknowledge:
                 let acknowledged = finalizations.acknowledge(request.receiptId!)
                 value = ["acknowledged": acknowledged]

@@ -339,6 +339,20 @@ The textarea remains active. This checkpoint is outside the TestFlight build.
 The normal build receives `FROZEN_CHECKPOINT_OK` from the real provider and
 restores that reply and an empty composer after restart.
 
+Native finalization reads now include every reserved independent editor identity.
+Saved teardown removes its reservation and wakes the existing Root subscription
+without republishing source. The NewTask owner consumes complete snapshots only
+for publications captured before dispatch. It distinguishes a live saved slot
+from release, retires the old presentation and retries a refused factory seed
+once. The saved picker operation still blocks another writer for its draft.
+The textarea remains active pending intake, resume and host-recreation acceptance.
+All 3,939 mobile tests, strict TypeScript, boot, 88 native ledger checks and
+117 real UIKit checks pass. The normal simulator build succeeds. Independent
+review adds two passing ACK-overlap regressions and finds no introduced blocker.
+The normal app receives `SLOT_RELEASE_OK.` from the real provider and restores
+that reply and an empty composer after restart. This checkpoint is outside the
+delivered TestFlight build.
+
 Two normal NewTask Files drives return to Choose project after selection or
 Cancel. The typed draft survives in Unsent, but the selected file is not retained.
 An instrumented Cancel drive returns correctly with the authored route and native
