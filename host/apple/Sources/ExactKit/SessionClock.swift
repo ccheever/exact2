@@ -94,7 +94,7 @@ extension ExactSession {
     func sendAdvance(now: Double, frame: Double? = nil) {
         advanceInFlight = true
         let captured = generation
-        runtime.advanceAsync(now: now, frame: frame) { [weak self] batch in self?.publish(.advance, batch, captured) }
+        runtime.advanceAsync(now: now, frame: frame, capture: frameHealth.captureID, measureFrame: frameHealth.enabled && clock == nil) { [weak self] batch in self?.publish(.advance, batch, captured) }
     }
 
     /// A frame's tick on the owner, not waited for: motion sampled at this

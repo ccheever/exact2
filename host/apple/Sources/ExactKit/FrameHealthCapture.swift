@@ -77,7 +77,7 @@ extension FrameHealth {
         return bits
     }
 
-    /// Record the outer apply only. Owner boundaries belong to this batch's captured tick.
+    /// Record the outermost apply; match owner timestamps only to this batch's captured frame update.
     func applied(_ batch: Batch, began: Double, flags: UInt64 = 0) {
         guard enabled, !virtual, began > 0 else { return }
         let finished = CACurrentMediaTime()
@@ -100,7 +100,7 @@ extension FrameHealth {
         if nativeScrollActive, let native = nativeHealth, native.enabled {
             var context = work
             context.capture = native.captureID
-            // Keep apply context temporal; owner capture identity belongs to the app producer.
+            // Retain nearby apply timing without counting it again as native-scroll work
             context.queued_ns = 0; context.owner_began_ns = 0; context.owner_finished_ns = 0; context.landed_ns = 0
             exact_frame_health_context(native.handle, context)
         }

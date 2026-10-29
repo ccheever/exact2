@@ -94,4 +94,31 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(health.captureID, 0)
         XCTAssertNotNil(session.agentInstance.clock(["take": true])["clock"])
     }
+    func testTrendKeepsDipsBoundedAndDoesNotBridgeIdleOrUnknownCadence() {
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let trend = FrameHealthTrend()
+        for bucket in 0..<70 {
+            let base = 100 + Double(bucket) * 0.5
+            for index in 0..<60 {
+                let hitch = bucket == 69 && index == 59 ? 0.072 : 0
+                let time = base + Double(index) / 120 + hitch
+                health.record(arrival: time, target: time + 1 / 120, period: 1 / 120, finished: time + 0.001)
+            }
+            trend.record(FrameHealthMetrics.read(health, now: base + 0.6))
+        }
+        XCTAssertEqual(trend.points.dropLast().last?.average ?? 0, 120, accuracy: 0.01)
+        XCTAssertLessThan(trend.points.last?.average ?? 120, 120)
+        XCTAssertLessThanOrEqual(trend.points.count, 60)
+        XCTAssertLessThan(trend.points.last?.slowest ?? 120, 20)
+        trend.breakBaseline()
+        trend.record(FrameHealthMetrics.read(health, now: 200))
+        XCTAssertNil(trend.points.last?.average, "idle time cannot become a rate")
+        health.reset()
+        health.record(arrival: 201, target: 201.01, period: 0, finished: 201.001)
+        trend.record(FrameHealthMetrics.read(health, now: 201.5))
+        XCTAssertEqual(trend.points.count, 1, "a new generation starts a fresh chart")
+        XCTAssertNil(trend.points.last?.average, "unknown cadence cannot become FPS")
+    }
+
 }

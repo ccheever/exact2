@@ -134,9 +134,9 @@ its time counts too.
   a scan of the package's sources, so a test that a macro or a generated file
   produces needs a reviewer's eye.
 
-For a headless iOS drive, set `EXACT_SHOW_SIMULATOR=0`; the device still boots and
-runs its app, but the driver does not open Simulator or Device Hub. Use an owned
-simulator when another person uses the Mac.
+For an iOS simulator drive without a GUI, set `EXACT_SHOW_SIMULATOR=0`. The simulator
+boots and runs the app, but the driver opens neither Simulator nor Device Hub.
+Use a simulator you created when another person shares the Mac.
 
 ## UI tests
 

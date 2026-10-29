@@ -19,7 +19,7 @@ Astra reviewed r1 (`llp/reviews/1079-speed-hygiene-in-the-agents-hands.astra.md`
 **Implementer:** Claude (Opus 5.5). All four stages landed on 2026-10-03.
 **Date:** 2026-10-02
 **Related:**
-- [LLP 1079.000: Frame health as a key performance metric](1079.000-frame-health-v1.plan.md), the planned extension for production collection, live readouts and the draggable dev-menu overlay.
+- [LLP 1079.000: Frame health as a key performance metric](1079.000-frame-health-v1.plan.md), the frame-health extension for bounded collection and native readouts.
 - LLP 1001 §5: `CommitReceipt`, `LayoutReceipt`, the receipt ring.
 - LLP 1005 §6: commits, `advance`, the clock.
 - LLP 1012 §1–§3: the operations, the tags, the journal and its cursor.
@@ -40,12 +40,13 @@ on-time updates, even pacing, low latency and honest measurement coverage. The t
 is 120 FPS for high-impact interaction on flagship phones and the supported display
 rate on desktop, including above 120 Hz. Idle content needs no repeated frames.
 
-The first Apple slice adds bounded callback counters to `perf frames` and a native
-draggable card in the iOS four-finger menu. The menu uses a grouped navigation sheet
-with Build Information on its own screen. Callback timing stays labeled as a proxy;
-deferred work, native-only animations and presentation remain unobserved. Production
-defaults off. The common protocol, other adapters and qualification remain in the
-plan; the development sampler described below remains available separately.
+Apple now provides bounded callback/apply metrics, cursor reads, hitch reports,
+native inspectors and draggable cards. The iOS menu uses a grouped sheet with a
+separate Build Information screen. Callback timing is labeled as a proxy; matching
+asynchronous owner/apply timestamps are available during detail capture. Native-only
+animation cadence and presentation remain unmeasured. Production defaults off.
+The UI needs another design pass; the cross-host protocol and device qualification
+remain in the plan. The development sampler below remains separately available.
 
 James, 2026-10-02:
 

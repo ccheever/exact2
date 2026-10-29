@@ -704,11 +704,16 @@ package final class Runtime {
     package func landThenFirst() -> Batch { on { read(exact_advance(rt, 0, 3)) } }
     /// A timer advance on the owner, not waited for (LLP 1072.000): what is
     /// due by `now`, or with `frame` that display frame's (`frame(now:wall:)`).
-    package func advanceAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
+    package func advanceAsync(now: Double, frame: Double? = nil, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (Batch) -> Void) {
         if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+        let queued = capture == 0 ? 0 : CACurrentMediaTime()
         Owner.shared.post { [self] in
             guard !destroyed else { return }
-            done(read(frame.map { exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0)))
+            let began = capture == 0 ? 0 : CACurrentMediaTime()
+            var batch = read(frame.map { exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0))
+            if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
+                queued: queued, began: began, finished: capture == 0 ? 0 : CACurrentMediaTime()) }
+            done(batch)
         }
     }
     package func frame(now: Double, wall: Double? = nil) -> Batch { on { read(wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }

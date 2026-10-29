@@ -469,10 +469,8 @@ extension NodeView {
         textRasterLayer = ink
         presenter?.boxFilters.changed(self)
     }
-    /// Still off every window a turn later (a tab not shown, a covered
-    /// route, a parked row; not a view moved within a batch), its text lets
-    /// go of its pixels, as Core Animation lets go of a backing store there.
-    /// `display` paints them again when it is back: at once where it shows.
+    /// Release a raster still off-window a turn after any within-batch move; the next display
+    /// repaints it when the view returns.
     func dropTextRasterOffWindow() {
         guard window == nil, textRaster != nil else { return }
         dropTextRaster()

@@ -27,7 +27,7 @@ test('health windows use finalized cursors and preserve the source without start
   const text = renderFrameHealthMetrics({ source: 'app', status: 'observing', callbacks: { count: '2', comparableIntervals: '1', perSecond: 120, p99BoundsNs: [8000000, 8500000] }, apply: { count: '1', targetOverruns: '0' } });
   expect(text).toContain('120.00 callbacks/s');
   expect(text).toContain('p99 8.00–8.50 ms');
-  expect(text).toContain('Presentation, input latency and GPU execution remain unobserved');
+  expect(text).toContain('Presentation, input latency and GPU execution remain unmeasured');
   requests.length = 0;
   const unobserved = { op: async request => {
     requests.push(request);
