@@ -113,8 +113,10 @@ extension NodeView {
         guard !writingValue, !disabled, props["emojiPicker"] != "true" else { return }
         if editor === textArea { editor.needsDisplay = true }
         typedText(editor.string)
-        // Cancelled: AppKit posts no change for it, so the held value lands here.
+        // Cancelled: AppKit posts no change for it, so the held value lands
+        // here, and faces that came while it was marked are drawn.
         applyHeldValue(to: editor)
+        if editor === textArea, !editor.hasMarkedText() { restyleMarkupProps() }
     }
     /// The ring Exact draws for a focused field (LLP 1104 D6): its border,
     /// painted by the box painter (`boxPlan`) two points wide in the focus
