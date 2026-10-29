@@ -181,10 +181,24 @@ fn consecutive_atlas_uploads(d: &mut impl Device) {
     atlas.begin(d).unwrap();
     let mut pixels = [73; 64];
     let first = atlas.insert(d, vec![0], [8, 8], &pixels).unwrap();
+    let first_target = d.create_target(8, 8).unwrap();
+    let mut encoder = Encoder::new(8, 8);
+    let mut instance = Instance::new(Kind::Coverage, Brush::Solid, [0., 0., 8., 8.]);
+    instance.uv = first.uv;
+    encoder
+        .push(
+            instance,
+            Bindings {
+                path: first.texture,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    d.render(&encoder.finish(), first_target, Some([0.; 4]))
+        .unwrap();
     pixels.fill(211);
     let second = atlas.insert(d, vec![1], [8, 8], &pixels).unwrap();
     pixels.fill(0);
-    assert_eq!(first.texture, second.texture);
     let target = d.create_target(16, 8).unwrap();
     let mut encoder = Encoder::new(16, 8);
     for (x, entry) in [(0., first), (8., second)] {
@@ -201,6 +215,13 @@ fn consecutive_atlas_uploads(d: &mut impl Device) {
             .unwrap();
     }
     d.render(&encoder.finish(), target, Some([0.; 4])).unwrap();
+    d.upload_texture(first.texture, [0, 0], [8, 8], &[19; 64])
+        .unwrap();
+    assert!(d
+        .readback(first_target)
+        .unwrap()
+        .iter()
+        .all(|c| c.abs_diff(73) <= 1));
     let result = d.readback(target).unwrap();
     for (i, pixel) in result.chunks_exact(4).enumerate() {
         let expected = if i % 16 < 8 { 73 } else { 211 };

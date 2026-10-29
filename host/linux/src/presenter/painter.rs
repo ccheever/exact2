@@ -77,6 +77,8 @@ pub struct PainterInfo {
     pub name: &'static str,
     /// The adapter and API, on the GPU.
     pub adapter: Option<String>,
+    /// The rendering API, when a device is installed.
+    pub api: Option<String>,
     /// Device creation, milliseconds, on the GPU.
     pub device_ms: f64,
     /// Shader compilation, milliseconds, on the GPU.
@@ -89,6 +91,7 @@ pub(super) fn cpu_info() -> PainterInfo {
     PainterInfo {
         name: "cpu",
         adapter: None,
+        api: None,
         device_ms: 0.0,
         shaders_ms: 0.0,
         cached: false,
@@ -219,6 +222,7 @@ pub(super) fn open_backend(
                 let info = PainterInfo {
                     name: "gpu",
                     adapter: Some(format!("{} ({})", g.adapter, g.api)),
+                    api: Some(g.api.clone()),
                     device_ms: g.device_ms,
                     shaders_ms: g.shaders_ms,
                     cached: g.cached,
@@ -241,6 +245,7 @@ fn ink_backend(ink: crate::ink::Ink) -> (Box<dyn Backend>, PainterInfo) {
     let info = PainterInfo {
         name: "ink",
         adapter: Some(format!("{} ({})", device.adapter, device.api)),
+        api: Some(device.api.clone()),
         device_ms: device.device_ms,
         shaders_ms: device.shaders_ms,
         cached: device.cached,
@@ -249,15 +254,37 @@ fn ink_backend(ink: crate::ink::Ink) -> (Box<dyn Backend>, PainterInfo) {
 }
 
 impl<D: DataSource> Presenter<D> {
+    pub(crate) fn painter_state(&self) -> serde_json::Value {
+        #[cfg(windows)]
+        let recovery = self.surfaces.direct_window.as_ref();
+        #[cfg(windows)]
+        let (recovering, refusal) = (
+            recovery.is_some_and(|d| d.recovering),
+            recovery.and_then(|d| d.last_refusal.as_deref()),
+        );
+        #[cfg(not(windows))]
+        let (recovering, refusal) = (false, None::<&str>);
+        serde_json::json!({
+            "name": self.painter.name,
+            "device": self.painter.adapter,
+            "api": self.painter.api,
+            "deviceMs": self.painter.device_ms,
+            "shadersMs": self.painter.shaders_ms,
+            "cached": self.painter.cached,
+            "recovering": recovering,
+            "lastRefusal": refusal
+        })
+    }
+
     /// Install the device prepared before app boot, before any frame is drawn.
     /// @ref LLP 1149 S2.4.
     #[cfg(windows)]
     pub(crate) fn install_prepared_painter(
         &mut self,
-        preparing: exact_ink::device::d3d11::Preparing,
+        preparing: exact_ink::device::d3d11::Startup,
         started: std::time::Instant,
-    ) {
-        let (startup, device) = crate::surfaces::window::Startup::wait(preparing, started);
+    ) -> Result<(), String> {
+        let (startup, device) = crate::surfaces::window::Startup::wait(preparing, started)?;
         if let Some(device) = device {
             let ink =
                 crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(Box::new(device)));
@@ -270,6 +297,7 @@ impl<D: DataSource> Presenter<D> {
         self.surfaces.startup_device = Some(startup);
         self.choice = PainterChoice::Ink;
         self.repaint();
+        Ok(())
     }
 
     /// Boot the app under a viewport (points) at a device scale, with its
@@ -324,7 +352,8 @@ impl<D: DataSource> Presenter<D> {
         size: [u32; 2],
     ) -> Result<bool, String> {
         if let Some(startup) = self.surfaces.startup_device.take() {
-            let direct = crate::surfaces::window::DirectWindow::attach(self, window, size, startup);
+            let direct =
+                crate::surfaces::window::DirectWindow::attach(self, window, size, startup)?;
             self.surfaces.direct_window = Some(direct);
             return Ok(true);
         }

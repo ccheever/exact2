@@ -310,8 +310,18 @@ impl Backend for Ink {
         self.device_lost
     }
     #[cfg(windows)]
-    fn presentation_pending(&self) -> bool {
-        matches!(&self.device, Selected::D3d11(d) if d.presentation_pending())
+    fn collect_retired_devices(&mut self) -> usize {
+        match &mut self.device {
+            Selected::D3d11(d) => d.collect_presented_devices(),
+            _ => 0,
+        }
+    }
+    #[cfg(windows)]
+    fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
+        match &self.device {
+            Selected::D3d11(d) => d.presentation_retry_delay(),
+            _ => None,
+        }
     }
     fn needs_geometry_paint(&self) -> bool {
         true

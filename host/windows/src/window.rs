@@ -28,8 +28,8 @@ struct App<D: DataSource> {
     config: Config,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
-    preparing: Option<exact_ink::device::d3d11::Preparing>,
-    jump_list: Option<std::thread::JoinHandle<()>>,
+    preparing: Option<exact_ink::device::d3d11::Startup>,
+    jump_list_started: bool,
     direct: bool,
     presenter: Option<Presenter<D>>,
     started: Instant,
@@ -71,9 +71,6 @@ impl<D: DataSource> Drop for App<D> {
         // The module's GPU swapchain must release its HWND before the window.
         self.presenter.take();
         self.caret.clear();
-        if let Some(worker) = self.jump_list.take() {
-            let _ = worker.join();
-        }
     }
 }
 
@@ -128,7 +125,7 @@ fn direct_device(painter: exact_linux::presenter::PainterChoice, device: Option<
         && exact_ink::device::direct_d3d11(device).is_some()
 }
 
-fn boot_phase(name: &str) {
+pub(crate) fn boot_phase(name: &str) {
     if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
         if let Ok(ms) = exact_ink::device::process_ms() {
             eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
@@ -144,6 +141,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     composed: exact_linux::Composed,
 ) -> i32 {
     let started = Instant::now();
+    app::prepare_environment(compat);
     boot_phase("host-entered");
     if app::print_baked_receipt(compat) {
         return 0;
@@ -156,6 +154,27 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         eprintln!("exact-windows: update-store delivery is not implemented; bake store level 0");
         return 1;
     }
+    let device = std::env::var("EXACT_INK_DEVICE").ok();
+    let direct = direct_device(
+        exact_linux::presenter::PainterChoice::from_env(
+            exact_linux::presenter::PainterChoice::from_baked(compat),
+        ),
+        device.as_deref(),
+    );
+    let preparing = if direct {
+        match exact_ink::device::d3d11::Startup::start(
+            exact_ink::device::direct_d3d11(device.as_deref()).unwrap(),
+            started,
+        ) {
+            Ok(p) => Some(p),
+            Err(error) => {
+                eprintln!("exact-windows: {error}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
     // A distributed app locates data beside its executable, never in its caller's cwd.
     if std::env::var_os("EXACT_ASSETS").is_none() {
         if let Ok(exe) = std::env::current_exe() {
@@ -170,6 +189,11 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     // Windows has no toolkit under this painter, so it shows the web's
     // neutral look (LLP 1115.000 D17), in a window as in a headless run.
     app::show_neutral_look();
+    if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+        && std::env::var("EXACT_AGENT_INK_FAULT").as_deref() == Ok("slow-config")
+    {
+        std::thread::sleep(Duration::from_millis(200));
+    }
     let mut config = Config::from_env(plan, compat);
     // The presenter makes the hatches' value after its first frame is shown.
     config.hatches = composed.hatches;
@@ -194,24 +218,10 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         return 1;
     }
     if !config.windowed() {
+        drop(preparing);
         return app::run_config::<D>(&mut config, started);
     }
     boot_phase("config-ready");
-    let device = std::env::var("EXACT_INK_DEVICE").ok();
-    let direct = direct_device(config.painter(), device.as_deref());
-    let preparing = if direct {
-        match exact_ink::device::d3d11::Preparing::start(
-            exact_ink::device::direct_d3d11(device.as_deref()).unwrap(),
-        ) {
-            Ok(p) => Some(p),
-            Err(error) => {
-                eprintln!("exact-windows: {error}");
-                return 1;
-            }
-        }
-    } else {
-        None
-    };
     if std::env::var_os("EXACT_SIZE").is_none() {
         config.size = (opening.width, opening.height);
     }
@@ -252,7 +262,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         window: None,
         surface: None,
         preparing,
-        jump_list: None,
+        jump_list_started: false,
         direct,
         presenter: None,
         started,
@@ -647,13 +657,9 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
         let logged_at = frame_started.elapsed().as_secs_f64() * 1000.;
         p.first_pixel();
-        if self.jump_list.is_none() && p.last_frame_succeeded() {
-            let compat = self.config.compat.clone();
-            self.jump_list = Some(std::thread::spawn(move || {
-                boot_phase("jump-list-started");
-                crate::jump_list::set_from_compat(&compat);
-                boot_phase("jump-list-ready");
-            }));
+        if !self.jump_list_started && p.last_frame_succeeded() {
+            self.jump_list_started = true;
+            crate::jump_list::start(self.config.compat.clone());
         }
         let activated_at = frame_started.elapsed().as_secs_f64() * 1000.;
         if let Some(access) = &mut self.accessibility {
@@ -1173,9 +1179,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             return;
         }
         let Some(p) = &mut self.presenter else { return };
+        let retirement = p.collect_painter_retirement(Instant::now());
         if self.minimized {
-            self.modal.wait_until(None);
-            events.set_control_flow(ControlFlow::Wait);
+            self.modal.wait_until(retirement);
+            events.set_control_flow(retirement.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
             return;
         }
         let pads_active = self.focused && p.has_gamepad_input();
@@ -1219,6 +1226,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                     window.request_redraw();
                 }
             }
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= due) {
+                events.set_control_flow(ControlFlow::WaitUntil(due));
+            }
+        }
+        if let Some(due) = retirement {
             if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= due) {
                 events.set_control_flow(ControlFlow::WaitUntil(due));
             }
@@ -1314,7 +1326,7 @@ mod tests {
             window: Some(window),
             surface: None,
             preparing: None,
-            jump_list: None,
+            jump_list_started: false,
             direct: true,
             presenter: Some(p),
             started,
