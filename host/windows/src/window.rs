@@ -51,6 +51,7 @@ struct App<D: DataSource> {
     present_ms: f64,
     previous_frame: Option<Instant>,
     samples: Vec<(f64, f64, f64)>,
+    frame_logs: Vec<String>,
     frame_limit: Option<u64>,
     first_tap: Option<String>,
     pads: crate::pad_poll::Pads,
@@ -273,6 +274,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         present_ms: 0.,
         previous_frame: None,
         samples: Vec::new(),
+        frame_logs: Vec::new(),
         frame_limit,
         first_tap,
         pads: Default::default(),
@@ -647,10 +649,16 @@ impl<D: DataSource + Default + 'static> App<D> {
             && self.frame_limit.is_some()
             && std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() != Ok("off");
         if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
-            eprintln!("exact-windows: frame {} at {:.3} ms, {}x{}, scale {}, painter {}, caret {}, paint {:.3} ms, present {:.3} ms",
+            let line = format!("exact-windows: frame {} at {:.3} ms, {}x{}, scale {}, painter {}, caret {}, paint {:.3} ms, present {:.3} ms",
                 self.frames, now, size.width, size.height, self.scale, p.painter.name,
                 self.caret.visible(), paint_ms, present_ms);
+            if self.frame_limit.is_some() {
+                self.frame_logs.push(line);
+            } else {
+                eprintln!("{line}");
+            }
         }
+        let logged_at = frame_started.elapsed().as_secs_f64() * 1000.;
         p.first_pixel();
         let activated_at = frame_started.elapsed().as_secs_f64() * 1000.;
         if let Some(access) = &mut self.accessibility {
@@ -671,14 +679,24 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
         p.sync_surfaces();
         if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
-            eprintln!("exact-windows: phases {} prepare {prepared_at:.3}, images {images_at:.3}, tick {tick_at:.3}, presented {presented_at:.3}, activated {activated_at:.3}, accessibility {accessible_at:.3}, ime {ime_at:.3}, surfaces {:.3} ms from frame start; render {render_ms:.3} ms",
+            let line = format!("exact-windows: phases {} prepare {prepared_at:.3}, images {images_at:.3}, tick {tick_at:.3}, presented {presented_at:.3}, logged {logged_at:.3}, activated {activated_at:.3}, accessibility {accessible_at:.3}, ime {ime_at:.3}, surfaces {:.3} ms from frame start; render {render_ms:.3} ms",
                 self.frames, frame_started.elapsed().as_secs_f64() * 1000.);
+            if self.frame_limit.is_some() {
+                self.frame_logs.push(line);
+            } else {
+                eprintln!("{line}");
+            }
         }
         if repaint_owed || p.dirty() {
             p.repaint();
             window.request_redraw();
         }
         if self.frame_limit.is_some_and(|limit| self.frames >= limit) {
+            // Bounded measurements write their per-frame log after the timed run.
+            // Synchronous file writes can stall even with the DWM probe disabled.
+            for line in self.frame_logs.drain(..) {
+                eprintln!("{line}");
+            }
             events.exit();
         }
         let period = window
@@ -1359,6 +1377,7 @@ mod tests {
             present_ms: 0.,
             previous_frame: None,
             samples: Vec::new(),
+            frame_logs: Vec::new(),
             frame_limit: None,
             first_tap: None,
             pads: Default::default(),
