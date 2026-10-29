@@ -2,8 +2,11 @@ import { expect, test } from 'bun:test';
 import { mobileComposerSurfaceInput, mobileComposerSurfaceSnapshot as snapshot, mobileComposerSurfaceAction as action,
   type ComposerSurfaceInput } from './composer-surface';
 import { mobileEditorOwner } from './composer-editor-owner';
-import { fixture, picker, event, now } from './new-task-editor-test-support';
+import { fixture, picker, event, now, frozenSource } from './new-task-editor-test-support';
 import { obj } from './shared/domain';
+import { mobileVoiceStatus } from './voice-data';
+import { resetVoiceInputGlobalsForTests } from './voice-controller';
+import { mobileComposerTarget } from './composer-target';
 
 async function surface() {
   const f = await fixture();
@@ -83,4 +86,34 @@ test('a held source can leave its own visit while stale Back has no navigation a
   expect(await action(f.client, { ...f.input, visit: 'other' }, { op: 'new-task', key: 'back', payload: '', admission: '' }, f.native, f.storage))
     .toMatchObject({ navigation: '' });
   expect(f.client.local.drafts[f.key]).toBe(before);
+});
+
+for (const focused of [true, false]) test(`Root claims an unavailable voice reason once after native resume with focus ${focused}`, async () => {
+  resetVoiceInputGlobalsForTests();
+  const f = await surface(); picker(f);
+  f.handoffHook(async request => {
+    const receipt = frozenSource(f, request); receipt.event.focused = focused; f.receipts([receipt]);
+    return { ok: true, generation: request.generation, value: { receipt } };
+  });
+  const original = f.native.later; let available = true;
+  f.native.later = async request => obj(request).op === 'mobileVoice' && obj(request).action === 'status'
+    ? { ok: true, generation: f.client.generation, value: { available, locale: 'en-US', session: '', event: 0, levels: [], elapsed: 0 } }
+    : original(request);
+  await mobileVoiceStatus(f.native, f.client);
+  available = false;
+  f.resumeHook(async request => {
+    f.receipts([]);
+    return { ok: true, generation: request.generation, value: { event: {
+      ...event(f.identity, String(obj(request.document).value), 5, 'resumed'), selection: obj(request.document).selection,
+      operationId: request.operationId, operationRevision: request.operationRevision, receiptId: request.receiptId,
+    } } };
+  });
+  await f.run('new-task', 'voice');
+  const shown = f.view();
+  expect(JSON.parse(shown.configuration).editable).toBe(true);
+  expect(shown.owner).toBe(mobileComposerTarget(f.client).owner);
+  expect(shown.effectId).not.toBe('');
+  await f.run('retry');
+  expect(await f.run('claim-effect', shown.effectId)).toMatchObject({ message: 'Voice transcription is not available.', navigation: focused ? 'focus' : '' });
+  expect(await f.run('claim-effect', shown.effectId)).toMatchObject({ message: '', navigation: '' });
 });

@@ -60,6 +60,7 @@ test('preview refused after freeze resumes the newest saved source for further e
   expect(view(f.client, f.route).kind).toBe('editing');
   expect(obj(f.disk().drafts)[f.key]).toBe('🙂 picked here');
   expect(effect(f.client, f.route)?.kind).not.toBe('preview');
+  expect(effect(f.client, f.route)?.message).toBe('The attachment source changed.');
   await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
   expect((await action(f.client, f.route, { kind: 'observe', payload: event(f.identity, '🙂 continuing', 6, 'text') }, f.native, f.storage)).accepted).toBe(true);
   expect(obj(f.disk().drafts)[f.key]).toBe('🙂 continuing');
@@ -123,7 +124,6 @@ test('confirmed cancellation and native retirement settle the old route before r
   expect(view(f.client, await f.resume())).toMatchObject({ kind: 'mounting' });
 });
 
-// Native consumes an acknowledged freeze receipt before dropping its retired slot.
 test('confirmed cancelled picker settles after the acknowledged receipt is consumed', async () => {
   const f = await fixture(); continuation(f);
   f.intakeHook(async request => intakeReply(request, 'picking'));

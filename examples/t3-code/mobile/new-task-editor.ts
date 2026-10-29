@@ -634,8 +634,10 @@ function resumeMatches(work: FrozenPick, proof: ComposerEditorResume): boolean {
 function completeCycle(entry: Entry, work: FrozenPick, proof: ComposerEditorResume | null): void {
   entry.completed = { operationRevision: work.operation.revision, frozenEventCount: work.receipt.event.eventCount,
     receiptId: work.receipt.id, proof };
-  if (proof && !entry.effect && (!work.capture.intent || work.receipt.event.focused))
-    entry.effect = { id: `resume:${work.receipt.id}`, kind: 'focus', destination: '', flow: null };
+  if (proof && (!work.capture.intent || work.receipt.event.focused)) {
+    if (entry.effect?.kind === 'notice') entry.effect = { ...entry.effect, kind: 'focus' };
+    else if (!entry.effect) entry.effect = { id: `resume:${work.receipt.id}`, kind: 'focus', destination: '', flow: null, message: '' };
+  }
   entry.operation = null; entry.progress = { kind: 'unpublished' }; entry.custody = 'native'; entry.notice = '';
 }
 function acceptResume(client: MobileDraftClient, entry: Entry, proof: ComposerEditorResume): boolean {
@@ -714,8 +716,9 @@ async function advanceProducer(client: MobileDraftClient, owner: Ledger, entry: 
       await client.persist(storage);
       if (!current()) return;
       phase.saved = true;
-      entry.notice = phase.result.message;
-      if (phase.result.effect) entry.effect = { ...phase.result.effect, id: work.operation.id };
+      entry.notice = '';
+      if (phase.result.effect || phase.result.message) entry.effect = {
+        ...(phase.result.effect ?? { kind: 'notice', destination: '', flow: null }), id: work.operation.id, message: phase.result.message };
       if (phase.after) {
         entry.state = { ...entry.state, value: phase.after.text, selection: phase.result.selection ?? work.receipt.event.selection };
         updateDocument(client, entry);
@@ -725,7 +728,6 @@ async function advanceProducer(client: MobileDraftClient, owner: Ledger, entry: 
     if (letGo(error)) throw error;
     if (current()) {
       entry.notice = error instanceof Error ? error.message : 'The producer source is retained.';
-      // A started producer is never invoked twice on an uncertain result.
       if (phase.kind === 'producing') finish({ message: entry.notice, leave: false, voice: false, selection: null, effect: null });
     }
   }

@@ -139,7 +139,6 @@ export async function mobileComposerStageSelection(client: T3Client, target: Mob
     throw error;
   }
 }
-/** The independent native owner resumes from this captured source caret. */
 export function mobileVoiceSelection(client: T3Client, target: MobileComposerTarget): { start: number; end: number } | null {
   const selection = states.get(client)?.selection;
   if (!selection || selection.owner !== target.editorOwner || selection.content?.incarnation !== target.incarnation

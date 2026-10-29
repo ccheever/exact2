@@ -24,12 +24,12 @@ export type NewTaskProducerIntent =
   | { kind: 'setting'; name: 'workspace' | 'interaction'; value: string;
       preferences: MobilePendingTaskPreferences; interactionBlocked: boolean };
 export interface NewTaskProducerEffect {
-  id: string; kind: 'navigate' | 'preview' | 'flow' | 'focus'; destination: string; flow: NewTaskFlowResult | null;
+  id: string; kind: 'navigate' | 'preview' | 'flow' | 'focus' | 'notice'; destination: string; flow: NewTaskFlowResult | null; message: string;
 }
 export interface NewTaskProducerResult {
   message: string; leave: boolean; voice: boolean;
   selection: { start: number; end: number } | null;
-  effect: Omit<NewTaskProducerEffect, 'id'> | null;
+  effect: Omit<NewTaskProducerEffect, 'id' | 'message'> | null;
 }
 
 /** Only the NewTask owner calls this after its final native source is durable.

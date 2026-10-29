@@ -23,7 +23,6 @@ const send = (input: ComposerSurfaceInput, alternate: boolean): NewTaskEditorInt
   preferences: { ready: input.preferencesReady, serialized: input.preferencesJSON } });
 const destinations = { model: '/new/draft/settings', branch: '/new/draft/branch', environment: '/new/draft/environment' };
 
-/** Root owns the coalesced observation and ordered action queue for both surfaces. */
 export function mobileComposerSurfaceSnapshot(client: MobileDraftClient, input: ComposerSurfaceInput, latch: string) {
   const ordinary = mobileComposerRootSnapshot(client, { ...input, active: input.surface === 'thread' && input.active }, input.surface === 'thread' ? latch : '');
   if (input.surface !== 'new-task') return ordinary;
@@ -52,6 +51,7 @@ export async function mobileComposerSurfaceAction(client: MobileDraftClient, inp
     const result = await invoke({ kind: 'claim', id: action.key }), effect = result.effect;
     if (!effect) return answer;
     answer.effectKind = 'new-task'; answer.effectId = effect.id;
+    answer.message = effect.message;
     if (effect.kind === 'focus') { answer.navigation = 'focus'; return answer; }
     if (effect.kind === 'preview') { answer.attachmentId = effect.destination; return answer; }
     if (effect.kind === 'navigate') {
