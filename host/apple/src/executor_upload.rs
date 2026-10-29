@@ -11,7 +11,10 @@
 //! one go.
 use super::super::{complete, failed, Core, Shared, StreamHost, BYTES, STREAMS};
 use exact_runner::{FailureKind, Message, Outcome, Request};
-use ibex2::stdlib::{abort::AbortController, fetch::Sent};
+use ibex2::stdlib::{
+    abort::{AbortController, AbortSignal},
+    fetch::Sent,
+};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -26,20 +29,28 @@ const UPLOAD_BYTES: usize =
 /// three per environment: the 16 streams' other places stay the app's.
 const RUNNING: usize = 3;
 
+/// What the inline bodies of uploads waiting may hold together, each at most
+/// 4 MiB (a request's bound): an upload past it is refused at admission and
+/// never reaches the network. A file's body is read only once it starts.
+const WAITING_BODIES: usize = 64 << 20;
+
 /// The copies of an upload's body in memory while it goes out: the
 /// stream's, and on Apple URLSession's `NSData`. The portable transport
 /// sends from the stream's.
 pub(in super::super) const COPIES: usize = if cfg!(target_vendor = "apple") { 2 } else { 1 };
 
 /// The uploads of one executor: the bytes those going out hold, how many go
-/// out, those waiting, in the order they were admitted, and those that have
-/// begun to go out, until their end is drained or the runner reads them.
+/// out, those waiting, in the order they were admitted, with the inline
+/// bodies they hold, and those that have begun to go out, until their end is
+/// drained or the runner reads them.
 pub(in super::super) struct Uploads(Mutex<Budget>);
 struct Budget {
     bytes: usize,
     limit: usize,
     running: usize,
     queue: VecDeque<Queued>,
+    waiting_bodies: usize,
+    waiting_limit: usize,
     started: HashSet<u64>,
 }
 impl Default for Uploads {
@@ -49,8 +60,18 @@ impl Default for Uploads {
             limit: UPLOAD_BYTES,
             running: 0,
             queue: VecDeque::new(),
+            waiting_bodies: 0,
+            waiting_limit: WAITING_BODIES,
             started: HashSet::new(),
         }))
+    }
+}
+impl Budget {
+    /// The head of the queue taken out of it.
+    fn pop(&mut self) -> Option<Queued> {
+        let next = self.queue.pop_front()?;
+        self.waiting_bodies -= next.request.body.len();
+        Some(next)
     }
 }
 
@@ -107,6 +128,30 @@ impl Uploads {
     pub(in super::super) fn limit(&self, bytes: usize) {
         self.0.lock().unwrap().limit = bytes;
     }
+
+    /// A smaller bound on the bodies uploads waiting hold, likewise.
+    #[cfg(test)]
+    pub(in super::super) fn waiting_limit(&self, bytes: usize) {
+        self.0.lock().unwrap().waiting_limit = bytes;
+    }
+}
+
+/// Whether an upload with an inline body of `bytes` would take the bodies
+/// of those waiting past their bound ([`WAITING_BODIES`]).
+pub(in super::super) fn waiting_full(shared: &Shared, bytes: usize) -> bool {
+    let budget = shared.uploads.0.lock().unwrap();
+    budget.waiting_bodies.saturating_add(bytes) > budget.waiting_limit
+}
+
+/// Give the uploads waiting their chance at room the caller freed, from a
+/// path that holds only the shared state (`complete`): the core's handle to
+/// itself starts them.
+pub(in super::super) fn start_waiting(shared: &Shared) {
+    if !shared.uploads.0.lock().unwrap().queue.is_empty() {
+        if let Some(shared) = shared.me.upgrade() {
+            start(&shared);
+        }
+    }
 }
 
 impl Core {
@@ -152,7 +197,11 @@ pub(in super::super) fn queue(
         abort,
         need: body.saturating_mul(COPIES),
     };
-    shared.uploads.0.lock().unwrap().queue.push_back(queued);
+    {
+        let mut budget = shared.uploads.0.lock().unwrap();
+        budget.waiting_bodies += queued.request.body.len();
+        budget.queue.push_back(queued);
+    }
     start(shared);
 }
 
@@ -173,12 +222,12 @@ pub(in super::super) fn start(shared: &Arc<Shared>) {
                 break;
             }
             let Some(run) = state.running.iter_mut().find(|r| r.ticket == next.ticket) else {
-                budget.queue.pop_front();
+                budget.pop();
                 continue;
             };
             if run.forgotten {
                 gone.push(next.ticket);
-                budget.queue.pop_front();
+                budget.pop();
                 continue;
             }
             let (lane, limit) = (run.lane, run.limit);
@@ -186,7 +235,7 @@ pub(in super::super) fn start(shared: &Arc<Shared>) {
             if limit > BYTES[lane].saturating_sub(state.bytes[lane] + parked) {
                 break;
             }
-            let next = budget.queue.pop_front().expect("a head");
+            let next = budget.pop().expect("a head");
             (run.stream, run.waiting, run.charge) = (true, false, limit);
             state.counts[lane] += 1;
             state.bytes[lane] += limit;
@@ -197,6 +246,7 @@ pub(in super::super) fn start(shared: &Arc<Shared>) {
         }
         if state.retired {
             budget.queue.clear();
+            budget.waiting_bodies = 0;
         }
     }
     for ticket in gone {
@@ -271,6 +321,7 @@ pub(in super::super) fn forget(shared: &Arc<Shared>, held: &dyn Fn(u64) -> bool)
             .into_iter()
             .partition(|q| held(q.ticket));
         budget.queue = kept;
+        budget.waiting_bodies -= gone.iter().map(|q| q.request.body.len()).sum::<usize>();
         gone.into_iter().map(|q| q.ticket).collect()
     };
     for ticket in gone {
@@ -298,18 +349,28 @@ pub(super) fn timed_out(end: Outcome, passed: bool, ms: u32) -> Outcome {
 
 /// An upload's hooks: each count of the body's bytes sent that the
 /// transport reports is a message, which a newer one replaces while the
-/// runner has not taken it (D4); its start, when the hop loop has admitted
-/// it (`exact:sending`), is recorded here and is a message no other
-/// replaces.
-pub(super) fn progress(shared: &Arc<Shared>, ticket: u64) -> Sent {
+/// runner has not taken it (D4). Its start, when the hop loop has admitted
+/// it, goes out only while `signal` has not aborted, and is then recorded
+/// here and a message no other replaces (`exact:sending`). The check and
+/// the record share the lock the host reads them under, after it aborts
+/// the uploads it lets go, so an upload is either told started or never
+/// goes out (local patch 23).
+pub(super) fn progress(shared: &Arc<Shared>, ticket: u64, signal: AbortSignal) -> Sent {
     let (sending, shared) = (shared.clone(), shared.clone());
     Sent(
         Arc::new(move |loaded, total| {
             super::message(&shared, ticket, Message::upload_progress(loaded, total));
         }),
         Some(Arc::new(move || {
-            sending.uploads.0.lock().unwrap().started.insert(ticket);
+            {
+                let mut budget = sending.uploads.0.lock().unwrap();
+                if signal.aborted() {
+                    return false;
+                }
+                budget.started.insert(ticket);
+            }
             super::message(&sending, ticket, Message::upload_start());
+            true
         })),
     )
 }

@@ -1187,15 +1187,15 @@ fn an_uploads_file_is_read_once_it_has_room() {
     );
 }
 
-/// LLP 1016.000 D10: a burst of uploads at a photo's size, in the budget a
-/// device has, goes three at a time, as upstream T3 Code sends them, and
-/// leaves the app's other streams their places: an event stream opened
-/// before fifteen 2 MB uploads and one opened after them both open at once,
-/// and every upload ends with its reply. Without the cap the budget and the
-/// independent lane would start all fifteen, which with the first stream
-/// take all 16 places; the lane would hold no more going out at once on the
-/// asynchronous core, which also reserves the portable transport's copy of
-/// each body.
+/// LLP 1016.000 D10: fifteen 2 MB photo uploads, in the budget a device
+/// has, go out three at a time, as upstream T3 Code sends them, and leave
+/// the app's other streams their places. An event stream opened before the
+/// burst and one opened after it both open at once, and every upload ends
+/// with its reply. Without the cap all fifteen would go out at once, since
+/// the budget and the lane have room for them, and with the first stream
+/// they would take all 16 places, so the second stream would be refused.
+/// (Fifteen, because the independent lane has room for no more of them at
+/// once on the asynchronous core, which counts a second copy of each body.)
 #[test]
 fn a_burst_of_photo_uploads_goes_three_at_a_time_and_leaves_other_streams_their_places() {
     let (core, script, woke) = setup();
@@ -1276,7 +1276,9 @@ fn thirty_uploads_waiting_leave_an_independent_fetch_its_room() {
 
 /// The executor records each upload that has begun to go out, and tells
 /// the host which of those the runner let go (`let_go_started`); one let go
-/// while it waits in the queue never started (LLP 1016.000 D10).
+/// while it waits in the queue never started (LLP 1016.000 D10). Once the
+/// three going out have ended, the independent lane holds nothing: the one
+/// let go as it waited took no count to give back, on either core.
 #[test]
 fn the_uploads_let_go_that_had_started_are_told_once() {
     let (core, script, woke) = setup();
@@ -1284,7 +1286,7 @@ fn the_uploads_let_go_that_had_started_are_told_once() {
         core.run_owned(upload(ticket, "/upload", 4096), None)
             .unwrap();
     }
-    let _going: Vec<Feed> = (0..3).map(|at| feed(&script, at)).collect();
+    let going: Vec<Feed> = (0..3).map(|at| feed(&script, at)).collect();
     let mut started: Vec<u64> = (0..3)
         .map(|_| match next(&core, &woke) {
             (ticket, Outcome::Message(m)) if m.upload_started() => ticket,
@@ -1307,6 +1309,65 @@ fn the_uploads_let_go_that_had_started_are_told_once() {
         core.let_go_started(|_| false),
         Vec::<u64>::new(),
         "told once"
+    );
+    drop(going);
+    let lane = || {
+        let state = core.shared.state.lock().unwrap();
+        (state.counts[1], state.bytes[1], state.streams)
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while lane() != (0, 0, 0) {
+        assert!(Instant::now() < deadline, "the lane holds {:?}", lane());
+        core.begin_pump();
+        let _ = core.drain();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// LLP 1016.000 D10: an upload waiting only for its lane's room starts as a
+/// request let go gives it back, without the host's next pump. Three image
+/// GETs with 10 MiB ceilings fill the independent lane but for 4 MiB, which
+/// an upload with a 2 MiB reply ceiling does not fit; the person scrolls one
+/// image away, and as its aborted exchange ends the upload opens.
+#[test]
+fn an_upload_waiting_for_its_lanes_room_starts_when_a_request_let_go_frees_it() {
+    let (core, script, _woke) = setup();
+    for ticket in 1..=3 {
+        let image = RequestOut {
+            ticket,
+            target: "image".into(),
+            request: Request::get("https://example.test/hold").independent_http(10 << 20),
+            forced: false,
+        };
+        core.run_owned(image, None).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while core.shared.state.lock().unwrap().bytes[1] < 60 << 20 {
+        assert!(Instant::now() < deadline, "the images never started");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    core.run_owned(upload_within(4, "/upload", 4096, 2 << 20), None)
+        .unwrap();
+    assert_eq!(core.shared.uploads.waiting().0, 1, "it waits for room");
+    core.forget(|ticket| ticket != 1);
+    let _going = feed(&script, 0);
+}
+
+/// LLP 1016.000 D10: the inline bodies of uploads waiting are bounded; an
+/// upload past the bound is refused, and one alone always waits.
+#[test]
+fn the_bodies_of_uploads_waiting_are_bounded() {
+    let (core, script, _woke) = setup();
+    core.shared.uploads.waiting_limit(8 << 10);
+    for ticket in 1..=5 {
+        core.run_owned(upload(ticket, "/upload", 4 << 10), None)
+            .expect("three go out, two wait");
+    }
+    let _going: Vec<Feed> = (0..3).map(|at| feed(&script, at)).collect();
+    assert_eq!(core.shared.uploads.waiting().0, 2);
+    assert_eq!(
+        core.run_owned(upload(6, "/upload", 4 << 10), None),
+        Err("native executor upload queue limit reached")
     );
 }
 

@@ -265,11 +265,13 @@ pub struct Request {
 /// have arrived. A redirect that sends the body again counts from zero.
 /// The second hook, if any, is the upload's start: told once, by the hop
 /// loop, when the first hop's grant and gate have admitted it and its
-/// transport is about to open, so a request they refuse never started.
+/// transport is about to open, so a request they refuse never started. It
+/// answers whether the upload may go out: `false`, an embedder that has let
+/// it go, stops it as an abort does.
 #[derive(Clone)]
 pub struct Sent(
     pub std::sync::Arc<dyn Fn(u64, u64) + Send + Sync>,
-    pub Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    pub Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
 );
 
 impl std::fmt::Debug for Sent {
@@ -438,12 +440,14 @@ pub fn fetch_stream_gated(
     loop {
         signal.check()?;
         admit_hop(grants, gate, &current.url, redirected)?;
-        // An upload goes out now, its grant and gate passed (Exact patch 23).
-        // An abort that came while they were checked still stops it: the
-        // embedder aborts before it reads which uploads started, so one it
-        // read as unstarted never opens.
+        // An upload goes out now, its grant and gate passed (Exact patch 23),
+        // unless its embedder has let it go meanwhile, or its signal says so.
         if let (false, Some(Sent(_, Some(start)))) = (redirected, &current.sent) {
-            start();
+            if !start() {
+                return Err(HostError::Failed(
+                    "AbortError: The operation was aborted".into(),
+                ));
+            }
             signal.check()?;
         }
 
@@ -729,32 +733,37 @@ mod tests {
         assert!(transport.seen().is_empty());
     }
 
-    /// An upload aborted while its grant and gate are checked, its start told
-    /// once they pass, never opens (Exact patch 23): an embedder that read it
-    /// as unstarted after aborting it is right.
+    /// An upload whose start the embedder refuses, having let it go, or whose
+    /// signal aborts as its start is told, never opens (Exact patch 23): an
+    /// embedder that read it as unstarted after aborting it is right.
     #[test]
-    fn an_upload_aborted_as_it_starts_never_reaches_transport() {
-        let transport = StubTransport::new(vec![response(201, None)]);
-        let controller = crate::stdlib::abort::AbortController::new();
-        let starts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let mut request = Request::get("https://example.com/upload");
-        request.method = "POST".into();
-        request.body = Some(b"photo".to_vec());
-        request.sent = Some(Sent(
-            std::sync::Arc::new(|_, _| {}),
-            Some(std::sync::Arc::new({
-                let (starts, controller) = (starts.clone(), controller.clone());
-                move || {
-                    starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    controller.abort();
-                }
-            })),
-        ));
-        let signal = controller.signal();
-        let refused = fetch_stream(&transport, &granted("example.com"), request, &signal);
-        assert!(refused.unwrap_err().to_string().starts_with("AbortError"));
-        assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 1);
-        assert!(transport.seen().is_empty());
+    fn an_upload_let_go_as_it_starts_never_reaches_transport() {
+        for refuses in [true, false] {
+            let transport = StubTransport::new(vec![response(201, None)]);
+            let controller = crate::stdlib::abort::AbortController::new();
+            let starts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let mut request = Request::get("https://example.com/upload");
+            request.method = "POST".into();
+            request.body = Some(b"photo".to_vec());
+            request.sent = Some(Sent(
+                std::sync::Arc::new(|_, _| {}),
+                Some(std::sync::Arc::new({
+                    let (starts, controller) = (starts.clone(), controller.clone());
+                    move || {
+                        starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if !refuses {
+                            controller.abort();
+                        }
+                        !refuses
+                    }
+                })),
+            ));
+            let signal = controller.signal();
+            let stopped = fetch_stream(&transport, &granted("example.com"), request, &signal);
+            assert!(stopped.unwrap_err().to_string().starts_with("AbortError"));
+            assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert!(transport.seen().is_empty(), "refuses {refuses}");
+        }
     }
 
     #[test]

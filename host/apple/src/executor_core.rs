@@ -191,6 +191,9 @@ struct Shared {
     retrying: Mutex<std::collections::HashMap<u64, (u32, std::time::Instant, String)>>,
     /// What upload streams hold in memory (LLP 1016.000 D10; `stream.rs`).
     uploads: stream::Uploads,
+    /// This, for a path that frees room uploads wait for holding only a
+    /// reference (`complete`): it starts them (`stream::start_uploads`).
+    me: std::sync::Weak<Shared>,
 }
 
 impl Shared {
@@ -295,7 +298,7 @@ impl Core {
         host: StreamHost,
         lanes: Option<asynch::Lanes>,
     ) -> Self {
-        let shared = Arc::new(Shared {
+        let shared = Arc::new_cyclic(|me| Shared {
             state: Mutex::new(State {
                 wake: Some(wake),
                 ..State::default()
@@ -309,6 +312,7 @@ impl Core {
             sockets: Mutex::default(),
             retrying: Mutex::default(),
             uploads: stream::Uploads::default(),
+            me: me.clone(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS
@@ -543,6 +547,9 @@ impl Core {
             let parked = state.book.parked(lane, &state.jobs[lane]);
             if full || (!waits && charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked)) {
                 return Err("native executor admission limit reached");
+            }
+            if waits && stream::uploads_full(&self.shared, r.request.body.len()) {
+                return Err("native executor upload queue limit reached");
             }
             if lane == 0 {
                 // Count every waiting request, including writes. Otherwise
@@ -978,10 +985,14 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
         state.bytes[lane] -= run.charge;
         // The lane going idle can let a retained ordered refusal settle,
         // and the work held behind it go: the host needs a pump for that.
-        // The bytes freed may start an upload waiting for them, at the
-        // next pump's forget (`stream::start`).
-        if (lane == 0 && state.counts[0] == 0) || (lane == 1 && stream::uploads_queued(shared)) {
+        if lane == 0 && state.counts[0] == 0 {
             wake(&mut state);
+        }
+        // The room it held, in its lane and among the streams, may start an
+        // upload waiting for it; one that held none frees none.
+        drop(state);
+        if lane == 1 && (run.charge > 0 || run.stream) {
+            stream::start_uploads(shared);
         }
         return;
     }

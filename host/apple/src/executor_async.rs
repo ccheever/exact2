@@ -746,6 +746,11 @@ impl Machine {
             if let Some(after) = after {
                 after(&self);
             }
+            // What it settled or ended may have freed the independent lane
+            // room an upload waits for (LLP 1016.000 D10).
+            if lane == 1 {
+                super::stream::start_uploads(&self.shared);
+            }
             #[cfg(test)]
             self.shared
                 .worker_notifications
@@ -1278,12 +1283,13 @@ impl Drop for Ended {
 }
 
 /// A forget cancels `run` if it is an exchange still open (a safe read's,
-/// or any method's the app aborted, `by_app`; never a stream's): its terminal
+/// or any method's the app aborted, `by_app`; never a stream's, nor an
+/// upload's waiting for its start, which its queue ends): its terminal
 /// transition is claimed now (D3).
 pub(super) fn cancel(run: &mut Running, by_app: bool) -> bool {
     let open = !run.terminal && run.claim == Claim::None;
     let exchange = run.abort.is_some() || (by_app && run.exchange.is_some());
-    let cancels = open && exchange && !run.stream;
+    let cancels = open && exchange && !run.stream && !run.waiting;
     if cancels {
         run.claim = Claim::Cancelled;
     }

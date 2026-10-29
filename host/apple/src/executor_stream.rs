@@ -27,10 +27,10 @@ use ibex2::stdlib::{
 };
 use std::sync::Arc;
 use std::time::Duration;
-pub(super) use upload::queued as uploads_queued;
 pub(super) use upload::Uploads;
 pub(super) use upload::{forget as forget_uploads, freed as place_freed, queue as queue_upload};
 use upload::{progress, timed_out, COPIES};
+pub(super) use upload::{start_waiting as start_uploads, waiting_full as uploads_full};
 
 /// What a stream opened as.
 enum Opened {
@@ -95,7 +95,7 @@ fn opened(
         Ok(deadline) => deadline,
         Err(why) => return complete(shared, ticket, failed(FailureKind::Refused, why)),
     };
-    let sent = request.upload_progress.then(|| progress(shared, ticket));
+    let sent = (request.upload_progress).then(|| progress(shared, ticket, abort.signal()));
     let two_way = request.socket;
     let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // A source's scope narrows the app's grants, as on the workers.
