@@ -108,6 +108,19 @@ fn string_pairs(json: &Json) -> Option<Vec<(String, String)>> {
         .collect()
 }
 
+/// The realm's answer to `has-overlay`: only an explicit `{has: false}` means
+/// none; an error or anything else fails, as the overlay call itself did.
+fn overlay_present(bytes: &[u8]) -> Result<bool, DataError> {
+    let reply = json::parse(bytes).map_err(|e| unavailable(e.to_string()))?;
+    match reply["has"].as_bool() {
+        Some(has) => Ok(has),
+        None => Err(unavailable(match reply["error"].as_str() {
+            Some(error) => format!("the overlay probe failed: {error}"),
+            None => "the overlay probe answered no `has`".to_string(),
+        })),
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn call(input: Json) -> Result<Vec<u8>, DataError> {
     #[link(wasm_import_module = "exact_js")]
@@ -552,6 +565,13 @@ impl DataSource for Module {
         let Some((params, result)) = self.signatures.get(source) else {
             return Err(DataError::UnknownSource(source.into()));
         };
+        // A module with no `exact.overlay` shows the answer: ask the realm
+        // first, so the answer and the writes are not encoded for nothing (as
+        // exact-js does on native).
+        let probe = object([("op", "has-overlay".into()), ("id", self.id.into())]);
+        if !overlay_present(&call(probe)?)? {
+            return Ok(None);
+        }
         let encode = |v: &Value, s: &Shape| json::encode(v, s).map_err(unavailable);
         let args = args
             .iter()
@@ -1196,5 +1216,28 @@ mod tests {
             )
             .is_err());
         assert_eq!(store.get("token"), Some("before-error"));
+    }
+}
+
+#[cfg(test)]
+mod overlay_probe_tests {
+    use super::overlay_present;
+
+    /// Only an explicit answer decides: `{has: false}` is no overlay, `{has:
+    /// true}` (a page realm with one, or a worker realm, which can't say) is
+    /// one, and a probe that threw or answered nothing usable fails, as the
+    /// overlay call's own failure did.
+    #[test]
+    fn only_an_explicit_answer_decides_whether_a_realm_has_an_overlay() {
+        assert!(!overlay_present(br#"{"has":false}"#).unwrap());
+        assert!(overlay_present(br#"{"has":true}"#).unwrap());
+        let thrown = overlay_present(br#"{"error":"a getter threw"}"#).unwrap_err();
+        assert!(
+            format!("{thrown:?}").contains("a getter threw"),
+            "{thrown:?}"
+        );
+        assert!(overlay_present(b"{}").is_err());
+        assert!(overlay_present(br#"{"has":"no"}"#).is_err());
+        assert!(overlay_present(b"not json").is_err());
     }
 }

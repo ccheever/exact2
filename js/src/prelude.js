@@ -1393,16 +1393,22 @@
     journal("overlay refused: " + e.message);
     return e;
   }
+  // Whether the module has an overlay, read once when it has loaded (the host keeps the answer for the instance,
+  // as the JS target decides at install): anything but `undefined`, or a read that throws, counts as one, so the
+  // overlay is then asked each time as before. A getter or a proxy's trap runs here as initialization code.
+  global.__exact_has_overlay = function () {
+    try { return global.exact.overlay === undefined ? "" : "1"; } catch (e) { return "1"; }
+  };
   global.__exact_overlay = function (source, argsJson, payloadJson) {
     initializing = false;
-    if (typeof global.exact.overlay !== "function") return JSON.stringify({ tag: 4 });
-    var payload = JSON.parse(payloadJson);
-    // A realm whose answer spans tasks (the web's) has one current between
-    // them: put it back after.
+    // A realm whose answer spans tasks (the web's) has one current between them: put it back after. Both reads of
+    // `exact.overlay` run guarded, so a getter's store call is refused as the overlay's is.
     var saved = currentCall;
     currentCall = null;
     overlaying = true;
     try {
+      if (typeof global.exact.overlay !== "function") return JSON.stringify({ tag: 4 });
+      var payload = JSON.parse(payloadJson);
       // An answered write the answer does not include yet goes on showing
       // when the overlay calls its `keep()`.
       var keep = [];

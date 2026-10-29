@@ -195,6 +195,8 @@ export async function prepare(payload, admitted, id = nextId++) {
       }
     }
     if ((win.exact?.abi !== 1 && win.exact?.abi !== 2) || win.exact.appId !== admitted.appId || !sameGrantDeclaration(childGrantSet, win.exact.grants) || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
+    // Whether it has an overlay, decided now that it has loaded (prelude.js `__exact_has_overlay`).
+    const overlayAtLoad = win.__exact_has_overlay() === '1';
     const pending = new Map(), streams = new Map();
     // The runner's target first: two targets asking one source with equal
     // arguments are two calls (LLP 1027 D1a).
@@ -385,6 +387,8 @@ export async function prepare(payload, admitted, id = nextId++) {
       draw: request => { const h = globalThis.exact?.canvas2dHost; return JSON.parse(win.__exact_draw(request, h?.measure, h?.image)); },
       // An overlay shows writes over an answer; it awaits nothing, so it runs in this turn.
       overlay: request => JSON.parse(win.__exact_overlay(request.source, JSON.stringify(request.args), JSON.stringify({ answer: request.answer, writes: request.writes }))),
+      // Whether the module had an overlay when it loaded, asked before an answer is encoded for one.
+      hasOverlay: () => overlayAtLoad,
       retire: retired => win.__exact_retire(retired),
       invoke(request) {
         // A context is installed only inside the queue that will finish it.
@@ -518,6 +522,8 @@ export function call(request) {
   if (request.op === 'journal') return { lines: realm.journal ? realm.journal() : [] };
   if (request.op === 'aborted') return { tickets: realm.aborted ? realm.aborted() : [] };
   if (request.op === 'draw') return realm.draw ? realm.draw(request.request) : { error: 'a worker-placed module does not draw Canvas 2D yet' };
+  // A worker realm can't say synchronously: it answers yes, and its overlay's `{tag:4, worker}` tells why the writes wait.
+  if (request.op === 'has-overlay') return { has: realm.hasOverlay ? realm.hasOverlay() : true };
   if (request.op === 'overlay') return realm.overlay ? realm.overlay(request) : { tag: 4, worker: true };
   if (request.op === 'retire') { realm.retire?.(request.retired); return { ok: true }; }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);
