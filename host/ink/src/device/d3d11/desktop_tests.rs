@@ -123,6 +123,7 @@ impl Shelf {
         if field {
             command.env("EXACT_AGENT_WINDOW_TAP", "search");
         }
+        let launched = Instant::now();
         let child = command.spawn().unwrap();
         println!("S2_PROCESS {name} pid={} exe={exe}", child.id());
         let mut app = Self {
@@ -130,6 +131,22 @@ impl Shelf {
             hwnd: HWND::default(),
             log,
         };
+        if fault == Some("slow-devices") {
+            until("late-device window is visible", || {
+                app.alive();
+                app.hwnd = window_for(app.child.id());
+                !app.hwnd.is_invalid()
+            });
+            let image = app.capture_pixels();
+            image
+                .save_png(out().join("slow-devices-before.png"))
+                .unwrap();
+            println!(
+                "S2_LATE_DEVICES capture_after_spawn_ms={:.3} first_present={}",
+                launched.elapsed().as_secs_f64() * 1000.,
+                app.text().contains("first present returned")
+            );
+        }
         until("Shelf's complete first screen", || {
             app.alive();
             let text = app.text();
@@ -149,7 +166,12 @@ impl Shelf {
             let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
         let exe = std::env::var("INK_SHELF").expect("INK_SHELF names the built Shelf.exe");
-        let mut app = Self::launch(name, &exe, "ink", "1024x720", None, field);
+        let painter = if std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("wgpu") {
+            "wgpu"
+        } else {
+            "ink"
+        };
+        let mut app = Self::launch(name, &exe, painter, "1024x720", None, field);
         app.place(1024, 720);
         app
     }
@@ -553,6 +575,7 @@ fn shelf_exhausted_devices_exit_with_both_refusals() {
             .stderr(Stdio::from(file))
             .spawn()
             .unwrap();
+        println!("S2_PROCESS terminal-{fault} pid={} exe={exe}", child.id());
         let deadline = Instant::now() + Duration::from_secs(5);
         let status = loop {
             if let Some(status) = child.try_wait().unwrap() {
@@ -814,53 +837,55 @@ fn shelf_idle_caret() {
         app.alive();
         unsafe { GetGUIThreadInfo(thread, &mut gui).is_ok() && gui.hwndCaret == app.hwnd }
     });
-    let mut shown = None;
-    let mut hidden = None;
+    // Softbuffer patches the caret without logging a whole frame.
+    let first = app.capture("caret-first");
+    let mut second = None;
     let mut changes = 0;
-    let mut previous = None;
+    let mut previous = first.clone();
+    let mut changed_pixels = 0;
     until("three idle caret transitions", || {
-        app.alive();
-        let text = app.text();
-        let last = text
-            .lines()
-            .rev()
-            .find(|s| s.starts_with("exact-windows: frame "))
-            .unwrap_or("");
-        let visible = last.contains("caret true");
-        if previous != Some(visible) {
-            let image = app.capture(if visible {
-                "caret-shown"
-            } else {
-                "caret-hidden"
-            });
-            if visible {
-                shown = Some(image);
-            } else {
-                hidden = Some(image);
-            }
-            if previous.is_some() {
-                changes += 1;
-            }
-            previous = Some(visible);
+        let image = app.capture_pixels();
+        let changed: Vec<_> = previous
+            .data()
+            .chunks_exact(4)
+            .zip(image.data().chunks_exact(4))
+            .enumerate()
+            .filter_map(|(i, (a, b))| (a != b).then_some(i))
+            .collect();
+        assert!(
+            changed.len() < 2000,
+            "idle blink changed {} pixels",
+            changed.len()
+        );
+        for &i in &changed {
+            let x = (i as u32 % image.width()) as i32;
+            let y = (i as u32 / image.width()) as i32;
+            assert!(
+                x >= gui.rcCaret.left - 1
+                    && x <= gui.rcCaret.right + 1
+                    && y >= gui.rcCaret.top - 1
+                    && y <= gui.rcCaret.bottom + 1,
+                "idle change outside the caret at {x},{y}"
+            );
+        }
+        if !changed.is_empty() {
+            changed_pixels = changed.len();
+            second.get_or_insert_with(|| image.clone());
+            previous = image;
+            changes += 1;
         }
         changes >= 3
     });
-    let (shown, hidden) = (shown.unwrap(), hidden.unwrap());
-    let changed = shown
-        .data()
-        .chunks_exact(4)
-        .zip(hidden.data().chunks_exact(4))
-        .filter(|(a, b)| a != b)
-        .count();
-    assert!(
-        changed > 0 && changed < 2000,
-        "idle blink changed {changed} pixels"
-    );
-    println!("S2_CARET transitions={changes} changed_pixels={changed}");
+    let second = second.unwrap();
+    second.save_png(out().join("caret-second.png")).unwrap();
+    println!("S2_CARET transitions={changes} changed_pixels={changed_pixels}");
     app.close();
     let mut fresh = Shelf::open("caret-fresh", true);
     let image = fresh.capture("caret-fresh");
-    let score = band(&shown, &image);
+    let score = [band(&first, &image), band(&second, &image)]
+        .into_iter()
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .unwrap();
     assert!(score.0 < 5. && score.1 < 0.06, "{score:?}");
     println!("S2_BAND caret mean={} over32={}", score.0, score.1);
     fresh.close();
@@ -932,6 +957,27 @@ fn shelf_device_loss() {
     );
     // Force a changed extent so an otherwise idle app observes the removed device.
     app.place(1025, 720);
+    if std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("wgpu") {
+        until("wgpu loss presents the CPU fallback", || {
+            app.alive();
+            app.text().contains("painting on the CPU from here")
+                && app
+                    .text()
+                    .lines()
+                    .rev()
+                    .find(|s| s.starts_with("exact-windows: frame "))
+                    .is_some_and(|s| s.contains("painter cpu"))
+        });
+        let after = app.capture("device-loss-cpu");
+        app.close();
+        let mut fresh = Shelf::open("device-loss-fresh", false);
+        fresh.place(1025, 720);
+        let score = band(&after, &fresh.capture("device-loss-fresh"));
+        assert!(score.0 < 5. && score.1 < 0.06, "{score:?}");
+        println!("S2_BAND device-loss mean={} over32={}", score.0, score.1);
+        fresh.close();
+        return;
+    }
     until("CPU fallback presented through composition", || {
         app.alive();
         app.text()

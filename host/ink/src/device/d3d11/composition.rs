@@ -702,7 +702,7 @@ mod tests {
 
     #[test]
     fn a_device_less_compositor_cannot_create_a_cpu_surface() {
-        use windows::Win32::Foundation::E_INVALIDARG;
+        use windows::Win32::Foundation::{E_ILLEGAL_METHOD_CALL, E_INVALIDARG};
         unsafe {
             let device: IDCompositionDevice =
                 DCompositionCreateDevice2(None::<&windows::core::IUnknown>).unwrap();
@@ -712,7 +712,12 @@ mod tests {
                 DXGI_FORMAT_B8G8R8A8_UNORM,
                 DXGI_ALPHA_MODE_PREMULTIPLIED,
             );
-            assert_eq!(result.unwrap_err().code(), E_INVALIDARG);
+            // Build 26200 returns E_ILLEGAL_METHOD_CALL for the documented refusal.
+            let error = result.unwrap_err().code();
+            assert!(
+                matches!(error, E_INVALIDARG | E_ILLEGAL_METHOD_CALL),
+                "{error:?}"
+            );
         }
     }
 
