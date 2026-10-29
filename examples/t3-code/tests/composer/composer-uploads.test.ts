@@ -14,7 +14,6 @@ import { memoryFiles, png } from '../support/app-files-fixture';
 import { snapshot } from '../../src/client/presentation';
 import { arr, obj, str } from '../../src/client/domain';
 import { toasts } from '../../src/shell/toast';
-import { appText } from '../support/app-files';
 import { T3Client } from '../../src/client/client';
 import { storage } from '../support/client-fixture';
 
@@ -562,12 +561,6 @@ describe('with uploads staged, Send and Return wait for the draft\'s uploads, an
     root.call('panelUi', { rightPanelAt: '', settingsOpen: false, utilityPage: '', draftOwner: '', jumpRequest: 0, commandPending: true }, { data: { diffOpen: false, threadId: 't1', projectId: 'p1' },
       rightPanel: false, shell: { panel: { tabs: [], key: 'env:t1', count: 0, open: false }, terminalAvailable: false }, command }, ['reopen', '']);
     expect(sent).toHaveLength(1);
-  });
-
-  test('an Auto draft\'s machine polls are a queued send: its move holds `moving` across polls, which a newer send would let go', async () => {
-    const app = await appText('app.contract');
-    expect(app).toContain('  mutation balanceLoaded as shape Change queue refreshes data');
-    expect(app.match(/send balanceLoaded = /g)).toHaveLength(1);
   });
 
   const root = contractComponent('app.contract', 'T3Code');

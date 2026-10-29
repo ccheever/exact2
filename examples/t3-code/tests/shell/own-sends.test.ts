@@ -44,4 +44,9 @@ describe('the flows that wait on their own timers have sends of their own', () =
     expect(sends('chatLocal', [['audio-playing', 'row', '1memo.wav'], ['math-frame', 'row', '']])).toEqual(['frameReported chatlocal:audio-playing', 'frameReported chatlocal:math-frame']);
     expect(queued('frameReported')).toBe(true);
   });
+
+  test('an Auto draft\'s machine load queues, so a newer load during its move to another machine, which polls, lets nothing go', () => {
+    expect(sends('balanceLoadNow', [[], []], { branches: { balanceFetch: 'f1' } })).toEqual(['balanceLoaded cclocal:balance-load', 'balanceLoaded cclocal:balance-load']);
+    expect(queued('balanceLoaded')).toBe(true);
+  });
 });
