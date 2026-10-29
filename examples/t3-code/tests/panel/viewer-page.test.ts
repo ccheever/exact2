@@ -224,6 +224,37 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
   });
 });
 
+describe("a draft's copy in app:/cache", () => {
+  test('is made again on Try again when the cache let it go, and a copy that fails says why', async () => {
+    const name = '33333333-4444-5555-6666-777777777777', staged = `app:/data/composer-files/${name}`;
+    const files = memoryAppFiles(new Map([[staged, new TextEncoder().encode('%PDF-1.4 large draft')]]));
+    const fs = (await import('../../src/media/save-file')).appFiles().fs as unknown as {
+      stat?: (path: string) => Promise<{ size: number }>; copyFile: (from: string, to: string) => Promise<void>; readFile: (path: string) => Promise<ArrayBuffer>;
+    };
+    const copy = fs.copyFile, read = fs.readFile.bind(fs);
+    let reads = 0;
+    fs.stat = async () => ({ size: 17 * 1024 * 1024 });
+    fs.readFile = async (path: string) => { if (path === staged) reads += 1; return read(path); };
+    const meta: AttachmentMeta = { id: 'd4', name: 'large.pdf', mimeType: 'application/pdf', sizeBytes: 17 * 1024 * 1024 };
+    const c = client([]);
+    const source: PreviewSource = { id: 'd4', key: 'draft:d4', origin: 'Draft', dialog: true, local: { url: `t3-staged:${name}`, text: async () => ({ ok: false }), save: () => {} } };
+    const given = async () => decodeURIComponent(new URL((await attachmentView(c, native, meta, 1000, source)).viewer.src, 'exact-app://app/').searchParams.get('file') ?? '');
+    const first = await given();
+    files.delete(first);
+    await attachmentOp(c, native, meta, source, 'retry', 0);
+    const second = await given();
+    expect([second === first, files.has(first), new TextDecoder().decode(files.get(second))]).toEqual([false, false, '%PDF-1.4 large draft']);
+    // A copy that cannot be made: its own message, and no read of the draft past what a read takes.
+    fs.copyFile = async () => { throw new Error('No space left on device'); };
+    await attachmentOp(c, native, meta, source, 'retry', 0);
+    await attachmentView(c, native, meta, 1000, source);
+    const failed = await attachmentView(c, native, meta, 1000, source);
+    expect([failed.preview, failed.error, reads]).toEqual(['error', 'No space left on device', 0]);
+    fs.copyFile = copy; fs.readFile = read; delete fs.stat;
+    forgetPreview(c, 'draft:d4');
+  });
+});
+
 describe('what the page hands back (NotebookPreview, ArchiveFile)', () => {
   const notebook = { type: 'notebook', language: 'python', sizeBytes: 2410, cells: [
     { kind: 'markdown', source: '# Sales\nSee [docs](https://example.com) and ![chart](x.png) with `code` <b>bold</b>.', outputs: [] },

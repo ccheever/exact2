@@ -3,6 +3,8 @@
 // framed at its signed asset URL, as the reference frames it; a draft page is its staged copy under an `.html` name,
 // which the host serves as the frame's own document with no siblings, as a Blob URL's page has none. A draft past what a
 // message carries is copied there for the viewer page, which is given it (LLP 1020.001 D7). PDFs are the viewer page's.
+// A draft's copies go with the draft (composer-staged-copies.ts removeStaged) and when its preview closes; what an
+// earlier launch left is swept before this launch's first copy.
 import { appFiles } from './save-file';
 import { STAGED } from '../composer/composer-staged-copies';
 
@@ -17,6 +19,7 @@ const FAILED = 'Could not load this file.';
 interface FrameFiles {
   copyFile(from: string, to: string): Promise<unknown>;
   mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>;
+  readdir?(path: string): Promise<string[]>;
   rm?(path: string): Promise<unknown>;
 }
 const files = (): FrameFiles => (appFiles() as unknown as { fs: FrameFiles }).fs;
@@ -40,6 +43,12 @@ export function stagedCopyName(raw: string): string | null {
 
 const kept = new Map<string, Promise<string>>();
 let serial = 0;
+/** The numbered copies left in app:/cache by an earlier launch, whose numbers this one's start over: removed once. */
+let swept: Promise<void> | null = null;
+async function sweep(): Promise<void> {
+  const fs = files(), names = await fs.readdir?.(MEDIA_CACHE).catch(() => [] as string[]) ?? [];
+  await Promise.all(names.filter(name => /^\d+\.[a-z0-9]{1,10}$/.test(name)).map(name => fs.rm?.(`${MEDIA_CACHE}/${name}`)?.catch(() => undefined)));
+}
 
 async function copied(name: string, path: string): Promise<void> {
   await files().copyFile(`${STAGED}/${name}`, path);
@@ -51,6 +60,7 @@ function local(key: string, extension: string, write: (path: string) => Promise<
   if (known) return known;
   const path = `${MEDIA_CACHE}/${++serial}.${extension}`;
   const made = (async () => {
+    await (swept ??= sweep());
     await files().mkdir(MEDIA_CACHE, { recursive: true }).catch(() => undefined);
     await write(path);
     return path;
@@ -75,20 +85,33 @@ export function cachedStagedCopy(staged: string, name: string): Promise<string> 
 }
 
 /**
- * The `src` of a preview's frame for `kind` ("html") at `url` (a signed asset URL, or a draft's `t3-staged:<name>`), or
- * the message the surface shows when there is none.
+ * The `src` of a rendered page's frame at `url` (a signed asset URL, or a draft's `t3-staged:<name>`), or the message the
+ * surface shows when there is none.
  */
-export async function mediaFrameSource(kind: string, url: string): Promise<FrameSource> {
-  if (!url || kind !== 'html') return { src: '', error: '' };
+export async function mediaFrameSource(url: string): Promise<FrameSource> {
+  if (!url) return { src: '', error: '' };
   const staged = stagedCopyName(url);
   if (!staged && !isAssetUrl(url)) return { src: '', error: FAILED };
   if (!staged) return { src: url, error: '' };
   try {
-    return { src: await local(url, kind, path => copied(staged, path)), error: '' };
+    return { src: await local(`${STAGED_SCHEME}${staged}`, 'html', path => copied(staged, path)), error: '' };
   } catch {
     return { src: '', error: FAILED };
   }
 }
 
-/** Forgets the kept documents (tests). */
-export function forgetMediaFrames(): void { kept.clear(); }
+/**
+ * Deletes a draft's copies, its page's and the file its viewer page was given: the draft was removed or sent, its
+ * preview closed, or Try again asks for them afresh (a copy can be gone from the cache while its path is kept).
+ */
+export function forgetStagedCopies(staged: string): void {
+  for (const key of [`${STAGED_SCHEME}${staged}`, `given:${staged}`]) {
+    const copy = kept.get(key);
+    if (!copy) continue;
+    kept.delete(key);
+    void copy.then(path => files().rm?.(path)).catch(() => undefined);
+  }
+}
+
+/** Forgets the kept documents and the sweep (tests). */
+export function forgetMediaFrames(): void { kept.clear(); swept = null; }

@@ -43,8 +43,9 @@ describe('attachment media bodies', () => {
     expect(files.map(file => previewKind(file))).toEqual(['pdf', 'html', 'audio', 'video', 'archive']);
     expect(['x.pdf', 'x.htm', 'x.mp3', 'x.m4a', 'x.mov', 'x.webm'].map(name => previewKind({ name, mimeType: 'application/octet-stream' })))
       .toEqual(['pdf', 'html', 'audio', 'audio', 'video', 'video']);
-    expect([isMediaPreview('pdf'), isMediaPreview('image'), mediaBody('html', false), mediaBody('audio', true), mediaBody('text', true)])
-      .toEqual([true, false, '', 'audio', '']);
+    // A PDF is the viewer page's, never a media frame's.
+    expect([isMediaPreview('pdf'), isMediaPreview('image'), mediaBody('pdf', true), mediaBody('html', false), mediaBody('audio', true), mediaBody('text', true)])
+      .toEqual([false, false, '', '', 'audio', '']);
   });
 
   test('audio and video play the inline signed URL and a PDF opens it in PDF.js; nothing reads them as text', async () => {

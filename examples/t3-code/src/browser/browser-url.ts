@@ -14,8 +14,9 @@ import { isLocalLoopbackHost } from '../connections/host-classification';
 /**
  * previewPdfAssetUrl (packages/shared/src/preview.ts, T3 Code 74541bab17): a server browser tab on one of the
  * environment's signed PDF assets shows the PDF from this client, since the server's headless browser cannot render
- * it (the server commits a placeholder page at the URL). A browser on the host's loopback address reaches the asset
- * through this client's own route to the environment (`httpBaseUrl`); null for anything else.
+ * it (the server commits a placeholder page at the URL): the viewer page reads it (server-pdf-viewer.ts). A browser on
+ * the host's loopback address reaches the asset through this client's own route to the environment (`httpBaseUrl`);
+ * null for anything else.
  */
 export function previewPdfAssetUrl(rawUrl: string, httpBaseUrl: string | null): string | null {
   if (!httpBaseUrl) return null;

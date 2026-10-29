@@ -652,11 +652,15 @@ Differences that belong to the app:
   (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
   from the page every few seconds
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
-- A server Browser tab's PDF is WebKit's PDF view of its signed URL (LLP 1020.002 D10), where the reference embeds the
-  URL in Chromium's viewer: WebKit's view keeps a grey margin around the page, where Chromium's fits the page to the
-  pane. A rendered HTML preview is a sandboxed `iframe` (LLP 1020.002): a right-click shows WebKit's menu, not the
-  desktop shell's, and a `window.open` with features opens the platform's popup window, where the reference opens every
-  new window in the default browser (a `target="_blank"` link or ⌘-click still does).
+- A server Browser tab's PDF is the viewer page's PDF.js reading its signed URL (`server-pdf-viewer.ts`), where the
+  reference embeds the URL in Chromium's viewer, which would run an HTML answer as a page. Its toolbar is T3 Code's
+  PdfViewer (pages, previous and next, zoom, Fit width, full screen, Find in PDF), not Chromium's (thumbnails and
+  outline, a page field, rotate, two-page view, download, print, properties, and the browser's own ⌘F), and it stays
+  in the floating player, where Chromium's hides at that size. A PDF from another origin loads only when its server
+  lets the page fetch it (CORS), as the T3 server does. A rendered HTML preview is a sandboxed `iframe` (LLP 1020.002):
+  a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens the platform's
+  popup window, where the reference opens every new window in the default browser (a `target="_blank"` link or ⌘-click
+  still does).
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
