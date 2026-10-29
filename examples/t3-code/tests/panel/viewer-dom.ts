@@ -100,6 +100,17 @@ export function sized(node: Element, width: number, height: number) {
   Object.defineProperty(node, 'offsetHeight', { configurable: true, get: () => height });
 }
 export const tick = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
+/**
+ * Waits until `ready` holds, reading it every 5 ms (state in this process, cheap to read; docs/testing.md, Waiting),
+ * and fails naming `what` after `bound` ms.
+ */
+export async function until(ready: () => unknown, what: string, bound = 3000): Promise<void> {
+  const start = Date.now();
+  while (!ready()) {
+    if (Date.now() - start > bound) throw new Error(`waited ${bound} ms for ${what}`);
+    await tick(5);
+  }
+}
 
 /** What the page's `fetch` answers, by URL; each test sets its own. */
 export const network = { respond: (_url: string, _init?: RequestInit): Response | Promise<Response> => new Response('') };

@@ -29,7 +29,7 @@ import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter 
 import { audioPage, forgetAudioPage, htmlPage, htmlToggleLabel, isBrowserPreviewFile, isHtmlPath, isPdfPath } from './files-rendered-html'; // rendered HTML, PDFs and audio
 import { isMarkdownPreviewFile, isMermaidPreviewFile, isWorkspaceAudioPreviewPath, isWorkspaceDocumentPath, maskMarkdownFrontmatter } from './file-preview-kind';
 import { attachmentOp, attachmentView, emptyAttachment, forgetPreview, type AttachmentMeta, type AttachmentView, type PreviewSource } from './attachment-surface'; // a document's or a binary file's body
-import { closedFullFile, filesViewer, filesViewerOp, refreshFilesViewer, type FullFileView } from './files-viewer'; // a PDF, a table or a full file in the viewer page
+import { closedFullFile, filesViewer, filesViewerHidden, filesViewerOp, refreshFilesViewer, type FullFileView } from './files-viewer'; // a PDF, a table or a full file in the viewer page
 import { emptyViewerFrame, type ViewerFrameView } from './viewer-frames';
 import { mermaidFile } from './mermaid-file'; // a Mermaid file's diagram
 import { openInlineDocumentImage } from '../timeline/timeline-attachments'; // the expanded image dialog
@@ -831,6 +831,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const preview = !previewPath ? '' : media.kind ? 'media' : audio ? (soundFailed ? 'audio-error' : sound?.url ? 'audio' : 'loading')
     : frame ? (page.error ? 'error' : page.url ? (pdf ? 'viewer' : 'html') : 'loading') : viewer ? (viewer.error ? (fullFile ? 'full-error' : 'error') : 'viewer') : document ? 'attachment' : read === undefined ? 'loading' : read.error ? 'error'
       : rendered ? (markdown ? 'markdown' : 'mermaid') : 'code';
+  if (preview !== 'viewer') filesViewerHidden(client);
   const rich = preview === 'markdown' ? await renderedMarkdown(client, native, previewPath, absolute, text, editable, now) : null;
   const diagram = preview === 'mermaid' ? mermaidFile(client, text) : null;
   const readError = !frame && !media.kind && !audio && !document && !!read?.error;

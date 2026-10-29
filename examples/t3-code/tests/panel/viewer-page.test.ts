@@ -13,6 +13,15 @@ import { linkedViews } from '../../src/panel/pr-attachment-surfaces';
 import { imagePreviewView } from '../../src/timeline/timeline-attachments';
 import { toasts } from '../../src/shell/toast';
 
+/** Waits until `ready` holds (in-process state), failing after a second. */
+async function until(ready: () => unknown, what: string): Promise<void> {
+  const start = Date.now();
+  while (!ready()) {
+    if (Date.now() - start > 1000) throw new Error(`waited for ${what}`);
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
+
 const native = { available: true } as Native;
 function client(list: AttachmentMeta[], calls: Obj[] = []) {
   const item = { type: 'user_message', attachments: list.map(file => ({ type: 'file', ...file })) };
@@ -112,18 +121,20 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
     expect(server.calls).toEqual([]);
     // Text the page sends unasked never reaches the clipboard.
     await attachmentLocal(c, native, 'viewer:{"type":"boot"}', log.id, 0);
-    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', text: 'unasked' })}`, log.id, 0);
+    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', key: config(view).key, text: 'unasked' })}`, log.id, 0);
     expect(calls.filter(call => call.op === 'copyText')).toEqual([]);
-    // Copy contents pressed before a Try again's page booted goes to that page once it does; its answer is copied once.
-    await attachmentLocal(c, native, 'retry', log.id, 0);
+    // The page's Try again keeps its frame, which takes the new config and mounts its viewer afresh: a Copy pressed
+    // then goes to it at once, for the new key, and only its answer for that key is copied, once.
+    await attachmentLocal(c, native, 'viewer:{"type":"retry"}', log.id, 0);
+    const retried = await attachmentView(c, native, log, 1000);
+    expect([retried.viewer.id, config(retried).key === config(view).key]).toEqual([view.viewer.id, false]);
     await attachmentLocal(c, native, 'copy', log.id, 0);
     await attachmentLocal(c, native, 'copy', log.id, 0);
-    expect((await attachmentView(c, native, log, 1000)).viewer.posts).toEqual([]);
-    await attachmentLocal(c, native, 'viewer:{"type":"boot"}', log.id, 0);
     const asked = await attachmentView(c, native, log, 1000);
-    expect([asked.viewer.posts.length, JSON.parse(asked.viewer.posts[0]!.text)]).toEqual([1, { type: 'copy' }]);
-    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', text: 'whole file' })}`, log.id, 0);
-    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', text: 'again' })}`, log.id, 0);
+    expect(asked.viewer.posts.map(post => JSON.parse(post.text))).toEqual([{ type: 'copy', key: config(retried).key }]);
+    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', key: config(view).key, text: 'the old file' })}`, log.id, 0);
+    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', key: config(retried).key, text: 'whole file' })}`, log.id, 0);
+    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'copy', key: config(retried).key, text: 'again' })}`, log.id, 0);
     expect(calls.filter(call => call.op === 'copyText')).toEqual([{ op: 'copyText', text: 'whole file' }]);
     expect((await attachmentView(c, native, log, 1500)).copyLabel).toBe('Copied');
     // A stream whose URL was refused keeps Copy contents, which says it has nothing to copy yet and asks nothing later.
@@ -138,6 +149,10 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
     await attachmentView(refused, native, log, 1000);
     await attachmentLocal(refused, native, 'viewer:{"type":"boot"}', log.id, 0);
     expect((await attachmentView(refused, native, log, 1000)).viewer.posts).toEqual([]);
+    // The frame is one per file and origin: the page narrows its requests to the first origin it is given.
+    const moved = client([log]);
+    (moved as unknown as { origin: string }).origin = 'http://127.0.0.1:2';
+    expect((await attachmentView(moved, native, log, 1000)).viewer.id === view.viewer.id).toBe(false);
   });
 
   test('a CSV past 1 MB streams as a table, and its toggle shows the source; Try again mounts the viewer afresh', async () => {
@@ -251,5 +266,21 @@ describe('what the page hands back (NotebookPreview, ArchiveFile)', () => {
     expect((await attachmentView(c, native, meta, 1000)).entry).toMatchObject({ preview: 'error', message: 'Only UTF-8 text and images can be opened inside an archive.' });
     await attachmentLocal(c, native, 'viewer:{"type":"entry-closed"}', meta.id, 0);
     expect((await attachmentView(c, native, meta, 1000)).entry.open).toBe(false);
+    // The preview gone, its picture's file leaves the media cache.
+    forgetPreview(c, meta.id);
+    await until(() => !files.has(image.entry.url), "the entry picture's file removed");
+  });
+
+  test("a notebook's picture past 1 MiB is a file in the media cache, removed with the preview", async () => {
+    const files = memoryAppFiles();
+    const meta: AttachmentMeta = { id: 'nb2', name: 'plots.ipynb', mimeType: '', sizeBytes: 3_000_000 };
+    const c = client([meta]);
+    await attachmentView(c, native, meta, 1000);
+    const big = `data:image/png;base64,${'A'.repeat(1_400_000)}`;
+    await attachmentLocal(c, native, `viewer:${JSON.stringify({ type: 'notebook', language: 'python', sizeBytes: 3_000_000, cells: [{ kind: 'code', source: 'plot()', outputs: [{ kind: 'image', text: big }] }] })}`, meta.id, 0);
+    const url = (await attachmentView(c, native, meta, 1000)).notebook.cells[0]!.outputs[0]!.url;
+    expect([url.startsWith('app:/cache/media-preview/'), files.has(url)]).toEqual([true, true]);
+    forgetPreview(c, meta.id);
+    await until(() => !files.has(url), "the notebook picture's file removed");
   });
 });

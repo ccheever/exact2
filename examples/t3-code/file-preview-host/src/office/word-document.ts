@@ -14,7 +14,10 @@ export class WordDocument {
   private readonly engine: Engine;
   private pages: OfficePages | null = null;
   private opened: readonly WordPageSize[] | null = null;
-  /** WordTextLayer per page: the page it asked for, its spans, and the nodes drawn from them, kept until they change. */
+  /**
+   * WordTextLayer per page near the viewport: the page it asked for, its spans, and the nodes drawn from them, kept
+   * until they change; a page that leaves takes its layer with it, as the reference unmounts one.
+   */
   private readonly layers = new Map<number, { page: WordPageSize; spans: readonly WordSpan[] | null; controller: AbortController; root: HTMLElement | null }>();
 
   constructor(bytes: ArrayBuffer, private readonly onDetails: (text: string) => void, private readonly onError: (cause: unknown) => void, loading: () => HTMLElement) {
@@ -60,7 +63,7 @@ export class WordDocument {
   private show(pages: readonly WordPageSize[]) {
     for (const [index, layer] of this.layers) if (index >= pages.length) { layer.controller.abort(); this.layers.delete(index); }
     this.opened = pages;
-    const props = { pages, paint: this.paint, label: "Page", onError: this.onError, overlay: (index: number) => this.overlay(index) };
+    const props = { pages, paint: this.paint, label: "Page", onError: this.onError, overlay: (index: number) => this.overlay(index), release: this.release };
     if (this.pages) this.pages.update(props);
     else {
       this.pages = new OfficePages(props);
@@ -77,6 +80,11 @@ export class WordDocument {
       .then((target) => { if (target) this.pages?.scrollTo(target.index, target.y); })
       .catch(this.onError);
   }
+
+  private readonly release = (index: number) => {
+    this.layers.get(index)?.controller.abort();
+    this.layers.delete(index);
+  };
 
   /**
    * WordTextLayer: the page's spans, asked of the worker when the page nears the viewport, and again for the full

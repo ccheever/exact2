@@ -31,7 +31,7 @@ import { sourceGutter } from './files-crumbs-settle'; // the reference's line-nu
 import { letGo } from '../client/let-go';
 import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
 import { FILE_TEXT_PREVIEW_MAX_BYTES, filePreviewDelimiter, filePreviewKind, maskMarkdownFrontmatter, officePreviewKind, type FilePreviewKind } from './file-preview-kind';
-import { emptyViewerFrame, newFrame, postBytes, requestCopy, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames'; // the viewer page
+import { connectionScope, emptyViewerFrame, newFrame, postBytes, requestCopy, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames'; // the viewer page
 import { emptyEntry, emptyNotebook, entryPicture, entryView, forgetNotebook, notebookOutputMessage, notebookView, showMoreCells, type EntryView, type NotebookView } from './notebook-preview'; // what the page hands back
 import { appFiles } from '../media/save-file';
 import { stagedPath } from './attachment-files';
@@ -242,7 +242,8 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   const cells = notebook ? await notebookView(client, source.key, notebook) : null;
   const rich = preview === 'markdown' ? await renderedAttachment(client, native, source.id, text) : cells ? { ...NO_MARKDOWN(), ...cells.markdown } : NO_MARKDOWN();
   const diagram = preview === 'mermaid' ? mermaidFile(client, text) : null;
-  const frameId = viewerFrameId(source.key);
+  // One frame per file and origin: the page narrows its requests to the first origin it is given.
+  const frameId = viewerFrameId(`${source.key}-${connectionScope(viewer?.src ?? '')}`);
   return {
     id: source.id, origin: source.origin, canRemove: source.dialog, canClose: source.dialog, name: meta.name, size: meta.sizeBytes > 0 ? formatAttachmentSize(meta.sizeBytes) : '', preview, error: failure,
     canRender: !!renderedMode, rendered, renderLabel: renderedToggleLabel(renderedMode, rendered),
@@ -332,8 +333,9 @@ export async function attachmentOp(client: T3Client, native: Native, meta: Attac
   if (op === 'retry') {
     forgetFontPage(source.key);
     state.url = source.local?.url ?? ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; state.fontError = '';
-    // AttachmentFilePreview's `revision`: the viewer mounts afresh, and a draft's bytes go to it again.
-    state.revision += 1; state.bytesError = ''; state.frame.notebook = null; state.frame.entry = null; state.frame.booted = false;
+    // AttachmentFilePreview's `revision`: the config's key changes, so the page mounts its viewer afresh in the frame
+    // it has, and a draft's bytes go to it again.
+    state.revision += 1; state.bytesError = ''; state.frame.notebook = null; state.frame.entry = null;
     forgetNotebook(source.key); // NotebookPreview remounts: twenty cells again
     return '';
   }

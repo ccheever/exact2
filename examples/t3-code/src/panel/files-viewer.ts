@@ -11,7 +11,7 @@ import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
 import { saveAttachment } from './attachment-files';
 import { revisedUrl } from './files-rendered-html';
-import { emptyViewerFrame, newFrame, requestCopy, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames';
+import { connectionScope, dropCopy, emptyViewerFrame, newFrame, requestCopy, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames';
 import { openExternal } from '../client/external-open';
 
 export type FullFileView = { open: boolean; copyLabel: string; copied: boolean; saving: boolean; saveLabel: string };
@@ -99,7 +99,8 @@ export async function filesViewer(client: T3Client, native: Native | null | unde
   }
   state.name = request.name;
   state.path = request.absolute;
-  return { viewer: viewerFrameView(state.frame, viewerFrameId(`files-${client.environmentId}`), config), full, error: '' };
+  // One frame per environment and origin: the page narrows its requests to the first origin it is given.
+  return { viewer: viewerFrameView(state.frame, viewerFrameId(`files-${client.environmentId}-${connectionScope(config.src)}`), config), full, error: '' };
 }
 
 /** `surface-files-viewer*` and the Full file subheader (`full-copy`, `full-save`). */
@@ -134,6 +135,9 @@ export async function filesViewerOp(client: T3Client, native: Native, op: string
   }
   if (event.type === 'copy-error') pushToast(client, { kind: 'error', title: 'Could not read file', description: event.message });
 }
+
+/** Files shows another body: the frame unmounts, and a Copy asked of it is withdrawn. */
+export function filesViewerHidden(client: T3Client): void { const state = states.get(client); if (state) dropCopy(state.frame); }
 
 /** The panel's Refresh: the full file is signed afresh and its viewer mounts again (fileRefreshRevision). */
 export function refreshFilesViewer(client: T3Client): void {

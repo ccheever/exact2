@@ -2,7 +2,7 @@
 // BinaryViewer.tsx, its ArchiveFile and PreviewImageContent.tsx): the archive's bar and scroll area kept as folders open,
 // an entry sent to the app to draw, and the pictures this page draws itself.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { domWindow, FakeWorker, network, page, tick, viewerDom } from './viewer-dom';
+import { domWindow, FakeWorker, network, page, until, viewerDom } from './viewer-dom';
 
 viewerDom();
 const { BinaryViewer, archiveEntry, APP_IMAGE_BYTES } = await import(`${page}/binary/binary-viewer.ts`);
@@ -35,7 +35,7 @@ const press = (root: HTMLElement, name: string) => [...root.querySelectorAll<HTM
 describe('BinaryViewer', () => {
   test("a folder opens in the archive's one scroll area, which keeps its place; Parent folder goes back up", async () => {
     const viewer = openArchive();
-    await tick(10);
+    await until(() => viewer.element.querySelector('.entry-open'), 'the entries');
     const bar = viewer.element.querySelector('.archive-bar')!, scroll = viewer.element.querySelector('.scroll-both')!;
     const back = bar.querySelector<HTMLButtonElement>('.surface-action')!;
     expect([bar.querySelector('.archive-place')?.textContent, bar.querySelector('.archive-count')?.textContent, back.getAttribute('aria-label'), back.disabled])
@@ -53,9 +53,9 @@ describe('BinaryViewer', () => {
 
   test("an entry's text goes to the app to draw under the bar, and Back to archive closes it", async () => {
     const viewer = openArchive();
-    await tick(10);
+    await until(() => viewer.element.querySelector('.entry-open'), 'the entries');
     press(viewer.element, 'notes.txt');
-    await tick(5);
+    await until(() => posted.length, 'the entry sent');
     const back = viewer.element.querySelector<HTMLButtonElement>('.archive-bar .surface-action')!;
     expect([posted.at(-1), back.getAttribute('aria-label'), viewer.element.querySelector('.archive-place')?.textContent])
       .toEqual([{ type: 'entry', path: 'notes.txt', view: 'text', text: 'hello', truncated: false }, 'Back to archive', 'notes.txt']);
@@ -63,16 +63,16 @@ describe('BinaryViewer', () => {
     expect([posted.at(-1), viewer.element.querySelectorAll('.entry-open').length]).toEqual([{ type: 'entry-closed' }, 4]);
     // A HEIC picture is one the reference's Chromium cannot decode.
     press(viewer.element, 'photo.heic');
-    await tick(5);
+    await until(() => posted.at(-1)?.path === 'photo.heic', 'the entry sent');
     expect(posted.at(-1)).toEqual({ type: 'entry', path: 'photo.heic', view: 'failure', message: 'Unable to load image.' });
     viewer.dispose();
   });
 
   test('an SVG entry is drawn here under its size and zoom bar, and nothing goes to the app', async () => {
     const viewer = openArchive();
-    await tick(10);
+    await until(() => viewer.element.querySelector('.entry-open'), 'the entries');
     press(viewer.element, 'logo.svg');
-    await tick(5);
+    await until(() => viewer.element.querySelector('.picture img'), 'the picture');
     const picture = viewer.element.querySelector('.picture')!;
     const image = picture.querySelector<HTMLImageElement>('img')!;
     expect([image.getAttribute('src')?.startsWith('blob:'), image.getAttribute('alt'), picture.querySelector('.picture-bar .tabular')?.textContent, picture.querySelector('.picture-percent')?.textContent])
@@ -106,11 +106,11 @@ describe('BinaryViewer', () => {
     };
     const viewer = new BinaryViewer({ src: 'http://127.0.0.1:1/app.sqlite', name: 'app.sqlite', kind: 'sqlite' });
     document.body.append(viewer.element);
-    await tick(10);
+    await until(() => viewer.element.querySelector('.db-rows td'), 'the first rows');
     const next = viewer.element.querySelector<HTMLButtonElement>('[aria-label="Next rows"]')!;
     expect([viewer.element.querySelector('.range')?.textContent, viewer.element.querySelector('.status-line')?.textContent]).toEqual(['1–50 of 120', '120 rows · 2 columns · 1 KB']);
     next.click();
-    await tick(5);
+    await until(() => viewer.element.querySelector('.db-rows td')?.textContent === '51', 'the next rows');
     expect([viewer.element.querySelector('[aria-label="Next rows"]') === next, viewer.element.querySelector('.range')?.textContent, viewer.element.querySelector('.db-rows td')?.textContent])
       .toEqual([true, '51–100 of 120', '51']);
     viewer.dispose();

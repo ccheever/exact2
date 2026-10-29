@@ -18,12 +18,22 @@ export function packedUrl(input: RequestInfo | URL, base: string): URL | null {
   return url.protocol === page.protocol && url.host === page.host && PACKED.test(url.pathname) ? url : null;
 }
 
+/**
+ * What a relative URL in this context is relative to: its location, or, in a worker started from a Blob
+ * (policy-workers.ts), the directory of its scripts, which is where its location was before.
+ */
+export function contextBase(): string {
+  return typeof location === "undefined" || location.protocol === "blob:" ? import.meta.url : location.href;
+}
+
 // In the page and its workers; a test imports `packedUrl` alone.
 if (typeof location !== "undefined") {
   const fetchFile = globalThis.fetch.bind(globalThis);
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = packedUrl(input, location.href);
-    if (!url) return fetchFile(input, init);
+    const base = contextBase();
+    const url = packedUrl(input, base);
+    // A Blob-started worker has no base of its own for a relative request.
+    if (!url) return fetchFile(typeof input === "string" && location.protocol === "blob:" ? new URL(input, base).href : input, init);
     const packed = await fetchFile(`${url.href.replace(/[?#].*$/, "")}.gz`, { signal: init?.signal ?? null });
     if (!packed.ok || !packed.body) return packed;
     const type = TYPES[url.pathname.split(".").pop()!.toLowerCase()] ?? "application/octet-stream";

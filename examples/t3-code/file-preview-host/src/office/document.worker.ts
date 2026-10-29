@@ -1,7 +1,9 @@
 // From T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3): apps/web/src/components/files/office/document.worker.ts, as it stands but its imports:
-// its wasm and fonts ship packed (shared/packed.ts).
+// its wasm and fonts ship packed (shared/packed.ts), and the engine's own worker starts under the page's policy
+// (shared/policy-workers.ts).
 // Adapted from opencode (MIT). Copyright (c) 2025 opencode. See LICENSE.opencode.
 import "../shared/packed";
+import "../shared/policy-workers";
 import * as Schema from "effect/Schema";
 import {
   buildResidentRegionLayoutRequest,

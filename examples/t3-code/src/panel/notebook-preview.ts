@@ -9,7 +9,7 @@ import { codeLines, type CodeLine, type MarkdownSource } from './files-surface';
 import { markdownEnv, messageChips, type MarkdownEnv } from '../timeline/message-chips';
 import { withFileLinkMenus } from '../timeline/file-link-menu';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
-import { filesMermaid, type MermaidDiagramView } from '../timeline/timeline-mermaid';
+import type { MermaidDiagramView } from '../timeline/timeline-mermaid';
 import { sourceGutter } from './files-crumbs-settle';
 import { formatAttachmentSize } from '../composer/composer-editor-files';
 import { appFiles } from '../media/save-file';
@@ -41,18 +41,25 @@ function bytesOf(base64: string): Uint8Array {
   return bytes;
 }
 
+type CacheFiles = { mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>; writeFile(path: string, bytes: Uint8Array): Promise<unknown>; rm?(path: string): Promise<unknown> };
+const cacheFiles = () => appFiles().fs as unknown as CacheFiles;
+/** Removes a kept picture's file, once it is written. */
+function removePicture(kept: Kept): void {
+  void kept.page.then(path => (path ? cacheFiles().rm?.(path) : undefined)).catch(() => undefined);
+}
+
 /** A picture the page sent as base64, written once to app:/cache/media-preview for an `image` to show. */
 function picture(owner: string, key: string, base64: string, extension: string): Promise<string> {
   const known = pictures.get(owner);
   if (known?.key === key) return known.page;
   const path = `${MEDIA_CACHE}/entry-${++serial}.${extension}`;
-  const files = appFiles().fs as unknown as { mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>; writeFile(path: string, bytes: Uint8Array): Promise<unknown>; rm?(path: string): Promise<unknown> };
+  const files = cacheFiles();
   const page = (async () => {
     await files.mkdir(MEDIA_CACHE, { recursive: true }).catch(() => undefined);
     await files.writeFile(path, bytesOf(base64));
     return path;
   })().catch(() => '');
-  if (known) void known.page.then(old => (old ? files.rm?.(old) : undefined)).catch(() => undefined);
+  if (known) removePicture(known);
   pictures.set(owner, { key, page });
   return page;
 }
@@ -85,7 +92,15 @@ function notebookOf(owner: string) {
   }
   return state;
 }
-export function forgetNotebook(owner: string): void { notebookState.delete(owner); pictures.delete(`entry:${owner}`); }
+/** A preview gone: its notebook's state, and the files of its archive entry's picture and its notebook's pictures. */
+export function forgetNotebook(owner: string): void {
+  notebookState.delete(owner);
+  for (const [key, kept] of pictures) {
+    if (key !== `entry:${owner}` && !key.startsWith(`output:${owner}:`)) continue;
+    removePicture(kept);
+    pictures.delete(key);
+  }
+}
 /** The media cache file of the archive entry's picture `owner` shows, or ''. */
 export function entryPicture(owner: string): Promise<string> { return pictures.get(`entry:${owner}`)?.page ?? Promise.resolve(''); }
 
@@ -132,7 +147,8 @@ export async function notebookView(client: T3Client, owner: string, notebook: Vi
     },
     markdown: {
       markdownSource, md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text: markdown }, '', [], `notebook:${owner}`, { thread: false }, client)) },
-      code: messageCodeBlocks(markdown), diagrams: filesMermaid(client, markdown),
+      // No diagram: the cells' Mermaid fences are text (data/src/markdown_inert.rs).
+      code: messageCodeBlocks(markdown), diagrams: [],
     },
   };
 }

@@ -57,19 +57,36 @@ export type FrameState = {
   sentBytes: string;
   /** The page's own number for the open menu, which its pick names. */
   pageSerial: number;
-  /** A Copy contents the app asked for and the page has not answered: only then is its text the clipboard's. */
-  copyPending: boolean;
+  /** The config key the frame last showed. */
+  configKey: string;
+  /**
+   * The config key a Copy contents was asked for, until its page answers: only an answer for that key is the
+   * clipboard's, and the request goes when the frame shows another key or another file (`dropCopy`).
+   */
+  copyKey: string | null;
 };
 
 const emptyMenu = (): ViewerMenu => ({ serial: 0, x: 0, y: 0, width: 0, height: 0, label: '', rows: [] });
-export const newFrame = (): FrameState => ({ booted: false, posts: [], serial: 0, menu: emptyMenu(), entry: null, notebook: null, height: 0, sentBytes: '', pageSerial: 0, copyPending: false });
+export const newFrame = (): FrameState => ({ booted: false, posts: [], serial: 0, menu: emptyMenu(), entry: null, notebook: null, height: 0, sentBytes: '', pageSerial: 0, configKey: '', copyKey: null });
 export const emptyViewerFrame = (): ViewerFrameView => ({ id: '', src: '', config: '', posts: [], menu: emptyMenu() });
 
 /** A frame's id: a preview key, made safe for an element id and still one per key (`a.b` and `a_b` differ). */
 export const viewerFrameId = (key: string) => `viewer-${key.replace(/[^A-Za-z0-9-]/g, (char) => `_${char.codePointAt(0)!.toString(16)}_`)}`;
 
+/**
+ * Whom the page may reach for `src` (entry.ts `narrowConnections`): its http(s) origin, or `local` for a draft's Blob,
+ * a text the app read or none. The page narrows its policy once, so a frame keyed by this mounts again for another.
+ */
+export function connectionScope(src: string): string {
+  try {
+    const url = new URL(src);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : 'local';
+  } catch { return 'local'; }
+}
+
 /** The frame's view: the config as JSON and the page's next post, once it has booted. */
 export function viewerFrameView(state: FrameState, id: string, config: ViewerConfig): ViewerFrameView {
+  if (state.configKey !== config.key) { state.configKey = config.key; state.copyKey = null; }
   return { id, src: VIEWER_PAGE, config: JSON.stringify({ type: 'config', ...config }), posts: state.booted ? state.posts.slice(0, 1) : [], menu: state.menu };
 }
 
@@ -94,12 +111,14 @@ function base64(bytes: Uint8Array): string {
   return parts.join('');
 }
 
-/** Copy contents: asked of the page now, or when it next boots (a Try again's page), and answered once. */
+/** Copy contents of the file the frame shows: asked of its page now, or when that page boots, and answered once. */
 export function requestCopy(state: FrameState): void {
-  if (state.copyPending) return;
-  state.copyPending = true;
-  if (state.booted) postToViewer(state, { type: 'copy' });
+  if (state.copyKey !== null && state.copyKey === state.configKey) return;
+  state.copyKey = state.configKey;
+  if (state.booted) postToViewer(state, { type: 'copy', key: state.copyKey });
 }
+/** The frame no longer shows its page (another body took the surface): a Copy asked of it is withdrawn. */
+export function dropCopy(state: FrameState): void { state.copyKey = null; }
 
 /** A draft's bytes for the viewer `key`, in base64 posts, the last one `done`. */
 export function postBytes(state: FrameState, key: string, bytes: Uint8Array): void {
@@ -128,8 +147,8 @@ export function viewerMessage(state: FrameState, payload: string): ViewerEvent {
     case 'boot':
       // A new document: what the old one was told and reported is gone with it.
       Object.assign(state, { booted: true, posts: [], menu: { ...state.menu, serial: state.menu.serial + 1, rows: [] }, entry: null, sentBytes: '' });
-      // A Copy asked of the old page, or before this one booted, goes to this one.
-      if (state.copyPending) postToViewer(state, { type: 'copy' });
+      // A Copy asked before this page booted goes to it, if it still shows that file.
+      if (state.copyKey !== null && state.copyKey === state.configKey) postToViewer(state, { type: 'copy', key: state.copyKey });
       return { type: 'boot' };
     case 'posted':
       state.posts = state.posts.filter(post => post.key !== str(message.key));
@@ -161,11 +180,11 @@ export function viewerMessage(state: FrameState, payload: string): ViewerEvent {
     case 'height':
       state.height = Math.max(0, Number(message.value) || 0);
       return { type: 'none' };
-    // The clipboard takes text only for a Copy the app asked for.
+    // The clipboard takes text only for a Copy the app asked for, of the file it was asked for.
     case 'copy':
     case 'copy-error':
-      if (!state.copyPending) return { type: 'none' };
-      state.copyPending = false;
+      if (state.copyKey === null || str(message.key) !== state.copyKey) return { type: 'none' };
+      state.copyKey = null;
       return message.type === 'copy' ? { type: 'copy', text: str(message.text) } : { type: 'copy-error', message: str(message.message, 'Try again.') };
     case 'retry': return { type: 'retry' };
     case 'link': return { type: 'link', url: str(message.url) };

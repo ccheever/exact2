@@ -54,7 +54,8 @@ export function inputs() {
 const CSP = [
   "default-src 'none'",
   "script-src 'self' 'wasm-unsafe-eval'",
-  "worker-src 'self'",
+  // Workers start from a Blob that imports their script, so they take this policy (shared/policy-workers.ts).
+  "worker-src 'self' blob:",
   // The file comes from the environment's server, whose origin is known only at run time.
   "connect-src 'self' http: https: blob: data:",
   "img-src 'self' blob: data:",
@@ -100,16 +101,17 @@ function typeOnly(manifest, dir) {
 }
 
 /**
- * The packages a shipped package depends on to run, transitively (its `dependencies` and `optionalDependencies`, each
- * found as Node finds it), as the reference's third-party-licenses.ts collectProductionDependencyPackages walks them: a
- * prebuilt file such as jszip.min.js carries its dependencies' code without the bundle reading their files. A package
- * that is not installed (an optional one for another platform) ships nothing.
+ * The packages a shipped package's browser build carries, transitively: its `dependencies` less those its `browser`
+ * field replaces (jszip's readable-stream; jszip.min.js carries pako, lie, immediate and setimmediate), each found as
+ * Node finds it, as the reference's third-party-licenses.ts collectProductionDependencyPackages walks them. Not
+ * `optionalDependencies`: pdfjs-dist's is Node's canvas, which a page never loads.
  */
 export function productionDependencies(roots) {
   const found = new Map(roots), seen = new Set(found.values());
   const visit = dir => {
     const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-    for (const name of [...new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.optionalDependencies ?? {})])].sort()) {
+    const replaced = manifest.browser && typeof manifest.browser === 'object' ? manifest.browser : {};
+    for (const name of Object.keys(manifest.dependencies ?? {}).filter(name => !(name in replaced)).sort()) {
       let at = dir, located = null;
       while (!located) {
         const candidate = join(at, 'node_modules', name);

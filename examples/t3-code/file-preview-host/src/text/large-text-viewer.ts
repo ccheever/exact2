@@ -54,6 +54,11 @@ export class LargeTextViewer {
   private status: HTMLElement | null = null;
   private loadingRest: HTMLElement | null = null;
   private columnsNotice: HTMLElement | null = null;
+  /** The worker has measured the file (its first `meta`). */
+  private measured = false;
+  /** Settles once the worker has measured the file, or the viewer has failed or gone. */
+  private settled!: () => void;
+  private readonly measuredOrGone = new Promise<void>((resolve) => { this.settled = resolve; });
 
   constructor(private props: LargeTextProps) {
     this.element.style.cssText = "display:flex;flex:1;min-height:0;flex-direction:column";
@@ -87,9 +92,11 @@ export class LargeTextViewer {
         } else if (result.type === "error") {
           this.copyPending?.reject(new Error(result.message));
           this.copyPending = null;
-          if (result.operation !== "copy") { this.error = result.message; this.render(); }
+          if (result.operation !== "copy") { this.error = result.message; this.settled(); this.render(); }
         } else if (result.type === "meta") {
           indexed = true;
+          this.measured = true;
+          this.settled();
           if (prefetched) {
             this.pages = new Map();
             this.pending.clear();
@@ -113,6 +120,7 @@ export class LargeTextViewer {
         this.copyPending?.reject(new Error("The text viewer stopped."));
         this.copyPending = null;
         this.error = "Could not load the text viewer. Close the file and try again.";
+        this.settled();
         this.render();
       });
       engine.postMessage({ type: "open", src: props.src, text: props.text, sizeBytes: props.sizeBytes, delimiter: props.delimiter }, []);
@@ -144,8 +152,13 @@ export class LargeTextViewer {
     } else startWorker();
   }
 
-  /** copyContents: the whole text, once the worker has read it. */
+  /**
+   * copyContents: the whole text, once the worker has read it. Asked before the worker has measured the file (with the
+   * page's config, after a Try again), it waits for that, where the reference's handle would say the file is
+   * unavailable: only then is the 8 MB bound known.
+   */
   copy(): Promise<string> {
+    if (!this.measured && !this.error && !this.controller.signal.aborted) return this.measuredOrGone.then(() => this.copy());
     return new Promise<string>((resolve, reject) => {
       if (!this.worker) { reject(new Error("The file is unavailable.")); return; }
       if (this.copyPending) { reject(new Error("Another copy is in progress.")); return; }
@@ -231,6 +244,7 @@ export class LargeTextViewer {
 
   dispose() {
     this.controller.abort();
+    this.settled();
     this.copyPending?.reject(new Error("Preview closed."));
     this.copyPending = null;
     this.worker?.terminate();

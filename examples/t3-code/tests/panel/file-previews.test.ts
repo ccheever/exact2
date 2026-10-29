@@ -308,6 +308,7 @@ function filesClient() {
     },
     restAccess: () => ({
       ids: async (count: number) => Array.from({ length: count }, (_, index) => `draft-thread-${index + 1}`),
+      call: async (request: Record<string, unknown>) => { calls.push({ method: String(request.op), payload: request }); return { ok: true }; },
       request: async (method: string, payload: Record<string, unknown>) => {
         calls.push({ method, payload });
         if (method === 'projects.listEntries') { if (failListing) throw new Error('Listing failed.'); return { entries: listings[String(payload.directoryPath)] ?? [] }; }
@@ -350,7 +351,7 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
       // Copy contents asks the page for the whole text, whose answer goes to the clipboard.
       await filesLocal(client, native, 'viewer:{"type":"boot"}', '/repo/server.log', '');
       await filesLocal(client, native, 'full-copy', '/repo/server.log', '');
-      expect(JSON.parse((await filesView(client, native, surface('server.log'), 1000)).viewer.posts[0]!.text)).toEqual({ type: 'copy' });
+      expect(JSON.parse((await filesView(client, native, surface('server.log'), 1000)).viewer.posts[0]!.text)).toEqual({ type: 'copy', key: config.key });
       await filesLocal(client, native, 'full-save', '/repo/server.log', '');
       expect(lastSave(client, files)?.name).toBe('server.log');
       // A workspace change signs it again and mounts the viewer afresh (WorkspaceLargeTextPreview's revisioned URL).
@@ -373,6 +374,40 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
       const markdown = await filesView(client, native, surface('big.md'), 1000);
       expect([markdown.preview, markdown.fullFile.open, markdown.truncatedNote]).toEqual(['code', false, 'Preview limited to the first 1 MB of a 2,097,152 byte file.']);
     } finally { server.restore(); }
+  });
+
+  test("a Copy asked of one file's page reaches no other's, and only that file's answer is copied", async () => {
+    const { client, calls, contents, large } = filesClient();
+    contents['a.log'] = 'first megabyte'; large.set('a.log', 40 * 1024 * 1024);
+    const log = await filesView(client, native, surface('a.log'), 1000);
+    const logKey = JSON.parse(log.viewer.config).key;
+    await filesLocal(client, native, 'viewer:{"type":"boot"}', '/repo/a.log', '');
+    await filesLocal(client, native, 'full-copy', '/repo/a.log', '');
+    // A picture takes the surface before the page answers: the Copy is withdrawn, so the log shown again is asked
+    // nothing, nor is the PDF opened next, and the log's late answer copies nothing.
+    expect((await filesView(client, native, surface('/tmp/out/shot.png'), 1000)).preview).toBe('media');
+    await filesView(client, native, surface('a.log'), 1000);
+    await filesLocal(client, native, 'viewer:{"type":"boot"}', '/repo/a.log', '');
+    expect((await filesView(client, native, surface('a.log'), 1000)).viewer.posts).toEqual([]);
+    const pdf = await filesView(client, native, surface('/tmp/out/report.pdf'), 1000);
+    await filesLocal(client, native, 'viewer:{"type":"boot"}', '/repo/a.log', '');
+    expect([pdf.preview, (await filesView(client, native, surface('/tmp/out/report.pdf'), 1000)).viewer.posts]).toEqual(['viewer', []]);
+    await filesLocal(client, native, `viewer:${JSON.stringify({ type: 'copy', key: logKey, text: 'the log' })}`, '/repo/a.log', '');
+    expect(calls.filter(call => call.method === 'copyText')).toEqual([]);
+    // Asked of the PDF's own page, its answer for its own key is the clipboard's.
+    await filesLocal(client, native, 'full-copy', '/repo/a.log', '');
+    const pdfKey = JSON.parse(pdf.viewer.config).key;
+    await filesLocal(client, native, `viewer:${JSON.stringify({ type: 'copy', key: pdfKey, text: 'the pdf' })}`, '/repo/a.log', '');
+    expect(calls.filter(call => call.method === 'copyText').map(call => call.payload.text)).toEqual(['the pdf']);
+  });
+
+  test('a table and a file from the server are other frames: the page narrows its requests once', async () => {
+    const { client, contents, large } = filesClient();
+    contents['orders.csv'] = 'a,b\n1,2\n';
+    const table = await filesView(client, native, surface('orders.csv'), 1000);
+    contents['big.log'] = 'first'; large.set('big.log', 40 * 1024 * 1024);
+    const full = await filesView(client, native, surface('big.log'), 1000);
+    expect([table.preview, full.preview, table.viewer.id === full.viewer.id]).toEqual(['viewer', 'viewer', false]);
   });
 
   test('a rendered CSV shows every row in the large-text viewer over the text read; a large one streams as Full file', async () => {

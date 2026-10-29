@@ -2,7 +2,7 @@
 // office/OfficePages.tsx, WordDocument.tsx, Spreadsheet.tsx, Presentation.tsx, OfficeViewer.tsx and DocumentPages.tsx):
 // what each keeps from a redraw as React keeps its keyed nodes, and what it asks of its worker again.
 import { describe, expect, test } from 'bun:test';
-import { domWindow, FakeWorker, intersectAll, network, page, resizeAll, sized, tick, viewerDom } from './viewer-dom';
+import { domWindow, FakeWorker, intersectAll, network, page, resizeAll, sized, until, viewerDom } from './viewer-dom';
 
 viewerDom();
 const { OfficePages } = await import(`${page}/office/office-pages.ts`);
@@ -24,12 +24,11 @@ function engine(name: string, answer: (method: string, input: any) => unknown | 
   };
   return calls;
 }
-async function settle(root: HTMLElement) {
+/** The pages laid out at 800 by 600 and near the viewport; a page paints from then on. */
+function settle(root: HTMLElement) {
   for (const node of [root, ...root.querySelectorAll('.office-pages')]) if (node.matches('.office-pages')) sized(node, 800, 600);
   resizeAll(800, 600);
-  await tick(160); // the width it settles on
   intersectAll(true);
-  await tick(5);
 }
 
 describe('OfficePages', () => {
@@ -42,7 +41,8 @@ describe('OfficePages', () => {
     };
     const pages = new OfficePages(props);
     document.body.append(pages.element);
-    await settle(pages.element);
+    settle(pages.element);
+    await until(() => painted.length === 2, 'both pages painted');
     expect(painted).toEqual([0, 1]);
     const span = pages.element.querySelector('.layer span')!;
     document.getSelection()!.selectAllChildren(span);
@@ -74,19 +74,38 @@ describe('WordDocument', () => {
     const details: string[] = [];
     const word = new WordDocument(new ArrayBuffer(8), (text: string) => details.push(text), (cause: unknown) => { throw cause; }, () => h('div'));
     document.body.append(word.element);
-    await tick(5);
-    await settle(word.element);
+    await until(() => word.element.querySelector('.office-pages'), 'the pages');
+    settle(word.element);
     const asked = (method: string) => calls.filter(call => call.method === method && call.input?.index === 0).length;
-    expect([details, asked('paint'), asked('text'), word.element.querySelector('.word-text span')?.textContent]).toEqual([['2+ pages'], 1, 1, 'page 1']);
-    await tick(40);
+    const text = () => word.element.querySelector('.word-text span')?.textContent;
+    await until(() => text() === 'page 1', "the prefix's text");
+    expect([details, asked('paint'), asked('text')]).toEqual([['2+ pages'], 1, 1]);
+    await until(() => laidOut, 'the layout step');
     laidOut!();
-    await tick(10);
-    expect(details).toEqual(['2+ pages', '3 pages']);
-    expect([asked('paint'), asked('text')]).toEqual([2, 2]);
-    expect(word.element.querySelector('.word-text span')?.textContent).toBe('page 1');
+    await until(() => asked('text') === 2, 'the text asked again');
+    expect([details, asked('paint'), text()]).toEqual([['2+ pages', '3 pages'], 2, 'page 1']);
     for (const release of releases) release();
-    await tick(5);
-    expect(word.element.querySelector('.word-text span')?.textContent).toBe('full page 1');
+    await until(() => text() === 'full page 1', "the full layout's text");
+    word.dispose();
+  });
+
+  test("a page's text layer goes when the page leaves the viewport, and is asked for again when it comes back", async () => {
+    const calls = engine('document.worker.js', async (method, input) => {
+      if (method === 'open') return { pages: [letter(), letter()], loading: false };
+      if (method === 'text') return [{ text: `page ${input.index + 1}`, left: 0, top: 0, size: 0.02, transform: '', dir: 'ltr' }];
+      return undefined;
+    });
+    const word = new WordDocument(new ArrayBuffer(8), () => {}, (cause: unknown) => { throw cause; }, () => h('div'));
+    document.body.append(word.element);
+    await until(() => word.element.querySelector('.office-pages'), 'the pages');
+    settle(word.element);
+    const asked = () => calls.filter(call => call.method === 'text' && call.input?.index === 0).length;
+    await until(() => word.element.querySelector('.word-text span'), 'the text layers');
+    intersectAll(false);
+    expect(word.element.querySelector('.word-text')).toBe(null);
+    intersectAll(true);
+    await until(() => asked() === 2, 'the text asked again');
+    await until(() => word.element.querySelector('.word-text span'), 'the text layer back');
     word.dispose();
   });
 });
@@ -106,13 +125,13 @@ describe('Spreadsheet', () => {
     });
     const sheet = new Spreadsheet(new ArrayBuffer(8), () => {}, (cause: unknown) => { throw cause; }, () => h('div'));
     document.body.append(sheet.element);
-    await tick(20);
     const tabs = () => [...sheet.element.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    await until(() => tabs().length === 3, 'the tabs');
     const first = tabs();
     first[0]!.focus();
-    for (const _ of [1, 2]) {
+    for (const at of [1, 2]) {
       document.activeElement!.dispatchEvent(new DomKeyboard('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
-      await tick(20);
+      await until(() => tabs()[at]!.getAttribute('aria-selected') === 'true', `sheet ${at + 1} shown`);
     }
     expect(shown).toEqual([1, 2]);
     expect([tabs().every((tab, at) => tab === first[at]), (document.activeElement as HTMLElement).textContent, tabs().map(tab => tab.getAttribute('aria-selected'))])
@@ -131,9 +150,9 @@ describe('Presentation', () => {
     const details: string[] = [];
     const deck = new Presentation(new ArrayBuffer(8), (text: string) => details.push(text), (cause: unknown) => { throw cause; }, () => h('div'));
     document.body.append(deck.element);
-    await tick(10);
-    await settle(deck.element);
-    await tick(10);
+    await until(() => deck.element.querySelector('.office-pages'), 'the slides');
+    settle(deck.element);
+    await until(() => deck.element.querySelector('.slide-failed'), "the failed slide's line");
     const counter = () => deck.element.querySelector('.slide-counter')?.textContent;
     const button = (label: string) => deck.element.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
     expect([details, counter(), button('Previous slide').disabled]).toEqual([['3 slides'], 'Slide 1 of 3', true]);
@@ -161,7 +180,7 @@ describe('OfficeViewer (OpenDocument, RTF, EPUB)', () => {
     serve(() => ({ type: 'document', navigation: 'slide', pages: [1, 2, 3].map(n => ({ title: `Slide ${n}`, html: `<p>slide ${n}</p>` })) }));
     const viewer = officeViewer({ src: 'http://127.0.0.1:1/deck.odp', name: 'deck.odp', kind: 'odp', sizeBytes: 4, scheme: 'light' });
     document.body.append(viewer.element);
-    await tick(30);
+    await until(() => viewer.element.querySelector('[aria-label="Next slide"]'), 'the navigation');
     const next = viewer.element.querySelector<HTMLButtonElement>('[aria-label="Next slide"]')!;
     const counter = () => viewer.element.querySelector('.counter')?.textContent;
     next.focus();
@@ -180,14 +199,14 @@ describe('OfficeViewer (OpenDocument, RTF, EPUB)', () => {
       : { type: 'document', navigation: 'page', pages: [{ title: 'Page 1', html: '<p>only</p>' }] }));
     const book = officeViewer({ src: 'http://127.0.0.1:1/book.epub', name: 'book.epub', kind: 'epub', sizeBytes: 4, scheme: 'light' });
     document.body.append(book.element);
-    await tick(30);
+    await until(() => book.element.querySelector('.office-nav'), 'the navigation');
     const nav = book.element.querySelector('.office-nav')!;
     nav.querySelector<HTMLButtonElement>('[aria-label="Next chapter"]')!.click();
     expect([book.element.querySelector('.office-nav') === nav, nav.textContent?.includes('Middle'), book.element.querySelector('.surface-notice')]).toEqual([true, true, null]);
     book.dispose();
     const rtf = officeViewer({ src: 'http://127.0.0.1:1/note.rtf', name: 'note.rtf', kind: 'rtf', sizeBytes: 4, scheme: 'light' });
     document.body.append(rtf.element);
-    await tick(30);
+    await until(() => rtf.element.querySelector('.surface-notice'), 'the page');
     expect([rtf.element.querySelector('.office-nav'), rtf.element.querySelector('.surface-notice')?.textContent]).toEqual([null, 'Text and images. Layout and embedded objects may differ from the original.']);
     rtf.dispose();
   });
@@ -196,7 +215,7 @@ describe('OfficeViewer (OpenDocument, RTF, EPUB)', () => {
     serve(() => ({ type: 'ods', sheets: [{ name: 'Stock', rows: Array.from({ length: 32 }, (_, row) => [`a${row}`, `b${row}`]), truncated: false, rowCount: 400, columns: 2 }, { name: 'Prices', rows: [['x']], truncated: false, rowCount: 1, columns: 1 }] }));
     const viewer = officeViewer({ src: 'http://127.0.0.1:1/stock.ods', name: 'stock.ods', kind: 'ods', sizeBytes: 4, scheme: 'light' });
     document.body.append(viewer.element);
-    await tick(30);
+    await until(() => viewer.element.querySelector('.vt'), 'the sheet table');
     const table = viewer.element.querySelector('.vt');
     expect([viewer.element.querySelector('.status-line')?.textContent, !!table]).toEqual(['Sheet 1 of 2 · 400 rows · 2 columns · 1 KB', true]);
     viewer.setScheme('dark');

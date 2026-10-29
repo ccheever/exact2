@@ -10,6 +10,7 @@
 // - page → app: boot, menu (a select's rows at its trigger), copy (the text) or copy-error, retry, link, entry,
 //   entry-closed, notebook, height, error.
 import "./shared/packed";
+import "./shared/policy-workers";
 import { h, hideTooltip, menuPicked, post, surfaceFailure, surfaceLoading } from "./chrome";
 
 export type Config = {
@@ -68,24 +69,23 @@ class Incoming {
 }
 
 /**
- * The page's own requests reach only the origin its file comes from, once one is known (a second policy narrows the
- * first, CSP3 §4.1). The static policy allows any http(s) origin because an environment's is known only at run time.
- * A worker started from a URL takes no policy from its document, so this bounds the page, not its workers.
+ * The page's requests reach only the origin its file comes from (a second policy narrows the first, CSP3 §4.1), or
+ * none past the page's own files, Blobs and `data:` for a draft's Blob, a text the app sent or no file. The static
+ * policy allows any http(s) origin because an environment's is known only at run time; the workers take this one too
+ * (shared/policy-workers.ts). It is set once: the app mounts another frame for another origin (viewer-frames.ts
+ * `connectionScope`).
  */
 export function narrowConnections(src: string, at: Document = document): void {
   if (at.head.querySelector("meta[data-connections]")) return;
-  let origin: string;
+  let origin = "";
   try {
     const url = new URL(src, at.location.href);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return;
-    origin = url.origin;
-  } catch {
-    return;
-  }
+    if (src && (url.protocol === "http:" || url.protocol === "https:")) origin = url.origin;
+  } catch { /* no file's origin */ }
   const meta = at.createElement("meta");
   meta.httpEquiv = "Content-Security-Policy";
-  meta.content = `connect-src 'self' ${origin} blob: data:`;
-  meta.dataset.connections = origin;
+  meta.content = `connect-src 'self'${origin ? ` ${origin}` : ""} blob: data:`;
+  meta.dataset.connections = origin || "local";
   at.head.append(meta);
 }
 
@@ -122,6 +122,10 @@ export class Page {
   private incoming: Incoming | null = null;
   private objectUrl: string | null = null;
   private serial = 0;
+  /** A viewer is loading (its chunk, its engine): `viewer` is not there yet. */
+  private mounting = false;
+  /** A Copy asked of the viewer that is loading, or of a draft whose bytes are coming: answered once it is up. */
+  private copyWaiting = false;
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -129,7 +133,7 @@ export class Page {
     if (message.type === "config") this.configure(message as unknown as Config);
     else if (message.type === "bytes") this.bytes(message);
     else if (message.type === "pick") menuPicked(Number(message.serial), String(message.id ?? ""));
-    else if (message.type === "copy") this.copy();
+    else if (message.type === "copy") this.copy(String(message.key ?? ""));
   }
 
   private configure(config: Config) {
@@ -173,16 +177,23 @@ export class Page {
     const retry = () => post({ type: "retry", key: config.key });
     narrowConnections(src);
     this.show(surfaceLoading());
+    this.mounting = true;
     void mount(config, src, retry)
       .then((viewer) => {
         if (serial !== this.serial) { viewer.dispose(); return; }
+        this.mounting = false;
         this.viewer = viewer;
         this.show(viewer.element);
+        if (this.copyWaiting) { this.copyWaiting = false; this.copy(config.key); }
       })
       .catch((cause: unknown) => {
         // A viewer that cannot load (its chunk, its engine) says so where the spinner was, with Try again.
         const message = cause instanceof Error && cause.message ? cause.message : "The preview could not be loaded.";
-        if (serial === this.serial) this.show(surfaceFailure(message, retry));
+        if (serial === this.serial) {
+          this.mounting = false;
+          this.show(surfaceFailure(message, retry));
+          if (this.copyWaiting) { this.copyWaiting = false; post({ type: "copy-error", key: config.key, message }); }
+        }
         post({ type: "error", message });
       });
   }
@@ -196,14 +207,19 @@ export class Page {
     this.serial++;
     this.viewer?.dispose();
     this.viewer = null;
+    this.mounting = false;
+    this.copyWaiting = false;
     this.incoming = null;
     if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
     this.objectUrl = null;
     this.show(h("div"));
   }
 
-  private copy() {
+  /** Copy contents of the file `asked` names, if it is the one shown; asked with its config, it waits for its viewer. */
+  private copy(asked: string) {
     const viewer = this.viewer, key = this.config?.key;
+    if (asked !== key) return;
+    if (!viewer && (this.mounting || this.incoming)) { this.copyWaiting = true; return; }
     if (!viewer?.copy) {
       post({ type: "copy-error", key, message: "Wait for the file to finish loading before copying." });
       return;

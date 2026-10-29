@@ -4,7 +4,7 @@
 // reference measures in a browser (the fit width, the rotated run's box) stays its own; this checks the pages, the
 // find and its marks, the jump to a match, and the pages' order in the document.
 import { describe, expect, mock, test } from 'bun:test';
-import { domWindow, network, page, resizeAll, sized, tick, viewerDom } from './viewer-dom';
+import { domWindow, network, page, resizeAll, sized, until, viewerDom } from './viewer-dom';
 
 type Item = { str: string; hasEOL: boolean };
 const documents = { pages: [] as { width: number; height: number; items: Item[] }[] };
@@ -56,48 +56,56 @@ function mount(title: string) {
   }) as typeof region.scrollTo;
   resizeAll(500, 600);
   const find = viewer.element.querySelector<HTMLInputElement>('input[type="search"], input')!;
-  const fill = async (value: string) => { find.value = value; find.dispatchEvent(new DomEvent('input')); await tick(300); };
   const label = () => viewer.element.querySelector('.pdf-pages-label')?.textContent;
   const status = () => viewer.element.querySelector('.toolbar [role="status"]')?.textContent;
-  return { viewer, region, find, fill, label, status };
+  /** Types into Find in PDF and waits for its count (the search runs a quarter second after the last key). */
+  const fill = async (value: string, count: string) => {
+    find.value = value;
+    find.dispatchEvent(new DomEvent('input'));
+    await until(() => status() === count, `"${value}" to count ${count}`);
+  };
+  const order = () => [...region.querySelectorAll('canvas')].map(canvas => Number(canvas.getAttribute('aria-label')!.slice(5)));
+  const spans = () => [...region.querySelectorAll('[data-pdf-text-layer] span')];
+  return { viewer, region, find, fill, label, status, order, spans };
 }
 
 describe('PdfViewer', () => {
-  test('finds split and rotated text and jumps to its page', async () => {
-    documents.pages = [
-      { width: 612, height: 140, items: [{ str: 'Quarter', hasEOL: false }, { str: 'ly outlook', hasEOL: false }] },
-      { width: 792, height: 612, items: [{ str: 'Budget and risks', hasEOL: false }] },
-    ];
-    const { viewer, region, find, fill, label, status } = mount('Planning PDF');
-    await tick(20);
-    expect([label(), region.getAttribute('aria-label'), find.getAttribute('aria-label')]).toEqual(['1 / 2 pages', 'Planning PDF', 'Find in PDF']);
-    await fill('quarterly outlook');
-    expect(status()).toBe('1/1');
-    await tick(5);
-    expect([...region.querySelectorAll('.pdf-find-match')].map(span => span.textContent)).toEqual(['Quarter', 'ly outlook']);
-    await fill('budget');
-    await tick(5);
-    expect([label(), status()]).toEqual(['2 / 2 pages', '1/1']);
-    expect([...region.querySelectorAll('[data-pdf-text-layer] span')].find(span => span.textContent === 'Budget and risks')?.classList.contains('pdf-find-match')).toBe(true);
-    await fill(' ');
-    expect(status()).toBe('0/0');
+  test('finds split and rotated text and jumps to its page, the pages it mounts on the way kept in page order', async () => {
+    // Page 14 is the banner whose title is two text runs; page 15 the letter page turned a quarter; the rest filler.
+    documents.pages = Array.from({ length: 30 }, (_, index) => ({ width: 612, height: 792, items: [{ str: `[p${index + 1}]`, hasEOL: false }] }));
+    documents.pages[13] = { width: 612, height: 140, items: [{ str: 'Quarter', hasEOL: false }, { str: 'ly outlook', hasEOL: false }] };
+    documents.pages[14] = { width: 792, height: 612, items: [{ str: 'Budget and risks', hasEOL: false }] };
+    const { viewer, region, find, fill, label, order, spans } = mount('Planning PDF');
+    await until(() => label() === '1 / 30 pages', 'the document');
+    expect([region.getAttribute('aria-label'), find.getAttribute('aria-label')]).toEqual(['Planning PDF', 'Find in PDF']);
+    // From page 17, finding the banner mounts it above the pages already there.
+    const step = (500 - 32) * (792 / 612) + 16;
+    region.scrollTo({ top: 16 * step });
+    await until(() => label() === '17 / 30 pages', 'page 17');
+    await fill('quarterly outlook', '1/1');
+    await until(() => spans().some(span => span.classList.contains('pdf-find-match')), 'the marks');
+    expect([label(), spans().filter(span => span.classList.contains('pdf-find-match')).map(span => span.textContent)]).toEqual(['14 / 30 pages', ['Quarter', 'ly outlook']]);
+    expect(order()).toEqual([...order()].sort((a, b) => a - b));
+    await fill('budget', '1/1');
+    await until(() => label() === '15 / 30 pages', 'the jump to page 15');
+    expect(spans().find(span => span.textContent === 'Budget and risks')?.classList.contains('pdf-find-match')).toBe(true);
+    await fill(' ', '0/0');
     viewer.dispose();
   });
 
   test('pages mounted on the way back up come before the ones below them, so a selection runs down the pages', async () => {
     documents.pages = Array.from({ length: 30 }, (_, index) => ({ width: 612, height: 792, items: [{ str: `[p${index + 1}]`, hasEOL: false }] }));
-    const { viewer, region, label } = mount('Long PDF');
-    await tick(20);
+    const { viewer, region, label, order, spans } = mount('Long PDF');
+    await until(() => label() === '1 / 30 pages', 'the document');
     const step = (500 - 32) * (792 / 612) + 16;
-    const order = () => [...region.querySelectorAll('canvas')].map(canvas => Number(canvas.getAttribute('aria-label')!.slice(5)));
     region.scrollTo({ top: 15 * step });
-    await tick(5);
+    await until(() => label() === '16 / 30 pages', 'page 16');
     region.scrollTo({ top: 14 * step });
-    await tick(5);
-    expect(label()).toBe('15 / 30 pages');
+    await until(() => label() === '15 / 30 pages', 'page 15');
     const shown = order();
     expect([shown.length > 2, shown]).toEqual([true, [...shown].sort((a, b) => a - b)]);
-    const text = (n: number) => [...region.querySelectorAll('[data-pdf-text-layer] span')].find(span => span.textContent === `[p${n}]`)!;
+    const text = (n: number) => spans().find(span => span.textContent === `[p${n}]`)!;
+    await until(() => text(shown[0]!) && text(shown[1]!), 'their text');
     expect(text(shown[0]!).compareDocumentPosition(text(shown[1]!)) & 4).toBe(4); // DOCUMENT_POSITION_FOLLOWING
     viewer.dispose();
   });

@@ -12,6 +12,8 @@ export type OfficePagesProps = {
   readonly paint: PaintPage;
   readonly label: string;
   readonly overlay?: (index: number) => Node[];
+  /** A page's overlays left the viewport: what they hold can go, as the reference's unmount takes it. */
+  readonly release?: (index: number) => void;
   readonly footer?: (index: number) => Node | null;
   readonly onPageChange?: (index: number) => void;
   readonly onError: (error: unknown) => void;
@@ -35,7 +37,12 @@ class OfficePage {
   constructor(private props: OfficePagesProps, readonly index: number, root: HTMLElement, private scale: number, private rasterScale: number) {
     this.row = h("div", { role: "group", "aria-label": `${props.label} ${index + 1}`, class: "office-page" }, this.canvas, this.overlays);
     this.element.append(this.row);
-    this.observer = new IntersectionObserver(([entry]) => { this.near = entry?.isIntersecting ?? false; this.refresh(); }, { root, rootMargin: "100% 0px" });
+    this.observer = new IntersectionObserver(([entry]) => {
+      const was = this.near;
+      this.near = entry?.isIntersecting ?? false;
+      this.refresh();
+      if (was && !this.near) this.props.release?.(this.index);
+    }, { root, rootMargin: "100% 0px" });
     this.observer.observe(this.row);
     this.query = matchMedia(`(resolution: ${this.ratio}dppx)`);
     this.query.addEventListener("change", this.densityChanged);
@@ -100,6 +107,7 @@ class OfficePage {
     this.controller?.abort();
     this.observer.disconnect();
     this.query.removeEventListener("change", this.densityChanged);
+    if (this.near) this.props.release?.(this.index);
   }
 }
 
