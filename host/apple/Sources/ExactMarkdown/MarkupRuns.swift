@@ -43,7 +43,8 @@ enum MarkupRuns {
     /// Bold Text weights `base`, and a piece's own weight takes its step.
     /// An atom (LLP 1045.000 D6) is its label on a rounded inline box, a
     /// narrow no-break space each side its padding, so a line breaks around
-    /// it and never inside its ends.
+    /// it and never inside its ends; its label is isolated in the direction
+    /// its face pins, else in the lines' (`atoms.rtl`, D4).
     static func expand(_ source: String, base: Run, color: [Double]?, linkColor: [Double]? = nil, atomColor: [Double]? = nil, boldText: Bool = false, atoms: MarkdownAtoms = MarkdownAtoms()) -> [Run] {
         var out: [Run] = []
         var text = source
@@ -86,7 +87,10 @@ enum MarkupRuns {
                     let kind = detail["kind"] as? String ?? ""
                     // One line, as a pill is (D4): its spaces and hyphens do not break.
                     let unbroken = run.text.replacingOccurrences(of: " ", with: "\u{00A0}").replacingOccurrences(of: "-", with: "\u{2011}")
-                    run.text = "\u{202F}" + unbroken + "\u{202F}"
+                    // One box in the line, as the web's is: isolated in the direction its
+                    // face pins, else in its line's (D4).
+                    let pinned = ["ltr": "\u{2066}", "rtl": "\u{2067}"][detail["direction"] as? String ?? ""]
+                    run.text = "\u{202F}" + (pinned ?? (atoms.rtl ? "\u{2067}" : "\u{2066}")) + unbroken + "\u{2069}\u{202F}"
                     // Its press is the atom's, not a link's: never underlined as one.
                     run.decoration = p.strike != 0 ? "line-through" : "none"
                     // The face's paint over its kind's (D2, D4).

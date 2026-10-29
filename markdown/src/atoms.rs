@@ -48,7 +48,8 @@ pub struct AtomKind {
 }
 
 /// What the app draws for an atom (LLP 1045.000 D2). Empty fields take the
-/// defaults: the default label, no icon, no tooltip, the kind's paint.
+/// defaults: the default label, no icon, no tooltip, the kind's paint, the
+/// line's direction.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AtomFace {
     /// The text drawn in the pill and read by assistive technology.
@@ -63,6 +64,9 @@ pub struct AtomFace {
     /// The pill's fill over the kind's `background-color`, as text the host
     /// reads as a colour.
     pub background_color: String,
+    /// The pill's own direction, `ltr` or `rtl`, which lays out its icon and
+    /// label (D4); empty to follow its line's.
+    pub direction: String,
 }
 
 /// A field's declared kinds and the app's faces, by source text.
@@ -139,6 +143,11 @@ impl Atoms {
                         title: field("title").to_string(),
                         color: field("color").to_string(),
                         background_color: field("backgroundColor").to_string(),
+                        // Any other word follows the line, as an empty one does.
+                        direction: match field("direction") {
+                            d @ ("ltr" | "rtl") => d.to_string(),
+                            _ => String::new(),
+                        },
                     },
                 );
             }

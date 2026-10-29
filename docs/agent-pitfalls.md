@@ -1726,6 +1726,12 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   older commit left there. Fix: name the apps and pass `--build` with a
   `--wasm-root` of your own (`conform.mjs <app> --build --strict --wasm-root
   /tmp/<yours>`). With no apps named, an empty root compares nothing and passes.
+- **Conformance stops at once with `ERR_OSSL_X509_PUBLIC_KEY_DECODE_ERROR`.** Cause:
+  `/usr/bin/openssl`, macOS's LibreSSL, comes first on `PATH`; it writes the run's EC
+  key with explicit curve parameters, which Bun cannot read back (`startNet` in
+  `host/web-js/conformance/net.mjs`), so every `conform.mjs` run fails, the async
+  lane's `conform`, `conform-firefox` and `conform-webkit` steps included. Fix: put
+  Homebrew's OpenSSL 3 first (`PATH=/opt/homebrew/bin:$PATH`). (#1148, 2026-10-30.)
 - **An `EXACT_WEB_DIST` build compiles, then fails renaming its stage.** The
   destination's parent directory does not exist. Create that parent before
   running `host/web/build.mjs --wasm` with an external dist path.

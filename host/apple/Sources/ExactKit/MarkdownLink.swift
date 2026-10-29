@@ -95,8 +95,11 @@ package struct MarkdownAtoms: Hashable {
     package var dark = false
     package var contrast = false
     package var emphasized = true
-    package init(kinds: String = "", faces: String = "", styles: String = "", dark: Bool = false, contrast: Bool = false) {
-        (self.kinds, self.faces, self.styles, self.dark, self.contrast) = (kinds, faces, styles, dark, contrast)
+    /// A reader's lines run right to left, its node's `direction`: a pill
+    /// whose face pins none is isolated in it (LLP 1045.000 D4).
+    package var rtl = false
+    package init(kinds: String = "", faces: String = "", styles: String = "", dark: Bool = false, contrast: Bool = false, rtl: Bool = false) {
+        (self.kinds, self.faces, self.styles, self.dark, self.contrast, self.rtl) = (kinds, faces, styles, dark, contrast, rtl)
     }
     package var isEmpty: Bool { kinds.isEmpty || kinds == "[]" }
 }
@@ -115,10 +118,14 @@ package final class MarkupAtom: NSObject {
     /// emphasized or not.
     package let selected: Bool, emphasized: Bool
     package let dark: Bool, contrast: Bool
+    /// Its face's direction, `ltr` or `rtl`, which lays out its icon and
+    /// label (D4); empty to follow its line's.
+    package let direction: String
     package init(kind: String, label: String, icon: String, title: String, role: String, href: String, ink: [Double]?, background: [Double]?,
-                 selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool) {
+                 selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool, direction: String = "") {
         (self.kind, self.label, self.icon, self.title, self.role, self.href) = (kind, label, icon, title, role, href)
         (self.ink, self.background, self.selected, self.emphasized, self.dark, self.contrast) = (ink, background, selected, emphasized, dark, contrast)
+        self.direction = direction
     }
 }
 

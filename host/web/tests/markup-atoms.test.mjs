@@ -17,7 +17,18 @@ const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) 
 
 const KINDS = JSON.stringify([{ name: 'citation', link: 'cite:' }, { name: 'mention', prefix: '@' }]);
 const CITE = '[Quote](cite:1)';
-const faces = list => JSON.stringify(list.map(([source, label, title = '', color = '', backgroundColor = '']) => ({ source, label, icon: '', title, color, backgroundColor })));
+const faces = list => JSON.stringify(list.map(([source, label, title = '', color = '', backgroundColor = '', direction = '', icon = '']) => ({ source, label, icon, title, color, backgroundColor, direction })));
+// An icon the web draws: a black square.
+const ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>');
+// Whether a pill's icon is on its right: its middle past the pill's, on its
+// label's line, where the page's `img { display: block }` would put it above.
+const iconOnTheRight = box => box.evaluate(b => {
+  const i = b.querySelector('img').getBoundingClientRect(), r = b.getBoundingClientRect(), label = document.createRange();
+  label.selectNodeContents(b.lastChild);
+  const t = label.getBoundingClientRect();
+  if (i.bottom <= t.top + 1) throw new Error(`the icon is above its label: ${JSON.stringify([i, t])}`);
+  return i.left + i.width / 2 > r.left + r.width / 2;
+});
 const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 async function editor(engine, source, drive, { width = 500, faceList = [], styles = '{}' } = {}) {
@@ -25,7 +36,7 @@ async function editor(engine, source, drive, { width = 500, faceList = [], style
     const path = new URL(request.url).pathname;
     if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
-    return new Response(`<!doctype html><meta charset="utf-8"><style>body{font:16px/1.4 system-ui}</style>
+    return new Response(`<!doctype html><meta charset="utf-8"><style>body{font:16px/1.4 system-ui} img, video, svg { display: block; }</style>
       <textarea id="editor" markup="markdown" data-atoms="${attr(KINDS)}" data-atom-faces="${attr(faces(faceList))}" data-atom-styles="${attr(styles)}" style="width:${width}px;height:200px"></textarea>
       <script type="module">
         globalThis.exact = {};
@@ -204,6 +215,46 @@ for (const engine of engines) {
     });
   }, 60000);
 
+  // LLP 1045.000 D4: the reader's pill too follows its line's direction, its
+  // icon first, unless its face pins one; a collapsed `rangeFrame` at a
+  // pill's start is the edge its line's direction puts first, pinned or not (D7).
+  engineTest[engine](`${engine}: in a right-to-left reader a pill's icon is on the right, unless its face pins left to right`, async () => {
+    const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
+      const path = new URL(request.url).pathname;
+      if (path.endsWith('.js')) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+      // The host page's reset (index.html) makes an image a block.
+      return new Response(`<!doctype html><meta charset="utf-8"><style>img, video, svg { display: block; }</style><p id="text" markup="markdown" data-exact-text style="direction:rtl"></p><script type="module">
+        globalThis.exact = {};
+        const { renderMarkup } = await import('./navigation.js');
+        await import('./atoms.js');
+        const icon = ${JSON.stringify(ICON)};
+        renderMarkup(document.getElementById('text'), JSON.stringify([['שלום ', 1, 0, 0, ''], ['Quote', 1, 0, 72, '', 0, ['citation', 'button', icon, '', 'cite:1', '${CITE}', 5, 20, '', '', '']],
+          [' ו ', 1, 0, 0, ''], ['Pinned', 1, 0, 72, '', 0, ['citation', 'button', icon, '', 'cite:2', '[P](cite:2)', 23, 34, '', '', 'ltr']]]));
+        window.ready = true;
+      </script>`, { headers: { 'content-type': 'text/html' } });
+    } });
+    const context = await (await browser(engine)).newContext();
+    try {
+      const page = await context.newPage();
+      await page.goto(`http://127.0.0.1:${server.port}/`);
+      await page.waitForFunction(() => window.ready && document.querySelector('.exact-atom img')?.complete);
+      const [follows, pinned] = [page.locator('.exact-atom').first(), page.locator('.exact-atom').nth(1)];
+      expect(await follows.evaluate(b => getComputedStyle(b).direction)).toBe('rtl');
+      expect(await iconOnTheRight(follows)).toBe(true);
+      expect(await pinned.evaluate(b => getComputedStyle(b).direction)).toBe('ltr');
+      expect(await iconOnTheRight(pinned)).toBe(false);
+      // Each pill's start is its right edge and its end its left, as the line runs.
+      const edges = (box, s, e) => box.evaluate((b, [s, e]) => {
+        const text = document.getElementById('text'), r = b.getBoundingClientRect();
+        return [exact.atoms.rangeFrame(text, s, s).left, exact.atoms.rangeFrame(text, e, e).left, r.left, r.right].map(Math.round);
+      }, [s, e]);
+      for (const [box, s, e] of [[follows, 5, 20], [pinned, 23, 34]]) {
+        const [start, end, left, right] = await edges(box, s, e);
+        expect([start, end]).toEqual([right, left]);
+      }
+    } finally { await context.close(); server.stop(true); }
+  }, 60000);
+
   engineTest[engine](`${engine}: the reader's atom is a button a press, Return or Space reports, and rangeFrame is its pill`, async () => {
     const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
       const path = new URL(request.url).pathname;
@@ -289,6 +340,20 @@ for (const engine of engines) {
       expect(start[0]).toBe(pill[1]);
       expect(end[0]).toBe(pill[0]);
     });
+  }, 60000);
+
+  // LLP 1045.000 D4: in a right-to-left line a pill lays out from the right,
+  // its icon first, as the line does; a face's `direction` pins its own.
+  engineTest[engine](`${engine}: in a right-to-left line a pill's icon is on the right, unless its face pins left to right`, async () => {
+    for (const [direction, right] of [['', true], ['ltr', false], ['rtl', true]]) {
+      await editor(engine, `שלום ${CITE} עולם`, async (page, field) => {
+        await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'rtl'); el.exactMarkup.sync(); });
+        await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => setTimeout(ok))));
+        const box = island(field);
+        expect(await box.evaluate(b => getComputedStyle(b).direction)).toBe(direction || 'rtl');
+        expect(await iconOnTheRight(box)).toBe(right);
+      }, { faceList: [[CITE, 'Quote', '', '', '', direction, ICON]] });
+    }
   }, 60000);
 
   // @ref LLP 1045 D11 — a line `paragraphDirs` makes right to left is one for an atom's edges.
