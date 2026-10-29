@@ -1178,6 +1178,90 @@ mod tests {
         assert_eq!(seen[1], "after-next");
     }
 
+    /// What a worker instance heard was still in flight, by source.
+    struct Hears {
+        started: Sender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+        views: Arc<Mutex<Vec<Vec<String>>>>,
+    }
+
+    impl DataSource for Hears {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::Number(0.0))
+        }
+
+        fn answer(&mut self, _: &mut Store, source: &str, _: &[Value]) -> Result<Answer, DataError> {
+            if source == "slow" {
+                self.started.send(()).unwrap();
+                self.release.recv().unwrap();
+            }
+            Ok(Answer::Now(Value::Number(0.0)))
+        }
+
+        fn forgotten(&mut self, _: &Store, in_flight: &[InFlight<'_>]) {
+            let view = in_flight.iter().map(|f| f.source.to_string()).collect();
+            self.views.lock().unwrap().push(view);
+        }
+    }
+
+    /// A call let go while the owner is busy, its replacement (the same key)
+    /// dispatched but its turn not yet queued, and a second retirement then:
+    /// the two retirements coalesce, and the call the first let go must still
+    /// be let go on the owner (its key is not in flight for it).
+    #[test]
+    fn a_coalesced_retirement_still_lets_go_what_an_earlier_one_did() {
+        let (started_tx, started_rx) = channel();
+        let (release_tx, release_rx) = channel();
+        let views = Arc::new(Mutex::new(Vec::new()));
+        let mut placed = Placed::new(
+            Hears {
+                started: started_tx,
+                release: release_rx,
+                views: views.clone(),
+            },
+            Placement::Worker,
+        );
+        placed.activate().unwrap();
+        let mut store = Store::new("", []);
+        let token = |placed: &mut Placed<Hears>, store: &mut Store, source: &str| {
+            let answer = placed.answer_for(Target::Resource(0), store, source, &[Value::Number(1.0)]);
+            match answer.unwrap() {
+                Answer::Later(request) => request.continuation.unwrap(),
+                _ => panic!("a worker answer"),
+            }
+        };
+        let slow = token(&mut placed, &mut store, "slow");
+        let first = send(placed.dispatch(slow, &store));
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // A (`read`) is replaced by B (`read`, equal arguments), recorded and
+        // not yet dispatched: the first retirement leaves `read` out.
+        let replacement = token(&mut placed, &mut store, "read");
+        let args = [Value::Number(1.0)];
+        let in_flight = [InFlight {
+            target: Target::Resource(0),
+            source: "read",
+            args: &args,
+            continuation: Some(replacement),
+        }];
+        placed.forgotten(&store, &in_flight);
+        // B is dispatched; its turn is not queued yet when a second
+        // retirement comes, which coalesces with the first.
+        let Dispatch::Run(Work::Later(turn)) = placed.dispatch(replacement, &store) else {
+            panic!("an owner turn");
+        };
+        placed.forgotten(&store, &in_flight);
+        let (tx, second) = channel();
+        turn(Reply::new(move |outcome| tx.send(outcome).unwrap()));
+        release_tx.send(()).unwrap();
+        first.recv_timeout(Duration::from_secs(5)).unwrap();
+        second.recv_timeout(Duration::from_secs(5)).unwrap();
+        let views = views.lock().unwrap();
+        assert!(
+            views.first().is_some_and(|view| !view.contains(&"read".to_string())),
+            "the owner kept the let-go call's key in flight: {views:?}"
+        );
+    }
+
     /// LLP 1016.000 D8 in a worker: a long poll attached to the worker's own
     /// work is refused before that work runs.
     struct PollsOtherWork(Arc<Mutex<bool>>);
