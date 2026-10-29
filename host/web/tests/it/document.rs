@@ -36,6 +36,18 @@ fn app_file_frames_prerender_without_a_false_blank_source() {
 }
 
 #[test]
+fn a_page_given_app_files_prerenders_with_no_source_the_browser_would_load() {
+    let doc = document(
+        "component App\n  view\n    iframe src=\"assets/viewer.html?file=app:/cache/a.pdf\"\n",
+    );
+    assert!(
+        doc.contains("data-app-src=\"assets/viewer.html?file=app:/cache/a.pdf\""),
+        "{doc}"
+    );
+    assert!(!doc.contains(" src=\"assets/viewer.html"), "{doc}");
+}
+
+#[test]
 fn raw_symbols_prerender_as_nonfetching_decorative_images() {
     let doc = document(
         r#"component App

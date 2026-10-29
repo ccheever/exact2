@@ -174,3 +174,38 @@ fn device_json_refuses_the_same_imported_cone_as_verify() {
     assert!(error.contains("performanceNow"), "{error}");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn device_json_accepts_a_relative_test_path_whose_app_uses_a_sibling() {
+    let dir =
+        std::env::temp_dir().join(format!("contract-property-relative-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    std::fs::write(
+        dir.join("shapes.contract"),
+        "fn twice(n: number): number = n * 2\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use twice from \"./shapes.contract\"\ncomponent App\n  state n = 1\n  derive outer = twice(n)\n  view\n    text \"n\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.test.contract"),
+        "always \"whole\"\n  expect state outer whole\n",
+    )
+    .unwrap();
+    // The device runner passes the test file as typed, often relative to the checkout.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .arg("test")
+        .arg("app.test.contract")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{error}");
+    let json = String::from_utf8_lossy(&output.stdout);
+    assert!(json.contains("\"whole\""), "{json}");
+    std::fs::remove_dir_all(dir).unwrap();
+}

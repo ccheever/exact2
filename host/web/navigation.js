@@ -724,7 +724,7 @@ export const opaqueSandbox = sandbox => sandbox != null && !sandbox.toLowerCase(
 export function dataURL(src, base = document.baseURI) { try { return src != null && new URL(src, base).protocol === "data:"; } catch { return false; } }
 /** Whether an iframe in `sandbox` shows `src`: a `navigableURL`, or a `data:`
  * document in an opaque sandbox, whose script cannot reach this page (LLP 1020 §10). */
-export const frameURL = (src, sandbox, base = document.baseURI) => navigableURL(src, base) !== null || (opaqueSandbox(sandbox) && dataURL(src, base));
+export const frameURL = (src, sandbox, base = document.baseURI) => navigableURL(src, base) !== null || (opaqueSandbox(sandbox) && dataURL(src, base)); export const pageGivenFiles = (src, base = document.baseURI) => { try { const url = new URL(src, base); return url.origin === new URL(base).origin && /[?&][^&=]*=app(:|%3a)/i.test(url.search); } catch { return false; } }; // a frame source that may give its page app files (LLP 1020.001 D7), read as the URL parser reads it: a page of the app's own origin whose query has a value beginning `app:`; picker-glue.js decides which pages are given which files
 /** A refused URL is never written: a link loses its `href`, an iframe shows about:blank. */
 export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate${name === "src" ? ", and data: in a sandbox without allow-same-origin" : ""}`);

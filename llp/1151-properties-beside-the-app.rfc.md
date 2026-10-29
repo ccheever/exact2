@@ -741,8 +741,9 @@ above:
 - Charlie's line beside the deferred list's entry is a placeholder until it is in his
   words; items 1, 2, 4 and 5 land first so nothing waits on it.
 
-**Stage 2:** D9, the cheap tier first. **Stages 3 and 4:** D10–D12, each a direction
-until it has an implementer and a date.
+**Stage 2:** D9, the cheap tier first, deferred by the D6 measurement (§5) until a
+kept line is one a reader cannot settle from the code. **Stages 3 and 4:** D10–D12,
+each a direction until it has an implementer and a date.
 
 ## 5. Measured
 
@@ -817,11 +818,36 @@ disagreements (Agents, the Design Tool, Excord, Harmony, Photo Editor, Shelf), n
 falsifying an authored line; the Design Tool's revert walk, shrunk from 55 to 29
 events, is in `QUEUE.md`, and Photo Editor's are host operations outside the oracle.
 
-**Suggestions.** The search printed 394 property blocks over the fourteen apps (lane
-D's report has them verbatim; Caltrain 99, the Design Tool 84, Harmony 45, Reflow 36,
-Excord 23, Metronome 23, the rest fewer than twenty). None has been kept or dropped;
-which an author keeps is the measurement D6 asks for and is still owed, and it
-decides stage 2.
+**Suggestions, and the D6 measurement.** The search printed 394 property blocks over
+thirteen apps (Excord 107, the Design Tool 99, Messages 45, Shelf 36, Photo Editor
+23, Agents 19, Caltrain 16, Reflow 15, Video Player 11, Type Tour 9, Update Lab 8,
+Metronome 5, Variable Type 1; lane D's report has them verbatim). Charlie had no
+strong view on which to keep and asked the panel to decide, so on 2026-10-28 four
+judges, one per family and blind to each other, read each app as its author and
+kept or dropped every block (`llp/reviews/d6-2026-10-28-1151.{astra,fable,grok,muse}.md`).
+They kept 30, 12, 133 and 82. Twenty-one blocks had three or more votes, over ten
+apps, and those are now in the apps' test files: fifteen frames (`only writes`,
+`writes none`, two of them `after clock`), five closed sets (`screen`, `material`,
+`ageGate`, `draftStatus`, `filter`, `subject`, `printSize`) and one `whole`. The rest
+were what a finite sample shows or what the type says. No judge found a mistake a
+diary records that a kept block would have caught: the nearest (a dead `failure`
+branch, a read mark sent behind the lock, a timer counted from the wrong moment)
+need a mutation's status, a condition or the clock, which D1 refuses. The Fable
+judge found at least eleven suggested blocks that are false in the app and only
+unreached by the search (a `lock` that also clears `thread`, a `canvasView` with a
+third value); none had three votes, and `QUEUE.md` asks for a static pass over an
+action's writes and literal writes before a frame or a set is suggested.
+
+**Stage 2, decided.** Three of the four judges said the search earns its keep and
+the cheap proof tier should wait; one said build it now, since 74 of its 82 keeps
+are frames the templates already prove. The decision, taken for Charlie at his
+request: stage 2 is deferred. Every kept line is settled by reading one action's
+body, so a Lean verdict adds little to the check that runs on every `verify`; the
+templates return `unproved` for every frame on an app with a queue slot (six of
+the ten); and the input pair needs its lemma first. Stage 2 opens when a kept line
+is one a reader cannot settle from the code (a joint or conditional invariant, or
+arithmetic over `old`), which this corpus does not yet hold. The precision pass
+above and the coverage the §5 census names (`request`, `clock until`) come first.
 
 ## Open questions
 

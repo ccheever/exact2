@@ -1174,11 +1174,12 @@ cleartext `http` reaches only a local host, and only with `app.json`'s
 `host.ios.localNetworking` set; a device on the local network the person names or
 the app finds is `net.fetch local-network` with `device.local-network purpose.<key>`,
 whose text is the platform's prompt on macOS and iOS ([recipe](recipes/local-network.md));
-an `iframe` of `http://` from a named host needs
-`host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
-`{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
-not an `http:` sub-resource of the app's own `assets/` page),
-and how to drive it with storage. The macOS driver launches the assembled app
+an `iframe` of `http://` from a named host, or such a sub-resource of the app's
+own `assets/` page, needs `host.macos.appTransportSecurity` or
+`host.ios.appTransportSecurity` set to `{ "allowsArbitraryLoadsInWebContent": true }`,
+which relaxes web views only (ATS lets an IP address or a `.local` name through
+without it, LLP 1020.001 §4 Q6, though on an iPhone those also ask for Local
+Network access), and how to drive it with storage. The macOS driver launches the assembled app
 bundle, so its ATS policy also applies during drives. A path grant covers its path and what is below
 it, by whole names: `sqlite.open app:/data` covers `app:/data/inbox-amy.sqlite`,
 `sqlite.open app:/data/inbox` does not. A refused open names the file it wanted
@@ -1736,7 +1737,19 @@ later one in a line; a tab or button that must show everywhere takes a role or a
 icon token), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
-nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
+nothing (the web and Apple journal `image refused`).
+
+An `iframe` of a page under `assets/` or `deck/` is given an `app:/cache` or
+`app:/tmp` file its `src` names in its query, encoded as any query value is:
+`` src=`assets/viewer/index.html?file=${encodeURIComponent(path)}` ``. The page
+reads `new URLSearchParams(location.search).get('file')` and gets a URL it can
+fetch, of any size, until the frame's `src` changes. A value naming `app:/data`, a
+link or a missing file is emptied (`file=`), the frame loads as usual, and the host
+logs why; copy the file into `app:/cache` first. An HTML, SVG or XML file is given
+as `application/octet-stream`, so it never runs as the app: read its bytes, into a
+Blob of your own for an SVG `img`, or into a `srcdoc` frame under a `sandbox`
+without `allow-same-origin` for HTML. The web, macOS and iOS give files; Android
+does not ([LLP 1020.001 D7](../llp/1020.001-a-multi-file-bundled-page-in-an-iframe.rfc.md)). Shrink a picked photo for an upload limit with
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
 upright JPEG with no location metadata (`type: "image/png"` writes a PNG that
 keeps transparency; [reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
