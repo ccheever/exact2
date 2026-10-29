@@ -107,7 +107,7 @@ export async function mobileOutboxDeliverOne(client: T3Client, handle: Native, i
     return currentRow;
   }
   function prime(payload?: Obj) {
-    const record = current().record;
+    const checked = current(), record = checked.record;
     if (!connection.configLive) stop('retry', 'Refresh the server configuration before sending.');
     const resolved = settings(record);
     if (mobileModelSelectionUnavailable(connection.config, copy(resolved.modelSelection) as unknown as Obj))
@@ -115,8 +115,9 @@ export async function mobileOutboxDeliverOne(client: T3Client, handle: Native, i
     if (payload && (canonical(payload.modelSelection) !== canonical(resolved.modelSelection)
       || record.creation && (payload.runtimeMode !== resolved.runtimeMode || payload.interactionMode !== resolved.interactionMode)))
       stop('recovery-required', 'The reserved command uses earlier message settings. Resolve it before delivery.');
-    configStamp = canonical({ config: connection.config, scopes: connection.scopes });
+    if (!configStamp) configStamp = canonical({ config: connection.config, scopes: connection.scopes });
     settingsStamp = canonical(resolved);
+    return checked;
   }
   async function access(check: () => void) {
     endpoint(); check();
@@ -160,13 +161,11 @@ export async function mobileOutboxDeliverOne(client: T3Client, handle: Native, i
     delivery = await durableDelivery(saved); const receipt = delivery.operation!;
     if (receipt.state === 'acknowledged') return finish(delivery);
     if (receipt.state === 'rejected') return result('recovery-required', 'Resolve the rejected message before restoring its draft.');
-    if (fresh || receipt.state === 'reserved') {
-      prime(receipt.payload);
-      const currentRow = current();
+    await access(fresh || receipt.state === 'reserved' ? () => {
+      const currentRow = prime(receipt.payload);
       if (currentRow.token !== receipt.rowToken || currentRow.nativeRevision !== receipt.rowRevision
-        || canonical(currentRow.record) !== canonical(receipt.record)) return result('recovery-required', 'The reserved message changed before issue.');
-    }
-    await access(fresh || receipt.state === 'reserved' ? () => { current(); } : resumeGuard);
+        || canonical(currentRow.record) !== canonical(receipt.record)) stop('recovery-required', 'The reserved message changed before issue.');
+    } : resumeGuard);
     delivery = await mobileOutboxDeliverySend(client, native, receipt, false, connection);
     if (delivery.operation!.state === 'acknowledged') return finish(delivery);
     return result(delivery.operation!.state === 'rejected' ? 'recovery-required' : 'retry', 'Resolve the saved command outcome before another attempt.');
@@ -179,23 +178,21 @@ export async function mobileOutboxDeliverOne(client: T3Client, handle: Native, i
     }
     const receipt = inline.operation!;
     if (receipt.state !== 'acknowledged') {
-      if (receipt.state === 'reserved') {
-        prime(receipt.template.commandTemplate.payload);
-        const currentRow = current();
+      await access(receipt.state === 'reserved' ? () => {
+        const currentRow = prime(receipt.template.commandTemplate.payload);
         if (currentRow.token !== receipt.rowToken || currentRow.nativeRevision !== receipt.rowRevision)
-          return result('recovery-required', 'The captured image request changed before issue.');
-      }
-      await access(receipt.state === 'reserved' ? () => { current(); } : resumeGuard);
+          stop('recovery-required', 'The captured image request changed before issue.');
+      } : resumeGuard);
       inline = await mobileOutboxInlineSend(client, native, receipt, receipt.state === 'rejected', connection);
       if (inline.operation!.state !== 'acknowledged') return result('retry', 'Resolve the saved image request before another attempt.');
     }
     const acknowledged = inline.operation!;
-    prime(acknowledged.template.commandTemplate.payload);
-    const currentRow = current();
-    if (currentRow.token !== acknowledged.rowToken || currentRow.nativeRevision !== acknowledged.rowRevision
-      || canonical(currentRow.record) !== canonical(acknowledged.record))
-      return result('recovery-required', 'The images were saved for an earlier version of this pending task.');
-    await access(() => { current(); });
+    await access(() => {
+      const currentRow = prime(acknowledged.template.commandTemplate.payload);
+      if (currentRow.token !== acknowledged.rowToken || currentRow.nativeRevision !== acknowledged.rowRevision
+        || canonical(currentRow.record) !== canonical(acknowledged.record))
+        stop('recovery-required', 'The images were saved for an earlier version of this pending task.');
+    });
     delivery = await mobileOutboxDeliveryReserveInline(client, native, acknowledged, retiredFinal, connection);
     return sendFinal(delivery, true);
   }
@@ -245,12 +242,12 @@ export async function mobileOutboxDeliverOne(client: T3Client, handle: Native, i
     if (step.step === 'restore') return result('recovery-required', step.reason);
     await access(() => { current(); });
     if (!await mobileOutboxConfirmQueued(client, native, capture)) return result('waiting', 'The pending task changed before delivery.');
-    current();
+    let checked = current();
     if (initial.record.creation) {
       if (saved.slice(1).some(item => item.operation && item.operation.state !== 'retired'))
         return result('recovery-required', 'A new task cannot adopt existing-thread settings commands.');
     } else for (let index = 1; index <= 2; index++) {
-      const record = current().record;
+      const record = checked.record;
       const requests = mobileOutboxSettingsRequests(record, { ...owner, config: connection.config, attachments: [] }, thread());
       if (requests.status !== 'ready') return result('recovery-required', requests.status === 'blocked' ? requests.reason : 'Refresh the thread settings.');
       const request = requests.value.find(item => item.payload.commandId === ids[index]);
@@ -261,18 +258,18 @@ export async function mobileOutboxDeliverOne(client: T3Client, handle: Native, i
           return result('recovery-required', 'These settings already have a different saved command with the same identity.');
         if (!request && stage.operation.state !== 'acknowledged')
           return result('recovery-required', 'Resolve the saved settings attempt before following the current thread settings.');
-        stage = await durableDelivery(stage); current();
+        stage = await durableDelivery(stage); checked = current();
       } else if (request) {
-        if (stage.operation) { stage = await durableDelivery(stage); current(); }
+        if (stage.operation) { stage = await durableDelivery(stage); checked = current(); }
         stage = await mobileOutboxDeliveryReserve(client, native, capture, request, stage.operation?.revision, connection);
-        stage = await durableDelivery(stage); current();
+        stage = await durableDelivery(stage); checked = current();
       } else continue;
       if (stage.operation!.state !== 'acknowledged') {
         const sent = await mobileOutboxDeliverySend(client, native, stage.operation!, stage.operation!.state === 'rejected', connection);
-        delivery = sent; stage = sent; current();
+        delivery = sent; stage = sent; checked = current();
         if (sent.operation!.state !== 'acknowledged') return result('retry', 'Retry the saved settings command before preparing attachments.');
       }
-      await mobileOutboxDeliveryComplete(client, native, stage.operation!); current();
+      await mobileOutboxDeliveryComplete(client, native, stage.operation!); checked = current();
     }
     const prepared = await mobileOutboxPrepareAttachments(client, native, capture, connection);
     if (prepared.status !== 'ready') return result(prepared.status === 'abandoned' ? 'waiting' : 'recovery-required', prepared.reason);
@@ -293,7 +290,6 @@ export async function mobileOutboxDeliverOne(client: T3Client, handle: Native, i
     }
     if (plan.status === 'blocked' || plan.status === 'needs-projection')
       return result('recovery-required', plan.status === 'blocked' ? plan.reason : 'Refresh this pending task\'s thread projection.');
-    current();
     if (plan.status === 'needs-inline-reservation') {
       const [id] = await client.ids(native, 1); current();
       inline = await mobileOutboxInlineReserve(client, native, capture, id!, plan.value, connection);

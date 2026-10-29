@@ -169,6 +169,52 @@ test('foreground pass discovers every identity before new work and delivers once
   expect(stages(f)).toEqual(['mobileOutboxDelivery:reserve:command', 'mobileOutboxDelivery:send:command', 'mobileOutboxDelivery:complete:command']);
   expect(mobileOutboxSnapshot(f.client).rows).toEqual([]); expect(f.client.local.pending).toEqual({});
 });
+test('fresh final admission traverses the complete catalog once per native continuation', async () => {
+  const f = fixture(), observed: { stage: string; reads: number }[] = [];
+  let reserved = false, reads = 0;
+  Object.defineProperty(f.client.config, 'commands', { enumerable: true, get() { reads++; return [{ id: 'complete-catalog' }]; } });
+  f.intercept(request => {
+    if (request.op === 'mobileOutboxDelivery' && request.action === 'reserve') { reserved = true; reads = 0; }
+    else if (reserved && (request.op === 'status' || request.op === 'http'
+      || request.op === 'mobileOutboxDelivery' && request.action === 'send')) {
+      observed.push({ stage: String(request.op), reads }); reads = 0;
+      if (request.action === 'send') reserved = false;
+    }
+  });
+  expect((await f.run()).status).toBe('delivered');
+  expect(observed).toEqual([{ stage: 'status', reads: 1 }, { stage: 'http', reads: 1 }, { stage: 'mobileOutboxDelivery', reads: 1 }]);
+});
+test('attachment-free preparation avoids repeated catalog scans before its next native confirmation', async () => {
+  const f = fixture();
+  let reads = 0, confirmations = 0, observed = 0;
+  Object.defineProperty(f.client.config, 'commands', { enumerable: true, get() { reads++; return [{ id: 'complete-catalog' }]; } });
+  f.intercept(request => {
+    if (request.op !== 'mobileOutbox' || request.action !== 'confirmQueued') return;
+    confirmations++;
+    if (confirmations === 2) observed = reads;
+    reads = 0;
+  });
+  expect((await f.run()).status).toBe('delivered');
+  expect(observed).toBe(2);
+});
+test('unknown configuration and scopes changed in place after native awaits still block issue', async () => {
+  for (const phase of ['reserve', 'status', 'auth']) for (const mutation of ['config', 'scopes']) {
+    const f = fixture(), commands = [{ description: 'original' }];
+    f.client.config.commands = commands;
+    let reserved = false, changed = false;
+    f.intercept(request => {
+      if (request.op === 'mobileOutboxDelivery' && request.action === 'reserve') reserved = true;
+      if (!reserved || changed || !(phase === 'reserve' && request.action === 'reserve'
+        || phase === 'status' && request.op === 'status' || phase === 'auth' && request.op === 'http')) return;
+      changed = true;
+      if (mutation === 'config') commands[0]!.description = 'changed';
+      else f.client.scopes.push('another-scope');
+    });
+    expect((await f.run()).status).not.toBe('delivered'); expect(changed).toBe(true);
+    expect(f.calls.some(request => request.op === 'mobileOutboxDelivery' && request.action === 'send')).toBe(false);
+    expect(f.deliveries.get('command')?.state).toBe('reserved');
+  }
+});
 test('runtime and interaction settings ACK before any attachment upload, then use adopted capture', async () => {
   const f = fixture({ ...queued(), runtimeMode: 'approval-required', interactionMode: 'plan', attachments: [image()] });
   expect((await f.run()).status).toBe('delivered');

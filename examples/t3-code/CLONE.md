@@ -33,10 +33,11 @@ require them.
   `1.0.0 (20261028202307)` as `VALID` and `IN_BETA_TESTING` internally. Its exact
   build is assigned to `Team (Expo)`, with one installed tester and one invited
   tester. External distribution was not extended.
-- An intermittent ordinary Send remains in Sending/Pending before server
-  admission. Restart recovers the original saved message without resubmission.
-  The cause remains unresolved. Bounded cache transfers now address the observed
-  4 MiB native-request refusals, but the normal app still reproduces the Send stall.
+- The observed ordinary Send stall hit the 100 ms JavaScript turn budget.
+  Duplicate configuration scans are removed while full change, authorization
+  and receipt checks remain. Eight consecutive fresh sends, growing output,
+  Stop and restart pass in the normal iPhone app. Bounded cache transfers also
+  address the separate 4 MiB native-request refusals.
 
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
@@ -155,11 +156,11 @@ after module teardown. The real TypeScript-to-Foundation path round-trips exact
 4 MiB shell and 16 MiB thread values, preserves duplicate-write timestamps and
 replacement-safe deletion, and returns all 128 metadata rows above 1 MiB. The
 native transport fixture passes 9,559 checks; the unchanged store passes 86.
-All 3,868 mobile tests, strict TypeScript, boot and the normal native build pass.
+All 3,871 mobile tests, strict TypeScript, boot and the normal native build pass.
 Independent review finds no introduced blocker. The normal iPhone app freshly
 stores its complete 4,096,034-byte configuration. Its captured trace has no 4 MiB
-request refusal, but Send still stalls. That trace's short journal window misses
-the delivery attempt. Actual delivery still compares complete configurations.
+request refusal. A separate immediate capture identifies the Send continuation
+refusal described below. Actual delivery still compares complete configurations.
 No phone parity or new TestFlight checkpoint is claimed.
 The catalog reader distinguishes unread from successfully loaded empty state and
 retains readiness through later failures. A native launch trace found restored
@@ -196,8 +197,20 @@ Continuous plain lines did not supply an intermediate Markdown block for the
 earlier streaming checks. The pinned server filters streaming output by complete
 blocks in paragraph mode. No environment setting changed during these drives.
 All temporary probes are removed. The clean build contains none of their
-diagnostic strings across its eight Mach-O artifacts. The ordinary Send stall
-remains open after the cache transport correction.
+diagnostic strings across its eight Mach-O artifacts.
+An immediate normal-app trace catches an outbox continuation taking 103.7 ms
+against Exact's 100 ms budget. Its saved native reservation survives the refused
+callback. Outbox validation now reuses checks within each synchronous segment
+and retains complete config/scopes comparisons after awaits. The two work-count
+regressions fail the former source. In-place changes to unknown config fields
+and scopes still block issue. Independent review finds no introduced defect.
+The normal build recovers the original reserved message once, then receives
+`SEND53_OK` through `SEND60_OK` in eight consecutive fresh sends without restart.
+Four captured continuations have no refusal. The last three sends use no dev
+menu. Growing paragraph output increases from 638 to 1,662 characters before
+Stop; the server confirms interruption with no active or pending run. After
+restart, the saved environment, interrupted reply and empty composer return.
+The complete mobile suite passes 3,871 tests. Full phone parity remains open.
 Signed archive `1.0.0 (20261028202307)` contains pushed source `7c1a11570` and
 excludes the later native editor changes. Signature, store provisioning, identity, version and
 source-stamp checks pass. The held files and original Git index restore exactly.

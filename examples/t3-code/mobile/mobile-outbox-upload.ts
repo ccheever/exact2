@@ -31,7 +31,8 @@ const validId = (id: string) => id.length > 0 && id.length <= 128 && /^[a-z0-9_-
 export async function mobileOutboxPrepareAttachments(client: T3Client, handle: Native,
   captured: MobileOutboxCapture, connection: MobileOutboxConnection = client): Promise<MobileOutboxUploadResult> {
   const native = letGoAware(handle), generation = connection.generation, activeOrigin = connection.origin;
-  const environmentId = connection.environmentId, config = JSON.stringify(connection.config), scopes = JSON.stringify(connection.scopes);
+  const environmentId = connection.environmentId;
+  let stamp: { config: string; scopes: string } | undefined;
   let capture = { ...captured }, adopted = false, mutation: MobileOutboxOutcome | null = null;
   let endpointVerified = false;
   const minted: string[] = [], prepared: MobileOutboxUploadAttachment[] = [], pending: string[] = [];
@@ -42,9 +43,11 @@ export async function mobileOutboxPrepareAttachments(client: T3Client, handle: N
     && record.environmentId === environmentId && connection.connection === 'connected';
   function current() {
     const snapshot = mobileOutboxSnapshot(client), row = snapshot.rows.find(row => row.record.messageId === capture.messageId);
-    if (!sameEndpoint() || !connection.configLive || JSON.stringify(connection.config) !== config || JSON.stringify(connection.scopes) !== scopes
+    const now = { config: JSON.stringify(connection.config), scopes: JSON.stringify(connection.scopes) };
+    if (!sameEndpoint() || !connection.configLive || stamp && (now.config !== stamp.config || now.scopes !== stamp.scopes)
       || !snapshot.complete || !row || row.held || row.status !== 'confirmed' || !sameCapture(mobileOutboxCapture(client, capture.messageId), capture)
       || snapshot.outcomes.some(outcome => outcome.messageId === capture.messageId && ['unknown', 'uncertain'].includes(outcome.status))) throw stale();
+    stamp ??= now;
     return row;
   }
   async function confirm() {
