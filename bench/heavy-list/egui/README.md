@@ -132,3 +132,17 @@ The original delay did not reproduce. Its cause remains unestablished; neither
 a lost wake nor first-use driver work is proven. No scheduling workaround or
 polling timer is added. These brief launches posted no input and are diagnostic
 runs, excluded from the cold-start series.
+
+G4b preparation at `994b003388`, rebased onto `0312b493fc`, built all four
+release arms into `target/g4b/`. The signed bundle copies carry identical
+probe bytes; `provenance.json` records their executable and probe hashes,
+and `plan.txt` records the commands and quiet rule. The original three-arm
+aggregation output matched byte for byte on controlled samples; the same
+exercise produced all four columns with egui enabled. These are instrument
+checks, not benchmark results.
+
+All six repository checks passed, including clippy and fmt, as did the egui
+workspace's clippy (`-D warnings`) and fmt. No check needed a retry. The root
+build/test/check commands used this worktree's `target/`; tests used
+`RUST_TEST_THREADS=2`. Exact commands, exit codes and logs are retained in
+`target/g4b/checks/`. Timed samples remain pending the display window.
