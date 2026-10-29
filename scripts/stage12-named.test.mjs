@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decodePng, encodePng } from './png.mjs';
-import { bindingShape, bindingsCheck, identityOf, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
+import { bindingShape, bindingsCheck, declaresSlot, identityOf, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
 import { BINDINGS, NAMED, RETIRED, SCREENS, STAGES, comparePixels, useStage } from './stage12-gate.mjs';
 
 const img = (w, h, f) => { const data = new Uint8Array(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data.set(f(x, y), (y * w + x) * 4); return encodePng({ width: w, height: h, data }); };
@@ -124,6 +124,12 @@ test("option B's body shape on the map: one PersonRow call site, at most one Fol
     // naming the binding, renders in that PersonRow call's slot (Astra's re-check).
     [map(rowNode(10), followNode(12, 0), { component: 'Caller', file: '/copy/c.contract', line: 40, chain: [], walk: 0 }), "slot holds Caller (the app's)"],
   ]) expect(bindingShape(m, b)).toMatchObject({ ok: false, said: expect.stringContaining(why) });
+});
+
+test('a binding declares no slot of its own, by its declaration alone', () => {
+  const text = 'component B-old\n  slot\n  view\n    text "x"\n\ncomponent  B // the binding\n  props\n    p: P\n  view\n    Row(id="a",\n)\n      x\n\ncomponent C\n  slot\n  view\n    children\n';
+  expect([declaresSlot(text, 'B'), declaresSlot(text, 'C'), declaresSlot(text, 'B-old'), declaresSlot(text, 'D')]).toEqual([false, true, true, null]);
+  expect(declaresSlot('component B\n  slot // forwards\n  view\n    Row()\n    children\n', 'B')).toBe(true);
 });
 
 test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindings and screens", () => {

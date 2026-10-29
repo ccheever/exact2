@@ -190,3 +190,17 @@ export function bindingShape(map, { component, allowed }) {
   if (strangers.length) return { ok: false, said: `its PersonRow's slot holds ${[...new Set(strangers.map(n => n.library ?? `${n.component} (the app's)`))].join(', ')}` };
   return { ok: true, said: `one PersonRow call${followSites.length ? ', its one FollowButton call in its slot' : ''}` };
 }
+
+/** Whether `component`'s declaration in `text` declares a slot of its own: a binding with one could place its
+ * caller's nodes beside its PersonRow, nodes whose chains and walks never name it (Astra's re-check 3), so a
+ * binding must have none. The declaration runs from `component <name>` to the next top-level declaration; its
+ * `slot` is a line of that word alone. True, false, or null where `text` doesn't declare it. */
+export function declaresSlot(text, component) {
+  const lines = text.split('\n');
+  const at = lines.findIndex(l => new RegExp(`^component\\s+${component}(?=\\s|$|//)`).test(l));
+  if (at < 0) return null;
+  const top = /^(component|style|shape|use|enum|fn|test|derive|action|state|const)\b/;
+  let end = lines.findIndex((l, i) => i > at && top.test(l));
+  if (end < 0) end = lines.length;
+  return lines.slice(at + 1, end).some(l => /^\s+slot\s*(\/\/.*)?$/.test(l));
+}
