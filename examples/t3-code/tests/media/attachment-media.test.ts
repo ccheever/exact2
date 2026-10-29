@@ -39,7 +39,7 @@ afterEach(() => server.restore());
 
 describe('attachment media bodies', () => {
   test('filePreviewKind classifies the four media kinds by MIME type and by name', () => {
-    // An archive is classified as one, and has no preview until its viewer is here (attachment-surface.ts previewBody).
+    // An archive is classified as one, and opens in the viewer page (attachment-surface.ts previewBody).
     expect(files.map(file => previewKind(file))).toEqual(['pdf', 'html', 'audio', 'video', 'archive']);
     expect(['x.pdf', 'x.htm', 'x.mp3', 'x.m4a', 'x.mov', 'x.webm'].map(name => previewKind({ name, mimeType: 'application/octet-stream' })))
       .toEqual(['pdf', 'html', 'audio', 'audio', 'video', 'video']);
@@ -47,7 +47,7 @@ describe('attachment media bodies', () => {
       .toEqual([true, false, '', 'audio', '']);
   });
 
-  test('audio, video and a PDF play or frame the inline signed URL; nothing reads them as text', async () => {
+  test('audio and video play the inline signed URL and a PDF opens it in PDF.js; nothing reads them as text', async () => {
     const calls: Obj[] = [], c = client(calls), written = memoryAppFiles();
     server.restore();
     server = serveAssets(() => ({ body: '%PDF-1.4 pages' }));
@@ -57,9 +57,11 @@ describe('attachment media bodies', () => {
         .toEqual([preview, `http://127.0.0.1:1/api/assets/${meta.id}?sig=1`, '', false, false, true, '']);
     }
     expect(server.calls).toEqual([]);
-    // A PDF is framed at its signed URL, which WebKit's PDF view reads, as Files' is: nothing is downloaded or written.
+    // A PDF opens in the viewer page, which fetches the signed URL for PDF.js (PdfViewer): the app downloads and writes nothing.
     const pdf = await attachmentView(c, native, files[0]!, 1000);
-    expect([pdf.preview, pdf.url, pdf.error, pdf.canRender, pdf.canCopy, pdf.canSave, pdf.noPreview]).toEqual(['pdf', 'http://127.0.0.1:1/api/assets/p1-pdf?sig=1', '', false, false, true, '']);
+    expect([pdf.preview, pdf.url, pdf.error, pdf.canRender, pdf.canCopy, pdf.canSave, pdf.noPreview]).toEqual(['viewer', '', '', false, false, true, '']);
+    expect(JSON.parse(pdf.viewer.config)).toMatchObject({ type: 'config', view: 'pdf', src: 'http://127.0.0.1:1/api/assets/p1-pdf?sig=1', name: 'report.pdf' });
+    expect(pdf.viewer.src).toBe('assets/file-preview/index.html');
     expect([server.calls, written.size]).toEqual([[], 0]);
     expect(calls.map(call => (call.resource as Obj | undefined)?.disposition)).toEqual(['inline', 'inline', 'inline']);
   });
@@ -75,7 +77,7 @@ describe('attachment media bodies', () => {
     refused = false;
     await attachmentLocal(c, native, 'retry', files[0]!.id, 1000);
     const again = await attachmentView(c, native, files[0]!, 1000);
-    expect([again.preview, again.error, again.url]).toEqual(['pdf', '', 'http://127.0.0.1:1/api/assets/p1-pdf?sig=1']);
+    expect([again.preview, again.error, JSON.parse(again.viewer.config).src]).toEqual(['viewer', '', 'http://127.0.0.1:1/api/assets/p1-pdf?sig=1']);
   });
 
   test('a rendered page frames its signed asset URL itself', async () => {
@@ -121,9 +123,12 @@ describe('attachment media bodies', () => {
     expect((await attachmentView(c, native, meta, 2000)).preview).toBe('image');
   });
 
-  test('an unsupported file keeps "No preview for this file" and Save file', async () => {
-    const view = await attachmentView(client(), native, files[4]!, 1000);
-    expect([view.preview, view.noPreview, view.canSave]).toEqual(['none', 'Save it to open in an app that supports zip files.', true]);
+  test('an archive opens in the viewer page; an unsupported file keeps "No preview for this file" and Save file', async () => {
+    const zip = await attachmentView(client(), native, files[4]!, 1000);
+    expect([zip.preview, zip.noPreview, zip.canSave, JSON.parse(zip.viewer.config).view, JSON.parse(zip.viewer.config).kind]).toEqual(['viewer', '', true, 'binary', 'archive']);
+    const blob: AttachmentMeta = { id: 'b1', name: 'blob.bin', mimeType: 'application/octet-stream', sizeBytes: 10 };
+    const view = await attachmentView(client([], [...files, blob]), native, blob, 1000);
+    expect([view.preview, view.noPreview, view.canSave]).toEqual(['none', 'Save it to open in an app that supports bin files.', true]);
   });
 });
 

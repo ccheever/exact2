@@ -277,14 +277,15 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     diagramPreviewAction(client, 'diagram-open', flow);
     expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
   });
-  test('a CSV renders as a table; a file with no preview offers Save; an unknown id fails plainly', async () => {
+  test('a CSV renders as a table in the viewer page; a file with no preview offers Save; an unknown id fails plainly', async () => {
     const { client, replies } = fakeClient();
     replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
     serveText('a,b\n1,2\n');
     await surfaceLocal(client, native, 'linked-attachment', 'att-csv', '');
     let view = await panelView(client, native, 1);
-    expect(view.attachment).toMatchObject({ preview: 'table', renderLabel: 'Show source', renderIcon: 'code' });
-    expect(view.attachment.table[0]!.cells.map(cell => cell.text)).toEqual(['a', 'b']);
+    // DelimitedTablePreview: the large-text viewer over the text read, every row and a count line (the page's).
+    expect(view.attachment).toMatchObject({ preview: 'viewer', renderLabel: 'Show source', renderIcon: 'code', canCopy: true });
+    expect(JSON.parse(view.attachment.viewer.config)).toMatchObject({ view: 'text', text: 'a,b\n1,2\n', delimiter: ',', src: '', sizeBytes: -1 });
     await surfaceLocal(client, native, 'linked-attachment', 'att-bin', '');
     view = await panelView(client, native, 1);
     expect(view.attachment).toMatchObject({ preview: 'none', canCopy: false, canSave: true, noPreview: 'Save it to open in an app that supports bin files.' });

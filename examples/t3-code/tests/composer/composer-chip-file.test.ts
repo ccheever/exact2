@@ -65,14 +65,17 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
     expect((await composerFileView(client, native, 1)).open).toBe(false);
   });
 
-  test('a PDF shows its staged copy, copied under a .pdf name for the frame; another type is "No preview" with its actions', async () => {
+  test('a PDF opens in the viewer page, its staged copy posted to it; another type is "No preview" with its actions', async () => {
     forgetMediaFrames(); // another file's test may have shown this staged name
     const { native, client, appFiles } = harness([file({ name: 'spec.pdf', mimeType: 'application/pdf' })]);
     await performChipAct(client, native, { act: 'file', context: `file_${ID}` });
     const view = (await composerFileView(client, native, 1)).file;
-    expect(view).toMatchObject({ preview: 'pdf', canSave: true, canCopy: false, canRemove: true });
-    expect(view.url).toMatch(/^app:\/cache\/media-preview\/\d+\.pdf$/);
-    expect(appFiles.get(view.url)).toEqual(appFiles.get(`app:/data/composer-files/${ID}`));
+    expect(view).toMatchObject({ preview: 'viewer', canSave: true, canCopy: false, canRemove: true });
+    expect(JSON.parse(view.viewer.config)).toMatchObject({ view: 'pdf', src: '' });
+    // Once the page has booted, the staged copy's bytes go to it by message (the reference's Blob URL).
+    await composerFileLocal(client, native, 'surface-linked-att-viewer:{"type":"boot"}', ID);
+    const posted = JSON.parse((await composerFileView(client, native, 1)).file.viewer.posts[0]!.text) as Obj;
+    expect([posted.type, posted.done, Buffer.from(String(posted.data), 'base64')]).toEqual(['bytes', true, Buffer.from(appFiles.get(`app:/data/composer-files/${ID}`)!)]);
     // Nothing is uploaded or fetched to preview it.
     expect(server!.calls).toEqual([]);
     const other = harness([file({ name: 'build.bin', mimeType: 'application/octet-stream' })]);

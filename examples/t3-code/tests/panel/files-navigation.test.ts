@@ -106,11 +106,11 @@ test('typed file errors keep the exact attempted path through the transport and 
 });
 
 test('draft image, video, HTML and PDF previews mint workspace assets before a thread exists', async () => {
-  // The PDF is framed at its signed URL (files-rendered-html.ts).
+  // The PDF opens in the viewer page, which fetches its signed URL (files-viewer.ts).
   const server = serveAssets(() => ({ body: '%PDF-1.4' }));
   memoryAppFiles();
   try {
-    for (const [path, preview] of [['photo.png', 'media'], ['movie.mp4', 'media'], ['index.html', 'html'], ['notes.pdf', 'pdf']] as const) {
+    for (const [path, preview] of [['photo.png', 'media'], ['movie.mp4', 'media'], ['index.html', 'html'], ['notes.pdf', 'viewer']] as const) {
       const { client, calls } = fixture('');
       const view = await filesView(client, native, file(path));
       expect(view.preview).toBe(preview);

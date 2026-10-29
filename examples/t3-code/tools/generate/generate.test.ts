@@ -41,11 +41,38 @@ test('the generator pins its packages at the integrity values the reference lock
     ['pele@1.8.0', 'AYmHttE70cwNJVXdfPMCANGivFlmc3bGGpMG0GqH5S5vE3RgtEuLlkqbhRfe94Csv/ZEd1TUbv2dMUHpw4p1Bg=='],
     ['katex@0.16.47', 'Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg=='],
     ['dompurify@3.4.16', 'sqo+pNp3qRhCIpbgRi1y8Tgk27Bo2Ry7w0dC1NBeNTdZChWjz9Xb/KOoZbRP/R6pQZ80Qw8YhXw13hWWBbMRnQ=='],
+    // The document viewers' page (gen-file-preview.mjs).
+    ['@betteroffice/docx@0.4.3', 'CEErXJH3iCsi2a61gTNkAofLCzSTcktLmp710gGhMwbBfOqwQ2yI7dRFBV3ElGa9JxkS03IfejvLX0sAvlTrUQ=='],
+    ['@betteroffice/fonts@0.4.0', 'x1BVwYDAgY5R6TWI4t9NLguSiAEbH5GItN2ZlpBIFoRXTIJgjBsXd6sUxPGpexXOyY6KdhRjG8XvHjyAYxEGCw=='],
+    ['@betteroffice/pptx@0.2.0', 'pNPQ58tlA+pVibERbLdQNskvP7a0GIMf4jhkCU/gPp8043Ichf6gB3PSb4ra9sfqoIaWqOaZKCWyptovA2+Q0A=='],
+    ['@betteroffice/xlsx@0.3.0', 'K2bHtdk/epAxsmvxJlIWBRndjP3ltQU0Oh3p4gcZd2n5/YgXglo3SmMYX4nQe8WEm/yvz91p+aIasKyXXQP9Wg=='],
+    ['pdfjs-dist@6.4.299', 'AVl138zALtfaAPvADulE0PZThbYzCBS79nL4pOSL/6Sm/4AH5A21BD9VHt97OlCuzJuCpmeZtAtkinisF4Vb1g=='],
+    ['sql.js@1.15.0', '54VT5h9/VGlLaQan5pX/Zx8k6Vbykwl5hRUtl4h4+VYnaZCTraUs4P1i2WLz21O6oPVp6Gvg+d1OyPo01ZG5ig=='],
+    ['jszip@3.10.1', 'xXDvecyTpGLrqFrvkrUSoxxfJI5AH7U8zxxtVclpsUtMCq4JQ290LY8AW5c7Ggnr/Y/oK+bQMbqK2qmtk3pN4g=='],
+    ['saxes@6.0.0', 'xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA=='],
+    ['fast-xml-parser@5.7.3', 'C0AaNuC+mscy6vrAQKAc/rMq+zAPHodfHGZu4sGVehvAQt/JLG1O5zEcYcXSY5zSqr4YVgxsB+pHXTq0i7eDlg=='],
+    ['entities@8.1.0', 'kxL7msIffSuh9aaFAMD7rxAIuTRMAHMeBtgHW2yUdWw732ZNh4MehkF2gdjvtdmikkaIP9bFDDJOPlsvm7avrA=='],
+    ['effect@4.0.5', 'BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q=='],
   ]) {
     const entry = lock.split('\n').find(line => line.includes(`["${name}"`)) ?? '';
     expect(entry).toContain(`sha512-${integrity}`);
   }
 });
+
+// A prebuilt file carries its dependencies' code (jszip.min.js holds pako, lie, immediate and setimmediate), so the
+// viewer page's notices follow each shipped package's dependencies, as the reference's third-party-licenses.ts does,
+// less what a browser build replaces or leaves out: jszip's readable-stream (its `browser` field), pdfjs-dist's
+// Node canvas (an optional dependency) and a type-only package.
+test("the viewer page carries the notice of each package it ships and of each that one carries", async () => {
+  const { productionDependencies } = await import('./gen-file-preview.mjs');
+  const dir = (name: string) => join(import.meta.dir, 'node_modules', name);
+  const walked: Map<string, string> = productionDependencies(new Map([['jszip', dir('jszip')], ['dompurify', dir('dompurify')], ['pdfjs-dist', dir('pdfjs-dist')]]));
+  expect([...walked.keys()].sort()).toEqual(['dompurify', 'immediate', 'jszip', 'lie', 'pako', 'pdfjs-dist', 'setimmediate']);
+  const { outputs } = await import('./generate.mjs');
+  const notices = (await outputs()).files.map(({ file }: { file: string }) => file).filter(file => /assets\/file-preview\/vendor\/licen[cs]e-/i.test(file));
+  expect(['pako', 'lie', 'immediate', 'setimmediate'].filter(name => !notices.some(file => file.toLowerCase().includes(`-${name}`)))).toEqual([]);
+  expect(notices.filter(file => /napi-rs|readable-stream|trusted-types/.test(file))).toEqual([]);
+}, 120_000);
 
 // The Mermaid page's pele (assets/mermaid/vendor/) draws the diagram kinds the Mermaid build it replaced drew, the
 // fixtures of the transcript, Files and attachment tests among them, and the math page's KaTeX typesets.

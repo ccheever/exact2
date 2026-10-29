@@ -1,0 +1,162 @@
+// What the viewer page hands back, drawn natively (MIT reference, see LICENSE-T3: apps/web/src/components/files/
+// NotebookPreview.tsx, BinaryViewer.tsx ArchiveFile and ReadOnlySourcePreview.tsx; T3 Code 7c3b3b3605ef):
+// - NotebookPreview: "<n> cells · <language> · <size>", "Saved outputs only. Code is never executed.", then each cell in
+//   a bordered section under its "<language> · <n>" bar: a markdown cell as ChatMarkdown, a source cell's numbered lines
+//   up to 360 pt tall, its text, image and HTML outputs (each HTML output in a frame of the viewer page, as tall as the
+//   page reports), and "Show more cells (<n> remaining)";
+// - ArchiveEntryBody: an archive's opened entry under the page's bar, its source or its picture with the size and zoom
+//   bar, or why it cannot open;
+// - AttachmentCodeRow: one numbered source line, the attachment body's too.
+use AttachmentCodeLine from "./pr-attachment-shapes.contract"
+use ArchiveEntry from "./pr-attachment-shapes.contract"
+use NotebookPreviewView from "./pr-attachment-shapes.contract"
+use ChatDocument from "../timeline/markdown.contract"
+use DiagramBlocks from "../timeline/markdown.contract"
+use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
+use MarkdownEnv from "../timeline/markdown.contract"
+use CodeHighlight from "../timeline/markdown.contract"
+use MermaidDiagram from "../timeline/mermaid-frame.contract"
+use AttachmentUrl from "../timeline/timeline-attachments.contract"
+use ViewerFrame from "./viewer-frame.contract"
+use PreviewImage from "./preview-image.contract"
+use FileSurfaceFailure from "./file-surface-chrome.contract"
+
+fn notebookMuted(): string = "light-dark(#71717b, #a1a1a1)"
+fn notebookBorder(): string = "light-dark(#e4e4e799, #ffffff0c)"
+
+// One numbered source line at its whole line height, as the reference's `leading-5` rows; trimmed to its cap height
+// and baseline (`text-box-trim`), each line would overlap the next.
+component AttachmentCodeRow
+  props
+    line: AttachmentCodeLine
+    gutter: number
+    wrap: bool
+  view
+    row width="100%" align-items="flex-start"
+      text line.number width=gutter flex-shrink=0 padding-right="0.614375rem" box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
+      text flex=1 min-width=0 padding-left="0.4875rem" padding-right="0.4875rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+        for run in line.runs key=run.id
+          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax) font-weight=synWeight(run.syntax)
+
+// ReadOnlySourcePreview: the numbered lines in the source surface.
+component SourceLines
+  props
+    lines: AttachmentCodeLine[]
+    gutter: number
+    wrap: bool
+    name: string
+    testId: string
+  view
+    scroll flex=1 min-height=0 width="100%" testId=testId
+      column width=(wrap ? "100%" : "auto") min-width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" role="code" aria-label=name
+        for line in lines key=line.id
+          AttachmentCodeRow(line=line, gutter=gutter, wrap=wrap)
+
+// NotebookSource: a source cell's lines, as tall as they lay out up to 360 pt; their line count's height until then.
+component NotebookSource
+  props
+    lines: AttachmentCodeLine[]
+    gutter: number
+    wrap: bool
+    name: string
+    initial: number
+    testId: string
+  state measured = 0
+  // `resize` hears the content box, so the rows' 1rem of padding is added back; lines that wrap only add height, so
+  // the line count's height is the least it takes.
+  action laidOut(width: number, height: number)
+    measured = min(360, max(initial, ceil(height) + 16))
+  view
+    column height=(measured > 0 ? measured : initial) flex-shrink=0 min-height=0 width="100%"
+      scroll flex=1 min-height=0 width="100%" testId=testId
+        column width=(wrap ? "100%" : "auto") min-width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" role="code" aria-label=name resize=laidOut
+          for line in lines key=line.id
+            AttachmentCodeRow(line=line, gutter=gutter, wrap=wrap)
+
+// ArchiveFile, under the archive's bar the page keeps: the entry's source, its picture, or why it cannot open here.
+component ArchiveEntryBody
+  props
+    entry: ArchiveEntry
+    wrap: bool
+    // PreviewImageContent's press: the expanded image dialog over the entry's picture.
+    expand: action
+    testId: string
+  action noRetry
+    let ignored = entry.path
+  action noFailure(message: string)
+    let ignored = message
+  view
+    column flex=1 min-height=0 width="100%" testId=testId
+      if entry.preview == "code"
+        if entry.truncatedNote != ""
+          text entry.truncatedNote flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.6875rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" role="status"
+        SourceLines(lines=entry.lines, gutter=entry.gutter, wrap=wrap, name=entry.path, testId=`${testId}-code`)
+      if entry.preview == "image"
+        for url in [entry.url] key=url
+          PreviewImage(url=url, name=entry.path, zoomId=`${testId}-image-zoom`, expand=expand, failed=noFailure, testId=`${testId}-image`)
+      if entry.preview == "error"
+        FileSurfaceFailure(message=entry.message, canRetry=false, retry=noRetry, testId=`${testId}-failed`)
+
+component NotebookPreview
+  props
+    notebook: NotebookPreviewView
+    documents: ChatDocument[]
+    code: CodeHighlight[]
+    diagrams: MermaidDiagram[]
+    env: MarkdownEnv
+    urls: AttachmentUrl[]
+    copiedText: string
+    copiedNonce: number
+    wrap: bool
+    scheme: string
+    local: action
+    // (op) a control of the notebook, routed as the attachment body's own (`viewer-more`, `viewer-output:<id>|<payload>`).
+    act: action
+    testId: string
+  state over = false
+  action hoverMore(value: bool)
+    over = value
+  // The HTML outputs within 160 pt of the view, in the order they came near: the first sixteen mount a frame, as the
+  // reference bounds its browsing contexts; the others keep the height they last reported.
+  state near: string[] = []
+  action outputNear(id: string, entry: IntersectionObserverEntry)
+    let kept = near.filter((seen) => seen != id)
+    near = entry.isIntersecting ? kept.concat([id]) : kept
+  action noCite(blockId: string, runId: string, s: Selection)
+    let ignored = blockId
+  action outputSaid(id: string, payload: string)
+    act(`viewer-output:${id}|${payload}`)
+  action noPost(key: string)
+    let ignored = key
+  view
+    column flex=1 min-height=0 width="100%" testId=testId
+      text notebook.status flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=notebookBorder() font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=notebookMuted() role="status" testId=`${testId}-status`
+      text "Saved outputs only. Code is never executed." flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.6875rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" role="status"
+      scroll flex=1 min-height=0 width="100%" testId=`${testId}-scroll`
+        column width="100%" max-width="56rem" align-self="center" gap="1.25rem" padding-left="1.25rem" padding-right="1.25rem" padding-top="1.5rem" padding-bottom="1.5rem" box-sizing="border-box"
+          for cell in notebook.cells key=cell.id
+            column min-width=0 overflow="hidden" border-radius="0.375rem" border-style="solid" border-width=1 border-color=notebookBorder() role="region" aria-label=cell.aria testId=`${testId}-cell-${cell.id}`
+              text cell.label padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color=notebookBorder() background-color="light-dark(#fafafa4d, #ffffff02)" font-size="0.75rem" line-height="1rem" color=notebookMuted()
+              if cell.document != ""
+                column width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box"
+                  for document in documents.filter((entry) => entry.id == cell.document) key=document.id
+                    DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#18181bcc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source="", cite=noCite, markStart=-1, markEnd=-1)
+              if cell.lines.length > 0
+                NotebookSource(lines=cell.lines, gutter=cell.gutter, wrap=wrap, name=cell.aria, initial=cell.sourceHeight, testId=`${testId}-source-${cell.id}`)
+              for output in cell.outputs key=output.id
+                column width="100%" border-top-width=1 border-top-style="solid" border-color=notebookBorder()
+                  if output.kind == "html"
+                    column width="100%" height=output.height flex-shrink=0 intersect=outputNear(output.id) intersect-margin="160px"
+                      if near.slice(0, 16).includes(output.id)
+                        ViewerFrame(frame=output.frame, scheme=scheme, sheet=false, message=outputSaid(output.id), posted=noPost, pick=noPost, label=`${cell.aria} HTML output`, testId=`${testId}-output-${output.id}`)
+                  if output.kind == "image" and output.url != ""
+                    row width="100%" padding="1rem" box-sizing="border-box"
+                      image output.url aria-label=`${cell.aria} output` max-width="100%" max-height="22rem" object-fit="contain"
+                  if output.kind == "text"
+                    text output.text width="100%" padding="1rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#18181b, #f5f5f5)"
+          if notebook.empty
+            text "This notebook is empty." font-size="0.875rem" line-height="1.25rem" color=notebookMuted()
+          if notebook.more != ""
+            row
+              button press=act("viewer-more") hover=hoverMore height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=(over ? "light-dark(#f4f4f580, #ffffff14)" : "light-dark(#ffffff, #ffffff08)") testId=`${testId}-more`
+                text notebook.more font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"

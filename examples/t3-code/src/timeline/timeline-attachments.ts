@@ -18,6 +18,7 @@ import { imageAccent } from '../media/image-accent';
 import { encodeMediaSource, mediaTooltip } from '../media/media-actions';
 import { syncInlineDocuments } from './inline-documents';
 import { draftThreadId } from '../composer/draft-thread-id';
+import { MEDIA_CACHE } from '../media/media-frame';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
 export interface MessageFile { id: string; name: string; icon: string }
@@ -183,6 +184,15 @@ export function openInlineDocumentImage(client: T3Client, src: string, name: str
   const source = { kind: 'image' as const, name, src };
   previews.set(client, null); mediaPreviews.set(client, null);
   galleries.set(client, { threadId: client.threadId, signThread: '', text: '', root: '', scope: {}, items: [{ key: src, name, access: 'direct', source }], index: 0, opener });
+}
+/**
+ * An archive entry's picture, written to the media cache: the dialog shows that file. Its Save and Copy image stay
+ * disabled, as the native media actions fetch only http(s) and data: URLs.
+ */
+export function openCachedImage(client: T3Client, path: string, name: string, opener: string): void {
+  if (!path.startsWith(`${MEDIA_CACHE}/`)) throw new ClientError('That image is no longer available.');
+  previews.set(client, null); mediaPreviews.set(client, null);
+  galleries.set(client, { threadId: client.threadId, signThread: '', text: '', root: '', scope: {}, items: [{ key: path, name, access: 'direct', source: { kind: 'image', name, src: null } }], index: 0, opener });
 }
 /** ExpandedImageDialog: open on an image, step to its neighbours, close. */
 export function imagePreviewAction(client: T3Client, op: string, id: string, value: string): string {

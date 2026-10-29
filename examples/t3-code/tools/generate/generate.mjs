@@ -18,6 +18,8 @@
 //   gen-minimap-text.mjs src/timeline/minimap-text.js and .d.ts: the minimap preview's Markdown as plain text
 //   gen-page-scripts.mjs src/browser/page-scripts.ts: the page scripts a Browser tab's frame runs (Annotate's overlay,
 //                      Playwright's injected script), from the committed assets
+//   gen-file-preview.mjs assets/file-preview/: the document viewers' page, bundled from file-preview-host/src/ and the
+//                      pinned viewer packages, with their wasm, fonts and licences
 //
 // The app build runs it before it bakes (data/build.rs). Run it by hand before anything else reads
 // them: `bun test examples/t3-code`, the strict tsc, `contract build`, the AppKit tests.
@@ -35,16 +37,18 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inputs as filePreviewInputs } from './gen-file-preview.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
-const GENERATORS = ['gen-highlights.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs'];
+const GENERATORS = ['gen-highlights.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs', 'gen-file-preview.mjs'];
 
-/** Every input: this directory's scripts, package.json and bun.lock, and the assets gen-page-scripts.mjs copies (no
- *  generator reads another app source). */
+/** Every input: this directory's scripts, package.json and bun.lock, the assets gen-page-scripts.mjs copies, and the
+ *  viewer page's sources gen-file-preview.mjs bundles (no other generator reads an app source). */
 export function inputs() {
   return [...readdirSync(here).filter(name => /\.mjs$/.test(name) || name === 'package.json' || name === 'bun.lock').map(name => join(here, name)),
-    ...['browser-annotate.js', 'browser-annotate.css', 'vendor/playwright/injected-script.js'].map(asset => join(example, 'assets', asset))];
+    ...['browser-annotate.js', 'browser-annotate.css', 'vendor/playwright/injected-script.js'].map(asset => join(example, 'assets', asset)),
+    ...filePreviewInputs()];
 }
 
 /** The pinned packages: a frozen install with nothing to do takes milliseconds; a missing package is fetched once.
