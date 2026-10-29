@@ -89,8 +89,9 @@ enum MarkupRuns {
                     run.text = "\u{202F}" + unbroken + "\u{202F}"
                     // Its press is the atom's, not a link's: never underlined as one.
                     run.decoration = p.strike != 0 ? "line-through" : "none"
-                    run.background = paint[kind]?.background ?? AtomPaint.token(dark: atoms.dark, contrast: atoms.contrast)
-                    if let ink = paint[kind]?.ink { run.color = ink }
+                    // The face's paint over its kind's (D2, D4).
+                    run.background = AtomPaint.face(detail["background"], atoms) ?? paint[kind]?.background ?? AtomPaint.token(dark: atoms.dark, contrast: atoms.contrast)
+                    if let ink = AtomPaint.face(detail["color"], atoms) ?? paint[kind]?.ink { run.color = ink }
                     boxes += 1
                     run.backgroundBox = 0xA700_0000 | boxes
                     run.backgroundRadii = Array(repeating: InlineRadius(px: Double(run.size) * 0.3), count: 4)

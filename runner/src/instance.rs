@@ -1004,16 +1004,25 @@ impl NodeInst {
             // view would then depend on history, not state. Unknown rows are plan defects.
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
-                    Ok((prop, pv)) => u.ops.push(Op::SetProp {
-                        value: bridge::icon_source(plan, prop, pv),
-                        id: self.view,
-                        prop,
-                    }),
+                    Ok((prop, pv)) => {
+                        let id = self.view;
+                        let pv = bridge::icon_source(plan, prop, pv);
+                        let value = match prop {
+                            exact_kernel::PropId::AtomFaces => self.faces(u, i, pv),
+                            _ => Some(pv),
+                        };
+                        if let Some(value) = value {
+                            u.ops.push(Op::SetProp { value, id, prop })
+                        }
+                    }
                     Err(
                         e @ (bridge::BridgeError::PropKind { prop, .. }
                         | bridge::BridgeError::Unset(prop)),
                     ) => {
                         let id = self.view;
+                        if prop == exact_kernel::PropId::AtomFaces {
+                            self.unthemed_faces(u, i);
+                        }
                         u.ops.push(Op::ClearProp { id, prop });
                         if matches!(e, bridge::BridgeError::PropKind { .. }) {
                             u.notes.push(invalid(id, prop.name(), &value));
@@ -1238,6 +1247,13 @@ fn invalid(view: ViewId, row: &str, value: &Value) -> String {
     let mut shown = String::new();
     crate::agent::untyped_json(value, &mut shown);
     format!("view {view}: invalid {row} value {shown}; unset")
+}
+
+/// A face's colour that is no colour (LLP 1045.000 D2), as written; `then`
+/// says what is drawn instead.
+pub(crate) fn invalid_face(view: ViewId, text: String, then: &str) -> String {
+    let shown = serde_json::Value::String(text);
+    format!("view {view}: invalid atomFaces colour {shown}; {then}")
 }
 
 /// The root of the instance tree: the plan's top-level sites.

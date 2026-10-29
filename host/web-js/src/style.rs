@@ -708,11 +708,13 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
 /// `set_plan_style` is (LLP 1095 D3): a value with a `-exact-platform-color()` is
 /// admitted only as one of the plan's own string literals, and writes what
 /// the literal path writes for each of its functions; any other is refused
-/// (an invalid computed declaration: CSS unset, with a diagnostic).
+/// (an invalid computed declaration: CSS unset, with a diagnostic). A site
+/// that says a refusal in its own words passes a function as the second
+/// argument, which the map returns the result of instead (`shape.js`'s faces).
 pub fn color_map(plan: &Plan) -> String {
     let map = platform_map(plan);
     match theme_map(plan) {
-        Some(theme) => format!("((T,M)=>v=>M(T(v)))({theme},{map})"),
+        Some(theme) => format!("((T,M)=>(v,r)=>M(T(v),r))({theme},{map})"),
         None => map,
     }
 }
@@ -799,7 +801,7 @@ fn platform_map(plan: &Plan) -> String {
         return SYSTEM_COLOR_MAP.clone();
     }
     format!(
-        "((P,M)=>v=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?M(P[v]):{refused}:M(v))({{{}}},{m})",
+        "((P,M)=>(v,r)=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?M(P[v]):typeof r===\"function\"?r(v):{refused}:M(v))({{{}}},{m})",
         admitted.join(","),
         m = SYSTEM_COLOR_MAP.as_str(),
         refused = invalid_unset("color")

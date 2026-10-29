@@ -127,6 +127,43 @@ impl<D: DataSource> Runner<D> {
         for (view, tokens) in read {
             self.ids.theme.looks_read(view, tokens);
         }
+        // A Markdown node's faces that read one, read again in their own
+        // tuple (LLP 1045.000 D2), as a row is. Faces the edit leaves with a
+        // colour that is none, where the faces as set took it, keep their
+        // old value, as a row its parse refuses does, and the journal names
+        // it; a colour the faces as set refused is refused again silently.
+        let mut faces: Vec<_> = self
+            .ids
+            .theme
+            .faces()
+            .filter(|(view, f)| f.tokens & bits != 0 && kernel.node(*view).is_some())
+            .map(|(view, f)| (view, f.text.clone(), f.tuple, f.refused.clone()))
+            .collect();
+        faces.sort_by_key(|(view, ..)| *view);
+        for (view, text, tuple, as_set) in faces {
+            let _tuple = Tuple::new(tuple);
+            exact_kernel::style::theme::take_named();
+            let (prop, mut refused) = (exact_kernel::PropId::AtomFaces, Vec::new());
+            let value = crate::bridge::atom_face_paint(&self.plan, prop, text, &mut refused);
+            let tokens = exact_kernel::style::theme::take_named();
+            self.ids.theme.faces_read(view, tokens);
+            let newly = crate::instance::theme::newly_refused(&refused, &as_set);
+            if !newly.is_empty() {
+                for text in newly {
+                    let kept = crate::instance::theme::KEPT;
+                    self.notes
+                        .push(crate::instance::invalid_face(view, text, kept));
+                }
+                continue;
+            }
+            self.ids.theme.faces_set(view, refused);
+            ops.push(Op::SetProp {
+                id: view,
+                prop,
+                value,
+            });
+            set += 1;
+        }
         Ok((self.apply(ops)?, set))
     }
 }
@@ -145,3 +182,7 @@ impl Drop for Tuple {
         crate::bridge::set_tuple(self.0);
     }
 }
+
+#[cfg(test)]
+#[path = "theme_tests.rs"]
+mod tests;

@@ -1196,17 +1196,19 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
             "0".to_owned()
         };
         // An inline atom's detail (LLP 1045.000 D6): its kind and source,
-        // marked so the page draws its pill when it adopts this one.
+        // marked so the page draws its pill when it adopts this one. Its
+        // range is the two numbers after six strings; its paint, two more.
         let mut atom = None;
         if p.peek() == Some(b',') {
             p.next();
             p.expect(b'[')?;
             let mut fields = Vec::new();
-            for n in 0..8 {
+            for n in 0..10 {
                 if n > 0 {
                     p.expect(b',')?;
                 }
-                fields.push(if n < 6 { p.string()? } else { p.number()? });
+                let range = matches!(n, 6 | 7);
+                fields.push(if range { p.number()? } else { p.string()? });
             }
             p.expect(b']')?;
             atom = Some(fields[0].clone());
@@ -1463,6 +1465,12 @@ mod tests {
         assert_eq!(
             markup_pieces(r#"[["a\\b\tc\u0001",1,0,0,""]]"#).unwrap()[0].text,
             "a\\b\tc\u{1}"
+        );
+        // An atom's piece, as that test pins it, its face's paint last.
+        let atom = r##"[["Quote",1,0,72,"",0,["citation","button","i.svg","T","t3-citation:1","[q](t3-citation:1)",2,20,"light-dark(#d52c36, #ff6762)",""]]]"##;
+        assert_eq!(
+            markup_pieces(atom).unwrap()[0].atom.as_deref(),
+            Some("citation")
         );
     }
 }

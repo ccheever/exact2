@@ -1438,7 +1438,7 @@ atom skill prefix="$" background-color="light-dark(#efe7ff, #2c2340)"
 
 component Composer
   state draft = ""
-  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs")]
+  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs", color="", backgroundColor="light-dark(#e3f0ff, #1d3045)")]
   action pressed(e: AtomEvent)
     open = e.source
   view
@@ -1459,10 +1459,29 @@ component Composer
   kinds it recognizes (`lower-atom-field`, `lower-atom-unknown`); two kinds with
   one scheme, a shared prefix character, or both relative are refused
   (`lower-atom-duplicate`).
-- `atomFaces` takes `AtomFace(source, label, icon, title)` records, keyed by an
-  atom's whole source: equal source is one atom, and new text is a new key. An
-  empty label is a link's text or a token without its prefix and quotes; the
-  icon is an image source (the web draws a URL or asset, not yet a `symbol:`).
+- `atomFaces` takes `AtomFace(source, label, icon, title, color,
+  backgroundColor)` records, keyed by an atom's whole source: equal source is
+  one atom, and new text is a new key. An empty label is a link's text or a
+  token without its prefix and quotes; the icon is an image source (the web
+  draws a URL or asset, not yet a `symbol:`). `color` and `backgroundColor`
+  paint that atom over its kind's `color` and `background-color`, or are empty
+  for the kind's. Each is a colour as a bound `color` takes one: `light-dark()`,
+  a theme entry's name, a role, a `-exact-platform-color()` only as one of the
+  app's literals, or a colour in a wide space (`color(display-p3 …)`), which
+  every host with pills draws in that space. A colour in a standard space the
+  platforms ship (`color(--dci-p3 …)`) is drawn by Apple and refused on the web,
+  and one in a profile the app declares with `color-profile` is refused on every
+  host. One that names a token follows `setMode`, a pin and a token's new value;
+  when that value is no colour, faces the token painted stay as they were, where
+  a themed row would be unset, and the journal says so. A role's web form
+  (`var(--exact-separator, …)`) is that role, whatever its fallback holds but an
+  unadmitted `-exact-platform-color()`. Any other value that holds
+  `currentcolor`, `inherit` or another cascade keyword, or a substitution
+  function (`var()`, `env()`, `attr()`, `if()`, `inherit()`), is no colour on
+  every host. So is a colour the kernel does not read, on the native hosts and
+  the web's wasm target, and one the build's colour map or the browser refuses,
+  on the JS target. A colour that is none leaves the kind's paint, and the
+  journal says so.
 - `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
   `href` (a link's destination as written), `start`, `end` (UTF-16) and the
   modifiers. It never navigates. In the reader an atom is a tab stop that

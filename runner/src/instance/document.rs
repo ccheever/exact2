@@ -403,7 +403,11 @@ impl Build<'_> {
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, value) {
                     Ok((prop, value)) => {
-                        props.set(prop, bridge::icon_source(plan, prop, value));
+                        let value = bridge::icon_source(plan, prop, value);
+                        props.set(
+                            prop,
+                            bridge::atom_face_paint(plan, prop, value, &mut Vec::new()),
+                        );
                     }
                     // Cleared, with a journal line on a kernel's commit.
                     Err(

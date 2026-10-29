@@ -15,9 +15,10 @@ pub const fn link(mut linked: Linked) -> Linked {
 /// mono 2, strike 4, link 8, quiet (marker or quote) 16, a list marker that
 /// hangs in the indent 32, an inline atom 64; the indent in CSS px, left out
 /// when 0 unless an atom follows it. An atom (LLP 1045.000 D6) adds
-/// `[kind, role, icon, title, href, source, start, end]`, its text being its
-/// label and its range UTF-16 in the source; `atoms` and `faces` are the
-/// node's `atoms` and `atomFaces` JSON.
+/// `[kind, role, icon, title, href, source, start, end, color,
+/// backgroundColor]`, its text being its label, its range UTF-16 in the
+/// source and its colours its face's; `atoms` and `faces` are the node's
+/// `atoms` and `atomFaces` JSON.
 pub fn pieces(source: &str, atoms: &str, faces: &str) -> String {
     fn quoted(out: &mut String, s: &str) {
         out.push('"');
@@ -81,7 +82,12 @@ pub fn pieces(source: &str, atoms: &str, faces: &str) -> String {
                 }
                 quoted(&mut out, field);
             }
-            out.push_str(&format!(",{},{}]", range.start, range.end));
+            out.push_str(&format!(",{},{}", range.start, range.end));
+            for paint in [&a.color, &a.background_color] {
+                out.push(',');
+                quoted(&mut out, paint);
+            }
+            out.push(']');
         }
         out.push(']');
     }
@@ -113,15 +119,15 @@ mod tests {
         assert_eq!(pieces("a\u{1}"), r#"[["a\u0001",1,0,0,""]]"#);
     }
 
-    /// An atom piece carries its label, flag 64, its indent and its detail.
+    /// An atom piece carries its label, flag 64, its indent and its detail,
+    /// its face's paint last.
     #[test]
     fn an_atom_is_a_piece_with_its_detail() {
         let atoms = r#"[{"name":"citation","link":"t3-citation:"}]"#;
-        let faces =
-            r#"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.svg","title":"T"}]"#;
+        let faces = r##"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.svg","title":"T","color":"light-dark(#d52c36, #ff6762)","backgroundColor":""}]"##;
         assert_eq!(
             with_atoms("a [q](t3-citation:1)", atoms, faces),
-            r#"[["a ",1,0,0,""],["Quote",1,0,72,"",0,["citation","button","i.svg","T","t3-citation:1","[q](t3-citation:1)",2,20]]]"#
+            r##"[["a ",1,0,0,""],["Quote",1,0,72,"",0,["citation","button","i.svg","T","t3-citation:1","[q](t3-citation:1)",2,20,"light-dark(#d52c36, #ff6762)",""]]]"##
         );
     }
 }

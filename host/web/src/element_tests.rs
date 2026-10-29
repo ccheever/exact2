@@ -378,6 +378,22 @@ fn menu_hints_write_no_dom_attributes() {
     }
 }
 
+/// LLP 1045.000 D2: a Markdown node's faces go to the page with each
+/// face's paint as the CSS a pill takes, and one that is none empty.
+#[test]
+fn a_faces_paint_is_written_as_css() {
+    let faces = r##"[{"source":"@a","label":"","icon":"","title":"","color":"light-dark(#d52c36ff, #ff6762ff)","backgroundColor":"no colour"}]"##;
+    let out = written(
+        NodeType::TextInput,
+        PropId::AtomFaces,
+        PropValue::Str(faces.into()),
+    );
+    let written: serde_json::Value =
+        serde_json::from_str(out.get("data-atom-faces").unwrap()).unwrap();
+    assert_eq!(written[0]["color"], "light-dark(#d52c36ff, #ff6762ff)");
+    assert_eq!(written[0]["backgroundColor"], "");
+}
+
 #[test]
 fn a_dataset_is_one_attribute_per_word() {
     crate::link::link(crate::Linked {

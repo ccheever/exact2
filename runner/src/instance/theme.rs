@@ -52,6 +52,35 @@ pub struct ThemedRow {
     pub tokens: u64,
 }
 
+/// A Markdown node's `atomFaces` whose colours read a token (LLP 1045.000
+/// D2): the faces as the bridge named them, read again in their tuple when
+/// a token changes, as a row's text is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemedFaces {
+    /// The faces' named JSON, the colours as written.
+    pub text: exact_kernel::PropValue,
+    /// The app tuple they were read in.
+    pub tuple: u32,
+    /// The tokens they read, as `theme::name_bit`s.
+    pub tokens: u64,
+    /// The colours the faces as last set refused, as written. A read again
+    /// that refuses one of these sets the faces anyway; one that refuses
+    /// any other colour, which the faces as set took, keeps them.
+    pub refused: Vec<String>,
+}
+
+/// The end of a refused colour's journal line. A first read sets the faces
+/// with the colour empty, so its kind's paint stands; a read again that
+/// refuses a colour the faces as set took keeps those faces.
+pub(crate) const KIND: &str = "its kind's paint stands";
+pub(crate) const KEPT: &str = "its faces stay as they were";
+
+/// The colours a read again refused (`now`) that the faces as set took:
+/// those faces refused only `set`. Any such colour keeps them.
+pub(crate) fn newly_refused(now: &[String], set: &[String]) -> Vec<String> {
+    now.iter().filter(|t| !set.contains(t)).cloned().collect()
+}
+
 /// Every row that read a token, by view and row (D7's index): what a
 /// token's new value sets again, with no tree visited and no binding
 /// evaluated. One map, so a themed list's rows allocate only its growth.
@@ -61,6 +90,8 @@ pub struct ThemeIndex {
     /// Each node's state looks that read a token (LLP 1121 D8): what a
     /// token's new value resolves again, as `rows` are.
     pub(super) looks: std::collections::HashMap<ViewId, super::looks::Looks>,
+    /// Each Markdown node's faces that read a token, likewise.
+    faces: std::collections::HashMap<ViewId, ThemedFaces>,
     /// The window's app tuple (`setMode`), which a visit starts in.
     pub window: u32,
     /// The window's tuple moved since a visit last started: the next one
@@ -100,6 +131,26 @@ impl ThemeIndex {
         }
     }
 
+    /// `view`'s faces, read again, read `tokens` too, added as
+    /// [`ThemeIndex::also_read`] adds a row's.
+    pub(crate) fn faces_read(&mut self, view: ViewId, tokens: u64) {
+        if let Some(f) = self.faces.get_mut(&view) {
+            f.tokens |= tokens;
+        }
+    }
+
+    /// `view`'s faces, set again, refuse `refused`.
+    pub(crate) fn faces_set(&mut self, view: ViewId, refused: Vec<String>) {
+        if let Some(f) = self.faces.get_mut(&view) {
+            f.refused = refused;
+        }
+    }
+
+    /// Each Markdown node's faces that read a token, by view.
+    pub fn faces(&self) -> impl Iterator<Item = (ViewId, &ThemedFaces)> + '_ {
+        self.faces.iter().map(|(view, f)| (*view, f))
+    }
+
     /// `view`'s `style` reads no token now.
     pub(super) fn drop_row(&mut self, view: ViewId, style: StyleId) {
         if !self.rows.is_empty() {
@@ -111,6 +162,7 @@ impl ThemeIndex {
     pub(super) fn retain(&mut self, live: &impl Fn(ViewId) -> bool) {
         self.rows.retain(|(view, _), _| live(*view));
         self.looks.retain(|view, _| live(*view));
+        self.faces.retain(|view, _| live(*view));
     }
 
     /// Each node's state looks that read a token, by view.
@@ -258,6 +310,79 @@ impl super::NodeInst {
         u.theme.tuple = self.tuple;
         u.theme.inherited = inherited;
         saved
+    }
+
+    /// Binding `i`'s `atomFaces` (LLP 1045.000 D2), each face's colours read
+    /// as a bound colour row's are, in this node's tuple
+    /// (`bridge::atom_face_paint`): the value to set, or `None` to leave the
+    /// faces as they are. A first read journals each colour that is none,
+    /// which then leaves its kind's paint. A read again of the same faces,
+    /// when the tuple moves, leaves them as they were if it refuses a colour
+    /// the faces as set took, and journals that colour; one they already
+    /// refused is refused again without a line. Faces that read a token are
+    /// kept in the index, read again when the token changes, and their
+    /// binding is set again when the tuple moves, as a themed row's is.
+    pub(super) fn faces(
+        &mut self,
+        u: &mut super::Update<'_>,
+        i: usize,
+        text: exact_kernel::PropValue,
+    ) -> Option<exact_kernel::PropValue> {
+        let again = (u.ids.theme.faces.get(&self.view))
+            .filter(|f| f.text == text)
+            .map(|f| (f.refused.clone(), f.tokens));
+        exact_kernel::style::theme::take_named();
+        let mut refused = Vec::new();
+        let painted = crate::bridge::atom_face_paint(
+            u.env.plan,
+            exact_kernel::PropId::AtomFaces,
+            text.clone(),
+            &mut refused,
+        );
+        let mut tokens = exact_kernel::style::theme::take_named();
+        let view = self.view;
+        let (value, refused) = match again {
+            Some((set, read)) => {
+                tokens |= read;
+                let newly = newly_refused(&refused, &set);
+                for text in &newly {
+                    u.notes.push(super::invalid_face(view, text.clone(), KEPT));
+                }
+                match newly.is_empty() {
+                    true => (Some(painted), refused),
+                    false => (None, set),
+                }
+            }
+            None => {
+                for text in &refused {
+                    u.notes.push(super::invalid_face(view, text.clone(), KIND));
+                }
+                (Some(painted), refused)
+            }
+        };
+        self.themed.set(i, tokens != 0, false);
+        match tokens {
+            0 => {
+                u.ids.theme.faces.remove(&view);
+            }
+            _ => {
+                let tuple = self.tuple;
+                let faces = ThemedFaces {
+                    text,
+                    tuple,
+                    tokens,
+                    refused,
+                };
+                u.ids.theme.faces.insert(view, faces);
+            }
+        }
+        value
+    }
+
+    /// Binding `i`'s faces are cleared: they read no token now.
+    pub(super) fn unthemed_faces(&mut self, u: &mut super::Update<'_>, i: usize) {
+        self.themed.set(i, false, false);
+        u.ids.theme.faces.remove(&self.view);
     }
 
     /// Binding `i` set `style`'s row from `text`: kept beside its token when

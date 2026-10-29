@@ -257,6 +257,10 @@ column for every app to serve the few colors that need it.
   conversion for fills and strokes; this does not change SVG's dynamic range.
 - **Web and Linux** don't have it. The web gets it when browsers ship
   `@color-profile`, and then emits the at-rule as written.
+- **Not on an atom's face.** A face's `color` and `backgroundColor` (LLP
+  1045.000 D2) reach a host as text alone, which names no ICC file, so the
+  runner refuses a declared profile's colour there, with a journal line. A
+  standard space's colour (D1) is read there as it is anywhere else.
 - An image's own embedded profile needs no declaration; the decoder reads
   it (D4).
 
