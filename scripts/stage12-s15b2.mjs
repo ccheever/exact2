@@ -14,9 +14,6 @@ export const S15B2_EXPORTS = ['@exact/actions/follow-button.contract#FollowButto
 export const S15B2_BINDINGS = ['PersonResultRow', 'FindFollowRow'].map(component => ({ component,
   allowed: ['@exact/cards/person-row.contract#PersonRow', '@exact/actions/follow-button.contract#FollowButton'] }));
 
-const ADA = 'avatar-0:at://did:plc:fixture0/app.bsky.feed.post/fx0';
-const BO = 'avatar-1:at://did:plc:fixture1/app.bsky.feed.post/fx4';
-const CYN = 'avatar-2:at://did:plc:fixture2/app.bsky.feed.post/fx6';
 const DEVI = 'avatar-3:at://did:plc:fixture3/app.bsky.feed.post/fx1';
 const VIDEO = 'video-post-card-at://did:plc:fixture3/app.bsky.feed.post/fx9';
 
@@ -24,6 +21,9 @@ const VIDEO = 'video-post-card-at://did:plc:fixture3/app.bsky.feed.post/fx9';
 export function s15b2Stage(s15b, signIn) {
   const IN = [...signIn, 'clock +1500 real'];
   const step = t => [t, 'clock +1500 real'];
+  // Signed in, home shows the Following feed (empty in the fixture), so a profile opens by its path on the
+  // navigation root (the agent's `type <root> <path>`), as a deep link does.
+  const open = handle => step(`type bluesky /profile/${handle}.fixture.invalid`);
   return {
     name: 'Stage 15 B batch 2', tag: 's15b2-baseline', out: 's15b2-gate-run.txt',
     adopted: [...s15b.adopted, ...S15B2_EXPORTS],
@@ -36,19 +36,19 @@ export function s15b2Stage(s15b, signIn) {
     screens: [
       ...s15b.screens.map(([n, t]) => [n, [...t]]),
       // Ada's header and its FollowButton showing Following (the fixture: you follow her).
-      ['profile-ada', [...IN, ...step(`tap ${ADA}`)]],
+      ['profile-ada', [...IN, ...open('ada')]],
       // Cyn's profile scrolled under its header: the stuck header's follow button (her 30-line post scrolls it).
-      ['profile-cyn-stuck', [...IN, ...step(`tap ${CYN}`), 'tap profile-list wheel 0 2000', 'clock +1500 real']],
+      ['profile-cyn-stuck', [...IN, ...open('cyn'), 'tap profile-list wheel 0 2000', 'clock +1500 real']],
       // People search: every follow state, Follow, Follow back, Following and both.
       ['explore-people', [...IN, ...step('tap bottomBarSearchBtn'), 'tap module-search-people', 'type search fixture', ...step('tap search-for')]],
       // The post's "…" sheet (signed out: its signed-out groups) and Ada's profile menu signed in (Block, Report).
       ['post-menu', [...step(`tap more-0:at://did:plc:fixture0/app.bsky.feed.post/fx0`)]],
-      ['profile-menu', [...IN, ...step(`tap ${ADA}`), ...step('tap profile-more')]],
+      ['profile-menu', [...IN, ...open('ada'), ...step('tap profile-more')]],
       // The empty states: no lists of yours; Devi's list with nobody in it; Bo's followers, none.
       ['my-lists-empty', [...IN, 'tap open-drawer', ...step('tap drawer-lists')]],
-      ['list-empty', [...IN, ...step(`tap ${DEVI}`), ...step('tap profile-tab-lists'), ...step('tap card-Reading'), ...step('tap graph-tab-people')]],
-      ['followers-ada', [...IN, ...step(`tap ${ADA}`), ...step('tap profile-followers-ada.fixture.invalid')]],
-      ['followers-bo-empty', [...IN, ...step(`tap ${BO}`), ...step('tap profile-followers-bo.fixture.invalid')]],
+      ['list-empty', [...IN, ...open('dev'), ...step('tap profile-tab-lists'), ...step('tap card-Reading'), ...step('tap graph-tab-people')]],
+      ['followers-ada', [...IN, ...open('ada'), ...step('tap profile-followers-ada.fixture.invalid')]],
+      ['followers-bo-empty', [...IN, ...open('bo'), ...step('tap profile-followers-bo.fixture.invalid')]],
       // The new-chat sheet: ChatPersonRow stays the app's, so its rows are unchanged.
       ['new-chat', [...IN, ...step('tap bottomBarMessagesBtn'), ...step('tap newChatFAB')]],
       // Devi's clip in the video feed: the overlay FollowButton.
@@ -57,10 +57,21 @@ export function s15b2Stage(s15b, signIn) {
     // The five write the copy's own testIds (their ids are its props), so the build's source map says each is shown,
     // as for ListRow and the rest (consumerPixels' by-component check), not a package-only testId.
     rendered: [...s15b.rendered],
-    // NAMED changes (scripts/stage12-named.mjs): each a screen, the SMALLEST container holding the changed instances
-    // and what they move (by its testId), and the change it expects. Filled from the drives (the copy scripts'
-    // outputs, tools/s15b2/*.out, say each change).
-    named: [],
+    // NAMED changes (scripts/stage12-named.mjs; theme2 23:16 (a)): each a screen, the SMALLEST container holding the
+    // changed instances and what they move (by its testId), and the change it expects, from the copy scripts'
+    // outputs (tools/s15b2/*.out) and the web drives that found each box. A screen not listed must be identical.
+    named: [
+      { screen: 'notifications', target: 'note-follow-at://did:plc:fixture1/app.bsky.graph.follow/fxf1:1', change: 'the follow notification\'s FollowButton (small primary): padding-left 12->14, its text 0.875rem at 600 -> 0.81875rem at 500, the package\'s plus and check (SF on Apple)' },
+      { screen: 'video-devi', target: 'vfeed-follow-at://did:plc:fixture3/app.bsky.feed.post/fx9', change: 'the video feed\'s FollowButton (small overlay): ground contrast_900 -> fixed #dce2ea, text and check contrast_25 -> #000, padding-inline 12->14, gap 4->5, check 14->16' },
+      { screen: 'profile-cyn-stuck', target: 'profile-minimal-header', change: 'the stuck header\'s FollowButton: padding 6/12 -> 8/14, gap 4->5, icon 11->16 (the smallest testId\'d container: before\'s button had no testId)' },
+      { screen: 'explore-people', target: 'people-results', change: 'PersonResultRow rows (PersonRow): Bluesky\'s ProfileCard spacing (cards.person-*) where the copy had padding 20 and gap 12 and 8; the FollowButton in the slot at the trailing edge; descriptions wrap narrower; rows below shift' },
+      { screen: 'followers-ada', target: 'people-list', change: 'PersonResultRow rows (PersonRow): Bluesky\'s ProfileCard spacing where the copy had padding 20 and gap 12 and 8; the FollowButton in the slot at the trailing edge; descriptions wrap narrower; rows below shift' },
+      { screen: 'followers-bo-empty', target: 'list-empty', change: 'EmptyState (tone medium) from ListEmpty: padding 48/32 -> 40/space.lg, no gap 8; the message at 500 in contrast_medium where it was 400 in contrast_700' },
+      { screen: 'my-lists-empty', target: 'my-lists-empty', change: 'EmptyState: the list-bullet 40 in contrast_700 -> 48 (3xl) in contrast_low; the message 0.875rem at 400 in contrast_700, max-width 200 -> 0.9375rem at 500 in contrast_high' },
+      { screen: 'list-empty', target: 'graph-empty', change: 'EmptyState (tone medium) from GraphEmpty: padding 48 top and bottom and gap 16 -> the package\'s; the message at 500 in contrast_medium where it was 400 in contrast_700' },
+      { screen: 'post-menu', target: 'post-menu-groups', change: 'MenuItem and MenuGroup: the items\' colours from lists.menu-* over platform roles where the copy named contrast_25, contrast_900, contrast_700, negative and contrast_100; the hairline -exact-hairline where it was 0.5; MenuGroup\'s frame' },
+      { screen: 'profile-menu', target: 'profile-menu-groups', change: 'MenuItem and MenuGroup: the items\' colours from lists.menu-* over platform roles where the copy named contrast_25, contrast_900, contrast_700, negative and contrast_100; the hairline -exact-hairline where it was 0.5; MenuGroup\'s frame' },
+    ],
     restyle: [...s15b.restyle],
     exact: true,
     // The package side as it landed on main: 2a, its LLP note, 2b, 2c.

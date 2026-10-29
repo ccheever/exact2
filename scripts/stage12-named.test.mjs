@@ -96,6 +96,12 @@ test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindin
   expect(new Set(p.screens.map(([n]) => n)).size).toBe(p.screens.length);
   // No step names a testId with a space in it (an op's words are split on spaces).
   for (const [, steps] of p.screens) for (const s of steps) if (s.startsWith('tap ')) expect(s.split(' ').length === 2 || / wheel | drag /.test(s)).toBe(true);
+  // Each named change on one of its screens, with its expected change in words, never a page-wide container
+  // (theme2 23:16 (a): the smallest container holding what changes).
+  for (const n of p.named) {
+    expect(p.screens.some(([name]) => name === n.screen)).toBe(true);
+    expect(n.change.length > 20 && !['bluesky', 'panels'].includes(n.target) && !n.target.startsWith('panel-')).toBe(true);
+  }
   useStage('s15b2');
   try {
     expect([SCREENS.length, RETIRED.length, BINDINGS.map(b => b.component)]).toEqual([p.screens.length, 7, ['PersonResultRow', 'FindFollowRow']]);
