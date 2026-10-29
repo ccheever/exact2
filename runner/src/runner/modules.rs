@@ -61,6 +61,8 @@ mod services;
 mod sheet;
 mod spans;
 mod stale;
+#[cfg(test)]
+mod substitute_tests;
 mod values;
 mod views;
 mod wakes;
@@ -88,10 +90,21 @@ pub(super) use wakes::{EXPIRED, TOLD};
 /// (`BACKGROUND`) sit at the top, above.
 const TOKENS: std::ops::Range<u64> = 1 << 62..1 << 63;
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: how many substitutes were parsed from the plan's text.
+    pub(crate) static SUBSTITUTE_PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The runner's module state for this session (LLP 1124 D7: until cleared
 /// or the session ends).
 #[derive(Default)]
 pub(super) struct Extensions {
+    /// Each module's substitute as it reads on the host target, by the plan's
+    /// string: parsed once, since the plan's strings never change under a
+    /// runner (a new plan is a new runner); cleared when the target changes,
+    /// so it holds at most one entry a module row.
+    substitutes: std::cell::RefCell<std::collections::HashMap<u32, std::sync::Arc<Json>>>,
     /// The agent's preferred values, by `extension.source`.
     preferred: BTreeMap<String, Json>,
     /// Each declared permission's state, by its name: `prompt` when absent.
@@ -546,9 +559,17 @@ impl<D: DataSource> Runner<D> {
         )
     }
 
-    fn substitute(&self, row: &ModulesRow) -> Json {
+    fn substitute(&self, row: &ModulesRow) -> std::sync::Arc<Json> {
+        let key = row.substitute.0;
+        if let Some(sub) = self.extensions.substitutes.borrow().get(&key) {
+            return sub.clone();
+        }
+        #[cfg(test)]
+        SUBSTITUTE_PARSES.with(|n| n.set(n.get() + 1));
         let mut sub = serde_json::from_str(self.plan.str(row.substitute)).unwrap_or_default();
         self.this_target(&mut sub);
+        let sub = std::sync::Arc::new(sub);
+        (self.extensions.substitutes.borrow_mut()).insert(key, sub.clone());
         sub
     }
 
