@@ -46,6 +46,8 @@ component App
     send session = logout()
   action halt
     send stop = abortHeld(id)
+  action bare
+    send stop = abortBare(id)
   action ping(v)
     send other = holding(v, "GET")
 
@@ -65,6 +67,8 @@ component App
         text "Replace"
       button press=halt aria-label="Abort" testId="halt"
         text "Abort"
+      button press=bare aria-label="Abort bare" testId="bare"
+        text "Abort bare"
       match session
         case some(s)
           text `${s.username}: ${s.error}` testId="session"
@@ -334,4 +338,25 @@ fn a_held_fetch_is_still_named_by_its_abort_after_many_other_fetches_were_let_go
         Some("p: aborted: by the app")
     );
     assert_eq!(r.take_explicit_aborts(), [held[0].ticket]);
+}
+
+/// A bare `abort()` rejects with its signal's reason, an `AbortError`, as
+/// Fetch does (and as the JS target does, host/web-js/abort-reason.test.mjs);
+/// a reason the app gave is the rejection itself (`holding`'s check).
+#[test]
+fn a_bare_abort_rejects_with_an_abort_error_that_is_its_signal_s_reason() {
+    let mut r = boot(false);
+    r.dispatch(view_of(&r, "get"), Event::Change("a".into()))
+        .unwrap();
+    let requests = r.take_requests();
+    assert_eq!(requests.len(), 1);
+    r.dispatch(view_of(&r, "bare"), Event::Press).unwrap();
+    assert!(r.take_requests().is_empty());
+    let (answered, outcome) = r.take_request_refusal(false).expect("the aborted answer");
+    assert_eq!(answered, requests[0].ticket);
+    r.fulfill(answered, outcome).unwrap();
+    assert_eq!(
+        text_of(&r, "session").as_deref(),
+        Some("a: aborted: AbortError")
+    );
 }
