@@ -33,6 +33,11 @@ require them.
   `1.0.0 (20261028202307)` as `VALID` and `IN_BETA_TESTING` internally. Its exact
   build is assigned to `Team (Expo)`, with one installed tester and one invited
   tester. External distribution was not extended.
+- An intermittent ordinary Send remains in Sending/Pending before server
+  admission. Restart recovers the original saved message without resubmission.
+  The cause remains unresolved. A normal-app trace also records repeated
+  4 MiB native-request refusals during snapshot reads; their relationship to
+  the Send stall is not established.
 
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
@@ -178,11 +183,19 @@ A fresh normal-build drive at `7c1a11570` opens the real project, creates a
 mobile thread on `main`, and receives `POC_REFRESH_OK`. Follow-ups reach the
 provider. Stop displays Run interrupted, and the server confirms interruption
 with no active run. After ordinary restart, the saved environment, conversation,
-and interrupted state return. The numbered output checks arrived as complete
-responses, so this refresh does not independently repeat the earlier growing-text
-acceptance. Keep that verification open.
-Signed archive `1.0.0 (20261028202307)` contains that clean pushed source and excludes
-the later native editor changes. Signature, store provisioning, identity, version and
+and interrupted state return. A later clean normal build at `d3fb4f59d` displays
+growing paragraph output, then stops it with server-confirmed interruption.
+The interrupted reply survives restart. A follow-up receives `REPEAT49_OK`.
+The next follow-up reproduces the Send stall; restart delivers that original
+message once and receives `REPEAT50_OK`. Its draft remains empty.
+Continuous plain lines did not supply an intermediate Markdown block for the
+earlier streaming checks. The pinned server filters streaming output by complete
+blocks in paragraph mode. No environment setting changed during these drives.
+All temporary probes are removed. The clean build contains none of their
+diagnostic strings across its eight Mach-O artifacts. The ordinary Send stall
+and complete large-cache transport remain open.
+Signed archive `1.0.0 (20261028202307)` contains pushed source `7c1a11570` and
+excludes the later native editor changes. Signature, store provisioning, identity, version and
 source-stamp checks pass. The held files and original Git index restore exactly.
 Its IPA SHA-256 is `f9b4ba61b9484d2c5163aa3940cab221195a5addf59340e07f20392dec11c85e`.
 [EAS submission](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/5acee506-6607-48d9-8e54-12b1f62fa043)
