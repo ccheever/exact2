@@ -76,10 +76,11 @@ final class MarkupEditor: NSObject, MarkdownEditing {
     /// Keep the words beside the field's undo manager, which holds nothing
     /// of ours: an action of ours in a step ends AppKit's typing coalescing,
     /// so that each keystroke becomes a step. A step's words are taken as its
-    /// group opens at the top, before its first edit changes the text: a
-    /// typed, pasted, cut or dropped edit's event group, a composition's at
-    /// its first marked text, a command's or `setRangeText`'s own. An edit
-    /// coalesced into an open step adds none.
+    /// top-level group opens, before its first edit changes the text: the
+    /// event's group of a typed, pasted, cut or dropped edit, of a
+    /// composition's first marked text and, grouping by event, of a command;
+    /// `setRangeText`'s own, which groups alone. An edit coalesced into an
+    /// open step adds none.
     private func watch(_ manager: UndoManager?) {
         guard let manager, watched !== manager else { return }
         forgetHistory()
@@ -98,10 +99,14 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         ]
     }
 
-    /// Undo or redo of a step: its words come back with its source, and the
-    /// words drawn now go to the opposite stack.
+    /// Undo or redo of a step moves one set, as the manager moves one step:
+    /// the words drawn now go to the opposite stack, and the step's come back
+    /// with its source. A stack can hold fewer steps than the manager (the
+    /// app's new words forgot the older ones' words); a step without a set
+    /// carries its words.
     private func step(back: Bool) {
-        guard let words = back ? undoWords.popLast() : redoWords.popLast() else { return }
+        guard directions.hasWords else { return }
+        let words = back ? undoWords.popLast() : redoWords.popLast()
         if back { redoWords.append(directions.memory) } else { undoWords.append(directions.memory) }
         wordsBack = words
     }

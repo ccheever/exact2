@@ -773,6 +773,40 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(directions(field, [0, 2]), [.rightToLeft, .rightToLeft])
     }
 
+    /// LLP 1045 D11: each undo and redo moves one set of words, as the
+    /// manager moves one step, where the app's new words left the stacks
+    /// fewer steps than the manager's.
+    func testEachUndoAndRedoMovesOneSetOfWords() throws {
+        let (node, field, window, presenter, session) = styled("A\nب\nC", caret: 3)
+        defer { window.close(); session.destroy(); _ = presenter }
+        node.props["paragraphDirs"] = "ltr rtl ltr"
+        node.applyTextArea()
+        let manager = try XCTUnwrap(field.undoManager)
+        manager.removeAllActions()
+        field.setSelectedRange(NSRange(location: 3, length: 0))
+        turn(manager) { field.insertNewline(nil) }
+        XCTAssertEqual(field.string, "A\nب\n\nC")
+        node.props["value"] = field.string
+        node.props["paragraphDirs"] = "ltr ltr rtl ltr"
+        node.applyTextArea()
+        field.setSelectedRange(NSRange(location: 2, length: 2))
+        turn(manager) { field.deleteBackward(nil) }
+        XCTAssertEqual(field.string, "A\n\nC")
+        let starts = [0, 2, 4, 5], drawn: [NSWritingDirection?] = [.leftToRight, .leftToRight, .rightToLeft, .leftToRight]
+        manager.undo()
+        XCTAssertEqual(directions(field, starts), drawn)
+        manager.undo()
+        XCTAssertEqual(field.string, "A\nب\nC")
+        manager.redo()
+        XCTAssertEqual(field.string, "A\nب\n\nC")
+        XCTAssertEqual(directions(field, starts), drawn)
+        manager.redo()
+        XCTAssertEqual(field.string, "A\n\nC")
+        manager.undo()
+        XCTAssertEqual(field.string, "A\nب\n\nC")
+        XCTAssertEqual(directions(field, starts), drawn)
+    }
+
     /// The text view's open undo group closes, as it does at the end of a run loop turn.
     private func closeGroup(_ manager: UndoManager) {
         let deadline = Date().addingTimeInterval(2)
@@ -1122,6 +1156,38 @@ final class MarkupEditorIOSTests: XCTestCase {
             XCTAssertEqual(f.text, "A\nب\nC")
             XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
         }
+    }
+
+    /// LLP 1045 D11 on UIKit: each undo and redo moves one set of words, as
+    /// the manager moves one step, where the app's new words left the stacks
+    /// fewer steps than the manager's.
+    func testEachUndoAndRedoMovesOneSetOfWords() throws {
+        let (p, _, f, session) = styledField("A\nب\nC")
+        defer { session.destroy() }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl ltr"]]]))
+        XCTAssertTrue(f.becomeFirstResponder())
+        let manager = try XCTUnwrap(f.undoManager)
+        manager.removeAllActions()
+        f.selectedRange = NSRange(location: 3, length: 0)
+        turn(manager) { f.insertText("\n") }
+        XCTAssertEqual(f.text, "A\nب\n\nC")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": f.text ?? "", "paragraphDirs": "ltr ltr rtl ltr"]]]))
+        f.selectedRange = NSRange(location: 2, length: 2)
+        turn(manager) { f.deleteBackward() }
+        XCTAssertEqual(f.text, "A\n\nC")
+        let starts = [0, 2, 4, 5], drawn: [NSWritingDirection?] = [.leftToRight, .leftToRight, .rightToLeft, .leftToRight]
+        manager.undo()
+        XCTAssertEqual(directions(f, starts), drawn)
+        manager.undo()
+        XCTAssertEqual(f.text, "A\nب\nC")
+        manager.redo()
+        XCTAssertEqual(f.text, "A\nب\n\nC")
+        XCTAssertEqual(directions(f, starts), drawn)
+        manager.redo()
+        XCTAssertEqual(f.text, "A\n\nC")
+        manager.undo()
+        XCTAssertEqual(f.text, "A\nب\n\nC")
+        XCTAssertEqual(directions(f, starts), drawn)
     }
 
     /// UIKit closes an edit's undo group at the end of the run loop turn.

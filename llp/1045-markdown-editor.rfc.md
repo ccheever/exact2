@@ -567,13 +567,15 @@ all its items, and a code block stays left to right.
   `mde_words_back`), within the history's bound of 200 steps and 4M code
   units, which counts sources and words. On Apple they stay out of the
   field's undo manager, where an action of the editor's ends AppKit's typing
-  coalescing and makes each keystroke a step: `MarkupEditor` keeps a stack
-  of them beside it, taking one set as each step's group opens
-  at the top, before its first edit changes the text. That group is a typed,
-  pasted, cut or dropped edit's event group, a composition's (at its first
-  marked text), or a command's or `setRangeText`'s own; an edit the platform
-  coalesces into an open step takes none. Undo and redo move a set between
-  the stacks, and a step whose set the app's words forgot carries.
+  coalescing and makes each keystroke a step: `MarkupEditor` keeps two stacks
+  of them beside it, one for undo and one for redo, and takes one set as
+  each step's top-level group opens, before its first edit changes the
+  text. That group is the event's, for a typed, pasted, cut or dropped
+  edit, a composition's first marked text and, grouping by event, a
+  command; `setRangeText` groups alone. An edit the platform coalesces into
+  an open step takes none. Each undo and redo moves one set from one stack
+  to the other, as the manager moves one step, and a step whose set the
+  app's words forgot carries.
 - **A line without a word** (no attribute, or a word other than the three)
   takes the field's own `direction`, the author's or else the document's, on
   every host. No first strong letter selects it, as none has for Apple text
