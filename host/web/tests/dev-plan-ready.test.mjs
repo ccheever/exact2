@@ -13,6 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnOwned, stopAll } from '../../../scripts/test-children.mjs';
+import { listenDelay } from '../serve.mjs';
 
 const ROOT = resolve(import.meta.dir, '../../..');
 afterEach(() => stopAll());
@@ -37,6 +38,14 @@ function devLoop(loop, port, onReady = () => {}) {
   dev.stderr.on('data', hear);
   return { dev, exited, said: () => said, ready: () => ready, done: () => rmSync(dist, { recursive: true, force: true }) };
 }
+
+// The wait is a test's alone: without EXACT_TEST_TIMING=1, or out of its range, a loop listens at once.
+test('the listen delay is read only under EXACT_TEST_TIMING=1, from 1 to 60000 ms', async () => {
+  const took = async env => { const t = performance.now(); await listenDelay(env); return performance.now() - t; };
+  for (const env of [{ EXACT_DEV_LISTEN_DELAY_MS: '400' }, { EXACT_TEST_TIMING: 'true', EXACT_DEV_LISTEN_DELAY_MS: '400' }, { EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: '0' }, { EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: '60001' }, { EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: '4e2' }])
+    expect(await took(env)).toBeLessThan(100);
+  expect(await took({ EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: '400' })).toBeGreaterThanOrEqual(390);
+});
 
 for (const loop of LOOPS) {
   test(`${loop.name} says 'plan ready' only once its server answers`, async () => {
