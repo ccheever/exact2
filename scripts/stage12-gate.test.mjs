@@ -527,7 +527,7 @@ test('stage 15 B\'s adoption proof: the copy\'s own files place an export, and i
 
 // theme2's s15b ruling (b): the composer's shot needs iOS's keyboard up on both sides, read from its field's reply.
 test("the composer's keyboard: read from its field's reply, driven again while down or failed, at most twice", () => {
-  expect(KEYBOARD_UP).toEqual(['composer']);
+  expect(KEYBOARD_UP).toEqual(['composer', 'new-chat']);
   const out = kb => `noise\n{"x":1,"testId":"compose-text","env":${JSON.stringify(kb == null ? {} : { 'keyboard-inset-height': kb })}}\n`;
   expect(keyboardInset('compose-text', out(336))).toBe(336);
   expect(keyboardInset('compose-text', out(0))).toBe(0);

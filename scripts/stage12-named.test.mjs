@@ -35,6 +35,8 @@ test("a name's box comes from the whole layout, clipped to the viewport, and is 
   const named = [{ screen: 'people', target: 'rows', change: 'c' }, { screen: '*', target: 'empty', change: 'e' }, { screen: 'other', target: 'rows', change: 'x' }];
   expect(namedOf(named, 'people', out)).toEqual([{ target: 'rows', change: 'c', rect: [10, 20, 31, 30] }, { target: 'empty', change: 'e', rect: null }]);
   expect(namedOf(named, 'nowhere', out)).toEqual([{ target: 'empty', change: 'e', rect: null }]);
+  // A pad [top, right, bottom, left] widens the box, clipped to the viewport as before.
+  expect(namedOf([{ screen: 'people', target: 'rows', change: 'c', pad: [5, 2, 100, 20] }], 'people', out)).toEqual([{ target: 'rows', change: 'c', rect: [0, 15, 43, 35] }]);
   expect(unionNamed([{ target: 'rows', change: 'c', rect: [10, 20, 30, 10] }], [{ target: 'rows', change: 'c', rect: [12, 18, 30, 20] }, { target: 'gone', change: 'g', rect: null }]))
     .toEqual([{ target: 'rows', change: 'c', rect: [10, 18, 32, 20] }]);
 });

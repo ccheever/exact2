@@ -79,8 +79,11 @@ export function namedOf(named, screen, out) {
     const node = layout?.nodes.find(m => (m.testId ?? m.props?.testId) === n.target && m.w > 0 && m.h > 0);
     if (!node) return { target: n.target, change: n.change, rect: null };
     const v = layout.viewport;
-    const x0 = Math.max(0, Math.floor(node.x)), y0 = Math.max(0, Math.floor(node.y));
-    const x1 = Math.min(Math.ceil(v.w), Math.ceil(node.x + node.w)), y1 = Math.min(Math.ceil(v.h), Math.ceil(node.y + node.h));
+    // A pad [top, right, bottom, left] where the platform paints the container's own frame past its box (UIKit's
+    // sheet around the app's content), said in the entry's change.
+    const [pt, pr, pb, pl] = n.pad ?? [0, 0, 0, 0];
+    const x0 = Math.max(0, Math.floor(node.x - pl)), y0 = Math.max(0, Math.floor(node.y - pt));
+    const x1 = Math.min(Math.ceil(v.w), Math.ceil(node.x + node.w + pr)), y1 = Math.min(Math.ceil(v.h), Math.ceil(node.y + node.h + pb));
     return { target: n.target, change: n.change, rect: x1 > x0 && y1 > y0 ? [x0, y0, x1 - x0, y1 - y0] : null };
   });
 }
