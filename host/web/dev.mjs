@@ -517,9 +517,9 @@ function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
 
 let dev = null;
 let announced = false;
-// The first plan's line waits for the server to listen (a test or an agent connects on it); early, it already does.
-let listening = !!early, readyLine = null;
-const sayReady = line => { if (listening) console.log(line); else readyLine = line; };
+// A ready line waits for the server to listen (a test or an agent connects on it); early, it already does.
+let listening = !!early; const readyLines = [];
+const sayReady = line => { if (listening) console.log(line); else readyLines.push(line); };
 let contractStamp, contractTreeStamp, compiledContract; const readinessContracts = new Set([source]);
 const contractBytes = () => { try { return createHash('sha256').update(readFileSync(source)).digest('hex'); } catch { return null; } };
 const contractInputsStamp = () => createHash('sha256').update([...readinessContracts].sort().map(path => { try { return path + ':' + readFileSync(path); } catch { return path + ':missing'; } }).join('\0')).digest('hex');
@@ -785,7 +785,7 @@ function startModuleCompiler() {
         seq++;
         try { captureGeneration(true); } catch (error) { currentModule = previous; throw error; }
         if (previous) pending.set(seq, { saved: request.saved, ready: Date.now() });
-        console.log(`module generation ready in ${Date.now() - request.started} ms (producer ${produced-request.started} ms, publish ${Date.now()-produced} ms); restart with carry, no native rebuild`);
+        sayReady(`module generation ready in ${Date.now() - request.started} ms (producer ${produced-request.started} ms, publish ${Date.now()-produced} ms); restart with carry, no native rebuild`);
         push(announcement());
       } catch (error) { early?.phase('typescript','failed'); console.error(error.message); push({ error: error.message }); }
       finally {
@@ -877,7 +877,7 @@ function readRustGeneration() {
   watchCompilerInputs();
   pending.set(seq, {saved:rustSaved || Date.now(),ready:Date.now()});
   push(announcement());
-  console.log(`Rust generation ${id.slice(0,12)} ready; restart with carry`);
+  sayReady(`Rust generation ${id.slice(0,12)} ready; restart with carry`);
 }
 function produceRust() { rustPending = true; drainBuilds(); }
 function drainBuilds() {
@@ -1498,6 +1498,6 @@ const banner = () => {
   if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 };
-if (early) banner(); else await new Promise(ok => server.listen(port, host, () => { banner(); listening = true; if (readyLine) console.log(readyLine); ok(); }));
+if (early) banner(); else await new Promise(ok => server.listen(port, host, () => { banner(); listening = true; for (const line of readyLines.splice(0)) console.log(line); ok(); }));
 startup.handoff(stop); doors = servedAs == null && tamber ? await openRemoteCanvas(tamber, remoteAsked, `http://127.0.0.1:${port}`).catch(async (e) => { console.error(`cannot listen: ${e.message}`); server.close(); server.closeAllConnections?.(); process.exitCode = 1; await stop(); }) : null;
 watchLauncher(stop);
