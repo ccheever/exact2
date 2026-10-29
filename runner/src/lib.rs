@@ -141,3 +141,8 @@ pub use store::{Store, StoreChange, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
 pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};
 pub use vm::Trap;
+
+/// Timer admission observations shared by all hosts.
+pub use runner::{
+    frame_at_or_after, Admitted, IdleObservation, NativeTimer, TaskTiming, Wait, WaitKinds, Waits,
+};

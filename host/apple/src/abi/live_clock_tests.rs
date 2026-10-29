@@ -116,3 +116,64 @@ fn an_idle_viewport_resize_samples_the_presenters_clock_before_layout() {
     assert_eq!(host.runner().slot("width"), Some(&Value::Number(300.)));
     assert_eq!(host.runner().now_ms(), 750.);
 }
+
+#[test]
+fn wait_admission_crosses_the_apple_batch_boundary() {
+    static NOW: AtomicU64 = AtomicU64::new(0);
+    extern "C" fn sample() -> f64 {
+        f64::from_bits(NOW.load(Ordering::SeqCst))
+    }
+    for (kind, mask) in [("frame", 2), ("update", 4), ("scrollend", 8), ("idle", 16)] {
+        NOW.store(0.0f64.to_bits(), Ordering::SeqCst);
+        let plan = contract::compile(&TICKER.replace(
+            "every(1000, tick)",
+            &format!("after(10, tick, wait={kind})"),
+        ))
+        .unwrap()
+        .encode();
+        let mut bridge = Bridge::<NoData>::new();
+        bridge.set_live_clock(Some(sample));
+        bridge.boot(&plan, NoData, Hooks::none(), 400., 400.);
+        bridge.timer_waits(30, 0.0, 0);
+        NOW.store(10.0f64.to_bits(), Ordering::SeqCst);
+        bridge.advance(10.0, 0);
+        assert_eq!(ticks(&bridge), 0.0, "{kind}");
+        bridge.timer_waits(mask, 10.0, 1);
+        assert_eq!(ticks(&bridge), 1.0, "{kind}");
+        bridge.advance(110.0, 0);
+        assert_eq!(ticks(&bridge), 1.0);
+    }
+}
+
+#[test]
+fn native_timer_batches_keep_independent_windows_across_boots_and_delivery() {
+    extern "C" fn native_wall() -> f64 {
+        0.0
+    }
+    let mut bridge = Bridge::<NoData>::new();
+    bridge.native_timers(true);
+    bridge.set_live_clock(Some(native_wall));
+    for _ in 0..2 {
+        let source = TICKER.replace("every(1000, tick)", "every(1000, tick, tolerance=100)");
+        let plan = contract::compile(&source).unwrap().encode();
+        bridge.boot(&plan, NoData, Hooks::none(), 390.0, 844.0);
+        let batch: serde_json::Value = serde_json::from_slice(&bridge.output).unwrap();
+        assert_eq!(batch["timers"], true);
+        assert!(batch.get("timer_due_ms").is_none());
+        assert!(batch.get("timer_tolerance_ms").is_none());
+        assert_eq!(batch["nativeTimers"][0]["due"], 1000);
+        assert_eq!(batch["nativeTimers"][0]["tolerance"], 100);
+        bridge.advance(1100.0, 0);
+        assert_eq!(ticks(&bridge), 0.0);
+        bridge.fire_native_timer(0, 0, 1100.0);
+        assert_eq!(ticks(&bridge), 1.0);
+        let batch: serde_json::Value = serde_json::from_slice(&bridge.output).unwrap();
+        assert_eq!(batch["nativeTimers"][0]["due"], 2000);
+        assert_eq!(batch["nativeTimers"][0]["generation"], "0");
+    }
+    bridge.set_live_clock(None);
+    bridge.advance(2000.0, 0);
+    let batch: serde_json::Value = serde_json::from_slice(&bridge.output).unwrap();
+    assert_eq!(batch["nativeTimers"], serde_json::json!([]));
+    assert_eq!(ticks(&bridge), 2.0);
+}

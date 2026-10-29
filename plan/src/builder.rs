@@ -771,6 +771,9 @@ impl PlanBuilder {
         let name = self.str("");
         self.plan.timers.push(TimersRow {
             interval_ms,
+            wait: 0,
+            max_ms: 0,
+            tolerance_ms: 0,
             action,
             once,
             frame,
@@ -781,6 +784,18 @@ impl PlanBuilder {
             key: always,
         });
         TimersId(self.plan.timers.len() as u32 - 1)
+    }
+
+    /// Set the admission kind and optional waiting bound (LLP 1147).
+    pub fn set_timer_wait(&mut self, timer: TimersId, wait: u8, max_ms: u32) {
+        let row = &mut self.plan.timers[timer.0 as usize];
+        row.wait = wait;
+        row.max_ms = max_ms;
+    }
+
+    /// Allow the host to coalesce the wake within this many milliseconds.
+    pub fn set_timer_tolerance(&mut self, timer: TimersId, tolerance_ms: u32) {
+        self.plan.timers[timer.0 as usize].tolerance_ms = tolerance_ms;
     }
 
     /// A task's name, for the agent (LLP 1092 D10).

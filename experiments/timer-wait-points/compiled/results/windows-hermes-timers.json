@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-28",
+  "platform": "Windows 11 Pro ARM64 build 26300",
+  "execution": "x86_64 MSVC binary under Windows x64 emulation",
+  "engine": {
+    "release": "hermes-vanilla-d412d3bd8512-v5",
+    "target": "x86_64-pc-windows-msvc",
+    "archive_sha256": "db9233d08c25a33d7b1cdd2d0eb9428e98020fa6de7ab396b0adfb241b61d1e0",
+    "stub": false
+  },
+  "executable_sha256": "95e6aa77ed1f0babe9316f31e330a3573c61bc98010d257c50d031d37d4ce195",
+  "runtime": {
+    "deployment": "App-local Microsoft VC++ runtime 14.44.35211",
+    "source": "https://aka.ms/vs/17/release/vc_redist.x64.exe",
+    "package_sha256": "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b",
+    "dlls": [
+      "vcruntime140.dll",
+      "vccorlib140.dll",
+      "msvcp140_atomic_wait.dll",
+      "msvcp140_codecvt_ids.dll",
+      "msvcp140_2.dll",
+      "vcruntime140_1.dll",
+      "msvcp140_1.dll",
+      "vcomp140.dll",
+      "vcamp140.dll",
+      "vcruntime140_threads.dll",
+      "concrt140.dll",
+      "msvcp140.dll"
+    ]
+  },
+  "method": "Cross-build exact-js integration tests with cargo-xwin, LLVM 22.1.6 and Rust 1.97.0. Provision the pinned engine with hermes-lean-sys-installer. Run the PE executable in the Windows VM, selecting each named test with --exact --nocapture.",
+  "timer_cases": [
+    "precise",
+    "tolerance=4",
+    "wait=frame",
+    "wait=update",
+    "wait=scrollend",
+    "wait=idle"
+  ],
+  "result": {
+    "output": "TEST windows_lean::linked_lean_archive_refuses_source_text_after_loading_its_bytecode_prelude\r\n\r\nrunning 1 test\r\ntest windows_lean::linked_lean_archive_refuses_source_text_after_loading_its_bytecode_prelude ... ok\r\n\r\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 157 filtered out; finished in 0.02s\r\n\r\nTEST inputs::timer_admission_and_cancellation_refresh_real_bytecode_resources\r\n\r\nrunning 1 test\r\ntest inputs::timer_admission_and_cancellation_refresh_real_bytecode_resources ... ok\r\n\r\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 157 filtered out; finished in 0.15s\r\n\r\nTEST inputs::explicit_dates_and_seeds_repeat_across_calls_modules_and_async_interleaving\r\n\r\nrunning 1 test\r\ntest inputs::explicit_dates_and_seeds_repeat_across_calls_modules_and_async_interleaving ... ok\r\n\r\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 157 filtered out; finished in 0.03s\r\n\r\n",
+    "exitCode": 0,
+    "id": "finish-msvc-js-confirm"
+  },
+  "limits": [
+    "JavaScript qualification covers the real bytecode executor and runner timer admission/cancellation seam; GPU qualification is deferred.",
+    "The published Windows Hermes bundle is x86_64; native ARM64 Hermes is not claimed.",
+    "The macOS cross-build emitted a debug-map diagnostic for the PE artifact; Cargo exited successfully, and the resulting executable passed in Windows.",
+    "Broader Windows regression failures reproduced at the baseline remain as documented in LLP 1147."
+  ]
+}

@@ -174,6 +174,9 @@ impl<D: DataSource> Bridge<D> {
             host.set_canvas_text(f, hooks.ctx);
         }
         host.set_canvas_deferred(self.canvas_deferred);
+        host.runner_mut().use_native_timers(self.native_timers);
+        host.runner_mut()
+            .hold_waits(exact_runner::WaitKinds::from_bits(self.wait_kinds));
         host.runner_mut()
             .set_live_clock(self.live_clock.map(super::preferences::sampler));
     }

@@ -129,7 +129,7 @@ dialog id="remove" role="alertdialog" aria-label="Delete it?"
     text "Cancel"
 ```
 ### a timer
-`every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. An action writes `performanceNow()` to state; a `derive` never rereads it.
+`every(ms, action)` repeats; `after(ms, action)` runs once. Options: `wait=frame|update|scrollend|idle`, `max=ms`, `tolerance=ms`. See `contract vocab timers`.
 ```contract
 state now = 0
 task tick mount

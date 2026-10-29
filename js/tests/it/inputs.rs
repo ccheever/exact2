@@ -87,6 +87,75 @@ fn plan() -> Plan {
     contract::compile(SRC).expect("input fixture compiles")
 }
 
+#[test]
+fn timer_admission_and_cancellation_refresh_real_bytecode_resources() {
+    use exact_runner::WaitKinds;
+    use std::{cell::Cell, rc::Rc};
+    for (option, kind) in [
+        ("", WaitKinds::NONE),
+        (", tolerance=4", WaitKinds::NONE),
+        (", wait=frame", WaitKinds::FRAME),
+        (", wait=update", WaitKinds::UPDATE),
+        (", wait=scrollend", WaitKinds::SCROLLEND),
+        (", wait=idle", WaitKinds::IDLE),
+    ] {
+        let plan = contract::compile(&format!(
+            "component App\n  state elapsedMs = 0\n  state enabled = true\n  resource value = explicit(elapsedMs, 7) as shape string\n  action tick\n    elapsedMs = performanceNow()\n  action cancel\n    enabled = false\n  action restart\n    enabled = true\n  task timer when enabled\n    every(10, tick{option})\n  view\n    text value\n"
+        )).unwrap();
+        let make = || {
+            let mut m = Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap();
+            m.set_budget_ms(f64::INFINITY);
+            m.bind(&plan);
+            m
+        };
+        let baked = contract::bake(plan.clone(), make()).unwrap();
+        let mut r = Runner::boot(
+            baked,
+            make(),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let now = Rc::new(Cell::new(0.0));
+        let sample = now.clone();
+        r.set_live_clock(Some(Box::new(move || sample.get())));
+        r.hold_waits(WaitKinds::ALL);
+        let initial = r.resource("value").cloned().unwrap();
+        r.data().take_logs();
+        now.set(10.0);
+        r.advance(10.0).unwrap();
+        if kind != WaitKinds::NONE {
+            assert_eq!(r.resource("value"), Some(&initial), "{option}: held");
+            r.act("cancel", vec![]).unwrap();
+            r.release_waits(kind, 10.0);
+            assert_eq!(r.resource("value"), Some(&initial), "{option}: cancelled");
+            assert!(r.data().take_logs().is_empty());
+            r.act("restart", vec![]).unwrap();
+            now.set(20.0);
+            r.release_waits(kind, 20.0);
+        }
+        let actual = r.resource("value").and_then(Value::as_str).unwrap();
+        assert!(
+            actual.starts_with(if kind == WaitKinds::NONE {
+                "1970-01-01T00:00:00.010Z/"
+            } else {
+                "1970-01-01T00:00:00.020Z/"
+            }),
+            "{option}: {actual}"
+        );
+        let log = if kind == WaitKinds::NONE {
+            "explicit 10 7"
+        } else {
+            "explicit 20 7"
+        };
+        assert!(
+            r.journal().any(|line| line.ends_with(log)),
+            "{option}: Hermes executed the refresh"
+        );
+    }
+}
+
 fn module() -> Module {
     let mut module = Module::loaded(HBC.to_vec(), APP, GRANTS).expect("input fixture loads");
     // Functional fixtures carry no wall-clock budget; it is not a stable

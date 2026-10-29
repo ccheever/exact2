@@ -1,0 +1,14 @@
+component App
+  state count = 0
+  state seen = 0
+  action tick
+    count = count + 1
+    seen = performanceNow()
+  task t mount
+    every(10, tick, wait=update)
+  view
+    text `${count}`
+
+test "wait-update"
+  clock +100
+  expect state count == 10

@@ -61,8 +61,8 @@ final class FrameAdvanceMacTests: XCTestCase {
         XCTAssertNil(session.boot(plan: try Self.plan.get(), size: CGSize(width: 400, height: 300)).error)
         let send = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "send" })
         // The press under a held clock, so a slow pass cannot reach the
-        // deadline before the frame does; then the wall's clock again, under
-        // which a deadline this soon is the display link's (`SessionClockTimer.wake`).
+        // deadline before the frame does; then an explicitly supplied frame
+        // advances this internal MIDI deadline while native clock wakes are pending.
         session.clock = session.now()
         session.apply(session.runtime.press(send.id, now: session.now()))
         session.clock = nil
@@ -78,46 +78,5 @@ final class FrameAdvanceMacTests: XCTestCase {
         XCTAssertEqual(session.appliedBatches, before, "and its batch, which shows nothing, skipped the pass")
     }
 
-    /// After two timer advances that showed nothing, the next near
-    /// deadline waits on a one-shot timer, not the display link, and what
-    /// its advance shows applies when it fires, as a distant timer's does.
-    /// The messages are 100 ms apart, near deadlines each (8 frames); a
-    /// run descheduled past the next is skipped, not failed.
-    func testANearDeadlineAfterQuietOnesWaitsOnATimer() throws {
-        _ = NSApplication.shared
-        let session = ExactApp.shared.makeSession(label: "frame-advance-quiet")
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let view = ExactView(session: session)
-        window.contentView = view
-        defer { window.close(); session.destroy() }
-        XCTAssertNil(session.boot(plan: try Self.plan.get(), size: CGSize(width: 400, height: 300)).error)
-        let send = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "send" })
-        session.clock = session.now()
-        session.apply(session.runtime.press(send.id, now: session.now()))
-        session.clock = nil
-        let link = view.displayLink(target: session.frames, selector: #selector(Frames.tick(_:)))
-        defer { link.invalidate() }
-        session.frames.timerSoon = true
-        for answered in 1...2 {
-            let due = try XCTUnwrap(session.timerDue)
-            while session.now() < due { usleep(100) }
-            XCTAssertTrue(session.frames.timerSoon, "the frame advances to answer \(answered)")
-            session.frames.tick(link)
-            guard try sent(session) == answered else { throw XCTSkip("descheduled past the next message") }
-        }
-        XCTAssertTrue(session.timersQuiet, "two answers showed nothing")
-        let third = try XCTUnwrap(session.timerDue)
-        XCTAssertFalse(session.frames.timerSoon, "the third, 100 ms on, is not the display link's")
-        XCTAssertNil(session.frames.link)
-        let timer = try XCTUnwrap(session.clockTimer)
-        XCTAssertEqual(session.clockDue, third)
-        while session.now() < third { usleep(100) }
-        let before = session.appliedBatches
-        timer.fire()
-        XCTAssertEqual(try sent(session), 3, "the timer advanced")
-        XCTAssertEqual(session.appliedBatches, before + 1, "and applied what the third answer shows")
-        XCTAssertFalse(session.timersQuiet, "so the deadlines after it are the display link's again")
-    }
 }
 #endif
