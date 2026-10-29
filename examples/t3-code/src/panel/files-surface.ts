@@ -790,7 +790,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   // reloads it (WorkspaceBrowserPreview's revisionSuffix and documentKey).
   const revision = mutation ?? '';
   const minted = frame ? await htmlPage(client, native, cwd, absolute, revision, now) : { url: '', error: '' };
-  const source = frame && minted.url ? (pdf ? { src: minted.url, error: '' } : await mediaFrameSource('html', minted.url)) : null;
+  const source = frame && minted.url ? (pdf ? { src: minted.url, error: '' } : await mediaFrameSource(minted.url)) : null;
   const page = { url: source?.src ?? '', error: minted.error || source?.error || '' };
   // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo). An image's
   // URL carries the workspace revision, so a change loads it again (WorkspaceImagePreview's revisionSuffix); a video is

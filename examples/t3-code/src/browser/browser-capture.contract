@@ -197,7 +197,7 @@ component BrowserMiniPlayer
     box position="absolute" left=(framed ? 0 : frame.x) top=(framed ? 0 : frame.top) width=frame.width height=frame.height z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=outside pointerup=outside pointer-events=(framed ? "none" : "auto") role="region" aria-label="Floating browser preview" testId="browser-mini-player"
       column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color=(framed and mini.hasWebContents ? "#00000000" : "light-dark(#f4f4f5, #1a1a1a)") box-shadow="0 25px 50px -12px #00000059"
         if mini.server
-          ServerBrowserPage(runtimeId=mini.runtimeId, url=mini.streamUrl, pdfUrl=mini.pdfUrl, pageWidth=frame.width, pageHeight=frame.height, followSize=false, mini=true)
+          ServerBrowserPage(runtimeId=mini.runtimeId, url=mini.streamUrl, pdfUrl=mini.pdfUrl, pdfViewer=mini.pdfViewer, local=local, pageWidth=frame.width, pageHeight=frame.height, followSize=false, mini=true)
         if not mini.hasWebContents
           box position="absolute" left=0 top=0 right=0 bottom=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #1a1a1a)" pointer-events="none" testId="browser-mini-reconnecting"
             text "Reconnecting preview…" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"

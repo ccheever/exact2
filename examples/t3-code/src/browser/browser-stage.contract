@@ -112,7 +112,7 @@ component BrowserStage
         BrowserDeviceToolbar(view=view, width=pw, liveW=liveW, liveH=liveH, local=local)
       if view.server
         box position="absolute" left=vx top=vy width=vw height=vh
-          ServerBrowserPage(runtimeId=view.runtimeId, url=view.streamUrl, pdfUrl=view.pdfUrl, pageWidth=vw, pageHeight=vh, followSize=(not fixed), mini=false)
+          ServerBrowserPage(runtimeId=view.runtimeId, url=view.streamUrl, pdfUrl=view.pdfUrl, pdfViewer=view.pdfViewer, local=local, pageWidth=vw, pageHeight=vh, followSize=(not fixed), mini=false)
       else
         box id="browser-page-slot" resize=placed pointer-events="none" testId="browser-page-slot" position="absolute" left=vx top=vy width=vw height=vh box-shadow=(fixed ? "0 0 0 1px light-dark(#e4e4e7b3, #ffffff1a), 0 1px 2px #0000000d" : "none")
       if fixed

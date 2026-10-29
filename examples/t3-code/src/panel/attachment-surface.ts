@@ -26,7 +26,7 @@ import { filesMermaid, type MermaidDiagramView } from '../timeline/timeline-merm
 import { timelineView } from '../timeline/timeline-presentation';
 import { fileIconToken } from '../shared/timeline-files';
 import { mediaBody, mediaErrorMessage } from '../media/attachment-media'; // PDF, HTML, audio and video bodies
-import { mediaFrameSource, stagedCopyName } from '../media/media-frame'; // a rendered page's frame source; a draft's staged copy
+import { cachedStagedCopy, forgetStagedCopies, mediaFrameSource, stagedCopyName } from '../media/media-frame'; // a rendered page's frame source; a draft's staged copy
 import { sourceGutter } from './files-crumbs-settle'; // the reference's line-number column
 import { letGo } from '../client/let-go';
 import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
@@ -91,9 +91,8 @@ const PAGE_KINDS = new Set<FilePreviewKind>(['pdf', 'archive', 'sqlite', 'docx',
 export function previewBody(kind: FilePreviewKind): FilePreviewKind | 'viewer' {
   return PAGE_KINDS.has(kind) ? 'viewer' : kind;
 }
-/** The draft files the page can take by message: `readFile`'s bound. A larger one waits until a bundled page can read an app file. */
+/** The draft files the page takes by message: `readFile`'s bound. A larger one is a file the page is given (givenDraft). */
 const DRAFT_PAGE_BYTES = 16 * 1024 * 1024;
-const DRAFT_TOO_LARGE = 'Preview of a draft file is limited to 16 MB until it is sent.';
 
 /** The sent file attachment with this id in the thread's loaded history (ChatFileAttachment). */
 export function findAttachment(client: T3Client, id: string): AttachmentMeta | null {
@@ -163,13 +162,23 @@ function renderedToggleLabel(mode: string, rendered: boolean): string {
   return mode === 'html' ? (rendered ? 'Show HTML source' : 'Show rendered page') : '';
 }
 
+/**
+ * A draft's staged copy past what a message carries, copied into app:/cache so its page is given it in its frame's
+ * `src` (LLP 1020.001 D7) and reads it from there, as it reads a sent file from its URL; '' for a smaller copy, whose bytes
+ * go by message, and for a folded paste.
+ */
+async function givenDraft(source: PreviewSource, name: string): Promise<string> {
+  const staged = stagedCopyName(source.local?.url ?? '');
+  if (!staged) return '';
+  const files = appFiles().fs as unknown as { stat?(path: string): Promise<{ size?: number }> };
+  const size = Number((await files.stat?.(stagedPath(staged)).catch(() => null))?.size ?? 0);
+  return size > DRAFT_PAGE_BYTES ? cachedStagedCopy(staged, name) : '';
+}
+
 /** A draft's bytes for the viewer page: its staged copy, or a folded paste's text (composer-chip-file.ts draftSource). */
 async function draftBytes(client: T3Client, source: PreviewSource): Promise<Uint8Array> {
   const staged = stagedCopyName(source.local?.url ?? '');
   if (staged) {
-    const files = appFiles().fs as unknown as { stat?(path: string): Promise<{ size?: number }> };
-    const size = Number((await files.stat?.(stagedPath(staged)).catch(() => null))?.size ?? 0);
-    if (size > DRAFT_PAGE_BYTES) throw new ClientError(DRAFT_TOO_LARGE);
     const bytes = await appFiles().fs.readFile(stagedPath(staged)).catch(() => null);
     if (bytes) return new Uint8Array(bytes);
   }
@@ -209,7 +218,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   }
   // A rendered page is a frame: the server's inline page at its URL, or a copy under a `.html` name (media-frame.ts).
   const framed = !needsText && kind === 'html' && state.url && !state.urlError && !state.mediaError;
-  const frame = !framed ? null : await mediaFrameSource(kind, state.url);
+  const frame = !framed ? null : await mediaFrameSource(state.url);
   if (frame?.error) state.mediaError = frame.error;
   // FontViewer: the specimen once its bytes are read; its frame says whether the face loaded.
   const font = kind === 'font' && state.url && !state.urlError && !state.fontError ? await fontPage(source.key, state.url, meta.sizeBytes) : null;
@@ -222,7 +231,14 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   const pageView: ViewerConfig['view'] | null = failure || !state.url ? null
     : streamsText || table ? 'text' : kind === 'viewer' ? (fileKind === 'pdf' ? 'pdf' : office ? 'office' : 'binary') : null;
   const viewer = pageView ? viewerConfig(client, meta, state, pageView, { streams: streamsText, table, delimiter, office, kind: fileKind, local: !!source.local }) : null;
-  if (viewer && source.local && !viewer.text && state.frame.booted && state.frame.sentBytes !== viewer.key) {
+  // A copy that could not be made says why itself: its draft is past what the bytes' read below takes.
+  let given = '', uncopied = false;
+  if (viewer && source.local && !viewer.text) {
+    try { given = await givenDraft(source, meta.name); }
+    catch (error) { if (letGo(error)) throw error; uncopied = true; state.bytesError = message(error, 'Could not load this file.'); }
+    if (given) viewer.given = true;
+  }
+  if (viewer && source.local && !viewer.text && !given && !uncopied && state.frame.booted && state.frame.sentBytes !== viewer.key) {
     try { postBytes(state.frame, viewer.key, await draftBytes(client, source)); }
     catch (error) { if (letGo(error)) throw error; state.bytesError = message(error, 'Could not load this file.'); }
   }
@@ -259,7 +275,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     // The unsupported body, or why a font has no specimen.
     noPreview: preview !== 'none' ? '' : fontError ? `${fontError} Save it to open in another app.` : `Save it to open in an app that supports ${extension} files.`,
     mermaidNote: diagram?.note ?? '', noPreviewAlert: !!fontError,
-    viewer: viewer && preview === 'viewer' ? viewerFrameView(state.frame, frameId, viewer) : emptyViewerFrame(),
+    viewer: viewer && preview === 'viewer' ? viewerFrameView(state.frame, frameId, viewer, given) : emptyViewerFrame(),
     entry: preview === 'viewer' && state.frame.entry ? await entryView(client, source.key, state.frame.entry) : emptyEntry(),
     notebook: cells?.view ?? emptyNotebook(),
   };
@@ -338,6 +354,9 @@ export async function attachmentOp(client: T3Client, native: Native, meta: Attac
     // it has, and a draft's bytes go to it again.
     state.revision += 1; state.bytesError = ''; state.frame.notebook = null; state.frame.entry = null;
     forgetNotebook(source.key); // NotebookPreview remounts: twenty cells again
+    // A draft's copies are made afresh: one can be gone from the cache while its path is kept.
+    const staged = stagedCopyName(source.local?.url ?? '');
+    if (staged) forgetStagedCopies(staged);
     return '';
   }
   // The audio/video player's or the picture's `error` event; a late one from a body already gone is ignored.

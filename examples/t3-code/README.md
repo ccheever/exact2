@@ -265,9 +265,9 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   previews (Markdown, table or numbered source, images, Copy contents and Save file;
   opened from a sent file chip; the text is fetched from the signed asset URL, and Save file
   hands the bytes to the window's Save panel, `attachment-files.ts`, `save-file.ts`;
-  `attachment-media*`, `media-frame.*`: PDFs in the platform's viewer (an `iframe` of a copy in app:/cache, which
-  Apple shows in PDFKit, LLP 1020.002 D10), HTML in a sandboxed `iframe` that loads its token directory and external
-  hosts as the reference's frame does, or as source coloured by the reference's html lexer
+  `attachment-media*`, `media-frame.*`: PDFs in the viewer page's PDF.js (`file-preview-host/`), a draft past 16 MiB
+  given to it as a copy in app:/cache (LLP 1020.001 D7), HTML in a sandboxed `iframe` that loads its token directory
+  and external hosts as the reference's frame does, or as source coloured by the reference's html lexer
   (`highlights.ts`), audio and video in the platform's players, "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
@@ -667,14 +667,15 @@ Differences that belong to the app:
   (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
   from the page every few seconds
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
-- A PDF preview (a file, an attachment or a draft's file, and a server Browser tab's PDF) is PDFKit's `PDFView`
-  (LLP 1020.002 D10), which centres a document shorter than its pane, where Chromium's viewer keeps it at the top; the
-  pane around the pages is PDFView's own grey, not Chromium's #282828. A sent PDF over 24 MiB shows "Could not load
-  this file.": the frame shows a local copy, and the Apple host starts a fetch only once twice its ceiling fits
-  beside the open server sockets (`media-frame.ts`). A rendered HTML preview is a sandboxed `iframe`
-  (LLP 1020.002): a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens
-  the platform's popup window, where the reference opens every new window in the default browser (a `target="_blank"`
-  link or ⌘-click still does).
+- A server Browser tab's PDF is the viewer page's PDF.js reading its signed URL (`server-pdf-viewer.ts`), where the
+  reference embeds the URL in Chromium's viewer, which would run an HTML answer as a page. Its toolbar is T3 Code's
+  PdfViewer (pages, previous and next, zoom, Fit width, full screen, Find in PDF), not Chromium's (thumbnails and
+  outline, a page field, rotate, two-page view, download, print, properties, and the browser's own ⌘F), and it stays
+  in the floating player, where Chromium's hides at that size. A PDF from another origin loads only when its server
+  lets the page fetch it (CORS), as the T3 server does. A rendered HTML preview is a sandboxed `iframe` (LLP 1020.002):
+  a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens the platform's
+  popup window, where the reference opens every new window in the default browser (a `target="_blank"` link or ⌘-click
+  still does).
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but

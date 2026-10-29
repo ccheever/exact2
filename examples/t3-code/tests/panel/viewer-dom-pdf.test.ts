@@ -18,8 +18,10 @@ class FakePage {
 }
 mock.module('pdfjs-dist', () => ({
   GlobalWorkerOptions: { workerSrc: '' },
-  // As pdfjs-dist 6.4.299: the document has no `destroy`; its loading task's lets it go.
-  getDocument: () => {
+  // As pdfjs-dist 6.4.299: the document has no `destroy`; its loading task's lets it go. Bytes that open with no PDF
+  // header are refused, as PDF.js refuses them.
+  getDocument: ({ data }: { data: Uint8Array }) => {
+    if (String.fromCharCode(...data.subarray(0, 4)) !== '%PDF') return { promise: Promise.reject(new Error('Invalid PDF structure.')), destroy: async () => {} };
     const pages = documents.pages;
     const pdf = { numPages: pages.length, getPage: async (n: number) => new FakePage(pages[n - 1]!) };
     return { promise: Promise.resolve(pdf), destroy: async () => { documents.destroyed += 1; } };
@@ -118,5 +120,18 @@ describe('PdfViewer', () => {
     await until(() => label() === '1 / 1 pages', 'the document');
     viewer.dispose();
     expect(documents.destroyed).toBe(1);
+  });
+
+  test('a URL that answers a page draws nothing and runs nothing: PDF.js refuses its bytes, and the viewer says so', async () => {
+    // A server tab's PDF from another origin (server-pdf-viewer.ts) whose server answers HTML once it has answered the
+    // server's own browser with a PDF.
+    const page = '<h1>Injected</h1><script>globalThis.injectedRan = true</script><img src="x" onerror="globalThis.injectedRan = true">';
+    network.respond = () => new Response(page, { headers: { 'content-type': 'text/html' } });
+    const viewer = new PdfViewer('https://other.example/api/assets/token/guide.pdf', 'guide.pdf');
+    document.body.append(viewer.element);
+    await until(() => viewer.element.textContent?.includes('Invalid PDF structure.'), 'the failure');
+    expect([document.body.innerHTML.includes('Injected'), document.querySelectorAll('script, img, iframe, embed, object').length, (globalThis as { injectedRan?: boolean }).injectedRan])
+      .toEqual([false, 0, undefined]);
+    viewer.element.remove();
   });
 });

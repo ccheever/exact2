@@ -1,5 +1,6 @@
 // The Browser tab's projection (browser-surface.ts `BrowserView`), apart from its
 // views so the panel's shapes (panel-shapes.contract) can carry it without a `use` cycle.
+use ViewerFrameView from "../panel/viewer-frame.contract"
 shape BrowserProfileChoice
   id: string
   name: string
@@ -70,6 +71,7 @@ shape BrowserPanel
   server: bool
   streamUrl: string
   pdfUrl: string
+  pdfViewer: ViewerFrameView
   environment: string
   profileId: string
   profileName: string
@@ -135,6 +137,7 @@ shape BrowserMini
   server: bool
   streamUrl: string
   pdfUrl: string
+  pdfViewer: ViewerFrameView
   url: string
   profileId: string
   environment: string

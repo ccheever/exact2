@@ -1,7 +1,6 @@
 // From the MIT reference (see LICENSE-T3): AttachmentFilePreview's media bodies.
-// - PDF and HTML: BrowserDocumentFrame ("min-h-0 flex-1 border-0 bg-white"), a Contract `iframe` (media-frame.contract):
-//   a PDF at its signed URL in WebKit's PDF view, or one the server serves as a download (a file stored as `-bin`) and
-//   a draft's staged PDF in PDFKit from the copy media-frame.ts wrote to app:/cache; the page in a sandboxed frame.
+// - HTML: BrowserDocumentFrame ("min-h-0 flex-1 border-0 bg-white"), the page in a sandboxed Contract `iframe`
+//   (media-frame.contract). A PDF is the viewer page's (viewer-frame.contract).
 // - Audio: AudioPreview, `<audio controls preload="metadata" class="w-full max-w-xl">` centred
 //   in `p-6`; Chrome's audio controls are a 54 px pill.
 // - Video: `<video controls playsInline class="max-h-full max-w-full">` centred on black.
@@ -16,9 +15,9 @@ component AttachmentMediaBody
     att: AttachmentSurface
     local: action
   view
-    if att.preview == "pdf" or att.preview == "html"
+    if att.preview == "html"
       box position="relative" flex=1 min-height=0 width="100%" background-color="#ffffff"
-        MediaFrame(kind=att.preview, src=att.url, name=att.name, testId=`attachment-${att.preview}`)
+        MediaFrame(src=att.url, name=att.name, testId="attachment-html")
     if att.preview == "audio"
       column flex=1 min-height=0 width="100%" padding="1.5rem" box-sizing="border-box" align-items="center" justify-content="center" testId="attachment-audio"
         video att.url controls=true preload="metadata" aria-label=att.name error=local("surface-linked-att-media-error", att.id) width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="attachment-audio-player"
