@@ -202,13 +202,21 @@ export function componentIR(lean, component) {
   if (at < 0) return null;
   let i = at;
   const space = () => { while (/[\s,]/.test(lean[i])) i++; };
+  const blank = () => { while (/\s/.test(lean[i])) i++; };
+  // A list item or a field's value: its terms up to the next comma or the closing bracket (the printer writes an
+  // application unparenthesized there, `.some ((.bool true))`, `.some "done"`).
+  const value = close => {
+    const terms = [read()];
+    for (blank(); lean[i] !== ',' && lean[i] !== close; blank()) terms.push(read());
+    return terms.length === 1 ? terms[0] : { app: terms };
+  };
   const read = () => {
     space();
     const c = lean[i];
     if (c === '[' || c === '(') {
       const close = c === '[' ? ']' : ')', items = [];
       i++;
-      for (;;) { space(); if (lean[i] === close) { i++; break; } items.push(read()); }
+      for (;;) { space(); if (lean[i] === close) { i++; break; } items.push(c === '[' ? value(close) : read()); }
       return c === '[' ? { list: items } : { tuple: items };
     }
     if (c === '{') {
@@ -222,7 +230,7 @@ export function componentIR(lean, component) {
         space();
         if (lean.slice(i, i + 2) !== ':=') throw new Error(`lean record: no := after ${key}`);
         i += 2;
-        fields[key] = read();
+        fields[key] = value('}');
       }
       return { fields };
     }

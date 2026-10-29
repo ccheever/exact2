@@ -150,6 +150,9 @@ test("option B's shape on the compiler's parse: no slot, one PersonRow, in its s
   // Nor "view := []" in a state's string before the real view; and the printer's \\xHH escape reads.
   const noted = rec('B', false, row(when(follow.replace('(.str "a, ]")', '(.str "\\x7f\\"q\\\\")')))).replace('states := []', 'states := [{ name := "note", value := (.str "view := []") }]');
   expect(irShape(componentIR(noted, 'B'))).toEqual({ ok: true, said: 'one PersonRow, and in its slot the if around one FollowButton' });
+  // A root's tasks and mutations print applications unparenthesized (Astra's and Grok's re-check 6).
+  const tasks = rec('B', false, row('')).replace('states := []', 'states := [],\n      tasks := [{ name := "t", gate := .some ((.bool true)), key := .some ((.str "k")), andThen := .some "done", queue := true }]');
+  expect(irShape(componentIR(tasks, 'B'))).toEqual({ ok: true, said: 'one PersonRow, its slot empty' });
 });
 
 test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindings and screens", () => {
