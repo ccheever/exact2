@@ -46,7 +46,8 @@ export function settingsScopeOf(client: T3Client, route: string, machine: string
   const projectKey = legacyGroup ? legacyGroup.key : projectKeyInput, checkout = legacyGroup ? '' : checkoutInput;
   const chosen = resolveScope(client, machine, projectKey, checkout);
   const machineAxis = scopeMachine(client, route, machine, chosen.kind === 'unavailable' ? [] : chosen.selected);
-  return { projectKey, checkout, scope: machineAxis === machine ? chosen : resolveScope(client, machineAxis, projectKey, checkout) };
+  // `machine` is the axis the scope resolved: on a single-environment route, the environment chosen when none was.
+  return { machine: machineAxis, projectKey, checkout, scope: machineAxis === machine ? chosen : resolveScope(client, machineAxis, projectKey, checkout) };
 }
 
 

@@ -4,6 +4,7 @@ use PvSectionTitle from "../settings/providers-kit.contract"
 use PvGroup from "../settings/providers-kit.contract"
 use PvFlatGroup from "../settings/providers-kit.contract"
 use PvRow from "../settings/providers-kit.contract"
+use PvRemoveButton from "../settings/providers-kit.contract"
 use PvField from "../settings/providers-kit.contract"
 use PvOutline from "../settings/providers-kit.contract"
 use PvGhost from "../settings/providers-kit.contract"
@@ -25,6 +26,12 @@ use ProviderVersionAdvisory, ProviderUpdatesAllButton, ProviderUrlAuth, AcpManag
 use CodexRuntimeFields from "./codex-setup.contract"
 use CodexSetupRow from "./codex-setup.contract"
 use CodexRuntimeSection from "./codex-setup.contract"
+use CoreRowView from "../settings/settings-rows.contract"
+use CoreRow from "../settings/settings-core.contract"
+use CorePalette from "../settings/settings-core-shared.contract"
+use FontDiffPreview from "../shared/shapes.contract"
+use SettingsPageSelect from "../settings/settings-kit.contract"
+use SelectOption from "../settings/settings-kit.contract"
 
 shape ProviderOption
   value: string
@@ -155,10 +162,18 @@ shape ProviderPage
   updateAll: ProviderUpdateAll
   escapeOwned: bool
   environment: string // the environment the page's reads and actions go to (providers-scope.ts): '' while Settings is closed, "-" when the scope names none
+  // Advanced's settings-core rows after Health check interval (CompactIdleThreadsRow), which write to the settings scope
+  // `writeScope` names, as the core pages' rows do (providers-scope.ts advancedRows).
+  advanced: CoreRow[]
+  writeScope: string
+  codePreview: FontDiffPreview
 
 // Settings → Providers (ProviderSettingsPanel.tsx). `width` is the page's
 // content width; T3 switches to the two-pane card at a 48rem container.
 component ProvidersPanel
+  inject
+    corePal: CorePalette
+    still: bool
   props
     scheme: string
     page: ProviderPage
@@ -183,6 +198,19 @@ component ProvidersPanel
   derive wide = width >= 768
   derive cardHeight = max(512, min(704, height - 176))
   derive health = healthEdited ? healthDraft : page.healthSeconds
+  state coreMenuOpen = ""
+  action coreChange(row: string, part: string, value: string)
+    op("settings-core", `${row}:${part}|${page.writeScope}`, "", value, true)
+  // Advanced's core rows hold no slider. A slider's key action that reached `op` through here would grow past the
+  // statements one action may expand to (syntax-call-size), so this only closes a menu.
+  action coreSlide(row: string, part: string, value: number)
+    coreMenuOpen = ""
+  action coreGo(route: string)
+    ui("navigate", route)
+  action coreMenu(section: string, id: string)
+    coreMenuOpen = (id == "" or coreMenuOpen == id) ? "" : id
+  action coreMenuClose
+    coreMenuOpen = ""
   view
     column width="100%" gap="2rem" testId="providers-settings"
       if not page.available
@@ -232,7 +260,7 @@ component ProvidersPanel
                           row margin-top="0.125rem" gap="0.375rem" align-items="flex-start" width="100%"
                             if row.dot != ""
                               box height="1.0625rem" display="flex" align-items="center" flex-shrink=0
-                                box width="0.375rem" height="0.375rem" border-radius="624.9375rem" background-color=(row.dot == "error" ? "light-dark(#e7000b, #ff6467)" : "#fe9a00")
+                                box width="0.375rem" height="0.375rem" border-radius="624.9375rem" background-color=(row.dot == "error" ? "light-dark(#fb2c36, #fb414a)" : "#fe9a00")
                             text row.status font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" line-clamp=2 text-align="left" testId=`provider-list-status-${row.id}`
                       row height="1.25rem" display="flex" align-items="center" gap="0.25rem" flex-shrink=0
                         if row.projectOverride
@@ -285,6 +313,8 @@ component ProvidersPanel
                     button press=op("provider-health", "", "", page.healthUp, true) class=PvMicro width="2.125rem" height="1.625rem" aria-label="Increase provider health check interval" disabled=(busy or not page.settingsWritable) testId="health-increase" title="" id="health-increase" data-focus-stop=(busy or not page.settingsWritable ? "" : "enabled page")
                       PvIcon(name="plus", size=14, color="light-dark(#71717b, #a1a1a1)")
                   text "seconds" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+            for row in page.advanced key=row.id
+              CoreRowView(reduced=still, row=row, section="provider-advanced", pal=corePal, codePreview=page.codePreview, busy=busy, menu=coreMenuOpen, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreGo)
 
 // The selected instance's editor (ProviderInstanceCard mode="editor"). Its
 // drafts are row state: they reset whenever the instance's saved value changes.
@@ -321,13 +351,12 @@ component ProviderEditor
                 button press=op("provider-reset", editor.id, "", "", true) class=PvMicro aria-label=`Reset ${editor.placeholder} provider settings to default` disabled=(busy or not writable) testId="reset-provider" title="" id="reset-provider" data-focus-stop=(busy or not writable ? "" : "enabled page")
                   PvIcon(name="undo", size=12, color="light-dark(#71717b, #a1a1a1)")
               if editor.canDelete
-                button press=op("provider-remove", editor.id, "", "", true) class=PvIconButton aria-label=`Delete instance ${editor.id}` disabled=(busy or not writable) testId="delete-provider-instance" title="" id="delete-provider-instance" data-focus-stop=(busy or not writable ? "" : "enabled page")
-                  PvIcon(name="trash", size=14, color="light-dark(#71717b, #a1a1a1)")
+                PvRemoveButton(label=`Delete instance ${editor.id}`, buttonId="delete-provider-instance", icon="trash", size="xs", iconSize=14, disabled=(busy or not writable), stop="enabled page", press=op("provider-remove", editor.id, "", "", true))
         PvFlatGroup()
           for nameRow in editor.nameRows key=nameRow.key
             ProviderNameRow(editor=editor, rowWide=rowWide, busy=busy, writable=writable, op=op, accent=accent)
         if error != ""
-          text error font-size="0.75rem" line-height="1rem" role="alert" padding-left="1rem" color="light-dark(#e7000b, #ff6467)" testId="provider-editor-error"
+          text error font-size="0.75rem" line-height="1rem" role="alert" padding-left="1rem" color="light-dark(#fb2c36, #fb414a)" testId="provider-editor-error"
       // ProviderInstanceCard's Setup section: the `setup` slot (ProviderSettingsPanel.tsx:1066-1118), then the env fields.
       if editor.showSetup
         column width="100%" gap="0.625rem"
@@ -356,14 +385,23 @@ component ProviderEditor
             for field in editor.fields key=field.rowKey
               ProviderConfigField(field=field, instance=editor.id, first=field.first, wide=rowWide, writable=writable, op=op)
             if editor.localAcp
-              column padding="1rem" gap="0.5rem"
-                row align-items="center" justify-content="space-between"
-                  text "Arguments" font-size="0.875rem" font-weight=500
-                  button press=op("provider-argument-add", editor.id, "", "", true) disabled=(busy or not writable) class=PvOutline testId="provider-add-argument" id="provider-add-argument" data-focus-stop=(busy or not writable ? "" : "enabled page")
-                    text "Add argument" font-size="0.8125rem"
-                text "One literal argument per row, in launch order." font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)"
-                for arg in editor.commandArgs key=arg.key
-                  ProviderCommandArgumentRow(arg=arg, instance=editor.id, writable=(writable and not busy), op=op)
+              // ProviderCommandArguments (ProviderSettingsForm.tsx:216-229): a SettingsRow, divided from the fields above it,
+              // whose control is the outline sm "+ Add argument" (its bare PlusIcon at the base's 16), the title over the
+              // description, and the rows below (mt-3 space-y-2 pb-2).
+              column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom=(editor.commandArgs.length > 0 ? "0.25rem" : "0.75rem") border-top-style="solid" border-top-width=(editor.fields.length > 0 or not editor.known ? 1 : 0) border-color="light-dark(#e3e3e780, #ffffff0a)" testId="provider-arguments"
+                row width="100%" flex-direction=(rowWide ? "row" : "column") gap=(rowWide ? "2rem" : "0.75rem") align-items=(rowWide ? "center" : "stretch")
+                  column flex-grow=(rowWide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
+                    row min-height="1.25rem" align-items="center"
+                      text "Arguments" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
+                    text "One literal argument per row, in launch order." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
+                  row justify-content="flex-end"
+                    button press=op("provider-argument-add", editor.id, "", "", true) class=PvOutline disabled=(busy or not writable) testId="provider-add-argument" id="provider-add-argument" data-focus-stop=(busy or not writable ? "" : "enabled page")
+                      PvIcon(name="plus", size=16, color="light-dark(#71717b, #a1a1a1)")
+                      text "Add argument" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+                if editor.commandArgs.length > 0
+                  column width="100%" min-width=0 gap="0.5rem" margin-top="0.75rem" padding-bottom="0.5rem"
+                    for arg in editor.commandArgs key=arg.key
+                      ProviderCommandArgumentRow(arg=arg, instance=editor.id, writable=(writable and not busy), op=op)
       column width="100%" gap="0.625rem" opacity=(writable ? 1 : 0.5)
         PvSectionTitle(title="Environment")
         PvFlatGroup()
@@ -412,7 +450,7 @@ component ProviderNameRow
           text "Status" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
         row width="100%" min-width=0 padding-top="0.125rem" gap="0.375rem" flex-wrap="wrap" align-items="baseline" testId="provider-editor-status"
           if editor.dot != ""
-            box width="0.375rem" height="0.375rem" border-radius="624.9375rem" background-color=(editor.dot == "error" ? "light-dark(#e7000b, #ff6467)" : "#fe9a00")
+            box width="0.375rem" height="0.375rem" border-radius="624.9375rem" background-color=(editor.dot == "error" ? "light-dark(#fb2c36, #fb414a)" : "#fe9a00")
           text editor.statusLead font-size="0.75rem" line-height="1rem" min-width=0 color="light-dark(#71717b, #a1a1a1)"
           if editor.statusEmail != ""
             RedactedText(stop="enabled page", value=editor.statusEmail, placeholder=editor.statusEmailPlaceholder, label="Toggle account email visibility", revealTip="Click to reveal email", hideTip="Click to hide email", testId=`provider-status-email-${editor.id}`)
@@ -448,19 +486,21 @@ component ProviderConfigField
     draft = value
     edited = true
   derive value = edited ? draft : field.value
+  derive choices = field.options.map((option) => SelectOption(value=option.value, label=option.label, selected=option.selected))
+  derive chosen = field.options.filter((option) => option.selected).map((option) => option.label).join("")
+  action pick(next: string)
+    op("provider-field", instance, field.key, next, true)
   view
     PvRow(title=field.label, description=field.description, status="", policy="", wide=wide, divided=(not first))
       if field.control == "select"
-        row gap="0.25rem" flex-wrap="wrap" justify-content="flex-end" role="radiogroup" aria-label=field.label
-          for option in field.options key=option.value
-            button press=op("provider-field", instance, field.key, option.value, true) role="radio" aria-checked=option.selected class=PvOutline height="1.75rem" disabled=(not writable) background-color=(option.selected ? "light-dark(#1b4ed814, #346bf126)" : "light-dark(#ffffff, #ffffff08)") testId=`provider-field-${field.key}-${option.value}`
-              text option.label font-size="0.8125rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+        // ProviderSettingsSelect: a size-sm SelectTrigger, w-56 beside the title and the row's width once it stacks, its
+        // popup starting at the trigger.
+        SettingsPageSelect(selectId=`provider-field-${field.key}`, label=field.label, valueLabel=chosen, empty=false, value="", width=(wide ? 224 : 0), disabled=(not writable), options=choices, choose=pick)
       else if field.control == "password"
         row width=(wide ? "14rem" : "100%") gap="0.5rem" align-items="center"
           input value=value input=edit blur=op("provider-field", instance, field.key, value, edited) submit=op("provider-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-field-${field.key}` id=`field-provider-field-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
           if field.clearable
-            button press=op("provider-field", instance, field.key, "", true) class=PvIconButton width="1.75rem" height="1.75rem" aria-label=`Clear ${field.label}` disabled=(not writable) testId=`clear-provider-field-${field.key}` title="" id=`clear-provider-field-${field.key}` data-focus-stop=(not writable ? "" : "enabled page")
-              PvIcon(name="x", size=14, color="light-dark(#e7000b, #ff6467)")
+            PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-field-${field.key}`, icon="x", size="sm", iconSize=14, disabled=(not writable), stop="enabled page", press=op("provider-field", instance, field.key, "", true))
       else
         input value=value input=edit blur=op("provider-field", instance, field.key, value, edited) submit=op("provider-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width=(wide ? "14rem" : "auto") flex-grow=(wide ? 0 : 1) flex-shrink=(wide ? 0 : 1) min-width=0 disabled=(not writable) testId=`provider-field-${field.key}` id=`field-provider-field-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
 
@@ -484,8 +524,7 @@ component ProviderSecretField
       row gap="0.5rem" align-items="center" width=(wide ? "14rem" : "100%")
         input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}` autocorrect="off" id=`field-provider-env-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
         if field.clearable
-          button press=op("provider-env-field", instance, field.key, "", true) class=PvIconButton width="1.75rem" height="1.75rem" aria-label=`Clear ${field.label}` disabled=(not writable) testId=`clear-provider-env-${field.key}` title="" id=`clear-provider-env-${field.key}` data-focus-stop=(not writable ? "" : "enabled page")
-            PvIcon(name="x", size=14, color="light-dark(#e7000b, #ff6467)")
+          PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-env-${field.key}`, icon="x", size="sm", iconSize=14, disabled=(not writable), stop="enabled page", press=op("provider-env-field", instance, field.key, "", true))
 
 // One environment variable row: NAME = value, sensitivity lock, remove.
 component ProviderVariableRow
@@ -514,8 +553,7 @@ component ProviderVariableRow
       button press=op("provider-env-sensitive", instance, `${variable.index}`, (variable.sensitive ? "false" : "true"), true) class=PvMicro aria-selected=variable.sensitive aria-label=`Mark environment variable ${variable.label} as sensitive` disabled=(not writable) testId=`provider-variable-sensitive-${variable.index}` title="" id=`provider-variable-sensitive-${variable.index}` data-focus-stop=(not writable ? "" : "enabled page")
         // f2cc80a7 MorphIcon LockOpen↔Lock: the shackle closes (morphicons' morph, shell-morph.contract).
         MorphLock(on=variable.sensitive, size=12, color="light-dark(#71717b, #a1a1a1)", weight=2, still=false)
-      button press=op("provider-env-remove", instance, `${variable.index}`, "", true) class=PvMicro aria-label=`Remove environment variable ${variable.label}` disabled=(not writable) testId=`provider-variable-remove-${variable.index}` title="" id=`provider-variable-remove-${variable.index}` data-focus-stop=(not writable ? "" : "enabled page")
-        PvIcon(name="x", size=12, color="light-dark(#e7000b, #ff6467)")
+      PvRemoveButton(label=`Remove environment variable ${variable.label}`, buttonId=`provider-variable-remove-${variable.index}`, icon="x", size="micro", iconSize=12, disabled=(not writable), stop="enabled page", press=op("provider-env-remove", instance, `${variable.index}`, "", true))
 
 // ProviderModelsSection: count, favorites, custom-model add/remove, and the custom model
 // editor (providers-upkeep.contract) under the row its pencil opened.
@@ -662,10 +700,10 @@ component ProviderCommandArgumentRow
   action edit(text: string)
     value = text
   view
-    row gap="0.5rem"
-      input value=value input=edit blur=op("provider-argument-value", instance, `${arg.index}`, value, true) submit=op("provider-argument-value", instance, `${arg.index}`, value, true) disabled=(not writable) aria-label=`Argument ${arg.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 testId=`provider-argument-${arg.index}` id=`field-provider-argument-${arg.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
-      button press=op("provider-argument-remove", instance, `${arg.index}`, "", true) disabled=(not writable) class=PvIconButton aria-label=`Remove argument ${arg.index + 1}` title=""
-        PvIcon(name="x", size=12, color="light-dark(#71717b, #a1a1a1)")
+    // A row of ProviderSettingsForm's Arguments, as in Add provider: the mono field and the ghost-destructive remove.
+    row width="100%" min-width=0 gap="0.375rem" align-items="center"
+      input value=value input=edit blur=op("provider-argument-value", instance, `${arg.index}`, value, true) submit=op("provider-argument-value", instance, `${arg.index}`, value, true) disabled=(not writable) aria-label=`Argument ${arg.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" testId=`provider-argument-${arg.index}` id=`field-provider-argument-${arg.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+      PvRemoveButton(label=`Remove argument ${arg.index + 1}`, buttonId=`provider-argument-remove-${arg.index}`, icon="x", size="micro", iconSize=16, disabled=(not writable), stop="enabled page", press=op("provider-argument-remove", instance, `${arg.index}`, "", true))
 
 // ProviderSettingsPanel's list row "Add provider": muted until hovered (hover:bg-muted/25 hover:text-foreground).
 component AddProviderRow

@@ -113,7 +113,8 @@ describe('Markdown settings', () => {
   const client = (settings: object) => ({ local: { clientSettings: settings } }) as unknown as T3Client;
   test('code size clamps to 10–18, word wrap and the monospace family come from Settings → Appearance', () => {
     expect(markdownEnv(client({ fontSizeCode: 22, wordWrap: false, fontFamilyCode: 'Menlo' }))).toEqual({ codeFont: '"Menlo", ui-monospace', codeSize: 18, wrap: false, chips: [], runCommands: [], threadGlyphs: [] });
-    expect(markdownEnv(client({ fontSizeCode: 13, wordWrap: true, fontFamilyCode: '' }))).toEqual({ codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [], threadGlyphs: [] });
+    // The default is the reference's code font as its renderer draws it (settings-appearance.ts DEFAULT_CODE_FONT).
+    expect(markdownEnv(client({ fontSizeCode: 13, wordWrap: true, fontFamilyCode: '' }))).toEqual({ codeFont: 'Menlo, Consolas, "Liberation Mono", monospace', codeSize: 13, wrap: true, chips: [], runCommands: [], threadGlyphs: [] });
     expect(markdownEnv({} as T3Client).codeSize).toBe(13);
   });
   test('diff colors default to red-green', () => {
@@ -155,7 +156,7 @@ describe('Pull Requests diff colors and Markdown settings', () => {
     const list = await pullRequestsPage(client, null, { open: false, refresh: 0, now: 0, selected: '', query: '', typed: false });
     expect(list.diffScheme).toBe('blue-orange');
     const detail = await pullRequestDetail(client, null, { selected: '', refresh: 0, now: 0 });
-    expect([detail.diffScheme, detail.md]).toEqual(['blue-orange', { codeFont: 'ui-monospace', codeSize: 15, wrap: false, chips: [], runCommands: [], threadGlyphs: [] }]);
+    expect([detail.diffScheme, detail.md]).toEqual(['blue-orange', { codeFont: 'Menlo, Consolas, "Liberation Mono", monospace', codeSize: 15, wrap: false, chips: [], runCommands: [], threadGlyphs: [] }]);
   });
 });
 

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue, decodeClientPrefs, effectiveSetting, generalSections, parseCoreTarget,
+import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue, decodeClientPrefs, effectiveSetting, generalSections, idleCompactionRow, parseCoreTarget,
   parseProjectFile, resolveScope, restoreLabels, serverContext, serverValue, settingPlan } from '../../src/settings/settings-core';
 import { toasts } from '../../src/shell/toast';
 import { fleet } from '../../src/connections/settings-b-fleet';
@@ -14,12 +14,14 @@ import { integrationRows } from '../../src/settings/source-control-view';
 // The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
 afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
-import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from '../../src/appearance/settings-appearance';
+import { appearanceSections, defaultCodeFamily, fontStack, mix, modeTiles, palette, themeCards, themeRoles } from '../../src/appearance/settings-appearance';
 import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from '../../src/settings/settings-search';
 import { settingsCore } from '../../src/settings/settings-core-view';
+import { scopedProviderPage } from '../../src/providers/providers-scope';
 import { worktreeRows } from '../../src/settings/settings-data';
-import { contractComponent } from '../support/contract-action-fixture';
+import { contractComponent, value } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
+import { appText } from '../support/app-files';
 
 const provider = { instanceId: 'fixture', driver: 'codex', displayName: 'Exact fixture', enabled: true, installed: true, auth: { status: 'authenticated' }, status: 'ready',
   models: [{ slug: 'luna', name: 'GPT-5.6-Luna', isDefault: true, capabilities: { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', options: [{ id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium', isDefault: true }, { id: 'high', label: 'High' }] }] } },
@@ -128,12 +130,12 @@ describe('general rows', () => {
     expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Thread notifications', 'In-app notifications', 'Project grouping', 'Project order', 'Working section',
       'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Time format', 'Rich text composer', 'Send shortcut', 'Collapse composer on scroll',
       'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Diff colors', 'Proactive panels', 'Open pull requests in T3 Code', 'Add project starts in', 'Model', 'Permissions', 'Workspace',
-      'Resume after usage limits', 'Snooze until limits reset', 'Compact idle Claude threads (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
+      'Resume after usage limits', 'Snooze until limits reset', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
       'Text generation model', 'Start from remote', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
       'Version', 'Update track', 'Mobile app', 'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
     // AdvancedSettings: Chat's Show skills, Threads' Response streaming and Worktrees' Submodules fold at their section's end.
     expect(sections.flatMap(section => (section.advanced ?? []).map(row => [section.title, row.title]))).toEqual([['Composer', 'Show skills in slash menu'],
-      ['Text generation', 'Response streaming'], ['Creation', 'Submodules']]);
+      ['Text generation', 'Thread title instructions'], ['Text generation', 'Response streaming'], ['Creation', 'Submodules']]);
     expect(generalSections(client, serverContext(client, resolveScope(client, '', '', ''), new Map()), 'general').map(section => section.title)).toEqual(['Notifications', 'Sidebar', 'Confirmations', 'Display']);
     const row = (id: string) => sections.flatMap(section => [...section.rows, ...(section.advanced ?? [])]).find(entry => entry.id === id)!;
     expect([row('default-model').label, row('default-model').label2, row('default-model').status, row('default-model').description])
@@ -217,11 +219,18 @@ describe('writes through the command', () => {
     const client = fake();
     await applyCoreSetting(as(client), native, 'snooze-limited-threads:|||', 'true');
     expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: true } });
-    await applyCoreSetting(as(client), native, 'compact-idle-threads:|||', 'true');
+    await applyCoreSetting(as(client), native, 'compact-idle-threads:|||', 'beforeCacheExpires');
     expect(client.writes.at(-1)).toEqual({ patch: { compactIdleThreads: true } });
+    await applyCoreSetting(as(client), native, 'thread-title-instructions:|||', '  Lead with the ticket.  ');
+    expect(client.writes.at(-1)).toEqual({ patch: { threadTitleInstructions: 'Lead with the ticket.' } });
     await applyCoreSetting(as(client), native, 'default-permissions:||repo|p2', 'approval-required');
     expect(client.writes.at(-1)).toEqual({ patch: { projectSettingsOverrides: { p2: { defaultRuntimeMode: 'approval-required' } } } });
     await applyCoreSetting(as(client), native, 'default-permissions:reset||repo|p2', '');
+    expect((client.config.settings as Obj).projectSettingsOverrides).toEqual({});
+    // Thread title instructions are project-scoped (PROJECT_SCOPED_SERVER_SETTING_KEYS).
+    await applyCoreSetting(as(client), native, 'thread-title-instructions:||repo|p2', 'Short.');
+    expect(client.writes.at(-1)).toEqual({ patch: { projectSettingsOverrides: { p2: { threadTitleInstructions: 'Short.' } } } });
+    await applyCoreSetting(as(client), native, 'thread-title-instructions:reset||repo|p2', '');
     expect((client.config.settings as Obj).projectSettingsOverrides).toEqual({});
     const count = client.writes.length;
     await applyCoreSetting(as(client), native, 'diff-layout:diffLayout|||', 'split');
@@ -243,14 +252,50 @@ describe('writes through the command', () => {
     await applyCoreSetting(as(offline), native, 'snooze-limited-threads:|||', 'true');
     expect(offline.writes).toEqual([]);
     expect(toasts(as(offline)).at(-1)).toMatchObject({ kind: 'warning', title: 'Setting not saved', description: 'Connect an environment to save this setting.' });
-    const client = fake({ snoozeLimitedThreads: true, responseStreamingMode: 'turn' });
+    const client = fake({ snoozeLimitedThreads: true, responseStreamingMode: 'turn', threadTitleInstructions: 'Lead with the ticket.' });
     applyDeviceSetting(client.local as never, 'chatWidth', 'full');
-    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Chat width', 'Snooze until limits reset', 'Response streaming']);
+    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Chat width', 'Snooze until limits reset', 'Response streaming', 'Thread title instructions']);
     expect(restoreLabels(fake({ backgroundActivity: { profile: 'balanced', overrides: {}, schemaVersion: 1 }, textGenerationModelSelection: { model: 'gpt-6-luna', options: [{ value: 'low', id: 'reasoningEffort' }], instanceId: 'codex' } }).local as never,
       { backgroundActivity: { profile: 'balanced', overrides: {}, schemaVersion: 1 }, textGenerationModelSelection: { model: 'gpt-6-luna', options: [{ value: 'low', id: 'reasoningEffort' }], instanceId: 'codex' } })).toEqual([]);
     await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
-    expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: false, responseStreamingMode: 'paragraph' } });
+    expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: false, responseStreamingMode: 'paragraph', threadTitleInstructions: '' } });
     expect((client.local.clientSettings as Obj).chatWidth).toBe('comfortable');
+  });
+  // CompactIdleThreadsRow and scopedSettings.ts forDestination: a server before modes keeps only the switch, a later one
+  // kept the mode in that field, a current one has `idleCompaction`.
+  test('Compact idle threads writes the form each server reads; Never needs every target to store modes', () => {
+    const patches = (settings: Obj, mode: string | undefined, clear = false) => {
+      const client = as(fake(settings));
+      return settingPlan(client, resolveScope(client, '', '', ''), 'idleCompaction', mode as never, clear, client.config.settings as Obj).serverWrites.map(write => write.patch);
+    };
+    expect(patches({ compactIdleThreads: false }, 'beforeCacheExpires')).toEqual([{ compactIdleThreads: true }]);
+    expect(patches({ compactIdleThreads: true }, 'onReturn')).toEqual([{ compactIdleThreads: false }]);
+    expect(patches({ compactIdleThreads: 'onReturn' }, 'off')).toEqual([{ compactIdleThreads: 'off' }]);
+    expect(patches({ compactIdleThreads: false, idleCompaction: 'onReturn' }, 'off')).toEqual([{ idleCompaction: 'off' }]);
+    expect(patches({ compactIdleThreads: true, idleCompaction: 'beforeCacheExpires' }, undefined, true)).toEqual([{ idleCompaction: 'onReturn' }]);
+    expect(() => serverValue('idleCompaction', 'true', serverContext(as(fake()), resolveScope(as(fake()), '', '', ''), new Map()))).toThrow('Choose a supported idle compaction mode.');
+    const contextOf = (settings: Obj) => { const client = as(fake(settings)); return serverContext(client, resolveScope(client, '', '', ''), new Map()); };
+    const view = (row: ReturnType<typeof idleCompactionRow>) => [row.label, row.resettable, row.inheritance, row.options.map(option => [option.selected, option.disabled])];
+    expect(idleCompactionRow(contextOf({}))).toMatchObject({ id: 'compact-idle-threads', title: 'Compact idle threads', kind: 'select', width: 224, resetLabel: 'compact idle threads' });
+    expect(idleCompactionRow(contextOf({})).options.map(option => option.label)).toEqual(['When you return', 'Before the cache expires (beta)', 'Never']);
+    expect(view(idleCompactionRow(contextOf({})))).toEqual(['When you return', false, 'default', [[true, false], [false, false], [false, true]]]);
+    expect(view(idleCompactionRow(contextOf({ compactIdleThreads: true })))).toEqual(['Before the cache expires (beta)', true, 'environment', [[false, false], [true, false], [false, true]]]);
+    expect(view(idleCompactionRow(contextOf({ compactIdleThreads: false, idleCompaction: 'off' })))).toEqual(['Never', true, 'environment', [[false, false], [false, false], [true, false]]]);
+    expect(idleCompactionRow(contextOf({ compactIdleThreads: 'off' })).label).toBe('Never');
+    // Targets that resolve different modes read Mixed, with no option chosen.
+    const context = contextOf({ compactIdleThreads: false, idleCompaction: 'onReturn' });
+    const mixed = idleCompactionRow({ ...context, targets: [context.targets[0]!, { ...context.targets[0]!, environmentId: 'env2', settings: { compactIdleThreads: true } }] });
+    expect(view(mixed)).toEqual(['Mixed', false, 'mixed', [[false, false], [false, false], [false, true]]]);
+  });
+  // CompactIdleThreadsRow (SettingsPanels.tsx:1441) ends Providers › Advanced: the open page's answer builds it and
+  // names the scope its edits write to, with the environment the route resolved when none was chosen.
+  test("Providers' open page builds Compact idle threads and names its write scope; the closed page's answer has neither", async () => {
+    const page = async (active: boolean) => await scopedProviderPage(as(fake({ compactIdleThreads: true })), null, ['', active, 0, 0, '', '', '', '']) as Obj;
+    const open = await page(true), closed = await page(false);
+    expect([closed.environment, closed.writeScope, closed.advanced]).toEqual(['', '', []]);
+    expect([open.environment, open.writeScope]).toEqual(['env1', 'env1||']);
+    expect((open.advanced as Obj[]).map(row => [row.id, row.label, row.divider, row.description])).toEqual([['compact-idle-threads', 'Before the cache expires (beta)', true,
+      'When to compact an idle Claude thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude provider can override this.']]);
   });
   test("restore lists and resets the Browser defaults (getChangedBrowserSettingLabels)", async () => {
     // Settings › Integrations › Browser's rows are device-local: listed and reset with no environment connected.
@@ -428,7 +473,7 @@ describe('navigation and search', () => {
     expect(titles('theme')).toEqual(['Themes / Appearance']);
     expect(titles('model')).toEqual(['Default model / Threads', 'Text generation model / Threads', 'Source control writer model / Source control', 'Review guide model / Source control',
       'Project defaults and overrides / Threads', 'Providers / Providers', 'Health check interval / Providers']);
-    expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Compact idle Claude threads (beta) / Threads', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
+    expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Compact idle threads / Providers', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
       'GitCafe credentials / Source control', 'Bitbucket credentials / Source control']);
     expect(titles('mcp')).toEqual([]);
     expect(titles('sidebar')).toEqual(['Sidebar (legacy) / Labs', 'Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
@@ -480,6 +525,9 @@ describe('appearance', () => {
     expect(palette(decodeClientPrefs({ appearanceContrast: 200 })).text).toBe('light-dark(#000000, #ffffff)');
     expect(palette(decodeClientPrefs({ appearanceContrast: 50 })).text).not.toBe(stock.text);
     expect(mix('#000000', 0.5, '#ffffff')).toBe('#808080');
+    // ui/combobox.tsx ComboboxItem (the font picker's rows): highlighted foreground/9%, selected foreground/6%.
+    expect([stock.optionHighlight, stock.optionSelected]).toEqual(['light-dark(#18181b17, #f5f5f517)', 'light-dark(#18181b0f, #f5f5f50f)']);
+    expect(Object.keys(stock)).not.toContain('heading');
   });
   test('tiles, theme cards and rows', () => {
     const prefs = decodeClientPrefs({ themeLight: 'iris', themeDark: 'iris' });
@@ -609,4 +657,209 @@ test('scheduled-task opening keeps its environment-qualified invoker and existin
     ['preventDefault'], ['stopPropagation'], ['showPopover', 'task-menu-daily', { source: 'task-actions-remote|daily' }],
     ['focus', 'task-delete-daily'],
   ]);
+});
+
+// ThreadTitleInstructionsSettings: the field saves on blur, trimmed, once edited and changed (or Mixed); the row keys it
+// on its value, so it keeps the typed text until the new value arrives.
+describe('thread title instructions field', () => {
+  const field = contractComponent('settings-rows.contract', 'CoreTextArea');
+  const fixture = (value: string, mixed = false) => {
+    const commits: unknown[][] = [];
+    const scope = { rowId: 'thread-title-instructions', value, mixed, placeholder: '', label: 'Thread title instructions', disabled: false, commit: (...args: unknown[]) => commits.push(args) };
+    return { commits, scope, state: field.state(scope) };
+  };
+  test('a blur without an edit, or with only padding added, saves nothing', () => {
+    const { commits, scope, state } = fixture('Lead with the ticket.');
+    expect(state.draft).toBe('Lead with the ticket.');
+    field.call('leave', state, scope, ['Lead with the ticket.']);
+    field.call('edit', state, scope, [' Lead with the ticket.  ']);
+    field.call('leave', state, scope, [' Lead with the ticket.  ']);
+    expect(commits).toEqual([]);
+    expect(state.draft).toBe(' Lead with the ticket.  ');
+  });
+  test('an edit saves its trimmed text once; a Mixed field saves any edit, even to the empty text', () => {
+    const { commits, scope, state } = fixture('');
+    field.call('edit', state, scope, ['  Keep it short.\n']);
+    field.call('leave', state, scope, ['  Keep it short.\n']);
+    field.call('leave', state, scope, ['  Keep it short.\n']);
+    expect(commits).toEqual([['Keep it short.']]);
+    const mixed = fixture('', true);
+    field.call('edit', mixed.state, mixed.scope, ['']);
+    field.call('leave', mixed.state, mixed.scope, ['']);
+    expect(mixed.commits).toEqual([['']]);
+  });
+  test('only a textarea row draws it, below its text, keyed on its value and Mixed', () => {
+    const row = contractComponent('settings-rows.contract', 'CoreRowView');
+    const scope = (kind: string) => ({ row: { kind, info: '', options2: [], layerGroups: [], inheritance: '' } });
+    expect(row.drawn('CoreTextArea(rowId=row.id', {}, scope('textarea'))).toBe(true);
+    expect(row.drawn('CoreTextArea(rowId=row.id', {}, scope('text'))).toBe(false);
+    expect(row.drawn('row flex-shrink=0 min-width="10rem"', {}, scope('textarea'))).toBe(false);
+    expect(appText('src/settings/settings-rows.contract')).toContain('        for key in [`${row.mixed}:${row.value}`] key=key\n          CoreTextArea(rowId=row.id,');
+  });
+  test("its row: ThreadTitleInstructionsSettings' text and placeholders, a reset once set or Mixed, and a project's own value", () => {
+    const rowOf = (settings: Obj, project = '', other?: Obj) => {
+      const client = as(fake(settings));
+      const context = serverContext(client, resolveScope(client, project ? 'env1' : '', project, ''), new Map());
+      const scoped = other ? { ...context, targets: [context.targets[0]!, { ...context.targets[0]!, environmentId: 'env2', settings: other }] } : context;
+      const row = generalSections(client, scoped, 'threads').flatMap(section => [...section.rows, ...(section.advanced ?? [])]).find(entry => entry.id === 'thread-title-instructions')!;
+      return [row.description, row.placeholder, row.resettable, row.value, row.inheritance];
+    };
+    const text = 'Appended to the prompt for new and regenerated thread titles.', placeholder = 'Keep titles to a few words. Lead with the main subject.';
+    expect(rowOf({})).toEqual([text, placeholder, false, '', 'environment']);
+    expect(rowOf({ threadTitleInstructions: 'Lead with the ticket.' })).toEqual([text, placeholder, true, 'Lead with the ticket.', 'environment']);
+    expect(rowOf({ threadTitleInstructions: 'Short.' }, '', { threadTitleInstructions: 'Long.' })).toEqual([text, 'Mixed. Enter instructions to apply to all selected targets.', true, '', 'mixed']);
+    // A project scope's own setting (PROJECT_SCOPED), not the environment's: it inherits until the project sets one.
+    expect(rowOf({}, 'repo')).toEqual([text, placeholder, false, '', 'inherited']);
+  });
+  test('it saves instructions of any length, trimmed (TrimmedString)', () => {
+    const context = serverContext(as(fake()), resolveScope(as(fake()), '', '', ''), new Map());
+    expect(serverValue('threadTitleInstructions', ` ${'a'.repeat(5000)}\n`, context)).toBe('a'.repeat(5000));
+  });
+  test("its row ends 0.25rem below the field, which keeps the reference's pb-3.5 under it", () => {
+    const row = contractComponent('settings-rows.contract', 'CoreRowView');
+    const bottom = (kind: string, info = '') => row.attribute('column hover=rowHover', 'padding-bottom', {}, { row: { kind, info, options2: [], layerGroups: [], inheritance: '' } });
+    expect([bottom('textarea'), bottom('text'), bottom('font', 'preview-prompt')]).toEqual(['0.25rem', '0.75rem', '0.25rem']);
+    const field = contractComponent('settings-rows.contract', 'CoreTextArea');
+    expect([field.attribute('column width="100%" max-width="42rem"', 'padding-bottom', {}, {}), field.attribute('column width="100%" max-width="42rem"', 'max-width', {}, {})]).toEqual(['0.875rem', '42rem']);
+  });
+});
+
+// ModelPickerContent onWindowKeyDown: a tab or a model picked by its shortcut is selected, then announced
+// (composer-controls-commands.ts announcePickerShortcut).
+describe('model picker shortcut presses', () => {
+  test('⇧⌘↑/⇧⌘↓ and ⌘1–9 select as a click does, then announce through the root', () => {
+    const dispatch = contractComponent('settings-shortcuts.contract', 'ShortcutDispatch');
+    const calls: unknown[][] = [];
+    const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
+    const scope = { selectProvider: record('selectProvider'), selectModel: record('selectModel'), command: record('command'), pickerAnnounce: record('pickerAnnounce'), modelPickTaken: true };
+    dispatch.call('providerByKey', {}, scope, ['favorites']);
+    dispatch.call('modelByKey', {}, scope, ['claude-opus-5', 'claude']);
+    expect(calls).toEqual([['selectProvider', 'favorites'], ['pickerAnnounce', 'cclocal:picker-provider-key', 'favorites', ''],
+      ['selectModel', 'claude-opus-5', 'claude', false], ['pickerAnnounce', 'cclocal:picker-model-key', 'claude-opus-5', 'claude']]);
+    expect(appText('app.contract')).toContain('\n  provide\n    interacted\n    pickerAnnounce\n    modelPickTaken\n');
+    expect(appText('settings-shortcuts.contract')).toContain('component ShortcutDispatch\n  inject\n    pickerAnnounce: action\n    modelPickTaken: bool\n');
+  });
+  // handleModelSelect returns a slug only for a pick it made, and only then is it announced (ModelPickerContent.tsx:
+  // 473-496, 797-817): a ⌘1–9 pick a command in flight drops is not.
+  test('⌘1–9 announce only a pick selectModel takes, by its own rule', () => {
+    const dispatch = contractComponent('settings-shortcuts.contract', 'ShortcutDispatch');
+    const calls: unknown[][] = [];
+    const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
+    for (const taken of [false, true]) dispatch.call('modelByKey', {}, { selectModel: record('selectModel'), pickerAnnounce: record('pickerAnnounce'), modelPickTaken: taken }, ['gpt-6', 'codex']);
+    expect(calls).toEqual([['selectModel', 'gpt-6', 'codex', false], ['selectModel', 'gpt-6', 'codex', false], ['pickerAnnounce', 'cclocal:picker-model-key', 'gpt-6', 'codex']]);
+    // modelPickTaken is true exactly when selectModel takes the pick, for each target, with and without a command in flight.
+    const root = contractComponent('app.contract', 'T3Code');
+    const rule = appText('app.contract').match(/^  derive modelPickTaken = (.+)$/m)![1]!;
+    for (const target of ['', 'task-model:t1', 'source-control-writer-model:|ctx', 'review-guide-model:|ctx']) for (const commandPending of [false, true]) {
+      const state: Obj = { commandPending, modelTarget: { id: target }, pendingModal: '', modelsOpen: true, taskModelPick: '' };
+      let took = false;
+      root.call('selectModel', state, { command: () => { took = true; return {}; }, restRaw: () => { took = true; }, focus: () => {}, catalog: { multiple: false } }, ['gpt-6', 'codex', false]);
+      expect([target, commandPending, value(rule, { modelTarget: { id: target }, commandPending })]).toEqual([target, commandPending, took || state.taskModelPick !== '']);
+    }
+    // The rule names exactly the targets selectModel branches on, read from selectModel itself.
+    const text = appText('app.contract'), from = text.indexOf('  action selectModel(');
+    const body = text.slice(from, text.indexOf('\n  action ', from + 1));
+    const prefixes = (code: string) => [...new Set([...code.matchAll(/modelTarget\.id\.startsWith\("([^"]+)"\)/g)].map(m => m[1]!))].sort();
+    expect(prefixes(rule)).toEqual(prefixes(body));
+  });
+  // ModelPickerContent's announce blocks nothing (ModelPickerContent.tsx:779-795).
+  test('an announcement waits for no command and refreshes only the shell: quick presses are each announced, and a pick right after is sent', () => {
+    expect(appText('app.contract')).toContain('\n  mutation pickerAnnounced as shape Change queue refreshes shell //');
+    const root = contractComponent('app.contract', 'T3Code');
+    const sent: unknown[][] = [];
+    const scope = { command: (...args: unknown[]) => { sent.push(args); return {}; }, focus: () => {}, catalog: { multiple: false } };
+    // Two quick ⇧⌘↓ while another command is in flight: both are announced, and the command keeps its guard.
+    const busy: Obj = { commandPending: true };
+    root.call('pickerAnnounce', busy, scope, ['cclocal:picker-provider-key', 'codex', '']);
+    root.call('pickerAnnounce', busy, scope, ['cclocal:picker-provider-key', 'claudeAgent', '']);
+    expect([sent, busy.commandPending]).toEqual([[['cclocal:picker-provider-key', 'codex', '', 0], ['cclocal:picker-provider-key', 'claudeAgent', '', 0]], true]);
+    // ⇧⌘↓, then Return before its announcement is answered: the pick is sent.
+    sent.length = 0;
+    const idle: Obj = { commandPending: false, modelTarget: { id: '' }, pendingModal: '', modelsOpen: true, taskModelPick: '' };
+    root.call('pickerAnnounce', idle, scope, ['cclocal:picker-provider-key', 'codex', '']);
+    expect(idle.commandPending).toBe(false);
+    root.call('selectModel', idle, scope, ['gpt-6', 'codex', false]);
+    expect([sent, idle.commandPending]).toEqual([[['cclocal:picker-provider-key', 'codex', '', 0], ['model', 'gpt-6', 'codex', 0]], true]);
+  });
+});
+
+// The reference's code font as its renderer draws it: Chromium resolves neither ui-monospace nor "SF Mono" by name, so
+// DEFAULT_CODE_FONT_STACK lands on Menlo on macOS (a CDP probe of the reference renders its --font-mono in Menlo-Regular).
+describe('code font', () => {
+  test("the default code font and its label are the reference's as drawn: Menlo here", () => {
+    expect([fontStack('', true), fontStack('', false)]).toEqual(['Menlo, Consolas, "Liberation Mono", monospace', 'system-ui']);
+    expect([defaultCodeFamily([]), defaultCodeFamily([{ family: 'Consolas', monospace: true }]), defaultCodeFamily([{ family: 'SF Mono', monospace: true }, { family: 'Menlo', monospace: true }])])
+      .toEqual(['Menlo', 'Consolas', 'Menlo']);
+    const rows = appearanceSections(decodeClientPrefs({ typographyAdvanced: true }), true).at(-1)!.rows.filter(row => row.id === 'code-font' || row.id === 'terminal-font');
+    expect(rows.map(row => [row.label, row.options[0]!.label, row.driver])).toEqual([['Menlo', 'Menlo', 'Menlo, Consolas, "Liberation Mono", monospace'], ['Menlo', 'Menlo', 'Menlo, Consolas, "Liberation Mono", monospace']]);
+    const single = appearanceSections(decodeClientPrefs({}), true).at(-1)!.rows.find(row => row.id === 'code-font')!;
+    expect([single.title, single.label, single.options[0]!.label]).toEqual(['Monospace font', 'Menlo', 'Menlo']);
+    // Every code view reads the look's codeFont: chat Markdown, diffs, file previews and inline documents.
+    expect(appText('settings-appearance-look.ts')).toContain('codeFont: fontStack(prefs.fontFamilyCode, true)');
+  });
+});
+
+describe('paints', () => {
+  // SettingsSidebarNav's "/" Kbd is ui/kbd.tsx's: the foreground at 7% under muted text, the page's paint, not the sidebar's.
+  test('the search field\'s "/" chip paints as the foreground', () => {
+    const nav = contractComponent('settings-core.contract', 'SettingsNav');
+    expect(nav.attribute('id=`paint-SettingsNav-5-${route}`', 'data-paint', {}, {})).toBe('text');
+  });
+  // ui/combobox.tsx ComboboxItem: highlighted bg-foreground/[0.09], selected bg-foreground/[0.06].
+  test("the font picker's rows fill with the palette's option highlight, else its selection", () => {
+    const picker = contractComponent('settings-a-fonts.contract', 'FontFamilyPicker');
+    const families = [{ id: 'sf', label: 'SF Pro', value: '', selected: true }, { id: 'inter', label: 'Inter', value: 'Inter', selected: false }];
+    const fill = (cursor: string, family: Obj) => picker.attribute('role="option" aria-selected=family.selected', 'background-color', { query: '', cursor },
+      { families, family, pal: { optionHighlight: 'highlight', optionSelected: 'selected' } });
+    expect([fill('inter', families[1]!), fill('inter', families[0]!), fill('sf', families[0]!), fill('-', families[1]!)]).toEqual(['highlight', 'selected', 'highlight', '#00000000']);
+  });
+  // ComboboxItem at sm and up: min-h-7, px-2 py-1 around a text-sm line, so 28pt rows.
+  test("the font picker's rows are ComboboxItem's 28pt", () => {
+    const picker = contractComponent('settings-a-fonts.contract', 'FontFamilyPicker');
+    const families = [{ id: 'sf', label: 'SF Pro', value: '', selected: true, detail: '' }];
+    const scope = { families, family: families[0], pal: {} };
+    const row = (attr: string) => picker.attribute('role="option" aria-selected=family.selected', attr, { query: '', cursor: '' }, scope);
+    expect(['min-height', 'padding-top', 'padding-bottom', 'padding-left', 'padding-right'].map(row)).toEqual(['1.75rem', '0.25rem', '0.25rem', '0.5rem', '0.5rem']);
+    expect(() => row('height')).toThrow('has no height');
+    expect(picker.attribute('text family.label font-family=family.detail', 'line-height', { query: '', cursor: '' }, scope)).toBe('1.25rem');
+  });
+  // FontFamilyPicker sizes its LegendList at items × 30 inside ComboboxListVirtualized's py-1, to max-h-72 (288pt).
+  test('the font list is 30pt an item, so a short one keeps room under its rows', () => {
+    const picker = contractComponent('settings-a-fonts.contract', 'FontFamilyPicker');
+    const families = (count: number) => Array.from({ length: count }, (_, at) => ({ id: `f${at}`, label: `Font ${at}`, value: at ? `Font ${at}` : '', selected: at === 0, detail: '' }));
+    const height = (count: number, query = '') => picker.attribute('scroll height=', 'height', { query, cursor: '' }, { families: families(count), pal: {}, min: Math.min });
+    expect([height(2), height(9), height(12), height(3, 'zzz')]).toEqual(['4.25rem', '17.375rem', '18rem', 'auto']);
+  });
+});
+
+// A stacked provider row's select fills the row (ProviderSettingsSelect `w-full`, `w-56` beside the title).
+describe('select sizes', () => {
+  // SelectPopup's min-w-(--anchor-width): a select that fills its row measures its trigger as it is focused or pressed.
+  test("a stacked select's popup is at least as wide as its trigger", () => {
+    const select = contractComponent('settings-kit.contract', 'SelectControl');
+    const scope = (width: number) => ({ width, options: [], selectId: 'provider-field-idleCompaction', label: 'Compact idle threads', KmItem: (args: Obj) => args, frame: () => ({ width: 481 }) });
+    const state: Obj = { anchorWidth: 0 };
+    const popup = (width: number) => select.callArguments('SkPopup(', state, scope(width)).width;
+    expect([popup(0), popup(224)]).toEqual([160, 224]);
+    select.call('measure', state, scope(0), []);
+    expect([state.anchorWidth, popup(0), popup(224)]).toEqual([481, 481, 224]);
+    const sk = contractComponent('settings-kit.contract', 'SkPopup');
+    expect(sk.attribute('column id=menuId', 'min-width', {}, { width: 481, endAlign: 0, menuId: 'm', invoker: 'i', label: '', list: true, items: [], keyed: 0 })).toBe(481);
+    expect(appText('settings-kit.contract')).toContain('button popovertarget=`${selectId}-menu` press=measure focus=measure key=triggerKey role="combobox"');
+    // Opened from the keys it measures again, so a trigger that grew with the window or the zoom sizes its popup.
+    const keyed: Obj = { anchorWidth: 481 }, opened: unknown[][] = [];
+    select.call('triggerKey', keyed, { ...scope(0), frame: () => ({ width: 600 }), kmTriggerKey: () => true, kmTriggerTarget: () => '', preventDefault: () => {}, stopPropagation: () => {},
+      showPopover: (...args: unknown[]) => opened.push([keyed.anchorWidth, ...args]), focus: () => {} }, ['ArrowDown', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false }]);
+    expect([keyed.anchorWidth, select.callArguments('SkPopup(', keyed, scope(0)).width, opened.length]).toEqual([600, 600, 1]);
+  });
+  test('a select of width 0 fills its row; a provider field passes 0 once its row stacks', () => {
+    const select = contractComponent('settings-kit.contract', 'SelectControl');
+    const sized = (width: number) => ({ width, options: [], selectId: 'provider-field-authMethod', KmItem: (args: Obj) => args });
+    expect([0, 224].map(width => select.attribute('box position="relative"', 'width', {}, sized(width)))).toEqual(['100%', 224]);
+    expect([0, 224].map(width => select.attribute('role="combobox" aria-label=label', 'width', {}, sized(width)))).toEqual(['100%', 224]);
+    const field = contractComponent('providers.contract', 'ProviderConfigField');
+    const scope = (wide: boolean) => ({ wide, writable: true, instance: 'antigravity', field: { key: 'authMethod', label: 'Sign-in method', control: 'select', value: '', options: [] }, SelectOption: (args: Obj) => args,
+      pick: () => {} });
+    expect([true, false].map(wide => field.callArguments('SettingsPageSelect(', field.state(), scope(wide)).width)).toEqual([224, 0]);
+  });
 });

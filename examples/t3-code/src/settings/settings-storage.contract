@@ -128,7 +128,7 @@ component StoragePanel
       if data.notice != ""
         SettingsNotice(message=data.notice, warning=false)
       if error != ""
-        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="storage-error" padding-left="1rem"
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="storage-error" padding-left="1rem"
       // DatabaseStorageNotice: one section for every machine that has freed space to reclaim.
       if view == "maintenance" and data.databaseNotices.length > 0
         SettingsSection(title="Database", sectionId="storage-database")
@@ -216,7 +216,7 @@ component CleanupResultRow
       column flex=1 min-width=0 gap="0.25rem"
         text entry.name font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" overflow-wrap="anywhere" user-select="text" role="heading" aria-level=3
         column max-width="36rem" gap="0.5rem"
-          text entry.reason font-size="0.75rem" line-height="1.125rem" overflow-wrap="anywhere" user-select="text" color=(entry.failed ? "light-dark(#dc2626, #f87171)" : "light-dark(#70707acc, #a1a1a1cc)")
+          text entry.reason font-size="0.75rem" line-height="1.125rem" overflow-wrap="anywhere" user-select="text" color=(entry.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#70707acc, #a1a1a1cc)")
           box display="grid" grid-template-columns="auto minmax(0, 1fr)" column-gap="0.75rem" row-gap="0.25rem" padding-left="0.75rem" border-left-width=1 border-left-style="solid" border-color="light-dark(#e4e4e899, #ffffff0c)"
             for detail in entry.details key=detail.key
               text detail.label font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"

@@ -74,8 +74,8 @@ export function mix(a: string, weight: number, b: string): string {
 export const alpha = (color: string, amount: number) => { const [r, g, b, a] = parse(color); return hex([r, g, b, a * amount]); };
 
 /** The tokens this module paints, in the stock index.css vocabulary, per appearance. */
-type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted' | 'heading' | 'description'
-  | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'thumbOff' | 'popover' | 'popoverBorder' | 'highlight' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
+type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted'
+  | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'thumbOff' | 'popover' | 'popoverBorder' | 'highlight' | 'optionHighlight' | 'optionSelected' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
   | 'border' | 'backdrop' | 'footer' | 'surface', string>;
 function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custom: CustomTheme[], glass = 80): Tokens {
   const stock = themeId === 't3-code' || !(themeId in THEMES || custom.some(theme => theme.id === themeId));
@@ -96,7 +96,7 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
   const input = stock ? (dark ? '#ffffff1c' : '#d4d4d8') : r.input;
   const card = stock ? (dark ? '#111111' : '#ffffff') : r.surface;
   return {
-    canvas, sidebar, text: ink(text, canvas), muted: ink(mutedText, canvas), heading: alpha(ink(text, canvas), 0.7), description: alpha(ink(mutedText, canvas), 0.8),
+    canvas, sidebar, text: ink(text, canvas), muted: ink(mutedText, canvas),
     sidebarBorder: edge(stock ? (dark ? '#ffffff14' : '#e4e4e7') : r.sidebarBorder, sidebarText), rowActive: stock ? (dark ? '#f1f1f112' : '#ffffff') : r.sidebarRowActive,
     sidebarText: ink(sidebarText, sidebar), sidebarMuted: alpha(ink(sidebarMuted, sidebar), 0.8), sidebarIcon: mix(ink(sidebarMuted, sidebar), 0.85, sidebar),
     card: alpha(card, 0.4), cardBorder: edge(alpha(border, 0.6), text), divider: edge(alpha(border, 0.5), text), input: edge(input, text),
@@ -107,6 +107,8 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
     // filter, so the glass mix is composited over the canvas it would mostly show.
     popover: mix(stock ? (dark ? '#111111' : '#ffffff') : r.surfaceOverlay, 0.18 + 0.82 * glass / 100, canvas),
     popoverBorder: dark ? '#ffffff1a' : alpha(text, 0.1), highlight: alpha(text, dark ? 0.06 : 0.08), kbd: alpha(ink(text, canvas), 0.07), // ui/kbd.tsx bg-foreground/[0.07]
+    // ui/combobox.tsx ComboboxItem: highlighted bg-foreground/[0.09], selected bg-foreground/[0.06].
+    optionHighlight: alpha(ink(text, canvas), 0.09), optionSelected: alpha(ink(text, canvas), 0.06),
     output: stock ? (dark ? '#ffffff08' : '#fafafa') : r.muted, line: '#7f7f7f40',
     rowHover: stock ? (dark ? '#ffffff0a' : '#fcfcfc') : mix(r.sidebarRowActive, 0.5, sidebar), sectionMuted: alpha(ink(sidebarMuted, sidebar), 0.75),
     tileActive: alpha(stock ? (dark ? '#ffffff0a' : '#f4f4f5') : r.accentSurface, 0.3),
@@ -167,6 +169,14 @@ export function modeTiles(mode: string, prefs: Pick<ClientPrefs, 'themeLight' | 
 const SYSTEM_FONTS: Record<string, string> = { 'sf pro': 'system-ui', 'sf pro text': 'system-ui', '-apple-system': 'system-ui',
   'sf pro rounded': 'ui-rounded', 'new york': 'ui-serif', 'sf mono': 'ui-monospace' };
 const GENERIC_FONTS = new Set(['system-ui', 'ui-sans-serif', 'sans-serif', 'ui-serif', 'serif', 'ui-rounded', 'ui-monospace', 'monospace']);
+// The reference's code font (DEFAULT_CODE_FONT_STACK under its --font-mono) as its renderer draws it: Chromium resolves
+// neither ui-monospace nor "SF Mono" and "SFMono-Regular" by name, so on macOS the stack lands on Menlo (Consolas or
+// Liberation Mono elsewhere). The native host would draw SF Mono for those, so the default starts at Menlo.
+export const DEFAULT_CODE_FONT = 'Menlo, Consolas, "Liberation Mono", monospace';
+/** resolveDefaultFamilyLabel(DEFAULT_CODE_FONT_STACK): the first of those families installed here, Menlo when none reads. */
+export function defaultCodeFamily(installed: InstalledFont[]): string {
+  return ['Menlo', 'Consolas', 'Liberation Mono'].find(family => installed.some(font => font.family.toLowerCase() === family.toLowerCase())) ?? 'Menlo';
+}
 export function fontFamilies(selected: string, mono: boolean, defaultLabel: string, installed: InstalledFont[] = []) {
   const current = selected.trim();
   const named = installed.map(({ family }) => ({ id: family, value: family, label: family, detail: fontStack(family, mono),
@@ -175,7 +185,7 @@ export function fontFamilies(selected: string, mono: boolean, defaultLabel: stri
 }
 export function fontStack(family: string, mono: boolean): string {
   const name = family.trim().replace(/^["']|["']$/g, ''), key = name.toLowerCase();
-  if (!key) return mono ? 'ui-monospace' : 'system-ui';
+  if (!key) return mono ? DEFAULT_CODE_FONT : 'system-ui';
   return SYSTEM_FONTS[key] ?? (GENERIC_FONTS.has(key) ? key : `${JSON.stringify(name)}, ${mono ? 'ui-monospace' : 'system-ui'}`);
 }
 
@@ -224,9 +234,9 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
   const typography = [
     font('fontFamilySans', 'fontSizeInterface', 'interface-font', 'Interface font', 'Everything outside code blocks and the terminal.', 'SF Pro', 12, 20),
     ...(separate ? [font('fontFamilyComposer', 'fontSizePrompt', 'prompt-font', 'Prompt font', 'Only the box you write prompts in. Mono works well here.', prefs.fontFamilySans || 'SF Pro', 12, 20)] : []),
-    separate ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', 'SF Mono', 10, 18)
-      : font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Monospace font', 'Code blocks, diffs, file previews, and the terminal.', 'SF Mono', 10, 18),
-    ...(separate ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', 'SF Mono', 8, 20)] : []),
+    separate ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', defaultCodeFamily(installed), 10, 18)
+      : font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Monospace font', 'Code blocks, diffs, file previews, and the terminal.', defaultCodeFamily(installed), 10, 18),
+    ...(separate ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', defaultCodeFamily(installed), 8, 20)] : []),
     row('wordWrap', 'word-wrap', 'Word wrap', 'Wrap long lines in code blocks, tables, diffs, and file previews by default.', 'switch', { resetLabel: 'word wrapping' }),
   ];
   const typographyAdvanced: CoreRow[] = [

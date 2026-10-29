@@ -48,7 +48,7 @@ describe('Advanced fold', () => {
     expect(folded('source-control-host-github')).toEqual(['source-control-host-github', 'source-control-host-github-reveal']);
     expect(settingsNavigation('show skills', context)).toMatchObject({ firstRoute: 'chat', firstTarget: 'skills-in-slash-menu' });
     // Every folded target is a catalog row's id or target (a renamed id would silently lose its fold).
-    for (const id of Object.keys(FOLDED_TARGETS).filter(id => id !== 'thread-title-instructions')) expect([id, CATALOG.some(entry => entry[0] === id || entry[3] === id)]).toEqual([id, true]);
+    for (const id of Object.keys(FOLDED_TARGETS)) expect([id, CATALOG.some(entry => entry[0] === id || entry[3] === id)]).toEqual([id, true]);
   });
 
   test("the catalog is the search's and the palette's: every result with its target, keybinding commands by their row", () => {

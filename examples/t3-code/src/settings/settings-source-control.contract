@@ -406,7 +406,7 @@ component SourceControlPanel
   view
     column width="100%" gap="2rem" testId="source-control-settings"
       if error != ""
-        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="source-control-error" padding-left="1rem"
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="source-control-error" padding-left="1rem"
       if data.error != ""
         Card()
           SettingsNotice(message=data.error, warning=false)
@@ -467,7 +467,7 @@ component IntegrationsPanel
   view
     column width="100%" gap="2rem" testId="integrations-settings"
       if error != ""
-        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="integrations-error" padding-left="1rem"
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="integrations-error" padding-left="1rem"
       if data.error != ""
         Card()
           SettingsNotice(message=data.error, warning=false)
@@ -652,7 +652,7 @@ component DeviceVersions
           text "Versions have not been checked." font-size="0.75rem" line-height="1rem" margin-top="0.75rem" color="light-dark(#71717b, #a1a1a1)"
         text "Tools update automatically on this host when needed." font-size="0.75rem" line-height="1rem" margin-top="1rem" padding-top="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e780, #ffffff0a)" color="light-dark(#71717b, #a1a1a1)"
         if tool.error != ""
-          text tool.error role="status" font-size="0.75rem" line-height="1rem" margin-top="0.5rem" color="light-dark(#dc2626, #f87171)"
+          text tool.error role="status" font-size="0.75rem" line-height="1rem" margin-top="0.5rem" color="light-dark(#fb2c36, #fb414a)"
         if tool.update != "" or tool.inspect
           row gap="0.5rem" margin-top="0.75rem" flex-wrap="wrap"
             if tool.update != ""

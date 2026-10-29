@@ -46,7 +46,7 @@ component ArchivedPanel
     column width="100%" gap="2rem" testId="archived-settings"
       ArchiveMenu(owner=menuOf, raw=raw)
       if error != ""
-        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="archive-error" padding-left="1rem"
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="archive-error" padding-left="1rem"
       if data.groups.length == 0
         SettingsSection(title="Archived threads", sectionId="archive")
           row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" testId="archive-empty"

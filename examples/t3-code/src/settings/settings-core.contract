@@ -352,7 +352,7 @@ component SettingsNav
             button press=clear class=SettingsGhost width="1.25rem" height="1.25rem" min-height="1.25rem" padding="0.25rem" border-radius="0.375rem" aria-label="Clear settings search" testId="clear-settings-search" title="" id="clear-settings-search" data-focus-stop="enabled"
               CorePaintIcon(ownId=`paint-icon-SettingsNav-3-${route}`, paint="mutedForeground", name="x", size=12, color=pal.sidebarMuted)
           else
-            box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color=pal.kbd display="flex" align-items="center" justify-content="center" id=`paint-SettingsNav-5-${route}` data-paint="sidebar" data-pick="sidebar"
+            box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color=pal.kbd display="flex" align-items="center" justify-content="center" id=`paint-SettingsNav-5-${route}` data-paint="text" data-pick="text"
               text "/" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted id=`paint-SettingsNav-6-${route}` data-paint="mutedForeground" data-pick="mutedForeground"
         if nav.searching and nav.count == 0
           text "No settings found" role="status" font-size="0.75rem" color=pal.sidebarMuted text-align="center" padding-top="1.5rem" padding-bottom="1.5rem" testId="settings-search-empty" id="settings-search-empty" data-paint="mutedForeground" data-pick="mutedForeground"
