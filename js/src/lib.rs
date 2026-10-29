@@ -56,6 +56,7 @@
 
 #![deny(missing_docs)]
 
+mod abort;
 mod background;
 mod crypto;
 mod door;
@@ -223,6 +224,11 @@ fn over_budget(source: &str, why: &str) -> DataError {
 struct HostState {
     store: Option<*mut Store>,
     requests: Vec<(u64, Request)>,
+    /// The fetch tickets the app aborted after their requests were handed
+    /// out (op 23), until `take_aborted` names their answers to the runner.
+    aborted: Vec<u64>,
+    /// Door ops answered as an older host's door answers them (tests).
+    refused_ops: Vec<u32>,
     /// The socket operations the answer or mapper call being made handed
     /// over (op 14), by the prelude's ticket for each socket's stream (LLP
     /// 1016.000 D7).
@@ -722,6 +728,8 @@ impl Module {
         self.parked.clear();
         self.work = Default::default();
         self.host.requests.clear();
+        // A fresh engine numbers its fetches from 1 again.
+        self.host.aborted.clear();
         self.background = Default::default();
         // Module work ends with the engine (LLP 1146 D2).
         self.host.module_outstanding = 0;
@@ -1056,12 +1064,14 @@ impl Module {
                 let request = if matches!(ticket, 0 | WAITING | YIELDED | TIMER) {
                     timer_due(Request::continuation(call), ticket, due)
                 } else {
-                    let Some(request) = self.take_request(ticket) else {
+                    let Some(mut request) = self.take_request(ticket) else {
                         self.finish_let_go();
                         return Err(DataError::Unavailable(format!(
                             "`{source}` awaits a fetch it never made"
                         )));
                     };
+                    // What an app's abort names it by (`take_aborted`).
+                    request.fetch = Some(ticket);
                     request
                 };
                 let key = Module::key(target, source, args);
@@ -1327,12 +1337,13 @@ impl Module {
                 let request = if matches!(ticket, 0 | WAITING | YIELDED | TIMER) {
                     timer_due(Request::continuation(call), ticket, due)
                 } else {
-                    let Some(request) = self.take_request(ticket) else {
+                    let Some(mut request) = self.take_request(ticket) else {
                         self.finish_let_go();
                         return Err(DataError::Unavailable(format!(
                             "`{source}` awaits a fetch it never made"
                         )));
                     };
+                    request.fetch = Some(ticket);
                     request
                 };
                 self.park(key, call, ticket, &request);

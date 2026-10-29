@@ -547,6 +547,7 @@ impl Machine {
             limit: job.limit,
             // Only an exchange is cancelled by a forget (a safe read's).
             abort: (kind == Kind::Http && safe(&job.request)).then(|| abort.clone()),
+            exchange: (kind == Kind::Http).then(|| abort.clone()),
             forgotten: job.forgotten,
             stream: false,
             read: lane == 0 && super::read(&job.request, job.work.is_some()),
@@ -1276,10 +1277,12 @@ impl Drop for Ended {
 }
 
 /// A forget cancels `run` if it is an exchange still open (a safe read's,
-/// never a stream's): its terminal transition is claimed now (D3).
-pub(super) fn cancel(run: &mut Running) -> bool {
+/// or any method's the app aborted, `by_app`; never a stream's): its terminal
+/// transition is claimed now (D3).
+pub(super) fn cancel(run: &mut Running, by_app: bool) -> bool {
     let open = !run.terminal && run.claim == Claim::None;
-    let cancels = open && run.abort.is_some() && !run.stream;
+    let exchange = run.abort.is_some() || (by_app && run.exchange.is_some());
+    let cancels = open && exchange && !run.stream;
     if cancels {
         run.claim = Claim::Cancelled;
     }

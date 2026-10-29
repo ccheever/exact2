@@ -106,6 +106,10 @@ impl Executor {
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
     }
+    /// Cancel the requests the app aborted, whatever their method.
+    pub fn cancel(&self, tickets: &[u64]) {
+        self.core.cancel(tickets);
+    }
     /// Settle a re-ask (`Dispatch::Again`) in its ordered place, with no
     /// work (LLP 1041 §8.4, amended 2026-10-09); kept pending while the
     /// window is full. An error is terminal, for the host to record.
@@ -172,5 +176,18 @@ fn listen_module() -> core::stream::listen::Module {
         buffered: exact_listen_buffered,
         view: exact_listen_view,
         close: exact_listen_close,
+    }
+}
+
+#[cfg(test)]
+mod wire_tests {
+    /// The Linux host's own transport (rustls): an app's abort closes a held
+    /// write's connection, and the server sees it end (shared with Apple's
+    /// platform transport, `executor_tests.rs`).
+    #[test]
+    fn an_app_aborted_held_write_closes_its_connection_on_rustls() {
+        super::core::tests::abort::an_aborted_held_write_closes_its_connection(
+            super::portable_host,
+        );
     }
 }

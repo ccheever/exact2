@@ -487,6 +487,6 @@ pub(super) fn reader(shared: Arc<Shared>) -> words::ListenReader {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "executor_listen_tests.rs"]
 mod tests;

@@ -213,4 +213,12 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn take_logs(&mut self) -> Vec<String> {
         self.inner.take_logs()
     }
+
+    fn take_aborted(&mut self) -> Vec<u64> {
+        self.inner.take_aborted()
+    }
+
+    fn abort_wake(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.inner.abort_wake(wake);
+    }
 }

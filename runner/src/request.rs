@@ -207,6 +207,11 @@ pub struct Request {
     /// ([`super::Runner::release_work`]) when its clock reaches this time, in
     /// ms. Set by [`Request::wake`].
     pub wake_ms: Option<u64>,
+    /// The data module's own ticket for the fetch this request is, when the
+    /// module set it: an abort the app makes names the request by it
+    /// ([`super::DataSource::take_aborted`]), so it reaches this request and
+    /// no later one of the same target.
+    pub fetch: Option<u64>,
 }
 
 /// The event of a long poll's message that is a reply but no event (LLP
@@ -320,6 +325,7 @@ impl Request {
             listen: None,
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 
@@ -404,6 +410,7 @@ impl Request {
             listen: None,
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 
@@ -432,6 +439,7 @@ impl Request {
             listen: None,
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 

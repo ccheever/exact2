@@ -1,15 +1,11 @@
 //! The runner wrapped for a painter: commits → layout → motion, with the
 //! kernel read directly — no batch, no mirror.
-//!
 //! @ref LLP 1015 §1; LLP 1008 §1 (the same orchestration, whose batch
 //! exists because a foreign view tree consumes it — here nothing does)
 //!
 //! After every commit the host lays the roots out with the kernel's layout
 //! under the viewport, feeds the motion engine the commit (LLP 1003 §4),
-//! seeks it to the app's clock, and keeps each node's presentation values.
-//! The painter then reads frames, styles, and props from the kernel and the
-//! presentation values from here. The kernel is the single source of truth
-//! and the only copy.
+//! seeks the app's clock and keeps node presentation values.
 
 use crate::paint::Presented;
 use exact_kernel::motion::{layout_presented, motion_node, node_key, MotionSync, PaintMotion};
@@ -270,6 +266,8 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        #[cfg(windows)]
+        crate::app::boot_phase("runner-ready");
         if let Some(p) = presence {
             runner.install_presence(p.backend, p.keystore);
         }
@@ -360,6 +358,8 @@ impl<D: DataSource> Host<D> {
         }
         let error = host.layout().err();
         host.observe_layout();
+        #[cfg(windows)]
+        crate::app::boot_phase("layout-ready");
         host.present();
         Ok((host, error))
     }

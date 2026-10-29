@@ -282,6 +282,224 @@ Ocho (`dev.ocho.desktop`, PID 53948) during its cold retake. The earlier focus
 diagnostics also identified Finder and Slack. The logs identify foreground
 applications, not who activated them.
 
+## Where the native host's fling CPU goes
+
+@ref LLP 1149 §4.1; G1x. Measured on the same Mac at `1f473fd60344`, with
+`BENCH_LIVE=0`, fresh native processes, 800×800-point windows and G1's four
+600-point flings. **Sampling puts native view setup and drawing at about
+31 ms/s; kernel layout and measurement at 3 ms/s; runner, row and batch work
+at 6 ms/s. There are no data-source queries during the measured phases.**
+Core Animation and image processing account for much of the remaining CPU.
+
+These are new measurements: G1's earlier processes cannot be profiled
+retroactively. Three release captures average **143.08 ms/s during fling and
+1.269 ms/s at rest**, versus G1's earlier medians of 124.16 and 1.113.
+The table gives the arithmetic mean (minimum–maximum) across runs so the
+exclusive categories sum to the measured total. CPU includes all app threads
+and the probe, and excludes WindowServer and GPU execution.
+
+| Exclusive category | Fling CPU estimate, ms/s | Rest CPU estimate, ms/s |
+|---|---:|---:|
+| Native view creation, batch application, configuration and text setup | 22.62 (18.83–24.76) | 0 sampled |
+| Native text rasterization and view drawing | 8.81 (7.47–9.59) | 0 sampled |
+| Kernel layout and text measurement | 2.98 (2.78–3.12) | 0 sampled |
+| Runner commit, row machinery, host batch projection and wire decoding | 5.92 (5.15–6.35) | 0.63 (0.33–1.05) |
+| Data-source query | 0 asks; 0 sampled | 0 asks; 0 sampled |
+| Bind evaluation | 0.42 (0.21–0.54) | 0 sampled |
+| Remaining platform, image, scroll, probe and unclassified work | 102.32 (89.39–116.03) | 0.64 (0.30–0.88) |
+| **Process total, measured by counter** | **143.08 (124.10–159.48)** | **1.269 (1.216–1.355)** |
+
+The first row is broader than constructors or work on newly entering rows:
+it includes applying batches to existing views, paragraph setup and retirement.
+`NodeView.init` alone accounts for **0.61 ms/s (0.36–1.04)**, property
+application for 1.25 and style application for 1.05. These are inclusive
+subsets, not additional costs. The kernel category includes **1.90 ms/s
+(1.61–2.21)** under `CallbackMeasurer`, including Core Text; the rest is
+layout. Text rasterization is in the separate drawing category.
+
+The 102.32 ms/s remainder consists of **46.59 Core Animation, 20.98 image
+processing, 12.07 scroll and host scheduling, 2.06 probe, and 20.62 other**.
+The last category includes AppKit, dispatch, pixel conversion and stacks without
+a recognized owner. Asynchronous image and Core Animation work cannot be
+assigned back to a particular entering row from these stacks. This is an
+accounting of execution domains, not a measurement of the savings from removing
+native rows.
+
+Time Profiler sampled running threads at 1 ms. Each stack was assigned once;
+each category's share of sampled weight was multiplied by that phase's process
+CPU counter delta divided by elapsed time. The three fling captures contain
+1,780, 1,400 and 1,180 samples; their ten-second rest captures contain only
+11, 45 and 17. Thus the rest split is approximately **0.6 ms/s in runner/batch
+work and 0.6 ms/s elsewhere**, with no sampled native apply, layout or binding
+work. Zero samples do not establish zero CPU. A longer rest capture failed
+the focus check before measurement; the 73-sample split is the available
+estimate, not a precise decomposition of G1's earlier 1.113 ms/s.
+
+Classification checks for probe/query frames first, then kernel layout and
+measurement, bindings, remaining runner/kernel and batch frames, native apply
+and text setup, native drawing, image processing, Core Animation, scroll
+scheduling, and other. Examples of the matching symbols are `CallbackMeasurer`,
+`exact_kernel::layout`, `taffy::compute`, `emit_bindings`, `eval_binding`,
+`exact_runner`, `exact_apple::host`, `Batch.decode`, `Presenter.apply`,
+`NodeView.applyProps`, `TextRaster`, `Raster`, `IIOImage`, `CA::`, and
+`CollectionHost`. Earlier categories own nested work: layout called by a commit
+is charged to layout, not both. Optimized inlining and incomplete stacks limit
+the boundary between binding, commit and unclassified work.
+
+Release and development runs were interleaved three times; the second release
+was replaced afterward because its thermal endpoints changed. All retained
+captures passed continuous focus checks, had Low Power Mode off, and met G1's
+quiet rule: no compiler processes and observed one-minute loads of 8.93–19.89.
+The first pair had `fair` thermal endpoints; the others were nominal. These
+are not three repetitions under identical thermal or scroll-work conditions.
+
+| Release capture under `target/g1x/` | Fling CPU, ms/s | Rest CPU, ms/s | Final offset, pt | Thermal endpoints |
+|---|---:|---:|---:|---|
+| `release-1b` | 159.48 | 1.216 | 9,048 | fair |
+| `release-2-thermal-retry` | 145.65 | 1.355 | 8,887 | nominal |
+| `release-3-retry` | 124.10 | 1.236 | 8,285 | nominal |
+
+One accepted release control without Time Profiler used 103.07 ms/s during
+fling and 1.367 at rest, ending at 6,956 points (`control-1-retry`). Its lower
+scroll distance prevents isolating profiler overhead from changed work. Do not
+use the profiled totals as an uninstrumented regression comparison with G1 or
+as a new GPUI comparison. Focus-lost attempts and `release-2` (fair→nominal)
+are excluded; failed launches and the unqualified longer-rest attempt remain
+in the local logs.
+
+Development traces supply work counts by plan site, not CPU time. The three
+captures are `development-1`, `development-2`, and `development-3-retry`.
+Subtracting each `before` snapshot from its `fling` snapshot gives:
+
+| Work / plan site in `exact-heavylist/app.contract` | Run 1 | Run 2 | Run 3 |
+|---|---:|---:|---:|
+| Runner-clock interval bracketing fling, s | 10.749 | 10.500 | 10.750 |
+| Transaction sequence advances | 176 | 161 | 146 |
+| Changed-tree epochs | 77 | 69 | 57 |
+| Kernel layout entries | 175 | 156 | 135 |
+| List at line 92: rows constructed / retired | 47 / 39 | 39 / 35 | 33 / 28 |
+| List at line 92: rows rebound | 0 | 0 | 0 |
+| MessageRow root at line 102: binding evaluations | 94 | 78 | 66 |
+| Inline text at line 121: instances created / binding evaluations | 634 / 5,072 | 476 / 3,808 | 408 / 3,264 |
+| Reaction buttons at line 138: instances created / binding evaluations | 82 / 164 | 66 / 132 | 63 / 126 |
+| All plan sites: node instances created / retired | 1,571 / 1,322 | 1,212 / 1,034 | 1,044 / 844 |
+| All plan sites: binding evaluations | 5,836 | 4,422 | 3,830 |
+| Data-source asks since measurement began | 0 | 0 | 0 |
+
+These are plan-node counts, not AppKit object counts. The source map joined
+without truncation, with plan digest
+`589d6ae60c1b87d6e775b602ce1fecf97ff3f296577c85e57a04b9b59816e1e2`.
+Most binding evaluations belong to newly constructed inline text; no retained
+row was rebound. `messages()` was baked into the plan, and `config()` completed
+before the baseline. There is no query-per-row problem in this static feed.
+
+At rest the corresponding 10.001, 10.001 and 9.750-second trace intervals
+advance the transaction sequence by **50, 50 and 48**, with **zero** changed
+epochs, layouts, node creation/retirement, binding evaluations or queries.
+The app's `every(250, tick)` and `every(1000, second)` still run with live mode
+off. `SessionClock` advances the runner; `applyUnlessEmpty` avoids native
+application of empty batches. Gating these tasks after the launch config says
+`live=false` is a concrete candidate for eliminating otherwise idle runner
+work. Its savings have not been measured. The fling's 135–175 layout entries
+and 57–77 changed epochs suggest examining collection-update coalescing, but
+the counters do not prove that any layout or commit was redundant.
+
+The native trace also records scoped main-thread wall intervals for runtime,
+apply, rows, text, images and scrolling. Its frame ring retains only 600
+records, roughly the last five seconds at 120 Hz; its unattributed intervals
+include idle time and unwrapped platform work. Neither these intervals nor
+`perf` counters are a process CPU flamegraph. They cannot price individual
+plan sites, attribute worker CPU, or establish presented-frame timing. Trace
+export adds margins around the development count intervals. The development
+sampler also keeps callbacks active at rest: those processes consumed
+10.46–12.81 ms/s there, so release captures supply the CPU table.
+
+Ink's Mac carrier (LLP 1149 S1) replaces per-node AppKit views and their
+configuration, native text drawing and per-row layer materialization with
+instance lists. The 22.62 + 8.81 ms/s native categories identify work it would
+replace, not net savings: Ink has its own encoding, rasterization and upload
+costs. Some of the Core Animation work may disappear, but window composition,
+scrolling and image decoding remain, and these captures cannot separate the
+removable fraction. Kernel layout/measurement, runner commits and binding
+belong to Exact above the carrier. GPUI also pays for its own layout, text and
+virtualization, but this app does not pay for Contract VM evaluation, Exact's
+runner-to-host batch projection/wire decoding, or an AppKit view tree for the
+rows. The sample categories do not isolate all of that architectural overhead
+from the useful row work within them.
+
+To reproduce, build both variants in this worktree's `target/`, copying the
+release bundle before the development build replaces it:
+
+```sh
+export EXACT_APP_DIR="$PWD/bench/heavy-list/exact-heavylist"
+export CARGO_TARGET_DIR="$PWD/target"
+bun host/apple/build.mjs exact-heavylist-apple --release
+ditto 'target/clients/2dcc39fdac58f699849328fc/dev.exact.heavybench.exact/macos/Heavy list.app' target/g1x/Release.app
+bun host/apple/build.mjs exact-heavylist-apple
+ditto 'target/clients/2dcc39fdac58f699849328fc/dev.exact.heavybench.exact/macos/Heavy list.app' target/g1x/Development.app
+BENCH_LIVE=0 bun scripts/agent.mjs macos --size 800x800 --timing platform \
+  'clock settle' 'perf messages during "tap messages wheel 0 600 fling" "clock +1500 real"' state
+```
+
+The agent command passed and reported six constructed rows. It is a separate
+functional drive: agent mode changes scheduling. For the timed runs, link
+G1's existing `target/g1/probe.dylib` into each bundle copy and ad-hoc sign it
+as described under Reproduction. Launch the executable normally with
+`BENCH_LIVE=0`, `EXACT_WINDOW_WIDTH=800`, `EXACT_WINDOW_HEIGHT=800`,
+`G1_ARM=native`, and `G1_OUTPUT` naming a fresh absolute JSON path; unset
+`EXACT_AGENT` and `DYLD_INSERT_LIBRARIES`. Wait for its `.window` and `.ready`
+sidecars, activate the app, then send `SIGUSR1` and verify its `.focus` reply.
+Monitor the quiet rule every five seconds and reject any recorded focus loss.
+
+In one terminal, attach before the timed phases and wait for “Ctrl-C to stop”:
+
+```sh
+xcrun xctrace record --template 'Time Profiler' --attach "$g1x_pid" \
+  --time-limit 30s --no-prompt --output "$g1x_capture.trace"
+```
+
+While it records, use another terminal for the development baseline:
+
+```sh
+bun scripts/agent.mjs trace --pid "$g1x_pid" --out "$g1x_capture-before.trace.json"
+```
+
+After the baseline export and a 0.5-second margin, send `SIGUSR2` to start
+the probe's fling phase. Its `.fling` sidecar contains
+the monotonic `time` used for the four input deadlines. At that time plus
+0, 2.5, 5 and 7.5 seconds, run:
+
+```sh
+target/g1/exact-wheel "$(cat "$G1_OUTPUT.ready")"
+```
+
+Each call must report `posted: 106, periodMs: 8.33`. At start +10 seconds,
+send `SIGUSR2` again to finish fling and start rest (`.rest` sidecar). Export
+the development `-fling.trace.json` then; at rest +10 seconds export
+`-rest.trace.json` and send `SIGUSR2` to finish. Release runs omit those
+exports and finish at rest +10 seconds. Stop the profiler with SIGINT after
+the app exits. Record `time.time() - time.monotonic()` before launch to align
+Time Profiler's start date and nanosecond sample offsets with probe markers.
+Interleave release/development three times, retaining raw phase and focus data.
+
+```sh
+xcrun xctrace export --input "$g1x_capture.trace" \
+  --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' \
+  --output "$g1x_capture.xml"
+```
+
+Resolve XML `id`/`ref` entries, demangle Rust frames with `rustfilt`, and include
+only samples between each probe phase's start/end times. Apply the exclusive
+classification above and normalize each run separately before averaging.
+The local `target/g1x/` contains `.trace`, exported `.xml`, `.samples.json`,
+probe `.json`, input `.meta.json`, five-second `.machine.jsonl`, development
+`-{before,fling,rest}.trace.json` and `attribution.json`. These are ignored
+measurement artifacts; this change adds no scripts or instrumentation.
+
+Both native builds and the agent drive exited 0. `git diff --check` passed.
+`bun scripts/caps.mjs` passed: “All budgets within cap. 10 categories inspected.”
+G1x changes only this report; no workspace test suite was rerun.
+
 ## Renderer only
 
 | Comparison | Status |
