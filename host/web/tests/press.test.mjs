@@ -744,24 +744,32 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     expect(await ink('label')).toBe('rgb(0, 0, 0)');
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     expect(await evaluate(`document.getElementById('painted').getAnimations().length`)).toBe(0);
-    // The same under a main-thread stall: the authored transitions set and the press and release handled before any
-    // frame. An earlier paint, read through an animation's custom properties, had Chrome replace them with transitions
-    // toward the properties' initial values (opacity 1, transparent), which the stall left showing for their second.
-    // Every look on the way stays between the paint's and the authored values, never toward those initial values.
-    await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = 'background-color 1s linear, opacity 1s linear'; el.style.backgroundColor = 'rgb(255, 255, 0)'; el.style.opacity = '0.6'; getComputedStyle(el).opacity; setTimeout(() => { const end = performance.now() + 300; while (performance.now() < end); }, 0); }`);
-    await Promise.all([mouse('mousePressed', painted), mouse('mouseReleased', painted)]);
-    const stalled = await evaluate(`new Promise(ok => {
-      const el = document.getElementById('painted'), seen = [], end = performance.now() + 3000;
+    // The same under a main-thread stall: the authored transitions set in the press's own task (a capture listener
+    // on the window, before the glue's handler) and the main thread held 300 ms after it (bubbling), so the paint
+    // goes on while they are still pending and no frame runs until the release has been handled too. An earlier
+    // paint, read through an animation's custom properties, had Chrome replace them with transitions toward the
+    // properties' initial values (opacity 1, transparent), which the stall left showing for their second. Every frame
+    // from before the press to well after the paint's end stays between the paint's and the authored values.
+    await evaluate(`{
+      const el = document.getElementById('painted'), seen = window.__seen = [];
+      addEventListener('pointerdown', () => { el.style.transition = 'background-color 1s linear, opacity 1s linear'; el.style.backgroundColor = 'rgb(255, 255, 0)'; el.style.opacity = '0.6'; getComputedStyle(el).opacity; }, { capture: true, once: true });
+      addEventListener('pointerdown', () => { window.__pending = el.getAnimations().filter(a => a.transitionProperty).map(a => a.pending); const end = performance.now() + 300; while (performance.now() < end); }, { once: true });
+      let painted = false, after = 0;
       const look = () => {
-        const s = getComputedStyle(el);
-        seen.push({ painting: el.hasAttribute('data-exact-painting'), look: rgb(s.opacity + ' ' + s.backgroundColor) });
-        if (performance.now() > end || seen.filter(x => !x.painting).length > 5) ok(seen); else requestAnimationFrame(look);
+        const s = getComputedStyle(el), on = el.hasAttribute('data-exact-painting');
+        seen.push({ painting: on, look: rgb(s.opacity + ' ' + s.backgroundColor) });
+        painted ||= on; if (painted && !on) after += 1;
+        if (after < 40 && seen.length < 900) requestAnimationFrame(look); else window.__done = true;
       };
-      look();
-    })`);
+      requestAnimationFrame(look);
+    }`);
+    await Promise.all([mouse('mousePressed', painted), mouse('mouseReleased', painted)]);
+    const stalled = await evaluate(`new Promise(ok => { const wait = () => window.__done ? ok(window.__seen) : setTimeout(wait, 20); wait(); })`);
+    expect(await evaluate('JSON.stringify(window.__pending)'), 'the press met the authored transitions still pending').toBe('[true,true]');
+    expect(stalled.some(x => x.painting), 'a painted frame was seen').toBe(true);
     // Spellings vary (rgb, color(srgb ...)), so a look is read as its opacity and its background's alpha: any look
     // between the paint's (0.4) and the authored (0.8 to 0.6), opaque.
-    const parts = (said) => { const [o, ...c] = said.split(' '), bg = c.join(' '), a = /rgba\([^)]*,\s*([\d.]+)\)$/.exec(bg) ?? /\/\s*([\d.]+)\s*\)$/.exec(bg); return [parseFloat(o), a ? parseFloat(a[1]) : 1]; };
+    const parts = (said) => { const [o, ...c] = said.split(' '), bg = c.join(' '), a = /rgba\([^)]*,\s*([\d.]+)\)$/.exec(bg) ?? /\/\s*([\d.]+)\s*\)$/.exec(bg); return [parseFloat(o), bg === 'transparent' ? 0 : a ? parseFloat(a[1]) : 1]; };
     const shown = (said) => { const [o, a] = parts(said); return o >= 0.399 && o <= 0.801 && a === 1; };
     expect(stalled.filter(x => !shown(x.look)).map(x => x.look), 'never the initial values (opacity 1, transparent) on the way').toEqual([]);
     expect(stalled.some(x => !x.painting), 'the paint ended').toBe(true);
@@ -868,6 +876,9 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await settle();
     expect(await rules()).toBe(1);
     await evaluate(`{ const el = document.getElementById('painted'); window.__spot = [el.parentElement, el.nextSibling]; window.__gone = el; el.remove(); }`);
+    // Gone, before any release: the press lets go of it, and its rule goes.
+    await evaluate('new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)))');
+    expect(await rules()).toBe(0);
     await mouse('mouseReleased', painted);
     await settle();
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
@@ -905,38 +916,68 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
 }, 60000);
 
 
-// Every engine: a press leaves a node's authored transitions on its painted properties as authored (same values,
-// same ends), and its paint shows once they have ended; released, the node's own look again. (Chrome alone showed
-// the bug, an earlier paint having it start the transitions toward opacity 1 and transparent; this pins the rest.)
+// Every engine: a press leaves a node's authored transitions on its painted properties as authored (the same
+// animations, ends and timing; a paused one too, as the agent's clock pauses them), over a look beneath in the
+// legacy rgb() form, oklch() and lab() (the neutral look's accents); its paint shows once they have ended, mixed as
+// CSS mixes (premultiplied); released, the node's own look. (An earlier paint had Chrome and WebKit start them
+// toward opacity 1 and transparent, and Firefox drop them.)
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a press leaves the node's authored transitions as authored`, async () => {
   const browser = await suiteBrowser(engine);
   const page = await browser.newPage();
   try {
     await page.goto(`http://127.0.0.1:${server.address().port}/unsaid`);
     await page.waitForFunction(() => window.ready);
-    const seen = await page.evaluate(() => {
-      document.getElementById('exact-root').innerHTML = `<div id="t" data-exact-on="press" style="--exact-press-opacity:0.5;--exact-press-background-color:rgb(0, 0, 255);width:200px;height:60px;opacity:0.8;background-color:rgb(255, 255, 255);transition:opacity 1s linear, background-color 1s linear">T</div>`;
+    for (const [from, to] of [['rgb(255, 255, 255)', 'rgb(255, 255, 0)'], ['oklch(0.9 0.05 200)', 'oklch(0.7 0.15 250)'], ['lab(90 10 10)', 'lab(60 -20 30)']]) for (const paused of [false, true]) {
+      const seen = await page.evaluate(async ([from, to, paused]) => {
+        document.getElementById('exact-root').innerHTML = `<div id="t" data-exact-on="press" style="--exact-press-opacity:0.5;--exact-press-background-color:rgb(0, 0, 255);width:200px;height:60px;opacity:0.8;background-color:${from};transition:opacity 1s linear, background-color 1s linear">T</div>`;
+        const el = document.getElementById('t'), r = el.getBoundingClientRect();
+        const pointer = type => el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + 20, clientY: r.y + 20 }));
+        const transitions = () => el.getAnimations().filter(a => a.transitionProperty);
+        getComputedStyle(el).opacity;
+        el.style.opacity = '0.6'; el.style.backgroundColor = to;
+        getComputedStyle(el).opacity;
+        const before = transitions();
+        if (paused) before.forEach(a => { a.pause(); a.currentTime = 400; });
+        const ends = list => JSON.stringify(list.map(a => [a.transitionProperty, a.playState, a.effect.getKeyframes().map(k => String(k[a.transitionProperty === 'opacity' ? 'opacity' : 'backgroundColor']))]).sort());
+        const beforeEnds = ends(before);
+        pointer('pointerdown');
+        getComputedStyle(el).opacity;
+        const after = transitions();
+        const same = after.length === before.length && after.every(a => before.includes(a)) && ends(after) === beforeEnds;
+        // Never toward the initial values: every transition after the press still runs to the authored opacity and
+        // to an opaque colour.
+        const toAuthored = after.every(a => a.transitionProperty === 'opacity' ? String(a.effect.getKeyframes().at(-1).opacity) === '0.6' : !/rgba\(0, 0, 0, 0\)|\/ 0\)/.test(String(a.effect.getKeyframes().at(-1).backgroundColor)));
+        el.getAnimations().forEach(a => a.finish());
+        // A colour as the bytes it paints, whichever space it computes in.
+        const bytes = c => { const g = new OffscreenCanvas(1, 1).getContext('2d'); g.fillStyle = c; g.fillRect(0, 0, 1, 1); return [...g.getImageData(0, 0, 1, 1).data]; };
+        const s = getComputedStyle(el), painted = [Number(s.opacity).toFixed(2), bytes(s.backgroundColor).every((v, i) => Math.abs(v - [0, 0, 255, 255][i]) <= 2) || s.backgroundColor];
+        pointer('pointerup');
+        el.getAnimations().forEach(a => a.finish());
+        // The paint ends on its ease's finish event, sent with a frame.
+        await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+        return { same, toAuthored, count: before.length, painted, released: Number(getComputedStyle(el).opacity).toFixed(2), rules: document.adoptedStyleSheets.reduce((n, sheet) => n + sheet.cssRules.length, 0) };
+      }, [from, to, paused]);
+      // The same animations, untouched, over an rgb() look beneath. Over oklch() and lab(), Chrome runs a colour
+      // transition in oklab and the glue can only name its end in that space, so Chrome may restart it toward an end
+      // that paints the same (a limit, said in the glue): still never toward the initial values.
+      expect([from, paused, from.startsWith('rgb') || engine !== 'chromium' ? seen.same : true, seen.toAuthored, seen.count]).toEqual([from, paused, true, true, 2]);
+      expect([from, ...seen.painted]).toEqual([from, '0.30', true]);
+      expect([from, seen.released, seen.rules]).toEqual([from, '0.60', 0]);
+    }
+    // Over a transparent look beneath, the pressed colour comes in as CSS mixes it (premultiplied): halfway is the
+    // pressed blue at half alpha, not a darker blue.
+    const half = await page.evaluate(() => {
+      document.getElementById('exact-root').innerHTML = `<div id="t" data-exact-on="press" style="--exact-press-background-color:rgb(0, 0, 255);width:200px;height:60px">T</div>`;
       const el = document.getElementById('t'), r = el.getBoundingClientRect();
-      const pointer = type => el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + 20, clientY: r.y + 20 }));
-      const transitions = () => JSON.stringify(el.getAnimations().filter(a => a.transitionProperty).map(a => [a.transitionProperty, String(a.effect.getKeyframes().at(-1)[a.transitionProperty === 'opacity' ? 'opacity' : 'backgroundColor'])]).sort());
-      const look = () => { const s = getComputedStyle(el); return [Number(s.opacity).toFixed(2), s.backgroundColor]; };
-      getComputedStyle(el).opacity;
-      el.style.opacity = '0.6'; el.style.backgroundColor = 'rgb(255, 255, 0)';
-      getComputedStyle(el).opacity;
-      const before = transitions();
-      pointer('pointerdown');
-      getComputedStyle(el).opacity;
-      const pressed = transitions();
+      el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: 1, clientX: r.x + 20, clientY: r.y + 20 }));
+      const ease = el.getAnimations().find(a => !a.transitionProperty);
+      ease.effect.updateTiming({ easing: 'linear' }); ease.pause(); ease.currentTime = ease.effect.getComputedTiming().duration / 2;
+      const seen = getComputedStyle(el).backgroundColor;
+      el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: 0, clientX: r.x + 20, clientY: r.y + 20 }));
       el.getAnimations().forEach(a => a.finish());
-      const painted = look();
-      pointer('pointerup');
-      el.getAnimations().forEach(a => a.finish());
-      return { before, pressed, painted, released: look() };
+      return seen;
     });
-    expect(seen.pressed).toBe(seen.before);
-    expect(JSON.parse(seen.before).map(([p]) => p)).toEqual(['background-color', 'opacity']);
-    expect(seen.painted[0]).toBe('0.30');
-    expect(seen.released[0]).toBe('0.60');
+    expect(half).toMatch(/^rgba\(0, 0, 255, 0\.5\)$/);
   } finally {
     await page.close();
   }

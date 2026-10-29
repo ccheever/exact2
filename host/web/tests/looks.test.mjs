@@ -162,7 +162,7 @@ check('a hover look composes over the base, under the press paint', async () => 
     const mouse = (type, [x, y], buttons = 0) => call('Input.dispatchMouseEvent', { type, x, y, button: type === 'mouseMoved' ? 'none' : 'left', buttons, clickCount: 1 });
     const settle = () => evaluate(`(document.getAnimations().forEach(a => a.finish()), new Promise(r => requestAnimationFrame(() => r())))`); // and their finish events
     // A colour as rgb(), whichever form it computes to (the press paint's is its look beneath's).
-    const now = () => evaluate(`(() => { const s = getComputedStyle(document.getElementById('card')), n = c => c.replace(/color\\(srgb ([\\d.]+) ([\\d.]+) ([\\d.]+)\\)/, (_, ...v) => 'rgb(' + v.slice(0, 3).map(x => Math.round(x * 255)).join(', ') + ')'); return [n(s.backgroundColor), n(s.borderRightColor), Number(s.opacity).toFixed(2)]; })()`);
+    const now = () => evaluate(`(() => { const s = getComputedStyle(document.getElementById('card')), n = c => c.replace(/^color\\(srgb ([\\d.]+) ([\\d.]+) ([\\d.]+)( \\/ [\\d.]+)?\\)$/, (_, r, g, b, a) => { const v = [r, g, b].map(x => x * 255); return v.every(Number.isInteger) && !a ? 'rgb(' + v.join(', ') + ')' : _; }); return [n(s.backgroundColor), n(s.borderRightColor), Number(s.opacity).toFixed(2)]; })()`);
     const look = async () => { await settle(); return now(); };
     const card = await at('card'), away = await at('away');
 
