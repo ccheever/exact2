@@ -134,7 +134,8 @@ public enum DevMenu {
 
     nonisolated(unsafe) private static var windowKeyObserver: NSObjectProtocol?
     nonisolated(unsafe) private static var widgetGenerationObserver: NSObjectProtocol?
-    public static func install(session: ExactSession, planPath: String?) {
+    public static func install(session: ExactSession, planPath: String?, frameHealthContainer: NSView? = nil) {
+        if let frameHealthContainer { session.frameHealth.macContainer = frameHealthContainer }
         if windowKeyObserver == nil {
             windowKeyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
                 guard DevMenu.session != nil, let window = note.object as? NSWindow, let root = window.contentView else { return }
@@ -291,6 +292,9 @@ public enum DevMenu {
             #if EXACT_WIDGET_GALLERY
             if WidgetGallery.available { dev.addItem(withTitle: "Widgets…", action: #selector(DevMenuTarget.widgets(_:)), keyEquivalent: "").target = target }
             #endif
+            dev.addItem(withTitle: "Show Frame Health", action: #selector(ExactView.toggleFrameHealth(_:)), keyEquivalent: "")
+            dev.addItem(withTitle: "Frame Health Details…", action: #selector(ExactView.showFrameHealthDetails(_:)), keyEquivalent: "")
+            dev.addItem(withTitle: "Share Frame Health…", action: #selector(ExactView.shareFrameHealth(_:)), keyEquivalent: "")
             // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
             let trace = dev.addItem(withTitle: "Save Trace", action: #selector(DevMenuTarget.saveTrace(_:)), keyEquivalent: "t")
             trace.keyEquivalentModifierMask = [.command, .option]

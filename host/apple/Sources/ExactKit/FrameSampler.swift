@@ -29,7 +29,7 @@ final class FrameSampler: NSObject {
     static let measured = !ExactEnv.productionBake
     /// Whether it measures from boot: a development build, or one the agent
     /// launched. A release build starts at the first ask (`measurePerf`).
-    static let atBoot = !ExactEnv.releaseBuild || ExactEnv.agentMode
+    static let atBoot = !ExactEnv.releaseBuild || ExactEnv.agentFreezes
 
     /// A new session's sampler, where it samples from boot. Where it starts
     /// at the first ask instead, so does the count of its runner's plan
@@ -526,10 +526,10 @@ extension ExactSession {
     /// yet (a release build, LLP 1079): the presented frames, the hatch
     /// calls' timing and the plan sites' work. The agent's requests, and
     /// Save Trace, ask.
-    func measurePerf() {
+    func measurePerf(frameSampler: Bool = true) {
         guard FrameSampler.measured else { return }
         HatchDiagnostics.measuring = true
-        if sampler == nil { sampler = FrameSampler(session: self) }
+        if frameSampler, sampler == nil { sampler = FrameSampler(session: self) }
         runtime.measureWork()
     }
     /// The last saved trace, beside the stamped one (`agent.mjs` reads the name).

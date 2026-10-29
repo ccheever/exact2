@@ -50,6 +50,7 @@ macro_rules! host {
         /// the linker sees nothing else (LLP 1047.001 D3).
         const EXACT_LINKS: $crate::link::Links<$data> = $crate::link::Links::of($linked);
         $crate::pan_velocity_exports!();
+        $crate::frame_health_exports!();
 
         /// Create a runtime; returns its handle (never 0). Its callbacks are
         /// set with `exact_set_measure`, `exact_set_wake`, and

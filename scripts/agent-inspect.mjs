@@ -461,9 +461,53 @@ export async function partTap({ s, host, touch }, target, opts = {}) {
 
 export async function perfOp(s, args, line, step) {
   if (args[0] === 'frames') {
+    if (args[1] === 'health') {
+      const source = ['app', 'scroll'].includes(args[2]) ? args[2] : undefined;
+      const end = source ? 3 : 2;
+      if (args.length !== end && args[end] !== 'during') throw new MalformedOperation('perf frames health [app|scroll] [during "<op>" …]');
+      const read = cursor => s.op({ op: 'perf', frames: true, health: true, ...(source ? { source } : {}), ...(cursor ? { cursor } : {}) });
+      let before;
+      try { before = await read(); }
+      catch (e) {
+        if (args[end] !== 'during' || e.reply?.error !== 'native-scroll-unobserved') { throw e; }
+        before = e.reply;
+      }
+      if (args.length === end || (before.error && before.error !== 'native-scroll-unobserved')) return before;
+      const operations = [...line.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(match => inputJSON(`"${match[1]}"`));
+      if (!operations.length) throw new MalformedOperation('perf frames health during requires quoted operations');
+      for (const operation of operations) {
+        const result = await step(operation), reply = Array.isArray(result) ? result[1] : result;
+        if (reply?.error) throw new Error(reply.error);
+      }
+      return read(before.cursor);
+    }
+    if (args[1] === 'report') {
+      if (args.length > 3 || (args[2] !== undefined && !['app', 'scroll'].includes(args[2]))) throw new MalformedOperation('perf frames report [app|scroll]');
+      return s.op({ op: 'perf', frames: true, report: true, ...(args[2] ? { source: args[2] } : {}) });
+    }
+    if (args[1] === 'capture') {
+      const action = args[2], durationMs = args[3] === undefined ? 60000 : Number(args[3]);
+      if (!['start', 'stop', 'clear'].includes(action) || args.length > 4 ||
+          (action !== 'start' && args.length !== 3) || !Number.isInteger(durationMs) || durationMs < 1 || durationMs > 120000) {
+        throw new MalformedOperation('perf frames capture start [1–120000 ms] | stop | clear');
+      }
+      return s.op({ op: 'perf', frames: true, capture: action, ...(action === 'start' ? { durationMs } : {}) });
+    }
     const at = word => { const i = args.indexOf(word); return i < 0 ? undefined : Number(args[i + 1]); };
     const live = at('live'), late = at('late');
     if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw new MalformedOperation('perf frames live <ms>: a whole number of milliseconds, 1–120000');
+    if (live !== undefined && ['ios', 'host-ios', 'macos', 'host'].includes(s.host)) {
+      if (live > 30000 || late !== undefined || args.length !== 3 || args[1] !== 'live') throw new MalformedOperation('perf frames live <1–30000 ms> on Apple; use report for hitch detail');
+      const before = await s.op({ op: 'perf', frames: true, health: true });
+      if (before.error || !before.available) return before;
+      if (before.capture?.agentLeaseRemainingMs > 0) throw new MalformedOperation('a live frame capture is already active; read health or stop that capture first');
+      const capture = await s.op({ op: 'perf', frames: true, capture: 'start', durationMs: live + 5000 });
+      if (!capture.capture) return capture;
+      try {
+        await new Promise(resolve => setTimeout(resolve, live));
+        return await s.op({ op: 'perf', frames: true, health: true, cursor: before.cursor });
+      } finally { await s.op({ op: 'perf', frames: true, capture: 'stop' }); }
+    }
     return s.perf(null, { frames: true, late, ...(live !== undefined ? { live } : {}) });
   }
   // `perf streams [start]` (LLP 1133.003 §9): each stream message's receipt to mapper entry, decode and commit.
@@ -579,6 +623,9 @@ function renderStreamTiming(t) {
 const CONTINUOUS = new Set(['scroll', 'pointermove', 'wheel', 'drag']), CONTINUOUS_FROM = 20;
 
 function renderPerf(r) {
+  if (r.format === 'exact.frame-health.metrics/1') return renderFrameHealthMetrics(r);
+  if (r.format === 'exact.frame-health/1') return renderFrameHealthReport(r);
+  if (typeof r.capture === 'boolean') return `frame capture ${r.capture ? 'armed' : 'paused'}${r.reason ? `: ${r.reason}` : ''}${r.agentLeaseRemainingMs ? ` · agent lease ${r.agentLeaseRemainingMs} ms` : ''}`;
   if (r.spans) return [`${r.target} · tick ${r.from ? r.from.tick + '..' : ''}${r.tick} · exclusive ms${r.tickMs ? ` · tick p50 ${r.tickMs.p50} p95 ${r.tickMs.p95} mean ${r.tickMs.mean}` : ''}`,
     ...r.spans.map(s => `  ${s.name} at ${s.at}: p50 ${s.p50} p95 ${s.p95} max ${s.max} perTick ${s.perTick} (${s.count} ticks)`)].join('\n');
   if (r.calls && r.hatches) return renderHatchPerf(r);
@@ -629,7 +676,15 @@ function renderPerf(r) {
  * trace carries, then `locate`'s, which the live driver tries. The map that
  * answered is the result's `joinedMap` (not enumerable: `--json` leaves it out). */
 export async function readTrace(file, locate = () => [], plan = null) {
-  const t = JSON.parse(readFileSync(file, 'utf8'));
+  if (file.endsWith('.frame-health.json') && statSync(file).size > 4000) throw new Error('frame-health report exceeds 4 KB; re-export a bounded report from Exact');
+  const bytes = readFileSync(file, 'utf8');
+  const t = JSON.parse(bytes);
+  if (['exact.frame-health/1', 'exact.frame-health.metrics/1'].includes(t.format)) {
+    if (Buffer.byteLength(bytes, 'utf8') > 4000) throw new Error('frame-health report exceeds 4 KB; re-export a bounded report from Exact');
+    if (t.format === 'exact.frame-health/1') renderFrameHealthReport(t);
+    else renderFrameHealthMetrics(t);
+    return t;
+  }
   const maps = sourceMapReaders([...(plan ? planLocators(plan) : []), ...(t.map ? [] : locate(t.identity?.app))]);
   if (t.map) maps.add(t.map);
   await maps.refresh();
@@ -740,6 +795,8 @@ export function phoneTrace(ph, a, run = spawnSync) {
  * each late frame beside the journal lines stamped in its interval and the
  * transactions it carried (D4: juxtaposition, never a cause), the sites. */
 export function renderTrace(t) {
+  if (t.format === 'exact.frame-health.metrics/1') return renderFrameHealthMetrics(t);
+  if (t.format === 'exact.frame-health/1') return renderFrameHealthReport(t);
   const id = t.identity ?? {};
   // A web trace names the checkout's commit at export; a native one its host binary's build (LLP 1142 D2).
   const hb = id.hostBuild ?? {};
@@ -780,6 +837,67 @@ export function renderTrace(t) {
   }
   if (t.perf) out.push('', renderPerf(t.perf));
   if (t.hatches?.perf?.calls) out.push('', renderHatchPerf(t.hatches.perf));
+  return out.join('\n');
+}
+
+/** Quantiles are bounds from finalized populations; callback rates never certify presentation. */
+export function renderFrameHealthMetrics(report) {
+  if (report.error) return `frame health unavailable: ${report.error} · ${report.reason ?? 'read a fresh baseline'}`;
+  if (Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000) throw new Error('frame-health metrics exceed 4 KB; use a matching Exact reader');
+  const callbacks = report.callbacks ?? {}, apply = report.apply ?? {}, window = report.window ?? {};
+  const bounds = value => Array.isArray(value) && value.length === 2 ? `${(Number(value[0]) / 1e6).toFixed(2)}–${value[1] == null ? '∞' : (Number(value[1]) / 1e6).toFixed(2)} ms` : 'unknown';
+  return [`frame health · ${report.source ?? 'unknown source'} · ${report.status ?? 'unknown'} · ${report.qualification ?? 'unqualified'}`,
+    `generation ${window.generation ?? '?'} · ${window.kind ?? '?'} · interval finalized ${window.intervalFromNs ?? '?'}..${window.intervalThroughNs ?? '?'} ns · apply finalized ${window.applyFromNs ?? '?'}..${window.applyThroughNs ?? '?'} ns`,
+    `callbacks ${callbacks.count ?? '?'} · comparable ${callbacks.comparableIntervals ?? '?'} · ${callbacks.perSecond == null ? 'rate unknown' : `${callbacks.perSecond.toFixed(2)} callbacks/s`} · cadence changes ${callbacks.cadenceChanges ?? '?'}`,
+    `callback gap p50 ${bounds(callbacks.p50BoundsNs)} · p95 ${bounds(callbacks.p95BoundsNs)} · p99 ${bounds(callbacks.p99BoundsNs)}`,
+    `applies ${apply.count ?? '?'} · targeted ${apply.withTarget ?? '?'} · late ${apply.targetOverruns ?? '?'} · callback target overruns ${callbacks.synchronousTargetOverruns ?? '?'}`,
+    `apply p50 ${bounds(apply.p50BoundsNs)} · p95 ${bounds(apply.p95BoundsNs)} · p99 ${bounds(apply.p99BoundsNs)}`,
+    `coverage ${JSON.stringify(report.coverage ?? {})}`,
+    'Quantiles are half-open bounds. Presentation, input latency and GPU execution remain unobserved.'].join('\n');
+}
+
+/** Read measured boundaries before suggesting causes. Null is missing evidence, never zero cost. */
+export function renderFrameHealthReport(report) {
+  if (report.error) return `frame health unavailable: ${report.error}${report.retryAfterMs ? ` · retry after ${report.retryAfterMs} ms` : ''}`;
+  const { columns, hitches } = report;
+  if (!Array.isArray(columns) || columns.length !== 23 || !Array.isArray(hitches) || hitches.length > 16 ||
+      Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000 || new Set(columns).size !== columns.length) {
+    throw new Error('invalid frame-health report shape or size; re-export it from Exact');
+  }
+  const expected = ['sequence', 'capture', 'generation', 'age_ns', 'flags', 'target_offset_ns', 'period_ns', 'requested_period_ns', 'gap_ns', 'callback_ns',
+    'before_gap_ns', 'before_callback_ns', 'after_offset_ns', 'after_gap_ns', 'after_callback_ns',
+    'owner_queued_offset_ns', 'owner_began_offset_ns', 'owner_finished_offset_ns', 'main_landed_offset_ns',
+    'apply_began_offset_ns', 'apply_finished_offset_ns', 'work_target_offset_ns', 'operations'];
+  if (expected.some((name, index) => name !== columns[index])) throw new Error('frame-health report has unknown timing columns; use a matching Exact version');
+  const out = [`frame health · ${report.identity?.app ?? 'app'} · callback/apply proxies · ${report.qualification ?? 'unqualified'}`,
+    `retained ${hitches.length} · overwritten ${report.retention?.overwrittenSinceClear ?? '?'} · expired ${report.retention?.expiredAtRead ?? '?'} · omitted for budget ${report.retention?.omittedForBudget ?? '?'} · capture ${report.scope?.armed ? 'armed' : 'paused'}`];
+  if (!report.available) out.push(`unavailable: ${report.unavailableReason ?? 'unknown coverage'}`);
+  const identity = report.identity ?? {};
+  out.push(`build ${identity.build ?? 'unknown'}${identity.buildDirty ? ' (dirty)' : ''} · app build ${identity.appBuild ?? 'unknown'} · ${identity.buildKind ?? 'unknown build kind'} · ${identity.simulator === true ? 'simulator' : identity.simulator === false ? 'physical device' : 'unknown device type'}`,
+    `${identity.device ?? 'unknown device'} · ${identity.os ?? 'unknown OS'} · display maximum ${identity.displayMaximumHz ?? '?'} Hz · live-agent parity ${report.scope?.liveAgentParity ?? 'unknown'}`);
+  if (report.time?.clamped) out.push('Timing values were clamped; exact durations are unavailable beyond the integer range.');
+  const ms = value => value == null ? 'unknown' : `${(value / 1e6).toFixed(3)} ms`;
+  for (const row of hitches) {
+    if (!Array.isArray(row) || row.length !== columns.length || row.slice(0, 3).some(value => typeof value !== 'string' || !/^\d{1,20}$/.test(value)) ||
+        row.slice(3).some(value => value !== null && !Number.isSafeInteger(value))) {
+      throw new Error('frame-health report contains invalid or inexact timing values; re-export it from Exact');
+    }
+    const event = Object.fromEntries(columns.map((name, index) => [name, row[index]]));
+    const elapsed = (end, start) => event[end] == null || event[start] == null ? null : event[end] - event[start];
+    const applyEnd = event.apply_finished_offset_ns;
+    const ended = applyEnd == null ? 'end unknown' : `ended ${ms(Math.abs(applyEnd))} ${applyEnd > 0 ? 'after event start' : 'before event'}`;
+    const bit = number => Math.floor(event.flags / 2 ** number) % 2 === 1;
+    const workload = bit(23) ? ['motion', 'spatial', 'canvas', 'frame tasks', 'fill pending', 'tick pending', 'hatch frames'].filter((_, index) => bit(index + 16)).join(', ') || 'none at observation' : 'unknown';
+    const thermal = ['nominal', 'fair', 'serious', 'critical'][Math.floor(event.flags / 2 ** 32) % 4];
+    const reasons = [event.flags & 1 ? 'callback gap' : null, event.flags & 2 ? 'callback target overrun' : null, event.flags & 4 ? 'tick apply target overrun' : null].filter(Boolean);
+    out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_ns)} ago · ${reasons.join(', ') || 'timing event'}`,
+      `  gap ${ms(event.gap_ns || null)} / scheduled ${ms(event.period_ns || null)} · requested ${ms(event.requested_period_ns || null)} · callback ${ms(event.callback_ns || null)} · target offset ${ms(event.target_offset_ns)}`,
+      `  ${event.flags & 32 ? 'largest interval apply' : 'last observed apply'} ${ended} · owner queue ${ms(elapsed('owner_began_offset_ns', 'owner_queued_offset_ns'))} · owner wall ${ms(elapsed('owner_finished_offset_ns', 'owner_began_offset_ns'))} · main wait ${ms(elapsed('main_landed_offset_ns', 'owner_finished_offset_ns'))} · apply ${ms(elapsed('apply_finished_offset_ns', 'apply_began_offset_ns'))} · operations ${event.operations ?? 'unknown'}`,
+      `  preceding gap/work ${ms(event.before_gap_ns || null)} / ${ms(event.before_callback_ns || null)} · following gap/work ${ms(event.after_gap_ns)} / ${ms(event.after_callback_ns)}`,
+      `  workload ${workload} · thermal ${thermal} · low power ${bit(34)} · HUD ${bit(35)}${bit(36) ? ' (dragging)' : ''}`);
+  }
+  out.push('Work context is temporal evidence, not causal attribution. Elapsed time includes descheduling.',
+    `Unobserved: ${(report.unobserved ?? ['presentation', 'GPU execution', 'native-only animations']).join(', ')}. Missing evidence is not a health pass.`);
   return out.join('\n');
 }
 

@@ -17,3 +17,4 @@ none
 ### Checkpoints
 
 - Authored tests and property verification: The authored rotate/reset sequence agrees with Lean; all three properties held. Explore still reports the host-operation divergence.
+- Suggestions kept: of the 23 blocks the search suggested, a four-family panel judging as the app's author kept 2, now in the test file beside the proved properties' blocks; the rest are sample artifacts or what the type says.

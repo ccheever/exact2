@@ -1,0 +1,8 @@
+component App
+  state ticks = 0
+  action draw
+    ticks = ticks + 1
+  task counter mount
+    every(frame, draw)
+  view
+    text ticks.toString()

@@ -25,3 +25,9 @@ test "increments and probes preserve the user's state"
   clock data
   tap "reset"
   tap "increment"
+
+after "runRust" "runRust writes only rustExecutorResult rustResult"
+  only writes rustExecutorResult rustResult
+
+after "runTypescript" "runTypescript writes only tsResult"
+  only writes tsResult

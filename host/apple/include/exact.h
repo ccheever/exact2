@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 16
+#define EXACT_ABI_VERSION 18
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +40,43 @@ extern "C" {
 
 /* A runtime handle (LLP 1031 D2). 0 is never a runtime. */
 typedef uint32_t ExactRuntime;
+
+/* UI-thread callback proxies, not presented-frame counts. Storage and lookup
+ * are bounded to 16 collectors; create returns 0 at capacity. */
+typedef struct ExactFrameHealthSnapshot {
+    uint64_t generation, callbacks, intervals, active_ns, period_ns, max_gap_ns;
+    uint64_t work_overruns, cadence_changes, last_arrival_ns, running;
+    uint64_t applies, target_applies, apply_overruns, interval_through_ns, apply_through_ns, histogram_overflows;
+} ExactFrameHealthSnapshot;
+uint32_t exact_frame_health_create(void);
+void exact_frame_health_record(uint32_t id, uint64_t arrival, uint64_t target, uint64_t period, uint64_t finished, uint64_t flags);
+typedef struct ExactFrameHealthWork {
+    uint64_t capture, began_ns, finished_ns, target_ns, queued_ns;
+    uint64_t owner_began_ns, owner_finished_ns, landed_ns, operations;
+} ExactFrameHealthWork;
+typedef struct ExactFrameHealthHitch {
+    uint64_t sequence, capture, generation, at_ns, target_ns, period_ns, requested_period_ns, gap_ns, callback_ns;
+    uint64_t before_gap_ns, before_callback_ns, after_at_ns, after_gap_ns, after_callback_ns, flags;
+    ExactFrameHealthWork work;
+} ExactFrameHealthHitch;
+typedef struct ExactFrameHealthHistoryStatus {
+    uint64_t capture, active, segments, started_ns, changed_ns, callbacks;
+    uint64_t total, overwritten, retained, apply_deadlines;
+} ExactFrameHealthHistoryStatus;
+/* Detail capture: 0 pause, 1 start/resume, 2 clear; all on the UI thread.
+ * A producer retains 16 events in fixed storage, never a file or upload. */
+void exact_frame_health_capture(uint32_t id, uint32_t action, uint64_t now);
+ExactFrameHealthHistoryStatus exact_frame_health_history_status(uint32_t id);
+ExactFrameHealthHitch exact_frame_health_hitch(uint32_t id, uint32_t index);
+void exact_frame_health_applied(uint32_t id, ExactFrameHealthWork work, uint64_t flags);
+void exact_frame_health_requested_period(uint32_t id, uint64_t period);
+void exact_frame_health_context(uint32_t id, ExactFrameHealthWork work);
+typedef struct ExactFrameHealthDistribution { uint32_t bins[64]; } ExactFrameHealthDistribution;
+ExactFrameHealthDistribution exact_frame_health_distribution(uint32_t id, uint32_t kind);
+ExactFrameHealthSnapshot exact_frame_health_snapshot(uint32_t id);
+void exact_frame_health_stop(uint32_t id);
+void exact_frame_health_reset(uint32_t id);
+void exact_frame_health_destroy(uint32_t id);
 
 /* Raster accounts outlive replaceable runtimes. Handles are process-unique;
  * charge/lease release is worker-safe and never requires a live Runtime. */
