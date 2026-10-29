@@ -283,6 +283,8 @@ let acpCreated: { serial: number; instanceId: string } | null = null;
 let chatgptCreated: { serial: number; instanceId: string; displayName: string } | null = null;
 let acpLastAgents: AcpAgent[] = [];
 let wizardSerial = -1;
+// The wizard's agent epoch (app.contract wizardAgentEpoch): it moves as Add provider is configured by hand.
+let wizardAgentEpoch = 0;
 function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string) {
   const meta = driverMeta(driverId) ?? DRIVERS[0]!, existing = existingIds(settings), isAcp = meta.id === 'acpRegistry';
   const prepared = isAcp && acpPrepared?.serial === wizardSerial ? acpPrepared.agent : null;
@@ -302,8 +304,11 @@ function multipleAccountsNote(host: ProviderHost, driver: string): string {
 }
 
 /** The Add provider wizard's derived identity and the selected driver's config fields. */
-export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string, dialog = '', target = '') {
+export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string, dialog = '', target = '',
+  agentEpoch = 0) {
   if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; acpCreated = null; chatgptCreated = null; }
+  // Enter manually and Local ACP command drop an agent added before them (handleManualAcpConfiguration's selectedAcp = null).
+  if (agentEpoch !== wizardAgentEpoch) { wizardAgentEpoch = agentEpoch; acpPrepared = null; }
   const identity = wizardIdentity(settingsOf(host), driverId, labelSet, label, idSet, id);
   const prepared = identity.meta.id === 'acpRegistry' && acpPrepared?.serial === serial ? acpPrepared.agent : null;
   const created = open && acpCreated?.serial === serial ? acpCreated.instanceId : '';
@@ -626,7 +631,7 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   const values = op === 'provider-add' ? obj(input.fields) : { binaryPath: input.binaryPath, homePath: input.homePath };
   const config: Obj = {};
   for (const field of meta.fields) { const text = fieldText(field, values[field.key]); if (text) config[field.key] = text; }
-  const prepared = driver === 'acpRegistry' && acpPrepared?.serial === wizardSerial ? acpPrepared.agent : null;
+  const prepared = driver === 'acpRegistry' && config.source !== 'local' && acpPrepared?.serial === wizardSerial ? acpPrepared.agent : null;
   if (prepared && !str(config.agentId)) {
     // handleAcpPrepared: only an icon on the official Registry CDN is saved (resolveOfficialAcpRegistryIconUrl).
     config.agentId = str(prepared.id);

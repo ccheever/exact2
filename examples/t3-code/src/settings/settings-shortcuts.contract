@@ -19,6 +19,7 @@ shape KeyDispatch
 component ShortcutDispatch
   inject
     pickerAnnounce: action
+    modelPickTaken: bool
   props
     items: KeyDispatch[]
     selectThread: action
@@ -45,13 +46,14 @@ component ShortcutDispatch
     confirm: action
   // ModelPickerContent onWindowKeyDown: a tab or model picked by its shortcut is announced, as the focus stays in the
   // search field (composer-controls-commands.ts announcePickerShortcut), through the root's pickerAnnounce, which
-  // waits for no other command.
+  // waits for no other command. A model is announced only when the pick is taken (handleModelSelect returned a slug).
   action providerByKey(target: string)
     selectProvider(target)
     pickerAnnounce("cclocal:picker-provider-key", target, "")
   action modelByKey(target: string, provider: string)
     selectModel(target, provider, false)
-    pickerAnnounce("cclocal:picker-model-key", target, provider)
+    if modelPickTaken and target != ""
+      pickerAnnounce("cclocal:picker-model-key", target, provider)
   // A terminal's close asks first; the confirm takes the focus, as Base UI's AlertDialog does (its Cancel
   // gives it back to the terminal: app.contract confirmUi).
   action closeTerminal(target: string, extra: string, label: string)

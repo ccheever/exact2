@@ -310,12 +310,17 @@ members T3Code
     if what == "hub-remove" or what == "setup-logout" or what == "setup-remove" or what == "codex-picker" or what == "acp-delete" or what == "acp-disable"
       providerDialog = what
       providerTarget = value
+    // Enter manually and Search registry keep the ACP Registry (handleManualAcpConfiguration); a configuration by hand,
+    // the local command's too, drops an agent added before it (selectedAcp = null), which the wizard's answer forgets.
     if what == "driver" or what == "manual"
-      wizardDriver = what == "driver" ? value : wizardDriver
+      wizardDriver = what == "driver" ? value : "acpRegistry"
       wizardManual = what == "manual" and value == "true"
       wizardLabelSet = false
       wizardIdSet = false
+    if (what == "manual" and value == "true") or what == "local"
+      wizardAgentEpoch = wizardAgentEpoch + 1
     if what == "local" // AcpRegistrySearchStep's Local ACP command: configured by hand, labelled "Local ACP"
+      wizardDriver = "acpRegistry"
       wizardManual = true
       wizardLabel = "Local ACP"
       wizardLabelSet = true

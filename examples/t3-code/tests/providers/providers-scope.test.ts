@@ -108,6 +108,16 @@ describe('Settings › Providers follows the scope selector', () => {
     expect(native.calls.filter(call => obj(call).method === 'server.updateSettings').map(call => call.fleet ?? 'focused')).toEqual([KEY, KEY]);
   });
 
+  // Add provider's variables reach the instance through the app's own providerAdd source (app.ts passes args[7]).
+  test("a local command's variables go with the instance Add provider writes", async () => {
+    const { second, native, files } = servers();
+    await answer('snapshot', [], null, files, native);
+    background(second);
+    await answer('providerAdd', ['acpRegistry', 'Local ACP', '', '', ['local', '', 'dsh', '', ''], 'env2', ['--acp'], ['1API_KEY=k', '0BASE_URL=http://x']], null, files, native);
+    expect(obj(obj(obj(second.config.settings).providerInstances).acpRegistry_local_acp).environment).toEqual([{ name: 'API_KEY', value: 'k', sensitive: true },
+      { name: 'BASE_URL', value: 'http://x', sensitive: false }]);
+  });
+
   test("an environment's unsaved variable rows stay on that environment", async () => {
     const { second, native, files } = servers();
     await answer('snapshot', [], null, files, native);

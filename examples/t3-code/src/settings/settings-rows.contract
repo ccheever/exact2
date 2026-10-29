@@ -531,7 +531,7 @@ component CoreField
 
 // ThreadTitleInstructionsSettings' Textarea (ui/textarea.tsx: field-sizing content, min-h-17.5, max-h-64) under the
 // row's text, in `mt-3 max-w-2xl pb-3.5`. The reference's also resizes vertically (Tailwind preflight's
-// `textarea { resize: vertical }`), which Contract refuses (clone/issues/settings-textarea-resize.md). Edits stay
+// `textarea { resize: vertical }`), which the compiler refuses (`lower-css-resize`). Edits stay
 // local and save, trimmed, when the field is left after an edit that changes the value (any edit while Mixed). Its
 // caller keys it on the value, as the reference keys its field, so it keeps what was typed until a new value arrives.
 component CoreTextArea

@@ -183,5 +183,12 @@ describe('keyboard', () => {
     const scope = { item: tabs('codex')[1]!, providerByKey: (target: string) => ['providerByKey', target] };
     expect(dispatch.drawn(button, {}, scope)).toBe(true);
     expect(dispatch.callArguments(button, {}, scope).press).toEqual(['providerByKey', 'claudeAgent']);
+    // ⌘1–9's buttons press modelByKey, which picks and then announces a pick that was taken.
+    const jump = keyboardDispatch(client(), [], 'codex', '', { ...context, settingsOpen: true, modalOpen: true, settingsRoute: 'general', modelTarget: 'default-model:|env-a||' })
+      .find(item => item.command === 'modelPicker.jump.1')!;
+    const model = 'ShortcutButton(item=item, press=modelByKey(item.target, item.extra))';
+    const modelScope = { item: jump, modelByKey: (target: string, provider: string) => ['modelByKey', target, provider] };
+    expect(dispatch.drawn(model, {}, modelScope)).toBe(true);
+    expect(dispatch.callArguments(model, {}, modelScope).press).toEqual(['modelByKey', 'gpt-5.6-luna', 'codex']);
   });
 });

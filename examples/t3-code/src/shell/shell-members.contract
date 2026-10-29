@@ -259,6 +259,8 @@ members T3Code
       settingsProjectId = ""
       settingsRoute = "scheduled-tasks"
       settingsOpen = true
+      settingsFocusTarget = "" // a jump left open when Settings closed is no longer this visit's (openSettings)
+      settingsJumpOpened = ""
       restEditor = target == "" ? "" : "task"
       restSubject = target == "" ? "" : `link|${value}|${target}`
       modalError = ""

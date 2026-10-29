@@ -861,6 +861,8 @@ component T3Window
     let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
     if what == "open" or what == "driver" or what == "manual" or what == "local"
       wizardAttempted = false
+    if what == "blocked" // a step past the Provider step's unmet prerequisite (AddProviderDialog go)
+      wizardAttempted = true
     if what == "step" and wizardStep <= 1 and target > 1 and providerWizard.idError != ""
       wizardAttempted = true
     providerUiRoot(what, value)

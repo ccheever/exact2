@@ -19,7 +19,7 @@ import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settings
 import { settingsCore } from '../../src/settings/settings-core-view';
 import { scopedProviderPage } from '../../src/providers/providers-scope';
 import { worktreeRows } from '../../src/settings/settings-data';
-import { contractComponent } from '../support/contract-action-fixture';
+import { contractComponent, value } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
 import { appText } from '../support/app-files';
 
@@ -731,13 +731,31 @@ describe('model picker shortcut presses', () => {
     const dispatch = contractComponent('settings-shortcuts.contract', 'ShortcutDispatch');
     const calls: unknown[][] = [];
     const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
-    const scope = { selectProvider: record('selectProvider'), selectModel: record('selectModel'), command: record('command'), pickerAnnounce: record('pickerAnnounce') };
+    const scope = { selectProvider: record('selectProvider'), selectModel: record('selectModel'), command: record('command'), pickerAnnounce: record('pickerAnnounce'), modelPickTaken: true };
     dispatch.call('providerByKey', {}, scope, ['favorites']);
     dispatch.call('modelByKey', {}, scope, ['claude-opus-5', 'claude']);
     expect(calls).toEqual([['selectProvider', 'favorites'], ['pickerAnnounce', 'cclocal:picker-provider-key', 'favorites', ''],
       ['selectModel', 'claude-opus-5', 'claude', false], ['pickerAnnounce', 'cclocal:picker-model-key', 'claude-opus-5', 'claude']]);
-    expect(appText('app.contract')).toContain('\n  provide\n    interacted\n    pickerAnnounce\n');
-    expect(appText('settings-shortcuts.contract')).toContain('component ShortcutDispatch\n  inject\n    pickerAnnounce: action\n');
+    expect(appText('app.contract')).toContain('\n  provide\n    interacted\n    pickerAnnounce\n    modelPickTaken\n');
+    expect(appText('settings-shortcuts.contract')).toContain('component ShortcutDispatch\n  inject\n    pickerAnnounce: action\n    modelPickTaken: bool\n');
+  });
+  // handleModelSelect returns a slug only for a pick it made, and only then is it announced (ModelPickerContent.tsx:
+  // 473-496, 797-817): a ⌘1–9 pick a command in flight drops is not.
+  test('⌘1–9 announce only a pick selectModel takes, by its own rule', () => {
+    const dispatch = contractComponent('settings-shortcuts.contract', 'ShortcutDispatch');
+    const calls: unknown[][] = [];
+    const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
+    for (const taken of [false, true]) dispatch.call('modelByKey', {}, { selectModel: record('selectModel'), pickerAnnounce: record('pickerAnnounce'), modelPickTaken: taken }, ['gpt-6', 'codex']);
+    expect(calls).toEqual([['selectModel', 'gpt-6', 'codex', false], ['selectModel', 'gpt-6', 'codex', false], ['pickerAnnounce', 'cclocal:picker-model-key', 'gpt-6', 'codex']]);
+    // modelPickTaken is true exactly when selectModel takes the pick, for each target, with and without a command in flight.
+    const root = contractComponent('app.contract', 'T3Code');
+    const rule = appText('app.contract').match(/^  derive modelPickTaken = (.+)$/m)![1]!;
+    for (const target of ['', 'task-model:t1', 'source-control-writer-model:|ctx', 'review-guide-model:|ctx']) for (const commandPending of [false, true]) {
+      const state: Obj = { commandPending, modelTarget: { id: target }, pendingModal: '', modelsOpen: true, taskModelPick: '' };
+      let took = false;
+      root.call('selectModel', state, { command: () => { took = true; return {}; }, restRaw: () => { took = true; }, focus: () => {}, catalog: { multiple: false } }, ['gpt-6', 'codex', false]);
+      expect([target, commandPending, value(rule, { modelTarget: { id: target }, commandPending })]).toEqual([target, commandPending, took || state.taskModelPick !== '']);
+    }
   });
   // ModelPickerContent's announce blocks nothing (ModelPickerContent.tsx:779-795).
   test('an announcement waits for no command and refreshes only the shell: quick presses are each announced, and a pick right after is sent', () => {
@@ -774,7 +792,7 @@ describe('paints', () => {
       { families, family, pal: { optionHighlight: 'highlight', optionSelected: 'selected' } });
     expect([fill('inter', families[1]!), fill('inter', families[0]!), fill('sf', families[0]!), fill('-', families[1]!)]).toEqual(['highlight', 'selected', 'highlight', '#00000000']);
   });
-  // ComboboxItem at sm and up: min-h-7, px-2 py-1 around a text-sm line, so 28pt rows; LegendList's 30 is an estimate.
+  // ComboboxItem at sm and up: min-h-7, px-2 py-1 around a text-sm line, so 28pt rows.
   test("the font picker's rows are ComboboxItem's 28pt", () => {
     const picker = contractComponent('settings-a-fonts.contract', 'FontFamilyPicker');
     const families = [{ id: 'sf', label: 'SF Pro', value: '', selected: true, detail: '' }];
@@ -784,10 +802,30 @@ describe('paints', () => {
     expect(() => row('height')).toThrow('has no height');
     expect(picker.attribute('text family.label font-family=family.detail', 'line-height', { query: '', cursor: '' }, scope)).toBe('1.25rem');
   });
+  // FontFamilyPicker sizes its LegendList at items × 30 inside ComboboxListVirtualized's py-1, to max-h-72 (288pt).
+  test('the font list is 30pt an item, so a short one keeps room under its rows', () => {
+    const picker = contractComponent('settings-a-fonts.contract', 'FontFamilyPicker');
+    const families = (count: number) => Array.from({ length: count }, (_, at) => ({ id: `f${at}`, label: `Font ${at}`, value: at ? `Font ${at}` : '', selected: at === 0, detail: '' }));
+    const height = (count: number, query = '') => picker.attribute('scroll height=', 'height', { query, cursor: '' }, { families: families(count), pal: {}, min: Math.min });
+    expect([height(2), height(9), height(12), height(3, 'zzz')]).toEqual(['4.25rem', '17.375rem', '18rem', 'auto']);
+  });
 });
 
 // A stacked provider row's select fills the row (ProviderSettingsSelect `w-full`, `w-56` beside the title).
 describe('select sizes', () => {
+  // SelectPopup's min-w-(--anchor-width): a select that fills its row measures its trigger as it is focused or pressed.
+  test("a stacked select's popup is at least as wide as its trigger", () => {
+    const select = contractComponent('settings-kit.contract', 'SelectControl');
+    const scope = (width: number) => ({ width, options: [], selectId: 'provider-field-idleCompaction', label: 'Compact idle threads', KmItem: (args: Obj) => args, frame: () => ({ width: 481 }) });
+    const state: Obj = { anchorWidth: 0 };
+    const popup = (width: number) => select.callArguments('SkPopup(', state, scope(width)).width;
+    expect([popup(0), popup(224)]).toEqual([160, 224]);
+    select.call('measure', state, scope(0), []);
+    expect([state.anchorWidth, popup(0), popup(224)]).toEqual([481, 481, 224]);
+    const sk = contractComponent('settings-kit.contract', 'SkPopup');
+    expect(sk.attribute('column id=menuId', 'min-width', {}, { width: 481, endAlign: 0, menuId: 'm', invoker: 'i', label: '', list: true, items: [], keyed: 0 })).toBe(481);
+    expect(appText('settings-kit.contract')).toContain('button popovertarget=`${selectId}-menu` press=measure focus=measure key=triggerKey role="combobox"');
+  });
   test('a select of width 0 fills its row; a provider field passes 0 once its row stacks', () => {
     const select = contractComponent('settings-kit.contract', 'SelectControl');
     const sized = (width: number) => ({ width, options: [], selectId: 'provider-field-authMethod', KmItem: (args: Obj) => args });

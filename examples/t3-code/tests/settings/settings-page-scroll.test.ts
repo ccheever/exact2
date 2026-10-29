@@ -193,6 +193,46 @@ describe('a Settings page owns its scroller', () => {
     expect([focused, state.settingsFocusTarget]).toEqual([['compact-idle-threads'], '']);
   });
 
+  // Search, Return, then Escape before the jump landed: Settings closes with the target kept. Manage scheduled tasks
+  // opens it again without openSettings, and must not land that jump on the page it opens.
+  test('Settings opened by Manage scheduled tasks drops a jump left open, as every way into Settings does', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const text = appText('app.contract');
+    const derive = (name: string) => text.match(new RegExp(`^  derive ${name} = (.+)$`, 'm'))![1]!;
+    const focused: string[] = [];
+    const box = (y: number, height: number) => ({ x: 0, y, width: 600, height });
+    const frames: Record<string, ReturnType<typeof box>> = { 'settings-content-column': box(100, 2000), 'settings-content-scroll': { x: 0, y: 60, width: 600, height: 600 } };
+    const state: Env = { settingsOpen: false, settingsRoute: 'providers', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
+      settingsFocusTarget: 'compact-idle-threads', settingsJumpOpened: '', settingsJumpWaits: 0, settingsScrollPage: '', settingsScrollTop: 40, settingsQuery: '', settingsMenu: '',
+      modalError: '', providerLinkTarget: '', settingsEnvironmentId: '', settingsProjectId: '', restEditor: '', restSubject: '', taskModelPick: '', detailsOpen: false, detailsEpoch: 0, commandPending: true };
+    const available = { available: true };
+    const scope = (): Env => {
+      const core = { ready: true, route: String(state.settingsRoute), sections: [{}], jumpTarget: String(state.settingsFocusTarget), jumpStop: '', notice: '' };
+      const env: Env = { ...state, settingsCore: core, storageSettings: available, archives: available, diagnostics: available, bindings: available, scheduled: available,
+        sourceControl: available, integrations: available, providerPage: { available: true, environment: 'env1' }, projectsSettings: { ready: true }, max: Math.max, floor: Math.floor,
+        frame: (id: string) => frames[id] ?? box(0, 0), focus: (id: string) => focused.push(id), querySelectorAll: () => [], settings: { environmentId: 'env1' },
+        detailsShown: false, detailsPopover: false, data: { projectId: '' }, canvas: { popoverEpoch: 0 } };
+      for (const name of ['settingsPage', 'settingsPageScrollTop', 'settingsJumpReady']) env[name] = value(derive(name), env);
+      return env;
+    };
+    root.call('detailsAct', state, scope(), ['ui:scheduled-tasks', '', '']);
+    expect([state.settingsOpen, state.settingsRoute, state.settingsFocusTarget, state.settingsJumpOpened]).toEqual([true, 'scheduled-tasks', '', '']);
+    for (let pass = 0; pass < 22; pass++) root.call('focusSettingsTarget', state, scope(), []);
+    expect([focused, state.settingsScrollTop]).toEqual([[], 40]);
+    // Every write that opens Settings sits with openSettings() or a jump target of its own.
+    const body = text.split('\n');
+    const opens = body.flatMap((line, at) => {
+      if (!/^\s+settingsOpen = true/.test(line)) return [];
+      const indent = line.length - line.trimStart().length, inBlock = (entry: string) => entry.trim() === '' || entry.length - entry.trimStart().length >= indent;
+      let from = at, to = at;
+      while (from > 0 && inBlock(body[from - 1]!)) from--;
+      while (to + 1 < body.length && inBlock(body[to + 1]!)) to++;
+      return [body.slice(from, to + 1).some(entry => entry.trim().startsWith('settingsFocusTarget = ') || entry.trim().startsWith('openSettings()'))];
+    });
+    expect(opens.length).toBeGreaterThan(2);
+    expect(opens.filter(clears => !clears)).toEqual([]);
+  });
+
   test("a section's result centres the section's header, as scrollAndFocusSettingsTarget does; a row's centres the row", () => {
     const root = contractComponent('app.contract', 'T3Code');
     const text = appText('app.contract');

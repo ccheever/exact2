@@ -6,7 +6,7 @@ import { obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { existsSync } from 'node:fs';
 import { appPath, appText } from '../support/app-files';
-import { contractComponent } from '../support/contract-action-fixture';
+import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
 import { PROVIDER_DISPLAY_NAMES } from '../../src/providers/provider-updates';
 import { searchSettings } from '../../src/settings/settings-search';
@@ -163,14 +163,14 @@ test('add creates exactly one instance with config and accent; duplicates and ba
   expect(obj(server.settings.providerInstances).acpRegistry_custom).toEqual({ driver: 'acpRegistry', enabled: true, config: { agentId: 'devin', commandPath: '/nonexistent/devin', distribution: 'auto' } });
 });
 
-// AcpRegistrySearchStep's "Local ACP command" (upstream 9d029a1df2 #16021): after Enter manually, it opens the ACP Registry
+// AcpRegistrySearchStep's "Local ACP command": after Enter manually, it opens the ACP Registry
 // configured by hand with the local source, labelled "Local ACP"; its variables go with the instance.
 test('Local ACP command: the entry after Enter manually opens the local configuration, whose variables the instance keeps', async () => {
   const dialog = contractComponent('providers-wizard.contract', 'AddProviderDialog');
   const calls: unknown[][] = [];
-  const state: Obj = { f0: '', f1: 'devin', f2: '', f3: 'auto', f4: '', commandArgs: ['--x'], variables: [{ name: 'A', value: 'b', sensitive: true }] };
+  const state: Obj = { f0: '', f1: 'devin', f2: '', f3: 'auto', f4: '', commandArgs: ['--x'], variables: [{ name: 'A', value: 'b', sensitive: true }], published: [{ name: 'A', value: 'b', sensitive: true }] };
   dialog.call('localCommand', state, { ui: (...args: unknown[]) => calls.push(args) }, []);
-  expect([state.f0, state.f1, state.f2, state.f3, state.f4, state.commandArgs, state.variables, calls]).toEqual(['local', '', '', '', '', [], [], [['local', '']]]);
+  expect([state.f0, state.f1, state.f2, state.f3, state.f4, state.commandArgs, state.variables, state.published, calls]).toEqual(['local', '', '', '', '', [], [], [], [['local', '']]]);
   const source = appText('providers-wizard.contract');
   expect(source).toMatch(/testId="acp-enter-manually"[^\n]*\n[^\n]*text "Enter manually"[^\n]*\n[^\n]*\/\/[^\n]*\n\s+button press=localCommand class=PvOutline[^\n]*testId="acp-local-command"[^\n]*\n\s+text "Local ACP command"/);
   expect(source).toContain('text (localAcp ? "Local ACP command" : "Enter manually")');
@@ -191,8 +191,8 @@ test('Local ACP command: the entry after Enter manually opens the local configur
   expect(source).toContain('button press=manualEntry class=PvGhost');
   expect(source).toContain('button press=prepareAgent(agent.id, agent.name) class=PvOutline');
   expect(source.split('WizardDriverOption(driver=driver, manual=manual, ui=pickDriver)').length).toBe(3);
-  const drafted = (): Obj => ({ f0: 'local', f1: '', f2: 'dsh', f3: '', f4: '', commandArgs: ['--acp'], variables: [{ name: 'A', value: 'b', sensitive: true }] });
-  const fields = (draft: Obj) => [draft.f0, draft.f1, draft.f2, draft.f3, draft.f4, draft.commandArgs, draft.variables];
+  const drafted = (): Obj => ({ f0: 'local', f1: '', f2: 'dsh', f3: '', f4: '', commandArgs: ['--acp'], variables: [{ name: 'A', value: 'b', sensitive: true }], published: [{ name: 'A', value: 'b', sensitive: true }] });
+  const fields = (draft: Obj) => [draft.f0, draft.f1, draft.f2, draft.f3, draft.f4, draft.commandArgs, draft.variables, draft.published];
   const sent: unknown[][] = [];
   const props = (driver: string) => ({ wizard: { driver }, ui: (...args: unknown[]) => sent.push(['ui', ...args]), op: (...args: unknown[]) => sent.push(['op', ...args]) });
   const manual = drafted(), prepared = drafted(), left = drafted(), codex = drafted();
@@ -200,20 +200,21 @@ test('Local ACP command: the entry after Enter manually opens the local configur
   dialog.call('prepareAgent', prepared, props('acpRegistry'), ['devin', 'Devin']);
   dialog.call('pickDriver', left, props('acpRegistry'), ['driver', 'codex']);
   dialog.call('pickDriver', codex, props('codex'), ['driver', 'claudeAgent']);
-  const cleared = ['', '', '', '', '', [], []];
+  const cleared = ['', '', '', '', '', [], [], []];
   expect([fields(manual), fields(prepared), fields(left), fields(codex)]).toEqual([cleared, cleared, cleared, fields(drafted())]);
   expect(sent).toEqual([['ui', 'manual', 'true'], ['op', 'acp-prepare', '', 'devin', 'Devin', true], ['ui', 'driver', 'codex'], ['ui', 'driver', 'claudeAgent']]);
-  // The root's half: configured by hand, labelled "Local ACP" (handleLocalAcpConfiguration).
+  // The root's half: the ACP Registry configured by hand, labelled "Local ACP", an agent added before it dropped
+  // (handleLocalAcpConfiguration).
   const root = contractComponent('app.contract', 'T3Code');
-  const window: Obj = { modalError: 'x', providerSelected: '', wizardManual: false, wizardLabel: '', wizardLabelSet: false, wizardIdSet: true, providerDialog: 'add' };
+  const window: Obj = { modalError: 'x', providerSelected: '', wizardDriver: 'codex', wizardManual: false, wizardLabel: '', wizardLabelSet: false, wizardIdSet: true, providerDialog: 'add', wizardAgentEpoch: 0 };
   root.call('providerUi', window, {}, ['local', '']);
-  expect([window.wizardManual, window.wizardLabel, window.wizardLabelSet, window.wizardIdSet]).toEqual([true, 'Local ACP', true, false]);
+  expect([window.wizardDriver, window.wizardManual, window.wizardLabel, window.wizardLabelSet, window.wizardIdSet, window.wizardAgentEpoch]).toEqual(['acpRegistry', true, 'Local ACP', true, false, 1]);
   // The window's half starts the attempt over (setHasAttemptedSubmit(false)).
   const attempt: Obj = { wizardAttempted: true };
   contractComponent('app-window.contract', 'T3Window').call('providerUi', attempt, { wizardStep: 0, wizardManual: false, providerWizard: { idError: '' },
     providerUiRoot: () => {}, min: Math.min, max: Math.max }, ['local', '']);
   expect(attempt.wizardAttempted).toBe(false);
-  // The add: a blank row is left out, a bad name refuses it.
+  // The server still refuses a bad name (the dialog publishes none), and leaves a blank row out.
   const server = new FakeServer();
   const add = (input: Obj) => runProviderOp(server, native, 'provider-add', '', JSON.stringify({ driver: 'acpRegistry', label: 'Local ACP', fields: { source: 'local', commandPath: 'dsh' }, commandArgs: ['--acp'], ...input }));
   await expect(add({ environment: ['1bad name=x'] })).rejects.toThrow('Use letters, digits and underscores for variable names');
@@ -221,6 +222,139 @@ test('Local ACP command: the entry after Enter manually opens the local configur
   expect(obj(server.settings.providerInstances).acpRegistry_local_acp).toEqual({ driver: 'acpRegistry', enabled: true, displayName: 'Local ACP',
     config: { source: 'local', commandPath: 'dsh', commandArgs: ['--acp'], distribution: 'auto' },
     environment: [{ name: 'API_KEY', value: 'secret=1', sensitive: true }, { name: 'BASE_URL', value: 'http://127.0.0.1', sensitive: false }] });
+});
+
+// AddProviderInstanceDialog's ACP Registry: Search registry keeps it chosen with no agent (:516-520), so the Provider
+// step's prerequisite (acpSelectionError, resolveWizardNavigation) stops Next and the step header until an agent is
+// added or one is configured by hand, a local command with its Executable (:230-236).
+test('Add provider: past the ACP Registry, Next waits for an agent, a hand-entered ID or an Executable', () => {
+  const root = contractComponent('app.contract', 'T3Code');
+  const win: Obj = { modalError: '', providerSelected: '', wizardDriver: 'codex', wizardManual: false, wizardLabel: '', wizardLabelSet: false, wizardIdSet: false, providerDialog: 'add', wizardAgentEpoch: 0 };
+  root.call('providerUi', win, {}, ['local', '']);
+  root.call('providerUi', win, {}, ['manual', 'false']); // Search registry
+  expect([win.wizardDriver, win.wizardManual, win.wizardAgentEpoch]).toEqual(['acpRegistry', false, 1]);
+  root.call('providerUi', win, {}, ['manual', 'true']); // Enter manually
+  expect([win.wizardDriver, win.wizardManual, win.wizardAgentEpoch]).toEqual(['acpRegistry', true, 2]);
+  // Enter manually from a fresh dialog (Codex chosen), then Search registry: still the ACP Registry.
+  const fresh: Obj = { ...win, wizardDriver: 'codex', wizardManual: false, wizardAgentEpoch: 0 };
+  root.call('providerUi', fresh, {}, ['manual', 'true']);
+  root.call('providerUi', fresh, {}, ['manual', 'false']);
+  expect([fresh.wizardDriver, fresh.wizardManual, fresh.wizardAgentEpoch]).toEqual(['acpRegistry', false, 1]);
+  const dialog = contractComponent('providers-wizard.contract', 'AddProviderDialog');
+  const sent: unknown[][] = [];
+  const go = (draft: Obj, manual: boolean, prepared: Obj[], value: string, step = 0) =>
+    dialog.call('go', { ...draft }, { wizard: { driver: 'acpRegistry', prepared }, manual, step, ui: (...args: unknown[]) => sent.push(args) }, ['step', value]);
+  const local = { f0: 'local', f1: '', f2: '', f3: '', f4: '' }, byHand = { f0: '', f1: 'devin', f2: '', f3: '', f4: '' };
+  go(local, false, [], 'next'); // the search with nothing added
+  go(local, false, [], '1'); // the step header
+  go(local, false, [{ id: 'devin' }], 'next'); // an agent added
+  go(local, true, [], 'next'); // the local command, no Executable
+  go({ ...local, f2: 'dsh' }, true, [], 'next');
+  go({ ...byHand, f1: '' }, true, [], 'next'); // by hand, no ID
+  go(byHand, true, [], 'next');
+  go(local, false, [], 'back', 1);
+  expect(sent).toEqual([['blocked', ''], ['blocked', ''], ['step', 'next'], ['blocked', ''], ['step', 'next'], ['blocked', ''], ['step', 'next'], ['step', 'back']]);
+  // The block marks the attempt (the window's half), which shows the prerequisite's own words, under the form or the search.
+  const attempt: Obj = { wizardAttempted: false };
+  contractComponent('app-window.contract', 'T3Window').call('providerUi', attempt, { wizardStep: 0, wizardManual: true, providerWizard: { idError: '' },
+    providerUiRoot: () => {}, min: Math.min, max: Math.max }, ['blocked', '']);
+  expect(attempt.wizardAttempted).toBe(true);
+  const source = appText('providers-wizard.contract');
+  expect(source).toContain('derive selectionError = not isAcp ? "" : (localAcp ? (f2.trim() == "" ? "Executable is required." : "") : (wizard.prepared.length > 0 or (manual and f1.trim() != "") ? "" : "Select an ACP or configure one manually."))');
+  expect(source.split('if attempted and selectionError != ""\n').length).toBe(3);
+  expect(source.split('go=go)').length).toBe(4);
+  expect(source.split('button press=go("step", "next")').length).toBe(3);
+  // A provider picked from the search takes none of the local draft.
+  const picked: Obj = { ...local, f2: 'dsh', commandArgs: ['--acp'], variables: [], published: [] };
+  dialog.call('pickDriver', picked, { wizard: { driver: 'acpRegistry' }, ui: () => {} }, ['driver', 'claudeAgent']);
+  expect([picked.f0, picked.f2, picked.commandArgs]).toEqual(['', '', []]);
+});
+
+// The add's press: an agent added from the search brings its own config (handleAcpPrepared), so only a configuration by
+// hand sends the fields, which the root then reads for a local command; the variables are the published set.
+test("Add provider: the add sends a hand configuration's fields and its published variables", () => {
+  const line = appText('providers-wizard.contract').split('\n').find(entry => entry.includes('testId="create-provider"'))!;
+  const press = line.slice(line.indexOf('press=') + 6, line.indexOf(' class=PvPrimary'));
+  const args = (manual: boolean, f0: string) => value(press, { add: (...values: unknown[]) => values, wizard: { driver: 'acpRegistry' }, shownLabel: 'Local ACP', shownId: '', accent: '',
+    f0, f1: '', f2: 'dsh', f3: '', f4: '', commandArgs: ['--acp'], isAcp: true, manual, localAcp: manual && f0 === 'local',
+    published: [{ name: 'API_KEY', value: 'k', sensitive: true }], variables: [{ name: '1BAD', value: 'x', sensitive: true }] } as Env) as unknown[];
+  expect(args(true, 'local')).toEqual(['acpRegistry', 'Local ACP', '', '', ['local', '', 'dsh', '', ''], ['--acp'], ['1API_KEY=k']]);
+  expect(args(false, 'local')).toEqual(['acpRegistry', 'Local ACP', '', '', ['', '', '', '', ''], ['--acp'], []]);
+  // The root closes the dialog on a local command only (provider-add-local), and passes the variables on.
+  const root = contractComponent('app.contract', 'T3Code');
+  const sends: unknown[][] = [];
+  for (const fields of [['local', '', 'dsh', '', ''], ['', '', '', '', '']]) {
+    const state: Obj = { commandPending: false, pendingModal: '', providerCreated: '', modalError: '' };
+    root.call('providerAdd', state, { providerPage: { environment: 'env1' }, providerAdd: (...values: unknown[]) => { sends.push(values); return {}; } },
+      ['acpRegistry', 'Local ACP', '', '', fields, ['--acp'], ['1API_KEY=k']]);
+    sends.push([state.pendingModal]);
+  }
+  expect(sends).toEqual([['acpRegistry', 'Local ACP', '', '', ['local', '', 'dsh', '', ''], 'env1', ['--acp'], ['1API_KEY=k']], ['provider-add-local'],
+    ['acpRegistry', 'Local ACP', '', '', ['', '', '', '', ''], 'env1', ['--acp'], ['1API_KEY=k']], ['provider-add']]);
+  // The window's half hands them to the root.
+  const handed: unknown[][] = [];
+  contractComponent('app-window.contract', 'T3Window').call('providerAdd', { wizardAttempted: false }, { providerAddRoot: (...values: unknown[]) => handed.push(values) },
+    ['acpRegistry', 'Local ACP', '', '', ['local'], ['--acp'], ['1API_KEY=k']]);
+  expect(handed).toEqual([['acpRegistry', 'Local ACP', '', '', ['local'], ['--acp'], ['1API_KEY=k']]]);
+});
+
+// ProviderEnvironmentSection: the rows publish as a field is left, a lock toggled or a row removed, only while every
+// name is valid (a row left as added is skipped), so a bad name keeps the last valid set and the add goes on with it
+// (:324-344); the lock and remove are named by the variable (:446,462) and the lock has its tooltip.
+test("Add provider's variables publish as ProviderEnvironmentSection's do", () => {
+  const dialog = contractComponent('providers-wizard.contract', 'AddProviderDialog');
+  const row = (name: string, value = 'v', sensitive = true) => ({ name, value, sensitive });
+  // The file's own name rule, and the row's record.
+  const scope = { WizardVariable: (fields: Obj) => fields, envNameValid: contractFns('providers-wizard.contract').envNameValid };
+  expect(['API_KEY', '_x', 'a1', '1BAD', 'BAD-NAME', ''].map(name => scope.envNameValid(name as never))).toEqual([true, true, true, false, false, false]);
+  const state: Obj = { variables: [row(' API_KEY ')], published: [] };
+  dialog.call('commitVariables', state, scope, []);
+  expect([state.variables, state.published]).toEqual([[row('API_KEY')], [row('API_KEY')]]);
+  state.variables = [row('API_KEY'), row('1BAD')];
+  dialog.call('commitVariables', state, scope, []);
+  expect(state.published).toEqual([row('API_KEY')]);
+  dialog.call('toggleVariableSensitive', state, scope, [0]);
+  expect(state.published).toEqual([row('API_KEY')]); // still a bad name among the rows
+  dialog.call('removeVariable', state, scope, [1]);
+  expect(state.published).toEqual([row('API_KEY', 'v', false)]);
+  state.variables = [row('API_KEY', 'v', false), row('', '')]; // a row left as added
+  dialog.call('commitVariables', state, scope, []);
+  expect(state.published).toEqual([row('API_KEY', 'v', false)]);
+  dialog.call('addVariable', state, scope, []);
+  expect(state.published).toEqual([row('API_KEY', 'v', false)]); // adding a row publishes nothing
+  const source = appText('providers-wizard.contract');
+  expect(source).toContain('fn envNameValid(name: string): bool = name != "" and not "0123456789".includes(name.slice(0, 1)) and name.split("").filter((c) => not "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_".includes(c)).length == 0');
+  expect(source).toContain('Tip(label=(variable.sensitive ? "Sensitive, stored separately" : "Plain text"), side="top", align="center", offset=24)');
+  expect(source).toContain('aria-pressed=variable.sensitive aria-label=(variable.name != "" ? `Mark environment variable ${variable.name} as sensitive` : `Mark environment variable ${index + 1} as sensitive`)');
+  expect(source).toContain('aria-label=(variable.name != "" ? `Remove environment variable ${variable.name}` : `Remove environment variable ${index + 1}`)');
+  expect(source.match(/blur=commitVariables submit=commitVariables/g)).toHaveLength(2);
+  expect(source).toContain('text "Sensitive values are stored separately and never returned to the app."');
+});
+
+// handleManualAcpConfiguration and handleLocalAcpConfiguration drop an agent added before them (selectedAcp = null):
+// the wizard's answer forgets it as the agent epoch moves, so the Identity step shows no card, a label by hand starts
+// empty, and a local command never takes its ID.
+test('Add provider: an agent added before Enter manually or Local ACP command is forgotten', async () => {
+  const server = new FakeServer();
+  const wizard = (epoch: number) => providerWizard(server, true, 9, 'acpRegistry', false, '', false, '', '', '', epoch);
+  wizard(0);
+  expect(await runProviderOp(server, native, 'acp-prepare', '', JSON.stringify({ key: 'devin', value: 'Devin' }))).toBe('');
+  expect([wizard(0).prepared.map(agent => agent.id), wizard(0).label]).toEqual([['devin'], 'Devin']);
+  expect([wizard(1).prepared, wizard(1).label]).toEqual([[], '']);
+  await expect(runProviderOp(server, native, 'provider-add', '', JSON.stringify({ driver: 'acpRegistry', label: '', fields: {}, commandArgs: [], environment: [] })))
+    .rejects.toThrow('Select an ACP or configure one manually.');
+  expect(await runProviderOp(server, native, 'provider-add', '', JSON.stringify({ driver: 'acpRegistry', label: 'Local ACP', fields: providerFieldValues('acpRegistry', ['local', '', 'dsh', '', '']),
+    commandArgs: [], environment: [] }))).toBe('');
+  expect(obj(obj(server.settings.providerInstances).acpRegistry_local_acp).config).toEqual({ source: 'local', commandPath: 'dsh', commandArgs: [], distribution: 'auto' });
+  // A prepared agent still current never goes with a local command either.
+  wizard(1);
+  await runProviderOp(server, native, 'acp-prepare', '', JSON.stringify({ key: 'devin', value: 'Devin' }));
+  expect(await runProviderOp(server, native, 'provider-add', '', JSON.stringify({ driver: 'acpRegistry', label: 'Local two', fields: providerFieldValues('acpRegistry', ['local', '', 'dsh', '', '']),
+    commandArgs: [], environment: [] }))).toBe('');
+  expect(obj(obj(server.settings.providerInstances).acpRegistry_local_two).config).toEqual({ source: 'local', commandPath: 'dsh', commandArgs: [], distribution: 'auto' });
+  // The epoch is the root's, through the wizard's resource and the scoped source.
+  expect(appText('app.contract')).toContain('providerDialog, providerTarget, providerPage.environment, wizardAgentEpoch) as shape ProviderWizard');
+  expect(appText('providers-scope.ts')).toContain("dialog, target, Number(args[11]) || 0);");
 });
 
 test('ACP registry search and prepare fill the identity step without installing during search', async () => {
@@ -338,12 +472,13 @@ test("a Claude instance's own idle compaction: a select after Auto-compact after
 
 // ProviderModelsSection's custom model field: CUSTOM_MODEL_PLACEHOLDER_BY_KIND names five drivers' slugs, and every
 // other driver's field has no placeholder (ProviderModelsSection.tsx:20-26,411).
-test("the custom model field shows its driver's placeholder, and none for fx or Grok", () => {
+test("the custom model field shows its driver's placeholder, and none for fx, Grok, Muse or the ACP Registry", () => {
   const server = new FakeServer();
-  server.settings.providerInstances = { ...obj(server.settings.providerInstances), fx_work: { driver: 'fx', enabled: true }, grok_work: { driver: 'grok', enabled: true } };
+  server.settings.providerInstances = { ...obj(server.settings.providerInstances), fx_work: { driver: 'fx', enabled: true }, grok_work: { driver: 'grok', enabled: true },
+    muse_work: { driver: 'muse', enabled: true }, acp_work: { driver: 'acpRegistry', enabled: true, config: { agentId: 'devin' } } };
   server.config = server.snapshot();
   const placeholder = (id: string) => providerPage(server, id, 0).editors[0]!.modelPlaceholder;
-  expect([placeholder('exact_fixture'), placeholder('fx_work'), placeholder('grok_work')]).toEqual(['gpt-6.7-codex-ultra-preview', '', '']);
+  expect(['exact_fixture', 'fx_work', 'grok_work', 'muse_work', 'acp_work'].map(placeholder)).toEqual(['gpt-6.7-codex-ultra-preview', '', '', '', '']);
 });
 
 // packages/provider-fx: its client icon in Grok's ink, its entry in PROVIDER_DISPLAY_NAMES (model.ts), and the search terms.

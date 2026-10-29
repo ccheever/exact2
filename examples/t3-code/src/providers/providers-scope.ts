@@ -115,7 +115,7 @@ export async function scopedProviderWizard(client: T3Client, native: Native | nu
   const tab = target.indexOf('\t'), pickerEntry = dialog === 'codex-picker' && tab >= 0 ? appFleet.entries.get(target.slice(0, tab)) : undefined;
   const streamHost = pickerEntry ? ownedHost(client, pickerEntry) : host;
   if (native?.available) await watchOn('wizard', streamHost, native, wizardSetupStreams(streamHost, open, serial, dialog, pickerEntry ? target.slice(tab + 1) : target));
-  return providerWizard(host, open, serial, String(args[2] || 'codex'), args[3] === true, String(args[4] || ''), args[5] === true, String(args[6] || ''), dialog, target);
+  return providerWizard(host, open, serial, String(args[2] || 'codex'), args[3] === true, String(args[4] || ''), args[5] === true, String(args[6] || ''), dialog, target, Number(args[11]) || 0);
 }
 
 /** The ACP Registry search on the page's environment (args[3]), marking the agents it already has. */
