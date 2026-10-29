@@ -48,7 +48,7 @@ pub fn plan_alone(args: &[String]) -> ExitCode {
                 &v["request"],
                 v["design"].as_str(),
                 &kept,
-                Path::new(design).parent(),
+                app_root(Path::new(design)).as_deref(),
             ) {
                 Ok(ok) => json!({ "ok": ok }),
                 Err(error) => json!({ "error": error }),
@@ -152,6 +152,7 @@ pub fn run(args: &[String]) -> ExitCode {
             let brands = exact_tamber::import::brand::brands(
                 &import,
                 &design,
+                &current,
                 &contract_lower::tamber_vocab(),
                 &pairs,
             );
@@ -367,6 +368,7 @@ pub fn plan(
             let brands = exact_tamber::import::brand::brands(
                 &import,
                 &design,
+                current,
                 &contract_lower::tamber_vocab(),
                 &brand_pairs(app_dir),
             );
@@ -426,6 +428,16 @@ const BRAND_PAIRS: [(&str, &str); 2] = [
     ("actions.follow-fill", "actions.follow-ink"),
     ("cards.empty-button", "cards.empty-button-ink"),
 ];
+
+/// The app a design file belongs to: the nearest directory above it with an
+/// `app.json` (app.json's `tamber` may put the design in a folder of its own).
+fn app_root(design: &Path) -> Option<std::path::PathBuf> {
+    design
+        .ancestors()
+        .skip(1)
+        .find(|d| d.join("app.json").is_file())
+        .map(Path::to_path_buf)
+}
 
 /// The brand pairs the app's packages declare, fill and ink both; none
 /// without an app.

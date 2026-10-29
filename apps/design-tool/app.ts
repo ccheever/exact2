@@ -598,7 +598,7 @@ let heldRaw: any[] = [], heldDesign = -1;
  * tokens with their values per mode, the role overrides it offers, the
  * values it could not map and why, and the count check. */
 function reviewOf(p: any) {
-  const r = p.review, none = { importer: '', mapped: [], offers: [], brands: [], unmapped: [], counted: '', countOk: true, from: '', kept: false };
+  const r = p.review, none = { importer: '', mapped: [], offers: [], brands: [], unmapped: [], counted: '', countOk: true, from: '', kept: false, brandsKept: false };
   if (!r?.importer) return none;
   const ops: any[] = (p.ops ?? []).map((o: { op: unknown }) => o.op);
   // A swatch for a colour a page can paint: a reference to a token the
@@ -647,7 +647,9 @@ function reviewOf(p: any) {
   });
   const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept, on = startsChosen(p, r), chose = heldChoice.base(String(p.proposal)), base = chose && new Set(chose);
   return {
-    importer: String(r.importer), mapped: mapped.map(m => ({ ...m, on: !base || base.has(m.index) })), from: String(r.from ?? ''), kept: base ? [...(r.offers ?? []), ...(r.brands ?? [])].some((o: any) => (o.items ?? []).length > 0 && (o.items as number[]).every(i => base.has(i))) : on,
+    importer: String(r.importer), mapped: mapped.map(m => ({ ...m, on: !base || base.has(m.index) })), from: String(r.from ?? ''), kept: base ? (r.offers ?? []).some((o: any) => (o.items ?? []).length > 0 && (o.items as number[]).every(i => base.has(i))) : on,
+    // (and the brand fills' heading their own: a ticked brand fill doesn't relabel the role overrides)
+    brandsKept: base ? (r.brands ?? []).some((o: any) => (o.items ?? []).length > 0 && (o.items as number[]).every(i => base.has(i))) : on,
     // Off until ticked; in a recomputed import, the ones it kept were
     // ticked already, so they are on. One with no items is one
     // the importer could not make, its note saying why; in a recomputed

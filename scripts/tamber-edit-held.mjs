@@ -32,8 +32,10 @@ export function edited(request, p) {
   const review = old && {
     ...old, kept: true, from: p.shown.proposal,
     offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
-    // Its brand offers (*1.18*) as its offers: each kept whole, an edit holding the import again whole.
-    ...(old.brands === undefined ? {} : { brands: old.brands.map(b => ({ ...b, items: (b.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })).filter(b => b.items.length) }),
+    // Its brand offers (*1.18*) as its offers, but one whose accent this edits: its ink was chosen for the accent's
+    // old value, so it goes, and the review says so (an import again offers it with an ink for the new one).
+    ...(old.brands === undefined ? {} : { brands: old.brands.filter(b => b.token !== op.name).map(b => ({ ...b, items: (b.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })).filter(b => b.items.length) }),
+    ...(old.brands?.some(b => b.token === op.name) ? { notes: [...(old.notes ?? []), `\`${op.name}\` changed in this edit, so the brand fills set to it aren't offered: import again to have them, with inks for its new value`] } : {}),
     ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
   };
   if (review) { delete review.dials; delete review.pins; }

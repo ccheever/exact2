@@ -100,7 +100,8 @@ export async function importTheme(argv) {
   const { ops, review } = importReview(imported);
   say(review);
   // The source as the design has it already: nothing to propose.
-  if (!imported.ops.length) { console.log('nothing to propose: the design has every mapped value already'); return 0; }
+  // (A re-import whose only news is a brand offer, *1.18*, is held for it, as the wire holds one.)
+  if (!imported.ops.length && !review.brands?.length) { console.log('nothing to propose: the design has every mapped value already'); return 0; }
   const held = await post({ method: 'propose', hold: true, client, ops, review, files: { [relative(app, designPath(app))]: imported.digest } });
   if (!held.ok) return fail(held.error);
   told(held.ok.proposal, ops, review);

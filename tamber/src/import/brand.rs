@@ -34,7 +34,12 @@ pub fn ink_on(value: &str, vocab: &Vocab) -> Option<BrandInk> {
         vocab,
     )
     .ok()?;
-    let sides = match checked.tokens.first()?.values.first()?.color()? {
+    ink_over(checked.tokens.first()?.values.first()?.color()?)
+}
+
+/// The ink for text on a folded fill.
+fn ink_over(fill: &Folded) -> Option<BrandInk> {
+    let sides = match fill {
         Folded::One(h) => [h.clip(), h.clip()],
         Folded::Pair(l, d) => [l.clip(), d.clip()],
         Folded::Host(_) => return None,
@@ -85,59 +90,38 @@ pub struct Brand {
 }
 
 /// The brand offers an import makes for `pairs`, each a package's brand
-/// fill and its ink's token that the app's packages declare. None without
-/// an accent (the token the import offers as `AccentColor`, or the one the
-/// design's `AccentColor` already names; one that varies by an app axis is
-/// not offered), for one whose value isn't a colour of its own, or for a
-/// fill the app already sets to it.
+/// fill and its ink's token that the app's packages declare, planned on
+/// `current` (the design's text, `design` parsed). None without the
+/// importer's accent, when its `AccentColor` override is refused (it varies
+/// by an app axis, keeps `when` lines, or would orphan a dial), when the
+/// accent folds to no colour of its own on the design the import proposes,
+/// or for a pair the app already sets to the accent and that ink.
 pub fn brands(
     import: &Import,
     design: &Design,
+    current: &str,
     vocab: &Vocab,
     pairs: &[(String, String)],
 ) -> Vec<Brand> {
-    // The accent its `AccentColor` offer names; or, with that override already in the design (no offer left to
-    // make), the token the design's `AccentColor` names, when the import writes it or the design has it.
-    let offered = import
-        .offers
-        .iter()
-        .find(|o| o.role == "AccentColor" && !o.ops.is_empty())
-        .map(|o| o.token.clone());
-    let kept = || {
-        let named = design
-            .tokens
-            .iter()
-            .find(|t| t.name.value == "AccentColor" && t.whens.is_empty())?
-            .value
-            .value
-            .trim()
-            .to_string();
-        let known = import.ops.iter().any(|op| {
-            matches!(op, Op::AddToken { name, .. } | Op::SetToken { name, .. } if *name == named)
-        }) || design.tokens.iter().any(|t| t.name.value == named);
-        known.then_some(named)
-    };
-    let Some(accent) = offered.or_else(kept) else {
+    let Some(accent) = import.accent.clone() else {
         return Vec::new();
     };
-    let value = import.ops.iter().rev().find_map(|op| match op {
-        Op::AddToken {
-            name, value, whens, ..
-        } if *name == accent && whens.is_empty() => Some(value.clone()),
-        Op::SetToken {
-            name, value, when, ..
-        } if *name == accent && when.is_empty() => Some(value.clone()),
-        _ => None,
-    });
-    // The design's own value when the import leaves the token as it is.
-    let value = value.or_else(|| {
-        design
-            .tokens
-            .iter()
-            .find(|t| t.name.value == accent && t.whens.is_empty())
-            .map(|t| t.value.value.clone())
-    });
-    let Some(ink) = value.as_deref().and_then(|v| ink_on(v, vocab)) else {
+    if import
+        .offers
+        .iter()
+        .any(|o| o.role == "AccentColor" && o.ops.is_empty())
+    {
+        return Vec::new();
+    }
+    // The accent as the design the import proposes folds it: a value naming
+    // another of its tokens (`var(--brand)`) reads that one.
+    let proposed = crate::apply_all(current, &import.ops, vocab)
+        .map(|a| a.text)
+        .unwrap_or_else(|_| current.to_string());
+    let Some(ink) = crate::check(&proposed, vocab).ok().and_then(|f| {
+        let token = f.tokens.iter().find(|t| t.name == accent)?;
+        ink_over(token.values.first()?.color()?)
+    }) else {
         return Vec::new();
     };
     let note = (ink.below[0] || ink.below[1]).then(|| {
@@ -154,32 +138,36 @@ pub fn brands(
             schemes.join(", ")
         )
     });
+    // The app's own line for a token, if it has one.
+    let own = |name: &str| design.tokens.iter().find(|t| t.name.value == name);
+    let set = |name: &str, value: &str| -> Vec<Op> {
+        // The value in every mode: the app's own `when` lines for it go, so
+        // what the offer measured is what each mode shows.
+        std::iter::once(Op::SetToken {
+            name: name.into(),
+            when: Vec::new(),
+            value: value.into(),
+            at: None,
+            comment: None,
+        })
+        .chain(own(name).into_iter().flat_map(|t| {
+            t.whens.iter().map(|w| Op::UnsetTokenWhen {
+                name: name.into(),
+                when: w.conds.clone(),
+            })
+        }))
+        .collect()
+    };
+    let already = |name: &str, value: &str| {
+        own(name).is_some_and(|t| t.value.value.trim() == value && t.whens.is_empty())
+    };
     pairs
         .iter()
-        .filter(|(fill, _)| {
-            !design.tokens.iter().any(|t| {
-                t.name.value == *fill && t.value.value.trim() == accent && t.whens.is_empty()
-            })
-        })
+        .filter(|(fill, ink_token)| !(already(fill, &accent) && already(ink_token, &ink.value)))
         .map(|(fill, ink_token)| Brand {
             sets: fill.clone(),
             token: accent.clone(),
-            ops: vec![
-                Op::SetToken {
-                    name: fill.clone(),
-                    when: Vec::new(),
-                    value: accent.clone(),
-                    at: None,
-                    comment: None,
-                },
-                Op::SetToken {
-                    name: ink_token.clone(),
-                    when: Vec::new(),
-                    value: ink.value.clone(),
-                    at: None,
-                    comment: None,
-                },
-            ],
+            ops: [set(fill, &accent), set(ink_token, &ink.value)].concat(),
             note: note.clone(),
             contrast: ink.contrast,
         })

@@ -1264,7 +1264,7 @@ list is unchanged: it keeps its own.
   - `unmapped` is `[{block, name, value, why, token}]`;
   - `offers` is `[{role, token, items, note}]`;
   - `brands` (*1.18*), when there are any, is `[{sets, token, items, note?, contrast}]`: the import's accent (the
-    token its `AccentColor` offer names) offered as a package's brand fill, a filled control the platform's accent
+    token its source's accent maps to, which its `AccentColor` offer names, or the design's override already does) offered as a package's brand fill, a filled control the platform's accent
     doesn't reach (`actions.follow-fill`, `cards.empty-button`), where the app's packages declare it and its ink.
     A brand offer is told apart from a role override by `sets`, the package token it sets for the app; it has no
     `role`, and sits in a list of its own, so a client that reads only `offers` never shows one and, naming the
@@ -1272,7 +1272,9 @@ list is unchanged: it keeps its own.
     black for each scheme, whichever reaches 4.5:1 on that scheme's fill (`light-dark(…)` when they differ);
     `contrast` is `{light, dark}`, the ratio the ink reaches, cut to two places as the checker's are, or null on a
     fill that isn't opaque, where `note` says so. Like a role override, it is off until ticked, and a bare `accept`
-    leaves out one with a `note`;
+    leaves out one with a `note` (unless it was chosen in a partial accept). An `edit-held` of the accent drops the
+    brand offers set to it, with a `notes` line saying so, and a partial accept that keeps one but not its accent's
+    operation leaves it out;
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).

@@ -4,7 +4,7 @@
 
 use crate::common;
 use common::vocab;
-use exact_tamber::import::brand::{brands, ink_on};
+use exact_tamber::import::brand::{brands, ink_on, Brand};
 use exact_tamber::import::shadcn;
 use exact_tamber::{parse, ratio, Op};
 
@@ -23,6 +23,13 @@ fn pairs() -> Vec<(String, String)> {
 /// A shadcn theme whose `--primary` is `light` in :root and `dark` in .dark.
 fn theme(light: &str, dark: &str) -> String {
     format!(":root {{\n  --background: #ffffff;\n  --primary: {light};\n}}\n.dark {{\n  --background: #000000;\n  --primary: {dark};\n}}\n")
+}
+
+/// A shadcn import of `css` into the design `text`, and its brand offers.
+fn offered(text: &str, css: &str) -> Vec<Brand> {
+    let design = parse(text).unwrap();
+    let import = shadcn::import(css, "shadcn", &design, &vocab()).unwrap();
+    brands(&import, &design, text, &vocab(), &pairs())
 }
 
 fn set(op: &Op) -> (&str, &str) {
@@ -60,12 +67,12 @@ fn a_mid_tone_accent_still_reaches_4_5_and_a_translucent_one_is_offered_with_a_w
     assert!(mid.contrast[0].unwrap() >= 4.58, "{mid:?}");
     assert_eq!(mid.below, [false, false]);
     // A fill that isn't opaque has no one ratio: offered, marked, never ticked.
-    let css = theme("rgb(0 106 255 / 50%)", "rgb(0 106 255 / 50%)");
-    let design = parse("tamber app\n").unwrap();
-    let import = shadcn::import(&css, "shadcn", &design, &vocab()).unwrap();
-    let offered = brands(&import, &design, &vocab(), &pairs());
-    assert_eq!(offered.len(), 2, "{offered:?}");
-    for b in &offered {
+    let translucent = offered(
+        "tamber app\n",
+        &theme("rgb(0 106 255 / 50%)", "rgb(0 106 255 / 50%)"),
+    );
+    assert_eq!(translucent.len(), 2, "{translucent:?}");
+    for b in &translucent {
         assert_eq!(b.contrast, [None, None]);
         let note = b.note.as_deref().unwrap();
         assert!(
@@ -77,13 +84,10 @@ fn a_mid_tone_accent_still_reaches_4_5_and_a_translucent_one_is_offered_with_a_w
 
 #[test]
 fn a_shadcn_import_offers_both_brand_fills_set_to_its_accent_with_their_inks() {
-    let css = theme("#006aff", "#ffd400");
-    let design = parse("tamber app\n").unwrap();
-    let import = shadcn::import(&css, "shadcn", &design, &vocab()).unwrap();
-    let offered = brands(&import, &design, &vocab(), &pairs());
-    let sets: Vec<&str> = offered.iter().map(|b| b.sets.as_str()).collect();
+    let both = offered("tamber app\n", &theme("#006aff", "#ffd400"));
+    let sets: Vec<&str> = both.iter().map(|b| b.sets.as_str()).collect();
     assert_eq!(sets, ["actions.follow-fill", "cards.empty-button"]);
-    for (b, (fill, ink)) in offered.iter().zip(PAIRS) {
+    for (b, (fill, ink)) in both.iter().zip(PAIRS) {
         assert_eq!(b.token, "shadcn.primary");
         assert_eq!(b.note, None);
         assert_eq!(set(&b.ops[0]), (fill, "shadcn.primary"));
@@ -92,34 +96,68 @@ fn a_shadcn_import_offers_both_brand_fills_set_to_its_accent_with_their_inks() {
 }
 
 #[test]
-fn no_accent_no_brand_offer_and_a_fill_already_the_accent_is_left_alone() {
-    // Without a --primary there is no AccentColor offer, so nothing here.
+fn no_accent_no_brand_offer_and_a_pair_already_the_accent_and_its_ink_is_left_alone() {
+    // Without a --primary the import carries no accent: nothing here, even
+    // with an AccentColor of the design's own naming another token.
     let css = ":root {\n  --background: #ffffff;\n}\n";
-    let design = parse("tamber app\n").unwrap();
-    let import = shadcn::import(css, "shadcn", &design, &vocab()).unwrap();
-    assert!(brands(&import, &design, &vocab(), &pairs()).is_empty());
-    // The app already sets FollowButton's fill to the accent: only EmptyState's.
-    let design = parse("tamber app\n\ntheme\n  actions.follow-fill = shadcn.primary\n").unwrap();
-    let import = shadcn::import(&theme("#006aff", "#006aff"), "shadcn", &design, &vocab()).unwrap();
-    let sets: Vec<String> = brands(&import, &design, &vocab(), &pairs())
+    assert!(offered("tamber app\n", css).is_empty());
+    let own = "tamber app\n\ntheme\n  brand = #006aff\n  AccentColor = brand\n";
+    assert!(offered(own, css).is_empty(), "{:?}", offered(own, css));
+    // FollowButton's fill and ink are already the accent and white: only EmptyState's.
+    let set_both = "tamber app\n\ntheme\n  actions.follow-fill = shadcn.primary\n  actions.follow-ink = #ffffff\n";
+    let sets: Vec<String> = offered(set_both, &theme("#006aff", "#006aff"))
         .into_iter()
         .map(|b| b.sets)
         .collect();
     assert_eq!(sets, ["cards.empty-button"]);
+    // The fill already the accent but a yellow one now: its black ink is offered.
+    let again = offered(set_both, &theme("#ffd400", "#ffd400"));
+    let follow = again
+        .iter()
+        .find(|b| b.sets == "actions.follow-fill")
+        .unwrap();
+    assert_eq!(set(&follow.ops[1]), ("actions.follow-ink", "#000000"));
 }
 
 #[test]
 fn with_the_accent_override_already_in_the_design_the_brand_fills_are_still_offered() {
     // A re-import after AccentColor = shadcn.primary was accepted: no AccentColor offer is left to make.
-    let design =
-        parse("tamber app\n\ntheme\n  shadcn.primary = #006aff\n  AccentColor = shadcn.primary\n")
-            .unwrap();
+    let text = "tamber app\n\ntheme\n  shadcn.primary = #006aff\n  AccentColor = shadcn.primary\n";
+    let design = parse(text).unwrap();
     let import = shadcn::import(&theme("#006aff", "#006aff"), "shadcn", &design, &vocab()).unwrap();
     assert!(!import
         .offers
         .iter()
         .any(|o| o.role == "AccentColor" && !o.ops.is_empty()));
-    let offered = brands(&import, &design, &vocab(), &pairs());
-    assert_eq!(offered.len(), 2, "{offered:?}");
-    assert!(offered.iter().all(|b| b.token == "shadcn.primary"));
+    let brands = brands(&import, &design, text, &vocab(), &pairs());
+    assert_eq!(brands.len(), 2, "{brands:?}");
+    assert!(brands.iter().all(|b| b.token == "shadcn.primary"));
+}
+
+#[test]
+fn an_accent_naming_another_token_is_read_through_it() {
+    // shadcn keeps `--primary: var(--brand)` as a reference to its own token.
+    let css = ":root {\n  --brand: #ffd400;\n  --primary: var(--brand);\n}\n.dark {\n  --brand: #ffd400;\n  --primary: var(--brand);\n}\n";
+    let both = offered("tamber app\n", css);
+    assert_eq!(both.len(), 2, "{both:?}");
+    assert_eq!(set(&both[0].ops[1]), ("actions.follow-ink", "#000000"));
+}
+
+#[test]
+fn an_ink_the_app_varies_by_mode_is_one_value_in_every_mode() {
+    // The app's own ink keeps a compact-mode line: the offer takes it out, so
+    // the ratio it measured is the one every mode shows.
+    let text = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  actions.follow-ink = #ffffff\n    when density=compact: #000000\n";
+    let both = offered(text, &theme("#006aff", "#006aff"));
+    let follow = both
+        .iter()
+        .find(|b| b.sets == "actions.follow-fill")
+        .unwrap();
+    assert!(
+        follow.ops.iter().any(
+            |op| matches!(op, Op::UnsetTokenWhen { name, .. } if name == "actions.follow-ink")
+        ),
+        "{:?}",
+        follow.ops
+    );
 }

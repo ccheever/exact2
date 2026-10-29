@@ -226,6 +226,8 @@ shape Held
   // choice.ts `startsChosen`).
   from: string
   kept: bool
+  // Whether its brand fills begin on, as `kept` is for its offers.
+  brandsKept: bool
 
 // An import started from picked files: the proposal it holds, or why not.
 shape Imported

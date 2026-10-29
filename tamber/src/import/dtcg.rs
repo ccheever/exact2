@@ -1483,5 +1483,6 @@ fn planned_unbounded(
         dials: Vec::new(),
         pins: Vec::new(),
         notes: Vec::new(),
+        accent: None,
     })
 }

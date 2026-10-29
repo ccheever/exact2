@@ -43,6 +43,10 @@ pub struct Import {
     /// What decided a choice the import made that the source didn't say
     /// (a Pencil number's kind, by the properties that read it).
     pub notes: Vec<String>,
+    /// The token the source's accent maps to (shadcn's `primary`, Astryx's
+    /// `accent`), whether or not an `AccentColor` override is offered for it:
+    /// what a brand offer sets a package's brand fill to.
+    pub accent: Option<String>,
 }
 
 /// One offered choice: what it means and its operations (none where the

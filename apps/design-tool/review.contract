@@ -75,7 +75,7 @@ component Proposals
                 if o.note != ""
                   text o.note color="-exact-secondary-label" font="-exact-caption1" testId=`offer-note-${h.proposal}-${o.role}`
             if h.brands.length > 0
-              text (h.kept ? "Brand fills, as ticked" : "Brand fills, off until ticked") role="heading" aria-level=3
+              text (h.brandsKept ? "Brand fills, as ticked" : "Brand fills, off until ticked") role="heading" aria-level=3
               for b in h.brands key=b.sets
                 row gap=8 align-items="center" flex-wrap="wrap" testId=`brand-${h.proposal}-${b.sets}`
                   input type="checkbox" disabled=(writing or not canWrite) checked=(b.on != picked.includes(`${h.proposal}:${b.items}`)) change=toggleOffer(`${h.proposal}:${b.items}`, b.on) aria-label=`${b.sets} = ${b.token}` testId=`brand-take-${h.proposal}-${b.sets}`

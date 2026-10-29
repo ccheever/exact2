@@ -438,12 +438,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
           // Its own diff and tokens: the items kept, as the server plans them.
           const kept = (p.ops as { index: number; op: { name?: string } }[]).filter(o => request.items.includes(o.index));
           // Its review renumbered to the items kept, as the server's is.
-          const review = p.review as { tokens?: number; offers?: { items?: number[] }[]; dials?: { items?: number[] }[]; pins?: { items?: number[] }[] } | undefined;
+          const review = p.review as { tokens?: number; offers?: { items?: number[] }[]; brands?: { items?: number[] }[]; dials?: { items?: number[] }[]; pins?: { items?: number[] }[] } | undefined;
           const at = (i: number) => kept.findIndex(o => o.index === i);
           const renumber = (all: { items?: number[] }[]) => all.map(o => ({ ...o, items: (o.items ?? []).map(at).filter(i => i >= 0) }));
           // A re-import's dials and pins too, those whose operations it kept (stage 10b).
           const marks = review && Object.fromEntries((['dials', 'pins'] as const).filter(k => review[k]).map(k => [k, renumber(review[k]!).filter(m => m.items.length)]).filter(([, all]) => all.length));
-          const remapped = review && { ...review, dials: undefined, pins: undefined, ...marks, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: renumber(review.offers ?? []) };
+          const remapped = review && { ...review, dials: undefined, pins: undefined, ...marks, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: renumber(review.offers ?? []), ...(review.brands ? { brands: renumber(review.brands).filter(b => b.items.length) } : {}) };
           const fresh = { ...p, choice: undefined, choiceBy: undefined, choiceAt: undefined, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: kept.map((o, index) => ({ index, op: o.op })), ...(remapped ? { review: remapped } : {}), diff: `--- app.tamber\n+++ app.tamber\n${kept.map(o => `+  ${o.op.name} (kept)`).join('\n')}\n`, changed: kept.map(o => ({ file: 'app.tamber', token: o.op.name })) };
           held.push(fresh);
           return send({ ok: { recomputed: true, replaces: p.proposal, proposal: fresh.proposal } });
@@ -462,7 +462,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
         const keep: number[] = request.items ?? ops.map((_: unknown, i: number) => i);
         const id = `edited-${++holds}`;
         // (its review renumbered to the items kept, as the server's: an offer whose items all go is offered no more)
-        const review = old.review && { ...old.review, kept: true, from: request.proposal, offers: (old.review.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })) };
+        const renumbered = (all: any[]) => all.map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) }));
+        const review = old.review && { ...old.review, kept: true, from: request.proposal, offers: renumbered(old.review.offers ?? []), ...(old.review.brands ? { brands: renumbered(old.review.brands).filter((b: any) => b.items.length) } : {}) };
         // (its choice carried, the kept ones renumbered)
         const choice = old.choice && { choice: old.choice.filter((i: number) => keep.includes(i)).map((i: number) => keep.indexOf(i)), choiceBy: old.choiceBy, choiceAt: 1 };
         held = held.filter(h => h.proposal !== request.proposal).concat([{ ...old, choice: undefined, choiceBy: undefined, choiceAt: undefined, ...choice, proposal: id, ops: keep.map((i, index) => ({ index, op: ops[i].op })), ...(review ? { review } : {}), replaces: request.proposal, editedBy: request.client }]);

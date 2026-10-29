@@ -423,6 +423,8 @@ fn import_unbounded(
         dials: Vec::new(),
         pins: Vec::new(),
         notes: Vec::new(),
+        accent: Some(tamber_name(prefix, &["primary"]))
+            .filter(|name| tokens.iter().any(|t| t.name == *name && t.kind.is_none())),
     })
 }
 

@@ -1053,8 +1053,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       if (!plan.ok) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'stale' }); return plan; }
       return replaced(await hold(p.client, plan.ok.ops, plan.ok.files, id, plan.ok.review, undefined, 'write', undefined, true));
     };
-    const replaced = fresh => {
+    const replaced = (fresh, chose = false) => {
       if (!fresh.ok) { restore(id, p); return fresh; } else if (p.reimport) proposals.get(fresh.ok.proposal).reimport = true;
+      // The brand offers a partial accept kept were chosen (*1.18*): a bare accept of the proposal held again takes them.
+      if (chose) proposals.get(fresh.ok.proposal).brandsChosen = true;
       send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: request.client, reason: 'replaced', replacedBy: fresh.ok.proposal });
       return { ok: { recomputed: true, replaces: id, ...fresh.ok } };
     };
@@ -1077,16 +1079,21 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       if (!p.reimport && review) { delete review.dials; delete review.pins; } // a client's own marks are not carried past its operations
       try { if (p.reimport && !reverted) for (let i = 0; i < 3 && (!i || fresh.error?.conflict); i++) fresh = await remark(); else fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review, reverted ? undefined : own, 'write', undefined, p.restoring, p.shown.editedBy); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
-      return replaced(fresh);
+      return replaced(fresh, true);
     };
     const some = items && new Set(items).size < p.ops.length;
     if (some) {
-      const kept = [...new Set(items)].sort((a, b) => a - b);
+      let kept = [...new Set(items)].sort((a, b) => a - b);
+      // A brand offer kept without the accent operation it sets its fill to (*1.18*) is left out too: its ink was
+      // chosen for that accent's value, not for whatever the design has under that name.
+      const accentAt = b => p.ops.findIndex(op => (op.op === 'add-token' || op.op === 'set-token') && op.name === b.token);
+      for (const b of p.shown.review?.brands ?? []) if (accentAt(b) >= 0 && !kept.includes(accentAt(b))) kept = kept.filter(i => !(b.items ?? []).includes(i));
       return recompute(kept.map(i => p.ops[i]), kept);
     }
-    // A bare accept (no `items`, nothing chosen) takes every operation but a brand offer whose ink falls below 4.5:1
-    // in a scheme (*1.18*, theme2's 03:04 ruling): a contrast failure lands only when it is named.
-    const warned = request.items === undefined && !p.shown.choice ? new Set((p.shown.review?.brands ?? []).filter(belowContrast).flatMap(b => b.items ?? [])) : new Set();
+    // A bare accept (no `items`, nothing chosen, not a partial accept's proposal held again) takes every operation but
+    // a brand offer whose ink falls below 4.5:1 in a scheme (*1.18*, theme2's 03:04 ruling): a contrast failure lands
+    // only when it is named.
+    const warned = request.items === undefined && !p.shown.choice && !p.brandsChosen ? new Set((p.shown.review?.brands ?? []).filter(belowContrast).flatMap(b => b.items ?? [])) : new Set();
     const writing = warned.size ? p.ops.filter((_, i) => !warned.has(i)) : p.ops;
     // The write's own end, whenever the server answers (a client told it
     // timed out included): accepted, or held again unless it went stale.
