@@ -1,7 +1,7 @@
 // App files as a request's body or a reply's: loaded only when a fetch asks for one.
 import { coversPath, FetchError, fetchWith, ownWithout, within } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { files } from './ts-fetch.js';
+import { files, ownSignal } from './ts-fetch.js';
 
 // `exactBodyFrom` (LLP 1108 D6 R2), with Hermes's checks and words
 // (js/src/prelude.js): the app file at that path is the body, read from the
@@ -45,7 +45,7 @@ function openBodyTarget(path, grantSet) {
   if (!coversPath(grantSet, 'fs.write', path)) return Promise.reject(Object.assign(new FetchError('Refused', `exactBodyTo ${path}: denied: fs.write ${path}: no grant covers it; grant \`fs.write ${path}\``), { code: 'denied' }));
   return storageFs().then(m => m.bodyTarget(files.appId, grantSet, path)).catch(error => { throw storageFailure(error); });
 }
-export async function fromFile(input, init, redirect, started, origin = 'app') {
+export async function fromFile(input, init, redirect, started, origin = 'app', armed) {
   const from = init.exactBodyFrom !== undefined, to = init.exactBodyTo !== undefined;
   const refusal = (from ? bodyFromRefusal(input, init) : null) ?? (to ? bodyToRefusal(input, init) : null);
   if (refusal) throw new TypeError(refusal);
@@ -54,19 +54,22 @@ export async function fromFile(input, init, redirect, started, origin = 'app') {
   // The file work counts against the deadline and yields to the caller's
   // abort, as the exchange does: nothing is sent once either has ended it.
   // (This module's own `setTimeout` and `performance` are the app's refusals.)
-  const signal = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : null;
+  // The caller's signal as `fetchOf` read it, an inherited one too, or the input `Request`'s
+  const signal = init.signal !== undefined ? init.signal : typeof Request === 'function' && input instanceof Request ? input.signal : null;
   const clock = globalThis.performance, remaining = ms === undefined ? null : ms - (clock.now() - started);
   if (remaining !== null && remaining <= 0) throw new FetchError('Timeout', `the request timed out after ${ms} ms`);
   const deadline = remaining === null ? null : AbortSignal.timeout(Math.max(1, Math.ceil(remaining)));
   // Already aborted: refused before anything is read or a rejection made that nobody would handle.
   if (signal?.aborted) throw signal.reason ?? new FetchError('Aborted', 'the fetch was aborted');
   let stop = () => {};
+  const timedOut = () => new FetchError('Timeout', `the request timed out after ${ms} ms`);
+  const heard = ownSignal(signal);
   const ended = new Promise((_, reject) => {
-    const timedOut = () => reject(new FetchError('Timeout', `the request timed out after ${ms} ms`));
     const aborted = () => reject(signal.reason ?? new FetchError('Aborted', 'the fetch was aborted'));
-    if (signal?.aborted) aborted(); else signal?.addEventListener?.('abort', aborted, { once: true });
-    deadline?.addEventListener('abort', timedOut, { once: true });
-    stop = () => { signal?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', timedOut); };
+    if (signal?.aborted) aborted(); else heard?.addEventListener?.('abort', aborted, { once: true });
+    const expired = () => reject(timedOut());
+    deadline?.addEventListener('abort', expired, { once: true });
+    stop = () => { heard?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', expired); };
   });
   // Work that loses the race is nobody's; a body target that loses it is let go.
   const raced = work => { work.catch(() => {}); return Promise.race([work, ended]); };
@@ -82,17 +85,31 @@ export async function fromFile(input, init, redirect, started, origin = 'app') {
     const spent = clock.now() - started;
     if (ms !== undefined && spent >= ms) throw new FetchError('Timeout', `the request timed out after ${ms} ms`);
     const left = ms === undefined ? undefined : Math.max(1, Math.ceil(ms - spent));
-    const sent = { ...rest, ...(from ? { body } : {}), ...(left === undefined ? {} : { exactTimeout: left }) }, expires = ms === undefined ? null : { at: started + ms, ms };
-    if (!to) return await fetchWith(tsGrantSet, input, sent, expires, redirect, undefined, origin);
+    const sent = { ...rest, signal, ...(from ? { body } : {}), ...(left === undefined ? {} : { exactTimeout: left }) }, expires = ms === undefined ? null : { at: started + ms, ms };
+    if (!to) return await fetchWith(tsGrantSet, input, sent, expires, redirect, undefined, origin, true);
     // A 2xx body goes to the file, counted as it arrives, within the deadline;
     // any other reply is read as usual, at most 1 MiB, and the file is untouched.
     const ceiling = init.exactIndependentHttp?.maxResponseBytes ?? 1073741824;
     let written;
     const response = await fetchWith(tsGrantSet, input, sent, expires, redirect, async reply => {
       if (!reply.ok) return within(reply, Math.min(ceiling, 1048576));
-      try { written = await target.put(reply, ceiling); }
-      catch (error) { throw error?.kind === 'Refused' || error?.kind === 'Unavailable' ? new FetchError('Refused', error.message) : error; }
-    }, origin);
+      // The write asks `refusal`, just before it replaces the file, whether the request has ended: by its abort, or
+      // by its deadline read from the clock, since a deadline's timer may fire a task late (its `exactTimeout`, or its
+      // signal's deadline, which `armed.overdue` aborts at once when due). `ending` wakes the write as it waits.
+      const ending = AbortSignal.any([heard, deadline].filter(Boolean));
+      const refusal = () => {
+        armed?.overdue();
+        return heard?.aborted ? signal.reason ?? new FetchError('Aborted', 'the fetch was aborted')
+          : ms !== undefined && clock.now() >= started + ms ? timedOut() : undefined;
+      };
+      try { written = await target.put(reply, ceiling, ending, refusal); }
+      catch (error) {
+        // The caller's abort reason passes as it is, whether the body read or the write met it; a storage error is a
+        // refusal
+        if (signal?.aborted && error === signal.reason) throw error;
+        throw error?.kind === 'Refused' || error?.kind === 'Unavailable' ? new FetchError('Refused', error.message) : error;
+      }
+    }, origin, true);
     if (written === undefined) return response;
     // The body is the file's now: this response has none, and says what was written.
     const done = new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers });

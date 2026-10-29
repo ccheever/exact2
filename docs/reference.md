@@ -1018,11 +1018,16 @@ time, and a fetch it awaits goes first: a timer raced against that fetch
 fetch lands, so it cannot cut the fetch short, and the journal says so once
 per answer. On the web JS target, whose answers run in the page, both work.
 For a deadline on every host, give the fetch `exactTimeout`: the host keeps
-it on real time, not the app's clock. `AbortSignal.timeout(ms)` is one too,
-on a different clock by host: natively and in the wasm target the fetch
-carries its time left as the host's real-time deadline; on the web JS target
-it is a timer on the page's clock, so under the agent `clock +N` fires it.
-Either way the signal aborts with `TimeoutError`. An answer waiting both for
+it on real time, not the app's clock. `AbortSignal.timeout(ms)` is one too:
+on every host a fetch carrying it takes its time left as a real-time
+deadline, unless an earlier `exactTimeout` is, and if the request is still in
+flight when that passes, the signal aborts with `TimeoutError`, whether its
+answer is over or not. Natively and on the wasm target, whose module realms
+run the same prelude, a fetch whose signal has more than an hour left takes an
+hour as its deadline, which ends it as a `Timeout`, the signal unaborted; the
+web JS target waits for the signal. On the web JS target the signal is also
+a timer on the page's clock while its answer runs, so under the agent
+`clock +N` fires it there too. An answer waiting both for
 another answer's work (a shared fetch) and for a timer of its own is woken by
 whichever comes first on native hosts, for a source on the main thread, and on
 the web JS target; in the wasm target and in a worker-placed source it wakes

@@ -169,11 +169,11 @@ the store.
 - **A fetch a let-go answer's continuation starts** differs by host: natively
   it is refused as `Aborted`, as no answer waits for its reply; on the web it
   runs.
-- **An `AbortSignal.timeout` whose answer was let go** differs by host:
-  natively the signal keeps its deadline, and a request carrying it aborts
-  at it; on the web the timer is the answer's, cleared when the answer is
-  let go, so neither the request that runs on nor another answer's carrying
-  the same signal has a deadline.
+- **An `AbortSignal.timeout` with more than an hour left** differs by host:
+  natively and on the wasm target, which runs the same prelude, the fetch
+  carrying it takes an hour as its deadline, which ends it as a `Timeout`, the
+  signal unaborted; on the web JS target the request ends when the signal
+  aborts.
 - **A live answer's write after an `await`** asks a store reader in flight
   again at once natively, where it runs in its reply's commit; on the web it
   is a write outside a commit, and the reader is asked again once its reply
@@ -359,6 +359,9 @@ servers keep a held request open as long as a case holds it.
   `AbortSignal.timeout`, as it is, composed or beside an `exactTimeout` as
   long, aborts at the request's deadline, which a later answer carrying the
   same signal has too),
+  `host/web-js/answer-timers.test.mjs`, `host/web-js/abort-reason.test.mjs`
+  and `host/web/ts-body-from.test.mjs` (the same on the web, and a body
+  file's request armed before its file work),
   `js/tests/it/superseded.rs` and `host/web-js/answer-timers.test.mjs` (a
   let-go answer's continuation arms no timer) and
   `host/linux/src/app/boot_hold_tests.rs` (a sign-in the boot starts is
