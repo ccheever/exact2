@@ -72,6 +72,7 @@ final class ComposerEditorUIKitTests {
         do { try await voiceCapture() } catch { check(false, "voice capture threw: \(error)") }
         do { try await richObservation() } catch { check(false, "rich observation threw: \(error)") }
         do { try newTaskPlainPaste() } catch { check(false, "NewTask plain paste threw: \(error)") }
+        do { try newTaskKeyboardSubmit() } catch { check(false, "NewTask keyboard submit threw: \(error)") }
         do { try bundledIcons() } catch { check(false, "bundled icons threw: \(error)") }
         for (name, body) in [("handoff transitions", handoffTransitions), ("held retirement", heldRetirement), ("handoff refusal", handoffRefusal), ("handoff Undo", handoffUndo), ("rebased handoff Undo", handoffRebasedTokens)] {
             do { try body() } catch { check(false, "\(name) threw: \(error)") }
@@ -122,6 +123,70 @@ final class ComposerEditorUIKitTests {
         let receipts = (read["value"] as? [String: Any])?["receipts"] as? [[String: Any]] ?? []
         for receipt in receipts where receipt["identity"] as? NSDictionary == identity {
             _ = operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 3, "action": "acknowledge", "receiptId": receipt["receiptId"]!])
+        }
+    }
+    private func newTaskKeyboardSubmit() throws {
+        for behavior in ["send", "newline"] {
+            let owner = try json(["ordinary", "https://t3.test", "environment", 3, "new-task:keyboard-" + behavior, "birth"])
+            var (port, control) = try makePort("🙂 ", selection: 3, owner: owner)
+            defer {
+                let identity = port.composerIdentity!.json as NSDictionary
+                port.destroy(); port.view.removeFromSuperview()
+                for receipt in sourceReceipts() where receipt["identity"] as? NSDictionary == identity {
+                    saveReceipt(receipt["receiptId"] as! String)
+                }
+            }
+            var presentation = control["presentation"] as! [String: Any]
+            presentation["enterBehavior"] = behavior; control["presentation"] = presentation
+            try acknowledge(port, &control)
+            let body = editor(port), text = body.textView
+            text.becomeFirstResponder(); text.insertText("latest")
+            let modifiers: UIKeyModifierFlags = behavior == "send" ? [] : .command
+            let alternateModifiers: UIKeyModifierFlags = behavior == "send" ? .command : [.command, .shift]
+            guard let ordinary = text.keyCommands?.last(where: { $0.input == "\r" && $0.modifierFlags == modifiers }),
+                  let alternate = text.keyCommands?.last(where: { $0.input == "\r" && $0.modifierFlags == alternateModifiers }),
+                  let ordinaryAction = ordinary.action, let alternateAction = alternate.action else {
+                check(false, "\(behavior) Return actions are available to UIKit"); continue
+            }
+            for (command, selector, isAlternate) in [(ordinary, ordinaryAction, false), (alternate, alternateAction, true)] {
+                let before = events.count
+                UIApplication.shared.sendAction(selector, to: text, from: command, for: nil)
+                let submitted = events.dropFirst(before).filter { $0["kind"] as? String == "submit" }
+                check(submitted.count == 1 && submitted.first?["alternate"] as? Bool == isAlternate,
+                      "\(behavior) Return delivers exactly one \(isAlternate ? "alternate" : "ordinary") native submit")
+                check(submitted.first?["value"] as? String == "🙂 latest"
+                      && (submitted.first?["selection"] as? [String: Int]) == ["start": 9, "end": 9],
+                      "\(behavior) Return includes unacknowledged source and its UTF16 caret")
+            }
+            text.setMarkedText("語", selectedRange: NSRange(location: 1, length: 0))
+            let composingCount = port.composerEventCount, composingSource = port.composerSnapshot?.value
+            UIApplication.shared.sendAction(ordinaryAction, to: text, from: ordinary, for: nil)
+            UIApplication.shared.sendAction(alternateAction, to: text, from: alternate, for: nil)
+            check(text.markedTextRange != nil && port.composerEventCount == composingCount && port.composerSnapshot?.value == composingSource,
+                  "\(behavior) cached Return actions cannot submit or alter marked composition")
+            text.unmarkText()
+            let freeze = handoffRequest(port, retireUndo: false)
+            let frozen = operations.performHandoff(freeze)
+            guard let receipt = (frozen["value"] as? [String: Any])?["receipt"] as? [String: Any] else {
+                check(false, "\(behavior) keyboard source freezes"); continue
+            }
+            let heldCount = port.composerEventCount
+            UIApplication.shared.sendAction(ordinaryAction, to: text, from: ordinary, for: nil)
+            UIApplication.shared.sendAction(alternateAction, to: text, from: alternate, for: nil)
+            check(port.composerEventCount == heldCount, "\(behavior) cached Return actions cannot submit a frozen source")
+            saveReceipt(receipt["receiptId"] as! String)
+            let source = port.composerSnapshot!.value
+            let resumed = operations.performHandoff(resumeRequest(freeze, receipt: receipt, value: source))
+            check(resumed["ok"] as? Bool == true, "\(behavior) keyboard source resumes after final-source acknowledgment")
+            let beforeResumeSubmit = events.count
+            UIApplication.shared.sendAction(alternateAction, to: text, from: alternate, for: nil)
+            check(events.dropFirst(beforeResumeSubmit).filter { $0["kind"] as? String == "submit" && $0["alternate"] as? Bool == true }.count == 1,
+                  "\(behavior) alternate Return resumes without duplicate submit")
+            control["active"] = false; try acknowledge(port, &control)
+            let inactiveCount = port.composerEventCount
+            UIApplication.shared.sendAction(ordinaryAction, to: text, from: ordinary, for: nil)
+            UIApplication.shared.sendAction(alternateAction, to: text, from: alternate, for: nil)
+            check(port.composerEventCount == inactiveCount, "\(behavior) cached Return actions respect explicit deactivation")
         }
     }
     private func readyAndRichMapping() throws {

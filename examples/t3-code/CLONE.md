@@ -36,6 +36,16 @@ hardware and alternate submit, live IME, environment or project changes during
 awaited work, and actual voice remain unqualified. Image-only paste directs the
 user to Photo Library. These limits prevent a phone parity checkpoint.
 
+The isolated native editor fixture now passes 142 checks on EAS, with zero
+failures, against a 124-check baseline on the same cloud device. Eighteen new
+checks dispatch the registered Return actions through UIKit. Both Return
+preferences deliver ordinary and alternate submit with the latest unacknowledged
+source and emoji caret, refuse cached actions during composition, freeze and
+deactivation, and resume submission after source acknowledgment. Build inputs
+and executable hashes are recorded. This verifies native responder behavior;
+actual hardware input, Root/outbox dispatch and connected app acceptance remain
+separate. The cloud session is shut down. Production Swift is unchanged.
+
 T3's EAS cloud host installs and opens the normal bundle and presents the initial
 environment form. It starts without the locally saved pairing. Connected cloud
 flows and a cloud-reachable authorized server route remain unverified. The cloud
