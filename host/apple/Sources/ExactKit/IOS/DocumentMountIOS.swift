@@ -15,7 +15,7 @@ import UIKit
 /// UIKit's focus search as the viewport does. The container takes the whole
 /// view, so the page has no bands past its area (`Presenter.pageMargins`)
 /// while it is here.
-package final class DocumentMount: UIView {
+package final class DocumentMount: RestingTintView {
     package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
         return hit === self ? nil : hit

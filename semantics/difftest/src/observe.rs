@@ -276,6 +276,8 @@ impl Driver {
             return Vec::new();
         }
         let r = self.runner.as_mut().expect("live runner");
+        let mut before = Vec::new();
+        state(r, &self.plan, &mut before);
         let mut out = vec![format!("== {}", event.label())];
         let ((result, receipts), ran) = r.trace_commits(|r| apply(r, event));
         let traced = ran
@@ -298,13 +300,34 @@ impl Driver {
             out.push(format!("# {e:?}"));
         }
         out.extend(ran);
-        if receipts > traced {
+        let mut after = Vec::new();
+        if !r.is_poisoned() {
+            state(r, &self.plan, &mut after);
+        }
+        let moved_without_trace = traced == 0 && !r.is_poisoned() && before != after;
+        if (receipts > traced || moved_without_trace) && !out.iter().any(|l| l == OMITTED_COMMIT) {
             out.push(OMITTED_COMMIT.into());
         }
-        if !r.is_poisoned() {
-            state(r, &self.plan, &mut out);
+        if moved_without_trace && !out.iter().any(|l| l == "untraced configuration moved") {
+            out.push("untraced configuration moved".into());
         }
+        out.extend(after);
         out
+    }
+
+    pub(crate) fn mutation_requests(&self) -> u64 {
+        self.runner.as_ref().map_or(0, Runner::mutation_requests)
+    }
+
+    pub(crate) fn soon(&self) -> Option<f64> {
+        let r = self.runner.as_ref().filter(|_| self.live())?;
+        let now = r.now_ms();
+        r.tasks()
+            .into_iter()
+            .filter_map(|(_, at)| at)
+            .filter(|at| at.is_finite() && now < *at && *at <= now + 1.0)
+            .reduce(f64::max)
+            .map(|at| at - now)
     }
 
     /// Controls among the same live elements whose `view` lines the observation prints.
@@ -388,6 +411,19 @@ fn deliver(
     (advanced.error.map_or(Ok(()), Err), advanced.receipts.len())
 }
 
+/// Commit kinds for which the semantics has no branch (LLP 1151 D3).
+pub const OMITTED_KINDS: &[&str] = &[
+    "a transport's or MIDI port's answer",
+    "a re-ask",
+    "a wake's delivery and expiry",
+    "a drop deadline",
+    "a transport-end action",
+    "the advance tail's presence",
+    "polls",
+    "live times",
+    "text-axis frames",
+];
+
 /// A receipt with no modeled commit. Property checks must exclude this step from `after`.
 pub const OMITTED_COMMIT: &str = "# a commit the semantics has no branch for";
 
@@ -413,11 +449,11 @@ pub(crate) fn apply(
             ),
             None => (Err(exact_runner::RunnerError::UnknownView(0)), 0),
         },
-        Event::Clock(ms) => {
+        Event::Clock(ms) | Event::TestClock(ms) => {
             let a = r.advance_timed(r.now_ms() + ms);
             (a.error.map_or(Ok(()), Err), a.receipts.len())
         }
-        Event::Land => {
+        Event::Land | Event::InputLand => {
             let a = r.land_then();
             (a.error.map_or(Ok(()), Err), a.receipts.len())
         }

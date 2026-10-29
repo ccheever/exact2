@@ -75,7 +75,7 @@ fn plan() -> Plan {
     contract::compile(SRC).expect("the fixture's Contract compiles")
 }
 
-fn module() -> Module {
+pub(crate) fn module() -> Module {
     let mut m = unloaded();
     m.load().expect("the fixture loads");
     m.bind(&plan());
@@ -90,7 +90,7 @@ fn unloaded() -> Module {
     m
 }
 
-fn store() -> Store {
+pub(crate) fn store() -> Store {
     Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new())
 }
 
@@ -113,14 +113,14 @@ fn session(v: &Value) -> (bool, String, String) {
     }
 }
 
-fn now(a: Answer) -> Value {
+pub(crate) fn now(a: Answer) -> Value {
     match a {
         Answer::Now(v) => v,
         Answer::Later(r) => panic!("expected a value, got a request for {}", r.url),
     }
 }
 
-fn later(a: Answer) -> exact_runner::Request {
+pub(crate) fn later(a: Answer) -> exact_runner::Request {
     match a {
         Answer::Later(r) => r,
         Answer::Now(v) => panic!("expected a request, got {v:?}"),
@@ -884,7 +884,7 @@ fn the_runner_drives_a_typescript_login_and_a_two_request_profile() {
     assert!(!has(&r, "busy"));
     // login's store write re-answered the store-reading resource.
     assert_eq!(text_of(&r, "remembered").as_deref(), Some("ada"));
-    let logs = r.data().take_logs();
+    let logs = crate::authored_logs(r.data().take_logs());
     assert!(logs.is_empty(), "{logs:?}");
 
     // Two requests in a row on one send.
@@ -1357,8 +1357,10 @@ fn a_let_go_call_waiting_on_a_fetch_runs_its_continuation() {
         now(m.answer(&mut s, "flushing", &[]).unwrap()),
         Value::str("true ")
     );
-    // A newer send replaced it: nothing of the first is in flight.
+    // A newer send replaced it: nothing of the first is in flight, and the
+    // runner, which keeps no request here, says so after `forgotten`.
     m.forgotten(&s, &[]);
+    m.keep_sent(&s, &[], false);
     assert_eq!(
         now(m.answer(&mut s, "flushing", &[]).unwrap()),
         Value::str("false Aborted: the answer was let go before this reply; the request may already have been sent")

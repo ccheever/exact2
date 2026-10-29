@@ -250,7 +250,7 @@ impl Lowerer<'_> {
         let (expanded, children) = match grouped {
             Some(style) => {
                 listed = [grouped::list_rows(style, *span), expanded.to_vec()].concat();
-                sections = Some(grouped::sections(style, children)?);
+                sections = Some(grouped::sections(style, children, &|a| self.class_rows(a))?);
                 (
                     listed.as_slice(),
                     sections.as_deref().expect("sections just set"),

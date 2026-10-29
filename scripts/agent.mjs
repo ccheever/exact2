@@ -14,7 +14,7 @@ import {refusalMessage} from './agent-keys.mjs';
 // only); `fling` and `hold` are a trackpad's through the window server, which
 // AppKit runs with its momentum and rubber band, and `wheel 0 0 release` lifts a
 // hold (LLP 1142 D3, macOS only, the terminal's Accessibility grant). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, webNeeds, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, webChanges, bakedPlans, parityScript, netFlags, launchEntries } from './agent-launch.mjs';
+import { Cdp, agentPage, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, webNeeds, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, webChanges, bakedPlans, parityScript, netFlags, launchEntries } from './agent-launch.mjs';
 import { widgetStep } from './agent-widget.mjs';
 import { sourceMapReaders, identifyResources, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, pidTrace, writeTrace, layoutArgs, tapRefusal, nextCommitTasks, settleBound, worldView, phoneTrace, stateOp, worldLook, worldTells, lookAcross, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -234,10 +234,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     }
     // The page: this carrier's own server over dist/, or a URL the caller
     // named — the dev server, so a drive can watch an edit arrive.
-    const page = pageURL ? new URL(pageURL) : new URL(location ?? '/', `http://127.0.0.1:${port}/`);
-    page.searchParams.set('agent', '1');
-    for (const [key, value] of Object.entries(facts)) page.searchParams.set(key, value);
-    if (storage !== undefined) page.searchParams.set('storage', storage); if ((env?.EXACT_HATCHES ?? process.env.EXACT_HATCHES) === 'off') page.searchParams.set('hatches', 'off'); // the second: LLP 1075.003.000.001 §2.6
+    const page = agentPage(pageURL ? new URL(pageURL) : new URL(location ?? '/', `http://127.0.0.1:${port}/`), { facts, storage, env });
     // Display preferences are the agent's from launch, never the machine's (LLP 1069.007 D2); `prefer` changes them.
     const emulated = { ...LAUNCH_MEDIA };
     await call('Emulation.setEmulatedMedia', { features: Object.entries(emulated).map(([name, value]) => ({ name, value })) });

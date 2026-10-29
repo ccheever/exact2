@@ -414,7 +414,7 @@ impl Collection {
             anchor: self
                 .index
                 .capture_anchor_excluding(
-                    self.anchor_offset(g.offset),
+                    self.anchor_offset(g.offset, g.port_main),
                     g.port_main,
                     self.follows(),
                     Some(&p.source),

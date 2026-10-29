@@ -118,7 +118,10 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
   r = op(2); r.u8(); result(r);
   // One call (`call_request`): source, arguments by type, the store's
   // snapshot; its reply (`call_reply`): a store read, writes, the result.
+  // Whether the module's last call read the store before it failed: its resource is a store reader (LLP 1146 §2.3).
+  let threwRead = false;
   const callWith = (code, source, args, store, outcome) => {
+    threwRead = false;
     const r = op(code, w => {
       w.str(source); w.u8(6); w.u32(args.length);
       const t = (sources[source] ?? '').split('|')[0]; let i = 0; for (const a of args) i = encode(w, a, t, i);
@@ -137,12 +140,13 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
     const writes = [];
     for (let n = r.u32(); n--;) { const k = r.str(); const v = r.u8() ? r.str() : null; if (!admitsSecret(rustGrantSet, k)) throw new Error(`secret ${k} is not granted`); writes.push([k, v]); }
     let out;
-    try { out = result(r); } catch (error) { if (error.refuse) for (const [k, v] of writes) store.set(k, v); throw error; }
+    try { out = result(r); } catch (error) { threwRead = observed; if (error.refuse) for (const [k, v] of writes) store.set(k, v); throw error; }
     for (const [k, v] of writes) store.set(k, v);
     if (observed) out.store = true;
     return out;
   };
-  const rust = (source, args, store) => callWith(3, source, args, store), ts = data.ts;
+  const rust = (source, args, store) => callWith(3, source, args, store), ts = data.ts, tsThrewRead = data.threwRead;
+  data.threwRead = () => { const read = [threwRead, !!tsThrewRead?.()]; threwRead = false; return read[0] || read[1]; };
   data.answer = ts ? (source, args, store, target, mutation) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target, mutation); throw e; } } : rust;
   data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
   // An overlay (`overlay_request`): what a resource shows while writes affect it; none from the Rust module asks

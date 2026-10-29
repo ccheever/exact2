@@ -18,6 +18,66 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
+/// `link` cut at its query or fragment, whatever its form.
+pub(crate) fn without_query(link: &str) -> &str {
+    &link[..link.find(['?', '#']).unwrap_or(link.len())]
+}
+
+/// `text` about source `source` with no link's query: the source, quoted
+/// whole (a space in it too), is first cut at its query and marked as one
+/// (`?…`), so what follows it in its word goes with it ([`without_queries`]).
+pub(crate) fn redacted(text: &str, source: &str) -> String {
+    let cut = without_query(source);
+    if cut.len() == source.len() {
+        return without_queries(text);
+    }
+    without_queries(&text.replace(source, &format!("{cut}?\u{2026}")))
+}
+
+/// `text` with no query or fragment of any link in it: a CDN's links carry
+/// signatures (Discord's `ex`, `is`, `hm`), and an image's `error` and the log
+/// quote only the host and path. A `?` with anything but a space after it
+/// starts a query, wherever the link sits (in backticks, `url( … )`, a source
+/// with a space in it); a `#` does too in a word with a `/`, a `:` or a `url(`
+/// (a colour, `#fff`, stays). The rest of the word goes, all of it, and only
+/// the run of closing marks and punctuation that ended the word comes back
+/// (`)`, `"`, `'`, `` ` ``, `>`, `]`, `,`, `;`, `:`, `.`): whatever a query
+/// holds, none of it stays. Words end at ASCII whitespace only (a no-break
+/// space can sit in a link). A question (`why?`) is left be. One pass.
+pub(crate) fn without_queries(text: &str) -> String {
+    let trailing = |c: char| ")\"'`>],;:.".contains(c);
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    // Whether the word so far has a link's mark, and its last three characters (for `url(`).
+    let (mut linked, mut last) = (false, ['\0'; 3]);
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let continues = chars.get(i + 1).is_some_and(|n| !n.is_ascii_whitespace());
+        if continues && (c == '?' || (c == '#' && linked)) {
+            let end = (i..chars.len())
+                .find(|&j| chars[j].is_ascii_whitespace())
+                .unwrap_or(chars.len());
+            let mut kept = end;
+            while kept > i + 1 && trailing(chars[kept - 1]) {
+                kept -= 1;
+            }
+            out.extend(&chars[kept..end]);
+            i = end;
+            continue;
+        }
+        if c.is_ascii_whitespace() {
+            (linked, last) = (false, ['\0'; 3]);
+        } else {
+            linked |= c == '/' || c == ':' || (c == '(' && last == ['u', 'r', 'l']);
+            last = [last[1], last[2], c];
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
 /// Whether `name` is fetched rather than read: an `http:` or `https:` URL.
 pub(super) fn is_remote(name: &str) -> bool {
     name.split_once(':').is_some_and(|(scheme, _)| {
@@ -473,7 +533,7 @@ impl Downloads {
                 .join(location)
                 .ok()
                 .and_then(|next| clean(next.as_str()))
-                .ok_or_else(|| refused(format!("a redirect to {location}")))?;
+                .ok_or_else(|| refused(format!("a redirect to {}", without_query(location))))?;
         };
         if !(200..300).contains(&response.status) {
             let message = format!("HTTP {}", response.status);

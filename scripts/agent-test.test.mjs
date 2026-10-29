@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { churnLines, disabledExpectation, NO_FAILURES, perfExpectation, propertyHolds, refusalExpectation, refuseDisabled, runTests, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
+import { churnLines, disabledExpectation, NO_FAILURES, perfExpectation, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
@@ -37,6 +37,9 @@ test('device properties see boot, typing and clock changes, and reset stays betw
   const plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
   writeFileSync(contract, `component App
   state ready = true
+  state sessionReady = false
+  action enable
+    sessionReady = true
   state textValue = ""
   state n = 0
   derive doubled = n * 2
@@ -53,9 +56,12 @@ test('device properties see boot, typing and clock changes, and reset stays betw
       button testId="toggle" press=toggle
         text "Toggle"
       input testId="field" value=textValue input=edit
+      button "Enable" testId="enable" press=enable
 `);
   writeFileSync(file, `always "ready stays"
   expect state ready stays true
+always "session readiness survives reload"
+  expect state sessionReady stays true
 always "short input"
   expect state textValue in "" "ok"
 always "small derive"
@@ -70,6 +76,9 @@ test "the three observations"
   clock +100
 test "a fresh history"
   type "field" "ok"
+test "reload is observed"
+  tap "enable"
+  reload
 `);
   const root = new URL('..', import.meta.url).pathname;
   const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
@@ -81,7 +90,7 @@ test "a fresh history"
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
-    expect([r.passed, r.failed]).toEqual([1, 1]);
+    expect([r.passed, r.failed]).toEqual([1, 2]);
     const failures = r.results[0].failures.join('\n');
     expect(failures).toContain('PROPERTY "ready stays" is false on web');
     expect(failures).toContain('at step 1: tap "toggle"');
@@ -91,6 +100,16 @@ test "a fresh history"
     expect(failures).toContain('web: derive doubled 2');
     expect(failures).not.toContain('PROPERTY "unchecked"');
     expect(r.results[1].failures).toEqual([]);
+    expect(r.results[2].failures.join('\n')).toContain('at step 2: reload');
+    expect(r.results[2].failures.join('\n')).toContain('PROPERTY "session readiness survives reload" is false on web');
+    writeFileSync(file, `always "false at boot"
+  expect state n == 1
+test "boot only"
+  expect state n == 0
+`);
+    const boot = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+    expect(boot.failed).toBe(1);
+    expect(boot.results[0].failures.join('\n')).toContain('at step 0: boot');
   } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
 }, 180_000);
 
@@ -618,4 +637,15 @@ test('a test scoped on macos runs under the mac alias and the sample host too', 
   expect(testScope('host')).toBe('macos');
   expect(testScope('host-ios')).toBe('ios');
   expect(testScope('web')).toBe('web');
+});
+
+test('always observes each mutation-clock configuration, including the sixteenth', async () => {
+  let requests = 1, ticks = 0;
+  const seen = [], clock = testMutationClock();
+  const session = {
+    state: async () => ({ mutationRequests: requests, slots: { ticks } }),
+    clock: async () => { ticks++; if (ticks < 16) requests++; },
+  };
+  expect(await clock.advance(session, async state => { seen.push(state.slots.ticks); })).toBe(16);
+  expect(seen).toEqual(Array.from({ length: 17 }, (_, i) => i));
 });

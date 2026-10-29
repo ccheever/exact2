@@ -93,7 +93,12 @@ fn prepare(case: &Case, i: usize) -> Result<Prepared, Verdict> {
         events: case
             .events
             .iter()
-            .filter(|e| !matches!(e, crate::script::Event::Land))
+            .filter(|e| {
+                !matches!(
+                    e,
+                    crate::script::Event::Land | crate::script::Event::InputLand
+                )
+            })
             .map(crate::script::Event::lean)
             .collect(),
     })

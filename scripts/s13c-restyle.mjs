@@ -65,7 +65,7 @@ export const COMPONENTS = {
   // Stage 15 B batch 2's: EmptyState; MenuItem from its `<id>-item`
   // column (the hairline, then its button); MenuGroup, with no id prop,
   // from the box library-gate holds it in.
-  EmptyState: { source: '@exact/cards/empty-state.contract', root: id => id, ids: ['es-base', 'sample-es-message', 'sample-es-button'] },
+  EmptyState: { source: '@exact/cards/empty-state.contract', root: id => id, ids: ['es-base', 'es-small', 'es-large', 'es-medium', 'es-label', 'es-secondary', 'sample-es-message', 'sample-es-button'] },
   MenuItem: { source: '@exact/lists/menu.contract', root: id => `${id}-item`, ids: ['sample-mi-first', 'mi-base', 'mi-destructive'] },
   MenuGroup: { source: '@exact/lists/menu.contract', root: id => id, ids: ['mg-base'] },
 };
@@ -209,34 +209,44 @@ export const READS = {
   'cards.badge-mark': ['0/0/1 fill av-base', '0/0/2 fill av-base', '0/1 text_color vb-base,sample-vb-verifier'],
   'cards.badge-size': ['0 height,width vb-base,sample-vb-verifier', '0/0 height,width vb-base,sample-vb-verifier', '0/1 height,width vb-base,sample-vb-verifier'],
   'cards.hairline': ['0/1 border_width_bottom,border_width_left,border_width_right,border_width_top av-base,sample-av-src'],
-  // Stage 15 B batch 2's. EmptyState from its column: the icon (0), title
-  // (1), message (2) and button (3; its icon's box 3/0 holding the icon
-  // 3/0/0, and its text 3/1) on es-base;
-  // the message alone (0) on sample-es-message; the message (0) and a
-  // button with no icon (1, its text 1/0) on sample-es-button.
-  'EmptyState.iconInk': ['0 text_color es-base'],
-  'EmptyState.titleInk': ['1 text_color es-base'],
-  'EmptyState.messageInk': ['2 text_color es-base', '0 text_color sample-es-message,sample-es-button'],
-  'EmptyState.buttonFill': ['3 background_color es-base', '1 background_color sample-es-button'],
-  'EmptyState.buttonInk': ['3/0/0 text_color es-base', '3/1 text_color es-base', '1/0 text_color sample-es-button'],
+  // Stage 15 B batch 2's. EmptyState from its column: the icon's box (0)
+  // holding the icon (0/0), title (1), message (2) and button (3; its icon's
+  // box 3/0 holding the icon 3/0/0, and its text 3/1) on the six es- cells
+  // (es-small and es-large the icon sizes, es-medium and es-label the tones,
+  // es-secondary the button tone); the message alone (0) on
+  // sample-es-message; the message (0) and a button with no icon (1, its
+  // text 1/0) on sample-es-button.
+  'EmptyState.iconInk': ['0/0 text_color es-base,es-small,es-large,es-medium,es-secondary'],
+  'EmptyState.labelIconInk': ['0/0 text_color es-label'],
+  'EmptyState.titleInk': ['1 text_color es-base,es-small,es-large,es-medium,es-label,es-secondary'],
+  'EmptyState.messageInk': ['2 text_color es-base,es-small,es-large,es-secondary', '0 text_color sample-es-message,sample-es-button'],
+  'EmptyState.mediumMessageInk': ['2 text_color es-medium'],
+  'EmptyState.labelMessageInk': ['2 text_color es-label'],
+  'EmptyState.buttonFill': ['3 background_color es-base,es-small,es-large,es-medium,es-label', '1 background_color sample-es-button'],
+  'EmptyState.buttonInk': ['3/0/0 text_color es-base,es-small,es-large,es-medium,es-label', '3/1 text_color es-base,es-small,es-large,es-medium,es-label', '1/0 text_color sample-es-button'],
+  'EmptyState.secondaryButtonFill': ['3 background_color es-secondary'],
+  'EmptyState.secondaryButtonInk': ['3/0/0 text_color es-secondary', '3/1 text_color es-secondary'],
   'cards.empty-top': ['. padding_bottom,padding_top *'],
   'cards.empty-pad': ['. padding_left,padding_right *'],
-  'cards.empty-gap': ['1 padding_top es-base', '2 padding_top es-base', '0 padding_top sample-es-message,sample-es-button'],
-  'cards.empty-icon-size': ['0 height,width es-base'],
-  'cards.empty-title-size': ['1 font_size es-base'],
-  'cards.empty-message-size': ['2 font_size es-base', '0 font_size sample-es-message,sample-es-button'],
-  'cards.empty-message-line': ['2 line_height es-base', '0 line_height sample-es-message,sample-es-button'],
-  'cards.empty-button-top': ['3 margin_top es-base', '1 margin_top sample-es-button'],
-  'cards.empty-button-gap': ['3 column_gap,row_gap es-base', '1 column_gap,row_gap sample-es-button'],
-  'cards.empty-button-pad': ['3 padding_left,padding_right es-base', '1 padding_left,padding_right sample-es-button'],
-  'cards.empty-button-pad-block': ['3 padding_bottom,padding_top es-base', '1 padding_bottom,padding_top sample-es-button'],
-  'cards.empty-button-line': ['3/1 line_height es-base', '1/0 line_height sample-es-button'],
-  'cards.empty-button-icon-pull': ['3/0 margin_left,margin_right es-base'],
-  'cards.empty-button-corner': ['3 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right es-base', '1 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right sample-es-button'],
-  'cards.empty-button-icon': ['3/0/0 height,width es-base'],
-  'cards.empty-button-icon-box': ['3/0 height,width es-base'],
-  'cards.empty-button-size': ['3/1 font_size es-base', '1/0 font_size sample-es-button'],
-  'cards.empty-button-press': ['3 press_scale es-base', '1 press_scale sample-es-button'],
+  'cards.empty-gap': ['1 padding_top es-base,es-small,es-large,es-medium,es-label,es-secondary', '2 padding_top es-base,es-small,es-large,es-medium,es-label,es-secondary', '0 padding_top sample-es-message,sample-es-button'],
+  'cards.empty-icon-box': ['0 height,width es-base,es-small,es-large,es-medium,es-label,es-secondary'],
+  'cards.empty-icon-small': ['0/0 height,width es-small'],
+  'cards.empty-icon-medium': ['0/0 height,width es-base,es-medium,es-label,es-secondary'],
+  'cards.empty-icon-large': ['0/0 height,width es-large'],
+  'cards.empty-title-size': ['1 font_size es-base,es-small,es-large,es-medium,es-label,es-secondary'],
+  'cards.empty-message-size': ['2 font_size es-base,es-small,es-large,es-medium,es-label,es-secondary', '0 font_size sample-es-message,sample-es-button'],
+  'cards.empty-message-line': ['2 line_height es-base,es-small,es-large,es-medium,es-label,es-secondary', '0 line_height sample-es-message,sample-es-button'],
+  'cards.empty-button-top': ['3 margin_top es-base,es-small,es-large,es-medium,es-label,es-secondary', '1 margin_top sample-es-button'],
+  'cards.empty-button-gap': ['3 column_gap,row_gap es-base,es-small,es-large,es-medium,es-label,es-secondary', '1 column_gap,row_gap sample-es-button'],
+  'cards.empty-button-pad': ['3 padding_left,padding_right es-base,es-small,es-large,es-medium,es-label,es-secondary', '1 padding_left,padding_right sample-es-button'],
+  'cards.empty-button-pad-block': ['3 padding_bottom,padding_top es-base,es-small,es-large,es-medium,es-label,es-secondary', '1 padding_bottom,padding_top sample-es-button'],
+  'cards.empty-button-line': ['3/1 line_height es-base,es-small,es-large,es-medium,es-label,es-secondary', '1/0 line_height sample-es-button'],
+  'cards.empty-button-icon-pull': ['3/0 margin_left,margin_right es-base,es-small,es-large,es-medium,es-label,es-secondary'],
+  'cards.empty-button-corner': ['3 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right es-base,es-small,es-large,es-medium,es-label,es-secondary', '1 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right sample-es-button'],
+  'cards.empty-button-icon': ['3/0/0 height,width es-base,es-small,es-large,es-medium,es-label,es-secondary'],
+  'cards.empty-button-icon-box': ['3/0 height,width es-base,es-small,es-large,es-medium,es-label,es-secondary'],
+  'cards.empty-button-size': ['3/1 font_size es-base,es-small,es-large,es-medium,es-label,es-secondary', '1/0 font_size sample-es-button'],
+  'cards.empty-button-press': ['3 press_scale es-base,es-small,es-large,es-medium,es-label,es-secondary', '1 press_scale sample-es-button'],
   // MenuItem from its `<id>-item` column: the hairline (0) and the button
   // (1; its label 1/0 and icon 1/1), a group's first item the button (0)
   // alone; MenuGroup's column (0) in its box.
@@ -385,8 +395,10 @@ export const PARAM_TOKENS = {
   'FollowButton.overlayFollowingFill': 'actions.follow-overlay-fill', 'FollowButton.overlayFollowingInk': 'actions.follow-overlay-ink',
   'PersonRow.divider': 'cards.divider', 'PersonRow.meta': 'cards.meta', 'PersonRow.pill': 'cards.pill', 'PersonRow.badge': 'cards.badge', 'PersonRow.badgeMark': 'cards.badge-mark',
   'FollowButton.pressScale': 'actions.follow-press', 'FollowButton.pressScaleTiny': 'actions.follow-press-tiny', 'FollowButton.pressScaleRound': 'actions.follow-press-round',
-  'EmptyState.iconInk': 'cards.empty-icon', 'EmptyState.titleInk': 'cards.empty-title', 'EmptyState.messageInk': 'cards.empty-message',
+  'EmptyState.iconInk': 'cards.empty-icon', 'EmptyState.labelIconInk': 'cards.empty-icon-label', 'EmptyState.titleInk': 'cards.empty-title',
+  'EmptyState.messageInk': 'cards.empty-message', 'EmptyState.mediumMessageInk': 'cards.empty-message-medium', 'EmptyState.labelMessageInk': 'cards.empty-message-label',
   'EmptyState.buttonFill': 'cards.empty-button', 'EmptyState.buttonInk': 'cards.empty-button-ink',
+  'EmptyState.secondaryButtonFill': 'cards.empty-button-secondary', 'EmptyState.secondaryButtonInk': 'cards.empty-button-secondary-ink',
   'MenuItem.surface': 'lists.menu-surface', 'MenuItem.ink': 'lists.menu-label', 'MenuItem.iconInk': 'lists.menu-icon',
   'MenuItem.destructiveInk': 'lists.menu-destructive', 'MenuItem.divider': 'lists.menu-divider', 'MenuGroup.frame': 'lists.menu-frame',
 };

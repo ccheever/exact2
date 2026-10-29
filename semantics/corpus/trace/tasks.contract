@@ -22,6 +22,7 @@ component App
 
 test "due task refuses and the handler commits"
   clock +1
+  clock data
   tap "add"
   expect state n == 1
 

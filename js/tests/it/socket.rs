@@ -52,6 +52,8 @@ fn boot_both() -> (Runner<Module>, u64, u64) {
         "test.socket",
         "net.websocket wss://echo.test\n",
     );
+    // Functional fixtures carry no wall-clock budget (castle.rs says why).
+    m.set_budget_ms(f64::INFINITY);
     m.load().expect("the fixture loads");
     let plan = contract::compile(SRC).expect("the fixture compiles");
     let mut r = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();

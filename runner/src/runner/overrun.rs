@@ -115,6 +115,8 @@ impl<D: DataSource> Runner<D> {
             replied: false,
             reask_at: Some(at),
             reasks,
+            module_again: None,
+            effects: false,
         });
         self.said_reask(i, why, after, reasks);
     }
@@ -188,9 +190,11 @@ impl<D: DataSource> Runner<D> {
         p.refusal = None;
         p.refused = false;
         self.restamp(ticket, wait);
-        // The source's turn is over: it hears so now, with no commit to come.
+        // The source's turn is over: it hears so now, with no commit to come,
+        // and what it set aside is kept or let go, as at a commit's end.
         self.forgot = true;
         self.hear_forgotten();
+        self.keep_sent(false);
         self.log(lines::forgot(ticket, &name));
         self.said_reask(i, &Failure::of(error).message, after, reasks);
         true

@@ -106,10 +106,10 @@ extension NodeView {
                   let effect = material.effect as? UIBlurEffect else { return nil }
             return effect
         }
-        let ink = textRasterLayer
+        let ink = textBoxLayer
         guard let style, let blur, !isParagraph || vibrantInk else {
             if let v = vibrancyView {
-                if let ink, ink.superlayer === v.contentView.layer { ink.removeFromSuperlayer(); insertBoxSublayer(ink) }
+                if let ink, ink.superlayer === v.contentView.layer { ink.removeFromSuperlayer(); mountTextBox() }
                 v.removeFromSuperview()
                 vibrancyView = nil
                 // A fill paints its own background again.

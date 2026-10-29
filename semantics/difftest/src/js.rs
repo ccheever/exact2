@@ -122,8 +122,8 @@ fn event(e: &Event) -> String {
     match e {
         Event::Tap(t) => format!("{{\"tap\":{}}}", string(t)),
         Event::Type(t, s) => format!("{{\"type\":[{},{}]}}", string(t), string(s)),
-        Event::Clock(ms) => format!("{{\"clock\":{}}}", number(*ms)),
-        Event::Land => "{\"land\":true}".into(),
+        Event::Clock(ms) | Event::TestClock(ms) => format!("{{\"clock\":{}}}", number(*ms)),
+        Event::Land | Event::InputLand => "{\"land\":true}".into(),
     }
 }
 

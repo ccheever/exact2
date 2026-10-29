@@ -40,7 +40,7 @@ struct BadgeFace: Equatable {
         guard !text.isEmpty || symbol != nil else { return nil }
         let key = "text_color"
         func colours(_ dark: Bool) -> [[Double]] {
-            [box.channels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.channels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
+            [box.undimmedChannels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.undimmedChannels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
         }
         let given = authored ? box.props["faceBoxSize"].flatMap { s -> CGFloat? in
             let parts = s.split(separator: "x").compactMap { Double($0) }

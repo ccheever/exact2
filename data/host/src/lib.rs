@@ -391,6 +391,27 @@ impl<D: DataSource> DataSource for Storage<D> {
         self.source.background_state()
     }
 
+    // Work that outlives its answer (LLP 1146 D2): its tokens are the
+    // source's own, which the runner keeps beside its tickets, so nothing is
+    // remapped.
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[exact_runner::InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        self.source.keep_sent(store, let_go, refused)
+    }
+
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        self.source.module_landed(store, token, outcome)
+    }
+
     fn take_logs(&mut self) -> Vec<String> {
         let mut lines = std::mem::take(&mut self.logs);
         lines.extend(self.source.take_logs());

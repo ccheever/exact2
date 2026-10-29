@@ -92,6 +92,13 @@ pub(crate) fn generate(
         }
         record(&driver, &mut rendered);
     }
+    let mut clock = if prefix.is_some() {
+        crate::settle::MutationClock::resume(&driver)
+    } else {
+        crate::settle::MutationClock::default()
+    };
+    let mut mutation_events = 0;
+    let mut mutation_bounds = 0;
     let interval = plan
         .timers
         .iter()
@@ -138,22 +145,37 @@ pub(crate) fn generate(
             _ => Event::Clock(if rng.chance(1, 2) { interval } else { 60_000.0 }),
         };
         let input = matches!(event, Event::Tap(_) | Event::Type(..));
-        observation.extend(driver.step(&event));
+        let lines = driver.step(&event);
+        let delivered = crate::settle::delivered(&lines);
+        observation.extend(lines);
         case.events.push(event);
         added += 1;
         record(&driver, &mut rendered);
-        if input && driver.live() {
-            observation.extend(driver.step(&Event::Land));
-            case.events.push(Event::Land);
+        if input && delivered && driver.live() {
+            observation.extend(driver.step(&Event::InputLand));
+            case.events.push(Event::InputLand);
             added += 1;
             record(&driver, &mut rendered);
+        }
+        let (events, lines, bounded) = clock.advance(&mut driver);
+        mutation_events += events.len();
+        mutation_bounds += usize::from(bounded);
+        case.events.extend(events);
+        observation.extend(lines);
+        record(&driver, &mut rendered);
+        if bounded {
+            break;
         }
     }
     Walk {
         scripted: Scripted {
             items: case.events.iter().cloned().map(Item::Event).collect(),
             case,
-            delivery: Default::default(),
+            delivery: crate::script::Delivery {
+                mutation_events,
+                mutation_bounds,
+                ..Default::default()
+            },
         },
         observation,
         rendered,

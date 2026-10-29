@@ -191,7 +191,12 @@ extension NodeView {
     /// The `box-shadow` list resolved for the view's appearance; a popover's
     /// default surface's shadow where its author wrote none (`defaultSurface`).
     var boxShadows: [BoxShadowSpec] {
+        #if os(iOS) || os(tvOS)
+        var list = BoxShadowSpec.list(style["box_shadow"], dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: style["box_shadow"], key: "box_shadow"))
+        for i in list.indices { list[i].color = dimmedWithTint(list[i].color, key: "box_shadow") }
+        #else
         let list = BoxShadowSpec.list(style["box_shadow"], dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: style["box_shadow"]))
+        #endif
         return list.isEmpty ? defaultSurfaceShadow.map { [$0] } ?? [] : list
     }
 

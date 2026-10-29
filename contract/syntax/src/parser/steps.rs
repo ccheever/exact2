@@ -787,6 +787,20 @@ impl Parser {
                     span,
                 }
             }
+            // `authorize` or `authorize cancel` (LLP 1146 D4).
+            "authorize" => {
+                let cancel = self.at_ident("cancel");
+                if cancel {
+                    self.next();
+                }
+                if !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+                    return self.err(
+                        "syntax-expected-step",
+                        "`authorize` takes nothing or `cancel`: it completes the held sign-in against the app's fixture server, or cancels it",
+                    );
+                }
+                Step::Authorize { cancel, span }
+            }
             "clock" => {
                 let arg = match self.peek_kind().clone() {
                     TokenKind::Ident(w) if w == "settle" || w == "data" => {

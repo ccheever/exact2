@@ -76,11 +76,10 @@ Before the configuration, each attempted commit prints
 `handler`, `task`, `then`, or `queue`; a queue names its mutation. A failed
 outcome or commit is followed by `# <reason>`. Reasons are the runner's
 Debug text and Lean's `why`, and are not compared; `ran` lines are compared.
-Boot has no `ran` line. Neither does an event with no handler or whose
-curried arguments refused before reaching its action. A due refusal and a
-successful handler therefore print separate commit outcomes even when the
-step's outcome is `refused`. A curried-argument refusal's `#` reason names
-its handler action without printing a `ran handler` line.
+Boot and an event with no handler have no `ran` line. Curried arguments that
+refuse print `ran handler <action> refused` and a `#` reason saying the arguments
+refused. A due refusal and a successful handler print separate commit outcomes
+even when the step's outcome is `refused`.
 
 `Observe.runScript` runs `advance` and `dispatch` beside their traced variants.
 The original supplies the configuration and outcome; the variant supplies only
@@ -99,15 +98,40 @@ They print no `ran` line. For each step, `observe.rs` compares successful commit
 with successful `ran` lines. Extra receipts mark it with
 `# a commit the semantics has no branch for`; the census prints
 `steps with a commit the trace leaves out`. Property checks must exclude marked
-steps from `after`. A differing configuration remains a divergence and is named
-with that reason; the marker alone is commentary, not a difference.
+steps from `after`. The work before the advance loop (module deadlines, listed
+due work and presence) has no receipt; tracing compares the configuration before
+and after it. A move prints `untraced configuration moved` as well as the marker,
+so comparison fails even if later work restores the old value. A step that moves
+without any successful `ran` line gets the same diagnostic. An extra receipt alone
+is counted; a differing configuration is a divergence named with the marker.
 
 `land` drains armed `then`s and queued sends at the current clock, without firing
 a timer, even one due exactly now. It is `Runner::land_then` on the runner and
 `Observe.land` in Lean. An authored `clock data` emits it; an authored `tap` or
 `type`, and each explore tap, emits its input followed by `land`. Expectations
-read the observation after that pair. A primitive `clock +0` still fires due
-timers as well as continuations.
+read the observation after that pair and its automatic clock advances. `after
+"a"` reads the landing with `old` from before the input and commands from both
+steps. A refused input, another commit beside its handler, or an untraced commit
+makes the pair counted only. Its landing is not an `after clock` step. A timer
+due exactly now stands after `land` and fires at the next dispatch; that dispatch
+is counted only for `after` when it also runs a handler. A primitive `clock +0`
+still fires due timers as well as continuations.
+
+The device runner (`scripts/agent-test.mjs`, `testMutationClock`) advances one
+millisecond per mutation request, reading the runner's cumulative counter after
+each delivered operation and again after each advance, at most sixteen rounds.
+Delivery uses these device advances so a task armed for one millisecond by a
+mutation runs before the next authored expectation. An input lands before this
+clock runs, as it does on a device. Explore and walks use the same rule. Every
+advance is recorded as `clock +N` in the expansion's `.events` file and replayed
+on both evaluators; the matcher checks it as `after clock`. An expectation issues
+no requests, but still reads the counter. The receipt counts advances and bounds.
+Requests still issuing after sixteen advances stop the block or walk, as on the
+device; this differs from a settle bound, which lets the next step run.
+The shrinker keeps an input, its landing and these advances together; when a
+candidate's input reaches no handler, its landing and advances are removed.
+The harness retains their origin internally, so an authored `clock data` after
+the missing input is kept. Both kinds of landing still print `land`.
 
 A typed value reaches an `input` handler when the target has one, otherwise its
 `change` handler. Both evaluators choose that event before advancing due work;
@@ -115,16 +139,20 @@ the script label remains `type`. Oracle string enums draw from their declared
 members, including enum fields nested in resource answers.
 
 An authored `clock settle` expands on a live runner: `clock +0`, then at most
-sixteen repetitions of an advance to the latest task with
-`now < due <= now + 1`, followed by another `clock +0`. Every task qualifies,
+sixteen repetitions of `clock +N` to the latest task with
+`now < due <= now + 1`, where N is `due - now`, followed by another `clock +0`.
+Every task qualifies,
 including repeating tasks and tasks armed by earlier inputs or continuations.
 The expansion replaces the settle in the case and its expectation positions;
 Lean and JS replay those same events. A `.events` file under
 `target/difftest/expansions/` keeps it, and the block reports
 `settle expanded to k events` once, totaling all its settles. A task still due
-within a millisecond after sixteen rounds stops the block there, naming it.
-The host's waits on motion, scrolling and hatches, and its advance to an
-animation's end, have no image here; verify prints that limit on its world line.
+within a millisecond after sixteen rounds increments the bound count; the next
+authored step still runs. The host's waits on motion, scrolling and hatches,
+its seek to a re-ask's due time (the oracle schedules no re-ask), and its advance
+to an animation's end have no image here; verify prints that limit on its world
+line. The census computes undeliverable kinds from the parser's step enum minus
+the delivered kinds and prints the supported forms of input and clock steps.
 
 An event is delivered as every host delivers one, at the current time: the
 work already due (a timer, a mutation's `then`, a queue's next send) fires
@@ -246,7 +274,8 @@ async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
 app's delivered test prefixes and explore script, plus 20 adaptive walks of at
-most 40 new primitive events each. `--walks`, `--steps` and `--walk-seed` set the
+most 40 chosen primitive events each, plus automatic clock advances. `--walks`,
+`--steps` and `--walk-seed` set the
 search; the seed defaults to the app's path. Half the walks boot fresh; the others
 replay delivered test prefixes in turn before appending events. Each choice reads
 the live rendered controls. Inputs land before the next choice. Typed values come
@@ -268,7 +297,8 @@ never refuses "reset"
 
 Use blocks that name your app's states and actions; [the properties recipe](../docs/recipes/properties.md)
 explains the literal forms and receipt. `bun exact.mjs verify` checks `always` on
-the device after authored inputs and clocks, then always runs `contract verify`.
+the device at boot, after inputs, reloads and every test-clock advance, then always
+runs `contract verify`.
 Either failure fails the command. Keep its receipt unchanged in the diary: the
 digests identify the sources, and the counts identify the scripts and world checked.
 “In the semantics' world” means the seeded oracle answers synchronously and never
@@ -284,7 +314,7 @@ and commands, and `never refuses` as unchecked because they expose no commit tra
 The runner checks properties and classifies refusals on these scripts, then shrinks
 each distinct property-line or refusal-class/action finding in each script. Lean
 confirms the delivered tests and explore script, each shrunk finding, and `--confirm N` walks (default 2). A divergence is shrunk with both
-engines. Deletion tries large chunks before single events; each retained candidate
+engines. Deletion tries large chunks before individual delivery groups; each retained candidate
 still satisfies the original predicate. The receipt counts candidates and times
 both halves. `--runner-only`, or an unavailable `lake`, skips the semantics and says
 why. A property failure or type refusal fails verification; app refusals are findings.

@@ -184,16 +184,34 @@ pub(super) fn decode(
     scale: f32,
     cancelled: impl Fn() -> bool,
 ) -> Result<Decoded, Refusal> {
+    // No link's query, a CDN's signature, is logged: the source is named cut
+    // at its query (a `data:` one by its media type alone), and the parser's
+    // diagnostics, which quote what the file holds (links and all), are
+    // counted, not quoted (a bundled file's are the compiler's to name, LLP
+    // 1011.001 D5).
+    let data_name;
+    let name = match name.strip_prefix("data:") {
+        Some(rest) => {
+            let kind = &rest[..rest.find([',', ';']).unwrap_or(rest.len())];
+            data_name = format!("data:{kind},\u{2026}");
+            data_name.as_str()
+        }
+        None => super::remote::without_query(name),
+    };
+    let log = |line: String| eprintln!("{}", super::remote::redacted(&line, name));
     let text = std::str::from_utf8(bytes).map_err(|_| {
-        eprintln!("exact: image `{name}`: not UTF-8 text");
+        log(format!("exact: image `{name}`: not UTF-8 text"));
         Refusal::DecodeFailed
     })?;
-    let loaded = exact_svg_file::load(text).map_err(|e| {
-        eprintln!("exact: image `{name}`: {e}");
+    let loaded = exact_svg_file::load(text).map_err(|_| {
+        log(format!("exact: image `{name}`: not an SVG this host reads"));
         Refusal::DecodeFailed
     })?;
-    for warning in &loaded.document.warnings {
-        eprintln!("exact: image `{name}`: {warning}");
+    if !loaded.document.warnings.is_empty() {
+        let count = loaded.document.warnings.len();
+        log(format!(
+            "exact: image `{name}`: {count} parts this host does not draw"
+        ));
     }
     if cancelled() {
         return Err(Refusal::Stale);
@@ -201,7 +219,7 @@ pub(super) fn decode(
     let css = css_size(plan.pixels, scale);
     let scene = loaded.scene(css.0, css.1);
     if let Some(limit) = scene.over {
-        eprintln!("exact: image `{name}`: {limit}");
+        log(format!("exact: image `{name}`: {limit}"));
         return Err(Refusal::DecodeFailed);
     }
     if loaded.document.text {
@@ -232,7 +250,8 @@ pub(super) fn paint(
     pixels: PixelSize,
 ) -> Result<Pixmap, Refusal> {
     let drawn = crate::paint::Painter::svg_picture(text, scene, css, scale).map_err(|e| {
-        eprintln!("exact: an SVG image did not draw: {e}");
+        let line = format!("exact: an SVG image did not draw: {e}");
+        eprintln!("{}", super::remote::without_queries(&line));
         Refusal::DecodeFailed
     })?;
     if (drawn.width(), drawn.height()) != (pixels.width, pixels.height) {
