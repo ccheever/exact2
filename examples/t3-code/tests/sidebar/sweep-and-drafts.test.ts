@@ -16,6 +16,7 @@ import { draftMenuItems, draftMenuRows } from '../../src/sidebar/draft-rows';
 import { preparationFailureRunId, retryWorkspacePreparation, turnItemIsWorkspacePreparation, workspacePreparationRetryRunIds } from '../../src/timeline/workspace-retry';
 import { timelineEntries } from '../../src/timeline/timeline-rows';
 import { availableScratchWorkspaceRoot, openScratchProject } from '../../src/composer/scratch-project';
+import { withTimers } from '../support/timers';
 
 const NOW = Date.parse('2026-10-04T12:00:00.000Z');
 const iso = (offset: number) => new Date(NOW + offset).toISOString();
@@ -208,7 +209,7 @@ describe("one way to open a machine's No project folder (845ddd9354)", () => {
     expect(await openScratchProject(ok.client, native)).toBe('scratch');
     expect(ok.calls).toEqual(['projects.ensureScratch', '/api/orchestration/shell']);
     const missing = scratchClient([{ id: 'p1' }]);
-    await expect(openScratchProject(missing.client, native)).rejects.toThrow('The folder for threads without a project has not reached this device yet. Try again.');
+    await expect(withTimers(() => openScratchProject(missing.client, native))).rejects.toThrow('The folder for threads without a project has not reached this device yet. Try again.');
   });
 
   test('availableScratchWorkspaceRoot offers the folder only while connected', () => {

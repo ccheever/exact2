@@ -222,10 +222,10 @@ describe('the window\'s queued sends for long-lived browser work', () => {
 
   it('a send\'s answer runs each queued piece once, to its end, with that send\'s native', async () => {
     const client = fakeClient(), first: unknown[] = [], second: unknown[] = [];
-    queueSlotWork(client, 'stop', async native => { await native.later({ op: 'timelineSleep', ms: 5 }); });
+    queueSlotWork(client, 'stop', async native => { await native.later({ op: 'browserRecord', action: 'disarm' }); });
     await serveRecordingRequests(client, nativeLog(first), 0); // awaited: the send's answer lives until the work settled
     await serveRecordingRequests(client, nativeLog(second), 1);
-    expect(first).toEqual([{ op: 'timelineSleep', ms: 5 }]);
+    expect(first).toEqual([{ op: 'browserRecord', action: 'disarm' }]);
     expect(second).toEqual([]);
   });
 

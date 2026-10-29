@@ -62,6 +62,8 @@ import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './in
 import { keptThread } from '../client/keep-alive';
 import { foldedMessageSummary, plainContextReferences, userMessagePresentation } from './user-message';
 import { liveEnvironment } from '../client/live-streams';
+import { noteAudioPlaying } from './timeline-kept-rows';
+import { sleep } from '../client/command-waits';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -95,8 +97,9 @@ export function messageTime(value: unknown, now: number, format: string): string
 interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok: boolean }>; nonce: number; codeCopy: { threadId: string; text: string; nonce: number };
   historyError: Map<string, string>; revert: { threadId: string; messageId: string; turnCount: number } | null;
   treeAll: Set<string>; treeDirs: Map<string, boolean>; lastRows: { threadId: string; rows: MinimapRow[] };
-  /** A citation's View source is placing its answer (citation-source.ts): ChatColumn restores no remembered position meanwhile. */
-  citing: number;
+  /** The View source placing its answer (citation-source.ts), else 0: ChatColumn restores no remembered position meanwhile. A
+   *  newer View source lets the older one go where it waits, on its own timer, so each one clears only its own. */
+  citing: number; citeFlows: number;
   /** The answer row the last View source asked ChatColumn to place, on its thread; each request a new nonce. */
   citeJump: { threadId: string; key: string; nonce: number };
   /** The thread whose folded messages `open` holds: another thread's start closed, as their rows' state is. */
@@ -106,7 +109,7 @@ interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok
 const views = new WeakMap<T3Client, ViewState>();
 export function timelineView(client: T3Client): ViewState {
   let view = views.get(client);
-  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 }, foldsThread: '', renameDraft: null }; views.set(client, view); }
+  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeFlows: 0, citeJump: { threadId: '', key: '', nonce: 0 }, foldsThread: '', renameDraft: null }; views.set(client, view); }
   return view;
 }
 const scoped = (client: T3Client, kind: string, id: string) => `${client.threadId}\u0000${kind}\u0000${id}`;
@@ -163,6 +166,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'diagram-retry') return retryMermaid(value, id); // id: the theme whose page failed
   if (op === 'diagram-frame') return noteMermaidFrame(value); // a Mermaid page's report (assets/mermaid/render.js)
   if (op === 'math-frame') return noteMathFrame(value); // a math page's report (assets/math/render.js)
+  if (op === 'audio-playing') { noteAudioPlaying(client, id, value); return ''; } // a sound started or stopped in a row (timeline-kept-rows.ts)
   if (op === 'setup-details' || op === 'setup-cancel' || op === 'setup-terminal') return worktreeSetupAction(client, native, op);
   if (op === 'diagram-open' || op === 'diagram-close') return diagramPreviewAction(client, op, value);
   // A table's Copy as Markdown / CSV (the check morph, no toast) and a thread chip's open.
@@ -175,11 +179,11 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   }
   // View source opens the cited thread and has the chat column place its answer (citation-source.ts).
   if (op === 'chip-citation') {
-    view.citing++;
+    const flow = view.citing = ++view.citeFlows;
     try {
       return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : [],
         key => { view.citeJump = { threadId: client.threadId, key, nonce: view.citeJump.nonce + 1 }; }, messageId => openCitedFold(client, messageId));
-    } finally { view.citing--; }
+    } finally { if (view.citing === flow) view.citing = 0; }
   }
   if (op === 'chip-pr') { if (!id) throw new ClientError('That pull request is no longer available.'); await openPullRequest(client, native, id); return ''; } // a sent pull request chip (pr-chip-open.ts)
   if (op === 'chip-thread' && value === 'link') { await openThreadLinkTarget(client, native, id); return 'focus:composer'; } // a thread link's chip (message-chips.ts)
@@ -314,7 +318,7 @@ export async function settleRollback(client: T3Client, native: Native, storage: 
     const failure = obj(obj(client.projection.thread).rollbackFailure);
     if (str(failure.requestId) === commandId) throw new ClientError(str(failure.message, 'Failed to revert thread state.'));
     if (rollbackLanded(client.projection, witness, turnCount)) return;
-    await client.restAccess(native).call({ op: 'timelineSleep', ms: 200 });
+    await sleep(200);
   }
   throw new ClientError('Timed out waiting for the thread to rewind.');
 }

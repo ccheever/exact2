@@ -190,8 +190,9 @@ function queueBrowserViewportMutation<A>(tabId: string, start: () => Promise<A>)
 }
 /** Serializes every server-side viewport change of one runtime tab, so a rollback cannot overtake a newer resize. */
 export function runBrowserViewportMutation<A>(tabId: string, mutation: () => Promise<A>): Promise<A> { return queueBrowserViewportMutation(tabId, mutation).execution; }
-/** The caller-facing deadline of a commit (the reference's `runHandlerWithTimeout`, 15 s). A data source has no timers
- *  (js/bake: "there are no timers"), so a caller with a clock passes it; without one a commit waits for its handler. */
+/** The caller-facing deadline of a commit (the reference's `runHandlerWithTimeout`, 15 s). Natively a timer raced against
+ *  its answer's own host call runs only once that call lands (LLP 1027.000 D1, Fetches), so a caller with a clock passes
+ *  the deadline; without one a commit waits for its handler. */
 export type BrowserViewportCommitDeadline = (tabId: string, operation: Promise<void>) => Promise<void>;
 const noDeadline: BrowserViewportCommitDeadline = (_tabId, operation) => operation;
 export function subscribeBrowserViewportChange(tabId: string, handler: BrowserViewportHandler): () => void {

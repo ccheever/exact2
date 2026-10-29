@@ -17,6 +17,7 @@ import { NO_RUN_ON } from '../../src/details/git-env';
 import { connected } from '../support/composer-controls-fixture';
 import { awaitScratchProject, machineChanging, openRemoteScratch, SCRATCH_NOT_LOADED } from '../../src/composer/scratch-machine';
 import { setLayoutFrames } from '../support/layout-frames';
+import { withTimers } from '../support/timers';
 
 describe('shouldShowEnvironmentIndicator', () => {
   test('shows the indicator whenever multiple environments are pickable', () => {
@@ -138,10 +139,12 @@ describe('openScratch', () => {
     expect(machineChanging(client)).toBe(false);
   });
   test('fails with ScratchProjectNotLoadedError after 10 seconds without the project', async () => {
-    const slept: number[] = [];
-    const native = { available: true, watch() {}, later: async (input: unknown) => { slept.push(Number((input as Obj).ms)); return { ok: true, value: {}, generation: 0 }; } } as Native;
-    await expect(awaitScratchProject(native, () => false, async () => {})).rejects.toThrow(SCRATCH_NOT_LOADED);
-    expect(slept.reduce((sum, ms) => sum + ms, 0)).toBe(10_000);
+    const [error, waited] = await withTimers(async () => {
+      const start = Date.now();
+      return [await awaitScratchProject(() => false, async () => {}).catch((failure: unknown) => failure), Date.now() - start] as const;
+    });
+    expect((error as Error).message).toBe(SCRATCH_NOT_LOADED);
+    expect(waited).toBe(10_000);
   });
 });
 

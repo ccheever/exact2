@@ -129,8 +129,7 @@ const focusSeen = new WeakMap<T3Client, boolean>();
  * vcs.refreshStatus for the card's workspace. `focused` is the window having the focus
  * while visible (exactPage()); a rise asks once. The reference's 250 ms debounce merges
  * a focus and a visibility change that come together, which here are one answer's
- * arguments already (a data module has no timer,
- * issues/closed/20261009-typescript-failure-parity.md).
+ * arguments already.
  */
 export async function refreshVcsOnFocus(client: T3Client, native: Native, cwd: string, focused: boolean): Promise<boolean> {
   const previous = focusSeen.get(client);

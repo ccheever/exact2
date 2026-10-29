@@ -5,11 +5,10 @@
 // (the bare path on a server that predates it), then `wsTicket` on the socket's URL. The session's grants are read
 // apart from it, once the reader asks (`readSession`), as the reference's session atom reads them.
 //
-// Exact drives it, since a data module has no timers (LLP 1016.000 D7 and its amendment of 2026-10-18):
-// an answer runs the HTTP steps (`connectFlow`), a stream resource owns the socket and hands each event
-// to `socketEvent`, the answer that asks for a request sends it on that socket itself, and the
-// transport's tick (`tick`) checks deadlines and pings and starts the next attempt when its backoff is
-// over. A frame no turn may send yet (the socket is not open) waits in the outbox, which the mapper
+// Exact drives it, since a data module's timer lives only inside an answer, which a session outlives (LLP 1016.000
+// D7 and its amendment of 2026-10-18): an answer runs the HTTP steps (`connectFlow`), a stream resource owns the
+// socket and hands each event to `socketEvent`, the answer that asks for a request sends it on that socket itself,
+// and the transport's tick (`tick`) checks deadlines and pings and starts the next attempt when its backoff is over. A frame no turn may send yet (the socket is not open) waits in the outbox, which the mapper
 // sends when the socket opens and after each frame, as the tick does.
 // Replies that resume an answer are handed to `hooks.deliver`, which a separate answer runs, so the
 // awaiting answer continues inside an answer of its own (exact2's prelude keeps a fetch made after a

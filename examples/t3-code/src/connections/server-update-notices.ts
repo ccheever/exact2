@@ -8,7 +8,7 @@
 // requestConfirmDialog for a desktop-managed update). The server-version notice
 // follows chat/useSystemComposerBanners.tsx at 7c3b3b3605ef: only a running or failed
 // update, since the sidebar's update pill offers an available one.
-// Port changes: data sources have no timers (exact2 #124), so the snapshot names
+// Port changes: a data module's timer lives only inside an answer, and an episode outlasts any, so the snapshot names
 // the current reconnecting and unavailable episodes (`serverUpdate.reconnecting` /
 // `.unavailable`, an environment id and a serial) and root tasks in app.contract wait
 // 2 s and 20 s on them with `after`, handing the elapsed episode back as the

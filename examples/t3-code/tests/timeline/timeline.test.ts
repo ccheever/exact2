@@ -9,6 +9,7 @@ import { availableRevertTurnCounts, revertTurnCounts, type Entry } from '../../s
 import { threadFindState } from '../../src/timeline/thread-find-runtime';
 import { liveEvent } from '../../src/client/live-streams';
 import { contractComponent } from '../support/contract-action-fixture';
+import { withTimers } from '../support/timers';
 
 const base = Date.parse('2026-10-03T00:00:00.000Z');
 const at = (seconds: number) => new Date(base + seconds * 1000).toISOString();
@@ -546,10 +547,10 @@ describe('Edit from here after a rewind (#18982)', () => {
 
 describe('Edit from here waits for the rollback', () => {
   const { settleRollback, rollbackWitness } = require('../../src/timeline/timeline-presentation') as typeof import('../../src/timeline/timeline-presentation');
+  // The projection moves on to its next state at each 200 ms pause, on the fake timers' clock.
   function rollbackClient(states: Obj[]) {
-    let tick = 0;
-    const client = { threadId: 't1', get projection() { return states[Math.min(tick, states.length - 1)]; },
-      refresh: async () => {}, restAccess: () => ({ call: async () => { tick++; return {}; } }) };
+    const start = Date.now();
+    const client = { threadId: 't1', get projection() { return states[Math.min(Math.floor((Date.now() - start) / 200), states.length - 1)]; }, refresh: async () => {} };
     return client as unknown as T3Client;
   }
   const thread = { id: 't1', activeProviderThreadId: 'pt1' };
@@ -557,25 +558,27 @@ describe('Edit from here waits for the rollback', () => {
   test('resolves once the provider thread is back at the target and the latest settled run after it rolled back (#18982)', async () => {
     const witness = rollbackWitness(before, 1);
     expect(witness.runId).toBe('r2');
-    const client = rollbackClient([before,
-      { ...before, runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] },
-      { ...before, providerThreads: [{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }], runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] }]);
-    await settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 1);
-    expect(client.projection.providerThreads).toEqual([{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }]);
+    const landed = await withTimers(async () => {
+      const client = rollbackClient([before,
+        { ...before, runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] },
+        { ...before, providerThreads: [{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }], runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] }]);
+      await settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 1);
+      return client.projection;
+    });
+    expect(landed.providerThreads).toEqual([{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }]);
   });
   test('a rewind to the start lands on a fresh root provider session', async () => {
     const witness = rollbackWitness(before, 0);
-    const client = rollbackClient([{ ...before, providerThreads: [...before.providerThreads, { id: 'pt2', providerInstanceId: 'codex', ownerNodeId: null, appThreadId: 't1', lastRunOrdinal: null }],
-      runs: before.runs.map(run => ({ ...run, status: 'rolled_back' })) }]);
-    await settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 0);
+    await withTimers(() => settleRollback(rollbackClient([{ ...before, providerThreads: [...before.providerThreads, { id: 'pt2', providerInstanceId: 'codex', ownerNodeId: null, appThreadId: 't1', lastRunOrdinal: null }],
+      runs: before.runs.map(run => ({ ...run, status: 'rolled_back' })) }]), {} as Native, {} as Files, 't1', 'c1', witness, 0));
   });
   test('with no settled run after the target the thread has changed', () => {
     expect(() => rollbackWitness({ thread, providerThreads: [], runs: [{ id: 'r1', ordinal: 1, status: 'completed' }] }, 1)).toThrow('The thread has changed. Select a message to rewind again.');
   });
   test("rejects with the thread's rollback failure for this command", async () => {
     const witness = rollbackWitness(before, 1);
-    const client = rollbackClient([before, { ...before, thread: { ...thread, rollbackFailure: { requestId: 'c1', message: 'The provider could not roll back this conversation.' } } }]);
-    await expect(settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 1)).rejects.toThrow('could not roll back');
+    await expect(withTimers(() => settleRollback(rollbackClient([before, { ...before, thread: { ...thread, rollbackFailure: { requestId: 'c1', message: 'The provider could not roll back this conversation.' } } }]),
+      {} as Native, {} as Files, 't1', 'c1', witness, 1))).rejects.toThrow('could not roll back');
   });
 });
 

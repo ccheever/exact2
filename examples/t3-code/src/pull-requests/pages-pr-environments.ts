@@ -59,8 +59,8 @@ export const readsPullRequests = (environment: PrEnvironment) => obj(obj(environ
 /**
  * One request on one server: the focused connection's own (its generation and write rules), or a background
  * transport's (`fleet: <key>` at its generation). `timeoutSeconds` is the transport's per-request deadline
- * (the request's `timeout`), how the reference's 2 s probes and 1 s invalidations are bounded here (issues/closed/20261009-typescript-failure-parity.md: no timer
- * in the data module).
+ * (the request's `timeout`), how the reference's 2 s probes and 1 s invalidations are bounded here: natively a timer
+ * raced against the answer's own request runs only once the request lands (LLP 1027.000 D1, Fetches).
  */
 export async function environmentRequest(client: T3Client, native: Native, environmentId: string, method: string, payload: Obj,
   options: { write?: boolean; timeoutSeconds?: number; share?: boolean } = {}, source: EnvironmentFleet = fleet): Promise<Obj> {

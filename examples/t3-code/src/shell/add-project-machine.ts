@@ -5,8 +5,8 @@
 // the chosen ignored files from the source, starts the tracked clone on the target, and writes
 // the files there once the clone is done. The reference waits in a detached promise; here each
 // shell pass checks the target's clone list (project-clones-live.ts cloneToasts calls
-// fileCopyPass, which starts the writes without holding the pass), because data sources and
-// commands have no timers.
+// fileCopyPass, which starts the writes without holding the pass), because a data module's timer dies with the
+// answer that armed it.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
