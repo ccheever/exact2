@@ -80,13 +80,15 @@ for (const loop of LOOPS) {
     const six = await sixLoopback;
     let answers = null;
     const ask = host => fetch(`http://${host}:${port}/`, { headers: { accept: 'text/html' } }).then(r => r.status, e => e.code ?? e.message);
-    const run = devLoop(loop, port, () => { answers = Promise.all([ask('127.0.0.1'), six ? ask('[::1]') : 200]); });
+    const run = devLoop(loop, port, () => { answers = Promise.all([ask('127.0.0.1'), six ? ask('[::1]') : 0]); });
     try {
       for (const end = Date.now() + 600_000; !run.ready();) {
         if (Date.now() > end || run.dev.exitCode !== null) throw new Error(`no 'plan ready': ${run.said().slice(-4000)}`);
         await Bun.sleep(50);
       }
-      expect(await answers).toEqual([200, 200]);
+      // [::1] answers too: a status (421, its Host not a name the loop serves), not a refused connection.
+      const [four, sixAnswer] = await answers;
+      expect([four, typeof sixAnswer]).toEqual([200, 'number']);
       expect(run.said()).toContain(`dev: TEST delay ${loop.delay} ms before listening (EXACT_TEST_TIMING=1)`);
       if (loop.args.includes('--wasm')) expect(atIndex(run.said(), GENERATED), 'a generation captured before the loop listened').toBeWithin(0, run.said().indexOf(`http://127.0.0.1:${port}/`));
     } finally { await run.dev.stop(15_000); }
