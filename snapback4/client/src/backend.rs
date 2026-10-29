@@ -38,7 +38,9 @@ pub fn touches_ephemeral(backend: &Json, op: &str) -> bool {
 /// bounded, for the change poll's `tables=`: the server wakes this device
 /// for their writes, which log no partition (Snapback LLP 3000.041 §4.1).
 pub fn online_only_tables(backend: &Json) -> Vec<String> {
-    let Some(tables) = backend["schema"]["tables"].as_object() else { return Vec::new() };
+    let Some(tables) = backend["schema"]["tables"].as_object() else {
+        return Vec::new();
+    };
     let mut names: Vec<String> = tables
         .iter()
         .filter(|(_, table)| !table["sync"].is_object() && !table["ephemeral"].is_object())
