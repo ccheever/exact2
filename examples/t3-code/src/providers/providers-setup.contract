@@ -252,7 +252,7 @@ component ProviderAccountRow
             for key in [account.formKey] key=key
               ProviderCallbackForm(stop=stop, account=account, off=off, op=op, idPrefix=idPrefix)
           if account.error != ""
-            text account.error padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId=`${idPrefix}provider-auth-error-${account.instanceId}`
+            text account.error padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#fb2c36, #fb414a)" testId=`${idPrefix}provider-auth-error-${account.instanceId}`
 
 // The credentials form (an ACP `env_var` method): one field per advertised value,
 // password-type when secret; Connect sends them; the drafts belong to this flow.
@@ -429,7 +429,7 @@ component ProviderAntigravitySetup
         text runtime.pendingLabel font-size=1 height=1 overflow="hidden" color="#00000000" role="status"
         if runtime.error != ""
           column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.5rem" align-items="flex-start" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)"
-            text runtime.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId=`provider-setup-error-${instanceId}`
+            text runtime.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#fb2c36, #fb414a)" testId=`provider-setup-error-${instanceId}`
             if runtime.showRetry
               SetupButton(stop="enabled page", label="Retry setup status", disabled=false, full=false, testId=`provider-setup-retry-${instanceId}`, press=op("setup:retry", instanceId, "", "", true))
 

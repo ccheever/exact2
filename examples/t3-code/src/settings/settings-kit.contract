@@ -46,7 +46,7 @@ style SkField
   background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" line-height="1.25rem"
   color="light-dark(#18181b, #f5f5f5)" min-width=0
 style SkError
-  font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)"
+  font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)"
 
 // SettingsSection: a muted 14px heading over a grouped card (space-y-2.5). Its id is a search target, focused by the
 // jump alone (tabindex -1).

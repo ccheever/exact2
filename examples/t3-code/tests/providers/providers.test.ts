@@ -5,7 +5,7 @@ import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, vali
 import { obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { existsSync } from 'node:fs';
-import { appPath, appText } from '../support/app-files';
+import { appFiles, appPath, appText } from '../support/app-files';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
 import { PROVIDER_DISPLAY_NAMES } from '../../src/providers/provider-updates';
@@ -263,7 +263,7 @@ test('Add provider: past the ACP Registry, Next waits for an agent, a hand-enter
   const source = appText('providers-wizard.contract');
   expect(source).toContain('derive selectionError = not isAcp ? "" : (localAcp ? (f2.trim() == "" ? "Executable is required." : "") : (wizard.prepared.length > 0 or (manual and f1.trim() != "") ? "" : "Select an ACP or configure one manually."))');
   // Both places say the prerequisite's own words, as plain text, which no screen reader announces (upstream's <p>).
-  expect(source.match(/if attempted and selectionError != ""\n\s+text selectionError font-size="0\.6875rem" color="light-dark\(#e7000b, #ff6467\)" testId="acp-selection-error"\n/g)).toHaveLength(2);
+  expect(source.match(/if attempted and selectionError != ""\n\s+text selectionError font-size="0\.6875rem" color="light-dark\(#fb2c36, #fb414a\)" testId="acp-selection-error"\n/g)).toHaveLength(2);
   expect(source).not.toContain('role="alert" testId="acp-selection-error"');
   expect(source.split('go=go)').length).toBe(4);
   expect(source.split('button press=go("step", "next")').length).toBe(3);
@@ -298,7 +298,7 @@ test("Add provider's Sign in header saves an agent from the registry, as Continu
 // removes of arguments and variables, the clears, Delete instance) is this one, in the size upstream gives it.
 test('a remove button is muted at rest and destructive while hovered or pressed, as ghost-destructive is', () => {
   const remove = contractComponent('providers-kit.contract', 'PvRemoveButton');
-  const scope = { label: 'Remove argument 1', buttonId: 'new-provider-argument-remove-0', icon: 'x', size: 'micro', disabled: false, stop: 'enabled', press: () => {} };
+  const scope = { label: 'Remove argument 1', buttonId: 'new-provider-argument-remove-0', icon: 'x', size: 'micro', iconSize: 16, disabled: false, stop: 'enabled', press: () => {} };
   const at = (attr: string, over: boolean, extra: Obj = {}) => remove.attribute('button press=press hover=hover', attr, { over }, { ...scope, ...extra });
   const paint = (over: boolean, disabled = false) => ['color', 'background-color'].map(attr => at(attr, over, { disabled }));
   const muted = 'light-dark(#71717b, #a1a1a1)', destructive = 'light-dark(#fb2c36, #fb414a)', accent = 'light-dark(#f4f4f5, #ffffff0a)';
@@ -306,22 +306,86 @@ test('a remove button is muted at rest and destructive while hovered or pressed,
   const state: Obj = { over: false };
   remove.call('hover', state, scope, [true]);
   expect(state.over).toBe(true);
-  // icon-micro is 20 pt with the icon at 12; icon-xs 24 pt and icon-sm 28 pt, the icon at 14.
-  const geometry = (size: string) => [at('width', false, { size }), at('border-radius', false, { size }), remove.callArguments('PvIcon(', { over: false }, { ...scope, size, icon: 'trash' })];
-  expect(geometry('micro')).toEqual(['1.25rem', '0.375rem', { name: 'trash', size: 12, color: 'currentColor' }]);
-  expect(geometry('xs')).toEqual(['1.5rem', '0.5rem', { name: 'trash', size: 14, color: 'currentColor' }]);
-  expect(geometry('sm')).toEqual(['1.75rem', '0.5rem', { name: 'trash', size: 14, color: 'currentColor' }]);
-  expect(appText('providers-kit.contract')).toContain(`      :active\n        background-color="${accent}"\n        color="${destructive}"\n      PvIcon(name=icon,`);
+  // icon-micro is 20 pt, icon-xs 24 pt and icon-sm 28 pt; the icon is drawn at the size its row gives.
+  const geometry = (size: string, iconSize: number) => [at('width', false, { size }), at('border-radius', false, { size }), remove.callArguments('PvIcon(', { over: false }, { ...scope, size, iconSize, icon: 'trash' })];
+  expect(geometry('micro', 12)).toEqual(['1.25rem', '0.375rem', { name: 'trash', size: 12, color: 'currentColor' }]);
+  expect(geometry('xs', 14)).toEqual(['1.5rem', '0.5rem', { name: 'trash', size: 14, color: 'currentColor' }]);
+  expect(geometry('sm', 14)).toEqual(['1.75rem', '0.5rem', { name: 'trash', size: 14, color: 'currentColor' }]);
+  expect(appText('providers-kit.contract')).toContain(`      :active\n        background-color="${accent}"\n        color="${destructive}"\n      PvIcon(name=icon, size=iconSize,`);
+  // An argument's bare XIcon is the button base's 16 at sm and up; a variable's says size-3; the clears size-3.5;
+  // Delete instance's Trash2Icon is icon-xs's 14.
   const wizard = appText('providers-wizard.contract'), providers = appText('providers.contract');
-  expect(wizard.match(/PvRemoveButton\(label=[^\n]*, icon="x", size="micro", disabled=false, stop="enabled",/g)).toHaveLength(2);
+  expect(wizard).toContain('buttonId=`new-provider-argument-remove-${index}`, icon="x", size="micro", iconSize=16, disabled=false, stop="enabled",');
+  expect(wizard).toContain('buttonId=`new-provider-variable-remove-${index}`, icon="x", size="micro", iconSize=12, disabled=false, stop="enabled",');
   for (const call of [
-    'PvRemoveButton(label=`Remove argument ${arg.index + 1}`, buttonId=`provider-argument-remove-${arg.index}`, icon="x", size="micro", disabled=(not writable), stop="enabled page",',
-    'PvRemoveButton(label=`Remove environment variable ${variable.label}`, buttonId=`provider-variable-remove-${variable.index}`, icon="x", size="micro", disabled=(not writable), stop="enabled page",',
-    'PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-field-${field.key}`, icon="x", size="sm", disabled=(not writable), stop="enabled page",',
-    'PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-env-${field.key}`, icon="x", size="sm", disabled=(not writable), stop="enabled page",',
-    'PvRemoveButton(label=`Delete instance ${editor.id}`, buttonId="delete-provider-instance", icon="trash", size="xs", disabled=(busy or not writable), stop="enabled page",',
+    'PvRemoveButton(label=`Remove argument ${arg.index + 1}`, buttonId=`provider-argument-remove-${arg.index}`, icon="x", size="micro", iconSize=16, disabled=(not writable), stop="enabled page",',
+    'PvRemoveButton(label=`Remove environment variable ${variable.label}`, buttonId=`provider-variable-remove-${variable.index}`, icon="x", size="micro", iconSize=12, disabled=(not writable), stop="enabled page",',
+    'PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-field-${field.key}`, icon="x", size="sm", iconSize=14, disabled=(not writable), stop="enabled page",',
+    'PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-env-${field.key}`, icon="x", size="sm", iconSize=14, disabled=(not writable), stop="enabled page",',
+    'PvRemoveButton(label=`Delete instance ${editor.id}`, buttonId="delete-provider-instance", icon="trash", size="xs", iconSize=14, disabled=(busy or not writable), stop="enabled page",',
   ]) expect(providers).toContain(call);
   expect(wizard + providers).not.toMatch(/PvIcon\(name="x", size=1[24], color="light-dark\(#e7000b/);
+});
+
+// index.css at the pin: --destructive is --error, red-500 (#fb2c36) in light and red-500 mixed 90% with white (#fb414a)
+// in dark; --destructive-foreground is red-700 (#c10007) and red-400 (#ff6467). Tailwind's red-600 (#e7000b) and v3's
+// reds (#dc2626, #f87171) are none of them.
+test("Providers' and Settings' reds are upstream's destructive tokens at each place", () => {
+  const dest = 'light-dark(#fb2c36, #fb414a)';
+  const names = appFiles().filter(name => name.endsWith('.contract') && /\/src\/(providers|settings)\//.test(appPath(name)));
+  expect(names.length).toBeGreaterThan(40);
+  for (const name of names) {
+    const text = appText(name).replace('"light-dark(#ef4444, #f87171)"', ''); // the Diff colors select's dots: diff colours
+    expect([name, text.match(/#e7000b|#dc2626|#f87171/gi)]).toEqual([name, null]);
+    expect([name, text.replace(/light-dark\(#c10007, #ff6467\)|light-dark\(#c10007cc, #ff6467cc\)/g, '').match(/#ff6467/gi)]).toEqual([name, null]);
+  }
+  const wizard = appText('providers-wizard.contract'), providers = appText('providers.contract');
+  // text-destructive: the selection errors (AddProviderInstanceDialog.tsx:543,557), the ID's (636), and the other errors.
+  for (const id of ['acp-selection-error', 'add-provider-error', 'new-provider-id-error', 'usage-hub-error'])
+    expect([id, wizard.match(new RegExp(`color="([^"]+)"[^\\n]* testId="${id}"`))?.[1]]).toEqual([id, dest]);
+  expect(wizard.match(/testId="acp-selection-error"/g)).toHaveLength(2);
+  for (const [file, id] of [['providers.contract', 'provider-editor-error'], ['providers-upkeep.contract', 'custom-model-error'], ['settings-b-actions.contract', 'action-error'], ['settings-b-icons.contract', 'project-icon-error'], ['settings-keybindings.contract', 'when-error'], ['settings-scheduled.contract', 'scheduled-task-error'], ['settings-storage.contract', 'storage-error']])
+    expect([id, appText(file!).match(new RegExp(`color="([^"]+)"[^\\n]* testId="${id}"`))?.[1]]).toEqual([id, dest]);
+  for (const file of ['codex-setup.contract', 'providers-setup.contract'])
+    expect(appText(file).match(/role="alert"[^\n]*color="light-dark\(#fb2c36, #fb414a\)"/g)).toHaveLength(2);
+  // providerStatus.ts: an error's dot is bg-destructive, a warning's bg-warning.
+  expect(providers.match(/background-color=\((row|editor)\.dot == "error" \? "light-dark\(#fb2c36, #fb414a\)" : "#fe9a00"\)/g)).toHaveLength(2);
+  // The registry's error is Alert variant="error": error/32 border over error-surface, the description error-foreground/80.
+  expect(wizard).toContain('font-size="0.875rem" line-height="1.25rem" padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#fb2c3652, #fb414a52)" background-color="light-dark(#fb2c3614, #fb414a29)" color="light-dark(#c10007cc, #ff6467cc)" role="status" testId="acp-error"');
+  // variant="destructive": bg-destructive (Remove hub, Delete action, a destructive confirmation).
+  expect(wizard).toMatch(/button id="usage-hub-remove-confirm" press=confirm class=PvPrimary background-color="light-dark\(#fb2c36, #fb414a\)"[^\n]*\n\s+text "Remove hub" /);
+  expect(appText('settings-b-actions.contract')).toContain('background-color="light-dark(#fb2c36, #fb414a)" testId="action-delete-confirm"');
+  expect(appText('settings-rest-dialogs.contract')).toContain('background-color=(destructive ? "light-dark(#fb2c36, #fb414a)"');
+  // variant="destructive-outline": the input border at rest; hovered, destructive/32 over destructive/4; its ink
+  // destructive-foreground.
+  for (const [file, id] of [['settings-b-actions.contract', 'action-delete'], ['settings-projects.contract', 'remove-project']]) {
+    const block = new RegExp(`\\n( +)button id="${id}" [^\\n]*\\n\\1  :hover\\n\\1    border-color="light-dark\\(#fb2c3652, #fb414a52\\)"\\n\\1    background-color="light-dark\\(#fb2c360a, #fb414a0a\\)"\\n`);
+    expect([id, block.test(appText(file!))]).toEqual([id, true]);
+  }
+  expect(appText('settings-b-actions.contract')).not.toMatch(/id="action-delete"[^\n]*border-color=/);
+  // Badge variant="error" (a failed run, a failed delivery): destructive-foreground on destructive/8, /16 in dark.
+  expect(appText('settings-scheduled.contract')).toContain('color=(item.runStatus == "failed" ? "light-dark(#c10007, #ff6467)" :');
+  expect(appText('scheduled-deliveries.contract')).toContain('(tone == "error" ? "light-dark(#fb2c3614, #fb414a29)"');
+});
+
+// Input aria-invalid (ui/input.tsx): border destructive/36; focused, destructive/64 and an inset 3 pt ring of
+// destructive/16 (24 in dark). Project icon's Letters and the When editor's expression are those inputs.
+test('an invalid field is bordered in destructive red, stronger and ringed while focused, as upstream Input is', () => {
+  const input = 'light-dark(#d4d4d8, #ffffff1c)', rest = 'light-dark(#fb2c365c, #fb414a5c)', focused = 'light-dark(#fb2c36a3, #fb414aa3)', ring = 'inset 0 0 0 3px light-dark(#fb2c3629, #fb414a3d)';
+  const icon = contractComponent('settings-b-icons.contract', 'ProjectIconEditor');
+  const letters = (valid: boolean, on: boolean) => ['border-color', 'box-shadow', 'aria-invalid'].map(attr => icon.attribute('input value=letters', attr,
+    { mode: 'monogram', iconName: '', color: '', emoji: '', pickedOver: '', hovered: '', lettersFocused: on },
+    { picker: { monogramValid: valid, monogram: 'A', colors: [], pasted: '' }, custom: '', busy: false, letters: 'A' }));
+  expect([letters(true, true), letters(false, false), letters(false, true)]).toEqual([[input, 'none', false], [rest, 'none', true], [focused, ring, true]]);
+  const state: Obj = { lettersFocused: false };
+  icon.call('lettersFocus', state, {}, [true]);
+  expect(state.lettersFocused).toBe(true);
+  expect(appText('settings-b-icons.contract')).toMatch(/input value=letters [^\n]* focus=lettersFocus\(true\) blur=lettersFocus\(false\) /);
+  const when = contractComponent('settings-keybindings.contract', 'WhenEditor');
+  const field = (error: string, on: boolean) => ['border-color', 'box-shadow'].map(attr => when.attribute('row height="1.75rem" align-items="center"', attr, { fieldFocused: on }, { view: { error } }));
+  expect([field('', true), field('Unexpected token', false), field('Unexpected token', true)]).toEqual([[input, 'none'], [rest, 'none'], [focused, ring]]);
+  expect(when.attribute('input value=expression', 'aria-invalid', { fieldFocused: false }, { view: { error: 'x' } })).toBe(true);
+  expect(appText('settings-keybindings.contract')).toMatch(/input value=expression input=setWhen focus=fieldFocus\(true\) blur=fieldFocus\(false\) /);
 });
 
 // applyWizardNavigation returns once the instance exists (createdInstanceId): after Continue to sign-in, Back and the Sign
@@ -454,19 +518,40 @@ test('Add provider: an agent added before Enter manually or Local ACP command is
 });
 
 // ProviderCommandArguments and ProviderEnvironmentSection: SettingsRows whose control is the outline sm add button with
-// its plus, top right, and whose rows sit below at mt-3 space-y-2 pb-2, inset as the field rows are.
+// its plus (Arguments' bare PlusIcon at the base's 16, Variables' size-3), top right, and whose rows sit below at mt-3
+// space-y-2 pb-2; with rows the SettingsRow ends at pb-1, else py-3. In Add provider they follow the form's fields in one
+// plain SettingsGroup (space-y-1).
 test("Add provider's Arguments and Variables are rows whose add button is their control, the rows below", () => {
   const source = appText('providers-wizard.contract');
-  const block = (title: string, add: string, rows: string) => new RegExp('\\n( +)column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0\\.75rem" padding-bottom="0\\.75rem" testId="[^"]+"\\n'
+  const block = (title: string, add: string, rows: string, plus: number) => new RegExp('\\n( +)column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0\\.75rem" padding-bottom=\\(' + rows + '\\.length > 0 \\? "0\\.25rem" : "0\\.75rem"\\) testId="[^"]+"\\n'
     + '\\1  row width="100%" gap="2rem" align-items="center"\\n\\1    column flex=1 min-width=0 gap="0\\.25rem"\\n\\1      text "' + title + '"[^\\n]*\\n\\1      text [^\\n]*\\n'
-    + '\\1    button press=' + add + ' class=PvOutline[^\\n]*\\n\\1      PvIcon\\(name="plus"[^\\n]*\\n\\1      text "[^"]+"[^\\n]*\\n'
+    + '\\1    button press=' + add + ' class=PvOutline[^\\n]*\\n\\1      PvIcon\\(name="plus", size=' + plus + ',[^\\n]*\\n\\1      text "[^"]+"[^\\n]*\\n'
     + '\\1  if ' + rows + '\\.length > 0\\n\\1    column width="100%" min-width=0 gap="0\\.5rem" margin-top="0\\.75rem" padding-bottom="0\\.5rem"\\n');
-  expect(source).toMatch(block('Arguments', 'addArgument', 'commandArgs'));
-  expect(source).toMatch(block('Variables', 'addVariable', 'variables'));
+  expect(source).toMatch(block('Arguments', 'addArgument', 'commandArgs', 16));
+  expect(source).toMatch(block('Variables', 'addVariable', 'variables', 12));
+  expect(source).toMatch(/\n( +)for session in wizard\.sessions key=session\.key\n\1  column width="100%" gap="0\.25rem"\n\1    for field in wizard\.fields key=field\.key\n(\1      [^\n]*\n)+\1    if localAcp\n\1      \/\/[^\n]*\n\1      \/\/[^\n]*\n\1      column width="100%" box-sizing="border-box"[^\n]*testId="new-provider-arguments"/);
   // An argument row: its mono field and the ghost-destructive remove.
-  expect(source).toMatch(/input value=arg input=editArgument\(index\)[^\n]*font-family="ui-monospace"[^\n]*\n\s+PvRemoveButton\(label=`Remove argument \$\{index \+ 1\}`, buttonId=`new-provider-argument-remove-\$\{index\}`, icon="x", size="micro", disabled=false, stop="enabled", press=removeArgument\(index\)\)/);
+  expect(source).toMatch(/input value=arg input=editArgument\(index\)[^\n]*font-family="ui-monospace"[^\n]*\n\s+PvRemoveButton\(label=`Remove argument \$\{index \+ 1\}`, buttonId=`new-provider-argument-remove-\$\{index\}`, icon="x", size="micro", iconSize=16, disabled=false, stop="enabled", press=removeArgument\(index\)\)/);
   // An instance's argument row is the same row (ProviderSettingsForm), centred.
   expect(appText('providers.contract')).toMatch(/\n {4}row width="100%" min-width=0 gap="0\.375rem" align-items="center"\n {6}input value=value input=edit blur=op\("provider-argument-value"[^\n]*font-family="ui-monospace" font-size="0\.8125rem"[^\n]*\n {6}PvRemoveButton\(label=`Remove argument \$\{arg\.index \+ 1\}`/);
+});
+
+// An instance's Arguments is the same SettingsRow, divided from the Runtime fields above it as a grouped SettingsGroup
+// divides its rows, and stacked under 32rem as the instance's Variables is.
+test("an instance's Arguments header is ProviderCommandArguments' row: the add button its control, the description under the title", () => {
+  const source = appText('providers.contract');
+  const header = new RegExp('\\n( +)column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0\\.75rem" padding-bottom=\\(editor\\.commandArgs\\.length > 0 \\? "0\\.25rem" : "0\\.75rem"\\) border-top-style="solid" border-top-width=\\(editor\\.fields\\.length > 0 or not editor\\.known \\? 1 : 0\\) border-color="light-dark\\(#e3e3e780, #ffffff0a\\)" testId="provider-arguments"\\n'
+    + '\\1  row width="100%" flex-direction=\\(rowWide \\? "row" : "column"\\) gap=\\(rowWide \\? "2rem" : "0\\.75rem"\\) align-items=\\(rowWide \\? "center" : "stretch"\\)\\n'
+    + '\\1    column flex-grow=\\(rowWide \\? 1 : 0\\) flex-shrink=1 min-width=0 gap="0\\.25rem"\\n'
+    + '\\1      row min-height="1\\.25rem" align-items="center"\\n\\1        text "Arguments" font-size="0\\.875rem" line-height="1\\.25rem" font-weight=500[^\\n]*\\n'
+    + '\\1      text "One literal argument per row, in launch order\\." font-size="0\\.75rem" line-height="1\\.125rem" color="light-dark\\(#70707acc, #a1a1a1cc\\)"\\n'
+    + '\\1    row justify-content="flex-end"\\n\\1      button press=op\\("provider-argument-add", editor\\.id, "", "", true\\) class=PvOutline[^\\n]*\\n'
+    + '\\1        PvIcon\\(name="plus", size=16, color="light-dark\\(#71717b, #a1a1a1\\)"\\)\\n\\1        text "Add argument" font-size="0\\.875rem" line-height="1\\.25rem" font-weight=500[^\\n]*\\n'
+    + '\\1  if editor\\.commandArgs\\.length > 0\\n\\1    column width="100%" min-width=0 gap="0\\.5rem" margin-top="0\\.75rem" padding-bottom="0\\.5rem"\\n'
+    + '\\1      for arg in editor\\.commandArgs key=arg\\.key\\n\\1        ProviderCommandArgumentRow\\(');
+  expect(source).toMatch(header);
+  // The Variables row it follows the form of.
+  expect(source).toContain('padding-top="0.75rem" padding-bottom=(editor.hasVariables ? "0.25rem" : "0.75rem")\n            row width="100%" flex-direction=(rowWide ? "row" : "column") gap=(rowWide ? "2rem" : "0.75rem") align-items=(rowWide ? "center" : "stretch")');
 });
 
 // The Identity card links Docs to the agent's website and Source to its repository, each only when the registry gives

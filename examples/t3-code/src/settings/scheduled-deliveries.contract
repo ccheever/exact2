@@ -31,7 +31,7 @@ component WebhookDeliveriesDialog
         scroll flex-shrink=1 min-height=0
           column padding-left="1.5rem" padding-right="1.5rem" gap="1rem"
             if data.error != "" and not data.filtered
-              text data.error role="alert" color="light-dark(#dc2626, #f87171)" font-size="0.875rem"
+              text data.error role="alert" color="light-dark(#fb2c36, #fb414a)" font-size="0.875rem"
             if data.empty
               text "No requests yet." font-size="0.875rem" color="light-dark(#71717b, #a1a1a1)"
             if data.selected == ""
@@ -71,5 +71,5 @@ component DeliveryBadge
     label: string
     tone: string
   view
-    row height="1.125rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" align-items="center" flex-shrink=0 border-radius="0.25rem" border-style="solid" border-width=1 border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff1c)" : "#00000000") background-color=(tone == "success" ? "light-dark(#00bc7d14, #00bc7d29)" : (tone == "warning" ? "light-dark(#fe9a0014, #fe9a0029)" : (tone == "error" ? "light-dark(#fb2c3614, #fb2c3629)" : "light-dark(#ffffff, #ffffff0a)")))
+    row height="1.125rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" align-items="center" flex-shrink=0 border-radius="0.25rem" border-style="solid" border-width=1 border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff1c)" : "#00000000") background-color=(tone == "success" ? "light-dark(#00bc7d14, #00bc7d29)" : (tone == "warning" ? "light-dark(#fe9a0014, #fe9a0029)" : (tone == "error" ? "light-dark(#fb2c3614, #fb414a29)" : "light-dark(#ffffff, #ffffff0a)")))
       text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(tone == "success" ? "light-dark(#007a55, #00d492)" : (tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : (tone == "error" ? "light-dark(#c10007, #ff6467)" : "light-dark(#18181b, #f5f5f5)")))
