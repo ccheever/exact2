@@ -1,0 +1,462 @@
+{
+  "date": "2026-10-28",
+  "device": {
+    "device": "iPhone16,1",
+    "os": "Version 27.0.1 (Build 24A446)",
+    "lowPowerMode": false,
+    "window": {
+      "height": 852,
+      "maximumFramesPerSecond": 120,
+      "scale": 3,
+      "width": 393
+    }
+  },
+  "app": "dev.exact.timerqualification",
+  "tool": "Xcode 27.1 XCTest",
+  "test": "DeviceFlingTests/testTimerPoliciesDuringRealFlings",
+  "result": "Passed",
+  "source_fixture_sha256": "5bae6442c60150bcc9c2c889f1f37f4309079720b3d726d563cda30fd2ab5c3a",
+  "method": "Three warmup swipes, then precise, scrollend, update, update, scrollend, precise; each pass selects the policy, records three fast down/up swipe pairs and stops its recording at the next selection or final Save trace. No agent or clock override. The counter updates all 300 row labels.",
+  "runs": [
+    {
+      "order": 0,
+      "policy": "precise",
+      "trace_sha256": "2a56529b5a39d0b1f399cb4b232f33df31e2910b5b32731be5eb060562ff3ea4",
+      "period_ms": 8.34,
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 2098,
+        "hitchMs": 1229.45,
+        "hitchMsPerS": 65.6,
+        "lateFrames": 190,
+        "maxMainMs": 50.26,
+        "meanMainMs": 1.45,
+        "missed": 149,
+        "ms": 18742.16,
+        "worstIntervalMs": 58.34
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "by_phase": {
+        "drag": {
+          "frames": 90,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 2,
+          "maxMainMs": 11.59,
+          "meanMainMs": 0.86,
+          "missed": 0,
+          "ms": 750.38,
+          "worstIntervalMs": 8.34
+        },
+        "glide": {
+          "frames": 1634,
+          "hitchMs": 673.61,
+          "hitchMsPerS": 47.1,
+          "lateFrames": 129,
+          "maxMainMs": 15.47,
+          "meanMainMs": 1.3,
+          "missed": 81,
+          "ms": 14301.98,
+          "worstIntervalMs": 25.01
+        },
+        "moving": {
+          "frames": 2,
+          "hitchMs": 17.41,
+          "hitchMsPerS": 510.86,
+          "lateFrames": 2,
+          "maxMainMs": 14.74,
+          "meanMainMs": 8.02,
+          "missed": 2,
+          "ms": 34.08,
+          "worstIntervalMs": 20.82
+        },
+        "rest": {
+          "frames": 372,
+          "hitchMs": 538.43,
+          "hitchMsPerS": 147.28,
+          "lateFrames": 57,
+          "maxMainMs": 50.26,
+          "meanMainMs": 2.18,
+          "missed": 66,
+          "ms": 3655.72,
+          "worstIntervalMs": 58.34
+        }
+      },
+      "late_frames_retained": 190,
+      "late_phase_time_ms": {
+        "runtime": 16.84,
+        "apply": 1151.36,
+        "text": 100.38,
+        "scroll": 0.28
+      }
+    },
+    {
+      "order": 1,
+      "policy": "scrollend",
+      "trace_sha256": "4cad8f6ce627df5380a138bf001c56faba90f0f72f56eb7a036fc25414e67a82",
+      "period_ms": 8.34,
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 2117,
+        "hitchMs": 1378.46,
+        "hitchMsPerS": 72.35,
+        "lateFrames": 66,
+        "maxMainMs": 107.82,
+        "meanMainMs": 1.88,
+        "missed": 168,
+        "ms": 19053.06,
+        "worstIntervalMs": 100.02
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "by_phase": {
+        "drag": {
+          "frames": 91,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 3,
+          "maxMainMs": 3.39,
+          "meanMainMs": 0.99,
+          "missed": 0,
+          "ms": 758.79,
+          "worstIntervalMs": 8.34
+        },
+        "glide": {
+          "frames": 1715,
+          "hitchMs": 123.24,
+          "hitchMsPerS": 8.54,
+          "lateFrames": 7,
+          "maxMainMs": 4.89,
+          "meanMainMs": 1.3,
+          "missed": 14,
+          "ms": 14424.09,
+          "worstIntervalMs": 95.2
+        },
+        "rest": {
+          "frames": 311,
+          "hitchMs": 1255.22,
+          "hitchMsPerS": 324.33,
+          "lateFrames": 56,
+          "maxMainMs": 107.82,
+          "meanMainMs": 5.32,
+          "missed": 154,
+          "ms": 3870.18,
+          "worstIntervalMs": 100.02
+        }
+      },
+      "late_frames_retained": 66,
+      "late_phase_time_ms": {
+        "runtime": 762.23,
+        "apply": 325.97,
+        "text": 34.78,
+        "image": 0,
+        "scroll": 0.16
+      }
+    },
+    {
+      "order": 2,
+      "policy": "update",
+      "trace_sha256": "70cc80cbd5c33dd3c632e5ef8210251373f01e7a5ff8c2ecbd0fbd24581aded2",
+      "period_ms": 8.34,
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 1658,
+        "hitchMs": 5356.58,
+        "hitchMsPerS": 278.02,
+        "lateFrames": 214,
+        "maxMainMs": 97.34,
+        "meanMainMs": 4.07,
+        "missed": 650,
+        "ms": 19266.56,
+        "worstIntervalMs": 100.94
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "by_phase": {
+        "drag": {
+          "frames": 77,
+          "hitchMs": 66.64,
+          "hitchMsPerS": 93.5,
+          "lateFrames": 2,
+          "maxMainMs": 68.85,
+          "meanMainMs": 1.52,
+          "missed": 8,
+          "ms": 712.74,
+          "worstIntervalMs": 70.49
+        },
+        "glide": {
+          "frames": 1261,
+          "hitchMs": 4094.43,
+          "hitchMsPerS": 279.3,
+          "lateFrames": 159,
+          "maxMainMs": 82.57,
+          "meanMainMs": 4.07,
+          "missed": 495,
+          "ms": 14659.56,
+          "worstIntervalMs": 83.35
+        },
+        "moving": {
+          "frames": 5,
+          "hitchMs": 4.88,
+          "hitchMsPerS": 95.15,
+          "lateFrames": 1,
+          "maxMainMs": 84.47,
+          "meanMainMs": 22.95,
+          "missed": 1,
+          "ms": 51.29,
+          "worstIntervalMs": 13.21
+        },
+        "rest": {
+          "frames": 315,
+          "hitchMs": 1190.63,
+          "hitchMsPerS": 309.82,
+          "lateFrames": 52,
+          "maxMainMs": 97.34,
+          "meanMainMs": 4.4,
+          "missed": 146,
+          "ms": 3842.97,
+          "worstIntervalMs": 100.94
+        }
+      },
+      "late_frames_retained": 200,
+      "late_phase_time_ms": {
+        "runtime": 3895.95,
+        "apply": 1498.65,
+        "text": 155.76,
+        "scroll": 1.37
+      }
+    },
+    {
+      "order": 3,
+      "policy": "update",
+      "trace_sha256": "a5834fbcf516805c584b4bb3e0bf49ea58fe4c422f4650c75d2694953d376e41",
+      "period_ms": 8.34,
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 1653,
+        "hitchMs": 5451.42,
+        "hitchMsPerS": 282.47,
+        "lateFrames": 189,
+        "maxMainMs": 98.65,
+        "meanMainMs": 4.11,
+        "missed": 660,
+        "ms": 19299.44,
+        "worstIntervalMs": 99.62
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "by_phase": {
+        "drag": {
+          "frames": 78,
+          "hitchMs": 57.7,
+          "hitchMsPerS": 81.41,
+          "lateFrames": 1,
+          "maxMainMs": 64.49,
+          "meanMainMs": 1.45,
+          "missed": 7,
+          "ms": 708.72,
+          "worstIntervalMs": 66.04
+        },
+        "glide": {
+          "frames": 1256,
+          "hitchMs": 4190.44,
+          "hitchMsPerS": 284.92,
+          "lateFrames": 137,
+          "maxMainMs": 85.01,
+          "meanMainMs": 4.19,
+          "missed": 506,
+          "ms": 14707.55,
+          "worstIntervalMs": 83.35
+        },
+        "moving": {
+          "frames": 5,
+          "hitchMs": 4.8,
+          "hitchMsPerS": 97.78,
+          "lateFrames": 1,
+          "maxMainMs": 1,
+          "meanMainMs": 0.85,
+          "missed": 1,
+          "ms": 49.09,
+          "worstIntervalMs": 13.14
+        },
+        "rest": {
+          "frames": 314,
+          "hitchMs": 1198.48,
+          "hitchMsPerS": 312.59,
+          "lateFrames": 50,
+          "maxMainMs": 98.65,
+          "meanMainMs": 4.54,
+          "missed": 146,
+          "ms": 3834.08,
+          "worstIntervalMs": 99.62
+        }
+      },
+      "late_frames_retained": 189,
+      "late_phase_time_ms": {
+        "runtime": 3875.22,
+        "apply": 1475.31,
+        "text": 155.93,
+        "scroll": 0.84
+      }
+    },
+    {
+      "order": 4,
+      "policy": "scrollend",
+      "trace_sha256": "00b135d23d6342d47cabaa1aa20af66a6f446951b408f490365d69e52bc197bd",
+      "period_ms": 8.34,
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 2112,
+        "hitchMs": 1419.67,
+        "hitchMsPerS": 74.51,
+        "lateFrames": 70,
+        "maxMainMs": 96.24,
+        "meanMainMs": 1.85,
+        "missed": 175,
+        "ms": 19053.09,
+        "worstIntervalMs": 95.35
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "by_phase": {
+        "drag": {
+          "frames": 93,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 6,
+          "maxMainMs": 2.85,
+          "meanMainMs": 0.96,
+          "missed": 0,
+          "ms": 775.46,
+          "worstIntervalMs": 8.34
+        },
+        "glide": {
+          "frames": 1711,
+          "hitchMs": 120.4,
+          "hitchMsPerS": 8.37,
+          "lateFrames": 6,
+          "maxMainMs": 4.76,
+          "meanMainMs": 1.27,
+          "missed": 14,
+          "ms": 14387.98,
+          "worstIntervalMs": 92.27
+        },
+        "moving": {
+          "frames": 5,
+          "hitchMs": 161.94,
+          "hitchMsPerS": 797.54,
+          "lateFrames": 4,
+          "maxMainMs": 96.24,
+          "meanMainMs": 64.97,
+          "missed": 19,
+          "ms": 203.05,
+          "worstIntervalMs": 95.35
+        },
+        "rest": {
+          "frames": 303,
+          "hitchMs": 1137.33,
+          "hitchMsPerS": 308.5,
+          "lateFrames": 54,
+          "maxMainMs": 86.75,
+          "meanMainMs": 4.36,
+          "missed": 142,
+          "ms": 3686.6,
+          "worstIntervalMs": 91.69
+        }
+      },
+      "late_frames_retained": 70,
+      "late_phase_time_ms": {
+        "runtime": 804.41,
+        "apply": 350.01,
+        "text": 36.12,
+        "scroll": 0.24
+      }
+    },
+    {
+      "order": 5,
+      "policy": "precise",
+      "trace_sha256": "7aec30186fe59a46a6af2cf1fb383d6377bb7b6adc10603b65198a8d5e01f33a",
+      "period_ms": 8.34,
+      "recording": {
+        "droppedFrames": 0,
+        "frames": 1936,
+        "hitchMs": 1177.44,
+        "hitchMsPerS": 67.96,
+        "lateFrames": 173,
+        "maxMainMs": 52.76,
+        "meanMainMs": 1.49,
+        "missed": 142,
+        "ms": 17325.36,
+        "worstIntervalMs": 54.46
+      },
+      "drag_segments": 6,
+      "glide_segments": 6,
+      "by_phase": {
+        "drag": {
+          "frames": 92,
+          "hitchMs": 9.17,
+          "hitchMsPerS": 11.83,
+          "lateFrames": 1,
+          "maxMainMs": 13.1,
+          "meanMainMs": 0.82,
+          "missed": 1,
+          "ms": 775.42,
+          "worstIntervalMs": 17.51
+        },
+        "glide": {
+          "frames": 1623,
+          "hitchMs": 739.03,
+          "hitchMsPerS": 51.82,
+          "lateFrames": 133,
+          "maxMainMs": 15.7,
+          "meanMainMs": 1.33,
+          "missed": 87,
+          "ms": 14260.86,
+          "worstIntervalMs": 25.01
+        },
+        "moving": {
+          "frames": 3,
+          "hitchMs": 0,
+          "hitchMsPerS": 0,
+          "lateFrames": 1,
+          "maxMainMs": 10.09,
+          "meanMainMs": 3.82,
+          "missed": 0,
+          "ms": 25.02,
+          "worstIntervalMs": 8.34
+        },
+        "rest": {
+          "frames": 218,
+          "hitchMs": 429.24,
+          "hitchMsPerS": 189.59,
+          "lateFrames": 38,
+          "maxMainMs": 52.76,
+          "meanMainMs": 2.9,
+          "missed": 54,
+          "ms": 2264.06,
+          "worstIntervalMs": 54.46
+        }
+      },
+      "late_frames_retained": 173,
+      "late_phase_time_ms": {
+        "runtime": 19.52,
+        "apply": 1111.09,
+        "text": 90.08,
+        "scroll": 0.3
+      }
+    }
+  ],
+  "limits": [
+    "The test checks element existence and executes real gestures; it asserts no frame-lateness threshold.",
+    "Display-link hitch time is an estimate and omits render-server-only hitches.",
+    "XCTest accessibility snapshots and policy-button presses add work; compare glide phases separately from rest.",
+    "Late-phase totals cover only retained late frames; the first update pass retains the worst 200 of 214 late frames.",
+    "Per-firing admission timestamps and per-site runtime work counters are not captured.",
+    "These are short repeated passes in one session, not a device-population benchmark or energy measurement."
+  ],
+  "exact_commit": "492d8c0a4844dfb6c05c1d435448814f68d1ad54",
+  "version": "0.1.0 (1)",
+  "builtAt": "2026-10-28T20:47:16.994Z",
+  "production": false
+}

@@ -29,12 +29,13 @@ impl DataSource for Module {
         )
         .map_err(DataError::Unavailable)?;
         self.bytecode = admitted.bytecode.clone();
-        self.snapshot_deadline = Some(deadline);
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        self.snapshot_deadline = Some((deadline, left));
         self.revision = Default::default();
         self.snapshot = true;
         self.native_factory = None;
         self.native_slot = Default::default();
-        self.storage_wait = deadline.saturating_duration_since(std::time::Instant::now());
+        self.storage_wait = left;
         Ok(())
     }
 
@@ -54,6 +55,10 @@ impl DataSource for Module {
         self.journal_lines()
     }
 
+    fn take_aborted(&mut self) -> Vec<u64> {
+        Module::take_aborted(self)
+    }
+
     fn background(&mut self, store: &Store) -> Option<Request> {
         let _ = store;
         self.background_request()
@@ -66,6 +71,25 @@ impl DataSource for Module {
     ) -> Result<Option<Request>, DataError> {
         let _ = store;
         self.background_round(outcome)
+    }
+
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        let _ = store;
+        self.keep_sent_now(let_go, refused)
+    }
+
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        self.module_landed_now(store, token, outcome)
     }
 
     fn background_state(&self) -> Option<exact_runner::BackgroundState> {

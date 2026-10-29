@@ -13,6 +13,7 @@ let shared: Promise<{text:string}>;
 // the last failure a background step reported to the app.
 let saving: Promise<unknown> = Promise.resolve(), lastError = "";
 let compressAndWrite = 0;
+const slept: string[] = [];
 const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.charCodeAt(0)));
 
 // Writes an answer starts and does not await (kanban F22): the answer is
@@ -223,6 +224,16 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     tail = run.catch(() => {});
     return run;
   }
+  // A write, then a timer once it lands: refused to a call let go meanwhile,
+  // whose chain still runs (LLP 1027.000 D1: its timer would never run).
+  if (op === "write-then-sleep") {
+    return storage.fs.writeFile(storage.fs.directories.data + "/slept", bytes(value)).then(() => {
+      try { setTimeout(() => {}, 10); slept.push(value + " armed"); }
+      catch (e) { slept.push(value + " refused: " + e.message); }
+      return {text: value};
+    });
+  }
+  if (op === "slept") return {text: slept.join("; ")};
   if (op === "serial") {
     const run = tail.then(async () => {
       const db = await storage.sqlite.open("app:/data/notes.db");
@@ -424,6 +435,30 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     ];
     for (const init of inits) {
       try { await fetch(url, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
+  // An upload's progress (LLP 1016.000 D10): each
+  // event as its mapper gets it, a `progress` of the bytes sent, then `load`.
+  // (`upload-patient`: a deadline past the portable transport's own 30 s)
+  if (op === "upload-progress" || op === "upload-patient") {
+    return fetch("https://example.test/upload", { method: "POST", exactBodyFrom: value, exactUploadProgress: true, exactTimeout: op === "upload-patient" ? 60000 : 30000,
+      exactStream: (e: any) => ({text: e.type === "progress" ? `progress ${e.loaded}/${e.total} ${e.lengthComputable}` : e.type === "load" ? `load ${e.status} ${e.data}` : `${e.type} ${e.kind} ${e.message}`}) } as any);
+  }
+  if (op === "upload-progress-refusals") {
+    const url = "https://example.test/upload", exactStream = () => ({text: ""}), out: string[] = [];
+    const inits: [string, any][] = [
+      [url, { method: "POST", exactStream, exactUploadProgress: "yes" }],
+      [url, { method: "POST", exactUploadProgress: true }],
+      [url, { exactStream, exactUploadProgress: true }],
+      ["wss://example.test/upload", { method: "POST", exactStream, exactUploadProgress: true }],
+      [url, { exactStream, exactUploadProgress: true, exactLongPoll: { cursor: "since", from: "seq" } }],
+      [url, { method: "POST", exactStream, exactUploadProgress: true, redirect: "manual" }],
+      [url, { method: "POST", exactStream, exactTimeout: 30000 }],
+      ["exact-native:", { method: "POST", exactStream, exactUploadProgress: true }],
+    ];
+    for (const [to, init] of inits) {
+      try { await fetch(to, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
     }
     return {text: out.join("\n")};
   }

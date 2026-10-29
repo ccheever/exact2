@@ -589,7 +589,7 @@ impl<D: DataSource> Runner<D> {
         Ok(change)
     }
 
-    fn store_readers(&self) -> Vec<usize> {
+    pub(super) fn store_readers(&self) -> Vec<usize> {
         self.store_readers
             .iter()
             .enumerate()

@@ -1233,6 +1233,8 @@ fn bake_in(
     module.set_budget_ms(f64::INFINITY);
     let app_id = module.app_id().to_owned();
     let grants = module.grants().to_owned();
+    exact_runner::auth::session_grant_refusal(&grants)
+        .map_or(Ok(()), |refusal| Err(format!("app.ts: {refusal}")))?;
     let surfaces: serde_json::Map<String, serde_json::Value> = module
         .canvas_roster()
         .iter()
@@ -1275,6 +1277,8 @@ fn bake_in(
     let packages = package_code(stage)?.packages;
     let mut receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": if draws { 2 } else { 1 },
+        // The prelude runtime it needs, which a push to an older binary checks (LLP 1016.000 D10).
+        "typescriptRuntime": exact_bake::compat::typescript_runtime_of(&script),
         "surfaces": surfaces,
         "rustSources": rust_sources,
         "bytecodeVersion": exact_js::BYTECODE_VERSION,

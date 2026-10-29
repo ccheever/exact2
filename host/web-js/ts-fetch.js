@@ -18,6 +18,9 @@ export function fetch(input, options) {
   // Checked before any path, a mutation's captured fetch included (LLP 1016.000 D8).
   if (options?.exactLongPoll !== undefined && options.exactStream === undefined)
     return Promise.reject(new TypeError('exactLongPoll asks again for an answer that keeps coming: give exactStream too'));
+  const upload = options?.exactUploadProgress; // LLP 1016.000 D10
+  if (upload !== undefined && upload !== false && options.exactStream === undefined)
+    return Promise.reject(new TypeError(upload === true ? "exactUploadProgress reports an upload's progress to its stream: give exactStream too" : 'exactUploadProgress is true or false'));
   const held = options?.exactHeld;
   if (held !== undefined && held !== true && held !== false) return Promise.reject(new TypeError('exactHeld is true or false'));
   if (held && options.exactStream !== undefined) return Promise.reject(new TypeError('exactHeld: a stream is never held; it stops counting at its first message'));
@@ -114,7 +117,7 @@ function fetchOf(input, options, call) {
       return m.fromFile(input, init, redirect, started, origin);
     });
   }
-  return options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options, redirect);
+  return options.exactTimeout !== undefined && options.exactUploadProgress !== true ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options, redirect);
 }
 
 export const files = { appId: null };
@@ -152,11 +155,11 @@ let NextTimer = 1;
 function arm(api, run, ms, args) {
   if (overlaying.on) throw inOverlay(api);
   const call = answering.call;
-  if (answering.mapper || !call || call.settled) throw new Error(`${api} is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value)`);
+  if (answering.mapper || !call || !answers(call)) throw new Error(`${api} is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go)`);
   const { clock, journal, drive } = answering.page, id = NextTimer++;
   // The action answers true, as every clock entry's does (rt.js `advance`: anything else stops the advance).
   // `live`: its answer has not answered nor been let go (the agent's `clock settle` goes only to those).
-  const live = () => { const t = call.ticket; return !call.settled && !(t && (t.owner.ticket !== t || t.owner.gone)); };
+  const live = () => answers(call);
   const entry = { due: clock.now + ms, once: true, data: true, call, live, action() {
     disarm(id);
     if (!live()) { dropTimers(call, true); return true; }
@@ -174,6 +177,8 @@ function arm(api, run, ms, args) {
   if (!clock.agent) drive();
   return id;
 }
+/** Whether `call` still answers: it has not answered, and its ticket was not let go. */
+function answers(call) { const t = call.ticket; return !call.settled && !(t && (t.owner.ticket !== t || t.owner.gone)); }
 function disarm(id) {
   const armed = Armed.get(id);
   if (!armed) return;

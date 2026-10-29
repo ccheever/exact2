@@ -17,7 +17,7 @@ extension MenuHost {
 /// The dialog sheets that may host it are captured at opening: a later
 /// sheet must cover this layer. Elsewhere it is where BASE put every lifted
 /// popover, the top live route modal's view or the viewport.
-final class PopoverLayer: UIView {
+final class PopoverLayer: RestingTintView {
     private struct Host { weak var controller: UIViewController? }
     private var hosts: [Host]
     let order: Int

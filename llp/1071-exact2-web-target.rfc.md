@@ -1836,6 +1836,22 @@ keeps the previous copy. Left: an in-place dep-info rewrite inside one
 millisecond passes the date check, and the newline check is then the only
 guard.
 
+The emitter's own time is linear in the plan's tree: no row, node or arm
+walks the plan's nodes, bindings or slots. What a style row or an arm asks
+of the whole plan is answered once per emission (`answers.rs`): whether a
+type or family token varies, the tokens' and the type tokens' properties,
+each measured row's map, the text styles a bound size reads, the tokens that
+name the accent, whether the plan has modes, and each arm's own slots.
+Whether a node has children is its entry in `Sites`; a class, a set of
+state looks and a mode channel's text are each found by value. Asked per
+row, any one of these makes emission quadratic in the plan. A row still
+reads two of the design's tables whole: a bound size its text styles, a
+bound `animation` the plan's `@keyframes` (`paint.rs`). Measured on
+2026-10-29 with the host-dev compiler: a synthetic app of 500 to 16,000
+components (3,001 to 96,001 nodes) emits in 0.11 to 3.2 s, twice the time
+for twice the plan; the T3 Code clone's plan (261,364 nodes, `--sites`) in
+55 to 65 s over two runs, writing a 753 MB `app.js`.
+
 Measuring note: a CDP client that enables the Network domain (Playwright
 does) captures each request's initiator stack, which makes V8 collect source
 positions by reparsing the giant generated functions: 0.4–1.4 s of

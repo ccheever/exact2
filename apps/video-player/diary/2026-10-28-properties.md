@@ -17,3 +17,4 @@ none
 ### Checkpoints
 
 - Authored tests and property verification: The authored sequence and explore script agree with Lean; all three properties held.
+- Suggestions kept: of the 11 blocks the search suggested, a four-family panel judging as the app's author kept 1, now in the test file beside the proved properties' blocks; the rest are sample artifacts or what the type says.

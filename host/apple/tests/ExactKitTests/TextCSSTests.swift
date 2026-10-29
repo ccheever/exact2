@@ -103,6 +103,33 @@ final class TextCSSTests: XCTestCase {
         XCTAssertLessThan(engine.minContentWidth(normal), natural.width)
     }
 
+    /// CSS Text 3 §4.1.3 removes collapsible spaces at a soft line break and
+    /// hangs `pre-wrap`'s there; Core Text keeps their advance in the line's
+    /// typographic width. Before a forced break `pre-wrap`'s spaces hang only
+    /// as far as they would not fit, and `pre`'s count.
+    func testAWrappedLinesTrailingSpaceTakesNoWidth() {
+        let first = width("word word", numeric: 0)
+        // Room for "word word" and less than the space after it
+        let room = first + 1
+        for whiteSpace in [0, 1, 3] {
+            let p = engine.paragraph(spec([run("word word word")], whiteSpace: whiteSpace), width: room)
+            XCTAssertEqual(p.lines.count, 2, "white-space \(whiteSpace)")
+            XCTAssertEqual(p.width, first, accuracy: 1.0 / 64, "white-space \(whiteSpace)")
+        }
+        let word = width("word", numeric: 0)
+        let spaced = engine.paragraph(spec([run("word   ")], whiteSpace: 4), width: .infinity).width
+        XCTAssertEqual(engine.paragraph(spec([run("word   \nx")], whiteSpace: 1), width: spaced + 10).width, spaced, accuracy: 1.0 / 64,
+                       "pre-wrap with room for them: the spaces count")
+        XCTAssertEqual(engine.paragraph(spec([run("word   \nx")], whiteSpace: 1), width: word + 1).width, word + 1, accuracy: 1.0 / 64,
+                       "pre-wrap without: the spaces past the room hang")
+        XCTAssertEqual(engine.paragraph(spec([run("word   \nx")], whiteSpace: 4), width: word + 1).width, spaced, accuracy: 1.0 / 64,
+                       "pre: they count")
+        // The room is the line's, after its indent
+        let indented = Spec(runs: [run("word   \nx")], align: 0, lineClamp: 0, color: [0, 0, 0, 255], whiteSpace: 1, textIndent: 20)
+        XCTAssertEqual(engine.paragraph(indented, width: word + 21).width, word + 21, accuracy: 1.0 / 64,
+                       "pre-wrap after an indent: the spaces past the line's room hang")
+    }
+
     func testPreLineKeepsLineFeedsWrapsAndSizesByForcedLines() {
         // Chrome's innerText for each source under `white-space: pre-line`.
         for (source, rendered) in [("a    b", "a b"), ("a  \n  b", "a\nb"), ("a\n\nb", "a\n\nb"), ("\nfirst", "\nfirst"),

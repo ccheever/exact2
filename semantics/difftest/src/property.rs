@@ -86,6 +86,13 @@ impl<'a> Step<'a> {
     pub(crate) fn input(&self) -> bool {
         self.label.starts_with("tap ") || self.label.starts_with("type ")
     }
+    pub(crate) fn clock(&self, previous: Option<&Self>) -> bool {
+        self.label.starts_with("clock +")
+            || (self.label == "land"
+                && !previous.is_some_and(|s| {
+                    s.input() && s.ran.iter().any(|(kind, _, _)| *kind == "handler")
+                }))
+    }
     pub(crate) fn value(&self, name: &str) -> Option<&str> {
         self.lines.iter().find_map(|l| {
             l.strip_prefix(&format!("slot {name} "))
@@ -168,9 +175,7 @@ pub(crate) fn evaluate(properties: &[PropertyDecl], observation: &[String]) -> R
                     )
                 }
                 K::Clock => {
-                    if !(step.label.starts_with("clock +")
-                        || (step.label == "land" && !previous.is_some_and(Step::input)))
-                    {
+                    if !step.clock(previous) {
                         continue;
                     }
                     (
@@ -468,6 +473,30 @@ mod tests {
             ),
         );
         assert_eq!(r.counts[0][0].counted, 1);
+    }
+
+    #[test]
+    fn a_refused_input_is_counted_and_a_then_reads_old_before_the_input() {
+        let source = "after \"act\" \"increment\"\n  expect state counter == old + 1\n";
+        let before = format!("slot counter {}", n(3.0));
+        let after = format!("ran then increment ok\nslot counter {}", n(4.0));
+        let text = pair(&before, &before, &after);
+        let report = run(source, &text);
+        assert!(report.passed());
+        assert_eq!(report.counts[0][0].checked, 1);
+        let refused = text.replace("ran handler act ok", "ran handler act refused");
+        let report = run(source, &refused);
+        assert_eq!(report.counts[0][0].checked, 0);
+        assert_eq!(report.counts[0][0].counted, 1);
+    }
+
+    #[test]
+    fn data_after_an_input_that_reached_no_handler_is_a_clock_step() {
+        let source = "after clock \"data\"\n  writes none\n";
+        let text = "== boot\noutcome ok\nslot n true\n== tap \"missing\"\noutcome refused\nslot n true\n== land\noutcome ok\nslot n false\n";
+        let report = run(source, text);
+        assert_eq!(report.counts[0][0].checked, 1);
+        assert_eq!(report.counts[0][0].false_, 1);
     }
 
     #[test]

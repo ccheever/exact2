@@ -1433,6 +1433,11 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   button on a row passes the row's id to its action: `button
   press=remove(note.id)` with `action remove(id: string)`, whose `send`
   carries it to the source.
+- **Wake by audience.** `poll()` declares its interest (`interest=1` and the
+  schema's online-only tables), so on a Snapback4 that carries LLP 3000.041 the
+  server answers it only for commits this viewer can read, an online-only
+  table, or an effect that names the viewer; a bystander's poll sleeps to its
+  deadline and learns nothing. An older server ignores the declaration.
 - **Live updates.** A data answer has a bounded life and tests settle on
   answers, so do not hold a long `poll(20)` inside a resource. Drive
   freshness from Contract: a `task` that calls an action every few seconds,

@@ -21,6 +21,7 @@ mod images;
 mod mask;
 #[cfg(target_os = "android")]
 mod present;
+mod rows;
 use crate::paint::GradientPaint;
 use exact_kernel::gradient::Geometry;
 use images::ImageCache;
@@ -68,6 +69,7 @@ pub struct Gpu {
     /// The clip and opacity layers open in the scene (a backdrop flush
     /// pushes them again, LLP 1053.000 D2).
     layers: Vec<backdrop::Layer>,
+    rows: rows::Rows,
     /// The adapter's name.
     pub adapter: String,
     /// The wgpu backend's name (`Vulkan`, `Metal`, …).
@@ -234,6 +236,7 @@ impl Gpu {
             images: ImageCache::default(),
             canvas_brushes: Default::default(),
             layers: Vec::new(),
+            rows: rows::Rows::default(),
             adapter: info.name.clone(),
             api: format!("{:?}", info.backend),
             device_ms,
@@ -331,7 +334,11 @@ impl Gpu {
     }
 
     fn affine(&self, ts: Transform) -> Affine {
-        Affine::scale(self.scale as f64)
+        let origin = self.rows.origin();
+        Affine::translate((
+            -origin.0 as f64 * self.scale as f64,
+            -origin.1 as f64 * self.scale as f64,
+        )) * Affine::scale(self.scale as f64)
             * Affine::new([
                 ts.sx as f64,
                 ts.ky as f64,
@@ -385,6 +392,9 @@ impl Gpu {
     }
 
     fn brush(&mut self, image: &Arc<Bitmap>) -> Option<ImageBrush> {
+        if let Some(c) = self.rows.capture.last_mut() {
+            c.images.push(image.clone());
+        }
         let renderer = self.renderer.clone();
         let device = &self.device;
         let queue = &self.queue;
@@ -1027,5 +1037,45 @@ impl Backend for Gpu {
         let result = self.render_scene(&scene);
         self.scene = scene;
         result
+    }
+
+    fn rows(&self) -> bool {
+        true
+    }
+    fn row_reusable(&self, id: u32, _: (f32, f32)) -> bool {
+        self.rows.kept.contains_key(&id)
+    }
+    fn row_begin(&mut self, id: u32, origin: (f32, f32), _: Option<u32>) {
+        self.record_row(id, origin);
+    }
+    fn row_end(&mut self, _: Rect4) -> u32 {
+        self.keep_row()
+    }
+    fn row_draw(&mut self, id: u32, origin: (f32, f32), _: Rect4) {
+        self.draw_row(id, origin);
+    }
+    fn row_free(&mut self, id: u32) {
+        self.rows.kept.remove(&id);
+    }
+    fn row_culled(&self, bounds: Rect4) -> bool {
+        self.culled(bounds)
+    }
+    fn slot_begin(&mut self, id: exact_kernel::ViewId) {
+        self.record_slot(id);
+    }
+    fn slot_end(&mut self) {
+        self.keep_slot();
+    }
+    fn slot_again(&mut self, row: u32, id: exact_kernel::ViewId) -> bool {
+        self.replace_slot(row, id)
+    }
+    fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {
+        self.record_layer(key, ts, pivot, base);
+        true
+    }
+    fn layer_recolored(&mut self) { /* Each layer_begin records the current colour. */
+    }
+    fn layer_end(&mut self) {
+        self.keep_layer();
     }
 }

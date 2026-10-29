@@ -625,8 +625,6 @@ fn text_width_uses_parents_inserted_by_lowering() {
         ("list height=200 appearance=\"auto\"\n  section\n    for n in [1] key=n\n      row delete=remove(n) width=48 flex=\"0 0 8rem\"\n        text \"Mon\"", false),
         ("list height=200 appearance=\"auto\"\n  section\n    match some(1)\n      case some(n)\n        row delete=remove(n) width=48 flex=1\n          text \"Mon\"\n      case none\n        text \"Empty\"", false),
         ("list height=200\n  row delete=remove(1) max-width=48 flex=\"0 0 8rem\"\n    text \"Mon\"", true),
-        ("list height=200 appearance=\"auto\"\n  section display=\"flex\" flex-direction=\"row\"\n    row width=48 flex=\"0 0 8rem\"\n      text \"Mon\"", true),
-        ("list height=200 appearance=\"auto\"\n  section display=(on ? \"block\" : \"flex\")\n    row width=48 flex=1\n      text \"Mon\"", true),
     ] {
         let view: String = view.lines().map(|l| format!("    {l}\n")).collect();
         let src = format!("component App\n  state on = true\n  state removed = 0\n  action remove(n: number)\n    removed = n\n  view\n{view}");

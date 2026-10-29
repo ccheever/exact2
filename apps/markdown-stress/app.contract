@@ -367,7 +367,8 @@ component DocumentBody
   state atomText = "Ask [Assistant quote](cite://v1/quote?text=a%20long%20quoted%20passage) about @src/main.rs and $tidy here.\n\n@a-very-long-file-name-that-does-not-fit-in-a-narrow-field.rs [B](cite:2)[C](cite:3) end"
   state atomPress = ""
   state atomSelected = ""
-  derive atomFaces = [AtomFace(source="@src/main.rs", label="main.rs", icon="", title="src/main.rs"), AtomFace(source="$tidy", label="tidy", icon="", title="Skill: tidy"), AtomFace(source="@a-very-long-file-name-that-does-not-fit-in-a-narrow-field.rs", label="", icon="", title="")]
+  // Each face paints its atom over its kind's (LLP 1045.000 D2): `tidy` is green, not the skill's violet.
+  derive atomFaces = [AtomFace(source="@src/main.rs", label="main.rs", icon="", title="src/main.rs", color="light-dark(#0f5fa8, #8cc4ff)", backgroundColor="light-dark(#1a85d424, #69b1ff33)"), AtomFace(source="$tidy", label="tidy", icon="", title="Skill: tidy", color="light-dark(#137a35, #7ad893)", backgroundColor="light-dark(#199f4324, #5ecc7133)"), AtomFace(source="@a-very-long-file-name-that-does-not-fit-in-a-narrow-field.rs", label="", icon="", title="", color="light-dark(#b5242d, #ff8f8a)", backgroundColor="light-dark(#d52c3624, #ff676233)")]
   action editAtoms(value)
     atomText = value
   action pressedAtom(e: AtomEvent)

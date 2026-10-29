@@ -39,3 +39,6 @@ test "tapbacks have names for their meanings"
   expect state selected == ""
   clock data
   expect text "reaction-demo-1" == "❓"
+
+after "dismiss" "dismiss writes only choosing panel selected"
+  only writes choosing panel selected

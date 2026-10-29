@@ -16,6 +16,7 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+mod direction;
 mod editor;
 mod projection;
 mod text;
@@ -27,6 +28,7 @@ pub mod view;
 #[cfg(target_arch = "wasm32")]
 pub mod abi;
 
+pub use direction::{auto_directions, AUTO_LTR, AUTO_NONE, AUTO_RTL};
 pub use editor::{Change, Editor, Facts, Input, Outcome, Selected, SelectionMode};
 pub use projection::Deco;
 pub use view::Line;

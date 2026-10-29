@@ -15,6 +15,32 @@ private let cite = "[Quote](t3-citation:1)"
 private let source = "Ask " + cite + " now"
 /// The atom's start and end.
 private let a = 4, b = 4 + (cite as NSString).length
+/// A face in Display P3's own red and green, which sRGB has neither of.
+private let wide = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"color(display-p3 1 0 0)","backgroundColor":"color(display-p3 0 1 0)"}]"##
+
+/// A face colour in Display P3 as a bound text colour's channels are
+/// (`textChannels`, LLP 1100 D2): the sRGB four, then the space (1) and
+/// `components`, which `TextEngine.color` draws in that space.
+private func assertDisplayP3(_ channels: [Double]?, _ components: [Double], file: StaticString = #filePath, line: UInt = #line) {
+    guard let c = channels else { return XCTFail("no colour", file: file, line: line) }
+    XCTAssertEqual(c.count, 9, "\(c)", file: file, line: line)
+    XCTAssertEqual(c.dropFirst(4).first, 1, "Display P3", file: file, line: line)
+    XCTAssertEqual(Array(c.dropFirst(5)), components, file: file, line: line)
+    XCTAssertEqual(TextEngine.color(c).cgColor.colorSpace?.name as String?, CGColorSpace.extendedDisplayP3 as String, file: file, line: line)
+}
+
+/// A pill's picture as `draw` paints it into a 40 by 20 Display P3 bitmap:
+/// a point of its fill left of the label, halfway up, is Display P3's own
+/// green, where its sRGB clip would read about (117, 251, 76).
+private func assertDisplayP3Green(file: StaticString = #filePath, line: UInt = #line, _ draw: (CGContext, CGRect) -> Void) throws {
+    let p3 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: p3, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    draw(context, CGRect(x: 0, y: 0, width: 40, height: 20))
+    let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+    let at = 10 * context.bytesPerRow + 2 * 4
+    let got = (0..<4).map { Int(pixels[at + $0]) }
+    for (channel, want) in zip(got, [0, 255, 0, 255]) { XCTAssertEqual(channel, want, accuracy: 2, "\(got)", file: file, line: line) }
+}
 
 #if os(macOS)
 import AppKit
@@ -25,7 +51,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
     override func setUp() { super.setUp(); ExactMarkdown.install() }
     override func tearDown() { session?.destroy(); session = nil; super.tearDown() }
 
-    private func editor(_ text: String = source, selection: NSRange = NSRange(location: 0, length: 0)) -> (NodeView, TextArea, NSWindow) {
+    private func editor(_ text: String = source, selection: NSRange = NSRange(location: 0, length: 0), faces face: String = faces) -> (NodeView, TextArea, NSWindow) {
         _ = NSApplication.shared
         presenter = Presenter()
         session = ExactApp.shared.makeSession(label: "inline-atoms")
@@ -36,7 +62,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         node.props["markup"] = "markdown"
         node.props["value"] = text
         node.props["atoms"] = kinds
-        node.props["atomFaces"] = faces
+        node.props["atomFaces"] = face
         node.handlers = ["input", "atompress"]
         node.applyTextArea()
         node.layoutTextArea()
@@ -180,6 +206,43 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(attachments(f).first?.atom.dark == false)
     }
 
+    /// A face's paint is its pill's, over the platform's token, for the appearance it draws in (D2, D4).
+    func testAFacesPaintIsItsPillsInEachAppearance() throws {
+        let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"#1a85d4"}]"##
+        let (_, f, window) = editor(faces: painted)
+        defer { window.close() }
+        window.appearance = NSAppearance(named: .aqua)
+        drain()
+        XCTAssertEqual(drawnAtom(f)?.ink, [213, 44, 54, 255])
+        XCTAssertEqual(drawnAtom(f)?.background, [26, 133, 212, 255])
+        XCTAssertEqual(attachments(f).first?.atom.ink, [213, 44, 54, 255], "the picture draws it")
+        window.appearance = NSAppearance(named: .darkAqua)
+        drain()
+        XCTAssertEqual(drawnAtom(f)?.ink, [255, 103, 98, 255], "dark, its dark half")
+        XCTAssertEqual(drawnAtom(f)?.background, [26, 133, 212, 255])
+    }
+
+    /// A face's colour in a wide space keeps it, as a bound text colour
+    /// does, in the pill's picture too.
+    func testAWideFaceColourKeepsItsSpaceInThePicture() throws {
+        let (_, f, window) = editor(faces: wide)
+        defer { window.close() }
+        drain()
+        let atom = try XCTUnwrap(drawnAtom(f))
+        assertDisplayP3(atom.ink, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
+        let pill = try XCTUnwrap(attachments(f).first)
+        let location = try XCTUnwrap(f.textLayoutManager?.documentRange.location)
+        let bounds = CGRect(x: 0, y: 0, width: 40, height: 20)
+        let image = try XCTUnwrap(pill.image(for: bounds, attributes: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil))
+        try assertDisplayP3Green { context, rect in
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            image.draw(in: rect)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
     func testASelectedPillIsEmphasizedOnlyInTheKeyWindowAndKeyChangesRestyle() throws {
         let (_, f, window) = editor(selection: NSRange(location: a, length: b - a))
         defer { window.close() }
@@ -277,7 +340,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
     override func setUp() { super.setUp(); ExactMarkdown.install() }
     override func tearDown() { session?.destroy(); session = nil; super.tearDown() }
 
-    private func field(_ text: String = source) -> (Presenter, NodeView, TextArea) {
+    private func field(_ text: String = source, faces face: String = faces) -> (Presenter, NodeView, TextArea) {
         let made = ExactApp.shared.makeSession(label: "inline-atoms")
         session = made
         let p = made.presenter
@@ -287,7 +350,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         window.makeKeyAndVisible()
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
-            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": text, "markup": "markdown", "atoms": kinds, "atomFaces": faces], "handlers": ["input", "atompress"]],
+            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": text, "markup": "markdown", "atoms": kinds, "atomFaces": face], "handlers": ["input", "atompress"]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 600.0, "h": 300.0],
@@ -326,6 +389,55 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertTrue(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first === element, "a restyle keeps the element VoiceOver may be on")
     }
 
+    /// A face's paint is its pill's, over the platform's token, for the trait collection it draws in (D2, D4).
+    func testAFacesPaintIsItsPillsInEachAppearance() throws {
+        let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36ff, #ff6762ff)","backgroundColor":"#1a85d4ff"}]"##
+        let (_, _, f) = field(faces: painted)
+        let drawn = { f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom }
+        let settle = { self.window.layoutIfNeeded(); RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+        window.overrideUserInterfaceStyle = .light
+        settle()
+        XCTAssertEqual(drawn()?.ink, [213, 44, 54, 255])
+        XCTAssertEqual(drawn()?.background, [26, 133, 212, 255])
+        window.overrideUserInterfaceStyle = .dark
+        settle()
+        XCTAssertEqual(drawn()?.ink, [255, 103, 98, 255], "dark, its dark half")
+    }
+
+    /// A face's colour in a wide space keeps it on the pill, as a bound
+    /// text colour does (LLP 1100 D2), in the picture the renderer makes
+    /// for the text view's traits.
+    func testAWideFaceColourKeepsItsSpace() throws {
+        let (_, _, f) = field(faces: wide)
+        window.layoutIfNeeded()
+        let atom = try XCTUnwrap(f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)
+        assertDisplayP3(atom.ink, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
+        let manager = try XCTUnwrap(f.textLayoutManager)
+        manager.ensureLayout(for: manager.documentRange)
+        var pill: AtomAttachment?
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+            let text = paragraph.attributedString
+            text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                pill = pill ?? value as? AtomAttachment
+            }
+            return pill == nil
+        }
+        // TextKit asks for the picture with the text view's traits current.
+        let bounds = CGRect(x: 0, y: 0, width: 40, height: 20), location = manager.documentRange.location
+        var picture: UIImage?
+        f.traitCollection.performAsCurrent {
+            picture = pill?.image(for: bounds, attributes: [.font: UIFont.systemFont(ofSize: 16)], location: location, textContainer: nil)
+        }
+        let image = try XCTUnwrap(picture)
+        try assertDisplayP3Green { context, rect in
+            UIGraphicsPushContext(context)
+            image.draw(in: rect)
+            UIGraphicsPopContext()
+        }
+    }
+
     func testACaretInsideGoesToTheEndAndBackspaceRemovesItWhole() {
         let (_, _, f) = field()
         f.selectedRange = NSRange(location: b, length: 0)
@@ -358,6 +470,33 @@ final class InlineAtomReaderTests: XCTestCase {
         XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}A\u{00A0}quote\u{202F} now")
         // Without atoms the same source is its link text, as before.
         XCTAssertEqual(MarkupRuns.expand(source, base: base, color: nil).map(\.text).joined(), "Ask Quote now")
+    }
+
+    /// A face's paint is drawn over its kind's, for the appearance drawn in;
+    /// an empty one keeps the kind's (D2, D4).
+    func testAFacesPaintWinsOverItsKinds() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        // The kind's `color` and `background-color` rows, by the kernel's style bits (75 and 47).
+        let styles = ##"{"citation":[[75,"#010203"],[47,"#040506"]]}"##
+        let painted = #"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":""}]"#
+        let atom = { (dark: Bool) in
+            MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: painted, styles: styles, dark: dark))
+                .first { $0.href.hasPrefix(MarkupRuns.atomScheme) }
+        }
+        let light = try XCTUnwrap(atom(false)), dark = try XCTUnwrap(atom(true))
+        XCTAssertEqual(light.color, [213, 44, 54, 255])
+        XCTAssertEqual(dark.color, [255, 103, 98, 255])
+        XCTAssertEqual(light.background, [4, 5, 6, 255], "an empty face colour keeps the kind's")
+    }
+
+    /// A face's colour in a wide space keeps it on its run and box, as a
+    /// bound text colour does (LLP 1100 D2).
+    func testAWideFaceColourKeepsItsSpace() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let runs = MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: wide))
+        let atom = try XCTUnwrap(runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
+        assertDisplayP3(atom.color, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
     }
 }
 

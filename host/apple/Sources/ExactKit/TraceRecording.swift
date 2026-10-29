@@ -36,6 +36,8 @@ extension ExactSession {
             log("startTrace_EXPERIMENTAL refused: a recording is running, or the window has no display link")
             return
         }
+        runtime.measureWork()
+        sampler?.recording?.work["before"] = traceWork()
         log("trace recording started")
     }
 
@@ -58,6 +60,7 @@ extension ExactSession {
             return nil
         }
         releaseSampler()
+        recording.work["after"] = traceWork()
         let report = FrameSampler.report(recording, identity: traceIdentity())
         guard let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) else {
             log("stopTrace_EXPERIMENTAL refused: the trace did not serialize")
@@ -85,6 +88,13 @@ extension ExactSession {
         log("trace copied: \(copied.count) bytes of \(data.count), \(recording.records.count) frames\(saved)")
         #endif
         return text
+    }
+
+    private func traceWork() -> [String: Any] {
+        func read(_ request: String) -> Any {
+            (try? JSONSerialization.jsonObject(with: Data(agent(request).utf8))) ?? NSNull()
+        }
+        return ["perf": read("{\"op\":\"perf\"}"), "journal": read("{\"op\":\"logs\",\"since\":0}")]
     }
 
     private func traceIdentity() -> [String: Any] {
@@ -207,6 +217,7 @@ extension FrameSampler {
         return [
             "exactTrace": "recording",
             "identity": identity,
+            "work": recording.work,
             "timebase": "t, from and to are ms since the process started (the media clock)",
             "periodMs": records.map(\.period).sorted().dropFirst(records.count / 2).first.map(r2) ?? NSNull(),
             "recording": json(all).merging(["droppedFrames": recording.dropped]) { a, _ in a },

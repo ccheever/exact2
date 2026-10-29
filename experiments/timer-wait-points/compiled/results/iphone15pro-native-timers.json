@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-28",
+  "device": {
+    "model": "iPhone16,1",
+    "name": "iPhone 15 Pro",
+    "os": "iOS 27.0.1",
+    "build": "24A446",
+    "connection": "USB"
+  },
+  "tool": "Xcode 27.1 Activity Monitor",
+  "base_commit": "492d8c0a4844dfb6c05c1d435448814f68d1ad54",
+  "app": "dev.exact.timerqualification",
+  "workload": {
+    "rows": 300,
+    "timer_count": 2,
+    "period_ms": 250,
+    "stagger_ms": 25,
+    "quiet": true,
+    "screen_awake": true,
+    "automatic_frame_sampling": false,
+    "warmup_seconds": 3,
+    "record_limit_seconds": 30
+  },
+  "loaded_plan_sha256": {
+    "precise": "9d6c39e9a23f0ce5759902b087ce15e925b2ead99e15c17ea361fbab3e07f256",
+    "tolerant": "558a9a63a0267ea2721dded18974a95a98c75f61c0b4a5847f37c07e47264e9f"
+  },
+  "plan_validation": "Separate normally sampled device traces match both plan hashes before capture; no intervening installation.",
+  "command_forms": {
+    "launch_environment": {
+      "EXACT_PLAN": "<current-app-container>/Documents/<mode>.plan",
+      "EXACT_SAMPLE_FRAMES": "0"
+    },
+    "record": "xcrun xctrace record --device <device-id> --template \"Activity Monitor\" --attach <owned-app-pid> --time-limit 30s --output <run>.trace --no-prompt",
+    "export": "xcrun xctrace export --input <run>.trace --xpath '/trace-toc/run[@number=\"1\"]/data/table[@schema=\"activity-monitor-process-live\"]' --output <run>.xml"
+  },
+  "extraction": "Resolve XML id/ref values. Require each process row to match the launched PID. Subtract cumulative counters in the first row from those in the penultimate row; sum durations of rows 1 through the penultimate row. Exclude the final partial row.",
+  "runs": [
+    {
+      "phase": 0,
+      "mode": "precise",
+      "sampleSpanNanoseconds": 29499282042,
+      "idleWakeupsFirst": 85,
+      "idleWakeupsLast": 328,
+      "idleWakeupDelta": 243,
+      "cpuTimeDeltaNanoseconds": 105074624,
+      "rows": 31,
+      "tolerance_ms": 0
+    },
+    {
+      "phase": 1,
+      "mode": "tolerant",
+      "sampleSpanNanoseconds": 28650252291,
+      "idleWakeupsFirst": 76,
+      "idleWakeupsLast": 193,
+      "idleWakeupDelta": 117,
+      "cpuTimeDeltaNanoseconds": 108947708,
+      "rows": 30,
+      "tolerance_ms": 40
+    },
+    {
+      "phase": 2,
+      "mode": "tolerant",
+      "sampleSpanNanoseconds": 29425496875,
+      "idleWakeupsFirst": 68,
+      "idleWakeupsLast": 189,
+      "idleWakeupDelta": 121,
+      "cpuTimeDeltaNanoseconds": 106691584,
+      "rows": 31,
+      "tolerance_ms": 40
+    },
+    {
+      "phase": 3,
+      "mode": "precise",
+      "sampleSpanNanoseconds": 29409674292,
+      "idleWakeupsFirst": 89,
+      "idleWakeupsLast": 329,
+      "idleWakeupDelta": 240,
+      "cpuTimeDeltaNanoseconds": 106014708,
+      "rows": 31,
+      "tolerance_ms": 0
+    }
+  ],
+  "combined_wakeups_per_second": {
+    "precise": 8.199092804521998,
+    "tolerant": 4.098096079995732
+  },
+  "limits": [
+    "Process idle wakeups are not battery energy or package sleep states.",
+    "Physical callback counts are not collected.",
+    "The USB-connected development build and screen wake lock do not represent untethered idle power.",
+    "Power Profiler finalization failed; supported raw-trace imports expose no power-metric rows.",
+    "Physical fling measurements are reported separately in iphone15pro-flings.json; this wakeup comparison supplies no frame data."
+  ],
+  "source_changes": [
+    "timer-test.contract",
+    "FrameSampler EXACT_SAMPLE_FRAMES opt-out"
+  ]
+}

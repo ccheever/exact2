@@ -55,6 +55,8 @@ private final class WebModule {
     let platformView: PlatformViewFn
     let setSrc: SetFn
     let setDocument: SetFn
+    /// The files a bundled page's query names, resolved (@ref LLP 1020.001 D7).
+    let setFiles: SetFn
     let setSandbox: SetFn
     let postMessage: PostFn
     let snapshot: SnapshotFn
@@ -82,6 +84,7 @@ private final class WebModule {
               let platformView = symbol("exact_web_platform_view", PlatformViewFn.self),
               let setSrc = symbol("exact_web_set_src", SetFn.self),
               let setDocument = symbol("exact_web_set_document", SetFn.self),
+              let setFiles = symbol("exact_web_set_files", SetFn.self),
               let setSandbox = symbol("exact_web_set_sandbox", SetFn.self),
               let postMessage = symbol("exact_web_post_message", PostFn.self),
               let snapshot = symbol("exact_web_snapshot", SnapshotFn.self),
@@ -102,14 +105,14 @@ private final class WebModule {
         setReader(exactWebAssetRead)
         return .success(WebModule(
             library: library, create: create, platformView: platformView,
-            setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, postMessage: postMessage, snapshot: snapshot,
+            setSrc: setSrc, setDocument: setDocument, setFiles: setFiles, setSandbox: setSandbox, postMessage: postMessage, snapshot: snapshot,
             evaluate: evaluate, destroy: destroy, configure: configure, command: command, clearSiteData: clearSiteData, endSession: endSession,
             answer: answer, checkOwned: checkOwned, setConfiguring: setConfiguring))
     }
 
     private init(
         library: UnsafeMutableRawPointer, create: @escaping CreateFn,
-        platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn, setDocument: @escaping SetFn,
+        platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn, setDocument: @escaping SetFn, setFiles: @escaping SetFn,
         setSandbox: @escaping SetFn, postMessage: @escaping PostFn, snapshot: @escaping SnapshotFn,
         evaluate: @escaping EvalFn, destroy: @escaping DestroyFn,
         configure: @escaping PostFn, command: @escaping PostFn, clearSiteData: @escaping ClearFn, endSession: @escaping SetReaderlessFn,
@@ -120,6 +123,7 @@ private final class WebModule {
         self.platformView = platformView
         self.setSrc = setSrc
         self.setDocument = setDocument
+        self.setFiles = setFiles
         self.setSandbox = setSandbox
         self.postMessage = postMessage
         self.snapshot = snapshot
@@ -365,6 +369,7 @@ final class WebViews {
         let revision = entry.sourceRevision
         let resolver = session?.app.resolver
         guard let src, src.hasPrefix("app:/") || (URL(string: src)?.scheme == nil && !src.hasPrefix("//") && resolver != nil) else {
+            send(nil as Data?, to: handle, using: module.setFiles)
             send(nil as Data?, to: handle, using: module.setDocument)
             if changedSandbox { send(sandbox, to: handle, using: module.setSandbox) }
             send(src, to: handle, using: module.setSrc)
@@ -379,6 +384,14 @@ final class WebViews {
         let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
         let id = owner.id
         let appFile = src.hasPrefix("app:/") ? AppFiles.url(path) : nil
+        // The app files the page's query names, by their roots; the arm gives
+        // those it can open and empties the rest ("" here: refused already).
+        var given: [String: String] = [:]
+        for value in src.hasPrefix("app:/") ? [] : WebViews.givenPaths(src) {
+            let (root, why) = WebViews.givenRoot(value)
+            given[value] = root ?? ""
+            if root == nil { FileHandle.standardError.write(Data("exact: iframe \(src): \(value) is not given (\(why))\n".utf8)) }
+        }
         WebViews.reads.async { [weak self] in
             let document = src.hasPrefix("app:/")
                 ? appFile.flatMap { try? Data(contentsOf: $0) }
@@ -388,6 +401,7 @@ final class WebViews {
                 if src.hasPrefix("app:/"), document == nil {
                     entry.fileFailed = true
                     entry.loading = false
+                    self.send(nil as Data?, to: handle, using: module.setFiles)
                     self.send(nil as Data?, to: handle, using: module.setDocument)
                     self.send(entry.sandbox, to: handle, using: module.setSandbox)
                     self.send(nil as String?, to: handle, using: module.setSrc)
@@ -396,6 +410,7 @@ final class WebViews {
                     }
                     return
                 }
+                self.send(given.isEmpty ? nil : (try? JSONSerialization.data(withJSONObject: given)), to: handle, using: module.setFiles)
                 self.send(document ?? Data(), to: handle, using: module.setDocument)
                 self.send(entry.sandbox, to: handle, using: module.setSandbox)
                 self.send(src, to: handle, using: module.setSrc)
@@ -404,6 +419,39 @@ final class WebViews {
     }
 
     private static let reads = DispatchQueue(label: "exact.web.documents", qos: .userInitiated)
+
+    /// The `app:/` paths a bundled page's `src` names in its query (@ref LLP
+    /// 1020.001 D7): for a page under `assets/` or `deck/` (an `.html` or
+    /// `.htm` file), each value that begins `app:/`, read as a form reads it.
+    /// Empty for any other source. picker-glue.js `pageFiles` reads a source
+    /// the same way.
+    static func givenPaths(_ src: String) -> [String] {
+        guard !src.hasPrefix("//"), !src.hasPrefix("app:"), URL(string: src)?.scheme == nil,
+              let url = URL(string: src, relativeTo: URL(string: "exact-app://app/"))?.absoluteURL,
+              ["assets/", "deck/"].contains(where: String(url.path.dropFirst()).hasPrefix),
+              ["html", "htm"].contains(url.pathExtension.lowercased()),
+              let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery else { return [] }
+        return query.split(separator: "&").compactMap { pair in
+            guard let equals = pair.firstIndex(of: "="),
+                  let value = pair[pair.index(after: equals)...].replacingOccurrences(of: "+", with: " ").removingPercentEncoding,
+                  value.hasPrefix("app:/") else { return nil }
+            return value
+        }
+    }
+
+    /// The directory of the root below which `path` names a file a page may
+    /// be given, or why it names none (@ref LLP 1020.001 D7): `app:/cache` or
+    /// `app:/tmp`, with no `.`, `..` or empty part. The arm opens the file
+    /// below it, following no link.
+    static func givenRoot(_ path: String) -> (root: String?, why: String) {
+        let parts = path.hasPrefix("app:/") ? path.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false) : []
+        guard parts.count >= 2, parts[0] == "cache" || parts[0] == "tmp",
+              !parts.dropFirst().contains(where: { $0.isEmpty || $0 == "." || $0 == ".." || $0.contains("\0") }) else {
+            return (nil, "a page is given app:/cache and app:/tmp files only")
+        }
+        guard let file = AppFiles.url(path) else { return (nil, "this app has no file roots here") }
+        return (parts.dropFirst().reduce(file) { url, _ in url.deletingLastPathComponent() }.path, "")
+    }
 
     /// A new partition made the arm a new web view, or it shows a local PDF's
     /// view or a web view again: the node shows it in place of the old one,

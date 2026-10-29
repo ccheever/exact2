@@ -1,0 +1,208 @@
+//! An upload's progress (LLP 1016.000 D10): a stream's request
+//! ([`Request::upload_progress`]) whose host delivers the body's bytes sent
+//! as they go, each a [`Message::upload_progress`], then the reply, read
+//! whole within the ceiling, as the one answer that ends it. It is in flight
+//! until that reply, for `pending(…)` and every clock, as a plain request
+//! is. Set by TypeScript's `fetch(url, {exactStream, exactUploadProgress:
+//! true})`. Its terms, and the messages that carry its start and its bytes
+//! sent.
+
+use crate::request::{Message, Redirect, Request};
+
+/// The event of an upload's progress message: its data is
+/// `{"loaded":…,"total":…}`, the body's bytes sent so far and its length.
+/// Only an upload sends it.
+pub const UPLOAD_PROGRESS: &str = "exact:progress";
+
+/// The event of an upload's start: the host is handing its request to the
+/// transport. The runner notes it and no mapper sees it: an upload that
+/// fails before it (or before its first bytes sent) never reached the
+/// network, so it is not marked as asked and `refresh` asks it again.
+pub const UPLOAD_SENDING: &str = "exact:sending";
+
+/// The id an upload's messages carry, which no server's event can have: an
+/// event stream's parser drops an id that holds NUL (HTML's `id` field), and
+/// a long poll's cursor holds no control character. So a server's event
+/// named `exact:progress`, on any other stream, is no upload's.
+const PROGRESS_ID: &str = "\0";
+
+/// The scheme `url` names, if it names one (RFC 3986 §3.1): a relative URL
+/// names none.
+fn scheme(url: &str) -> Option<&str> {
+    let (scheme, _) = url.split_once(':')?;
+    let mut chars = scheme.chars();
+    (chars.next()?.is_ascii_alphabetic()
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')))
+    .then_some(scheme)
+}
+
+impl Request {
+    /// An upload whose bytes sent are delivered as it goes (the field of
+    /// this name), on a stream's request: `fetch(url, {exactStream,
+    /// exactUploadProgress: true})`.
+    pub fn upload_progress(mut self) -> Self {
+        self.upload_progress = true;
+        self
+    }
+
+    /// Why this request's upload progress is refused, if it is: not a
+    /// stream, a WebSocket, another scheme than `http:` or `https:`, a long
+    /// poll, a `GET` or `HEAD` (which send no body), or a redirect other
+    /// than followed, which a browser's `XMLHttpRequest` cannot do.
+    pub fn upload_progress_refusal(&self) -> Option<&'static str> {
+        let scheme = scheme(&self.url).map(str::to_ascii_lowercase);
+        let method = |m: &str| self.method.eq_ignore_ascii_case(m);
+        if !self.upload_progress {
+            None
+        } else if !self.stream || self.listen.is_some() {
+            Some("exactUploadProgress reports an upload's progress to its stream: give exactStream too")
+        } else if matches!(scheme.as_deref(), Some("ws" | "wss")) {
+            Some("exactUploadProgress: a WebSocket sends no body")
+        } else if scheme
+            .as_deref()
+            .is_some_and(|s| s != "http" && s != "https")
+        {
+            Some("exactUploadProgress: an upload is an http: or https: request")
+        } else if self.long_poll.is_some() {
+            Some("exactUploadProgress: a long poll sends no body")
+        } else if method("GET") || method("HEAD") {
+            Some("exactUploadProgress: a GET or HEAD request sends no body")
+        } else if self.redirect != Redirect::Follow {
+            Some("exactUploadProgress: an upload follows its redirects")
+        } else {
+            None
+        }
+    }
+}
+
+impl Message {
+    /// An upload's progress: `loaded` of the body's `total` bytes sent.
+    pub fn upload_progress(loaded: u64, total: u64) -> Message {
+        Message {
+            event: UPLOAD_PROGRESS.into(),
+            id: PROGRESS_ID.into(),
+            data: format!("{{\"loaded\":{loaded},\"total\":{total}}}"),
+            ..Message::default()
+        }
+    }
+
+    /// An upload's start ([`UPLOAD_SENDING`]).
+    pub fn upload_start() -> Message {
+        Message {
+            event: UPLOAD_SENDING.into(),
+            id: PROGRESS_ID.into(),
+            ..Message::default()
+        }
+    }
+
+    /// Whether this is an upload's start ([`Message::upload_start`]).
+    pub fn upload_started(&self) -> bool {
+        self.event == UPLOAD_SENDING && self.id == PROGRESS_ID
+    }
+
+    /// The bytes sent and the body's length, when this is an upload's
+    /// progress ([`Message::upload_progress`]).
+    pub fn sent(&self) -> Option<(u64, u64)> {
+        let field = |key: &str| -> Option<u64> {
+            let at = self.data.find(&format!("\"{key}\":"))? + key.len() + 3;
+            let digits = self.data[at..]
+                .split(|c: char| !c.is_ascii_digit())
+                .next()?;
+            digits.parse().ok()
+        };
+        let ours = self.event == UPLOAD_PROGRESS && self.id == PROGRESS_ID;
+        ours.then(|| Some((field("loaded")?, field("total")?)))?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Answer, Message, Redirect, Request};
+
+    fn upload(url: &str) -> Request {
+        let mut request = Request::get(url).upload_progress();
+        request.method = "POST".into();
+        match Answer::stream(request) {
+            Answer::Later(request) => request,
+            Answer::Now(_) => unreachable!("a stream is a request"),
+        }
+    }
+
+    #[test]
+    fn an_upload_is_a_stream_with_a_body_that_follows_its_redirects() {
+        assert_eq!(
+            upload("https://example.test/up").upload_progress_refusal(),
+            None
+        );
+        // Not asked, nothing to refuse.
+        assert_eq!(
+            Request::get("https://example.test/").upload_progress_refusal(),
+            None
+        );
+        let plain = Request::get("https://example.test/").upload_progress();
+        assert!(plain
+            .upload_progress_refusal()
+            .unwrap()
+            .contains("give exactStream too"));
+        let mut get = upload("https://example.test/up");
+        get.method = "get".into();
+        assert!(get
+            .upload_progress_refusal()
+            .unwrap()
+            .contains("GET or HEAD"));
+        for other in ["exact-native:", "ftp://example.test/up", "app:/data/up"] {
+            assert_eq!(
+                upload(other).upload_progress_refusal(),
+                Some("exactUploadProgress: an upload is an http: or https: request"),
+                "{other}"
+            );
+        }
+        // A relative URL names no scheme: its host resolves it, the web against the page.
+        assert_eq!(upload("/up").upload_progress_refusal(), None);
+        let socket = upload("wss://example.test/up");
+        assert!(socket
+            .upload_progress_refusal()
+            .unwrap()
+            .contains("WebSocket"));
+        let poll = upload("https://example.test/up").long_poll("since", "seq");
+        assert!(poll
+            .upload_progress_refusal()
+            .unwrap()
+            .contains("long poll"));
+        let mut manual = upload("https://example.test/up");
+        manual.redirect = Redirect::Manual;
+        assert!(manual
+            .upload_progress_refusal()
+            .unwrap()
+            .contains("follows its redirects"));
+    }
+
+    #[test]
+    fn an_upload_may_take_a_deadline_where_another_stream_may_not() {
+        let mut timed = upload("https://example.test/up");
+        timed.timeout_ms = Some(300_000);
+        assert_eq!(timed.timeout_refusal(), None);
+        timed.upload_progress = false;
+        assert_eq!(timed.timeout_refusal(), Some("a stream has no timeout"));
+    }
+
+    #[test]
+    fn a_progress_message_carries_the_bytes_sent_and_the_length() {
+        let m = Message::upload_progress(65_536, 4_194_304);
+        assert_eq!(m.event, "exact:progress");
+        assert_eq!(m.data, r#"{"loaded":65536,"total":4194304}"#);
+        assert_eq!(m.sent(), Some((65_536, 4_194_304)));
+        // A server's event of another name is no upload's progress, nor is
+        // one of this name: no server's event has its id.
+        let other = Message {
+            event: "progress".into(),
+            ..m.clone()
+        };
+        assert_eq!(other.sent(), None);
+        let named = Message {
+            id: "7".into(),
+            ..m.clone()
+        };
+        assert_eq!(named.sent(), None);
+    }
+}

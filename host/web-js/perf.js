@@ -84,7 +84,7 @@ export function install(root) {
   if (Observer) return;
   for (const el of sited(root)) created(el);
   Observer = new MutationObserver(records => count(records, false));
-  Since = clock.now;
+  Since = clock.now; clock.timerFirings = Array(7).fill(0);
   globalThis.exact.rowWork = (el, counter) => {
     const site = siteOf(el);
     if (site === null) return;
@@ -126,7 +126,7 @@ export function reply(target, tags) {
   });
   // Each resource whose source was asked, and how often (LLP 1146 D3), as the runner's `resources`.
   const resources = Resources.filter(r => r.asks).map(r => ({ name: r.name, asked: r.asks }));
-  return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, resources, walked, truncated, work: {scope:"session", since:Since, timebase:"runner-clock-ms", counts:{}, coverage:"virtual row operations by collection site; browser layout and inherited work are unavailable"} };
+  return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, resources, walked, truncated, work: {scope:"session", since:Since, timebase:"runner-clock-ms", counts:Object.fromEntries(["timersPrecise", "timersFrame", "timersUpdate", "timersScrollend", "timersIdle", "timersCap", "frameTasks"].flatMap((name, i) => clock.timerFirings?.[i] ? [[name, clock.timerFirings[i]]] : [])), coverage:"virtual row operations by collection site; browser layout and inherited work are unavailable"} };
 }
 
 /** A development page's data answers, watched from before the app starts

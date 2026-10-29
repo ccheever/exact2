@@ -96,6 +96,11 @@ impl Session {
     /// and `request_uri` only (a URL can carry an `id_token_hint`); the
     /// callback, `state` and `ephemeral`.
     pub fn summary(&self) -> String {
+        self.summary_with(fixture_origin().as_deref())
+    }
+
+    /// The summary, with the drive's declared auth fixture, if any.
+    fn summary_with(&self, fixture: Option<&str>) -> String {
         let parts = Url::parse(&self.url);
         let (origin, path, query) = parts.as_ref().map_or((String::new(), "", ""), |p| {
             (
@@ -124,6 +129,14 @@ impl Session {
         }
         s.push(']');
         s.push_str(&shown);
+        // The drive's declared fixture server (its app's own server, named
+        // by the authored test's driver): its URL is shown whole, so the
+        // test's `authorize` can follow it (LLP 1146 D4). Any other URL,
+        // loopback included, keeps D7's redaction.
+        if !origin.is_empty() && fixture == Some(origin.as_str()) {
+            s.push_str(",\"url\":");
+            quote(&self.url, &mut s);
+        }
         s.push_str(",\"callback\":");
         if Url::parse(&self.callback).is_some_and(|p| {
             p.authority.is_some_and(|a| a.contains('@'))
@@ -241,6 +254,20 @@ fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
+/// The auth fixture an agent drive declared (`EXACT_AUTH_FIXTURE`, LLP 1146
+/// D4): a loopback origin only, and only under the agent, which reads it.
+fn fixture_origin() -> Option<String> {
+    let agent = std::env::var_os("EXACT_AGENT").is_some();
+    declared_fixture(std::env::var("EXACT_AUTH_FIXTURE").ok(), agent)
+}
+
+/// The fixture `value` declares, under the agent and when it is loopback.
+fn declared_fixture(value: Option<String>, agent: bool) -> Option<String> {
+    let origin = value?;
+    let parsed = Url::parse(&origin)?;
+    (loopback(&parsed) && agent).then_some(origin)
+}
+
 /// Whether `url` is on a loopback host (`localhost`, `127.0.0.1`, `[::1]`).
 fn loopback(url: &Url<'_>) -> bool {
     let host = url.authority.unwrap_or("");
@@ -256,6 +283,36 @@ fn loopback(url: &Url<'_>) -> bool {
 
 /// `net.fetch`'s grammar for one `auth.session` target: an origin, or
 /// `scheme://*.domain` (a subdomain of a domain of two or more labels).
+/// The refusal of the first `auth.session` line that is not an origin, for
+/// the bake to report. D2 matches a sign-in URL's origin against the grant, so
+/// a line with a path (an issuer, say) admits no sign-in at all.
+pub fn session_grant_refusal(grants: &str) -> Option<String> {
+    grants.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix("auth.session")?;
+        // Another grant word that begins so (`auth.sessions`) is not this one.
+        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+            return None;
+        }
+        let grant = rest.trim();
+        if grant.is_empty() {
+            return Some("grants: `auth.session` names no origin. An auth.session grant names a scheme, host and port, and admits every sign-in page there; write `auth.session https://login.example`, the sign-in page's".into());
+        }
+        let url = Url::parse(grant);
+        let origin = url.as_ref().filter(|u| {
+            matches!(u.scheme.as_str(), "http" | "https") && u.authority.is_some()
+        });
+        if origin.is_some_and(|u| matches!(u.path, "" | "/") && u.query.is_none() && u.fragment.is_none()) {
+            return None;
+        }
+        let write = origin
+            .and_then(Url::origin)
+            .map_or(String::new(), |o| format!("; write `auth.session {o}`"));
+        Some(format!(
+            "grants: `auth.session {grant}` is not an origin. An auth.session grant names a scheme, host and port, and admits every sign-in page there{write}"
+        ))
+    })
+}
+
 fn origin_admits(grant: &str, url: &Url<'_>) -> bool {
     let Some(origin) = url.origin() else {
         return false;
@@ -516,6 +573,8 @@ pub fn settle<D: DataSource>(runner: &mut Runner<D>, ticket: u64, status: u16, b
     let line = match status {
         200 => "callback accepted".to_string(),
         499 => "cancelled".to_string(),
+        // A refusal's body is its reason, which never carries the URL (D3).
+        other if !body.is_empty() => format!("answered {other}: {body}"),
         other => format!("answered {other}"),
     };
     runner.log(format!("auth {ticket}: {line}"));
@@ -591,10 +650,6 @@ pub fn arm<D: DataSource>(
         settle(runner, ticket, 403, &why);
         return Arm::Settled;
     }
-    if browser == Browser::None {
-        settle(runner, ticket, 501, "no system browser on this host");
-        return Arm::Settled;
-    }
     // A loopback callback (LLP 1133.005 D9) other than the page's own.
     let page = web_origin.map(|o| format!("{}{WEB_CALLBACK_PATH}", o.trim_end_matches('/')));
     if browser == Browser::Web
@@ -628,9 +683,16 @@ pub fn arm<D: DataSource>(
         .auth_mut()
         .live
         .push((ticket, out.target.clone(), session.clone()));
+    // Under the agent the hold comes first, on every host: a fixture sign-in
+    // needs no browser, so a headless Linux drive can complete one (LLP 1146 D4).
     if agent {
         runner.hold_request(ticket, "auth", &out.target, &session.summary());
         return Arm::Held;
+    }
+    if browser == Browser::None {
+        runner.auth_mut().live.retain(|(t, _, _)| *t != ticket);
+        settle(runner, ticket, 501, "no system browser on this host");
+        return Arm::Settled;
     }
     runner.auth_mut().opened.push(ticket);
     runner.log(format!("auth {ticket}: opened"));
@@ -712,6 +774,80 @@ mod tests {
             state: "s1".into(),
             ephemeral: false,
         }
+    }
+
+    /// A held sign-in to the drive's declared fixture shows its URL whole,
+    /// for `authorize`; any other keeps D7's redaction, a loopback one
+    /// included, and only a loopback origin under the agent is a fixture
+    /// (LLP 1146 D4).
+    #[test]
+    fn a_declared_fixture_s_sign_in_shows_its_url_whole_and_no_other_does() {
+        let at = |url: &str| Session {
+            url: url.into(),
+            callback: "app.test:/cb".into(),
+            state: "s".into(),
+            ephemeral: false,
+        };
+        let fixture = "http://127.0.0.1:4400";
+        let own = at("http://127.0.0.1:4400/p/spec/authorize?client_id=c&code_challenge=x");
+        assert!(
+            own.summary_with(Some(fixture)).contains(
+                r#""url":"http://127.0.0.1:4400/p/spec/authorize?client_id=c&code_challenge=x""#
+            ),
+            "{}",
+            own.summary_with(Some(fixture))
+        );
+        let other = at("http://127.0.0.1:4401/authorize?client_id=c&code_challenge=x");
+        assert!(!other.summary_with(Some(fixture)).contains("\"url\""));
+        assert!(!own.summary_with(None).contains("\"url\""));
+        assert_eq!(
+            declared_fixture(Some(fixture.into()), true).as_deref(),
+            Some(fixture)
+        );
+        assert_eq!(declared_fixture(Some(fixture.into()), false), None);
+        assert_eq!(
+            declared_fixture(Some("https://login.example".into()), true),
+            None
+        );
+        assert_eq!(declared_fixture(None, true), None);
+    }
+
+    #[test]
+    fn an_auth_session_grant_is_an_origin() {
+        for good in [
+            "auth.session https://login.example",
+            "auth.session http://127.0.0.1:4400/",
+            "auth.session https://*.okta.com",
+        ] {
+            assert_eq!(
+                session_grant_refusal(&format!("net.fetch https://a.test\n{good}")),
+                None,
+                "{good}"
+            );
+        }
+        assert_eq!(
+            session_grant_refusal("auth.session http://127.0.0.1:4540/p/salesforce").as_deref(),
+            Some("grants: `auth.session http://127.0.0.1:4540/p/salesforce` is not an origin. An auth.session grant names a scheme, host and port, and admits every sign-in page there; write `auth.session http://127.0.0.1:4540`")
+        );
+        let refusal = session_grant_refusal("auth.session login.example").unwrap();
+        assert!(
+            refusal.ends_with("admits every sign-in page there"),
+            "{refusal}"
+        );
+        // A bare grant names no origin, and another word is not this grant.
+        let bare = session_grant_refusal(
+            "net.fetch https://a.test
+  auth.session  ",
+        )
+        .unwrap();
+        assert!(
+            bare.starts_with("grants: `auth.session` names no origin"),
+            "{bare}"
+        );
+        assert_eq!(
+            session_grant_refusal("auth.sessions https://x.test/a"),
+            None
+        );
     }
 
     #[test]
@@ -841,6 +977,11 @@ mod tests {
             !summary.contains("secret"),
             "never another parameter's value"
         );
+        // A loopback URL is redacted unless the drive declared it its fixture.
+        let mut local = session("a.b:/c");
+        local.url = "http://127.0.0.1:4400/authorize?client_id=c&code_challenge=x".into();
+        assert!(!local.summary().contains(r#""url""#), "{}", local.summary());
+        assert!(!summary.contains(r#""url""#));
         let body = session("a.b:/c").to_json();
         assert_eq!(Session::from_json(&body).unwrap(), session("a.b:/c"));
         assert!(

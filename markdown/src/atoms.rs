@@ -48,7 +48,7 @@ pub struct AtomKind {
 }
 
 /// What the app draws for an atom (LLP 1045.000 D2). Empty fields take the
-/// defaults: the default label, no icon, no tooltip.
+/// defaults: the default label, no icon, no tooltip, the kind's paint.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AtomFace {
     /// The text drawn in the pill and read by assistive technology.
@@ -57,6 +57,12 @@ pub struct AtomFace {
     pub icon: String,
     /// The tooltip and accessible description.
     pub title: String,
+    /// The label's colour over the kind's `color`, as text the host reads
+    /// as a colour.
+    pub color: String,
+    /// The pill's fill over the kind's `background-color`, as text the host
+    /// reads as a colour.
+    pub background_color: String,
 }
 
 /// A field's declared kinds and the app's faces, by source text.
@@ -87,7 +93,8 @@ pub struct Atom {
 impl Atoms {
     /// The kinds the compiler wrote (`atoms`, `[{"name", "link" | "prefix",
     /// "role"}, …]`) and the faces the app bound (`atomFaces`, `[{"source",
-    /// "label", "icon", "title"}, …]`). Malformed input reads as none.
+    /// "label", "icon", "title", "color", "backgroundColor"}, …]`). Malformed
+    /// input reads as none.
     pub fn parse(kinds: &str, faces: &str) -> Self {
         let mut out = Atoms::default();
         if let Some(Json::Array(rows)) = Json::parse(kinds) {
@@ -130,6 +137,8 @@ impl Atoms {
                         label: field("label").to_string(),
                         icon: field("icon").to_string(),
                         title: field("title").to_string(),
+                        color: field("color").to_string(),
+                        background_color: field("backgroundColor").to_string(),
                     },
                 );
             }

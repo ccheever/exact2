@@ -192,6 +192,7 @@ extension Agent {
             guard let hit = win.hitTest(p, with: nil), hit !== v, !hit.isDescendant(of: v), !v.isDescendant(of: hit) else { return nil }
             var owner: UIView? = hit, bar: UIView? = nil, barBox: CGRect? = nil
             while let cur = owner, !(cur is NodeView) {
+                if cur.accessibilityIdentifier?.hasPrefix("exact.host.frame-health") == true { return nil }
                 if Agent.isBar(cur), let box = Agent.barBox(cur, holding: p) { bar = cur; barBox = box }
                 owner = cur.superview
             }

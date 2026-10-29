@@ -1075,6 +1075,10 @@ impl<D: DataSource> Runner<D> {
     /// The host presented a frame (LLP 1056 D5): every canvas that asked
     /// for one is due, once per clock value.
     pub fn canvas_frame(&mut self) {
+        // Sample a live display clock without firing timers or frame tasks
+        if self.canvases.is_some() {
+            self.sample();
+        }
         let now = self.now_ms;
         if let Some(c) = self.canvases.as_mut() {
             c.frame(now);

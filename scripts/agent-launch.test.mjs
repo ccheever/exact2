@@ -4,9 +4,17 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil } from './agent-launch.mjs';
+import { Cdp, agentPage, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
 import { placeReporter } from '../host/web/navigation.js';
+
+// Every browser carrier opens the page with the same query (LLP 1146 D4): the drive's auth fixture among it.
+test('a web drive opens its page with the facts, its auth fixture, storage and hatches', () => {
+  const page = agentPage(new URL('http://127.0.0.1:9/'), { facts: { epoch: '0' }, storage: 'drive', env: { EXACT_AUTH_FIXTURE: 'http://127.0.0.1:4400', EXACT_HATCHES: 'off' } });
+  expect(Object.fromEntries(page.searchParams)).toEqual({ agent: '1', epoch: '0', authFixture: 'http://127.0.0.1:4400', storage: 'drive', hatches: 'off' });
+  const plain = agentPage(new URL('http://127.0.0.1:9/'), { facts: {}, storage: undefined, env: { EXACT_HATCHES: 'on' } });
+  expect(Object.fromEntries(plain.searchParams)).toEqual({ agent: '1' });
+});
 
 test('simulator drives reject --phone and preserve explicit --sim selection', () => {
   for (const host of ['ios', 'host-ios']) {

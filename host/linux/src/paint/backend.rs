@@ -61,7 +61,41 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
-    /// `"gpu"` or `"cpu"`.
+    /// A lost device whose carrier can present CPU pixels without that device.
+    fn lost_device_needs_cpu(&self) -> bool {
+        false
+    }
+    /// Collect completed devices without repainting; return those still retiring.
+    #[cfg(windows)]
+    fn collect_retired_devices(&mut self) -> usize {
+        0
+    }
+    /// The display's interval, with backoff while occluded.
+    #[cfg(windows)]
+    fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
+        None
+    }
+    /// Only device removal invalidates a directly presenting device's resources.
+    #[cfg(windows)]
+    fn device_lost(&self) -> bool {
+        false
+    }
+    /// Displayed-frame time since process creation, when the device exposes it.
+    /// Explicit measurement only: this may wait for the compositor.
+    #[cfg(windows)]
+    fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        Ok(None)
+    }
+    /// Attach the carrier's owned window when the device can present directly.
+    #[cfg(windows)]
+    fn attach_window(
+        &mut self,
+        _window: exact_ink::device::d3d11::Window,
+        _size: [u32; 2],
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
+    /// The selected backend's name.
     fn name(&self) -> &'static str;
     /// Whether geometry queries must draw through this backend to keep its
     /// recordings or native state current. Stateless raster backends may opt out.
@@ -78,6 +112,8 @@ pub trait Backend {
     /// A new frame of this size in points at this scale, cleared to the
     /// page's colour ([`Backend::page`]; white until one is told).
     fn begin(&mut self, width: f32, height: f32, scale: f32);
+    /// Release idle renderer storage on memory pressure or backgrounding.
+    fn trim(&mut self) {}
     /// Storage from a presented frame after its last reader releases it.
     fn recycle_frame(&mut self, _pixels: Pixmap) {}
     /// Seed a clipped repaint from an accepted frame; false means full repaint.
@@ -226,6 +262,15 @@ pub trait Backend {
     fn rows(&self) -> bool {
         false
     }
+    /// Whether recordings can be made at the local origin. Device-rasterized
+    /// text needs the viewport origin to preserve its hinting phase.
+    fn row_local(&self) -> bool {
+        true
+    }
+    /// Whether a retained recording remains usable at this viewport origin.
+    fn row_reusable(&self, _id: u32, _origin: (f32, f32)) -> bool {
+        true
+    }
     /// Record row `id`, whose ops are relative to `origin` (viewport points;
     /// zero when the row is walked in its own coordinates); the row was
     /// `previous` until something in it changed.
@@ -285,5 +330,40 @@ pub trait Backend {
     /// backend that has them.
     fn last_frame_ms(&self) -> Option<(f64, f64)> {
         None
+    }
+}
+
+impl super::Painter {
+    pub(crate) fn lost_device_needs_cpu(&self) -> bool {
+        self.backend.lost_device_needs_cpu()
+    }
+    #[cfg(windows)]
+    pub(crate) fn collect_retired_devices(&mut self) -> usize {
+        self.backend.collect_retired_devices()
+    }
+    #[cfg(windows)]
+    pub(crate) fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
+        self.backend.presentation_retry_delay()
+    }
+    #[cfg(windows)]
+    pub(crate) fn device_lost(&self) -> bool {
+        self.backend.device_lost()
+    }
+    #[cfg(windows)]
+    pub(crate) fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        self.backend.displayed_process_ms()
+    }
+    #[cfg(windows)]
+    pub(crate) fn attach_window(
+        &mut self,
+        window: exact_ink::device::d3d11::Window,
+        size: [u32; 2],
+    ) -> Result<bool, String> {
+        self.backend.attach_window(window, size)
+    }
+
+    /// Release idle renderer storage while preserving kept rows.
+    pub fn trim(&mut self) {
+        self.backend.trim();
     }
 }

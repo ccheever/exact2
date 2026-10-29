@@ -1,20 +1,19 @@
 import Foundation
 
-/// @ref LLP 1043.000 §3 D8 — deadlines, in milliseconds, never a repeating poll.
+/// Native wakes never request display frames; frame tasks have their own demand.
 enum SessionClockTimer {
-    enum Wake: Equatable { case none, frame, timeout(Double) }
-    /// `hidden`: no display link fires (iOS in the background, where a
-    /// `playback` session keeps a sequence playing, LLP 1125 D4), so even a
-    /// wake within a few frames is a timer. `quiet`: the last timer advances
-    /// changed nothing shown, so a near deadline is a timer's too.
-    static func wake(due: Double?, now: Double, agent: Bool = false, hidden: Bool = false, quiet: Bool = false) -> Wake {
+    enum Wake: Equatable { case none, timeout(Double) }
+    static func wake(due: Double?, now: Double, agent: Bool = false) -> Wake {
         guard !agent, let due else { return .none }
-        let delay = max(0, due - now)
-        return delay <= 8 * 1000 / 60 && !hidden && !quiet ? .frame : .timeout(delay)
+        return .timeout(max(0, due - now))
     }
-    static func schedule(after seconds: TimeInterval, _ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
+    static func schedule(after seconds: TimeInterval, tolerance: TimeInterval = 0, _ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
+        schedule(at: Date().addingTimeInterval(seconds), tolerance: tolerance, fire)
+    }
+    static func schedule(at date: Date, every interval: TimeInterval = 0, tolerance: TimeInterval = 0, _ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
         precondition(Thread.isMainThread)
-        let timer = Timer(timeInterval: seconds, repeats: false, block: fire)
+        let timer = Timer(fire: date, interval: interval, repeats: interval > 0, block: fire)
+        timer.tolerance = max(0, tolerance)
         RunLoop.main.add(timer, forMode: .common)
         return timer
     }

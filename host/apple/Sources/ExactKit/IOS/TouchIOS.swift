@@ -444,12 +444,11 @@ extension Agent {
     /// a production one contains neither its class name nor its key.
     static func shownButton(_ action: UIAlertAction, of alert: UIAlertController, in window: UIWindow) -> Result<CGRect, AimRefusal> {
         #if EXACT_INSPECT
-        func find(_ view: UIView) -> UIView? {
-            if NSStringFromClass(Swift.type(of: view)).hasPrefix("_UIAlertControllerActionView"), view.responds(to: NSSelectorFromString("action")),
-               view.value(forKey: "action") as AnyObject? === action { return view }
-            return view.subviews.lazy.compactMap(find).first
+        let button = alert.view.firstInTree { view in
+            NSStringFromClass(Swift.type(of: view)).hasPrefix("_UIAlertControllerActionView") && view.responds(to: NSSelectorFromString("action"))
+                && view.value(forKey: "action") as AnyObject? === action ? view : nil
         }
-        guard alert.view.window === window, let button = find(alert.view) else {
+        guard alert.view.window === window, let button else {
             return .failure(AimRefusal(why: "the alert shows no button for it"))
         }
         let box = button.convert(button.bounds, to: window), middle = CGPoint(x: box.midX, y: box.midY)

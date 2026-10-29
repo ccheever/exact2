@@ -42,8 +42,9 @@ pub struct CPiece {
     /// 1 for a list marker, hung before the indent with its end at it.
     pub hang: u8,
     /// An inline atom's detail as JSON (LLP 1045.000 D6): `{kind, role,
-    /// icon, title, href, source, start, end}`, its text the label; null
-    /// for any other piece.
+    /// icon, title, href, source, start, end, color, background}`, its text
+    /// the label, its colours its face's in the colour wire form (null for
+    /// the kind's); null for any other piece.
     pub atom: *const u8,
     /// Its length.
     pub atom_len: usize,
@@ -104,6 +105,25 @@ fn atoms_of(handle: u64) -> std::rc::Rc<exact_markdown::Atoms> {
         .unwrap_or_default()
 }
 
+/// A face's `color` or `backgroundColor` (LLP 1045.000 D2), as the runner
+/// wrote it (`atom_face_paint`), in the presenters' colour wire form, which
+/// they resolve for the appearance they draw in; null where the kind's
+/// paint stands.
+fn face_paint(text: &str) -> serde_json::Value {
+    // No session's overrides: the runner resolved the session's into the text.
+    let _roles = exact_kernel::style::roles::bind(&Default::default());
+    // Nor any plan's profiles, whatever scope the caller is in (LLP 1100 §11):
+    // the runner refuses a declared one's colour on a face.
+    let _profiles = exact_kernel::style::profiled::declarations(std::iter::empty());
+    exact_runner::decorations::face_color(text)
+        .and_then(|color| {
+            let mut wire = String::new();
+            crate::style::push_color_value(&mut wire, color);
+            serde_json::from_str(&wire).ok()
+        })
+        .unwrap_or_default()
+}
+
 /// Expand `len` bytes of Markdown at `text`, with the atoms behind
 /// `atoms` (zero for none). Writes the pieces' address and count and returns
 /// a handle; zero (and no pieces) for invalid input.
@@ -132,6 +152,7 @@ pub fn pieces(
                 "kind": a.kind, "icon": a.icon, "title": a.title, "href": a.href, "source": a.source,
                 "role": if a.role == exact_markdown::AtomRole::Link { "link" } else { "button" },
                 "start": range.start, "end": range.end,
+                "color": face_paint(&a.color), "background": face_paint(&a.background_color),
             })
             .to_string(),
             _ => String::new(),
@@ -197,10 +218,12 @@ pub fn pieces(
 /// Kinds: paragraph 0 body 1 heading 2 bullet 3 ordered 4 task 5 rule 6 fence
 /// 7 code 8 footnote 9 table 10 embed 11 image 12 video; replaced 0 bullet
 /// 1 box 2 checked box 3 rule 4 footnote. `a` is each inline atom (LLP
-/// 1045.000): `[start,end,kind,label,icon,title,role,href]`; no hidden range
-/// lies inside one and no atom link is in `l`. `l` is each link's opener and its
-/// `](target)`, which the editor hides whatever the selection, as the web
-/// editor does (`exact_markdown_editor::link_destinations`, LLP 1045 D5). Writes the
+/// 1045.000): `[start,end,kind,label,icon,title,role,href,ink,background]`,
+/// the last two its face's paint in the colour wire form (null for the
+/// kind's); no hidden range lies inside one and no atom link is in `l`.
+/// `l` is each link's opener and its `](target)`, which the editor hides
+/// whatever the selection, as the web editor does
+/// (`exact_markdown_editor::link_destinations`, LLP 1045 D5). Writes the
 /// text's address and length; returns a handle to free. Zero for invalid
 /// input.
 #[allow(clippy::too_many_arguments)]
@@ -260,7 +283,9 @@ pub fn style(
                 face.icon,
                 face.title,
                 role,
-                a.href
+                a.href,
+                face_paint(&face.color),
+                face_paint(&face.background_color)
             ])
         })
         .collect();
@@ -383,6 +408,28 @@ pub fn plain(
     )
 }
 
+/// Each source line's direction under a Markdown editor's `paragraphDirs`
+/// `auto` (LLP 1045 D11), as the web editor decides it
+/// (`exact_markdown_editor::auto_directions`): one ASCII digit per line, `0`
+/// none, `1` left to right, `2` right to left. Writes the text's address and
+/// length; returns a handle to free. Zero for invalid input.
+pub fn auto(
+    text: *const u8,
+    len: usize,
+    atoms: u64,
+    out: *mut *const u8,
+    count: *mut usize,
+) -> u64 {
+    let Some(source) = text_input(text, len, out, count) else {
+        return 0;
+    };
+    let digits = exact_markdown_editor::auto_directions(source, &atoms_of(atoms))
+        .into_iter()
+        .map(|d| char::from(b'0' + d))
+        .collect();
+    hold_json(digits, out, count)
+}
+
 /// Release one expansion or styling. Zero, stale, and repeated frees are no-ops.
 pub fn free(handle: u64) {
     // A handle freed from a thread's own destructors at its exit (the
@@ -484,6 +531,17 @@ macro_rules! markup_exports {
         ) -> u64 {
             $crate::markup::plain(text, len, atoms, start, end, out, count)
         }
+        /// Each source line's `paragraphDirs` `auto` direction, one digit a line.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_auto(
+            text: *const u8,
+            len: usize,
+            atoms: u64,
+            out: *mut *const u8,
+            count: *mut usize,
+        ) -> u64 {
+            $crate::markup::auto(text, len, atoms, out, count)
+        }
         /// Release one expansion or styling.
         #[no_mangle]
         pub extern "C" fn exact_markup_free(handle: u64) {
@@ -521,6 +579,18 @@ mod tests {
         assert_eq!((flat[1].hang, flat[1].indent), (0, 40.0));
         free(handle);
         assert_eq!(pieces(b"\xff".as_ptr(), 1, 0, &mut out, &mut count), 0);
+        assert_eq!(count, 0);
+    }
+
+    /// LLP 1045 D11: `auto` crosses as one digit a line.
+    #[test]
+    fn auto_directions_cross_as_one_digit_a_line() {
+        let source = "Hello\n[^n] مرحبا\n- مرحبا\n42";
+        let (mut out, mut count) = (std::ptr::null(), 0usize);
+        let handle = auto(source.as_ptr(), source.len(), 0, &mut out, &mut count);
+        assert_eq!(unsafe { std::slice::from_raw_parts(out, count) }, b"1120");
+        free(handle);
+        assert_eq!(auto(b"\xff".as_ptr(), 1, 0, &mut out, &mut count), 0);
         assert_eq!(count, 0);
     }
 
@@ -629,13 +699,38 @@ mod tests {
         free(revealed);
     }
 
+    /// LLP 1045.000 D2: a face's colour as the runner wrote it crosses in
+    /// the presenters' wire form: a role as its platform colour, resolved
+    /// with no session's overrides even while two sessions live on the
+    /// thread (each would be a guess); a colour in a standard space the
+    /// platforms ship, and one in a wide space, each in its own. A profile
+    /// the app declares is none here, as the runner never writes one.
+    #[test]
+    fn a_faces_paint_crosses_in_the_wire_form() {
+        use exact_kernel::style::roles;
+        let (a, b) = (roles::Roles::new(Vec::new()), roles::Roles::new(Vec::new()));
+        roles::install(&a);
+        roles::install(&b);
+        let role = face_paint("-exact-separator");
+        assert!(role["sys"].is_string(), "{role}");
+        let built_in = face_paint("color(--dci-p3 1 0 0)");
+        assert_eq!(
+            built_in["cs"][0]["s"], "cg:kCGColorSpaceDCIP3",
+            "{built_in}"
+        );
+        let wide = face_paint("color(display-p3 1 0 0)");
+        assert_eq!(wide["cs"][0]["s"], "display-p3", "{wide}");
+        assert!(face_paint("color(--press 0.1 0.8 0.2)").is_null());
+        assert!(face_paint("not a colour").is_null());
+        drop((a, b));
+    }
+
     /// LLP 1045.000: a node's atoms, parsed once, reach styling, pieces,
     /// selection facts and plain copy through one handle.
     #[test]
     fn atoms_cross_the_seam_through_one_handle() {
         let kinds = r#"[{"name":"citation","link":"t3-citation:"}]"#;
-        let faces =
-            r#"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.png","title":"T"}]"#;
+        let faces = r##"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.png","title":"T","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"no colour"}]"##;
         let atoms = atoms(kinds.as_ptr(), kinds.len(), faces.as_ptr(), faces.len());
         let source = "a [q](t3-citation:1) b";
         let (mut out, mut count) = (std::ptr::null(), 0usize);
@@ -656,7 +751,7 @@ mod tests {
         let json = read(out, count);
         assert!(
             json.ends_with(
-                r#""l":[],"a":[[2,20,"citation","Quote","i.png","T","button","t3-citation:1"]]}"#
+                r#""l":[],"a":[[2,20,"citation","Quote","i.png","T","button","t3-citation:1",[[213,44,54,255],[255,103,98,255]],null]]}"#
             ),
             "{json}"
         );
@@ -713,6 +808,12 @@ mod tests {
             (detail["start"].as_u64(), detail["end"].as_u64()),
             (Some(2), Some(20))
         );
+        // The face's colour in the wire form; one that is no colour, null.
+        assert_eq!(
+            detail["color"],
+            serde_json::json!([[213, 44, 54, 255], [255, 103, 98, 255]])
+        );
+        assert!(detail["background"].is_null());
         free(expanded);
         free(atoms);
         // A freed handle reads as no atoms.

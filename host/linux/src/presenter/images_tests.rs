@@ -233,6 +233,7 @@ fn a_load_waiting_is_sent_only_to_the_node_and_source_it_landed_for_and_owes_a_t
         key,
         source: source.into(),
         assignment,
+        error: None,
     };
     let loads = |p: &mut Presenter<()>| {
         let state = crate::agent::handle(p, r#"{"op":"state"}"#);
@@ -257,7 +258,8 @@ fn a_load_waiting_is_sent_only_to_the_node_and_source_it_landed_for_and_owes_a_t
     );
     p.apply_reports(Vec::new());
     assert_eq!(loads(&mut p), 0.);
-    assert!(p.images.load_events.is_empty());
+    // (The missing file's own `error` may wait: no `load` does.)
+    assert!(!p.images.load_events.iter().any(|e| e.error.is_none()));
     // Its own node and source: sent.
     p.images
         .load_events
@@ -299,6 +301,7 @@ fn a_load_is_not_sent_once_an_earlier_loads_action_changed_its_source() {
             key: u64::from(node.key.index) | (u64::from(node.key.generation) << 32),
             source: source.to_owned(),
             assignment: p.images.assignment(node.id).unwrap(),
+            error: None,
         }
     };
     let one = event(&p, "one", "pictures/a.png");
@@ -352,6 +355,7 @@ fn a_load_waiting_is_dropped_when_actions_change_its_source_away_and_back() {
             key: u64::from(node.key.index) | (u64::from(node.key.generation) << 32),
             source: source.to_owned(),
             assignment: p.images.assignment(node.id).unwrap(),
+            error: None,
         }
     };
     let events = [
@@ -365,4 +369,293 @@ fn a_load_waiting_is_dropped_when_actions_change_its_source_away_and_back() {
     let state: serde_json::Value = serde_json::from_str(&state).unwrap();
     assert_eq!(state["slots"]["third"], "pictures/a.png", "away and back");
     assert_eq!(state["slots"]["loads"], 0., "{state}");
+}
+
+/// What a scripted server answers a path's `n`th request with.
+enum Reply {
+    Status(u16, &'static str),
+    Picture,
+    Text,
+}
+
+/// A server answering each request as `answer(path, n)` says, counting them; its origin.
+fn scripted_server(
+    asked: Arc<std::sync::Mutex<Vec<String>>>,
+    answer: impl Fn(&str, usize) -> Reply + Send + Sync + 'static,
+) -> String {
+    let mut picture = Vec::new();
+    let mut encoder = png::Encoder::new(&mut picture, 8, 8);
+    encoder.set_color(png::ColorType::Rgba);
+    let mut writer = encoder.write_header().unwrap();
+    writer
+        .write_image_data(&[200, 40, 40, 255].repeat(64))
+        .unwrap();
+    writer.finish().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let answer = Arc::new(answer);
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            let _ = reader.read_line(&mut line);
+            let path = line.split_whitespace().nth(1).unwrap_or("/").to_owned();
+            let mut header = String::new();
+            while reader.read_line(&mut header).is_ok_and(|n| n > 2) {
+                header.clear();
+            }
+            let n = {
+                let mut asked = asked.lock().unwrap();
+                let n = asked.iter().filter(|p| **p == path).count();
+                asked.push(path.clone());
+                n
+            };
+            let (head, body): (String, Vec<u8>) = match answer(&path, n) {
+                Reply::Status(code, extra) => (format!("{code} Nope\r\n{extra}"), Vec::new()),
+                Reply::Picture => ("200 OK\r\n".into(), picture.clone()),
+                Reply::Text => ("200 OK\r\n".into(), b"hello, not a picture".to_vec()),
+            };
+            let _ = stream.write_all(
+                format!(
+                    "HTTP/1.1 {head}content-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                )
+                .as_bytes(),
+            );
+            let _ = stream.write_all(&body);
+        }
+    });
+    origin
+}
+
+/// An app whose picture hears both events, and can be hidden and given another source.
+fn error_app(source: &str) -> Presenter<()> {
+    let source = format!(
+        r#"component App
+  state errors = 0
+  state loads = 0
+  state message = ""
+  state shown = true
+  state name = "a"
+  action failed(m: string)
+    errors = errors + 1
+    message = m
+  action loaded
+    loads = loads + 1
+  action toggle
+    shown = not shown
+  action other
+    name = "b"
+  view
+    column width=300 height=300
+      button "Toggle" press=toggle testId="toggle" width=100 height=30
+      button "Other" press=other testId="other" width=100 height=30
+      box display=(shown ? "flex" : "none") width=200 height=200
+        image "{source}" + name + ".png" width=200 height=200 load=loaded error=failed testId="picture"
+"#
+    );
+    let (p, error) = Presenter::boot_with(
+        &crate::test_plan(&source),
+        (),
+        (300., 300.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p
+}
+fn run(p: &mut Presenter<()>, ms: u64) {
+    let end = std::time::Instant::now() + Duration::from_millis(ms);
+    while std::time::Instant::now() < end {
+        p.poll_images();
+        let now = p.host().now() + 16.;
+        p.advance(now);
+        p.frame();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+/// Runs it until `done` (a generous bound: a busy machine is slow), then once more for anything after.
+fn until(p: &mut Presenter<()>, done: impl Fn(&serde_json::Value) -> bool) -> serde_json::Value {
+    let started = std::time::Instant::now();
+    while !done(&slots(p)) {
+        assert!(started.elapsed() < Duration::from_secs(30), "{}", slots(p));
+        run(p, 10);
+    }
+    run(p, 100);
+    slots(p)
+}
+fn slots(p: &mut Presenter<()>) -> serde_json::Value {
+    let state = crate::agent::handle(p, r#"{"op":"state"}"#);
+    serde_json::from_str::<serde_json::Value>(&state).unwrap()["slots"].clone()
+}
+fn press(p: &mut Presenter<()>, test_id: &str) {
+    let k = p.host().kernel();
+    let id = k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id;
+    let now = p.host().now();
+    assert!(p
+        .host_mut()
+        .dispatch_at(id, exact_runner::Event::Press, now)
+        .is_none());
+}
+
+#[test]
+fn a_picture_that_cannot_load_hears_error_once_with_its_reason() {
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let origin = scripted_server(asked.clone(), |path, n| match path {
+        p if p.starts_with("/flaky/") && n < 2 => Reply::Status(503, ""),
+        p if p.starts_with("/flaky/") => Reply::Picture,
+        p if p.starts_with("/text/") => Reply::Text,
+        p if p.starts_with("/moved/") => {
+            Reply::Status(302, "location: ftp://cdn.example/x.png?ex=1&hm=secret\r\n")
+        }
+        p if p.starts_with("/bad/") => {
+            Reply::Status(302, "location: //bad:port/a.png?hm=secret#f\r\n")
+        }
+        _ => Reply::Status(404, ""),
+    });
+    let errored = |s: &serde_json::Value| s["errors"].as_f64() == Some(1.);
+    // Asking again cannot mend a 404: its error at once, with the reason.
+    let mut p = error_app(&format!("{origin}/gone/"));
+    let s = until(&mut p, errored);
+    assert_eq!(
+        (s["errors"].as_f64(), s["loads"].as_f64()),
+        (Some(1.), Some(0.)),
+        "{s}"
+    );
+    assert_eq!(s["message"], "HTTP 404");
+
+    // A busy server that answers in the end: its load, and no error.
+    let mut p = error_app(&format!("{origin}/flaky/"));
+    let s = until(&mut p, |s| s["loads"].as_f64() == Some(1.));
+    assert_eq!(s["errors"].as_f64(), Some(0.), "{s}");
+
+    // A body this host cannot decode, and redirects to links it cannot
+    // follow, quoted without their queries.
+    let mut p = error_app(&format!("{origin}/text/"));
+    let s = until(&mut p, errored);
+    assert!(
+        s["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("not an image this host decodes"),
+        "{s}"
+    );
+    let mut p = error_app(&format!("{origin}/moved/"));
+    let s = until(&mut p, errored);
+    assert_eq!(s["message"], "a redirect to ftp://cdn.example/x.png", "{s}");
+    let mut p = error_app(&format!("{origin}/bad/"));
+    let s = until(&mut p, errored);
+    assert!(!s["message"].as_str().unwrap().contains("hm="), "{s}");
+
+    // A bundled picture that is not there.
+    let mut p = error_app("pictures/");
+    until(&mut p, errored);
+}
+
+/// A source over the 4096-byte cap is refused: its `error` once, though
+/// every sync gives it again.
+#[test]
+fn an_over_long_source_errs_once() {
+    let long = format!("pictures/{}", "x".repeat(5000));
+    let mut p = error_app(&long);
+    let s = until(&mut p, |s| s["errors"].as_f64() == Some(1.));
+    assert_eq!(s["message"], "a source over 4096 bytes");
+    run(&mut p, 200);
+    assert_eq!(slots(&mut p)["errors"].as_f64(), Some(1.));
+}
+
+#[test]
+fn a_failure_that_asking_again_may_mend_errs_once_its_showings_retries_are_spent() {
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let origin = scripted_server(asked.clone(), |path, _| match path {
+        p if p.ends_with("/b.png") => Reply::Picture,
+        _ => Reply::Status(503, ""),
+    });
+    let mut p = error_app(&format!("{origin}/dead/"));
+    // Some retries in, it leaves the screen: no error, and its count starts over.
+    let started = std::time::Instant::now();
+    while asked.lock().unwrap().len() < 3 {
+        assert!(started.elapsed() < Duration::from_secs(10));
+        run(&mut p, 10);
+    }
+    press(&mut p, "toggle");
+    run(&mut p, 300);
+    let hidden = asked.lock().unwrap().len();
+    run(&mut p, 400);
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        hidden,
+        "nothing asked off screen"
+    );
+    assert_eq!(
+        slots(&mut p)["errors"].as_f64(),
+        Some(0.),
+        "no error off screen"
+    );
+    // Shown again: a whole ladder, then one error.
+    press(&mut p, "toggle");
+    let s = until(&mut p, |s| s["errors"].as_f64() == Some(1.));
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        hidden + 6,
+        "{:?}",
+        asked.lock().unwrap()
+    );
+    assert_eq!(
+        (s["errors"].as_f64(), s["loads"].as_f64()),
+        (Some(1.), Some(0.)),
+        "{s}"
+    );
+    assert_eq!(s["message"], "HTTP 503");
+    // After its error, nothing more is asked for it; another source loads.
+    run(&mut p, 300);
+    assert_eq!(asked.lock().unwrap().len(), hidden + 6);
+    press(&mut p, "other");
+    let s = until(&mut p, |s| s["loads"].as_f64() == Some(1.));
+    assert_eq!(
+        (s["errors"].as_f64(), s["loads"].as_f64()),
+        (Some(1.), Some(1.)),
+        "{s}"
+    );
+}
+
+/// An over-long source, a symbol, then the same over-long source: a new
+/// assignment, so its `error` again.
+#[test]
+fn an_over_long_source_given_again_after_a_symbol_errs_again() {
+    let long = format!("pictures/{}", "x".repeat(5000));
+    let source = format!(
+        r#"component App
+  state errors = 0
+  state shown = "{long}"
+  action failed(m: string)
+    errors = errors + 1
+  action symbol
+    shown = "symbol:back"
+  action back
+    shown = "{long}"
+  view
+    column width=300 height=300
+      button "Symbol" press=symbol testId="symbol" width=100 height=30
+      button "Back" press=back testId="back" width=100 height=30
+      image shown width=40 height=40 error=failed testId="picture"
+"#
+    );
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(&source),
+        (),
+        (300., 300.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    until(&mut p, |s| s["errors"].as_f64() == Some(1.));
+    press(&mut p, "symbol");
+    run(&mut p, 100);
+    press(&mut p, "back");
+    until(&mut p, |s| s["errors"].as_f64() == Some(2.));
 }

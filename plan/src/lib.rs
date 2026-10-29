@@ -234,6 +234,11 @@ pub enum PlanError {
     ArmOwner {
         arm: u32,
     },
+    /// A timer carries invalid wait or tolerance options (LLP 1147).
+    TimerWait {
+        /// The invalid timer row.
+        timer: u32,
+    },
     /// A timer with a zero interval would never make progress.
     ZeroInterval {
         timer: u32,
@@ -542,6 +547,13 @@ impl Plan {
             }
         }
         for (i, t) in self.timers.iter().enumerate() {
+            if (t.tolerance_ms != 0 && (t.wait != 0 || t.frame))
+                || t.wait > 4
+                || (t.wait != 0 && t.frame)
+                || (t.max_ms != 0 && t.wait < 3)
+            {
+                return Err(PlanError::TimerWait { timer: i as u32 });
+            }
             if t.frame && (t.interval_ms != 0 || t.once) {
                 return Err(PlanError::FrameTimer { timer: i as u32 });
             }

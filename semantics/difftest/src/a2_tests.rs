@@ -58,7 +58,7 @@ fn walk_reobserves_controls_replays_and_keeps_prefix_facts() {
     assert_eq!(walk.scripted.case.events.len(), 40);
     for (i, event) in walk.scripted.case.events.iter().enumerate() {
         if matches!(event, Event::Tap(_) | Event::Type(..)) {
-            assert_eq!(walk.scripted.case.events[i + 1], Event::Land);
+            assert_eq!(walk.scripted.case.events[i + 1], Event::InputLand);
         }
     }
     let replay = observe::run(
@@ -69,7 +69,7 @@ fn walk_reobserves_controls_replays_and_keeps_prefix_facts() {
     .0;
     assert_eq!(walk.observation, replay);
     let mut prefix = base.clone();
-    prefix.events = vec![Event::Tap("open".into()), Event::Land];
+    prefix.events = vec![Event::Tap("open".into()), Event::InputLand];
     prefix.seed = Some(98);
     prefix.launch.time = Some(exact_runner::time::WallTime {
         epoch_at_zero: 1234.0,
@@ -99,7 +99,7 @@ fn stepwise_and_whole_script_match_on_refusal_and_poison() {
         case.events = vec![
             Event::Clock(1000.0),
             Event::Tap("poke".into()),
-            Event::Land,
+            Event::InputLand,
             Event::Clock(60000.0),
         ];
         let plan = compile(&case).unwrap();
@@ -119,9 +119,10 @@ fn shrinking_keeps_the_property_pair_and_its_oracle() {
     case.events = vec![
         Event::Clock(1.0),
         Event::Type("note".into(), "unused".into()),
-        Event::Land,
+        Event::InputLand,
         Event::Tap("add".into()),
-        Event::Land,
+        Event::InputLand,
+        Event::TestClock(1.0),
         Event::Clock(2.0),
     ];
     let plan = compile(&case).unwrap();
@@ -135,8 +136,15 @@ fn shrinking_keeps_the_property_pair_and_its_oracle() {
         |lines| !property::evaluate(&properties, lines).passed(),
         |_| {},
     );
-    assert_eq!(shrunk.case.events, [Event::Tap("add".into()), Event::Land]);
-    assert_eq!(shrunk.kept, [3, 4]);
+    assert_eq!(
+        shrunk.case.events,
+        [
+            Event::Tap("add".into()),
+            Event::InputLand,
+            Event::TestClock(1.0)
+        ]
+    );
+    assert_eq!(shrunk.kept, [3, 4, 5]);
     assert_eq!(shrunk.case.seed, case.seed);
     assert!(shrunk.candidates > 0);
 }
@@ -191,9 +199,9 @@ fn suggestions_parse_hold_and_deduplicate_predicates_not_titles() {
     let plan = compile(&case).unwrap();
     case.events = vec![
         Event::Tap("add".into()),
-        Event::Land,
+        Event::InputLand,
         Event::Tap("add".into()),
-        Event::Land,
+        Event::InputLand,
         Event::Clock(1.0),
         Event::Clock(1.0),
     ];

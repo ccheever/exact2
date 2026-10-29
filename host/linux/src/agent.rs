@@ -12,12 +12,13 @@
 pub(crate) mod contact;
 mod held;
 mod sensors;
+mod stdio;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
 use exact_runner::instance::collection::Align;
 use exact_runner::DataSource;
-use std::io::{BufRead, Write};
+use std::io::Write;
 
 /// The host this agent runs on, as a refusal names it: the Windows host and
 /// the Android reader run this code too.
@@ -98,19 +99,18 @@ pub fn serve<D: DataSource + Default>(
     ready.push('}');
     let _ = writeln!(out, "{ready}");
     let _ = out.flush();
-    let stdin = std::io::stdin();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
+    p.agent = true;
+    stdio::each_request(p, |p, line| {
         if line.trim().is_empty() {
-            continue;
+            return true;
         }
-        if field_str(&line, "op").as_deref() == Some("quit") {
-            break;
+        if field_str(line, "op").as_deref() == Some("quit") {
+            return false;
         }
-        let reply = handle(p, &line);
-        let _ = writeln!(out, "{reply}");
+        let _ = writeln!(out, "{}", handle(p, line));
         let _ = out.flush();
-    }
+        true
+    });
     let _ = p.pointer_cancel(p.host().now());
     crate::teardown::finish(p, crate::teardown::EXIT_BOUND);
     0
@@ -120,9 +120,9 @@ pub fn serve<D: DataSource + Default>(
 pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> String {
     p.agent = true;
     p.poll_images();
-    // A reply that landed since the last operation commits before this one
-    // (the other hosts apply it as it lands; here nothing runs between) —
-    // a finished update check likewise, and the commands the last
+    // A reply whose wake the loop has not yet taken commits before this
+    // operation (the loop applies the others as they land, [`stdio`]) — a
+    // finished update check likewise, and the commands the last
     // operation's commits asked for run before this one is answered.
     if let Some(e) = p.pump(p.host().now()) {
         eprintln!("exact: {e}");
@@ -248,12 +248,12 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         Some("perf") => p.hatch_sites(p.host().agent(line)),
         Some("state") => {
             p.boxes();
-            // The runner's state, then the sections a painter cannot observe
-            // (LLP 1035.002 D2): present as `unavailable`, never absent, so a
-            // reader can tell "no keyboard" from "no report".
+            // Host-only sections report `unavailable` instead of disappearing
+            // (LLP 1035.002 D2), distinguishing no keyboard from no report.
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
+                s.push_str(&format!(",\"painter\":{}", p.painter_state()));
                 let mut decorations: Vec<_> = p
                     .brush
                     .field_text

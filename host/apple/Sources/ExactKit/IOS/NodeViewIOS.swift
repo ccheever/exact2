@@ -107,7 +107,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // UIKit's setter walks the subtree's backdrop masks and accessibility
             // even when the value stands (a list hiding its hidden sections every batch).
             guard super.isHidden != hidden else { return }
-            super.isHidden = hidden
+            super.isHidden = hidden; if !hidden { materializeAppearingGlass() }
             if scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
@@ -553,7 +553,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // An icon with no SF Symbol draws its own path (D10, stage 9 A).
             image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolShape(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
-            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(RasterRetry.withoutQuery(source)) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
             let leaf = symbolView ?? UIImageView()
             if symbolView == nil { symbolView = leaf; addSubview(leaf) }
@@ -564,7 +564,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        symbolView?.tintColor = drawnSymbolInk
+        inkSymbolView()
         symbolView?.preferredSymbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
@@ -694,19 +694,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush() }
+        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush(); materializeJoiningGlass() }
         if window == nil, textRaster != nil { DispatchQueue.main.async { [weak self] in self?.dropTextRasterOffWindow() } }
     }
-    /// Still off every window a turn later (a tab not shown, a covered
-    /// route, a parked row; not a view moved within a batch), its text lets
-    /// go of its pixels, as Core Animation lets go of a backing store there.
-    /// `display` paints them again when it is back: at once where it shows.
-    private func dropTextRasterOffWindow() {
-        guard window == nil, textRaster != nil else { return }
-        dropTextRaster()
-        layer.setNeedsDisplay()
-    }
-
     /// Glass content participates in UIKit's interactive effect. Other
     /// materials remain background siblings of the authored children. A
     /// glass group is innermost (`GlassGroup.swift`).
@@ -746,11 +736,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The end the reader was following moved during their interaction:
     /// settle there when it ends, as a browser's scroll anchoring does.
     package func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) }
         guard scrollView === self.scrollView else { return }
         // A follow of the end that animates ends with its animation.
         if !decelerate, !followEndIfOwed() { endScroll() }
     }
-    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
+    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { presenter?.session?.frameHealth.endScroll(scrollView); if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
     package func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         guard scrollView === self.scrollView, presenter?.elementScrolls.cutting !== scrollView else { return }
         followingEndAnimated = false
@@ -773,6 +764,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     package func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
         presenter?.elementScrolls.userScrolled(scrollView) // its own scroller, or a grouped list's collection
         guard scrollView === self.scrollView else { return }
         followingEndAnimated = false
@@ -1011,13 +1003,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     // @ref LLP 1034 D1/D2
     var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     package func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) }
+        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0, key: key)) }.map { dimmedWithTint($0, key: key) }
     }
-    func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
+    func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0, key: key)) }.map { dimmedWithTint($0, key: key) } }
     package func color(_ key: String, _ fallback: UIColor) -> UIColor { cgColor(key).map { UIColor(cgColor: $0) } ?? fallback }
-    /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
-    var placeholderColor: UIColor? { cgColor("placeholder_color").map { UIColor(cgColor: $0) } }
-    package func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
+    /// CSS `::placeholder { color }` (LLP 1104 D3), a native editor's undimmed as `fieldInk` is; nil, the platform's.
+    var placeholderColor: UIColor? { (isNativeTextControl ? undimmedCGColor("placeholder_color") : cgColor("placeholder_color")).map { UIColor(cgColor: $0) } }
+    package func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0, key: key)) }.map { dimmedWithTint($0, key: key) } }
     package func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
         return fallback
@@ -1096,7 +1088,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         guard let materialView else { rehomeMaterialChildren(); return }
         if cssVisibilityHidden { materialView.effect = nil }
         else if materialView.effect == nil || materialInteractive != interactive || backdropStale {
-            materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
+            showMaterialEffect(backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive))
             materialInteractive = interactive
         }
         applyMaterialRadius()
@@ -1143,6 +1135,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if disabled { pressEpoch &+= 1; cancelPressContact() }
         if props["inert"] == "true" { cancelPressContactsInSubtree() }
         swipeOwner = props["swipeContent"] != nil
+        if isParagraph, set["textOffset"] != nil || clear.contains("textOffset") { textRasterGeometryChanged() } // its lines' place in its box
         if set["groupedSeparator"] != nil || clear.contains("groupedSeparator") { applyGroupedSeparator() }
         if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten")
             || set["symbolFillRule"] != nil || clear.contains("symbolFillRule") { updateSymbol() }
@@ -1248,7 +1241,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
         Self.textGeometry &+= 1
-        paintOrderMoved()
+        paintOrderMoved(); repaintFacesWhileDimmed() // as a move into or out of a control changes its face (TintDimmingIOS.swift)
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { redrawFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }

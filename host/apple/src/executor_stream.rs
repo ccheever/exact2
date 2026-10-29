@@ -13,16 +13,24 @@
 //! `socket` owns a two-way socket instead (LLP 1016.000 D7; `socket.rs`).
 //! A request that says `bytes` reads a 2xx body that is not
 //! `text/event-stream` as a byte stream instead of one answer (`bytes.rs`).
+//! An upload (`upload_progress`) delivers the body's bytes sent as they go
+//! and then its reply, read whole, as the one answer that ends it.
 use super::{
     check_headers, complete, failed, fetch_failure, fetch_request, has_ready, wake, Completed,
-    Shared, MAX_BODY,
+    Deadline, Shared, MAX_BODY,
 };
 use exact_runner::{FailureKind, HttpScheduling, Message, Outcome, Request, Response};
 use ibex2::stdlib::{
     abort::AbortController,
-    fetch::StreamingResponse,
+    fetch::{Sent, StreamingResponse},
     websocket::{Incoming, MessageSource},
 };
+use std::sync::Arc;
+use std::time::Duration;
+pub(super) use upload::Uploads;
+pub(super) use upload::{forget as forget_uploads, freed as place_freed, queue as queue_upload};
+use upload::{progress, timed_out, COPIES};
+pub(super) use upload::{start_waiting as start_uploads, waiting_full as uploads_full};
 
 /// What a stream opened as.
 enum Opened {
@@ -42,14 +50,31 @@ pub(super) fn is_socket(url: &str) -> bool {
 
 /// A stream's own thread: it opens with a transport of its own (so it never
 /// waits behind held replies for a worker or a lease), then reads to the end.
+/// When a stream ends, an upload waiting may take its place (`upload.rs`).
 pub(super) fn run(
-    shared: &Shared,
+    shared: &Arc<Shared>,
+    ticket: u64,
+    request: Request,
+    forced: bool,
+    grants: &str,
+    host: &dyn Fn() -> ibex2::host::Host,
+    abort: AbortController,
+) {
+    opened(shared, ticket, request, forced, grants, host, abort, None);
+    upload::start(shared);
+}
+
+/// [`run`]'s stream, an upload with its place in the upload budget.
+#[allow(clippy::too_many_arguments)]
+fn opened(
+    shared: &Arc<Shared>,
     ticket: u64,
     mut request: Request,
     forced: bool,
     grants: &str,
     host: &dyn Fn() -> ibex2::host::Host,
     abort: AbortController,
+    mut held: Option<upload::Held>,
 ) {
     // Retirement aborts every stream, as it does every job.
     let _retiring = {
@@ -63,6 +88,14 @@ pub(super) fn run(
     if request.listen.is_some() {
         return listen::run(shared, ticket, request, grants, abort);
     }
+    // An upload's deadline (`exactTimeout`) is the whole exchange's, armed
+    // before its file is read, as a plain request's is.
+    let timeout = request.timeout_ms.filter(|_| request.upload_progress);
+    let deadline = match timeout.map(|ms| Deadline::arm(ms, &abort)).transpose() {
+        Ok(deadline) => deadline,
+        Err(why) => return complete(shared, ticket, failed(FailureKind::Refused, why)),
+    };
+    let sent = (request.upload_progress).then(|| progress(shared, ticket, abort.signal()));
     let two_way = request.socket;
     let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // A source's scope narrows the app's grants, as on the workers.
@@ -94,13 +127,23 @@ pub(super) fn run(
                         .aborted()
                         .then(|| failed(FailureKind::Aborted, "native request aborted"))
                 })
-                .and_then(|()| open(Ok(&b), request, forced, &abort))
+                .and_then(|()| {
+                    // An upload's place in the budget, held until its
+                    // exchange ends (`open` reads it whole), is its body's.
+                    if let Some(held) = held.as_mut() {
+                        held.keep(request.body.len().saturating_mul(COPIES));
+                    }
+                    open(Ok(&b), request, forced, &abort, sent)
+                })
                 .map(|opened| (opened, b))
             }
             Err(message) => Err(failed(FailureKind::Refused, message)),
         }
     }))
     .unwrap_or_else(|_| Err(failed(FailureKind::Aborted, "the stream opener panicked")));
+    drop(held);
+    let passed = deadline.as_ref().is_some_and(Deadline::passed);
+    let opened = opened.map_err(|end| timed_out(end, passed, timeout.unwrap_or(0)));
     match opened {
         // The bindings live as long as the body they opened.
         Ok((Opened::Events(response, limit), _bindings)) => {
@@ -217,9 +260,13 @@ fn deliver(shared: &Shared, ticket: u64, mut message: Message, reply: bool) -> b
     else {
         return false;
     };
-    let waiting = state.completed[lane]
-        .iter_mut()
-        .find(|done| done.ticket == ticket && done.message);
+    // An upload's start is never folded into another message, nor another
+    // into it (LLP 1016.000 D10): it says the upload reached the network.
+    let start =
+        |done: &Completed| matches!(&done.outcome, Outcome::Message(m) if m.upload_started());
+    let waiting = (state.completed[lane].iter_mut())
+        .find(|done| done.ticket == ticket && done.message && !start(done))
+        .filter(|_| !message.upload_started());
     match waiting {
         Some(done) if reply => {
             done.elapsed_ms = elapsed_ms;
@@ -271,13 +318,15 @@ pub fn socket_closed(code: u16, reason: &str) -> String {
 /// Open `request` as a stream. `Ok` is an event stream to read, or a byte
 /// stream when the request says `bytes`, with its per-message ceiling;
 /// anything else is the stream's one answer, whole: a status that is not
-/// 2xx, a body that is not `text/event-stream` (unless `bytes`), or the
-/// failure that kept it from opening.
+/// 2xx, a body that is not `text/event-stream` (unless `bytes`), an
+/// upload's reply, or the failure that kept it from opening. `sent` is told
+/// an upload's bytes as they are sent.
 fn open(
     bindings: Result<&ibex2::host::Bindings, &str>,
     request: Request,
     forced: bool,
     abort: &AbortController,
+    sent: Option<Sent>,
 ) -> Result<Opened, Outcome> {
     if abort.signal().aborted() {
         return Err(failed(FailureKind::Aborted, "native request aborted"));
@@ -290,18 +339,27 @@ fn open(
     // A response with no body (Fetch's null body status, or to a `HEAD`) is
     // the one answer, as the web's, whose `response.body` is null for it.
     let as_bytes = request.bytes && !request.method.eq_ignore_ascii_case("HEAD");
+    let upload = request.upload_progress;
+    let timeout = request.timeout_ms.filter(|_| upload);
     let mut req = fetch_request(request, forced);
-    if !req.headers.has("accept") {
+    if !upload && !req.headers.has("accept") {
         req.headers.set("accept", "text/event-stream");
     }
     // The ceiling is per message: the stream as a whole has none.
     req.max_body = Some(usize::MAX);
+    req.sent = sent;
+    // An upload's platform limits follow its deadline a second later, as a
+    // plain request's do (`execute`): the portable transport's 30 s for
+    // the whole exchange and URLSession's 60 s without data never end it
+    // first.
+    req.timeout = timeout.map(|ms| Duration::from_millis(u64::from(ms) + 1_000));
     let r = b
         .fetch
         .stream(req, &abort.signal())
         .and_then(check_headers)
         .map_err(|e| fetch_failure(e, abort))?;
-    let events = r.ok()
+    let events = !upload
+        && r.ok()
         && r.headers.get("content-type").is_some_and(|t| {
             t.split(';')
                 .next()
@@ -310,7 +368,7 @@ fn open(
     if events {
         return Ok(Opened::Events(r, limit));
     }
-    if as_bytes && r.ok() && !matches!(r.status, 204 | 205) {
+    if as_bytes && !upload && r.ok() && !matches!(r.status, 204 | 205) {
         return Ok(Opened::Bytes(r, limit));
     }
     let (status, headers) = (r.status, r.headers.entries().to_vec());
@@ -493,6 +551,8 @@ pub(crate) mod listen;
 mod long_poll;
 #[path = "executor_socket.rs"]
 mod socket;
+#[path = "executor_upload.rs"]
+mod upload;
 
 #[cfg(test)]
 #[path = "executor_stream_tests.rs"]

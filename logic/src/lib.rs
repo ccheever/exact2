@@ -378,11 +378,44 @@ impl<D: DataSource> DataSource for Swappable<D> {
     fn background_state(&self) -> Option<exact_runner::BackgroundState> {
         self.embedded.as_ref()?.background_state()
     }
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[exact_runner::InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        match self.embedded.as_mut() {
+            Some(embedded) => embedded.keep_sent(store, let_go, refused),
+            None => vec![None; let_go.len()],
+        }
+    }
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        match self.embedded.as_mut() {
+            Some(embedded) => embedded.module_landed(store, token, outcome),
+            None => Ok(()),
+        }
+    }
     fn take_logs(&mut self) -> Vec<String> {
         self.embedded
             .as_mut()
             .map(DataSource::take_logs)
             .unwrap_or_default()
+    }
+    fn take_aborted(&mut self) -> Vec<u64> {
+        self.embedded
+            .as_mut()
+            .map(DataSource::take_aborted)
+            .unwrap_or_default()
+    }
+    fn abort_wake(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.abort_wake(wake);
+        }
     }
     fn bind(&mut self, plan: &Plan) {
         if let Some(embedded) = &mut self.embedded {

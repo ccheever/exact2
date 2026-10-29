@@ -51,6 +51,7 @@ impl<D: DataSource> Runner<D> {
                 t.key = None;
             } else if !t.armed || t.key != key {
                 t.armed = true;
+                t.generation = t.generation.wrapping_add(1);
                 t.key = key;
                 let row = &self.plan.timers[i];
                 if row.frame {
@@ -83,6 +84,9 @@ impl<D: DataSource> Runner<D> {
     /// Whether the plan has a frame task (LLP 1073 D4): a host keeps its
     /// frame source running and calls [`Runner::frame`] each frame.
     pub fn wants_frames(&self) -> bool {
+        if self.poisoned {
+            return false;
+        }
         // An idle gated frame task keeps no frame source running (LLP 1092 D10).
         self.plan
             .timers
@@ -98,14 +102,55 @@ impl<D: DataSource> Runner<D> {
     /// present frames: then its frame source wakes it (LLP 1073 D4).
     /// @ref LLP 1043.000 §3 D8 — hosts wake near the authored timer's due time.
     pub fn timer_due_ms(&self) -> Option<f64> {
+        if self.poisoned {
+            return None;
+        }
         self.timers
             .iter()
             .zip(&self.plan.timers)
-            .filter(|(_, row)| !(row.frame && self.clock.presenting))
+            .enumerate()
+            .filter(|(_, (_, row))| !(row.frame && self.clock.presenting))
             // No timer fires while a wake runs unseen (LLP 1133.017 D6).
             .filter(|_| !self.wake_stops_timers())
-            .map(|(timer, _)| timer.next_ms)
-            .chain(self.wake_due())
+            .map(|(i, _)| self.timer_execution(i))
+            .chain(self.other_timer_due_ms())
+            .filter(|ms| ms.is_finite())
+            .reduce(f64::min)
+    }
+
+    /// Wake tolerance bounded by every armed timer and other known deadline.
+    /// It changes host wakes only; advances retain their nominal due times.
+    pub fn timer_tolerance_ms(&self) -> f64 {
+        if !self.clock_live() || !self.plan.timers.iter().any(|row| row.tolerance_ms != 0) {
+            return 0.0;
+        }
+        let Some(due) = self.timer_due_ms() else {
+            return 0.0;
+        };
+        let latest = self
+            .timers
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                !(self.plan.timers[*i].frame && self.clock.presenting) && !self.wake_stops_timers()
+            })
+            .map(|(i, _)| self.timer_execution(i) + self.plan.timers[i].tolerance_ms as f64)
+            .chain(self.other_timer_due_ms())
+            .filter(|at| at.is_finite())
+            .reduce(f64::min)
+            .unwrap_or(due);
+        (latest - due).max(0.0)
+    }
+
+    /// A coalesced wake on hosts without a tolerance parameter.
+    pub fn timer_wake_ms(&self) -> Option<f64> {
+        self.timer_due_ms()
+            .map(|due| due + self.timer_tolerance_ms())
+    }
+
+    fn other_timer_due_ms(&self) -> Option<f64> {
+        self.wake_due()
+            .into_iter()
             .chain(self.call_due())
             .chain(self.presence_due_ms())
             // A resource a turn over its budget refused, asked again (`overrun.rs`).

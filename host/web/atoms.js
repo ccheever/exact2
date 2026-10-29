@@ -6,10 +6,11 @@
 
 /** An inline atom's pill (D4, D8): modeled on the macOS token, one line at
  * the line's text height, its label cut with an ellipsis at the line's width;
- * its kind's `color` and `background-color` (`css`) win. A button, or a link
- * as declared, named by its label and described by its title; its icon is
- * not read. `editing` makes it the editor's island: no tab stop, no source of
- * its own. Its `data-atom-*` attributes are what a press reports. */
+ * its kind's `color` and `background-color` (`css`) win, and its face's
+ * (`a.color`, `a.backgroundColor`) over those. A button, or a link as
+ * declared, named by its label and described by its title; its icon is not
+ * read. `editing` makes it the editor's island: no tab stop, no source of its
+ * own. Its `data-atom-*` attributes are what a press reports. */
 export function atomBox(a, css = '', editing = false) {
   const box = document.createElement('span');
   const set = (name, value) => value && box.setAttribute(name, value);
@@ -24,6 +25,9 @@ export function atomBox(a, css = '', editing = false) {
   box.style.cssText = 'display:inline-block;box-sizing:border-box;max-width:100%;vertical-align:bottom;overflow:hidden;text-overflow:ellipsis;'
     + 'white-space:nowrap;text-indent:0;padding:0 .3em;border-radius:.3em;background-color:light-dark(#e1e7f3,#3b4252);color:inherit;'
     + 'cursor:default;user-select:none;-webkit-user-select:none;' + css;
+  // One value each, so a colour the browser does not take leaves the kind's.
+  if (a.color) box.style.setProperty('color', a.color);
+  if (a.backgroundColor) box.style.setProperty('background-color', a.backgroundColor);
   if (a.icon && !a.icon.startsWith('symbol:')) {
     const img = box.appendChild(document.createElement('img'));
     img.src = a.icon; img.alt = ''; img.setAttribute('aria-hidden', 'true');
@@ -34,15 +38,15 @@ export function atomBox(a, css = '', editing = false) {
 }
 
 /** A reader piece's pill: its detail `[kind, role, icon, title, href,
- * source, start, end]`, its label `text`, in the piece's scale, weight and
- * flags (italic 1, strike 4) and its kind's paint from the text's
- * `data-atom-styles`. */
+ * source, start, end, color, backgroundColor]`, its label `text`, in the
+ * piece's scale, weight and flags (italic 1, strike 4), its kind's paint
+ * from the text's `data-atom-styles` and its face's over it. */
 export function readerAtom(el, text, detail, scale = 1, weight = 0, flags = 0) {
-  const [kind, role, icon, title, href, source, start, end] = detail;
+  const [kind, role, icon, title, href, source, start, end, color = '', backgroundColor = ''] = detail;
   let styles = {};
   try { styles = JSON.parse(el.getAttribute('data-atom-styles') || '{}'); } catch {}
   presses(el);
-  const box = atomBox({ kind, role, label: text, icon, title, href, source, start, end }, styles[kind] ?? '');
+  const box = atomBox({ kind, role, label: text, icon, title, href, source, start, end, color, backgroundColor }, styles[kind] ?? '');
   if (scale !== 1) box.style.fontSize = `${scale}em`;
   if (weight) box.style.fontWeight = weight;
   if (flags & 1) box.style.fontStyle = 'italic';

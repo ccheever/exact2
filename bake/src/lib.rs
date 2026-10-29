@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod atom_faces;
 pub mod colors;
 pub mod compat;
 mod icon_rules;

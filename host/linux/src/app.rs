@@ -19,7 +19,7 @@
 //! - `EXACT_SCALE=n` — device pixels per point (1 otherwise): what the frame is
 //!   drawn at and what the kernel is told the display's scale is, so a
 //!   hairline is one of those pixels (LLP 1115.000 D10.3).
-//! - `EXACT_PAINTER=gpu|cpu` — the painter (the GPU when there is one otherwise).
+//! - `EXACT_PAINTER=auto|gpu|ink|cpu` — overrides the app's baked painter choice.
 //! - `EXACT_CACHE=<dir>` — where the GPU's pipeline cache lives (`~/.cache/exact`).
 //! - `EXACT_DRM=<card>` — the KMS device (`/dev/dri/card0` otherwise).
 //! - `EXACT_VNC=1|<addr:port>` — serve the screen over VNC, the client's
@@ -145,6 +145,20 @@ pub struct Config {
 }
 
 impl Config {
+    /// The manifest's painter with `EXACT_PAINTER` applied, also used to open the window.
+    pub fn painter(&self) -> crate::presenter::PainterChoice {
+        use crate::presenter::PainterChoice;
+        PainterChoice::from_env(PainterChoice::from_baked(&self.compat))
+    }
+
+    /// Whether the carrier should create a window after production-mode filtering.
+    pub fn windowed(&self) -> bool {
+        !self.agent
+            && !self.smoke
+            && self.shot.is_none()
+            && std::env::var("EXACT_DISPLAY").as_deref() != Ok("headless")
+    }
+
     /// Read the environment; `baked` is the plan compiled into the binary
     /// and `compat` its `compat.json` (LLP 1030 D3a).
     pub fn from_env(baked: &[u8], compat: &str) -> Config {
@@ -162,9 +176,7 @@ impl Config {
         // A production bake never enters agent mode (LLP 1069.007 D2, ruled):
         // the agent's variables are dropped before anything reads them —
         // this config, the zone and seed, storage, the update store.
-        if exact_runner::delivery::production(compat) {
-            ignore_agent_variables();
-        }
+        prepare_environment(compat);
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let exact_plan = env("EXACT_PLAN");
         let exact_dev_plan = env("EXACT_DEV_PLAN");
@@ -313,7 +325,43 @@ pub fn boot_presenter<D: DataSource + Default>(
     config: &mut Config,
     viewport: (f32, f32),
 ) -> Result<(Presenter<D>, Option<String>), String> {
-    boot_presenter_with_painter(config, viewport, PainterBoot::from_env())
+    let painter =
+        PainterBoot::from_env(crate::presenter::PainterChoice::from_baked(&config.compat));
+    boot_presenter_with_painter(config, viewport, painter)
+}
+
+thread_local! {
+    /// Whether the agent drives the presenter this thread boots: the presenter
+    /// is the agent's from its first commit, so a request its boot makes (a
+    /// sign-in, a share) is held as a later one is (LLP 1146 D4).
+    pub(crate) static AGENT_BOOT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Process-clock phases for the carrier's explicit startup measurement.
+#[cfg(windows)]
+pub(crate) fn boot_phase(name: &str) {
+    if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+        if let Ok(ms) = exact_ink::device::process_ms() {
+            eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
+        }
+    }
+}
+
+/// Load fonts and lay out while the carrier's device opens. Readiness is bounded
+/// by the boot budget; a late device takes over after first pixel. @ref LLP 1149 D6.3.
+#[cfg(windows)]
+pub fn boot_presenter_with_device<D: DataSource + Default>(
+    config: &mut Config,
+    viewport: (f32, f32),
+    preparing: exact_ink::device::d3d11::Startup,
+) -> Result<(Presenter<D>, Option<String>), String> {
+    let (mut presenter, warning) = boot_presenter_with_painter(
+        config,
+        viewport,
+        PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
+    )?;
+    presenter.install_prepared_painter(preparing)?;
+    Ok((presenter, warning))
 }
 
 /// Keep the carrier's constructor through selected-plan refusal and baked fallback.
@@ -323,6 +371,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     painter: PainterBoot,
 ) -> Result<(Presenter<D>, Option<String>), String> {
     exact_runner::delivery::refuse_analysis(&config.compat).map_err(str::to_string)?;
+    AGENT_BOOT.set(config.agent);
     let mut updates = config.updates.take();
     let compat = config.compat.clone();
     let facts = |updates: &Option<Box<dyn Store>>| {
@@ -602,6 +651,13 @@ fn run_composed_with<D: DataSource + Default>(
     run_config::<D>(&mut config, started)
 }
 
+/// Apply the baked development boundary before a carrier starts worker threads.
+pub fn prepare_environment(compat: &str) {
+    if exact_runner::delivery::production(compat) {
+        ignore_agent_variables();
+    }
+}
+
 /// Drop `EXACT_AGENT`, every `EXACT_AGENT_*` variable and `EXACT_HATCHES`
 /// (a development switch, LLP 1075.003.000.001 §2.6) from this process,
 /// saying so once on stderr when one was set: a production bake runs as a
@@ -798,6 +854,9 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
     crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
     0
 }
+
+#[cfg(test)]
+mod boot_hold_tests;
 
 #[cfg(test)]
 mod scale_tests {

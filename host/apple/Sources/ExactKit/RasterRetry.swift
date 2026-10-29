@@ -72,6 +72,57 @@ enum RasterRetry {
         return formatter
     }()
 
+    /// A source as a log names it: cut whole at its first `?` or `#` (a
+    /// CDN's signature never follows).
+    static func withoutQuery(_ source: String) -> String {
+        source.unicodeScalars.firstIndex(where: { $0 == "?" || $0 == "#" }).map { String(source.unicodeScalars[..<$0]) } ?? source
+    }
+    /// `text` about source `source` with no link's query.
+    static func redacted(_ text: String, source: String) -> String {
+        // The source quoted whole (a space in it too) is cut at its query and
+        // marked as one, so what follows it in its word goes with it.
+        guard let cut = source.unicodeScalars.firstIndex(where: { $0 == "?" || $0 == "#" }) else { return withoutQueries(text) }
+        let bare = String(source.unicodeScalars[..<cut])
+        return withoutQueries(text.replacingOccurrences(of: source, with: bare + "?\u{2026}"))
+    }
+    /// `text` with no query or fragment of any link in it: a CDN's links carry
+    /// signatures (Discord's `ex`, `is`, `hm`), and an image's `error` quotes
+    /// only the host and path. A `?` with anything but a space after it starts
+    /// a query wherever the link sits; a `#` does too in a word with a `/`, a
+    /// `:` or a `url(`. The rest of the word goes, all of it, and only the run
+    /// of closing marks and punctuation that ended the word comes back. A
+    /// question (`why?`) is left be. One pass (the Linux host's
+    /// `remote::without_queries`).
+    static func withoutQueries(_ text: String) -> String {
+        // By Unicode scalar (a combining mark after `?` is its own), and words
+        // end at ASCII whitespace only (a no-break space can sit in a link).
+        let trailing: (Unicode.Scalar) -> Bool = { ")\"'`>],;:.".unicodeScalars.contains($0) }
+        // (Rust's is_ascii_whitespace: no vertical tab.)
+        let space: (Unicode.Scalar) -> Bool = { " \t\n\r\u{0C}".unicodeScalars.contains($0) }
+        let scalars = Array(text.unicodeScalars)
+        var out = String.UnicodeScalarView(), i = 0, linked = false
+        var last: [Unicode.Scalar] = ["\0", "\0", "\0"]
+        while i < scalars.count {
+            let c = scalars[i]
+            let continues = i + 1 < scalars.count && !space(scalars[i + 1])
+            if continues && (c == "?" || (c == "#" && linked)) {
+                var end = i
+                while end < scalars.count, !space(scalars[end]) { end += 1 }
+                var kept = end
+                while kept > i + 1, trailing(scalars[kept - 1]) { kept -= 1 }
+                out.append(contentsOf: scalars[kept..<end])
+                i = end
+                continue
+            }
+            if space(c) { linked = false; last = ["\0", "\0", "\0"] } else {
+                linked = linked || c == "/" || c == ":" || (c == "(" && last == ["u", "r", "l"])
+                last = [last[1], last[2], c]
+            }
+            out.append(c); i += 1
+        }
+        return String(out)
+    }
+
     /// A box on screen at least 90% of its window's width and half its height
     /// (a viewer's picture): its download goes first, with the longer bound.
     static func fills(_ box: CGRect, window: CGRect) -> Bool {

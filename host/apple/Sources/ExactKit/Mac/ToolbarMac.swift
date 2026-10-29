@@ -24,22 +24,29 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     private var symbols: [UInt32: String] = [:]
     /// The authored rendering the toolbar stands for: the declared toolbar,
     /// or the route's header (`header`).
-    private weak var owner: NodeView?
+    private(set) weak var owner: NodeView?
     /// LLP 1080.001 D3: the authored rendering hidden while the window's toolbar shows it.
     func hides(_ node: NodeView) -> Bool { (projected && node === owner) || besideParts.contains { $0.node === node } }
     private weak var heading: NodeView?
     /// The route's header this bar shows, with no toolbar declared (LLP
     /// 1115.002 D2), and what was last said of it in the session's log.
     private(set) var header: WindowHeader?
-    private var headerDecision: String?
+    private(set) var headerDecision: String?
     /// In a window that shows a list beside its detail (LLP 1115.002 D4,
     /// §5 Q10), the header of the route beside the one that owns the
     /// window: its heading stays the first line of its pane, and its
     /// buttons are the bar's items over its own column. What the bar took
     /// of it is hidden in the page, each with what VoiceOver was told of it.
     private(set) var beside: WindowHeader?
-    private var besideParts: [(node: NodeView, accessibilityHidden: Bool)] = []
-    private var besideDecision: String?
+    private(set) var besideParts: [(node: NodeView, accessibilityHidden: Bool)] = []
+    private(set) var besideDecision: String?
+    /// What the last present read, and what the navigation had decided then (ToolbarReadsMac.swift).
+    var reads = BarReads()
+    var inputs: BarInputs?
+    /// How many times the bar was presented: what a test counts.
+    var presents = 0
+    /// The shadow guard's present is running (debug builds only).
+    var shadowing = false
     /// The headers the bar shows: the window's, and the one beside it.
     private var headers: [WindowHeader] { [header, beside].compactMap { $0 } }
     /// The divider between the list's column and the detail's pane: the
@@ -195,15 +202,6 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         reset()
     }
 
-    /// Whether a batch can change what the bar shows: one that makes,
-    /// removes or moves a node, writes props, style or words, or carries a
-    /// command (a dialog opening). A batch of none of these (a scroll's
-    /// frames, an animation's values) leaves the bar as it stands and pays
-    /// nothing for it: its pass reads the route's header, each button's
-    /// face and AppKit's items.
-    func concerns(_ batch: Batch) -> Bool { batch.ops.contains { Self.read.contains($0.op) } }
-    private static let read: Set<BatchOp.Kind> = [.create, .destroy, .children, .roots, .props, .style, .paragraph, .command]
-
     /// Restore the authored visibility before a batch can change it. Hidden
     /// here is a presentation detail, never the command's availability state.
     func prepare() {
@@ -301,6 +299,14 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
 
     /// `state.window.toolbar` (the agent).
     var summary: [String: Any] {
+        var out = barSummary
+        #if DEBUG
+        // The shadow guard's record, while it runs (ToolbarReadsMac.swift).
+        if ShadowCheck.on { out["shadow"] = ["checks": ShadowCheck.checks, "mismatches": ShadowCheck.mismatches] }
+        #endif
+        return out
+    }
+    private var barSummary: [String: Any] {
         guard let toolbar else { return ["installed": false, "headerKept": headerKept ?? NSNull()] }
         return ["installed": window?.toolbar === toolbar, "displayMode": toolbar.displayMode.rawValue,
                 "style": window?.toolbarStyle.rawValue ?? NSNull(), "header": headerSummary ?? NSNull(), "headerKept": headerKept ?? NSNull(),
@@ -519,11 +525,13 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         let adopted = header?.segments
         syncing = true
         present()
+        recordReads()
         syncing = false
         settle(adopted)
     }
 
     private func present() {
+        presents += 1
         prepare()
         guard let window, presenter.root.window === window else { reset(); return }
         let declared = declaration(in: window)
@@ -696,7 +704,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         if attaching { keepContent(content) }
         hatchToolbar()
         // AppKit creates the new items' accessibility elements during layout.
-        window.contentView?.superview?.layoutSubtreeIfNeeded()
+        // Not for the shadow guard's present (ToolbarReadsMac.swift): a layout
+        // forced inside a batch the bar would have skipped is not this one's.
+        if !shadowing { window.contentView?.superview?.layoutSubtreeIfNeeded() }
         syncAccessibility()
         // Of the header beside the window's, what the bar shows or stands
         // for leaves the page; its heading and the rest stay in its pane.

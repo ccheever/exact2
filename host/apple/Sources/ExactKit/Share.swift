@@ -78,7 +78,12 @@ extension ExactSession {
             }
         }
         let (view, rect) = presenter.shareAnchor(source)
-        guard let view, let sheet = ShareSheet.present(items, title: request["title"] as? String, from: view, at: rect,
+        #if os(iOS)
+        let barItem = source.flatMap { presenter.navigation.shownBarItem($0) }
+        #else
+        let barItem: AnyObject? = nil
+        #endif
+        guard let view, let sheet = ShareSheet.present(items, title: request["title"] as? String, from: view, at: rect, barItem: barItem,
                                                        outcome: { line in discard(); outcome(line) })
         else { discard(); outcome("share: refused: no window to present from"); return }
         if let ticket { ShareSheet.shown[ShareSheet.Key(self, ticket)] = (sheet, { discard(); outcome("share: dismissed") }) }
@@ -229,11 +234,11 @@ enum ShareSheet {
         #endif
     }
 
-    /// Open the platform's sheet with `items` off `view`'s `rect`; `outcome`
-    /// gets the journal line. Returns what was shown, nil when nothing could
-    /// present it.
+    /// Open the platform's sheet with `items` off `view`'s `rect`, or off
+    /// the bar item the pressed control is drawn as; `outcome` gets the
+    /// journal line. Returns what was shown, nil when nothing could present it.
     @discardableResult
-    static func present(_ items: [Any], title: String?, from view: ShareAnchorView, at rect: CGRect,
+    static func present(_ items: [Any], title: String?, from view: ShareAnchorView, at rect: CGRect, barItem: AnyObject? = nil,
                         outcome: @escaping (String) -> Void) -> AnyObject? {
         #if os(tvOS)
         // tvOS has no share sheet.
@@ -241,8 +246,14 @@ enum ShareSheet {
         #elseif canImport(UIKit)
         guard let controller = ViewPresentation.presenter(for: view) else { return nil }
         let sheet = UIActivityViewController(activityItems: items.map { ShareItem($0, title: title) }, applicationActivities: nil)
-        sheet.popoverPresentationController?.sourceView = view
-        sheet.popoverPresentationController?.sourceRect = rect
+        if let barItem = barItem as? UIBarButtonItem {
+            // The sheet grows out of its button, as a hand-built bar's does (iOS 26).
+            sheet.popoverPresentationController?.sourceItem = barItem
+            if #available(iOS 26.0, *) { sheet.preferredTransition = .zoom(sourceBarButtonItemProvider: { _ in barItem }) }
+        } else {
+            sheet.popoverPresentationController?.sourceView = view
+            sheet.popoverPresentationController?.sourceRect = rect
+        }
         sheet.completionWithItemsHandler = { _, completed, _, error in
             outcome(error.map { "share: refused: \($0.localizedDescription)" } ?? (completed ? "share: shared" : "share: dismissed"))
         }

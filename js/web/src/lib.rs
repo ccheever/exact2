@@ -156,6 +156,7 @@ pub struct Module {
     told_overlay: Vec<String>,
     overlay_notes: Vec<String>,
 }
+
 impl Module {
     /// Construct from binary-admitted identity/grants and baked HBC digest.
     /// No browser call or app code executes during construction.
@@ -406,6 +407,8 @@ impl Module {
             }
             // `exactHeld` (LLP 1016.000 D9): no clock waits on it.
             request.held = r["held"] == true;
+            // `exactUploadProgress`: the page sends it with XMLHttpRequest.
+            request.upload_progress = r["upload_progress"] == true;
             // `exactBodyFrom`: the page reads the file into the body.
             match &r["body_from"] {
                 Json::Null => {}
@@ -431,6 +434,8 @@ impl Module {
                 };
                 self.streams.insert(key, ());
             } else {
+                // What an app's abort names it by (`take_aborted`).
+                request.fetch = response["ticket"].as_u64();
                 self.waiting.insert(key, false);
             }
             Answer::Later(request)
@@ -784,6 +789,20 @@ impl DataSource for Module {
             }
         }
         lines
+    }
+
+    fn take_aborted(&mut self) -> Vec<u64> {
+        // The realm holds them until asked, whichever turn made them (a
+        // worker's are posted to the page as each is made).
+        let said = match self.ready {
+            true => self.realm("aborted").ok(),
+            false => None,
+        };
+        let said = said.as_ref().and_then(|reply| reply["tickets"].as_array());
+        said.into_iter()
+            .flatten()
+            .filter_map(Json::as_u64)
+            .collect()
     }
 
     fn discard(&mut self, token: u64) {

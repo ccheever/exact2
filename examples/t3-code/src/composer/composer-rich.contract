@@ -58,8 +58,9 @@ atom mention prefix="@" color="light-dark(#2c3e45, #cbe0e6)" background-color="#
 atom skill prefix="$¢£¤¥֏؋߾߿৲৳৻૱௹฿៛₠₡₢₣₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿⃀⃁꠸﷼﹩＄￠￡￥￦𑿝𑿞𑿟𑿠𞋿𞲰" color="light-dark(#433448, #e7d5ea)" background-color="#b261be1c"
 
 // A chip's pill: its label, its kind's glyph as the nearest SF Symbol (the Apple host draws only `symbol:sf/` icons),
-// and its tooltip, which names how a citation's comment opens: the reference's chip has a pencil for it.
-fn composerAtomFace(c: ComposerSourceChip): AtomFace = AtomFace(source=c.source, label=(c.face.suffix == "" ? c.face.label : `${c.face.label} ${c.face.suffix}`), icon=`symbol:sf/${composerAtomSymbol(c.face.icon)}`, title=(c.face.comment ? `${c.face.tip}\n⌥-click to comment` : c.face.tip))
+// and its tooltip, which names how a citation's comment opens: the reference's chip has a pencil for it. Its empty
+// colours leave the kind's paint above.
+fn composerAtomFace(c: ComposerSourceChip): AtomFace = AtomFace(source=c.source, label=(c.face.suffix == "" ? c.face.label : `${c.face.label} ${c.face.suffix}`), icon=`symbol:sf/${composerAtomSymbol(c.face.icon)}`, title=(c.face.comment ? `${c.face.tip}\n⌥-click to comment` : c.face.tip), color="", backgroundColor="")
 fn composerAtomSymbol(icon: string): string = icon == "at-sign" or icon == "file" ? "doc" : icon == "folder" or icon == "sparkles" or icon == "film" ? icon : icon == "quote" ? "quote.opening" : icon == "image" ? "photo" : icon == "messages-square" ? "bubble.left.and.bubble.right" : icon == "square-terminal" ? "apple.terminal" : icon == "message-circle" ? "bubble.left" : icon == "mouse-pointer-2" ? "cursorarrow" : icon == "git-merge" ? "arrow.triangle.merge" : icon.startsWith("git-pull-request") ? "arrow.triangle.pull" : "circle.dashed"
 
 shape ComposerSourceBlock
