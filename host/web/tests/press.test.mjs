@@ -1130,6 +1130,39 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a held 
   }
 }, 60_000);
 
+// Every engine: what the glue cancels of a transition its own re-read starts (Firefox's transition styles see the
+// animation) is judged against the look beneath its kept declaration was written from, never the painted look a
+// later re-read saw. During the release, (a) a class turn that changes no look leaves no colour transition, and
+// (b) the node's own colour changed to the pressed one is the node's base change, its transition left running.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a release's re-read keeps the look its declaration was written from`, async () => {
+  const browser = await suiteBrowser(engine);
+  const page = await browser.newPage();
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}/unsaid`);
+    await page.waitForFunction(() => window.ready);
+    const seen = await page.evaluate(async () => {
+      const frame = () => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+      const run = async (change) => {
+        document.getElementById('exact-root').innerHTML = `<div id="k" data-exact-on="press" style="--exact-press-color:rgb(255, 0, 0);width:200px;height:30px;color:rgb(0, 0, 0);transition:all 1s linear">K</div>`;
+        const el = document.getElementById('k'), r = el.getBoundingClientRect();
+        const pointer = type => el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + 5, clientY: r.y + 5 }));
+        await frame();
+        pointer('pointerdown'); el.getAnimations().forEach(a => a.finish()); await frame();
+        pointer('pointerup'); getComputedStyle(el).color;
+        // Mid-release: the paint's own ease paused half way, so the release's re-read has seen a painted look.
+        el.getAnimations().filter(a => !a.transitionProperty).forEach(a => { a.pause(); a.currentTime = a.effect.getComputedTiming().duration / 2; });
+        change(el); getComputedStyle(el).color; await frame();
+        return el.getAnimations().filter(a => a.transitionProperty === 'color').map(a => String(a.effect.getKeyframes().at(-1).color)).join();
+      };
+      return { turned: await run(el => { el.className = 'turned'; }), recoloured: await run(el => { el.style.color = 'rgb(255, 0, 0)'; }) };
+    });
+    expect([engine, seen.turned]).toEqual([engine, '']);
+    expect([engine, seen.recoloured]).toEqual([engine, 'rgb(255, 0, 0)']);
+  } finally {
+    await page.close();
+  }
+}, 60_000);
+
 // Every engine: the paint is a layer over the node's own background images (kept beneath it, and theirs again once
 // released); its opacity is the property where the engine hands the glue its own number (computedStyleMap) and a
 // mask over what it draws elsewhere (the node's own mask kept, intersected) — Chromium runs both, the mask by taking
