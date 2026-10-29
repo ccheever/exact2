@@ -547,7 +547,6 @@ import CryptoKit
             refuses("Partition remains complete, disjoint and consistent with saved inventory") { _ = try f.coordinator.performPicker(T3PickerRequest(raw), claim: nil) }
             check(p.op.status == "staged" && p.op.terminal == nil, "Invalid partition retains custody")
         }
-        // Reorder serialized dictionaries at every level, preserving array order.
         func reordered(_ raw: Any) -> Any {
             if let object = raw as? T3PickerObject { return object.keys.sorted(by: >).reduce(into: T3PickerObject()) { $0[$1] = reordered(object[$1]!) } }
             if let array = raw as? [Any] { return array.map(reordered) }

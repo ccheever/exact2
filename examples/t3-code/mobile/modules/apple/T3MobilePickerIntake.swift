@@ -154,7 +154,6 @@ private struct NewTaskFinishBinding: Equatable {
                         let boolean = (row["value"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } == true
                         let recognized = row["id"] is String && (row["value"] is String || boolean)
                         if recognized && Set(row.keys) == Set(["id", "value"]) { continue }
-                        // Extensions belong to this ID at this index. Opaque rows bind whole.
                         var members = row
                         if recognized { members.removeValue(forKey: "value") }
                         protected.append(ProtectedOption(index: index, recognized: recognized, members: try T3PickerRequest.encoded(members)))

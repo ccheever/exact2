@@ -678,12 +678,30 @@ resume, and a malformed resume proof can skip native event counts. Both are
 fixed with failing-before and passing-after regressions. Cleanup remains owned
 by the continuing hold ledger; resume requires the exact successor count.
 All 208 focused checks and 4,055 mobile tests pass, along with strict TypeScript
-and boot. Parent reruns the focused checks and builds the normal iPhone app. The saved LAN address is no longer
-reachable after the Mac's address changes; updating it through the app's existing
+and boot. Parent reruns the focused checks and builds the normal iPhone app.
+The saved LAN address is no longer reachable after the Mac's address changes; updating it through the app's existing
 form to the same environment at loopback restores connection. The normal app
 receives `RESUME_PREREQUISITE_OK` from the real provider and restores that reply,
 the environment and an empty composer after restart. This drive checks the
 existing active flow. Native IO in the new owner tests is mocked. The review's
 three redundant comments are removed. Actual native NewTask producer acceptance
-and the uncertain-finish metadata gate remain open. No TestFlight qualification
-is added.
+remains open. No TestFlight qualification is added.
+
+Native finish now accepts validated known-choice drift without changing the
+original immutable publication or replay signature. Every other record field,
+unknown choice metadata, opaque option rows, and metadata-bearing option ID and
+index remain bound. The existing coordinator still validates actual inventory
+and every issued byte before writing current preferences. Baseline native runs
+reproduce both delayed-first-arrival failures. The fresh final fixture passes
+1,361 checks with real file and PNG bytes. It covers arrival orders, lost replies,
+protected-field refusal, save failures, byte mutations, retirement and restart.
+All 4,056 mobile tests, strict TypeScript, boot and Foundation protocol/operations
+checks pass. Independent review reports no correctness finding, reruns 216
+owner/IO tests, and passes 294 additional raw-JSON Foundation probes. Both sets of
+135 native build inputs match their hash receipts. The two redundant comments
+identified in review are removed. This resolves the known-choice finish gate;
+generic metadata mutation still refuses. The normal app build passes its module
+roster qualification, receives the real provider reply `FINISH_BINDING_OK`, and
+restores that reply, the saved environment and an empty ready composer after
+restart. Native NewTask UI and producer acceptance remain incomplete, and the
+TestFlight binary is unchanged.
