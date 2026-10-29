@@ -1082,7 +1082,8 @@ held`), and announces it.
 **`accept`** `{proposal, client, items?}` applies the proposal against the digests it was planned
 with.
 - **With no `items`,** or with every index, it applies **every** operation, an import's role
-  offers (and brand offers, *1.18*) included. To leave offers off, a client names the indices it keeps.
+  offers included, and its brand offers (*1.18*) except one whose ink falls below 4.5:1 in a scheme, which lands only
+  when its items are named. To leave offers off, a client names the indices it keeps.
 - **Applied,** the reply is a transaction's. The write is attributed to the proposer (`client`),
   and its `changed` event carries `acceptedBy` and `proposal`.
 - **A file moved since, or `items` naming only some operations,** puts the kept operations up again
@@ -1270,14 +1271,16 @@ list is unchanged: it keeps its own.
     items it keeps, never takes one. Its `items` are the fill set to the accent and its ink's token set to white or
     black for each scheme, whichever reaches 4.5:1 on that scheme's fill (`light-dark(…)` when they differ);
     `contrast` is `{light, dark}`, the ratio the ink reaches, cut to two places as the checker's are, or null on a
-    fill that isn't opaque, where `note` says so. Like a role override, it is off until ticked;
+    fill that isn't opaque, where `note` says so. Like a role override, it is off until ticked, and a bare `accept`
+    leaves out one with a `note`;
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).
 - **A source that doesn't parse** is refused, `{message: "the source is refused", diagnostics:
   [{file, line, col, id, message}]}` as a checker's refusal is. With several files a
   diagnostic is `{id, message}`, its message naming the file (*1.1*).
-- **An import with nothing new** answers 200, `{proposal: null, review, message}`.
+- **An import with nothing new** answers 200, `{proposal: null, review, message}`; one whose only news is a
+  brand offer (*1.18*, its accent override taken before) is held for it.
 - **An import is read in a process of its own** (*1.14*, stage 10b), one at a time, never in the
   design's server: a source that takes more than about 1 GiB or 10 s to read, or whose review is
   over 2 MiB, answers 413 or 503, "the source is too costly to read". With four imports already

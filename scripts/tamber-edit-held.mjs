@@ -32,6 +32,8 @@ export function edited(request, p) {
   const review = old && {
     ...old, kept: true, from: p.shown.proposal,
     offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
+    // Its brand offers (*1.18*) as its offers: each kept whole, an edit holding the import again whole.
+    ...(old.brands === undefined ? {} : { brands: old.brands.map(b => ({ ...b, items: (b.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })).filter(b => b.items.length) }),
     ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
   };
   if (review) { delete review.dials; delete review.pins; }

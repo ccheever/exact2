@@ -107,3 +107,19 @@ fn no_accent_no_brand_offer_and_a_fill_already_the_accent_is_left_alone() {
         .collect();
     assert_eq!(sets, ["cards.empty-button"]);
 }
+
+#[test]
+fn with_the_accent_override_already_in_the_design_the_brand_fills_are_still_offered() {
+    // A re-import after AccentColor = shadcn.primary was accepted: no AccentColor offer is left to make.
+    let design =
+        parse("tamber app\n\ntheme\n  shadcn.primary = #006aff\n  AccentColor = shadcn.primary\n")
+            .unwrap();
+    let import = shadcn::import(&theme("#006aff", "#006aff"), "shadcn", &design, &vocab()).unwrap();
+    assert!(!import
+        .offers
+        .iter()
+        .any(|o| o.role == "AccentColor" && !o.ops.is_empty()));
+    let offered = brands(&import, &design, &vocab(), &pairs());
+    assert_eq!(offered.len(), 2, "{offered:?}");
+    assert!(offered.iter().all(|b| b.token == "shadcn.primary"));
+}

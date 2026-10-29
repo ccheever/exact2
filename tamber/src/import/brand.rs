@@ -86,21 +86,38 @@ pub struct Brand {
 
 /// The brand offers an import makes for `pairs`, each a package's brand
 /// fill and its ink's token that the app's packages declare. None without
-/// an accent the import offers as `AccentColor` (with operations: one that
-/// varies by an app axis is not offered, nor is it here), one whose value
-/// isn't a colour of its own, or a fill the app already sets to it.
+/// an accent (the token the import offers as `AccentColor`, or the one the
+/// design's `AccentColor` already names; one that varies by an app axis is
+/// not offered), for one whose value isn't a colour of its own, or for a
+/// fill the app already sets to it.
 pub fn brands(
     import: &Import,
     design: &Design,
     vocab: &Vocab,
     pairs: &[(String, String)],
 ) -> Vec<Brand> {
-    let Some(accent) = import
+    // The accent its `AccentColor` offer names; or, with that override already in the design (no offer left to
+    // make), the token the design's `AccentColor` names, when the import writes it or the design has it.
+    let offered = import
         .offers
         .iter()
         .find(|o| o.role == "AccentColor" && !o.ops.is_empty())
-        .map(|o| o.token.clone())
-    else {
+        .map(|o| o.token.clone());
+    let kept = || {
+        let named = design
+            .tokens
+            .iter()
+            .find(|t| t.name.value == "AccentColor" && t.whens.is_empty())?
+            .value
+            .value
+            .trim()
+            .to_string();
+        let known = import.ops.iter().any(|op| {
+            matches!(op, Op::AddToken { name, .. } | Op::SetToken { name, .. } if *name == named)
+        }) || design.tokens.iter().any(|t| t.name.value == named);
+        known.then_some(named)
+    };
+    let Some(accent) = offered.or_else(kept) else {
         return Vec::new();
     };
     let value = import.ops.iter().rev().find_map(|op| match op {

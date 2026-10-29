@@ -696,7 +696,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
 
   // What the wire itself reads of a review: the offers', dials' and pins' items, the tokens' count.
   const reviewShaped = r => typeof r === 'object' && r !== null && !Array.isArray(r)
-    && ['offers', 'dials', 'pins'].every(k => r[k] === undefined || Array.isArray(r[k]) && r[k].every(o => typeof o === 'object' && o !== null && (o.items === undefined || Array.isArray(o.items) && o.items.every(Number.isInteger))))
+    && ['offers', 'brands', 'dials', 'pins'].every(k => r[k] === undefined || Array.isArray(r[k]) && r[k].every(o => typeof o === 'object' && o !== null && (o.items === undefined || Array.isArray(o.items) && o.items.every(Number.isInteger))))
     && (r.tokens === undefined || Number.isInteger(r.tokens) && r.tokens >= 0);
   const needsClient = request => typeof request.client === 'string' && request.client ? null : { status: 400, error: { message: `${request.method} names its \`client\`` } };
 
@@ -1025,6 +1025,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
   /** Accept a held proposal: applied against the digests it was reviewed
    * with; a file moved since, or only some `items` accepted, recomputes it
    * on the current files as a new proposal, for a fresh accept. */
+  // A held import's brand offers (*1.18*) renumbered to the operations `kept`, as its offers are; one none of whose
+  // operations is kept is gone, as it was not chosen.
+  const brandsKept = (review, kept) => review.brands === undefined ? {} : { brands: review.brands.map(b => ({ ...b, items: (b.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })).filter(b => b.items.length) };
+  // A brand offer whose ink doesn't reach 4.5:1 in a scheme (or has no one ratio there).
+  const belowContrast = b => [b.contrast?.light, b.contrast?.dark].some(r => typeof r !== 'number' || r < 4.5);
   async function accept(request) {
     expire();
     const id = request.proposal, p = proposals.get(id);
@@ -1058,6 +1063,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       const review = old && {
         ...old,
         offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
+        ...brandsKept(old, kept),
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
       let fresh; // A re-import (the server's own mark, never its review's fields) is marked again on the design as it is, and held on that same text, else marked again (stage 10b).
@@ -1078,6 +1084,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       const kept = [...new Set(items)].sort((a, b) => a - b);
       return recompute(kept.map(i => p.ops[i]), kept);
     }
+    // A bare accept (no `items`, nothing chosen) takes every operation but a brand offer whose ink falls below 4.5:1
+    // in a scheme (*1.18*, theme2's 03:04 ruling): a contrast failure lands only when it is named.
+    const warned = request.items === undefined && !p.shown.choice ? new Set((p.shown.review?.brands ?? []).filter(belowContrast).flatMap(b => b.items ?? [])) : new Set();
+    const writing = warned.size ? p.ops.filter((_, i) => !warned.has(i)) : p.ops;
     // The write's own end, whenever the server answers (a client told it
     // timed out included): accepted, or held again unless it went stale.
     let waiting = true;
@@ -1086,9 +1096,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       else if (!v?.error?.conflict) restore(id, p);
       else if (!waiting) send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'stale' });
     };
-    const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: p.ops, ...(Object.keys(p.guards).length ? { requires: p.guards } : {}), restore: p.restoring }, { acceptedBy: request.client, proposal: id }, settled);
+    const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: writing, ...(Object.keys(p.guards).length ? { requires: p.guards } : {}), restore: p.restoring }, { acceptedBy: request.client, proposal: id }, settled);
     waiting = false;
-    if (done.error?.conflict) return reverted ? replan() : recompute(p.ops);
+    if (done.error?.conflict) return reverted ? replan() : warned.size ? recompute(writing, p.ops.map((_, i) => i).filter(i => !warned.has(i))) : recompute(p.ops);
     return done;
   }
 
@@ -1173,7 +1183,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
       if (!planned.ok) return planned.error?.stale ? { status: 409, error: planned.error } : planned;
       if (!planned.ok.digest) return { status: 409, error: { message: 'the design file is not there: create it, then import' } }; // (no digest, no guard)
       const { ops, review } = importReview(planned.ok);
-      if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
+      // (A re-import whose only news is a brand offer, *1.18*, is held for it: its accent override taken before.)
+      if (!planned.ok.ops.length && !review.brands?.length) return { ok: { proposal: null, review, message: planned.ok.counted?.mapped ? 'nothing to propose: the design has every mapped value already' : 'nothing to propose: nothing in it maps to a token' } };
       // Cancelled while planned or held (its request gone, its client ended): never held.
       // (answered at once: the hold, when its plan comes back, sees the signal and holds nothing)
       const gone = { status: 503, error: { message: 'the import was cancelled' } };

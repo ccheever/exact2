@@ -5,10 +5,13 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ROOT, drive, proxied, toolTurns } from './design-tool-harness.mjs';
 import { importReview } from './tamber-import-review.mjs';
+import { developmentGate } from './install-page.mjs';
+import { tamberServer } from './tamber-server.mjs';
 
 toolTurns();
 
@@ -107,3 +110,64 @@ test('ticked in the tool and accepted, FollowButton\'s fill is the accent and it
     rmSync(app, { recursive: true, force: true });
   }
 }, 900_000);
+
+/** The design server on `app`, in process, and a call of its wire. */
+async function wire(app) {
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port, gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const server = tamberServer({ appDir: app, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => { if (!(await server.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); } });
+  await server.ready;
+  const at = `http://127.0.0.1:${port}`, { token } = await (await fetch(`${at}/__tamber/token`)).json();
+  const call = async request => { const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) }); return { status: res.status, ...(await res.json()) }; };
+  return { call, close: async () => { await server.close(); listener.close(); } };
+}
+
+/** A shadcn theme whose `--primary` is `primary` in both schemes. */
+const accentTheme = primary => `:root {\n  --background: #ffffff;\n  --primary: ${primary};\n}\n.dark {\n  --background: #000000;\n  --primary: ${primary};\n}\n`;
+
+test('a bare accept takes a brand offer whose ink reaches 4.5:1, never one that falls short unless it is named', async () => {
+  for (const [primary, landsBare] of [['#006aff', true], ['rgb(0 106 255 / 50%)', false]]) {
+    const app = gate(), server = await wire(app);
+    try {
+      const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme(primary), name: 'globals.css' });
+      expect(held.status, JSON.stringify(held)).toBe(200);
+      const { review, ops } = held.ok;
+      expect(review.brands.map(b => b.sets)).toEqual(['actions.follow-fill', 'cards.empty-button']);
+      expect(review.brands.every(b => (b.note === undefined) === landsBare)).toBe(true);
+      const bare = await server.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal });
+      expect(bare.status, JSON.stringify(bare)).toBe(200);
+      const written = readFileSync(join(app, 'app.tamber'), 'utf8');
+      expect(written).toContain('shadcn.primary =');
+      expect(written.includes('actions.follow-fill = shadcn.primary')).toBe(landsBare);
+      expect(written.includes('cards.empty-button = shadcn.primary')).toBe(landsBare);
+      if (!landsBare) {
+        // Named, every item: it lands, warning and all.
+        const again = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme(primary), name: 'globals.css' });
+        // A re-import whose only news is its brand offers is held for them.
+        expect(again.ok.review.brands.map(b => b.sets)).toEqual(['actions.follow-fill', 'cards.empty-button']);
+        const all = again.ok.ops.map(o => o.index);
+        expect((await server.call({ method: 'accept', client: 'agent:t', proposal: again.ok.proposal, items: all })).status).toBe(200);
+        expect(readFileSync(join(app, 'app.tamber'), 'utf8')).toContain('actions.follow-fill = shadcn.primary');
+      }
+      expect(ops.length).toBeGreaterThan(0);
+    } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
+  }
+}, 600_000);
+
+test('a partial accept holds again with the brand offers it kept, renumbered to their operations', async () => {
+  const app = gate(), server = await wire(app);
+  try {
+    const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: css, name: 'globals.css' });
+    const { review } = held.ok, follow = review.brands.find(b => b.sets === 'actions.follow-fill');
+    const items = [...Array.from({ length: review.tokens }, (_, i) => i), ...follow.items];
+    const re = await server.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal, items });
+    expect(re.ok?.recomputed, JSON.stringify(re).slice(0, 400)).toBe(true);
+    // Only FollowButton's is offered again, its items the fill and the ink in the new operations.
+    expect(re.ok.review.brands.map(b => b.sets)).toEqual(['actions.follow-fill']);
+    const [fill, ink] = re.ok.review.brands[0].items.map(i => re.ok.ops[i].op);
+    expect([fill.name, fill.value]).toEqual(['actions.follow-fill', 'shadcn.primary']);
+    expect(ink.name).toBe('actions.follow-ink');
+  } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
+}, 600_000);
