@@ -871,6 +871,22 @@ retained storage, below this display's 16.667 ms refresh. Softbuffer has no meas
 scanout timestamp; this is not a displayed-versus-displayed comparison.
 Unqualified: a driver-cache-cold launch; lock and unlock.
 
+**S2.8, 2026-10-28** (`lane/ink-s2` at `721433fee6`): the third blind review (Sol and Muse on
+S2.6 and S2.7, the lane's `target/review-{sol,muse}-s2b.md`) converged on one blocker, both
+devices refused leaving a black window that retried forever and reported itself as the CPU
+painter, and added the rest; S2.8 fixed every item, none refuted: both devices exhausted is a
+terminal boot error naming both failures; a hardware retry after loss is gated on a pending
+hardware attempt only; the retirement queue drains while idle and releases on GPU completion
+after a bounded number of failed statistics checks; the agent's `state` carries the painter,
+the device and API, the recovery status and the last refusal; WARP is spawned against the
+t+75 ms mark and the hardware channel re-polled while waiting; the device worker starts at
+process entry again; a skipped present's retry follows the display's refresh; the Mica
+colour test covers both schemes; the atlas test overwrites a region under an in-flight read;
+the jump-list thread is built with a logged spawn failure and detached so quitting in the
+first second does not wait on the Shell. The Mac checks pass; the native Windows validation
+and the two deferred qualifications (a late WARP, a driver-cache-cold launch) are S2.8b's,
+and the branch lands when they pass.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
