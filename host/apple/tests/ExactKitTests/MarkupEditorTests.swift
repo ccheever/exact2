@@ -637,6 +637,89 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(directions(field, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
     }
 
+    /// LLP 1045 D11: an undo step keeps the words of the source it returns
+    /// to, however many keystrokes it holds; a removed line typed back in
+    /// takes the word above it, and the app's next words forget what undo
+    /// would have given back.
+    func testUndoStepsKeepTheirWordsWhichTypingAndTheAppsNextWordsDoNotBringBack() throws {
+        let typed = NSRange(location: NSNotFound, length: 0)
+        do {
+            let (node, field, window, presenter, session) = styled("A\nب\nC", caret: 1)
+            defer { window.close(); session.destroy(); _ = presenter }
+            node.props["paragraphDirs"] = "ltr rtl ltr"
+            node.applyTextArea()
+            let manager = try XCTUnwrap(field.undoManager)
+            manager.removeAllActions()
+            field.setSelectedRange(NSRange(location: 1, length: 4))
+            field.deleteBackward(nil)
+            closeGroup(manager)
+            for _ in 0..<64 { field.insertText("y", replacementRange: typed) }
+            XCTAssertEqual(field.string, "A" + String(repeating: "y", count: 64))
+            closeGroup(manager)
+            manager.undo()
+            XCTAssertEqual(field.string, "A")
+            manager.undo()
+            XCTAssertEqual(field.string, "A\nب\nC")
+            XCTAssertEqual(directions(field, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        }
+        do {
+            let (node, field, window, presenter, session) = styled("A\nQ", caret: 1)
+            defer { window.close(); session.destroy(); _ = presenter }
+            node.props["paragraphDirs"] = "ltr rtl"
+            node.applyTextArea()
+            field.setSelectedRange(NSRange(location: 1, length: 2))
+            field.deleteBackward(nil)
+            field.insertNewline(nil)
+            field.insertText("Q", replacementRange: typed)
+            XCTAssertEqual(field.string, "A\nQ")
+            XCTAssertEqual(directions(field, [0, 2]), [.leftToRight, .leftToRight])
+        }
+        do {
+            let (node, field, window, presenter, session) = styled("A\nB", caret: 3)
+            defer { window.close(); session.destroy(); _ = presenter }
+            node.props["paragraphDirs"] = "ltr"
+            node.applyTextArea()
+            let manager = try XCTUnwrap(field.undoManager)
+            manager.removeAllActions()
+            field.insertText("C", replacementRange: typed)
+            node.props["value"] = field.string
+            node.props["paragraphDirs"] = "rtl"
+            node.applyTextArea()
+            field.breakUndoCoalescing()
+            manager.undo()
+            XCTAssertEqual(field.string, "A\nB")
+            XCTAssertEqual(directions(field, [0, 2]), [.rightToLeft, .rightToLeft])
+        }
+    }
+
+    /// LLP 1045 D11: a line ends at CR and CRLF as at LF, where TextKit ends
+    /// a paragraph; text the app rewrites from NFC to NFD finds its lines again.
+    func testALineEndsAtCROrCRLFAndCanonicallyEquivalentTextIsAnotherSource() {
+        let (node, field, window, presenter, session) = styled("A\rب\r\nC")
+        defer { window.close(); session.destroy(); _ = presenter }
+        node.props["paragraphDirs"] = "ltr rtl ltr"
+        node.applyTextArea()
+        XCTAssertEqual(field.string, "A\rب\r\nC")
+        XCTAssertEqual(directions(field, [0, 2, 5]), [.leftToRight, .rightToLeft, .leftToRight])
+        node.props["paragraphDirs"] = "auto"
+        node.applyTextArea()
+        XCTAssertEqual(directions(field, [0, 2, 5]), [.leftToRight, .rightToLeft, .leftToRight])
+        node.props["paragraphDirs"] = "ltr rtl"
+        node.props["value"] = "\u{E9}\nب"
+        node.applyTextArea()
+        XCTAssertEqual(directions(field, [0, 2]), [.leftToRight, .rightToLeft])
+        node.props["value"] = "e\u{301}\nب"
+        node.applyTextArea()
+        XCTAssertEqual(field.string.utf16.count, 4)
+        XCTAssertEqual(directions(field, [0, 3]), [.leftToRight, .rightToLeft])
+    }
+
+    /// The text view's open undo group closes, as it does at the end of a run loop turn.
+    private func closeGroup(_ manager: UndoManager) {
+        let deadline = Date().addingTimeInterval(2)
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+    }
+
     /// LLP 1045 D11: `auto` reads a footnote mark's label as text, as the web
     /// shows it, wherever the caret is (a caret on a line reveals its syntax);
     /// in a right-to-left field, a line with no strong letter takes the
@@ -866,6 +949,83 @@ final class MarkupEditorIOSTests: XCTestCase {
         manager.undo()
         node.restyleMarkup()
         XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+    }
+
+    /// LLP 1045 D11 on UIKit: an undo step keeps the words of the source it
+    /// returns to, however many keystrokes it holds; a removed line typed
+    /// back in takes the word above it, and the app's next words forget what
+    /// undo would have given back.
+    func testUndoStepsKeepTheirWordsWhichTypingAndTheAppsNextWordsDoNotBringBack() throws {
+        do {
+            let (p, _, f, session) = styledField("A\nب\nC")
+            defer { session.destroy() }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl ltr"]]]))
+            XCTAssertTrue(f.becomeFirstResponder())
+            let manager = try XCTUnwrap(f.undoManager)
+            manager.removeAllActions()
+            f.selectedRange = NSRange(location: 1, length: 4)
+            f.deleteBackward()
+            closeGroup(manager)
+            for _ in 0..<64 { f.insertText("y") }
+            XCTAssertEqual(f.text, "A" + String(repeating: "y", count: 64))
+            closeGroup(manager)
+            manager.undo()
+            XCTAssertEqual(f.text, "A")
+            manager.undo()
+            XCTAssertEqual(f.text, "A\nب\nC")
+            XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        }
+        do {
+            let (p, _, f, session) = styledField("A\nQ")
+            defer { session.destroy() }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl"]]]))
+            XCTAssertTrue(f.becomeFirstResponder())
+            f.selectedRange = NSRange(location: 1, length: 2)
+            f.deleteBackward()
+            f.insertText("\n")
+            f.insertText("Q")
+            XCTAssertEqual(f.text, "A\nQ")
+            XCTAssertEqual(directions(f, [0, 2]), [.leftToRight, .leftToRight])
+        }
+        do {
+            let (p, _, f, session) = styledField("A\nB")
+            defer { session.destroy() }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr"]]]))
+            XCTAssertTrue(f.becomeFirstResponder())
+            let manager = try XCTUnwrap(f.undoManager)
+            manager.removeAllActions()
+            f.selectedRange = NSRange(location: 3, length: 0)
+            f.insertText("C")
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": f.text ?? "", "paragraphDirs": "rtl"]]]))
+            closeGroup(manager)
+            manager.undo()
+            XCTAssertEqual(f.text, "A\nB")
+            XCTAssertEqual(directions(f, [0, 2]), [.rightToLeft, .rightToLeft])
+        }
+    }
+
+    /// LLP 1045 D11 on UIKit: a line ends at CR and CRLF as at LF, where
+    /// TextKit ends a paragraph; text the app rewrites from NFC to NFD finds
+    /// its lines again.
+    func testALineEndsAtCROrCRLFAndCanonicallyEquivalentTextIsAnotherSource() {
+        let (p, _, f, session) = styledField("A\rب\r\nC")
+        defer { session.destroy() }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl ltr"]]]))
+        XCTAssertEqual(f.text, "A\rب\r\nC")
+        XCTAssertEqual(directions(f, [0, 2, 5]), [.leftToRight, .rightToLeft, .leftToRight])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "auto"]]]))
+        XCTAssertEqual(directions(f, [0, 2, 5]), [.leftToRight, .rightToLeft, .leftToRight])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": "\u{E9}\nب", "paragraphDirs": "ltr rtl"]]]))
+        XCTAssertEqual(directions(f, [0, 2]), [.leftToRight, .rightToLeft])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": "e\u{301}\nب"]]]))
+        XCTAssertEqual((f.text ?? "").utf16.count, 4)
+        XCTAssertEqual(directions(f, [0, 3]), [.leftToRight, .rightToLeft])
+    }
+
+    /// UIKit closes an edit's undo group at the end of the run loop turn.
+    private func closeGroup(_ manager: UndoManager) {
+        let deadline = Date().addingTimeInterval(2)
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
     }
 
     /// LLP 1045 D11 on UIKit: `auto` is a line's first strong letter outside

@@ -338,6 +338,34 @@ pub extern "C" fn mde_auto(h: u32) -> u32 {
     })
 }
 
+/// The host's words for the current state's lines, the first `len` input
+/// units (`paragraphDirs`, LLP 1045 D11): undo steps keep them.
+#[no_mangle]
+pub extern "C" fn mde_set_words(h: u32, len: u32) {
+    with(h, len, |e, words| e.set_words(words))
+}
+
+/// The words an undo or redo gave back, into [`mde_text`]; returns their
+/// length, 0 when none came back.
+#[no_mangle]
+pub extern "C" fn mde_words_back(h: u32) -> u32 {
+    let words = with(h, 0, |e, _| {
+        e.words_back().map(<[u16]>::to_vec).unwrap_or_default()
+    });
+    ABI.with(|abi| {
+        let out = &mut abi.borrow_mut().text;
+        out.clear();
+        out.extend_from_slice(&words);
+        out.len() as u32
+    })
+}
+
+/// Forget the words every state was drawn with: the app gave new ones.
+#[no_mangle]
+pub extern "C" fn mde_forget_words(h: u32) {
+    with(h, 0, |e, _| e.forget_words())
+}
+
 /// The last u32 output.
 #[no_mangle]
 pub extern "C" fn mde_out() -> *const u32 {

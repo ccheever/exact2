@@ -342,6 +342,41 @@ for (const engine of engines) for (const runtime of [false, true]) {
     }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
   }, 60000);
 
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: undo steps keep their words, which typing and the app's next words do not bring back`, async () => {
+    const dirs = field => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+    const value = field => field.evaluate(el => el.value);
+    // 64 typed characters are one undo step: the second undo still gives back the first words.
+    // (No x or b: the runtime harness's key handlers cancel them.)
+    await editor(engine, 'A\nب\nC', async (page, field) => {
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(1, el.value.length); });
+      await page.keyboard.press('Delete'); await settle(page);
+      await page.keyboard.type('y'.repeat(64)); await settle(page);
+      expect(await value(field)).toBe(`A${'y'.repeat(64)}`);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect(await value(field)).toBe('A');
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nب\nC', ['ltr', 'rtl', 'ltr']]);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
+    // A removed line typed back in takes the word above it, not the one it had.
+    await editor(engine, 'A\nQ', async (page, field) => {
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(1, 3); });
+      await page.keyboard.press('Delete'); await page.keyboard.press('Enter'); await page.keyboard.type('Q'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nQ', ['ltr', 'ltr']]);
+    }, runtime, 'data-paragraph-dirs="ltr rtl"');
+    // The app's next words forget those undo would have given back.
+    await editor(engine, 'A\nB', async (page, field) => {
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(3, 3); });
+      await page.keyboard.type('C'); await settle(page);
+      await page.evaluate(runtime => {
+        (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', 'rtl');
+        if (!runtime) field().exactMarkup.sync();
+      }, runtime);
+      await settle(page);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nB', ['rtl', 'rtl']]);
+    }, runtime, 'data-paragraph-dirs="ltr"');
+  }, 60000);
+
   engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: quote bars, list markers and the placeholder sit at each line's start`, async () => {
     await editor(engine, '> اقتباس\n- عنصر', async (page, field) => {
       // Each line's start border and padding, physical: [left border, right border, left padding, right padding].

@@ -15,7 +15,7 @@ extension NodeView {
         look.paragraphDirs = props["paragraphDirs"] ?? ""
         look.rtl = markdownRTL
         if let content = f.textLayoutManager?.textContentManager as? NSTextContentStorage, content.delegate !== editor { content.delegate = editor }
-        editor.restyle(f.textStorage, selection: f.selectedRange, look: look)
+        editor.restyle(f.textStorage, selection: f.selectedRange, look: look, undo: f.undoManager)
         f.typingAttributes = editor.typingAttributes(look, caret: f.selectedRange.location)
         if f.textStorage.length == 0 { f.setNeedsDisplay() }
         DispatchQueue.main.async { [weak f] in f?.atomsChanged() }

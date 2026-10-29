@@ -4,6 +4,8 @@
 //! the source itself except by letting the platform type plain text, which
 //! it reports back through [`Editor::reconcile`].
 
+use std::rc::Rc;
+
 use exact_markdown as md;
 use md::{Range, Styled};
 
@@ -159,6 +161,8 @@ enum Kind {
 struct Snapshot {
     source: Vec<u16>,
     sel: (u32, u32),
+    /// The host's words for this state's lines ([`Editor::set_words`]).
+    words: Rc<[u16]>,
 }
 
 /// Typing within this many milliseconds of the last keystroke is one undo.
@@ -205,6 +209,10 @@ pub struct Editor {
     last: Option<Kind>,
     last_at: f64,
     now: f64,
+    /// The host's words for the current state's lines, and whether an undo
+    /// or redo gave them back since the host last set them.
+    words: Rc<[u16]>,
+    words_back: bool,
 }
 
 impl Default for Editor {
@@ -231,6 +239,8 @@ impl Editor {
             last: None,
             last_at: f64::NEG_INFINITY,
             now: 0.0,
+            words: Rc::from([]),
+            words_back: false,
         };
         editor.restyle();
         editor
@@ -297,6 +307,30 @@ impl Editor {
     /// The face the app supplied for an atom's source.
     pub fn atom_face(&self, source: &str) -> Option<&md::AtomFace> {
         self.atoms.face(source)
+    }
+
+    /// The host's words for the current state's lines (`paragraphDirs`, LLP
+    /// 1045 D11), opaque here. Each undo step keeps the words of the state it
+    /// returns to, and undo and redo give them back ([`Editor::words_back`]).
+    pub fn set_words(&mut self, words: &[u16]) {
+        self.words = Rc::from(words);
+        self.words_back = false;
+    }
+
+    /// The words an undo or redo gave back with the state it returned to,
+    /// unless the host has set others since.
+    pub fn words_back(&self) -> Option<&[u16]> {
+        self.words_back.then_some(&self.words[..])
+    }
+
+    /// Forget the words every state was drawn with: the app gave new ones.
+    pub fn forget_words(&mut self) {
+        let none: Rc<[u16]> = Rc::from([]);
+        for step in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            step.words = none.clone();
+        }
+        self.words = none;
+        self.words_back = false;
     }
 
     /// Each source line's direction under `paragraphDirs`' `auto`
@@ -818,6 +852,7 @@ impl Editor {
         let current = Snapshot {
             source: std::mem::take(&mut self.source),
             sel: self.sel,
+            words: self.words.clone(),
         };
         self.redo.push(current);
         self.restore(prev)
@@ -831,6 +866,7 @@ impl Editor {
         let current = Snapshot {
             source: std::mem::take(&mut self.source),
             sel: self.sel,
+            words: self.words.clone(),
         };
         self.keep(current);
         self.restore(next)
@@ -839,6 +875,8 @@ impl Editor {
     fn restore(&mut self, to: Snapshot) -> Change {
         self.last = None;
         self.source = to.source;
+        self.words = to.words;
+        self.words_back = true;
         self.sticky = None;
         self.pending = [None; 4];
         self.restyle();
@@ -867,6 +905,7 @@ impl Editor {
             self.keep(Snapshot {
                 source: self.source.clone(),
                 sel: self.sel,
+                words: self.words.clone(),
             });
         }
         self.redo.clear();

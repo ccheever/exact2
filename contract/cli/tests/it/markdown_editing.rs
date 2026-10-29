@@ -290,4 +290,23 @@ fn paragraph_dirs_reach_the_editor_and_are_refused_elsewhere() {
     )
     .unwrap_err();
     assert!(error.message.contains("paragraphDirs=dirs"), "{error}");
+    // A template whose parts are all literal is a literal too.
+    for (words, code) in [
+        ("`ltr rtl`", "lower-paragraph-dirs-literal"),
+        ("`ltr bogus`", "lower-attr-value"),
+        ("`ltr ${\"rtl\"}`", "lower-paragraph-dirs-literal"),
+    ] {
+        let source = field("textarea value=\"\" markup=\"markdown\"")
+            .replace("\"rtl\"\n", &format!("{words}\n"));
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, code, "{source}\n{error}");
+    }
+    // Through a component's prop, the error is at the caller's literal.
+    let source = "component App\n  view\n    Composer(dirs=\"ltr rtl\")\ncomponent Composer\n  props\n    dirs: string\n  view\n    textarea value=\"\" markup=\"markdown\" paragraphDirs=dirs\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.span.line, error.span.col),
+        ("lower-paragraph-dirs-literal", 3, 19),
+        "{error}"
+    );
 }

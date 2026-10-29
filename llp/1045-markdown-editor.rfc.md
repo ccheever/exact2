@@ -525,9 +525,11 @@ space, the first word the first line's:
 textarea value=draft input=edit markup="markdown" paragraphDirs=dirs
 ```
 
-The unit is the source line, which a line feed ends: a paragraph for the
-bidirectional algorithm ([UAX #9](https://www.unicode.org/reports/tr9/) P1),
-and the one each host draws. It is not the styler's block, so a Markdown
+The unit is the source line, which a line break ends (LF; on Apple, whose
+source keeps CR, also CRLF and CR, where TextKit ends a paragraph; the web
+editor folds both into LF): a paragraph for the bidirectional algorithm
+([UAX #9](https://www.unicode.org/reports/tr9/) P1), and the one each host
+draws. It is not the styler's block, so a Markdown
 paragraph broken over three source lines takes three words, as do a list's
 items and a fenced block's lines. A line past the last word takes the last,
 so one word sets every line. A literal says one word, which every line takes:
@@ -550,11 +552,21 @@ all its items, and a code block stays left to right.
   the top, the one below). Return at the end of the first line of `A\nب\nC`
   under `ltr rtl ltr` draws the new line left to right and ب still right to
   left. Both hosts compare the source's lines before and after the edit
-  (`carry` in `markup-editor.js`, `MarkupDirections.carry` on Apple). Undo
-  and redo restore the words of the lines they restore: each host remembers
-  the words it drew for the last 64 sources it showed, and a source it shows
-  again takes them back. New words that arrive in the same batch as a new
-  value are placed after it.
+  (`carry` in `markup-editor.js`, `MarkupDirections.carry` on Apple), code
+  unit for code unit, so text rewritten from NFC to NFD is another source.
+  New words that arrive in the same batch as a new value are placed after
+  it.
+- **Undo and redo give the words back.** Each undo step keeps the words of
+  the state it returns to, however many keystrokes it holds, and undo and
+  redo give them back with the source; an edit that only rebuilds a removed
+  line gives back nothing, so the line takes the word above it. The app's
+  next words forget them all, as does a value the app writes, which resets
+  the history (D1). On the web the editor keeps them with its own undo steps
+  (`mde_set_words`, `mde_words_back`); on Apple they are an action in the
+  native undo group the step's first edit opened (`MarkupEditor.keep`),
+  which the field's undo manager drops with the rest. A field without words
+  keeps none, and a kept set of words holds only its lines whose word is not
+  the most common one.
 - **A line without a word** (no attribute, or a word other than the three)
   takes the field's own `direction`, the author's or else the document's, on
   every host. No first strong letter selects it, as none has for Apple text

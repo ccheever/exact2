@@ -130,12 +130,24 @@ function matches(line, d) {
   return !d.empty || kids[kids.length - 1].nodeName === 'BR';
 }
 
-/** A source's key in the words remembered for it: its length and two 32-bit
- * hashes of its code units, so the memory holds no text. */
-function sourceKey(s) {
-  let a = 0x811c9dc5, b = s.length;
-  for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 0x01000193); b = Math.imul(b ^ c, 0x5bd1e995) ^ (b >>> 13); }
-  return `${s.length}:${a >>> 0}:${b >>> 0}`;
+/** One state's words as the editor keeps them with an undo step: the line
+ * count and the most common word, then each line that holds another, `-`
+ * for none (`3 ltr 1=rtl`). */
+function packWords(ws) {
+  const tally = new Map();
+  let common, most = 0;
+  for (const w of ws) { const n = (tally.get(w) ?? 0) + 1; tally.set(w, n); if (n > most) { common = w; most = n; } }
+  let out = `${ws.length} ${common ?? '-'}`;
+  ws.forEach((w, i) => { if (w !== common) out += ` ${i}=${w ?? '-'}`; });
+  return out;
+}
+/** `packWords`' words for `count` lines; null when they were for another count. */
+function unpackWords(s, count) {
+  const [n, common, ...others] = s.split(' ');
+  if (Number(n) !== count) return null;
+  const word = w => w === '-' ? undefined : w, ws = new Array(count).fill(word(common));
+  for (const o of others) { const at = o.indexOf('='); ws[Number(o.slice(0, at))] = word(o.slice(at + 1)); }
+  return ws;
 }
 /** A line's inline-start border and padding, where its text starts. */
 const gutter = css => (parseFloat(css.borderInlineStartWidth) || 0) + (parseFloat(css.paddingInlineStart) || 0);
@@ -151,10 +163,9 @@ function installMarkupEditor(textarea, host) {
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
   let nativeHidden = null, direction = 'none', told = null, reported = '', moving = false, reread = false, atomStyles = {}, atomed = null;
   // The app's `paragraphDirs` words; whether they still wait to be placed by
-  // line number; each line's text and word as drawn; and the words drawn for
-  // the last sources shown, which undo and redo show again (LLP 1045 D11).
-  let words = [], wordsSaid = null, placeWords = true, drawnTexts = [], drawnWords = [];
-  const seen = new Map();
+  // line number; each line's text and word as drawn; and the drawn words as
+  // the editor last kept them for its undo steps (LLP 1045 D11).
+  let words = [], wordsSaid = null, placeWords = true, drawnTexts = [], drawnWords = [], heldWords = '';
   // Each line's direction under `auto` and what it was decided for (`mde_auto`).
   let autoFor = null, autoDirs = [];
   let tabIndex = el.getAttribute('tabindex');
@@ -229,15 +240,18 @@ function installMarkupEditor(textarea, host) {
   /** Each line's word as drawn: new words by line number, a line past the
    * last word taking the last; then each word stays with its line through
    * edits, and a line an edit adds takes the word of the line above it (at
-   * the top, below it) until the app's next words. A source shown before,
-   * as undo and redo show one, takes back the words it was drawn with. */
+   * the top, below it) until the app's next words. Each undo step keeps the
+   * words of the state it returns to, which undo and redo give back
+   * (`mde_words_back`); the app's new words forget them. */
   function carry(texts) {
-    const key = sourceKey(source), known = seen.get(key);
+    const back = !placeWords && words.length ? wasm.mde_words_back(h) : 0;
+    const restored = back ? unpackWords(text(back), texts.length) : null;
     if (placeWords) {
       placeWords = false;
       drawnWords = texts.map((_, i) => words[Math.min(i, words.length - 1)]);
-    } else if (known?.length === texts.length) {
-      drawnWords = known.slice();
+      wasm.mde_forget_words(h); heldWords = '';
+    } else if (restored) {
+      drawnWords = restored;
     } else {
       const old = drawnTexts, was = drawnWords;
       let head = 0, tail = 0;
@@ -248,8 +262,8 @@ function installMarkupEditor(textarea, host) {
       drawnWords = next.concat(was.slice(was.length - tail));
     }
     drawnTexts = texts;
-    seen.delete(key); seen.set(key, drawnWords.slice());
-    if (seen.size > 64) seen.delete(seen.keys().next().value);
+    const packed = words.length ? packWords(drawnWords) : '';
+    if (packed !== heldWords || back) { wasm.mde_set_words(h, put(packed)); heldWords = packed; }
   }
   /** New words from the app, by line number, once the batch that brought them
    * has drawn its value too (a render in between places them itself). */

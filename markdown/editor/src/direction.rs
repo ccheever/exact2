@@ -12,8 +12,9 @@ pub const AUTO_LTR: u8 = 1;
 /// A line whose first strong letter is right to left.
 pub const AUTO_RTL: u8 = 2;
 
-/// Each source line's direction under `auto`, one per line feed plus one:
-/// [`AUTO_NONE`], [`AUTO_LTR`] or [`AUTO_RTL`]. Passed over: the syntax the
+/// Each source line's direction under `auto`, one per line break (CRLF, CR
+/// or LF, where TextKit ends a paragraph; the web editor's source has only
+/// LF) plus one: [`AUTO_NONE`], [`AUTO_LTR`] or [`AUTO_RTL`]. Passed over: the syntax the
 /// styler hides or dims; a list's, a task's and a rule's marker; each link's
 /// and image's `[` and `](target)`; a code fence; and atoms. A footnote
 /// mark's label is text, as the web editor shows it.
@@ -59,8 +60,12 @@ pub(crate) fn auto_of(source: &str, styled: &md::Styled) -> Vec<u8> {
         .collect();
     skip.sort_unstable();
     let (mut out, mut at, mut k) = (vec![AUTO_NONE], 0u32, 0usize);
-    for c in source.chars() {
-        if c == '\n' {
+    let mut chars = source.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\n' || c == '\r' {
+            if c == '\r' && chars.next_if_eq(&'\n').is_some() {
+                at += 1;
+            }
             out.push(AUTO_NONE);
         } else {
             // Sorted by start: the first range not yet ended decides.
@@ -124,6 +129,14 @@ mod tests {
         );
         // A code fence and its info string; the code is text.
         assert_eq!(dirs("```js\nمرحبا\n```"), [AUTO_NONE, AUTO_RTL, AUTO_NONE]);
+    }
+
+    #[test]
+    fn a_line_ends_at_crlf_cr_or_lf() {
+        assert_eq!(
+            dirs("A\rب\r\nC\nد"),
+            [AUTO_LTR, AUTO_RTL, AUTO_LTR, AUTO_RTL]
+        );
     }
 
     #[test]

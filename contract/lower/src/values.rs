@@ -3,7 +3,7 @@
 //! prop by type (LLP 1017 P1a).
 use crate::style_names::press_refusal;
 use crate::{edits, err, media, symbols, tags, vocab, FontUse, LowerError};
-use contract_syntax::{Attr, Expr, Span, UnOp};
+use contract_syntax::{Attr, Expr, Span, TemplatePart, UnOp};
 use contract_types::{Ref, Scope, Shapes, Ty};
 use exact_kernel::style::sides as box_sides;
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
@@ -15,6 +15,21 @@ fn literal_text(e: &Expr) -> String {
         Expr::Str(s, _) => format!("\"{s}\""),
         Expr::Bool(b, _) => format!("{b}"),
         _ => "…".into(),
+    }
+}
+/// A string literal's text, or a template's whose every part is literal, as
+/// a component's prop can leave one: what the attribute says, whatever the app does.
+fn constant_text(e: &Expr) -> Option<String> {
+    match e {
+        Expr::Str(s, _) => Some(s.clone()),
+        Expr::Template(parts, _) => parts
+            .iter()
+            .map(|part| match part {
+                TemplatePart::Text(t) | TemplatePart::Expr(Expr::Str(t, _)) => Some(t.as_str()),
+                TemplatePart::Expr(_) => None,
+            })
+            .collect(),
+        _ => None,
     }
 }
 /// `navigationSplit`'s column width written as a number: its text, as the
@@ -1000,9 +1015,11 @@ pub(crate) fn check_prop_value(
         }
     }
     // @ref LLP 1045 D11 — HTML's `dir` words, one per source line; a literal,
-    // which never sends new words, says one for every line.
+    // which never sends new words, says one for every line. The literal's
+    // place is the error's: through a component's prop, the caller's.
     if prop == PropId::ParagraphDirs {
-        if let Expr::Str(s, _) = value {
+        if let Some(s) = constant_text(value) {
+            let span = value.span();
             if let Some(word) = s
                 .split_ascii_whitespace()
                 .find(|w| !matches!(*w, "ltr" | "rtl" | "auto"))

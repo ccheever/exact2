@@ -876,16 +876,20 @@ needs a field's width sets it
 `start` and `end` resolve against the paragraph's `direction` in
 `Paragraph::from_style`, so hosts see only left, center, right or justify; LLP
 1053). CSS `direction` orders flex rows and places blocks in the kernel, and
-`direction: rtl` is a paragraph's base direction on every host. Declared: under
-the initial `ltr`, Linux's engine and Apple's plain text fields (a field
-without `markup="markdown"`, and a Markdown editor's text once its `markup`
-goes) still take a paragraph's base direction from its first strong character
-(as `unicode-bidi: plaintext`), so an `ltr` paragraph there that opens with
+`direction: rtl` is a paragraph's base direction on every host but in Apple's
+plain text fields. Declared: under the initial `ltr`, Linux's engine still
+takes a paragraph's base direction from its first strong character (as
+`unicode-bidi: plaintext`), so an `ltr` paragraph there that opens with
 Hebrew or Arabic orders mixed text as an `rtl` one would; its alignment is
-still `start` = left, and the web uses CSS. Apple text and the Markdown editor
-(LLP 1045 D11) take `ltr` as written, so on macOS `مرحبا Hello` in an `ltr`
-Markdown editor draws left to right while the same field with `markup="none"`
-draws right to left (`QUEUE.md`).
+still `start` = left, and the web uses CSS. Apple's plain text fields (an
+`input`, a `textarea` without `markup="markdown"`, and a Markdown editor's
+text once its `markup` goes) take each paragraph's base direction from its
+first strong character under either value; `direction: rtl` aligns their
+text to the right on iOS and changes nothing of it on macOS, which aligns it
+to the left. Apple text and the Markdown editor (LLP 1045 D11) take either
+value as written, so on macOS `مرحبا Hello` in an `ltr` Markdown editor draws
+left to right while the same field with `markup="none"` draws right to left
+(`QUEUE.md`).
 The Linux text-flow walker cannot yet break an RTL run inside an LTR
 paragraph. Font matching stops at the nearest
 real declared face and never synthesizes weight or style, rather than CSS's initial
