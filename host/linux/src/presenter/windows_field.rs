@@ -7,6 +7,9 @@ use exact_runner::{FieldSelection, InputDetails, SelectionDirection};
 impl<D: DataSource> Presenter<D> {
     /// Apply editor changes after the native message has returned.
     pub fn windows_field_edits(&mut self, now: f64) {
+        if !fields::enabled() {
+            return;
+        }
         for edit in fields::take_edits() {
             let Some(node) = self.host.kernel().node(edit.id) else {
                 continue;

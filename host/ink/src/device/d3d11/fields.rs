@@ -171,6 +171,9 @@ pub fn paint(device: &mut D3d11, window: Window, field: &Field<'_>) -> Result<Op
 }
 
 pub fn caret(id: u32) -> Option<[f32; 4]> {
+    if !enabled() {
+        return None;
+    }
     FIELDS.with(|fields| {
         let fields = fields.borrow();
         let editor = fields.editors.get(&id)?;

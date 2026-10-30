@@ -133,6 +133,8 @@ public partial class App : Application
     [STAThread]
     static void Main(string[] args)
     {
+        // Match the monitor's DPI so these captures can be compared with Shelf.
+        SetProcessDpiAwarenessContext(new IntPtr(-4));
         var options = new Dictionary<string, string>();
         for (var i = 0; i + 1 < args.Length; i += 2) options[args[i]] = args[i + 1];
         foreach (var name in new[] { "--scheme", "--specimens", "--out" })
@@ -149,4 +151,7 @@ public partial class App : Application
             new App(options);
         });
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern bool SetProcessDpiAwarenessContext(IntPtr context);
 }

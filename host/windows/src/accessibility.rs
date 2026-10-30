@@ -265,6 +265,9 @@ impl Access {
         self.embed_fields(p, window);
     }
     fn embed_fields<D: DataSource>(&mut self, p: &Presenter<D>, window: &Window) {
+        if !exact_ink::device::d3d11::fields::enabled() {
+            return;
+        }
         use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
         let Ok(handle) = window.window_handle() else {
             return;

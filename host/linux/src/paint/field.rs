@@ -420,7 +420,8 @@ impl Painter {
         let selection = walk.scene.selection.filter(|_| focused);
 
         #[cfg(windows)]
-        if node.props.str(PropId::Markup) != Some("markdown")
+        if exact_ink::device::d3d11::fields::enabled()
+            && node.props.str(PropId::Markup) != Some("markdown")
             && matches!(
                 node.props.str(PropId::Type),
                 None | Some("text" | "search" | "email" | "url" | "tel")

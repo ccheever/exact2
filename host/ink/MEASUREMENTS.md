@@ -4439,11 +4439,12 @@ implementation and measurement. The NucBox retains each attempt under
 | A runner-to-layout stall over 50 ms produces one all-thread stack capture, with the application's PDB resolved when present. An ordinary launch produces none. | Inject one 200 ms hold between the existing boot phase marks; retain the capture and phase log. | Injected hold captured after two failed attempts; ordinary-series prediction missed: two logged stalls have no capture and one short interval produced a late capture. |
 | Moving device preparation after layout reduces runner-to-layout stalls over 50 ms from roughly 10/100 to at most 2/100. | 100 fresh Shelf processes per arm, alternating order, the S2 startup driver's phase logs; retain every attempt and report the full interval distributions. This tests the loader-lock hypothesis and predicts no first-screen improvement. | Entry 2/100, layout 0/100. The predicted baseline incidence missed; the post-layout bound held. Cause unestablished. |
 | DirectWrite natural advances agree with the shaper within 0.02 device pixels per glyph on the audited static outline faces at 100%, 125% and 150%. | Same font bytes, glyphs, sizes and variation coordinates; DirectWrite GetGlyphPlacements beside the shaper, retained per-glyph output. | Met for Inter and Segoe UI: maximum 0.0000019074 device pixels. Variable faces are refused. |
-| RichEdit keeps the Contract value and UTF-16 selection through type, select, cut, paste and undo, with no duplicate insertion. | Shelf search and Excord's fixture composer on the NucBox; native input and runner state after each operation. | Pending |
+| RichEdit keeps the Contract value and UTF-16 selection through type, select, cut, paste and undo, with no duplicate insertion. | Shelf search and Excord's fixture composer on the NucBox; native input and runner state after each operation. | Partial: native editor fixture and Shelf's photographed type/select/cut/paste/undo pass; the UIA journey fails and Excord is unrun. |
 
-D3.3's colour, synthesis, variation, gamma and motion cases are audited separately;
-no unmeasured case is admitted to the default rasterizer. D7's field remains a
-candidate until its native-input and accessibility conditions have evidence.
+D3.3's colour, synthesis, variation, gamma and motion cases remain separate
+admission conditions; no unmeasured case is admitted to the default rasterizer.
+D7's field remains a candidate until its native-input and accessibility
+conditions have evidence.
 
 Before the candidate parity run: the existing `pinned paint` band is
 mean <5/255 and <6% of pixels beyond 32. With
@@ -4541,3 +4542,210 @@ bytes and paired 16 px, 400-weight, phase-zero masks with their placements.
 `audit-1.log` records the rendering parameters. Reproduce with the native
 `exact-linux --lib` test executable, `INK_TEXT_AUDIT` naming a new directory,
 `directwrite_audit --ignored --nocapture --test-threads=1`.
+
+
+### Field: what ran and what it scores
+
+`EXACT_INK_RICHEDIT=1` enables the candidate on D3D11 for plain, enabled,
+opaque, untransformed system-font text/search fields. Other hosts and
+unsupported fields retain the painted implementation. `fields.rs` owns
+editors on the window thread, sends raw keyboard and IMM messages to the
+editor first, and drains text/UTF-16 selection changes into the presenter
+outside callbacks. The field uses the active device's retained window,
+including after an asynchronous device handoff. Its texture is drawn in
+tree order under the paint walk's clips. Application value and selection
+updates go back to the editor; an active composition is not overwritten.
+The existing field chrome and placeholder paint remain the host's.
+
+The native editor fixture passes replace/undo/cut/paste over `A😀日本語`,
+including a selection spanning the surrogate pair, and retains text and
+selection through 100/125/150/100% sizing. The independent Shelf capture
+journey types `Piranesi`, selects all, cuts, pastes and undoes. The captured
+Library changes between one and three books, so the edits reach the
+Contract binding; the field does not double-insert. Two real 100→150→100%
+DPI round trips complete. Its first attempt used a DPI-virtualized test
+thread and timed out resizing at 150%; declaring the test thread per-monitor
+DPI-aware fixes the driver. Both attempts remain.
+
+| D7 criterion | Score | Evidence or limit |
+| --- | --- | --- |
+| Shelf value and standard type/select/cut/paste/undo | Pass for the photographed ASCII journey | `field-visual-2/field-{type,select,cut,paste,undo}-100.png`; the filtered Library follows the edits. |
+| Unicode and UTF-16 selection retention | Pass in native editor fixture only | `field-unit-1.log` and `final-field-unit.log`; no Excord product claim. |
+| Transparent text over the host's ground | Present, not full look parity | Shelf captures retain its background through the editor texture. |
+| Focus chrome beside WinUI TextBox | **Tell remains** | Shelf's full blue rounded outline differs from WinUI's bottom accent stroke. |
+| Placeholder and caret | Visually present at 100/150%; not a full platform score | The host paints the placeholder and caret from RichEdit geometry; settings/contrast variants remain unqualified. |
+| Native selection | Visible in Shelf | Blue selection is retained in `field-select-100.png`; no claim about every system accent/contrast setting. |
+| DPI changes | Pass for two real round trips; editor fixture also covers 125% | `field-visual-2.log`, captures and operator log. |
+| One UIA tree with RichEdit's text provider | **Unqualified: fixture fails** | Three `field-journey-*.log` attempts time out discovering the native fragment. Attempt 3 logs editor creation and successful registration, but enumeration also contains a `Search` child labelled `Unidentified Provider` from `combase.dll`, which the fixture does not recognize. |
+| Japanese IME, candidate position and reconversion | Unqualified | Japanese Microsoft IME is installed; no composed product journey passed. Unicode insertion is not IME evidence. |
+| Narrator: field, value and placeholder | Unqualified | Native provider discovery is unresolved. No listening result is claimed. |
+| Excord composer, focus traversal, growing/wrapping text | Unrun | The shared field path has not passed D7's Shelf accessibility gate. |
+| CPU composition and field recovery under device loss | Unqualified | The candidate is D3D11-only; ordinary desktop recovery below runs with it disabled. |
+
+The WinUI reference is the existing `host/windows/reference` app, built
+with its locked SDK, captured on the same NucBox in light and dark. Raw
+`reference/` is 100%; `reference-150-2/` is 150%. The first attempted 150%
+reference reported scale 1; the unpackaged custom entry now declares
+per-monitor DPI awareness before WinUI starts, and the repeated record
+reports 1.5. The comparison is a visible tell assessment, not a declared
+pixel band between different control boxes.
+The three-round limit stops UIA repairs; the painted field remains the
+default. The candidate is not an accepted D7 implementation.
+
+Retained NucBox paths: `target/stage-1w/field-journey-1/` through
+`field-journey-3/` (including UIA enumeration), `field-visual/`,
+`field-visual-2/`, `reference/`, `reference-150/`, `reference-150-2/`, their sibling logs,
+and `field-shelf/` through `field-shelf-4/` executables. Local
+copies are under `target/stage-1w-nucbox/`. Reproduce the visual journey
+with `INK_SHELF`, a new `INK_DESKTOP_OUT`, the retained DPI operator and
+`shelf_native_field_visual --ignored --nocapture --test-threads=1`.
+The provider journey is `shelf_native_field`. Its detector requires a
+RichEdit class/provider name; attempt 3 instead enumerates `Search` through
+`Unidentified Provider (unmanaged:combase.dll)`. That makes provider identity
+and its Value/Text patterns unresolved by this fixture, not evidence that no
+native child exists. The three-round stop leaves that instrument correction
+and the rest of the UIA journey owed. Failed qualification is not a pass.
+
+
+### Native regressions and result lines
+
+The normal suites run with RichEdit disabled. The first wgpu caret journey
+failed twice, while the pre-field Shelf control passed. Guarding the new
+paint, input and accessibility paths at their opt-in entry restores the
+existing three-transition caret assertion on both devices; the whole
+candidate path is skipped when disabled. These runs establish the repair,
+not which individual no-op or clip transition caused the failure. The
+initial forced-device-loss runs were refused by DXCap's administrator check;
+the elevated scheduled task passes on both devices. The ordinary recovery
+journeys do not qualify a live RichEdit document through device loss.
+
+The S2.8b commands run on the signed-in desktop with
+`EXACT_INK_REQUIRED=1`, `WGPU_BACKEND=dx12`, `gpu-dev`; test builds keep
+`profile.gpu-dev.package.exact-linux.opt-level=0`, while Shelf does not.
+PDB output is enabled. DirectX 11 leaves the device at its default, wgpu
+sets `EXACT_INK_DEVICE=wgpu`. The audit arm adds
+`EXACT_INK_RASTERIZER=directwrite-audit`. Each pinned filter and `it image`
+runs separately. All result strings below are copied from retained logs.
+
+| Suite | DirectX 11 | wgpu |
+| --- | --- | --- |
+| exact-ink --lib | `test result: ok. 44 passed; 0 failed; 32 ignored; 0 measured; 0 filtered out; finished in 4.82s` | `test result: ok. 44 passed; 0 failed; 32 ignored; 0 measured; 0 filtered out; finished in 4.64s` |
+| exact-windows --lib | `test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s` | `test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s` |
+| pinned paint | `test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 17.23s` | `test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 86.24s` |
+| pinned borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 2.09s` | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 10.51s` |
+| pinned tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.71s` | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 3.25s` |
+| pinned backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.95s` | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 11.94s` |
+| pinned gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.55s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 2.03s` |
+| pinned visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 4.74s` | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 16.27s` |
+| pinned materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.58s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.80s` |
+| it image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 3.24s` | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 3.68s` |
+
+| DirectWrite candidate suite | Result |
+| --- | --- |
+| pinned paint | `test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 18.44s` |
+| pinned borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 2.10s` |
+| pinned tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.74s` |
+| pinned backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.96s` |
+| pinned gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.56s` |
+| pinned visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 4.85s` |
+| pinned materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.56s` |
+| it image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 2.65s` |
+
+The candidate's whole-app score is mean 1.43/255, 1.09% beyond 32;
+the predicted <5/255 and <6% band holds. Geometry filters also pass.
+This is not admission under D3.3's remaining requirements.
+
+| Desktop journey | DirectX 11 | wgpu |
+| --- | --- | --- |
+| Resize | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 6.23s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 7.76s` |
+| Minimize / restore | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 2.39s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 3.55s` |
+| DPI round trips | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 10.15s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 10.65s` |
+| Idle caret | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 2.69s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 4.04s` |
+| Forced device loss | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 7.14s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 9.07s` |
+| Sleep / wake | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 80.91s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 80.25s` |
+
+| Fixture | Result |
+| --- | --- |
+| Native field edit / scale | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 0.11s` |
+| Shelf visual input / DPI | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 11.26s` |
+| Shelf native UIA (third attempt) | `test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 74 filtered out; finished in 30.76s` |
+| DirectWrite audit | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1577 filtered out; finished in 0.56s` |
+| Injected startup hold | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 72 filtered out; finished in 1.12s` |
+| 200-launch startup A/B | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 72 filtered out; finished in 452.58s` |
+| surfaces::window::tests | `test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1568 filtered out; finished in 0.68s` |
+| device::d3d11::composition::tests | `test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 60 filtered out; finished in 0.77s` |
+| AccessKit native --lib | `test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s` |
+| shelf_both_late_devices_measure_the_first_pixel_trade | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 1.39s` |
+| shelf_device_preparation_overlaps_slow_configuration | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.44s` |
+| shelf_exhausted_devices_exit_with_both_refusals | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.30s` |
+| shelf_hardware_attach_refusal_uses_warp | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 1.01s` |
+| shelf_hardware_open_refusal_uses_warp | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.96s` |
+| shelf_hardware_recovers_while_startup_warp_is_pending | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 1.95s` |
+| shelf_quit_does_not_join_a_pending_shell_call | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.28s` |
+| shelf_refused_warp_waits_for_prepared_hardware | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 1.51s` |
+| shelf_slow_preparation_displays_cpu_before_hardware | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 3.46s` |
+| shelf_unavailable_mica_still_presents | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.72s` |
+
+Earlier failing logs are retained beside the passing runs. No result above
+counts an ignored test as a pass. Native field UIA and ordinary startup-tail
+capture remain unresolved qualifications despite the green baseline suites.
+
+The final native libraries and field fixture include the rebase onto
+`43e0d93b85`. The desktop runs use `field-shelf-3/`, except the repaired
+fallback caret runs, which use `field-shelf-4/`. That last build adds the
+early opt-in guards; it builds successfully and passes the failing product
+journey on both devices. The locked WinUI reference build also passes.
+
+### Mac verification and retained evidence
+
+All six checks ran after the rebase onto `43e0d93b85`; lint includes both
+Clippy and formatting. The root test command failed in the Apple executor's
+asynchronous-core suite because `workers_start_with_the_first_request`
+reported “the independent request never completed”. This is a failing
+full run. The isolated asynchronous-core suite passes on rerun. Logs and exit codes are
+`target/stage-1w/mac-*-3.log` and `mac-checks-3.json`.
+
+| Check | Exit | Elapsed seconds |
+| --- | ---: | ---: |
+| `cargo build --all-targets --keep-going` | 0 | 60.02 |
+| `cargo test --tests --no-fail-fast` | 101 | 439.38 |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | 38.12 |
+| `cargo fmt --all -- --check` | 0 | 10.18 |
+| `bun scripts/caps.mjs` | 0 | 4.87 |
+| `bun scripts/boot.mjs` | 0 | 0.04 |
+| `cargo check --workspace --all-targets --keep-going` | 0 | 148.20 |
+
+The first full run passed every check (`mac-checks-1.json`). The second
+failed wall-time assertions in SVG expansion, Tamber's multiply import
+and Tailwind import; each passed its isolated rerun. The separate
+`exact-linux` full run failed the agent exit deadline and one image-height
+assertion; both isolated reruns passed. These retained failures are not
+rewritten as green full runs. Verbatim isolated results:
+
+```text
+mac-svg-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 3.73s
+mac-tamber-import-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 213 filtered out; finished in 1.90s
+mac-tamber-tailwind-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 213 filtered out; finished in 5.75s
+mac-linux-exit-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1656 filtered out; finished in 1.02s
+mac-linux-image-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 129 filtered out; finished in 2.68s
+mac-tests-3.log (failed Apple library, outer suite):
+test result: FAILED. 563 passed; 1 failed; 18 ignored; 0 measured; 0 filtered out; finished in 22.24s
+mac-apple-4.log (isolated asynchronous-core rerun, inner and outer suites):
+test result: ok. 169 passed; 0 failed; 15 ignored; 0 measured; 398 filtered out; finished in 5.13s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 581 filtered out; finished in 5.16s
+```
+
+The NucBox evidence is also retained locally as
+`target/stage-1w/stage-1w-evidence.tgz` (8,834,459 bytes, SHA-256
+`ba02a798313370c79e714166fab9c6ab92c47238bdb05f566abc43dc830dcf7c`),
+extracted under `target/stage-1w-nucbox/`. It includes all attempts' logs,
+phase records, stack captures, font bytes, glyph rows, masks, screenshots
+and reference geometry. Executables and PDBs remain in the NucBox paths
+above; the archive omits those large binaries. Local
+`target/stage-1w/source-before-rebase.mbox` preserves the pre-rebase
+commits named by the measurements. No cited raw file was deleted.
