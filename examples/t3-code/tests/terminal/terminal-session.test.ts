@@ -1,4 +1,5 @@
-// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: packages/client-runtime/src/state/terminalSession.test.ts).
+// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: packages/client-runtime/src/state/terminalSession.test.ts),
+// with 6d450a4284's shared grid test.
 // Changes from the reference:
 // - `vite-plus/test` is `bun:test` (`vi.spyOn` is `spyOn`); ids are plain strings.
 import { describe, expect, it, spyOn } from "bun:test";
@@ -38,6 +39,30 @@ const BASE_SNAPSHOT: TerminalSessionSnapshot = {
 };
 
 describe("terminal session reducers", () => {
+  it("follows the shared PTY grid from snapshots and activity without disturbing output", () => {
+    const attached = applyTerminalAttachStreamEvent(nextTerminalAttachSeedState(), {
+      type: "snapshot",
+      snapshot: { ...BASE_SNAPSHOT, cols: 130, rows: 15 },
+    });
+    const activity = {
+      type: "activity",
+      threadId: TARGET.threadId,
+      terminalId: TARGET.terminalId,
+      hasRunningSubprocess: false,
+      label: "Terminal 1",
+    } as const;
+    const narrowed = applyTerminalAttachStreamEvent(attached, { ...activity, cols: 54, rows: 15 });
+    // Activity from a server without geometry, or a repeat, must not reset the renderer.
+    const unchanged = applyTerminalAttachStreamEvent(
+      applyTerminalAttachStreamEvent(narrowed, activity),
+      { ...activity, cols: 54, rows: 15 },
+    );
+
+    expect(attached.grid).toEqual({ cols: 130, rows: 15 });
+    expect(narrowed).toEqual({ ...attached, grid: { cols: 54, rows: 15 } });
+    expect(unchanged).toBe(narrowed);
+  });
+
   it("prefers live attach status over stale metadata after the attach stream starts", () => {
     const summary = applyTerminalMetadataStreamEvent([], {
       type: "snapshot",

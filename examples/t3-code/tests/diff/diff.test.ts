@@ -90,6 +90,18 @@ describe('diff panel', () => {
     expect(requests(calls).length).toBe(count);
     expect(snapshot(client)).toMatchObject({ diffOpen: true, diffError: 'That turn is no longer available.' });
   });
+  // Open diff names its tool call (#26304); the panel opens that call's run at its file.
+  test('a file change\'s Open diff (tool-diff) opens the panel at the change its tool call made', async () => {
+    const { client, command, calls } = harness();
+    const change = { id: 'fc', type: 'file_change', runId: 'r1', fileName: 'fixture-result.md', status: 'completed', updatedAt: '2026-10-03T14:14:00Z' };
+    client.thread!.projection.visibleTurnItems = [{ position: 0, visibility: 'local', sourceThreadId: 't1', sourceItemId: 'fc', item: change }];
+    await command('tool-diff', JSON.stringify(['t1', 'fc']), '', 0);
+    expect(requests(calls).at(-1)).toMatchObject({ method: 'orchestration.getTurnDiff', payload: { threadId: 't1', fromTurnCount: 0, toTurnCount: 1 } });
+    expect(client.diffState.selections['env:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'fixture-result.md', baseRef: null, reveal: 1 });
+    const { toolCallDiffTarget } = await import('../../src/timeline/timeline-inspect');
+    expect(toolCallDiffTarget(client.projection, JSON.stringify(['t1', 'fc']))).toEqual({ threadId: 't1', itemId: 'fc', revision: '2026-10-03T14:14:00Z', runId: 'r1', filePath: 'fixture-result.md' });
+    expect(toolCallDiffTarget(client.projection, JSON.stringify(['t1', 'gone']))).toBeNull();
+  });
   test('scope, whitespace, layout, wrap, tree and collapse are real and stateful', async () => {
     const { client, command, calls } = harness();
     await command('diff');
@@ -166,4 +178,18 @@ test('a Markdown list marker paints punctuation grey; the heading keeps its ink,
   expect(rowsOf(['diff --git a/run.sh b/run.sh', '--- a/run.sh', '+++ b/run.sh', '@@ -0,0 +1,1 @@', '+# comment', ''])).toEqual([[['# comment', 'com']]]);
   expect(rowsOf(['diff --git a/README.md b/README.md', '--- a/README.md', '+++ b/README.md', '@@ -0,0 +1,3 @@', '+```sh', '+# install the tools', '+```', ''])[1])
     .toEqual([['# install the tools', 'com']]);
+});
+
+test('Hide test files leaves the tests out of the list, the tree and Collapse all, and is offered only when the diff has tests (DiffPanel)', async () => {
+  const withTests = `${treePatch}diff --git a/src/a.test.ts b/src/a.test.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/a.test.ts\n@@ -0,0 +1 @@\n+test()\n`;
+  const { client, command } = harness(withTests);
+  await command('diff'); await command('diff-scope', '', 'latest');
+  let view = diffSnapshot(client, 0);
+  expect([view.diffTestFiles, view.diffHideTests, view.diffItems.some(item => item.path === 'src/a.test.ts')]).toEqual([1, false, true]);
+  await command('diff-view', 'hide-tests');
+  view = diffSnapshot(client, 0);
+  expect([view.diffHideTests, view.diffItems.some(item => item.path === 'src/a.test.ts'), view.diffTreeRows.some(row => row.path === 'src/a.test.ts'), view.diffFiles.length]).toEqual([true, false, false, 4]);
+  await command('diff-view', 'expand-all');
+  expect(Object.keys(client.diffState.expanded).some(key => key.endsWith('src/a.test.ts'))).toBe(false);
+  expect((client.local as { diffHideTestFiles?: boolean }).diffHideTestFiles).toBe(true);
 });

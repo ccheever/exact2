@@ -5,10 +5,8 @@
 // can scroll clear of the composer.
 //
 // The layout frames (layout-frames.ts) hold the stack (`overlay`), the card, the
-// dock banners and their shoulder row in window space. The reservation follows
-// resolveComposerTimelineInset (T3 Code 7c3b3b3605ef): while the composer rests it
-// keeps the height it had expanded, so resting and expanding again never move the
-// transcript.
+// dock banners and their shoulder row in window space. The reservation is the
+// overlay's measured height (ChatView at v0.1.5; the composer no longer rests).
 //
 // The reference's list never moves for a footer change (MessagesTimeline
 // maintainScrollAtEnd footerLayout: false). Exact's scrollFollowEnd follows any
@@ -24,8 +22,8 @@ import { layoutFrames } from '../shell/layout-frames';
 
 export type OverlayHold = { owner: string; inset: number; applied: number; content: string; pulls: number };
 /**
- * `composerReserved`: the composer's height the chat column keeps for it (ChatView composerReservedHeight), held through
- * a resting card as the reservation is. The terminal drawer's height cap and the empty timeline's centring read it.
+ * `composerReserved`: the composer's height the chat column keeps for it (ChatView composerReservedHeight). The terminal
+ * drawer's height cap and the empty timeline's centring read it.
  */
 export type ComposerOverlay = { transcriptTail: number; scrollLift: number; composerReserved: number };
 
@@ -60,7 +58,7 @@ export function contentKey(rows: ReadonlyArray<unknown>): string {
 export function composerOverlay(hold: OverlayHold, input: { owner: string; frames: Obj; atEnd: boolean; pulls: number; content: string }): ComposerOverlay {
   const { owner, frames, atEnd, pulls, content } = input;
   if (hold.owner !== owner) { hold.owner = owner; hold.inset = 0; hold.applied = -1; hold.content = content; hold.pulls = pulls; }
-  const overlay = frame(frames, 'overlay'), card = frame(frames, 'card'), dock = frame(frames, 'dock'), shoulder = frame(frames, 'shoulder');
+  const overlay = frame(frames, 'overlay'), dock = frame(frames, 'dock'), shoulder = frame(frames, 'shoulder');
   const contentChanged = content !== hold.content, pulled = pulls !== hold.pulls;
   hold.content = content; hold.pulls = pulls;
   if (!overlay.length || overlay[3]! <= 0) {
@@ -69,9 +67,7 @@ export function composerOverlay(hold: OverlayHold, input: { owner: string; frame
   }
   const [, top, , height] = overlay as [number, number, number, number];
   const measured = Math.ceil(height);
-  // A card no taller than its 48pt resting row is resting: keep the expanded reservation.
-  const resting = card.length > 0 && card[3]! > 0 && card[3]! <= 60;
-  hold.inset = resting ? Math.max(hold.inset, measured) : measured;
+  hold.inset = measured;
   if (hold.applied < 0 || hold.inset <= hold.applied || !atEnd || contentChanged || pulled) hold.applied = hold.inset;
   // resolveScrollToEndClearance: the pill clears the dock banners, which span the lane, but not
   // the stash's shoulder tab beside an empty dock (it is off to the side of the centred pill).

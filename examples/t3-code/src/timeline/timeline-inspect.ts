@@ -8,6 +8,7 @@ import { arr, obj, str, type Activity, type Obj } from '../client/domain';
 import { claudeSkillInvocation, collectToolFilePaths, groupAction, type WorkEntry } from './timeline-worklog';
 import { subagent } from './timeline-events';
 import { codeTokens, type CodeToken } from '../highlight/timeline-highlight';
+import { turnItemDetailRevision } from './timeline-item-detail';
 
 const isWindowsAbsolute = (path: string) => /^[A-Za-z]:[\\/]/.test(path);
 
@@ -115,4 +116,17 @@ export function questionHistory(id: string, answer: Obj): InspectorCode {
     if (files.length) lines.push({ text: files.join('  '), cls: 'f' });
   }
   return { id, code: '', icon: 'QA', tokens: codeTokens(lines) };
+}
+
+/**
+ * A file change's "Open diff" names its tool call (ToolCallDiffTarget, T3 Code v0.1.5 diffPanelStore.ts): the item's
+ * row key in the transcript (`[sourceThreadId, sourceItemId]`), resolved against the visible items when pressed,
+ * with the detail revision it was drawn at (resolveToolCallDiffTarget) and the run and file it changed.
+ */
+export interface ToolCallDiffTarget { threadId: string; itemId: string; revision: string; runId: string; filePath: string }
+export function toolCallDiffTarget(projection: Obj, key: string): ToolCallDiffTarget | null {
+  const row = arr(projection.visibleTurnItems).find(candidate => JSON.stringify([candidate.sourceThreadId, candidate.sourceItemId]) === key);
+  const item = obj(row?.item);
+  if (!row || item.type !== 'file_change') return null;
+  return { threadId: str(row.sourceThreadId), itemId: str(row.sourceItemId), revision: turnItemDetailRevision(item), runId: str(item.runId), filePath: str(item.fileName) };
 }

@@ -1,8 +1,8 @@
 // Chat Markdown tables and image chips, included by markdown.rs.
 // T3's MarkdownTable (ChatMarkdown.tsx, MIT, see LICENSE-T3) draws one table:
 // cells of 12pt text padded 7.2/12 (8.8 in the header), a column as wide as its
-// widest cell up to 24rem, and a footer with the expand toggle and the Copy as
-// Markdown / CSV menu (markdown-clipboard.ts serializeTable / ToCsv). The parser
+// widest cell up to 24rem, and a footer with the Copy as Markdown / CSV menu
+// (markdown-clipboard.ts serializeTable / ToCsv). The parser
 // emits one block per row; here a table's rows become one `table` block whose
 // `columns` name, per column, the cell that sizes it (drawn invisibly in every
 // row so the host's own text metrics set the width) and its share of any room.
@@ -169,7 +169,6 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
             }
         }
         let (width, runs, header) = best.unwrap_or((24.0, &[], false));
-        let capped = width > CELL_CAP;
         let sizer = chat_runs(&Value::list(
             runs.iter()
                 .enumerate()
@@ -179,7 +178,6 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
         sizers.push(Value::record(vec![
             Value::str(&column.to_string()),
             sizer,
-            Value::Bool(capped),
             Value::Bool(header),
             Value::Number(width.min(CELL_CAP)),
             Value::str(align.get(column).copied().unwrap_or("start")),

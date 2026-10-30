@@ -506,6 +506,7 @@ class TerminalPage {
       authFailed: (failed) => this.send({ type: failed ? "auth-error" : "auth-recovered" }),
       received: (units) => this.output(units),
       answered: () => this.sockets.reset(),
+      grid: (grid) => this.surface?.setSharedGrid(grid),
     }, this.connect, { ...(session.attach ? { attach: session.attach } : {}), ...(session.auth ? { auth: session.auth } : {}), readOnly: session.readOnly });
   }
 

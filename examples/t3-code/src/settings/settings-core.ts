@@ -131,14 +131,14 @@ export function decodeClientPrefs(saved: unknown): ClientPrefs {
   return next;
 }
 
-type Device = { composerCollapseOnScroll: boolean; planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string };
-export const DEVICE_DEFAULTS: Device = { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' };
+type Device = { planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string };
+export const DEVICE_DEFAULTS: Device = { planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' };
 const DEVICE_CHOICES: Record<string, readonly string[]> = { timestampFormat: ['locale', '12-hour', '24-hour'], appearanceMode: ['system', 'light', 'dark'], sendShortcut: ['enter', 'mod-enter-multiline', 'mod-enter'] };
 type LocalPrefs = { deviceSettings: Device; clientSettings?: ClientPrefs; groupingMode: string; lastGroupingMode?: string; customThemes?: CustomTheme[] };
 /** Apply one device-local change in place. Returns false when the key is not a device setting. */
 export function applyDeviceSetting(local: LocalPrefs, key: string, value: string): boolean {
   const device = local.deviceSettings as Record<string, unknown>;
-  if (key in DEVICE_CHOICES || key === 'composerCollapseOnScroll' || key === 'planModeEnabled') {
+  if (key in DEVICE_CHOICES || key === 'planModeEnabled') {
     if (key in DEVICE_CHOICES ? !DEVICE_CHOICES[key]!.includes(value) : !['true', 'false'].includes(value)) throw new ClientError('Unsupported device setting.');
     device[key] = key in DEVICE_CHOICES ? value : value === 'true';
     return true;
@@ -529,7 +529,6 @@ export function generalSections(client: T3Client, context: ServerContext, route 
       { resetLabel: 'open pull requests in T3 Code' }),
     deviceRow('showSkillsInSlashMenu', 'skills-in-slash-menu', 'Show skills in slash menu', 'Also include skills in the / command menu. Skills always appear when you type $.', 'switch'),
     deviceRow('composerRichTextEnabled', 'composer-rich-text', 'Rich text composer', 'Show formatted Markdown as you type.', 'switch'),
-    deviceRow('composerCollapseOnScroll', 'composer-collapse', 'Collapse composer on scroll', 'Rest the composer of an existing thread into a single line when you scroll the conversation. Focus the composer or start typing to expand it again.', 'switch'),
     deviceRow('sendShortcut', 'send-shortcut', 'Send shortcut', 'Choose when Enter sends a prompt or inserts a new line', 'select',
       { ...select(device.sendShortcut, [['enter', 'Enter'], ['mod-enter-multiline', `${mod} + Enter for multiline prompts`], ['mod-enter', `${mod} + Enter always`]]), width: 0, icon: 'checks' }),
     deviceRow('followUpBehavior', 'follow-up-behavior', 'Follow-up behavior', 'Queue follow-ups while the agent runs or steer the current run. ' + (device.sendShortcut === 'mod-enter-multiline'
@@ -582,7 +581,7 @@ export function generalSections(client: T3Client, context: ServerContext, route 
   const pages: Record<string, CoreSection[]> = {
     general: [pick('notifications', 'Notifications', ['thread-notifications', 'in-app-notifications']), pick('sidebar', 'Sidebar', ['project-grouping', 'project-order', 'working-shelf']),
       pick('confirmations', 'Confirmations', ['unpin-confirmation', 'archive-confirmation', 'delete-confirmation', 'quit-confirmation']), pick('display', 'Display', ['time-format'])],
-    chat: [pick('composer', 'Composer', ['composer-rich-text', 'send-shortcut', 'composer-collapse'], ['skills-in-slash-menu']), pick('follow-ups', 'Follow-ups', ['follow-up-behavior'])],
+    chat: [pick('composer', 'Composer', ['composer-rich-text', 'send-shortcut'], ['skills-in-slash-menu']), pick('follow-ups', 'Follow-ups', ['follow-up-behavior'])],
     diffs: [pick('diffs', 'Diffs', ['diff-layout', 'hide-whitespace-changes', 'default-diff-file-state', 'diff-color-scheme']),
       pick('pull-requests', 'Pull requests', ['proactive-panels', 'pull-request-links-open-in-app'])],
     threads: [pick('new-projects', 'New projects', ['add-project-starts-in']), pick('project-defaults', 'New threads', ['default-model', 'default-permissions', 'new-threads']),
@@ -796,7 +795,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['Code font', 'device', ['fontFamilyCode', 'fontSizeCode']], ['Terminal font', 'device', ['fontFamilyTerminal', 'fontSizeTerminal']],
   ['Default diff file state', 'device', ['diffFilesCollapsed']], ['Diff whitespace changes', 'device', ['diffIgnoreWhitespace']], ['Diff layout', 'device', ['diffLayout']],
   ['Proactive panels', 'device', ['proactivePanelsEnabled']], ['Show skills in slash menu', 'device', ['showSkillsInSlashMenu']],
-  ['Collapse composer on scroll', 'device', ['composerCollapseOnScroll']], ['Rich text composer', 'device', ['composerRichTextEnabled']], ['Send shortcut', 'device', ['sendShortcut']],
+  ['Rich text composer', 'device', ['composerRichTextEnabled']], ['Send shortcut', 'device', ['sendShortcut']],
   ['Follow-up behavior', 'device', ['followUpBehavior']], ['Context window indicator', 'device', ['contextWindowMeterEnabled']],
   ['Response streaming', 'server', ['responseStreamingMode']], ['Provider update checks', 'server', ['enableProviderUpdateChecks']],
   ['Continue threads after restarts', 'server', ['continueThreadsAfterServerUpdate']], ['Background activity', 'server', ['backgroundActivity']],

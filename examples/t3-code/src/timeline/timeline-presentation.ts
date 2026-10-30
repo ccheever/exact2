@@ -64,6 +64,7 @@ import { foldedMessageSummary, plainContextReferences, userMessagePresentation }
 import { liveEnvironment } from '../client/live-streams';
 import { noteAudioPlaying } from './timeline-kept-rows';
 import { sleep } from '../client/command-waits';
+import { timelinePendingApprovals, type TimelineApprovalView } from './timeline-approvals';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -222,7 +223,7 @@ function copyText(client: T3Client, id: string): string {
   const item = obj(row?.item);
   // A user message copies what it shows: an older automation prompt without its schedule prefix (MessageCopyButton's `text`).
   const text = item.type === 'proposed_plan' ? str(item.markdown) : item.type === 'user_message' ? userMessagePresentation(item).text : item.type === 'assistant_message' ? str(item.text) : '';
-  return relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(text), client.shell.threads);
+  return relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(text), client.shell.threads, client.environmentId);
 }
 
 /**
@@ -335,7 +336,7 @@ export function timelineSnapshot(client: T3Client) {
 }
 
 /** The automation's task title from the environment's live task list (scheduledTasksLive), '' until it arrives. */
-function scheduledTaskTitle(client: T3Client, taskId: string): string {
+export function scheduledTaskTitle(client: T3Client, taskId: string): string {
   if (!taskId) return '';
   return str(liveEnvironment(client, null, client.environmentId)?.tasks.value?.find(task => task.id === taskId)?.title);
 }
@@ -385,7 +386,7 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
 }
 
 /** The selected thread's row input (deriveRows, turnFoldRunIds). */
-function rowInput(client: T3Client, setup = threadWorktreeSetup(client)): RowInput {
+function rowInput(client: T3Client, setup = threadWorktreeSetup(client), approvals = timelinePendingApprovals(client)): RowInput {
   const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
   const runs = arr(projection.runs), running = activeRun(projection), runless = runlessWorkStartedAt(projection);
   const open = (kind: string) => new Set([...view.open].filter(key => key.startsWith(`${client.threadId}\u0000${kind}\u0000`)).map(key => key.split('\u0000')[2]!));
@@ -398,7 +399,7 @@ function rowInput(client: T3Client, setup = threadWorktreeSetup(client)): RowInp
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
     expandedRuns: finding ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: finding ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false,
     threadStartCheckpointReady: !client.thread?.hasMore && findRevertCheckpoint(arr(projection.checkpoints), 0) !== undefined,
-    availableRevertTurnCounts: availableRevertTurnCounts(projection) };
+    availableRevertTurnCounts: availableRevertTurnCounts(projection), pendingApprovalRequestIds: new Set(approvals.keys()) };
   // Find opens every fold, the synthetic keys of runless turns and steer segments too.
   if (finding) input.expandedRuns = new Set([...input.expandedRuns, ...turnFoldRunIds(input).values()]);
   return input;
@@ -407,15 +408,19 @@ function rowInput(client: T3Client, setup = threadWorktreeSetup(client)): RowInp
 /** T3's timeline rows for the selected thread (MessagesTimeline.logic deriveMessagesTimelineRows). */
 export function transcriptRows(client: T3Client): Message[] {
   const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
-  const setup = threadWorktreeSetup(client), input = rowInput(client, setup);
+  const setup = threadWorktreeSetup(client), approvals = timelinePendingApprovals(client), input = rowInput(client, setup, approvals);
   const rows = deriveRows(input);
   resetFolds(client, view);
   // MessagesTimeline backgroundWorktreeSetup: a setup still running after the agent's turn started.
   const background = setup.snapshot?.phase === 'running' && agentStarted(setup.snapshot) && input.latestRun?.startedAt != null ? setup.snapshot : null;
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
-    preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active || row.kind === 'working' && !!row.compacting), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
-    workflow: workflowOpening(client), background, findEntry: threadFindExpanded(client) ? threadFindView(client).entry : '' };
-  return rows.map(row => present(row, context));
+    preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active || row.kind === 'working' && row.compacting === true), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
+    workflow: workflowOpening(client), background, findEntry: threadFindExpanded(client) ? threadFindView(client).entry : '', approvals };
+  const messages = rows.map(row => present(row, context));
+  // An approval whose item is not among the rows (not loaded yet) still answers, after them.
+  const drawn = new Set(messages.flatMap(message => message.approval?.map(approval => approval.id) ?? []));
+  for (const approval of approvals.values()) if (!drawn.has(approval.id)) messages.push({ id: `pending-approval:${approval.id}`, kind: 'entry', title: '', body: '', activities: [], approval: [approval] });
+  return messages;
 }
 
 /**
@@ -460,7 +465,9 @@ interface PresentContext { client: T3Client; root: string; view: ViewState; suba
   /** A worktree setup still running after the agent started: the Working row's Background setup chip. */
   background: Obj | null;
   /** The row holding find's active match, while find shows matches. */
-  findEntry: string }
+  findEntry: string;
+  /** The approvals answerable on their rows, by request id. */
+  approvals: Map<string, TimelineApprovalView> }
 /** A changing one-line label keyed by its text, so the row redraws it instead of reusing the old string. */
 const keyedLabel = (row: Row, label: string): Activity => ({ id: `${row.id}\u0000${label}`, label, body: '', icon: '', output: '', result: '', failed: false, timestamp: '' });
 const entryCode = (entries: WorkEntry[], client: T3Client): InspectorCode[] => entries.flatMap(entry => {
@@ -478,16 +485,17 @@ function present(row: Row, context: PresentContext): Message {
   switch (row.kind) {
     case 'fold': return { ...base, kind: 'work', title: row.label, runId: row.runId, groupId: row.runId, expanded: row.expanded };
     // While a worktree is prepared the header reads "Setting up worktree…" and the activity row keeps its height empty.
-    // A compaction the row owns says why the message waits; one with no row of its own yet reads "Compacting…"
+    // A compaction reads "Compacting for 12s", timed from the row's start, or "Compacting…" without one
     // (WorkingTimelineRow's CompactingLabel).
     case 'working': {
-      const compacting = row.compacting ?? (context.compacting ? 'Compacting…' : undefined);
-      return { ...base, kind: 'working', title: context.preparing ? 'Setting up worktree…' : compacting ?? 'Working for',
-        live: context.preparing || compacting !== undefined, icon: !context.preparing && compacting !== undefined ? 'minimize' : '', startedMs: Date.parse(row.createdAt) || 0,
+      const compacting = row.compacting === true || context.compacting, startedMs = Date.parse(row.createdAt) || 0;
+      return { ...base, kind: 'working', title: context.preparing ? 'Setting up worktree…' : compacting ? startedMs > 0 ? 'Compacting for' : 'Compacting…' : 'Working for',
+        live: context.preparing || compacting, icon: !context.preparing && compacting ? 'minimize' : '', startedMs,
         ...(context.background ? { setup: [setupView(context.background, true, context.detailsOpen)], detail: str(obj(context.background.setupScript).name, 'Setup script') } : {}) };
     }
     case 'setup': return { ...base, kind: 'worktree-setup', title: 'Worktree setup', setup: [setupView(row.snapshot, row.embedded, context.detailsOpen)] };
-    case 'thinking': return { ...base, kind: 'thinking', title: context.preparing || context.compacting ? '' : 'Thinking', icon: 'brain', live: true, continues: row.continues === true,
+    // A failed group keeps this disclosure while an approval waits, but nothing is thinking then.
+    case 'thinking': return { ...base, kind: 'thinking', title: context.preparing || context.compacting ? '' : 'Thinking', icon: 'brain', live: context.approvals.size === 0, continues: row.continues === true,
       groupId: row.groupId ?? '', expanded: row.expanded === true };
     case 'live': {
       // The latest thought's first sentence sits above the status line (the open group lists it already);
@@ -509,6 +517,8 @@ function present(row: Row, context: PresentContext): Message {
       const single = row.entries.length === 1 ? row.entries[0]! : null;
       const card = single?.itemType === 'notification' ? notificationSubagent(single.item, context.subagents, single.createdAt, shortTime(single.createdAt, context.format), context.providers) : null;
       if (card) return { ...base, kind: 'subagent', title: card.label, activities: [card], runId: single!.runId };
+      const approval = single?.item.type === 'approval_request' ? context.approvals.get(str(single.item.requestId)) : undefined;
+      if (approval) return { ...base, kind: 'entry', activities: [], approval: [approval], continues: row.continues === true, runId: single!.runId };
       const activities = row.entries.map(entry => activity(entry, root, context.client, row.entries.length === 1 ? row.label : undefined));
       return { ...base, kind: 'entry', activities, continues: row.continues === true, runId: row.entries[0]?.runId ?? '', code: entryCode(row.entries, context.client) };
     }
@@ -527,7 +537,7 @@ function present(row: Row, context: PresentContext): Message {
       return { ...base, kind: 'inline-document', runId: str(entry.item.runId), inlineDocuments: [inlineDocumentView(context.client, key, ref)] };
     }
     case 'plan': {
-      const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads);
+      const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads, context.client.environmentId);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
         completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown, 'data', `plan:${row.id}`), chips: withFileLinkMenus(context.client, messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id)),
         diagrams: messageDiagrams(markdown),
@@ -551,8 +561,8 @@ function present(row: Row, context: PresentContext): Message {
       const common = { ...base, runId: str(item.runId), sourceThreadId: str(row.entry.row.sourceThreadId), completed: item.status === 'completed',
         copied: copy?.nonce ?? 0, copyFailed: copy?.ok === false };
       if (row.entry.role === 'assistant') {
-        const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads);
-        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)),
+        const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads, context.client.environmentId);
+        return { ...common, kind: 'assistant', title: 'Assistant', rawText: str(item.text), canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)),
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text, 'data', `message:${row.id}`),
           diagrams: messageDiagrams(text) };
       }
@@ -562,7 +572,7 @@ function present(row: Row, context: PresentContext): Message {
       }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
       // An automation's prompt reads its context references as their labels (AutomationMessageRow's UserMessageBody).
-      const relabeled = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads);
+      const relabeled = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads, context.client.environmentId);
       const text = sender.attribution === 'automation' ? plainContextReferences(relabeled) : withoutSoundReferences(relabeled, item), chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client))
         .map(chip => chip.kind === 'image' && svgPreviewFailed(context.client, chip.target) ? asFileChip(chip) : chip), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips, item);
       // Automation and other agents' messages fold to one line, their author (the sending thread's title) as the heading.
@@ -608,7 +618,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
   const format = client.local.deviceSettings.timestampFormat, md = markdownEnv(client);
   const copy = timelineView(client).codeCopy, codeCopy = copy.threadId === client.threadId ? { codeCopied: copy.text, codeCopyNonce: copy.nonce } : { codeCopied: '', codeCopyNonce: 0 };
   // A checkpoint that changed no files draws nothing, so it is no row, as upstream derives none for it. A zero-height
-  // row would also never settle in the virtualized transcript: each row state write (a row's first laneSized) puts it
+  // row would also never settle in the virtualized transcript: each row state write puts it
   // back at the list's estimate, and once measured it leaves the window again, rebuilding the row at the window's edge.
   const rows = transcript.filter(message => message.kind !== 'checkpoint' || (message.files?.length ?? 0) > 0 && (!message.sourceThreadId || message.sourceThreadId === client.threadId)).map(message => {
     const checkpoint = arr(client.projection.checkpoints).find(checkpoint => checkpoint.id === message.checkpointId);
@@ -627,12 +637,13 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       icon: message.icon ?? '', tone: message.tone ?? '', failed: message.failed === true, live: message.live === true,
       startedMs: message.startedMs ?? 0, elapsed: message.elapsed ?? '', detail: message.detail ?? '', status: message.status ?? '', groupId: message.groupId ?? '',
       continues: message.continues === true, revert: message.revert ?? -1, intent: message.intent ?? '', intentTip: message.intentTip ?? '',
-      attribution: message.attribution ?? '', summary: message.summary ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
+      attribution: message.attribution ?? '', summary: message.summary ?? '', sender: message.sender ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
-      secret: message.secret ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], audio: message.audio ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
+      secret: message.secret ?? [], approval: message.approval ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], audio: message.audio ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
-  timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body })) };
+  const rawText = new Map(transcript.map(message => [message.id, message.rawText]));
+  timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body, text: rawText.get(row.id) })) };
   rows.forEach((row, index) => {
     row.first = index === 0;
     row.last = index === rows.length - 1;

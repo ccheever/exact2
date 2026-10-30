@@ -81,6 +81,9 @@ shape PrCodeView
   layout: string
   wrap: bool
   tree: bool
+  testFiles: number
+  hideTests: bool
+  hiddenTests: string
   items: DiffItem[]
   truncated: bool
   threads: PrThreadCard[]
@@ -252,6 +255,10 @@ component PrdCodeToolbar
                       PrdScopeMore(keysId="pull-request-code-scope-keys", label=`Show more (${code.moreCommits} left)`, press=press("more-commits", ""))
         row flex-shrink=1 min-width=0 align-items="center" gap="0.375rem" overflow="hidden"
           text code.filesLabel font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=pcMuted() flex-shrink=0 testId="pull-request-code-files"
+          // Button variant="link": shows the hidden tests again.
+          if code.hiddenTests != ""
+            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" aria-hidden=true
+            PrdHiddenTests(label=code.hiddenTests, press=press("hide-tests", "false"))
           if code.viewedShown
             text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" aria-hidden=true
             row min-width=0 align-items="center" gap="0.25rem" testId="pull-request-code-viewed"
@@ -292,7 +299,20 @@ component PrdCodeToolbar
             DiffTool(icon="wrap", label=(code.wrap ? "Disable diff line wrapping" : "Enable diff line wrapping"), pressed=code.wrap, toggle=true, radius=8, testId="pull-request-code-wrap", choose=press("wrap", ""))
         if code.hasFiles
           DiffTool(icon=(code.allCollapsed ? "unfold" : "fold"), label=(code.allCollapsed ? "Expand all files" : "Collapse all files"), pressed=false, toggle=false, radius=8, testId="pull-request-code-fold-all", choose=press("fold-all", ""))
+          if code.testFiles > 0
+            DiffTool(icon="hide-tests", label="Hide test files", pressed=code.hideTests, toggle=true, radius=8, testId="pull-request-code-hide-tests", choose=press("hide-tests", ""))
           DiffTool(icon="tree", label=(code.tree ? "Hide file tree" : "Show file tree"), pressed=code.tree, toggle=true, radius=8, testId="pull-request-code-tree-toggle", choose=press("tree", ""))
+
+component PrdHiddenTests
+  props
+    label: string
+    press: action
+  state hovering = false
+  action setHover(over: bool)
+    hovering = over
+  view
+    button press=press hover=setHover testId="pull-request-code-hidden-tests" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" margin-left="-0.4375rem" margin-right="-0.4375rem" box-sizing="border-box" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=pcInk() text-decoration=(hovering ? "underline" : "none")
 
 component PrdDiffOptions
   props
@@ -497,9 +517,12 @@ component PrdViewedTick
     mark: string
     press: action
   derive viewed = mark == "viewed"
+  // A Shift-press ticks or clears every file from the last one pressed (onCheckedChange's event.shiftKey).
+  action tick(e: MouseEvent)
+    press("viewed", `${path}|${viewed ? "false" : "true"}|${e.shiftKey ? "shift" : ""}`)
   view
     row align-items="center" gap="0.375rem" flex-shrink=0
-      button press=press("viewed", `${path}|${viewed ? "false" : "true"}`) role="checkbox" aria-checked=viewed aria-label=(mark == "changed" ? "Changed" : "Viewed") testId=`pull-request-code-viewed-${path}` width="1rem" height="1rem" padding=0 box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff08)") display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
+      button press=tick role="checkbox" aria-checked=viewed aria-label=(mark == "changed" ? "Changed" : "Viewed") testId=`pull-request-code-viewed-${path}` width="1rem" height="1rem" padding=0 box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff08)") display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
         if viewed
           PgIcon(name="check", size=12, color="#ffffff")
       if mark == "changed"

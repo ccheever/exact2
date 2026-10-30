@@ -7,11 +7,10 @@ component ComposerCodeHeaders
     source: ComposerRichView
     owner: string
     value: string
-    resting: bool
   action pick(start: number, end: number, language: string)
     composerLanguage(start, end, language)
   view
-    if not resting and source.owner == owner and source.value == value and source.mode == "rich" and source.headers.length > 0
+    if source.owner == owner and source.value == value and source.mode == "rich" and source.headers.length > 0
       row width="100%" flex-wrap="wrap" gap="0.5rem" align-items="center" aria-label="Code block controls" testId="composer-code-controls"
         for header in source.headers key=header.start
           row gap="0.375rem" align-items="center" max-width="100%"

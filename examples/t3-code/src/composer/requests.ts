@@ -34,7 +34,7 @@ export const DEFAULT_APPROVAL_OPTIONS = [
 const NOT_RESUMABLE = 'Provider process is gone. Interrupt or restart the run to respond.';
 
 /** fullAccessOverrideExplanation: why an approval reached the user although the thread runs with full access. */
-function fullAccessOverrideExplanation(override: string): string {
+export function fullAccessOverrideExplanation(override: string): string {
   return override === 'ask_rule'
     ? "Full access skips approvals, but an ask rule in the agent's own settings matches this action, so it still asks. Remove or narrow that rule to stop these prompts."
     : "Full access skips approvals, but the agent still stops for a few safety checks of its own that no setting can skip, such as a delete whose path it can't verify. T3 Code can't turn these off, so check the request and approve it if it's what you expect.";

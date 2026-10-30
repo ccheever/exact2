@@ -38,6 +38,12 @@ shape PrUpdateItem
   key: string
   value: string
   label: string
+shape PrMaintainerEdits
+  shown: bool
+  checked: bool
+  disabled: bool
+  saving: bool
+
 shape PrActionsView
   guideEnabled: bool
   guideDisabled: bool
@@ -89,6 +95,7 @@ shape PrActionsView
   dialogValue: string
   stack: PrStackView
   term: PrTerm
+  maintainer: PrMaintainerEdits
 
 fn paInk(): string = "light-dark(#18181b, #f5f5f5)"
 fn paMuted(): string = "light-dark(#71717b, #a1a1a1)"
@@ -220,7 +227,7 @@ component PrdActionsMenu
   // focus on its first row, and the arrows, Home, End and a letter move through the enabled rows.
   derive gated = not actions.pending and actions.open
   derive handing = handoffs.pending == ""
-  derive rows = [KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label=`Explain this ${actions.term.short}`), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings"), KmItem(id=(actions.guideEnabled and not actions.guideDisabled ? "pr-more-guide" : ""), label=actions.guideLabel)].concat(actOn.map((item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))).concat([KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label=actions.mergeNowLabel), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label=actions.autoMergeLabel)]).concat(actions.methods.map((item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))).concat([KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label=`Copy ${actions.term.short} number`), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label=actions.closeLabel), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label=`Reopen ${actions.term.singular}`), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label=actions.revertLabel), KmItem(id=(actions.deleteBranchItem and not actions.deleteBranchDisabled ? "pr-more-delete-branch" : ""), label="Delete branch")]).filter((item) => item.id != "")
+  derive rows = [KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label=`Explain this ${actions.term.short}`), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings"), KmItem(id=(actions.guideEnabled and not actions.guideDisabled ? "pr-more-guide" : ""), label=actions.guideLabel)].concat(actOn.map((item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))).concat([KmItem(id=(actions.maintainer.shown and not actions.maintainer.disabled ? "pr-more-maintainer-edits" : ""), label="Allow edits from maintainers"), KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label=actions.mergeNowLabel), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label=actions.autoMergeLabel)]).concat(actions.methods.map((item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))).concat([KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label=`Copy ${actions.term.short} number`), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label=actions.closeLabel), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label=`Reopen ${actions.term.singular}`), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label=actions.revertLabel), KmItem(id=(actions.deleteBranchItem and not actions.deleteBranchDisabled ? "pr-more-delete-branch" : ""), label="Delete branch")]).filter((item) => item.id != "")
   action hover(value: bool)
     over = value
   // menu-keys.contract: the link row is a MenuItem too, highlighted by its focus alone; the
@@ -284,6 +291,9 @@ component PrdActionsMenu
               PaMenuItem(keysId="pr-more-keys", icon="sparkles", label=actions.guideLabel, shortcut="", disabled=actions.guideDisabled, destructive=false, press=act("guide-write", ""), testId="pr-more-guide")
             PrdActOnItems(keysId="pr-more-keys", items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-more-act-on-")
             PaSeparator()
+            if actions.maintainer.shown
+              PaMaintainerItem(keysId="pr-more-keys", edits=actions.maintainer, press=act("maintainer-edits", actions.maintainer.checked ? "false" : "true"))
+              PaSeparator()
             if actions.open
               if actions.draftToggle == "draft"
                 PaMenuItem(keysId="pr-more-keys", icon="git-pull-request-draft", label="Convert to draft", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "draft"), testId="pr-more-draft")
@@ -351,6 +361,32 @@ component PaMenuItem
       text label font-size="0.875rem" line-height="1.25rem" color=(destructive ? paDanger() : paInk()) flex=1 min-width=0 text-align="left" white-space="nowrap"
       if shortcut != ""
         text shortcut font-size="0.75rem" line-height="1rem" color=paMuted() flex-shrink=0
+
+// MenuCheckboxItem variant="icon" (closeOnClick false): the tick in a 10 pt column, the label, the warning under it in
+// muted 12 pt, and "Saving…" while the host works. Its row id is its test id, for the KeyMenu.
+component PaMaintainerItem
+  props
+    keysId: string
+    edits: PrMaintainerEdits
+    press: action
+  state lit = false
+  action hover(value: bool)
+    if value and not edits.disabled
+      focus("pr-more-maintainer-edits")
+    else if not value and lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id="pr-more-maintainer-edits" press=press hover=hover focus=focused(true) blur=focused(false) disabled=edits.disabled role="menuitemcheckbox" aria-checked=edits.checked aria-label="Allow edits from maintainers" aria-description="Maintainers can push to this branch. If your fork has workflows, this can also give access to its secrets." testId="pr-more-maintainer-edits" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(lit and not edits.disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(edits.disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="flex-start"
+      box width="0.625rem" height="1.25rem" margin-left="-0.125rem" margin-right="-0.125rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+        if edits.checked
+          PgIcon(name="check", size=14, color=paInk())
+      column flex=1 min-width=0 max-width="20rem" gap="0.125rem"
+        text "Allow edits from maintainers" font-size="0.875rem" line-height="1.25rem" color=paInk() text-align="left"
+        text "Maintainers can push to this branch. If your fork has workflows, this can also give access to its secrets." font-size="0.75rem" line-height="1rem" color=paMuted() text-align="left"
+        if edits.saving
+          text "Saving…" role="status" font-size="0.75rem" line-height="1rem" color=paMuted() text-align="left"
 
 // A MenuItem that confirms in place (closeOnClick only once armed): the arming press leaves the menu open
 // with the row's label asking "Confirm …?"; the focus leaving the row lets the arming go.

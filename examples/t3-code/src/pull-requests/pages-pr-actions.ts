@@ -1,7 +1,8 @@
 // The pull request panel's host actions: the header's
 // primary control (Merge with its method, Ready for review, "Auto-merge (method)", Resolve conflicts,
 // the armed badge, the Merged/Closed badge), the More menu's action group (Merge now, Enable/Disable
-// auto-merge, the merge-method radios, Convert to draft, Close, Reopen, Revert changes), the
+// auto-merge, the merge-method radios, Convert to draft, Close, Reopen, Revert changes; Allow edits from maintainers,
+// pages-pr-maintainer.ts), the
 // confirmations in place (Close with comment's too), the out-of-date base branch's popover (Update branch / Update with rebase),
 // "Approve workflows to run", one runner for all ten actions with the reference's toasts and
 // failure hints, and the overrides the panel writes onto the Pull Requests list as an action goes.
@@ -31,6 +32,7 @@ import {
   pullRequestActionMenuHasGroup, pullRequestActionNeedsHostRefresh, readableFailure, resolveBaseFreshness, resolvePullRequestMergeMethod, resolvePullRequestPrimaryControl,
   type MergeMethod, type PrimaryControl, type UpdateMethod,
 } from '../details/pr-row-logic';
+import { NO_MAINTAINER_EDITS, maintainerEditsView, saveMaintainerEdits } from './pages-pr-maintainer';
 import { emptyStack, markStackDue, presentStack, pullRequestStackView, savedPullRequestStack, stackPlan, stackQuery, stackUi, supportsStackActions, type PrStackView } from './pages-pr-stack';
 
 // ── List overrides (pullRequestList.logic.ts) ───────────────────────────────
@@ -155,6 +157,8 @@ export function emptyActions() {
     // The armed confirmation: its control and action ('' for none) and the serial its 3 s lapse names.
     armedControl: '', armedAction: '', armedSerial: 0,
     stack: emptyStack(),
+    // "Allow edits from maintainers" (pages-pr-maintainer.ts).
+    maintainer: NO_MAINTAINER_EDITS,
     // The host's words: "Close merge request", "Copy MR number".
     term: termView(terminologyOf(undefined)),
   };
@@ -253,6 +257,7 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   if (state.deleteBranchConfirm === input.key) Object.assign(view, { dialogOpen: true, dialogTitle: `Delete branch ${str(detail.headBranch)}?`,
     dialogDescription: `This deletes ${str(detail.headBranch)} from ${str(detail.headRepositoryNameWithOwner, str(detail.repository))}. Local branches and worktrees are not changed.`,
     dialogConfirm: 'Delete branch', dialogDestructive: true, dialogValue: 'delete-branch' });
+  view.maintainer = maintainerEditsView(client, input.key, detail);
   view.stack = presentStack(client, { key: input.key, reference: input.reference, detail, query, saved, supportsStackActions: stacks, canMergeMethod: can(detail, 'merge') && allowed.length > 0, mergeMethod: method }) as PrStackView;
   return view;
 }
@@ -260,7 +265,7 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
 // ── Commands ────────────────────────────────────────────────────────────────
 
 /** The panel's resource reads again now, so a state a command set before waiting is drawn while it waits. */
-async function wakePanel(native: Native): Promise<void> {
+export async function wakePanel(native: Native): Promise<void> {
   try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
 }
 const entryKeyOf = (entry: Obj) => `${str(entry.host)}:${str(entry.repository)}#${num(entry.number)}`;
@@ -390,7 +395,8 @@ export async function runStackAction(client: T3Client, native: Native, ctx: Pane
   return '';
 }
 
-/** `pageslocal:pr-act-*` that act on the host: `action` ("merge:squash", "update-branch:rebase", "close") and `stack-run`. */
+/** `pageslocal:pr-act-*` that act on the host: `action` ("merge:squash", "update-branch:rebase", "close"), `stack-run` and
+ * `maintainer-edits` ("true" or "false"). */
 export async function prActionCommand(client: T3Client, native: Native, op: string, ctx: PanelContext, value: string): Promise<string> {
   if (op === 'action') {
     const [action = '', extra = ''] = value.split(':');
@@ -399,10 +405,11 @@ export async function prActionCommand(client: T3Client, native: Native, op: stri
     return performAction(client, native, ctx, action);
   }
   if (op === 'stack-run') return runStackAction(client, native, ctx);
+  if (op === 'maintainer-edits') return saveMaintainerEdits(client, native, { key: ctx.key, reference: ctx.reference, detail: ctx.detail, refresh: () => ctx.refresh(false) }, value === 'true');
   throw new ClientError(`Unknown pull request action: ${op}`);
 }
 /** The header's runner ops; the hand-offs (`handoff`, Resolve conflicts among them) are pages-pr-handoffs.ts's. */
-export const isActionOp = (op: string) => op === 'action' || op === 'stack-run';
+export const isActionOp = (op: string) => op === 'action' || op === 'stack-run' || op === 'maintainer-edits';
 
 /** `chatlocal:pr-ui-*`: the menu's choices, answered without the command gate. */
 export function prActionUi(client: T3Client, op: string, ctx: { key: string; detail: Obj | null; reference: Obj }, value: string): string {

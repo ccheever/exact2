@@ -1,5 +1,4 @@
 use ProjectGlyph from "../sidebar/sidebar-shapes.contract"
-use docType, docInk, docFill from "../timeline/markdown-chip-inks.contract"
 
 shape ComposerCodeHeader
   start: number
@@ -47,32 +46,26 @@ shape ComposerChipFace
   // A thread chip's project icon (ThreadContextChip's ProjectFavicon); kind "" with no known project.
   glyph: ProjectGlyph
   ariaLabel: string
+  ink: string
 
 // The reference's chips are atom nodes of its editor (ComposerPromptEditorTiptap: composer-mention, composer-skill,
 // composer-citation, composer-context-reference); here each is an atom of the Markdown source (LLP 1045.000). A file
 // link or a token is one only while composerChips names it, by a face keyed by its source. A skill token begins with
-// any currency symbol (`\p{Sc}`), as composerChips' does. The paint is the ContextChip kind's: its accent at 11%
-// behind, mixed 22% into the text; a context reference keeps the platform's token look.
-atom citation link="t3-citation:" color="light-dark(#2f3b4f, #ceddf4)" background-color="#4684e51c"
-atom context link="t3-context:"
-atom file link="relative" color="light-dark(#2c3e45, #cbe0e6)" background-color="#0096af1c"
-atom mention prefix="@" color="light-dark(#2c3e45, #cbe0e6)" background-color="#0096af1c"
-atom skill prefix="$¢£¤¥֏؋߾߿৲৳৻૱௹฿៛₠₡₢₣₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿⃀⃁꠸﷼﹩＄￠￡￥￦𑿝𑿞𑿟𑿠𞋿𞲰" color="light-dark(#433448, #e7d5ea)" background-color="#b261be1c"
+// any currency symbol (`\p{Sc}`), as composerChips' does. Since v0.1.5 a ContextChip has no pill: no fill, and its
+// text is its kind's accent raised to 5:1 on the theme (the face's `ink`, shared/chip-accents.ts); an unresolved chip
+// takes the field's text.
+atom citation link="t3-citation:" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000"
+atom context link="t3-context:" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000"
+atom file link="relative" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000"
+atom mention prefix="@" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000"
+atom skill prefix="$¢£¤¥֏؋߾߿৲৳৻૱௹฿៛₠₡₢₣₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿⃀⃁꠸﷼﹩＄￠￡￥￦𑿝𑿞𑿟𑿠𞋿𞲰" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000"
 
 // A chip's pill: its label, its suffix and an image's upload state (`upload`, composer-editor.contract
 // uploadChipStatus), its kind's glyph as the nearest SF Symbol (the Apple host draws only `symbol:sf/` icons), its
 // tooltip, which names how a citation's comment opens (the reference's chip has a pencil for it), its accessible name
-// (the reference chip's aria-label: an image's names its size, not its upload state), and a document's
-// paint over its kind's: empty colours leave the kind's paint above. A file mention keeps its icon before its path in a
+// (the reference chip's aria-label: an image's names its size, not its upload state), and its ink. A file mention keeps its icon before its path in a
 // right-to-left line (ComposerMentionNodeView's dir="ltr"); the other chips follow their line, as the reference's do.
-fn composerAtomFace(c: ComposerSourceChip, upload: string): AtomFace = AtomFace(source=c.source, label=[c.face.label, c.face.suffix, upload].filter((part) => part != "").join(" "), icon=`symbol:sf/${composerAtomSymbol(c.face.icon)}`, title=(c.face.comment ? `${c.face.tip}\n⌥-click to comment` : c.face.tip), color=(c.face.available ? composerChipDocInk(composerChipDocument(c)) : ""), backgroundColor=composerChipDocFill(composerChipDocument(c)), direction=(c.kind == "mention" ? "ltr" : ""), ariaLabel=c.face.ariaLabel)
-// documentIconColorForFileName as `--context-chip-accent`: a workspace mention by its path (ComposerMentionNodeView) and
-// an attached file by its name (FileChip, not a video) take a PDF's, Word file's, sheet's, slides' or EPUB's accent; ""
-// for any other. An attached file whose bytes were lost draws unresolved: its fill stays and its text is the field's
-// (ContextChip's `unresolved` state, whose dashed border a face cannot draw).
-fn composerChipDocument(c: ComposerSourceChip): string = c.kind == "mention" ? docType(c.path) : (c.kind == "context" and c.contextKind == "file" and c.face.kind != "video" ? docType(c.label) : "")
-fn composerChipDocInk(doc: string): string = doc == "" ? "" : docInk(doc)
-fn composerChipDocFill(doc: string): string = doc == "" ? "" : docFill(doc, false)
+fn composerAtomFace(c: ComposerSourceChip, upload: string): AtomFace = AtomFace(source=c.source, label=[c.face.label, c.face.suffix, upload].filter((part) => part != "").join(" "), icon=`symbol:sf/${composerAtomSymbol(c.face.icon)}`, title=(c.face.comment ? `${c.face.tip}\n⌥-click to comment` : c.face.tip), color=c.face.ink, backgroundColor="", direction=(c.kind == "mention" ? "ltr" : ""), ariaLabel=c.face.ariaLabel)
 fn composerAtomSymbol(icon: string): string = icon == "at-sign" or icon == "file" ? "doc" : icon == "folder" or icon == "sparkles" or icon == "film" ? icon : icon == "quote" ? "quote.opening" : icon == "image" ? "photo" : icon == "messages-square" ? "bubble.left.and.bubble.right" : icon == "square-terminal" ? "apple.terminal" : icon == "message-circle" ? "bubble.left" : icon == "mouse-pointer-2" ? "cursorarrow" : icon == "git-merge" ? "arrow.triangle.merge" : icon.startsWith("git-pull-request") ? "arrow.triangle.pull" : "circle.dashed"
 
 shape ComposerSourceBlock

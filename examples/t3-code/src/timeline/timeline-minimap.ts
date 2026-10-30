@@ -1,12 +1,13 @@
 // The timeline minimap, adapted from T3 Code (MIT, see LICENSE-T3):
-// components/chat/timelineMinimapItems.ts at 74541bab17 (one strip per user
+// components/chat/timelineMinimapItems.ts at v0.1.5 (one strip per user
 // message, its preview the turn's final assistant text as plain text, the
 // user's text literal). Which turns are on screen, the current one and the jump
 // (MessagesTimeline.tsx's onSelect, 24pt under the top edge) are Contract's:
 // ChatColumn in app-main.contract.
 import { minimapPreviewText } from './minimap-text.js';
 
-export interface MinimapRow { id: string; kind: string; body: string }
+/** `text`: an answer's own text (Message.rawText), which its preview reads as upstream's does; else `body`. */
+export interface MinimapRow { id: string; kind: string; body: string; text?: string }
 /** `row`: the turn's index in the drawn rows (data.messages), for the turn before the first visible row. */
 export interface MinimapItem { id: string; index: number; label: string; excerpt: string; row: number }
 
@@ -37,7 +38,7 @@ export function minimapItems(rows: readonly MinimapRow[]): MinimapItem[] {
     for (let next = index + 1; next < rows.length; next++) {
       const candidate = rows[next]!;
       if (candidate.kind === 'user') break;
-      if (candidate.kind === 'assistant') excerpt = candidate.body;
+      if (candidate.kind === 'assistant') excerpt = candidate.text ?? candidate.body;
     }
     const label = nextLabels.get(row.body) ?? labels.get(row.body) ?? compact(row.body);
     nextLabels.set(row.body, label);

@@ -12,7 +12,7 @@ import { ancestorDirectories } from './diff-tree';
 import { createGitDiffFileContentsLoader, changeType, expandRange, loadFileContents, loadFilePatches, loadNextFiles, requestFiles, retryFile, settledFileCount } from './diff-lazy';
 import { buildDiffReviewComment, findDiffReviewLineIndex, reviewCommentContextRecord, type SelectedLineRange, type SelectionSide } from './diff-comments';
 import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDrag, type RowIndex } from './diff-line-drag';
-import { contentsKey, currentSelection, diffFiles, noteDraftFocus, reviewLinesOf, reviewSection } from './diff';
+import { contentsKey, currentSelection, diffFiles, isGitSelection, noteDraftFocus, reviewLinesOf, reviewSection } from './diff';
 import { addReviewCommentChip, localId, removeReviewCommentChip } from '../composer/composer-editor';
 import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, formatAssistantCitationHref, parseAssistantCitationHref } from '../timeline/diff-citations';
 import { openCitationComment, rememberCitedStart } from '../timeline/citation-comment';
@@ -55,10 +55,10 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     return '';
   }
   if (action === 'expand') {
-    // A hidden range opens from the file's contents (git sources only; a turn diff has no contents RPC).
+    // A hidden range opens from the file's contents (git sources only; a turn's or a tool call's diff has no contents RPC).
     const path = value, gap = n;
     const target = file(path), source = state.source;
-    if (!target || !source || currentSelection(client).kind === 'turn') return '';
+    if (!target || !source || !isGitSelection(currentSelection(client))) return '';
     const key = contentsKey(state, path);
     const load = createGitDiffFileContentsLoader(input => client.rpc(native, 'review.getDiffFileContents', input) as Promise<Obj & { oldContents: string; newContents: string }>,
       { cwd: source.cwd, sourceKind: source.kind, baseRef: source.baseRef, headRef: source.headRef, cacheKey: source.diffHash });

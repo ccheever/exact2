@@ -178,27 +178,45 @@ describe('formatProviderSkillDisplayName', () => {
   });
 });
 
-// MarkdownThreadLink → ThreadContextChip at 74541bab17 (#22621, #21505).
+// MarkdownThreadLink → ThreadContextChip at v0.1.5 (#22621, #21505, #26239).
 describe('thread links are thread chips', () => {
-  const { resolveThreadLink } = require('../../src/timeline/thread-links') as typeof import('../../src/timeline/thread-links');
+  const { resolveThreadLink, parseThreadLinkHref } = require('../../src/timeline/thread-links') as typeof import('../../src/timeline/thread-links');
   const { EnvironmentFleet } = require('../../src/connections/settings-b-fleet') as typeof import('../../src/connections/settings-b-fleet');
   const { markdownThreadGlyphs } = require('../../src/timeline/markdown-thread-glyphs') as typeof import('../../src/timeline/markdown-thread-glyphs');
   const entry = (environmentId: string, threads: object[], projects: object[] = []) => ({ key: environmentId, origin: `http://${environmentId}`, environmentId, phase: 'connected' as const,
     message: '', traceId: '', generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: { projects, threads } as never, scopes: [], error: '', requested: false });
   const local = { environmentId: 'env-a', shell: { threads: [{ id: 'thread-1', title: '  Live title ', projectId: 'p1' }, { id: 'a b', title: 'Spaced', projectId: 'p1' }],
     projects: [{ id: 'p1', title: 'Clone', projectIcon: { kind: 'emoji', emoji: '🧪' } }] } } as unknown as T3Client;
-  test('a link to a thread here reads its live title and opens it; an unknown one stays the label with "Thread no longer available"', () => {
-    const chips = messageChips(item('See [Old label](t3-thread://v1/thread-1), [Gone](t3-thread://v1/missing) and [x](t3-thread://v1/a%20b)'), '', [], 'm', {}, local);
+  const link = (href: string) => parseThreadLinkHref(href)!;
+  test('a link to a thread here reads its live title, never the written one, and opens it', () => {
+    const chips = messageChips(item('See [Old label](t3-thread://v1/thread-1), [x](t3-thread://v1/a%20b) and [Written](t3-thread://v2/env-a/thread-1)'), '', [], 'm', {}, local);
     expect(chips.map(chip => [chip.kind, chip.label, chip.tip, chip.target, chip.detail])).toEqual([
-      ['thread', 'Live title', 'Open thread', 'thread-1', 'link'], ['thread', 'Gone', 'Thread no longer available', 'missing', 'link'], ['thread', 'Spaced', 'Open thread', 'a b', 'link']]);
+      ['thread', 'Live title', 'Open thread', 'thread-1', 'link'], ['thread', 'Spaced', 'Open thread', 'a b', 'link'], ['thread', 'Live title', 'Open thread', 'thread-1', 'link']]);
   });
-  test('a thread only another connected environment holds opens there; two environments sharing the id resolve to none', () => {
+  test('a link that resolves to nothing is unresolved: its written label, or why, which the tip says', () => {
+    const text = '[Gone](t3-thread://v1/missing) <t3-thread://v2/env-a/missing> <t3-thread://v2/env-z/t9> [Elsewhere](t3-thread://v2/env-z/t8)';
+    const chips = messageChips(item(text), '', [], 'm', {}, local);
+    expect(chips.map(chip => [chip.kind, chip.label, chip.tip, chip.target])).toEqual([
+      ['unresolved', 'Gone', 'Thread no longer available', ''],
+      ['unresolved', 'Thread no longer available', 'Thread no longer available', ''],
+      ['unresolved', 'Thread on another machine', 'Thread on another machine', ''],
+      ['unresolved', 'Elsewhere', 'Thread on another machine', '']]);
+  });
+  test('an autolink shows the current title', () => {
+    expect(messageChips(item('Started <t3-thread://v2/env-a/thread-1>.'), '', [], 'm', {}, local).map(chip => [chip.kind, chip.label]))
+      .toEqual([['thread', 'Live title']]);
+  });
+  test('a v1 link this environment lacks opens the one match elsewhere; a v2 link is never looked for elsewhere', () => {
     const source = new EnvironmentFleet();
     source.entries.set('b', entry('env-b', [{ id: 'remote-1', title: 'Remote', projectId: 'pb' }], [{ id: 'pb', title: 'Remote project' }]));
-    expect(resolveThreadLink(local, 'remote-1', source)).toMatchObject({ id: 'fleet:env-b:remote-1', remote: true, project: { id: 'pb' } });
-    expect(resolveThreadLink(local, 'thread-1', source)).toMatchObject({ id: 'thread-1', remote: false });
+    expect(resolveThreadLink(local, link('t3-thread://v1/remote-1'), source)).toMatchObject({ id: 'fleet:env-b:remote-1', remote: true, project: { id: 'pb' } });
+    expect(resolveThreadLink(local, link('t3-thread://v1/thread-1'), source)).toMatchObject({ id: 'thread-1', remote: false });
+    expect(resolveThreadLink(local, link('t3-thread://v2/env-b/remote-1'), source)).toMatchObject({ id: 'fleet:env-b:remote-1', environmentId: 'env-b' });
+    expect(resolveThreadLink(local, link('t3-thread://v2/env-a/remote-1'), source)).toBeNull();
+    expect(resolveThreadLink(local, link('t3-thread://v2/env-c/remote-1'), source)).toBeNull();
     source.entries.set('c', entry('env-c', [{ id: 'remote-1', title: 'Twin' }]));
-    expect(resolveThreadLink(local, 'remote-1', source)).toBeNull();
+    expect(resolveThreadLink(local, link('t3-thread://v1/remote-1'), source)).toBeNull();
+    expect(resolveThreadLink(local, link('t3-thread://v2/env-c/remote-1'), source)).toMatchObject({ id: 'fleet:env-c:remote-1' });
   });
   test('a thread chip leads with its project icon, a link\'s or a sent thread context\'s', () => {
     const context = { id: 'chip-0', href: 't3-context://v1/thread/thread_t', kind: 'thread', label: 'Live title', size: '', tip: 'Open thread', detail: '', icon: '', target: 'thread-1', owner: 'm' };
