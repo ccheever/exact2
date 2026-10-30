@@ -1938,3 +1938,238 @@ and footprint distributions before applying the same formulas to G3c;
 the per-frame CPU uses matching time bounds, and every measured phase was
 ten seconds within 50 ms. All three screenshots were inspected at 1600×1600.
 `git diff --check` passed; the RFC diff is confined to the requested paragraph.
+
+## G4: four arms, egui beside GPUI, ink and the native host
+
+@ref LLP 1149 §4.1; measured 2026-10-29 on `lane/egui-arm`.
+Charlie asked for egui beside GPUI. The orchestrator ran the prepared G4b
+instrument from `994b003388`, based on `0312b493fc` (S1.6), with the display
+held. The four release bundles in `target/g4b/` share probe SHA-256
+`6319ba0878f7f1df2e1917a74c71c1280a2fbabca30c6187e069266ba3dd0660`;
+`provenance.json` records their executable hashes and the checked data hash.
+Egui and eframe are **0.37.0**, wgpu **30.0.1**, pinned published packages in
+`../egui/Cargo.lock`. Eframe uses wgpu over Metal; SF Pro, SF Pro Italic and
+SF Mono loaded from the system in every retained egui launch. All four use
+the same 10,000 messages and images, screen, linked probe and, for the painted
+arms, `g1_ready` complete-scene signal. No renderer or app code changed for
+this report.
+
+The machine is the same M5 Max (18 CPU cores, 128 GiB), macOS 27.0.1
+(26A434), built-in 120 Hz display. All outer windows are 800×800 points at
+2×; native includes its title-bar safe area in its content, while GPUI, Ink
+and egui have 800×768 content. Ink uses direct Metal. Live mode, tracing and
+egui diagnostics are off. Five interleaved rounds rotate native/GPUI/Ink/egui
+by one place each round. Each process receives four phase-bearing 600-point
+flings at 0, 2.5, 5 and 7.5 seconds, then ten seconds at rest. The driver
+reported no focus losses or focus retakes.
+
+### Four-arm results
+
+Values are **median (minimum–maximum)** over five fling/rest samples and ten
+successful fresh-process launches per arm. The cold column takes `fling/`
+rounds **1–5**, `cold/` rounds **6–7**, then `cold2/` rounds **8–10**, in round
+order. Cold2's rounds **11–12** are retained but unused. The failed egui
+round-8 attempt is counted below; it has no completion time and contributes
+no numeric cold value. Caches were retained, so these are fresh processes,
+not empty-cache launches.
+
+**All twenty fling/rest samples and the first seven successful launches per
+arm were quiet under the five-second monitor.** The series started at
+**20:15:54 PDT**, after the quiet rule passed: all load averages below 30,
+no compiler processes. All **98** observations in `series/quiet.jsonl` were
+quiet, with maximum 1/5/15-minute loads **10.18/17.10/29.77**. The monitor
+ended with the failed launch at 20:24:13; cold2 ran about 20:24:45–20:25:31
+without a retained monitor. Its launches are **unmonitored, not qualified as
+quiet or classified as loaded**. There are **zero observed loaded samples**.
+Every successful launch had nominal thermal endpoints, Low Power Mode off,
+and successful frontmost/key-window checks; those endpoints do not establish
+cold2's load conditions.
+
+For the seven quiet successful cold launches, native/GPUI/Ink/egui medians
+and ranges are **356.72 (330.80–862.31) / 324.85 (305.87–484.67) /
+352.29 (340.68–1019.34) / 337.97 (310.81–445.11) ms**. For the three selected
+unmonitored launches they are **345.25 (343.39–414.32) / 310.56
+(301.71–312.51) / 326.31 (311.68–373.95) / 336.94 (318.34–421.95) ms**.
+The cold row below combines those two groups; the other rows are all quiet.
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Cold to first complete frame, ms; native snapshot / painted drawable | 354.14 (330.80–862.31) | 313.13 (301.71–484.67) | 352.13 (311.68–1019.34) | 337.45 (310.81–445.11) |
+| Fling process CPU, ms/s | 131.91 (112.39–143.12) | 84.92 (82.05–89.05) | 86.41 (84.98–87.07) | 66.84 (64.93–71.54) |
+| Fling process CPU per presented frame, ms | — | 0.961 (0.922–1.005) | 2.615 (2.591–2.696) | 1.642 (1.592–1.733) |
+| Fling main-thread CPU, ms/s | 84.51 (76.30–92.87) | 39.56 (38.97–41.52) | 43.83 (41.98–44.65) | 31.33 (30.28–33.69) |
+| Rest process CPU, ms/s | 1.288 (1.108–1.440) | 5.631 (4.911–5.678) | 1.469 (1.241–1.544) | 0.359 (0.307–0.494) |
+| Rest main-thread CPU, ms/s | 0.636 (0.536–0.692) | 3.495 (3.134–3.598) | 1.382 (1.158–1.466) | 0.288 (0.238–0.413) |
+| Peak footprint during fling, MiB | 228.39 (211.35–232.45) | 406.42 (391.64–413.84) | 591.56 (587.67–593.42) | 507.81 (504.14–515.89) |
+| End-of-fling footprint, MiB | 216.61 (198.06–220.39) | 389.38 (388.77–391.05) | 246.08 (242.61–247.64) | 186.49 (179.99–188.63) |
+| End-of-rest footprint, MiB | 215.85 (197.42–219.58) | 208.55 (206.05–210.47) | 238.64 (235.56–240.38) | 178.28 (171.80–180.50) |
+
+The three painted arms use `MTLDrawable.presentedTime` from the same
+`CAMetalLayer.nextDrawable` hook. In all thirty selected successful painted
+launches, the first recorded drawable was also the first complete scene.
+Native's settled layer-snapshot milestone is a different instrument. CPU per
+presented frame divides process CPU over the entire ten-second fling phase
+by the number of presented frames in that phase. GPUI re-presents unchanged
+content between inputs and through the gesture tail: its low CPU per
+presented frame is not a cost per newly drawn content frame. Egui has no
+application frame timer; input, window/font events and image completion wake
+it. It presented **405–413** frames in the whole phase, only **1–9** outside
+the gesture windows. Its **40.90 frames/s** over the phase versus **101.02**
+inside the windows shows that it does not sustain GPUI's re-presentation
+through the between-gesture idle periods. This does not prove every egui
+presentation contains changed pixels.
+
+Native's cadence is the display link over the full ten-second fling, not
+presented pixels. The other arms use adjacent drawable timestamps whose two
+endpoints are inside the same gesture window. Quantiles use
+`floor(p × count)`; late means strictly above 12.5 ms. Late counts are divided
+by the full phase for native and by gesture-window duration for painted arms.
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Fling interval p50, ms | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) |
+| Fling interval p95, ms | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) |
+| Fling interval p99, ms | 8.33 (8.33–8.33) | 16.67 (12.50–16.67) | 8.33 (8.33–16.67) | 8.33 (8.33–8.33) |
+| Late intervals/s | 0.700 (0.300–0.900) | 1.248 (0.996–1.499) | 0.749 (0.500–1.999) | 0.738 (0.000–0.998) |
+| Gesture-window duration, s | 4.011 (4.003–4.085) | 4.007 (4.002–4.016) | 4.006 (4.001–4.011) | 4.009 (4.000–4.067) |
+| Presented frames/s inside gesture windows | — | 102.82 (101.35–103.05) | 81.38 (80.57–82.99) | 101.02 (98.60–102.45) |
+| Presented frames/s over the full fling phase | — | 88.59 (88.38–89.00) | 32.60 (32.29–33.20) | 40.90 (40.49–41.28) |
+| Inputs received / posted per sample | 8/424 (8–8/424) | 410/424 (394–415/424) | 417/424 (405–423/424) | 410/424 (403–414/424) |
+| Driver maxGapMs; maximum of four gestures | 24.270 (16.214–24.997) | 17.949 (16.712–24.829) | 16.704 (16.344–25.766) | 24.631 (16.665–25.281) |
+| Driver empty callbacks per sample | 0 (0–0) | 0 (0–0) | 0 (0–0) | 0 (0–0) |
+
+Receive counts are the probe's `wheelEvents`; posted counts sum the four
+wheel-helper reports. Native's AppKit asynchronous scrolling bypasses the
+local monitor, so 8/424 does not mean 416 lost inputs. GPUI recorded
+92.92–97.88% of posts, Ink 95.52–99.76%, egui 95.05–97.64%. Every sample's
+maximum posting gap exceeds one 8.33 ms refresh despite zero empty callbacks.
+Raw cadence includes posting and delivery effects; this untraced series
+cannot attribute each late interval to the driver, event delivery or rendering.
+
+### Cold attempts and intermittent egui readiness
+
+Across all timed phases, **49 process attempts produced 48 successful
+launches**: twelve each for native, GPUI and Ink; **twelve of thirteen for
+egui**. Forty successful launches supply the cold table, eight are retained
+extras, and twenty of the successes supply fling/rest samples. Diagnostic
+readiness probes and the four separate parity captures are outside these counts.
+The first cold phase completed rounds 6–7, then stopped at egui round 8.
+The orchestrator resumed with cold2 rounds 8–12: all twenty launches succeeded.
+
+`series/cold/egui-8.log` records the three SF font loads, the M5 Max Metal
+renderer, then **“probe: first complete frame timed out”** at the probe's
+30-second deadline. PID 81690 was frontmost and its window key in the retained
+sidecars; no focus loss was recorded during the wait. The process exited 2,
+leaving no `.ready` or result JSON. The aggregator retains its log in
+`rejected`, rather than silently losing an attempt without JSON. It is a
+readiness failure, not a measured 30,000 ms completion.
+
+G4a's first functional launch took **14,668.34 ms** to both its first recorded
+drawable and first complete scene. G4b's four diagnostic launches did not
+reproduce that delay: complete presentation followed window attachment in
+**103.40, 82.80, 36.10 and 41.29 ms**, with logged image completions and repaint
+requests. The G4a system-log analysis in `bb8e9a37b0` put all seventeen logged
+Metal compilations before 14:58:55.921, well before its first drawable around
+14:59:09; they did not explain the remaining delay. The same scoped system-log
+method for the new failure places PID 81690 frontmost at **20:23:43.488** and
+visible at **20:23:43.543**, then exiting at **20:24:13.30**. Neither the app
+log nor the retained system and Metal logs identify the cause. With diagnostics
+off, this attempt has no frame/worker timeline or retained drawable timestamps.
+The symptom is **unexplained and intermittent**; a shared cause with G4a is
+not established. `QUEUE.md` tracks investigation in the egui benchmark, with
+no scheduling workaround or Exact change inferred from these measurements.
+
+### Parity and non-comparables
+
+The new [native](g4-native-top.png), [GPUI](g4-gpui-top.png),
+[Ink](g4-ink-top.png) and [egui](g4-egui-top.png) captures were taken after
+timing, at row zero, in separate launches. All four **1600×1600** images were
+visually inspected; the new egui capture supersedes G4a's. They show Ava,
+Ben and Chloé, loaded avatars and photos, links, bold, italic, inline code,
+mentions and non-Latin text. Native and GPUI wrap Ava's first paragraph onto
+five lines; Ink and egui use four, with different breaks from each other.
+GPUI visibly compresses spaces at some run boundaries; egui's SF text is
+narrower and its line metrics differ from the platform rendering. Ben's emoji
+are smaller in Ink and egui than in native and GPUI. Egui's photos and avatars
+look more saturated, especially the greens and magentas; the shared ImageIO
+source does not establish equivalent color presentation. Ink's photo crop
+differs. Native, GPUI and egui show inset hairlines; Ink's row separators span
+the window. Title-bar appearance also differs. **No quote box is visible in
+any supplied capture**, so its left bar, rounded background and two-line
+truncation remain visually unqualified here. These are content checks, not
+pixel parity, and they do not cover every row type or script.
+
+G3c's non-comparables remain. Ink's benchmark carrier lacks the shipping
+accessibility, IME and menu surface and uses Parley/swash text; native uses
+AppKit views and Core Animation. GPUI owns its element tree, Taffy layout,
+virtualization and platform layer without Exact's kernel or runner. Egui
+likewise owns immediate-mode layout, HarfRust text, tessellation, caches and
+eframe/winit/wgpu presentation, with viewport-only row construction and
+estimated heights; GPUI premeasures an 800-point margin. Egui has no native
+row accessibility labels, uses 15 pt SF Mono code against GPUI's 16 pt Menlo,
+and equal-width digit cells instead of an OpenType `tnum` selector. Its font,
+emoji and image-color differences above remain unqualified. Native and Ink
+boot a baked plan while GPUI and egui parse JSON; egui also loads system font
+bytes. Equal input does not mean equal work: native ended at **8,480–11,451
+points**, GPUI at **item 18 + 205–255 points**, Ink at **6,172 points**, and
+egui at **item 18 + 82.5 points**. Caches, row geometry, scrolling, startup
+milestones and re-presentation behavior differ. No live mode, input-to-photon
+latency, energy attribution or isolated renderer cost is measured.
+
+**Finding.** Egui has the lowest fling process/main CPU and rest process/main
+CPU, with non-overlapping ranges against the other three, and the lowest
+end-of-fling and end-of-rest footprint. Its peak footprint is above native
+and GPUI and below Ink. Its successful cold median is above GPUI and below
+Ink and native, with overlapping ranges, three unmonitored launches per arm
+and a readiness failure outside the numeric distribution. All arms have
+8.33 ms p50/p95; egui's p99 is 8.33 ms in every round, while its late-rate
+median is just below Ink's and below GPUI's, with overlapping ranges and input
+gaps. Native's cadence uses a different instrument. Egui presents at about
+GPUI's rate inside gesture windows, above Ink's; across the full phase its
+rate falls between GPUI and Ink, as does its CPU per presented frame, whose
+GPUI denominator includes unchanged frames. Zero empty callbacks does not
+remove the posting gaps. This run compares whole applications on visibly
+different text and color paths; it cannot rank the renderers, qualify a
+shipping carrier, decide D15's improved-vello or wgpu-Ink comparisons, or
+establish reliable startup from twelve successes and one timeout.
+
+### Reproduction and validation
+
+`target/g4b/plan.txt` and `run-series.py` record the prepared commands;
+`series/{fling,cold,cold2}/` and their driver logs retain every attempt.
+`aggregate.mjs` reads optional `cold2/`, orders G4's selected launches by round,
+and lists successful rounds above ten as `unused`. It does not overwrite
+raw samples. Reproduce the report without launching a window:
+
+```sh
+bun bench/heavy-list/gpui/aggregate.mjs target/g4b --json > target/g4b/summary.json
+bun bench/heavy-list/gpui/aggregate.mjs target/g4b > target/g4b/tables.md
+bun bench/heavy-list/gpui/aggregate.mjs target/g4b --verify
+```
+
+Two medians were checked directly against the raw files. Egui's ten sorted
+cold values put `cold2/egui-10.json` (**336.937084 ms**) and
+`fling/egui-2.json` (**337.970667 ms**) in positions five and six; their mean
+is **337.453875 ms**, printed as **337.45**. Its five sorted fling CPU rates
+are **64.929709, 66.782693, 66.841047, 67.140407, 71.543464 ms/s**. The middle
+one is round 3: `(1.0029674583333332 − 0.33437912499999994) × 1000 /
+(1268659.345665917 − 1268649.343004917) = 66.841047 ms/s`, printed as **66.84**.
+Both Markdown and JSON output for the retained three-arm aggregation fixture
+match the pre-edit outputs byte for byte; G3c's published section is unchanged.
+
+The timeout's additional read-only log queries are retained in
+`target/g4b/readiness-timeout-{system,metal}.log`. They use
+`/usr/bin/log show --start '2026-10-29 20:23:40' --end '2026-10-29 20:24:15'
+--info --debug --style compact`, with predicates
+`processIdentifier == 81690 OR eventMessage CONTAINS "81690"` and
+`process == "MTLCompilerService" OR subsystem CONTAINS "Metal"`, respectively.
+
+All six repository checks passed, including clippy, fmt and the workspace
+all-target check, as did the egui workspace's clippy (`-D warnings`) and fmt.
+Tests used `RUST_TEST_THREADS=2`; Cargo used this worktree's `target/`.
+No check needed a retry. All passed again after rebasing onto `origin/main`
+`7a5dbbd996`; the queue conflict kept main's entries and added the egui item.
+Commands, exits and logs are in `target/g4c/{checks,checks-rebased}/`.
+The retained executables, probes, wheel helper, driver and message data all
+match G4b's provenance hashes. `git diff --check` passed. This reporting
+chunk opened no windows and posted no input.

@@ -46,10 +46,23 @@ export function tableOperation(operation) {
   }
 }
 
+// The carrier as the Rust baker writes it (game/bake/src/files.rs `bake_game_tables`: names in
+// byte order, each string quoted as game/engine/src/data/json.rs `quote_into` does), so an
+// unchanged table is the same bytes from either writer and neither rewrites the other's.
+const quote = text => '"' + [...text].map(c => c === '"' ? '\\"' : c === '\\' ? '\\\\' : c === '\n' ? '\\n'
+  : c === '\r' ? '\\r' : c === '\t' ? '\\t' : c < ' ' ? `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}` : c).join('') + '"';
+export const carrier = rows => '{' + Object.keys(rows).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
+  .map(name => `${quote(name)}:${quote(rows[name])}`).join(',') + '}';
+
 export async function watchTables({app, dist, publish, refused, reported = () => {}}) {
   const paths = new Set(), listeners = new Map();
   let validator, timer, closed = false;
+  // An identical file is left alone, as the Rust bakers' `write_changed` does: a rename moves
+  // its directory's mtime, and the app's build script watches assets/, so the next Rust edit
+  // would rerun the bake and rebuild the app's wasm (Beacons: 34-58 s at `web`).
   const write = (path, text) => {
+    try { if (readFileSync(path).equals(Buffer.from(text))) return; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
     const temporary = resolve(dirname(path), `.${basename(path)}.${process.pid}.tmp`);
     writeFileSync(temporary, text); renameSync(temporary, path);
   };
@@ -59,7 +72,7 @@ export async function watchTables({app, dist, publish, refused, reported = () =>
     try {
       const timing = tableOperation(() => {
         const rows = Object.fromEntries(validator.names.map(name => [name, readFileSync(resolve(app, name), 'utf8')]));
-        text = JSON.stringify(rows);
+        text = carrier(rows);
         text = validator.validate(text);
         write(resolve(app, tableAsset), text);
         write(resolve(dist, tableAsset), text);
