@@ -1,7 +1,7 @@
 // The runner's evaluation bounds on the JS target (LLP 1090; runner/src/vm.rs): an app module imports what it calls from
 // here, beside rt.js, which never does. A metered body counts its own list steps in a local `$s` (code.rs); what is here
 // measures values as the runner's `Extent` does, and checks the strings the roster builds.
-import { Refusal, text, segmentOf } from "./rt.js";
+import { Refusal, text, segmentOf, say } from "./rt.js";
 
 /** `MAX_STRING` and `MAX_VALUE_BYTES`, in UTF-8 bytes; `MAX_VALUE_NODES`. */
 const MAX = 67108864, NODES = 16777216;
@@ -9,6 +9,9 @@ const MAX = 67108864, NODES = 16777216;
 export class Trap extends Refusal { constructor(kind, pc) { super(`Trap(${kind} { pc: ${pc} })`); this.kind = kind; this.pc = pc; } }
 /** Throw a trap, where an expression stands. */
 export function $T(kind, pc) { throw new Trap(kind, pc); }
+/** Prop or style binding `f` of plan node `site`, whose trap unsets its row `row` with one journal line, and the commit
+ * goes on (LLP 1017.003 D3; the runner's `instance/trapped.rs`). */
+export const tg = (site, row, f) => () => { try { return f(); } catch (e) { if (!(e instanceof Trap)) throw e; say(`site ${site}: ${row} trapped ${e.message}; unset`); return null; } };
 /** A string's UTF-8 bytes, as Rust's `str::len`; a lone surrogate is U+FFFD's 3 (LLP 1088 D2). */
 export function utf8(s, limit = Infinity) {
   let n = s.length;

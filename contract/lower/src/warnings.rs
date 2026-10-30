@@ -145,7 +145,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     // A `replace` the router refuses on a root route's screen, a `select` after a push.
     out.extend(root_replace::router(checked));
     out.extend(counts::count_plural(checked));
-    // @ref LLP 1116.016 D4 — a row that searches another data list; LLP 1142 D6, a key by position.
+    // @ref LLP 1116.016 D4 — a row that searches another data list; LLP 1017.003 D3, its own; LLP 1142 D6, a key by position.
     out.extend(rows::row_lookup(checked));
     // @ref LLP 1116.020 D1 — a `delete=` no list row holds.
     out.extend(crate::swipe_rows::unplaced(

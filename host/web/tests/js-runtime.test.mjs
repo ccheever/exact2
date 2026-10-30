@@ -1292,7 +1292,7 @@ test('translation expansion stops when its output exceeds the byte budget', asyn
 
 test('an argument or a write past MAX_STRING is refused by name, and a trapping argument is a trap, poisoned or not', async () => {
   const { act, sig, W, effect, journal } = await import(resolve(dir, 'rt.js'));
-  const { Trap } = await import(resolve(dir, 'budget.js'));
+  const { Trap, tg } = await import(resolve(dir, 'budget.js'));
   const last = () => journal.at(-1).replace(/^t=\S+ /, '');
   const t = sig('', 's', 't');
   const put = act(v => W(t, v), ['s'], 0, ['v']);
@@ -1309,7 +1309,15 @@ test('an argument or a write past MAX_STRING is refused by name, and a trapping 
   expect(t()).toBe('');
   put.t(() => { throw new Trap('IterationLimit', 17); })();
   expect(last()).toBe('refused action: Trap(IterationLimit { pc: 17 })');
-  // A trap while the tree updates poisons, as the runner's InstanceError; an argument still traps first.
+  // A prop or style binding's trap unsets its row and the commit goes on (LLP 1017.003 D3).
+  const m = sig(0, 'm');
+  let shown = 'x';
+  effect(() => { shown = tg(4, 'text', () => { if (m() > 0) throw new Trap('IterationLimit', 5); return 'x'; })(); });
+  act(() => W(m, 1))();
+  globalThis.heldTail?.();
+  expect(journal.some(l => l.endsWith('site 4: text trapped Trap(IterationLimit { pc: 5 }); unset'))).toBe(true);
+  expect(shown).toBe(null);
+  // Any other trap while the tree updates (a subject's, a key's) poisons, as the runner's InstanceError; an argument still traps first.
   const n = sig(0, 'n');
   effect(() => { if (n() > 0) throw new Trap('IterationLimit', 9); });
   act(() => W(n, 1))();

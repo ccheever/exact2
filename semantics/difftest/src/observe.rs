@@ -232,6 +232,7 @@ impl Driver {
             }
             Ok(mut r) => {
                 out.push("outcome ok".into());
+                trapped(&r, 0, &mut out);
                 for res in &plan.resources {
                     let source = plan.str(res.source);
                     if !matches!(source, "exactTransport" | "exactMIDI")
@@ -279,6 +280,7 @@ impl Driver {
         let mut before = Vec::new();
         state(r, &self.plan, &mut before);
         let mut out = vec![format!("== {}", event.label())];
+        let journaled = r.journal_start() + r.journal().count();
         let ((result, receipts), ran) = r.trace_commits(|r| apply(r, event));
         let traced = ran
             .iter()
@@ -300,6 +302,7 @@ impl Driver {
             out.push(format!("# {e:?}"));
         }
         out.extend(ran);
+        trapped(r, journaled, &mut out);
         let mut after = Vec::new();
         if !r.is_poisoned() {
             state(r, &self.plan, &mut after);
@@ -366,6 +369,20 @@ impl Driver {
                 })
             })
             .collect()
+    }
+}
+
+/// The bindings that trapped since journal line `from` (counted from boot),
+/// as `#` notes: each row was unset and the runner went on (LLP 1017.003
+/// D3), which `compare` reads where the runner passed an evaluation bound.
+fn trapped(r: &Runner<Oracle>, from: usize, out: &mut Vec<String>) {
+    let skip = from.saturating_sub(r.journal_start());
+    for line in r
+        .journal()
+        .skip(skip)
+        .filter(|l| l.contains(" trapped Trap("))
+    {
+        out.push(format!("# {line}"));
     }
 }
 

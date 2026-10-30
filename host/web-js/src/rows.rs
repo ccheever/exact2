@@ -44,7 +44,7 @@ impl Em<'_> {
                     .map(|b| plan.binding(b))
                     .find(|b| b.kind == BindingKind::Prop && b.id == prop as u16);
                 values.push(match value {
-                    Some(b) => format!("({})()", self.f(b.expr, scope)?),
+                    Some(b) => format!("({})()", self.bound(i, &b, scope)?),
                     None => "null".into(),
                 });
             }
@@ -544,7 +544,7 @@ impl Em<'_> {
                 binding(StyleId::FontSize)
                     .filter(|b| style::literal(plan, plan.code(b.expr)).is_none())
                     .map(|b| {
-                        let size = self.f(b.expr, scope)?;
+                        let size = self.bound(i, &b, scope)?;
                         let styles = self.answers.styles();
                         let map = self.uses.share(
                             'm',
@@ -708,7 +708,7 @@ impl Em<'_> {
         };
         let value = match style::literal(plan, plan.code(b.expr)) {
             Some(v) => format!("()=>{}", super::value_js(&v)),
-            None => self.f(b.expr, scope)?,
+            None => self.bound(i, &b, scope)?,
         };
         self.flow = true;
         let wf = self.uses.rt("wf");

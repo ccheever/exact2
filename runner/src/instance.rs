@@ -25,6 +25,7 @@ mod region;
 pub mod tabs;
 mod text;
 pub mod theme;
+mod trapped;
 
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
@@ -954,23 +955,36 @@ impl NodeInst {
             let binding = plan.binding(b);
             let reads = &deps.bindings[b.0 as usize];
             let evaluated = u.work.bindings_evaluated;
+            // A constant's value is the one it was created with.
+            let slot = (!reads.is_constant()).then(|| Self::slot(u.sites, &row, i));
             let value = if reads.is_constant() {
                 let known = u.sites.constants.borrow().get(&b.0).cloned();
                 match known {
-                    Some(value) => value,
+                    Some(value) => Some(value),
                     None => {
                         u.work.bindings_evaluated += 1;
-                        let value = u.eval_binding(b, binding.expr, frames)?;
-                        u.sites.constants.borrow_mut().insert(b.0, value.clone());
+                        let value = u.eval_row(self.view, self.node, b, frames)?;
+                        if let Some(value) = &value {
+                            u.sites.constants.borrow_mut().insert(b.0, value.clone());
+                        }
                         value
                     }
                 }
             } else {
                 u.work.bindings_evaluated += 1;
-                u.eval_binding(b, binding.expr, frames)?
+                u.eval_row(self.view, self.node, b, frames)?
             };
-            // A constant's value is the one it was created with.
-            let slot = (!reads.is_constant()).then(|| Self::slot(u.sites, &row, i));
+            // A trap unsets the row (`trapped`); the next value is new.
+            let Some(value) = value else {
+                u.ids.evaluated(self.node, false);
+                if let Some(slot) = slot {
+                    self.last[slot] = None;
+                }
+                if !u.discard {
+                    self.unset_trapped(u, i, &binding);
+                }
+                continue;
+            };
             let unchanged = match slot {
                 None => !fresh,
                 Some(slot) => self.last[slot]

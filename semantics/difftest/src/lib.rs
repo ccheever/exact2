@@ -383,10 +383,27 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
             .find(|l| BOUNDS.iter().any(|b| l.contains(b)))
             .map(|l| format!("{l} (the runner's evaluation bound, LLP 1090 D8)"))
     };
+    // A binding past a bound was unset and the runner went on (LLP
+    // 1017.003 D3): from that step on, what it shows is outside the
+    // unbounded semantics.
+    let unset = |at: usize| -> Option<String> {
+        let mut seen = 0;
+        for l in rust_raw.iter().flat_map(|l| l.lines()) {
+            if !l.starts_with('#') {
+                seen += 1;
+                if seen > at + 1 {
+                    return None;
+                }
+            } else if l.contains(" trapped Trap(") && BOUNDS.iter().any(|b| l.contains(b)) {
+                return Some(format!("{l} (the runner's evaluation bound, LLP 1090 D8)"));
+            }
+        }
+        None
+    };
     let first = rust.iter().zip(&lean).position(|(a, b)| a != b);
     if let Some(at) = first.or((rust.len() != lean.len()).then(|| rust.len().min(lean.len()))) {
         if !omitted_at(&rust_raw, at) {
-            if let Some(why) = unsupported(at).or_else(|| bound(at)) {
+            if let Some(why) = unsupported(at).or_else(|| bound(at)).or_else(|| unset(at)) {
                 return Verdict::Unsupported(why);
             }
         }
@@ -733,5 +750,50 @@ mod tests {
         rust.push(observe::OMITTED_COMMIT.into());
         rust.push("untraced configuration moved".into());
         assert!(matches!(compare(rust, lean), Verdict::Diverge { .. }));
+    }
+
+    /// A binding the runner unset for passing an evaluation bound shows
+    /// what the unbounded semantics does not: outside, from that step on.
+    /// One unset for another trap shows what the semantics shows (none), so
+    /// a difference there still diverges (LLP 1017.003 D3).
+    #[test]
+    fn a_binding_unset_for_a_bound_is_outside() {
+        let lean = lines(&[
+            "== boot",
+            "outcome ok",
+            "== tap \"go\"",
+            "outcome ok",
+            "view \"t\" \"x,x\"",
+        ]);
+        for (note, outside) in [
+            (
+                "# view 3 (site 1): text trapped Trap(IterationLimit { pc: 5 }); unset",
+                true,
+            ),
+            (
+                "# view 3 (site 1): text trapped Trap(TypeMismatch { pc: 5, op: Call }); unset",
+                false,
+            ),
+        ] {
+            let rust = lines(&[
+                "== boot",
+                "outcome ok",
+                "== tap \"go\"",
+                "outcome ok",
+                note,
+                "view \"t\" -",
+            ]);
+            let verdict = compare(rust, lean.clone());
+            assert_eq!(
+                matches!(verdict, Verdict::Unsupported(_)),
+                outside,
+                "{note}"
+            );
+            assert_eq!(
+                matches!(verdict, Verdict::Diverge { .. }),
+                !outside,
+                "{note}"
+            );
+        }
     }
 }
