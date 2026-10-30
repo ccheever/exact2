@@ -483,11 +483,12 @@ impl DirectWindow {
             }
         }
         if !self.recovering {
-            if !p.dirty() && !p.wants_display_frames() && !p.host().motion() {
+            let lost = p.brush.device_lost();
+            if !lost && !p.dirty() && !p.wants_display_frames() && !p.host().motion() {
                 p.last_frame_succeeded = false;
                 return Ok(None);
             }
-            let ready = reserve_frame(p, size, &mut self.reservation_error_reported);
+            let ready = !lost && reserve_frame(p, size, &mut self.reservation_error_reported);
             let frame = if ready {
                 p.frame_for(FrameTarget::Window)
             } else {
@@ -918,6 +919,15 @@ mod tests {
         assert!(!reserve_frame(&mut p, [80, 60], &mut reported));
         assert!(p.brush.device_lost());
         assert!(!reported);
+        let mut direct = p.surfaces.direct_window.take().unwrap();
+        direct.open = |_| Err(exact_ink::device::Error::Device("test refusal".into()));
+        p.dirty = false;
+        assert!(direct.frame(&mut p).unwrap().is_none());
+        assert!(
+            direct.recovering,
+            "a clean redraw must observe device removal"
+        );
+        assert_eq!(p.painter.name, "cpu");
     }
 
     #[test]

@@ -318,7 +318,7 @@ impl Backend for Ink {
     }
     #[cfg(windows)]
     fn device_lost(&self) -> bool {
-        self.device_lost
+        self.device_lost || matches!(&self.device, Selected::D3d11(d) if d.device_lost())
     }
     #[cfg(windows)]
     fn collect_retired_devices(&mut self) -> usize {

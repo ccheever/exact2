@@ -463,6 +463,10 @@ impl D3d11 {
     pub fn has_window(&self) -> bool {
         self.composition.is_some()
     }
+    /// Detect removal on a redraw that needs no paint or capacity reservation.
+    pub fn device_lost(&self) -> bool {
+        unsafe { self.device.GetDeviceRemovedReason().is_err() }
+    }
     pub fn presentation_pending(&self) -> bool {
         self.presentation_pending
     }
