@@ -51,5 +51,8 @@ windows = { version = "0.62", features = [
     "Win32_System_StationsAndDesktops", "Win32_Security",
 ] }
 
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.62", features = ["Win32_UI_Accessibility"] }
+
 [build-dependencies]
 naga = { version = "30", features = ["wgsl-in", "msl-out", "hlsl-out", "spv-out", "glsl-out"] }

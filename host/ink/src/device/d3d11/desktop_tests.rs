@@ -366,16 +366,32 @@ impl Shelf {
                     // https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-attachthreadinput
                     let _ = PeekMessageW(&mut MSG::default(), None, 0, 0, PM_NOREMOVE);
                     let mut attached = Vec::new();
+                    let mut refused = false;
                     for thread in [foreground, target] {
                         if thread != 0 && thread != current && !attached.contains(&thread) {
-                            assert!(AttachThreadInput(current, thread, true).as_bool());
-                            attached.push(thread);
+                            if AttachThreadInput(current, thread, true).as_bool() {
+                                attached.push(thread);
+                            } else {
+                                refused = true;
+                            }
                         }
                     }
                     BringWindowToTop(self.hwnd).unwrap();
                     let _ = SetForegroundWindow(self.hwnd);
                     for thread in attached.into_iter().rev() {
                         assert!(AttachThreadInput(current, thread, false).as_bool());
+                    }
+                    if refused && GetForegroundWindow() != self.hwnd {
+                        // Settings' ApplicationFrameHost denies input attachment.
+                        // UI Automation requests focus without sending an app click.
+                        use windows::Win32::{System::Com::*, UI::Accessibility::*};
+                        CoInitializeEx(None, COINIT_APARTMENTTHREADED).unwrap();
+                        let automation: IUIAutomation =
+                            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).unwrap();
+                        let focused = automation.ElementFromHandle(self.hwnd).unwrap().SetFocus();
+                        drop(automation);
+                        CoUninitialize();
+                        focused.unwrap();
                     }
                 }
                 GetForegroundWindow() == self.hwnd
