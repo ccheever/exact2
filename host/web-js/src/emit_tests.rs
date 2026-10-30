@@ -1054,3 +1054,34 @@ fn a_progress_follows_its_block_parents_justify_items() {
     let mapper = &mapper[..mapper.find("\"auto\":\"initial\"").unwrap_or(0)];
     assert!(mapper.contains(".trim()"), "{mapper}");
 }
+
+/// A canvas follows the same rule as a progress, written or bound: its `justify-self: start`
+/// gives way to an aligning parent's `justify-items` and stays where the parent would stretch it.
+#[test]
+fn a_canvas_follows_its_parents_justify_items() {
+    let program = |items: &str| {
+        let source = format!("component App\n  state alignment = \"center\"\n  view\n    box justify-items={items} width=240 height=80\n      canvas testId=\"c\" height=40\n");
+        let out = crate::emit::emit(&contract::compile(&source).unwrap(), false, false).unwrap();
+        format!("{}\n{}", out.css, out.js)
+    };
+    let written = program("\"center\"");
+    assert!(
+        written.contains("--exact-progress-aligned:auto"),
+        "{written}"
+    );
+    assert!(
+        written.contains("justify-self:var(--exact-progress-aligned,start)"),
+        "{written}"
+    );
+    assert!(!written.contains("justify-self:start"), "{written}");
+    let normal = program("\"normal\"");
+    assert!(
+        normal.contains("--exact-progress-aligned:initial"),
+        "{normal}"
+    );
+    let bound = program("alignment");
+    assert!(
+        bound.contains("\"--exact-progress-aligned\"") && bound.contains("?\"auto\":\"initial\""),
+        "the bound writer: {bound}"
+    );
+}
