@@ -242,7 +242,17 @@ fn context_window_details_render_as_one_unnamed_dialog() {
 
 #[test]
 fn terminal_chip_details_render_the_record_inside_its_named_dialog() {
-    let host = host(true);
+    let mut host = host(true);
+    // The details take the focus as they open, on their first tabbable (PopoverPopup's initialFocus): the output.
+    let commands = host.runner_mut().take_commands();
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|command| command.name == "focus")
+            .map(|command| command.args.clone())
+            .collect::<Vec<_>>(),
+        vec![vec![Value::str("chip-popover-output")]]
+    );
     let runner = host.runner();
     assert_eq!(
         prop(runner, "chip-popover", "accessibilityRole").as_deref(),

@@ -2,7 +2,7 @@
 use PickerTarget, PickerCatalog, ComposerBranches from "./composer-shapes.contract"
 use ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldAcknowledgement, ComposerFieldCommand, ComposerIntentReply, ComposerFieldResult, composerSurrounds from "./composer-rich.contract"
 use ComposerEditorView from "./composer-editor.contract"
-use ChipPopover, ComposerChipFinish, ComposerChipRequest from "./composer-chip-popover.contract"
+use ChipPopover, ComposerChipFinish, ComposerChipRequest, chipPopoverFocus from "./composer-chip-popover.contract"
 use composerChord, composerChordIn from "./composer-keys.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
 members T3Code
@@ -31,7 +31,7 @@ members T3Code
     let target = preview ? "prompt-font-preview" : "composer"
     let covered = preview ? connecting or projectsOpen or paletteOpen or providerDialog != "" or restEditor != "" or welcome.show or querySelectorAll("[data-dialog-focus~=\"open\"]").length > 0 : modal
     if not covered and item.seq == chip.finish.seq and item.generation == (preview ? richPromptPreview.generation : richComposer.generation) and item.snapshotOwner == data.snapshotOwner and (preview ? promptPreviewVisible and item.owner == promptPreviewOwner and item.value == promptPreviewText and item.inputSerial == promptPreviewSerial and not promptPreviewComposing : composerFieldLive and item.owner == richComposerOwner and item.value == composerText and item.inputSerial == composerFieldInputSerial and not composerComposing) and frame(target).width > 0
-      if item.focus == "after" or item.focus == "select" or (item.focus == "outside" and (focused == "" or focused == "chip-popover" or focused == "citation-comment-text"))
+      if item.focus == "after" or item.focus == "select" or (item.focus == "outside" and (focused == "" or focused.startsWith("chip-popover") or focused == "citation-comment-text"))
         focus(target)
         setSelectionRange(target, item.focus == "select" ? item.start : item.end, item.end)
       if item.send and not preview and not commandPending and data.canSend and data.requestMode != "question"
@@ -45,6 +45,16 @@ members T3Code
     after(1, chipCoverClose)
   action chipCoverClose
     editorOp("chip-close", `${chip.seq}`, "")
+  // A chip's details take the focus as they open (PopoverPopup's `initialFocus`), so VoiceOver reads the dialog, whether a
+  // pointer or VoiceOver pressed the chip. The press leaves the focus on the prompt, whose editor takes a press on its pill,
+  // and `autofocus` yields to a focused field. A citation's comment is its own popover (citation-comment.contract).
+  state chipOpenFocused = 0
+  task chipOpenFocus when chip.open and chip.kind != "citation" and not chipCovered and chip.seq > chipOpenFocused key=chip.seq
+    after(1, chipOpenFocusRun)
+  action chipOpenFocusRun
+    chipOpenFocused = chip.seq
+    if chip.open and chip.kind != "citation" and not chipCovered
+      focus(chipPopoverFocus(chip))
   // A chip press that is an action (a mention, thread, citation source, pull request or attachment; composer-chip-details.ts)
   // is sent once, in its own turn.
   state chipActed = 0
