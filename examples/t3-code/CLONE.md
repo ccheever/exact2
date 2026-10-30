@@ -33,7 +33,9 @@ An isolated normal launch on port 16438 reports protocol 2 and the required
 command-context capability, then quits normally with all recorded children.
 The original server listener and clone window defaults remain unchanged.
 Evidence is under `target/t3-poc-evidence/desktop-browser-roster-fix/`.
-Independent review is pending. Browser and chat UI acceptance remain open.
+Independent review finds no introduced issue and passes nine existing Browser
+tests. It verifies all 156 bundle files, the actual ABI table and baked identity.
+Browser and chat UI acceptance remain open.
 
 The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
