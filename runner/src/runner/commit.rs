@@ -799,8 +799,11 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Let go of `target`'s request in flight, keeping a send that waits
-    /// for the source.
-    pub(super) fn forget_ticket(&mut self, target: Target) {
+    /// for the source; `false` keeps a child (LLP 1133.007 D13).
+    pub(super) fn forget_ticket(&mut self, target: Target) -> bool {
+        if self.holds_child(target) {
+            return false;
+        }
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let p = self.pending.remove(pos);
             self.note_retired(&p);
@@ -810,6 +813,7 @@ impl<D: DataSource> Runner<D> {
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
         }
+        true
     }
 
     /// The resources mutation `m` declares it refreshes.
@@ -879,8 +883,9 @@ impl<D: DataSource> Runner<D> {
                 return;
             }
         }
-        if self.keeps_child(target, &args, &request) {
-            return;
+        // A child this commit may not let go stays (LLP 1133.007 D13).
+        if self.holds_child(target) {
+            return self.discard_request(&request);
         }
         // A re-ask after a turn over its budget carries its streak on.
         let reasks = self.overrun_reasks(target, &args, forced);
@@ -958,14 +963,13 @@ impl<D: DataSource> Runner<D> {
                 .unwrap_or_default();
             self.upload_sent(target, &args, ticket);
         }
-        if refusal.is_none() {
-            self.requests.push(RequestOut {
+        self.requests
+            .extend(refusal.is_none().then_some(RequestOut {
                 ticket,
                 target: name,
                 request,
                 forced,
-            });
-        }
+            }));
         // An abort heard before this request was enqueued (in the same
         // commit, or a worker's turn that landed late) names it now.
         self.match_aborts();

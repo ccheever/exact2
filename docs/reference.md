@@ -1643,16 +1643,21 @@ Each program is named by a grant line: `process.spawn path:ssh`,
 (`spawn("path:ssh", …)`). The mapper receives `spawn`, `stdout` and `stderr`
 chunks, `exit`, `close`, `drain`, `ready` and `ready-timeout` in order, with
 that incarnation's handle (`write`, `end`, `kill`); a mutation writes through
-a kept handle, staged with its commit. `exactRestart` and `exactReady` keep a
-service alive and say when it serves. Only a person's input or the app's own
-code starts, writes to, ends or signals a child (the package declares those
-names `"origin": "app"`, as a module declares its names). From a tool's call,
-a wake or the device's event, a start fails `person-required`; a handle's
-`write`, `end` or `kill` answers as usual (`write` answers `true`), and the
-operation is journalled and dropped when its commit stands. macOS and Linux
+a kept handle, staged with its commit. A `write` that answers `false` hears
+`drain` once the child's stdin queue is empty, as Node's does. `exactRestart`
+and `exactReady` keep a service alive and say when it serves. Only a person's
+input or the app's own code starts, writes to, ends or signals a child (the
+package declares those names `"origin": "app"`, as a module declares its
+names). From a tool's call, a wake or the device's event, a start fails
+`person-required`; a re-ask of a child's resource keeps the child, and the
+arguments asked stay refused until they change; a handle's `write`, `end` or
+`kill` answers as usual, and the operation is dropped from its batch and
+journalled, the rest of the batch going. A tool's call ends `person-required`
+at each of these. There is no headless origin (LLP 1133.002 D12): a call in a
+session no one sees is a tool's or a wake's, and the rest of its code is the
+app's. A plain `fetch` to `exact-process:` is refused. macOS and Linux
 implement it; iOS, tvOS, Android, Windows and the web reject every name with
-`NotSupportedError`, and
-`processStatus()` says which (`{available, state}`).
+`NotSupportedError`, and `processStatus()` says which (`{available, state}`).
 
 A child starts in a process group of its own with the default signal
 dispositions and only its three pipes; releasing its resource, a `kill`, the

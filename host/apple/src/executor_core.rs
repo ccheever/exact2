@@ -67,8 +67,9 @@ struct Running {
     exchange: Option<AbortController>,
     forgotten: bool,
     stream: bool,
-    /// An upload waiting for its start (`stream::Uploads`): it holds no
-    /// count or bytes of its lane until then.
+    /// An upload waiting for its start (`stream::Uploads`), or a process
+    /// one-shot, which has room of its own (`process::admit_one_shot`):
+    /// it holds no count or bytes of its lane until then, or at all.
     waiting: bool,
     /// An ordered safe read: once complete it holds no effect slot.
     read: bool,
@@ -524,10 +525,12 @@ impl Core {
         // its lane, so a queue of them refuses no other request; it takes
         // them as it starts (`stream::start`).
         let waits = r.request.stream && r.request.upload_progress;
+        // A process one-shot runs on a thread of its own with room of its
+        // own, so a slow one leaves the lane's requests theirs (LLP 1133.007 D3).
+        let one_shot = r.request.is_process() && !r.request.stream;
         let admitted = (|| {
             let (lane, charge, limit) = checked?;
-            // A stream starts at once, so it is charged its ceiling now; a
-            // process request too, on a thread of its own (LLP 1133.007).
+            // A stream starts at once, so it is charged its ceiling now.
             let (full, charge) = if r.request.stream {
                 (state.streams >= STREAMS && !waits, limit)
             } else {
@@ -545,15 +548,7 @@ impl Core {
                     state.counts[0] - state.light >= COUNTS[0]
                         || state.counts[0] - state.agains >= ORDERED_READS
                 };
-                // A process request runs at once on its own thread: its ceiling.
-                (
-                    full,
-                    if r.request.is_process() {
-                        limit
-                    } else {
-                        charge
-                    },
-                )
+                (full && !one_shot, if one_shot { 0 } else { charge })
             };
             // A parked upload's outstanding charge counts as taken, so a
             // later request can't crowd it out (LLP 1120 §6 question 8).
@@ -573,6 +568,9 @@ impl Core {
                     return Err("native ordered queue byte limit reached");
                 }
             }
+            if one_shot {
+                process::admit_one_shot(&self.shared, r.ticket, limit)?;
+            }
             Ok((lane, charge, limit))
         })();
         let (lane, charge, limit) = match admitted {
@@ -590,7 +588,7 @@ impl Core {
         if ordered {
             state.ordered.push_back(r.ticket);
         }
-        if !waits {
+        if !waits && !one_shot {
             state.counts[lane] += 1;
             state.bytes[lane] += charge;
         }
@@ -608,14 +606,14 @@ impl Core {
                 started: std::time::Instant::now(),
                 ticket: r.ticket,
                 lane,
-                charge: if waits { 0 } else { charge },
+                charge: if waits || one_shot { 0 } else { charge },
                 limit,
                 abort: Some(abort.clone()),
                 // An app's abort ends a one-shot's child, as a forget does (LLP 1133.007 D3).
                 exchange: (r.request.is_process() && !r.request.stream).then(|| abort.clone()),
                 forgotten: false,
                 stream,
-                waiting: waits,
+                waiting: waits || one_shot,
                 read: false,
                 terminal: false,
                 live: 0,
@@ -644,6 +642,7 @@ impl Core {
                     }
                 });
             if let Err(e) = spawned {
+                process::release_one_shot(&shared, ticket);
                 complete(&shared, ticket, failed(FailureKind::Network, e.to_string()));
             }
             return Ok(());

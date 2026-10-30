@@ -30,9 +30,8 @@ mod supervise;
 use clock::Clock;
 use script::Script;
 
-/// A child's stdin queue, past which `write` asks its caller to wait for
-/// `drain`, and its bound (D2).
-pub(crate) const HIGH_WATER: u64 = 64 << 10;
+/// A child's stdin queue's bound (D2). Past 64 KiB its handle's `write`
+/// answers `false` (js/src/process.js), and `drain` follows once it is empty.
 const STDIN_BYTES: u64 = 1 << 20;
 /// What a child's undelivered output may hold before the host stops
 /// reading its pipes (D2).
@@ -42,6 +41,12 @@ const RECEIVE_BYTES: usize = 1 << 20;
 pub(crate) const CHUNK: usize = 64 << 10;
 /// How long a quit waits for children to end before `SIGKILL` (D2, D9).
 const QUIT_GRACE_MS: f64 = 5000.0;
+/// What one-shots (`execFile`, `execPath`, the environment reads) may hold
+/// at once: 16 runs and 64 MiB of reply ceilings, one alone always fitting.
+/// They hold no count or bytes of their lane, as an upload waiting does
+/// not, so slow ones leave the app's requests their room (D3).
+const ONE_SHOTS: usize = 16;
+const ONE_SHOT_BYTES: usize = 64 << 20;
 
 /// What the executor keeps for processes.
 pub(crate) struct Processes {
@@ -64,6 +69,8 @@ pub(crate) struct Processes {
     /// The login variables captured for the app's origin, which later
     /// reads answer for any origin (D13).
     login_captured: Mutex<std::collections::HashSet<String>>,
+    /// The one-shots running: each ticket's reply ceiling.
+    one_shots: Mutex<HashMap<u64, usize>>,
 }
 
 impl Processes {
@@ -92,8 +99,29 @@ impl Processes {
             agent,
             enabled: AtomicBool::new(false),
             login_captured: Mutex::default(),
+            one_shots: Mutex::default(),
         }
     }
+}
+
+/// Take room for one-shot `ticket`, whose reply may hold `ceiling` bytes.
+pub(crate) fn admit_one_shot(
+    shared: &Shared,
+    ticket: u64,
+    ceiling: usize,
+) -> Result<(), &'static str> {
+    let mut running = shared.processes.one_shots.lock().unwrap();
+    let held: usize = running.values().sum();
+    if running.len() >= ONE_SHOTS || (!running.is_empty() && held + ceiling > ONE_SHOT_BYTES) {
+        return Err("native executor process limit reached");
+    }
+    running.insert(ticket, ceiling);
+    Ok(())
+}
+
+/// One-shot `ticket` ended: its room goes back.
+pub(crate) fn release_one_shot(shared: &Shared, ticket: u64) {
+    shared.processes.one_shots.lock().unwrap().remove(&ticket);
 }
 
 /// The drive's launch facts (§7): `--process <target>=<file>|script:<file>|real`,
@@ -187,6 +215,9 @@ pub(crate) struct Spec {
     pub(crate) restart: Option<Restart>,
     pub(crate) ready: Option<Ready>,
     pub(crate) timeout: Option<f64>,
+    /// An `AbortSignal.timeout`'s time left (the request's `timeout_ms`):
+    /// a one-shot still running then ends as `Timeout`.
+    pub(crate) deadline: Option<f64>,
     pub(crate) max_buffer: usize,
     /// The program's native path, once admitted (a real one, or the drive's substitute).
     pub(crate) native: Option<std::path::PathBuf>,
@@ -209,79 +240,234 @@ pub(crate) struct Ready {
     pub(crate) fail: bool,
 }
 
+/// The signals `kill` and `killSignal` take (D2).
+const SIGNALS: [&str; 9] = [
+    "SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT", "SIGUSR1", "SIGUSR2", "SIGSTOP", "SIGCONT", "SIGKILL",
+];
+
 impl Spec {
-    fn parse(body: &[u8]) -> Result<Spec, String> {
+    /// The call, held to what the binding writes (js/src/process.js), since
+    /// data code can write a request's body itself: a key, a type or a bound
+    /// the binding would not send is refused (D12). `deadline`: the
+    /// request's `timeout_ms`, an `AbortSignal.timeout` on a one-shot.
+    fn parse(body: &[u8], deadline: Option<u32>) -> Result<Spec, String> {
         let j: Json = serde_json::from_slice(body).map_err(|e| format!("process: {e}"))?;
-        let ms = |v: &Json, default: f64| v.as_f64().unwrap_or(default).max(0.0);
-        let strings = |v: &Json| -> Vec<String> {
-            (v.as_array().into_iter().flatten())
+        let o = j.as_object().ok_or("process: the call is a JSON object")?;
+        let kind = o
+            .get("kind")
+            .and_then(Json::as_str)
+            .unwrap_or("")
+            .to_string();
+        const COMMON: [&str; 8] = [
+            "kind",
+            "program",
+            "args",
+            "cwd",
+            "env",
+            "encoding",
+            "killSignal",
+            "stdinFrom",
+        ];
+        let keys: Vec<&str> = match kind.as_str() {
+            "spawn" => [
+                &COMMON[..],
+                &[
+                    "stdio",
+                    "forceKillAfter",
+                    "drainTimeout",
+                    "restart",
+                    "ready",
+                ],
+            ]
+            .concat(),
+            "execFile" => [&COMMON[..], &["timeout", "maxBuffer", "input"]].concat(),
+            "execPath" => vec!["kind", "program"],
+            "loginEnv" | "appEnv" => vec!["kind"],
+            other => return Err(format!("process: no call `{other}`")),
+        };
+        let bad = |what: &str| format!("process: {kind}'s {what}");
+        if let Some(key) = o.keys().find(|k| !keys.contains(&k.as_str())) {
+            return Err(bad(&format!("`{key}` is not an option it takes")));
+        }
+        let ms = |v: Option<&Json>, name: &str, max: u64| -> Result<Option<f64>, String> {
+            match v {
+                None | Some(Json::Null) => Ok(None),
+                Some(v) => match v.as_u64().filter(|n| *n <= max) {
+                    Some(n) => Ok(Some(n as f64)),
+                    None => Err(bad(&format!("{name} is milliseconds from 0 to {max}"))),
+                },
+            }
+        };
+        // `null` is an option left out, as a Rust source writes it (`exact_data::process`).
+        let string = |key: &str| -> Result<Option<String>, String> {
+            match o.get(key) {
+                None | Some(Json::Null) => Ok(None),
+                Some(Json::String(s)) => Ok(Some(s.clone())),
+                Some(_) => Err(bad(&format!("{key} is a string"))),
+            }
+        };
+        let program = string("program")?.unwrap_or_default();
+        if program.is_empty() && !matches!(kind.as_str(), "loginEnv" | "appEnv") {
+            return Err(bad("program is its grant line's name"));
+        }
+        let args = match o.get("args") {
+            None | Some(Json::Null) => Vec::new(),
+            Some(Json::Array(a)) if a.iter().all(Json::is_string) => a
+                .iter()
                 .filter_map(|s| s.as_str().map(str::to_string))
-                .collect()
+                .collect(),
+            Some(_) => return Err(bad("args are strings")),
         };
-        let pipes = {
-            let stdio = strings(&j["stdio"]);
-            let pipe = |i: usize| stdio.get(i).is_none_or(|s| s == "pipe");
-            [pipe(0), pipe(1), pipe(2)]
+        let env = match o.get("env") {
+            None | Some(Json::Null) => None,
+            Some(Json::Array(pairs)) => Some(
+                (pairs.iter())
+                    .map(|p| match p.as_array().map(Vec::as_slice) {
+                        Some([Json::String(k), Json::String(v)]) => Ok((k.clone(), v.clone())),
+                        _ => Err(bad("env is pairs of strings")),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            Some(_) => return Err(bad("env is pairs of strings")),
         };
-        let restart = j["restart"].is_object().then(|| Restart {
-            always: j["restart"]["when"].as_str() == Some("always"),
-            delay: ms(&j["restart"]["delay"], 500.0),
-            max_delay: ms(&j["restart"]["maxDelay"], 10_000.0),
-            prevent: (j["restart"]["preventExitStatus"]
-                .as_array()
-                .into_iter()
-                .flatten())
-            .filter_map(Json::as_i64)
-            .collect(),
-        });
-        let ready = match &j["ready"] {
-            Json::Object(r) => Some(Ready {
-                url: r
+        let encoding = string("encoding")?;
+        if encoding
+            .as_deref()
+            .is_some_and(|e| e != "utf8" && e != "buffer")
+        {
+            return Err(bad("encoding is utf8 or buffer"));
+        }
+        let kill_signal = string("killSignal")?.unwrap_or_else(|| "SIGTERM".into());
+        if !SIGNALS.contains(&kill_signal.as_str()) {
+            return Err(bad("killSignal is a signal kill takes"));
+        }
+        let pipes = match o.get("stdio") {
+            None | Some(Json::Null) => [true; 3],
+            Some(Json::Array(a))
+                if a.len() <= 3 && a.iter().all(|s| s == "pipe" || s == "ignore") =>
+            {
+                let pipe = |i: usize| a.get(i).is_none_or(|s| s == "pipe");
+                [pipe(0), pipe(1), pipe(2)]
+            }
+            Some(_) => return Err(bad("stdio entries are pipe or ignore")),
+        };
+        let restart = match o.get("restart") {
+            None | Some(Json::Null) => None,
+            Some(Json::Object(r)) => {
+                if let Some(key) = r.keys().find(|k| {
+                    !["when", "delay", "maxDelay", "preventExitStatus"].contains(&k.as_str())
+                }) {
+                    return Err(bad(&format!(
+                        "exactRestart's `{key}` is not an option it takes"
+                    )));
+                }
+                let always = match r.get("when").and_then(Json::as_str) {
+                    Some("always") => true,
+                    Some("on-failure") => false,
+                    _ => return Err(bad("exactRestart.when is always or on-failure")),
+                };
+                let prevent = match r.get("preventExitStatus") {
+                    None => Vec::new(),
+                    Some(Json::Array(c)) if c.iter().all(Json::is_i64) => {
+                        c.iter().filter_map(Json::as_i64).collect()
+                    }
+                    Some(_) => return Err(bad("exactRestart.preventExitStatus is exit codes")),
+                };
+                Some(Restart {
+                    always,
+                    delay: ms(r.get("delay"), "exactRestart.delay", 3_600_000)?.unwrap_or(500.0),
+                    max_delay: ms(r.get("maxDelay"), "exactRestart.maxDelay", 3_600_000)?
+                        .unwrap_or(10_000.0),
+                    prevent,
+                })
+            }
+            Some(_) => return Err(bad("exactRestart is an object")),
+        };
+        let ready = match o.get("ready") {
+            None | Some(Json::Null) => None,
+            Some(Json::Object(r)) => {
+                if let Some(key) = r.keys().find(|k| {
+                    !["url", "interval", "timeout", "accept", "onTimeout"].contains(&k.as_str())
+                }) {
+                    return Err(bad(&format!(
+                        "exactReady's `{key}` is not an option it takes"
+                    )));
+                }
+                let url = r
                     .get("url")
                     .and_then(Json::as_str)
-                    .ok_or("exactReady needs a url")?
-                    .to_string(),
-                interval: ms(r.get("interval").unwrap_or(&Json::Null), 100.0).max(1.0),
-                timeout: ms(r.get("timeout").unwrap_or(&Json::Null), 60_000.0),
-                accept: match r.get("accept").and_then(Json::as_array) {
-                    Some(a) if a.len() == 2 => (
-                        a[0].as_u64().unwrap_or(200) as u16,
-                        a[1].as_u64().unwrap_or(299) as u16,
-                    ),
-                    _ => (200, 299),
-                },
-                fail: r.get("onTimeout").and_then(Json::as_str) == Some("fail"),
-            }),
-            _ => None,
+                    .ok_or_else(|| bad("exactReady needs a url"))?;
+                let accept = match r.get("accept") {
+                    None | Some(Json::Null) => (200, 299),
+                    Some(Json::Array(a)) => match (
+                        a.as_slice(),
+                        a.iter().all(|c| c.as_u64().is_some_and(|c| c <= 999)),
+                    ) {
+                        ([lo, hi], true) => (
+                            lo.as_u64().unwrap_or(200) as u16,
+                            hi.as_u64().unwrap_or(299) as u16,
+                        ),
+                        _ => return Err(bad("exactReady.accept is [lowest, highest] status")),
+                    },
+                    Some(_) => return Err(bad("exactReady.accept is [lowest, highest] status")),
+                };
+                let fail = match r.get("onTimeout").and_then(Json::as_str) {
+                    None | Some("retry") => false,
+                    Some("fail") => true,
+                    Some(_) => return Err(bad("exactReady.onTimeout is retry or fail")),
+                };
+                Some(Ready {
+                    url: url.to_string(),
+                    interval: ms(r.get("interval"), "exactReady.interval", 3_600_000)?
+                        .unwrap_or(100.0)
+                        .max(1.0),
+                    timeout: ms(r.get("timeout"), "exactReady.timeout", 3_600_000)?
+                        .unwrap_or(60_000.0),
+                    accept,
+                    fail,
+                })
+            }
+            Some(_) => return Err(bad("exactReady is an object")),
         };
-        let input = match j["input"].as_str() {
-            Some(b64) => Some(
-                exact_runner::agent::unbase64(b64).ok_or("process: input that is not base64")?,
-            ),
+        let max_buffer = match o.get("maxBuffer") {
+            None | Some(Json::Null) => 1 << 20,
+            Some(v) => match v.as_u64().filter(|n| (1..=1 << 24).contains(n)) {
+                Some(n) => n as usize,
+                None => return Err(bad("maxBuffer is 1 to 16777216 bytes")),
+            },
+        };
+        let input = match string("input")? {
+            Some(b64) => {
+                let bytes =
+                    exact_runner::agent::unbase64(&b64).ok_or_else(|| bad("input is base64"))?;
+                if bytes.len() > 1 << 24 {
+                    return Err(bad("input is at most 16 MiB"));
+                }
+                Some(bytes)
+            }
             None => None,
         };
         Ok(Spec {
-            kind: j["kind"].as_str().unwrap_or("").to_string(),
-            program: j["program"].as_str().unwrap_or("").to_string(),
-            args: strings(&j["args"]),
-            env: j["env"].as_array().map(|pairs| {
-                (pairs.iter())
-                    .filter_map(|p| Some((p[0].as_str()?.to_string(), p[1].as_str()?.to_string())))
-                    .collect()
-            }),
-            cwd: j["cwd"].as_str().map(str::to_string),
+            program,
+            args,
+            env,
+            cwd: string("cwd")?,
             pipes,
-            stdin_from: j["stdinFrom"].as_str().map(str::to_string),
+            stdin_from: string("stdinFrom")?,
             input,
-            utf8: j["encoding"].as_str() == Some("utf8"),
-            kill_signal: j["killSignal"].as_str().unwrap_or("SIGTERM").to_string(),
-            force_kill_after: ms(&j["forceKillAfter"], 5000.0),
-            drain_timeout: ms(&j["drainTimeout"], 5000.0),
+            utf8: encoding.as_deref() == Some("utf8"),
+            kill_signal,
+            force_kill_after: ms(o.get("forceKillAfter"), "exactForceKillAfter", 600_000)?
+                .unwrap_or(5000.0),
+            drain_timeout: ms(o.get("drainTimeout"), "exactDrainTimeout", 600_000)?
+                .unwrap_or(5000.0),
             restart,
             ready,
-            timeout: j["timeout"].as_f64().filter(|t| *t > 0.0),
+            timeout: ms(o.get("timeout"), "timeout", 3_600_000)?.filter(|t| *t > 0.0),
+            deadline: deadline.map(f64::from),
             native: None,
-            max_buffer: j["maxBuffer"].as_u64().unwrap_or(1 << 20) as usize,
+            max_buffer,
+            kind,
         })
     }
 }
@@ -381,6 +567,7 @@ pub(super) fn run(
     // sees it as neither running nor owed.
     complete(shared, ticket, outcome);
     shared.processes.children.lock().unwrap().remove(&ticket);
+    release_one_shot(shared, ticket);
     // The agent's advance that woke the stream waits until its end is queued.
     drop(leave);
 }
@@ -400,10 +587,20 @@ fn answer(
             "this host starts no programs (LLP 1133.007 §8)",
         );
     }
-    let mut spec = match Spec::parse(&request.body) {
+    let mut spec = match Spec::parse(&request.body, request.timeout_ms) {
         Ok(spec) => spec,
         Err(why) => return failed(FailureKind::Refused, why),
     };
+    // A spawn is a two-way stream, and nothing else is: one without its
+    // place among the streams is refused.
+    if (spec.kind == "spawn") != (request.stream && request.socket) {
+        let why = format!(
+            "process: {} is not a {}",
+            spec.kind,
+            ["one-shot", "stream"][usize::from(request.stream)]
+        );
+        return failed(FailureKind::Refused, why);
+    }
     // A source's scope narrows the app's grants, as on the workers. The
     // process lines are exact2's own (`exact_grants::process`); the file
     // ones the I/O grammar reads.
@@ -721,11 +918,10 @@ pub(crate) fn check(shared: &Shared, ops: &[(u64, &SocketOp)]) -> Result<(), Str
             .entry(*ticket)
             .or_insert_with(|| child.queued.load(Ordering::Acquire));
         match op {
-            ProcessOp::Write(data) if *end => {
-                let _ = data;
+            ProcessOp::Write { .. } if *end => {
                 return Err("InvalidStateError: the child's stdin is ended".into());
             }
-            ProcessOp::Write(data) => {
+            ProcessOp::Write { data, .. } => {
                 *bytes += data.len() as u64;
                 if *bytes > STDIN_BYTES {
                     return Err("QuotaExceededError: the child's stdin queue exceeds 1 MiB".into());
@@ -757,7 +953,7 @@ pub(crate) fn send(shared: &Shared, ops: &[(u64, &SocketOp)]) -> Vec<(u64, u64, 
             continue;
         }
         match op {
-            ProcessOp::Write(data) => {
+            ProcessOp::Write { data, .. } => {
                 child.queued.fetch_add(data.len() as u64, Ordering::AcqRel);
             }
             ProcessOp::End => child.ended.store(true, Ordering::Release),

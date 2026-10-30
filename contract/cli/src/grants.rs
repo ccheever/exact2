@@ -153,10 +153,16 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         .filter_map(|d| Some((d, first_use(file, d)?)))
         .collect();
     let modules = module_uses(file);
+    // Data code imports @exact/child-process only in an app that depends on
+    // it: one small read decides whether to look (LLP 1133.007 D12).
+    let processes = depends_on(root, "@exact/child-process");
+    if uses.is_empty() && modules.is_empty() && !processes {
+        return Vec::new();
+    }
     let mut files = Vec::new();
     sources(root, 0, &mut files);
     files.sort();
-    let children = child_process_use(&files);
+    let children = processes.then(|| child_process_use(&files)).flatten();
     if uses.is_empty() && modules.is_empty() && children.is_none() {
         return Vec::new();
     }
@@ -276,6 +282,18 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         });
     }
     out
+}
+
+/// Whether the app at `root` lists `package` among its `package.json`'s
+/// dependencies, as an app does every `@exact/` package it uses.
+fn depends_on(root: &Path, package: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(root.join("package.json")) else {
+        return false;
+    };
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+    ["dependencies", "devDependencies"]
+        .iter()
+        .any(|key| json[key].get(package).is_some())
 }
 
 /// The first data-module file that imports a name of `@exact/child-process`

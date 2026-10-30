@@ -31,8 +31,13 @@ component App
     text server testId="server"
 "#;
 
+/// The fixture's module, as under the agent.
+fn module() -> Module {
+    Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n").with_agent_seed(Some(1))
+}
+
 fn boot() -> (Runner<Module>, u64) {
-    let mut m = Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n");
+    let mut m = module();
     m.load().expect("the fixture loads");
     let plan = contract::compile(SRC).expect("the fixture compiles");
     let mut r = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
@@ -100,7 +105,10 @@ fn each_incarnations_handle_stages_its_own_writes() {
                 ticket,
                 SocketOp::Process {
                     incarnation: 1,
-                    op: ProcessOp::Write(b"envelope a\n".to_vec())
+                    op: ProcessOp::Write {
+                        data: b"envelope a\n".to_vec(),
+                        drain: false
+                    }
                 }
             ),
             (
@@ -240,7 +248,7 @@ fn a_tool_or_a_wake_directs_no_child() {
         r.pending()
     );
     let kept = (r.journal())
-        .filter(|l| l.contains("kept running, its replacement refused, person-required"))
+        .filter(|l| l.contains("kept running, its re-ask refused, person-required"))
         .count();
     assert_eq!(kept, 1);
     // A person's other arguments replace it.
@@ -250,7 +258,7 @@ fn a_tool_or_a_wake_directs_no_child() {
 
 #[test]
 fn an_answer_asks_with_the_origin_of_the_commit_that_asked() {
-    let mut m = Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n");
+    let mut m = module();
     m.load().unwrap();
     let src = "component App\n  mutation asked as shape string\n  action ask\n    send asked = twice()\n  view\n    text \"x\"\n";
     let plan = contract::compile(src).unwrap();
@@ -286,7 +294,7 @@ fn an_answer_asks_with_the_origin_of_the_commit_that_asked() {
 
 #[test]
 fn exec_file_answers_from_the_process_request_and_refused_options_reject() {
-    let mut m = Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n");
+    let mut m = module();
     m.load().unwrap();
     let src = "component App\n  resource v = version() as shape string\n  resource s = status() as shape string\n  resource bad = refused() as shape string\n  view\n    text v\n";
     let plan = contract::compile(src).unwrap();
@@ -324,7 +332,7 @@ fn exec_file_answers_from_the_process_request_and_refused_options_reject() {
 
 #[test]
 fn an_exec_file_its_signal_aborts_resumes_rejected_and_is_cancelled() {
-    let mut m = Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n");
+    let mut m = module();
     m.load().unwrap();
     let src = "component App\n  resource held = held() as shape string\n  mutation halted as shape string\n  action halt\n    send halted = halt()\n  view\n    text held\n";
     let plan = contract::compile(src).unwrap();
@@ -343,4 +351,25 @@ fn an_exec_file_its_signal_aborts_resumes_rejected_and_is_cancelled() {
         Some("AbortError")
     );
     assert_eq!(r.take_explicit_aborts(), [exec.ticket]);
+}
+
+#[test]
+fn outside_the_agent_programs_start_and_a_raw_request_is_refused() {
+    let mut m =
+        Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n").with_agent_seed(None);
+    m.load().unwrap();
+    let src = "component App\n  resource s = status() as shape string\n  resource raw = raw() as shape string\n  view\n    text s\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    assert_eq!(
+        r.resource("s").and_then(Value::as_str),
+        Some(r#"{"available":true,"state":"granted"}"#)
+    );
+    // `fetch("exact-process:")` skips the binding's checks: it never leaves the module.
+    let raw = r
+        .resource("raw")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    assert!(raw.contains("@exact/child-process's"), "{raw}");
 }

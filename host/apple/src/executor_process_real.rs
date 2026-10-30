@@ -6,7 +6,7 @@
 //! recorded for the quit and for the next launch after a crash
 //! (`groups.rs`).
 use super::supervise::{exec_reply, Child, Seen};
-use super::{failed, ChildCtl, Input, Ran, Shared, Spec, CHUNK, HIGH_WATER};
+use super::{failed, ChildCtl, Input, Ran, Shared, Spec, CHUNK};
 use exact_runner::{FailureKind, Outcome};
 use ibex2::process as os;
 use ibex2::stdlib::abort::AbortController;
@@ -426,7 +426,6 @@ fn write(fd: OwnedFd, n: u32, ctl: Arc<ChildCtl>) -> Arc<Stdin> {
                 let Some(bytes) = next else {
                     break;
                 };
-                let before = queue.queued.load(Ordering::Acquire);
                 if file.write_all(&bytes).is_err() {
                     // The child closed its stdin: what is queued is dropped.
                     queue.queue.lock().unwrap().0.clear();
@@ -436,7 +435,9 @@ fn write(fd: OwnedFd, n: u32, ctl: Arc<ChildCtl>) -> Arc<Stdin> {
                 }
                 let after = queue.queued.fetch_sub(bytes.len() as u64, Ordering::AcqRel)
                     - bytes.len() as u64;
-                if before > HIGH_WATER && after <= HIGH_WATER {
+                // Empty: the supervisor looks, and a write that answered
+                // `false` hears `drain` (D2, as Node's Writable).
+                if after == 0 {
                     ctl.send(Input::Child(n, Seen::Drained));
                 }
             }
@@ -470,12 +471,15 @@ pub(super) fn exec(
     let _leave = super::clock::Leave(clock.clone(), waiter);
     let start = clock.now();
     let deadline = spec.timeout.map(|t| start + t);
+    // Its signal's deadline (an `AbortSignal.timeout`) ends it as an abort does.
+    let cut = spec.deadline.map(|d| start + d);
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
     let (mut eof, mut exit) = ([false, false], None);
     let (mut timed_out, mut overflow, mut escalate) = (false, false, None::<f64>);
-    let mut exited_at = None::<Instant>;
+    let (mut exited_at, mut cut_off) = (None::<Instant>, false);
     loop {
-        if abort.signal().aborted() && escalate.is_none() {
+        cut_off |= clock.passed(cut);
+        if (abort.signal().aborted() || cut_off) && escalate.is_none() {
             child.signal(&spec.kill_signal);
             escalate = Some(clock.now() + 5000.0);
         }
@@ -498,10 +502,14 @@ pub(super) fn exec(
         if exit.is_some() && eof[0] && eof[1] {
             break;
         }
-        let next = [deadline.filter(|_| !timed_out), escalate]
-            .into_iter()
-            .flatten()
-            .reduce(f64::min);
+        let next = [
+            deadline.filter(|_| !timed_out),
+            cut.filter(|_| !cut_off),
+            escalate,
+        ]
+        .into_iter()
+        .flatten()
+        .reduce(f64::min);
         clock.wait_for(waiter, next);
         let wait = clock.timeout(next).min(Duration::from_millis(250));
         match rx.recv_timeout(wait) {
@@ -529,6 +537,12 @@ pub(super) fn exec(
     drop(child);
     if abort.signal().aborted() {
         return failed(FailureKind::Aborted, "the execFile was let go");
+    }
+    if let (true, Some(ms)) = (cut_off, spec.deadline) {
+        return failed(
+            FailureKind::Timeout,
+            format!("the execFile timed out after {ms} ms"),
+        );
     }
     let (code, signal) = exit.unwrap_or((None, None));
     exec_reply(spec, &stdout, &stderr, code, signal, timed_out)

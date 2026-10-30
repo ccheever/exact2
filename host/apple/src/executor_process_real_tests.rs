@@ -126,7 +126,13 @@ fn a_real_child_reads_its_stdin_and_streams_its_output_in_order() {
     .unwrap();
     let first = collect(&core, &woke, |o| !o.is_empty());
     assert!(spawned_pid(&first) > 1);
-    write(&core, ProcessOp::Write(b"ping\n".to_vec()));
+    write(
+        &core,
+        ProcessOp::Write {
+            data: b"ping\n".to_vec(),
+            drain: false,
+        },
+    );
     write(&core, ProcessOp::End);
     let rest = collect(&core, &woke, ended);
     let seen: Vec<String> = rest.iter().map(event).collect();
@@ -306,7 +312,7 @@ fn a_quit_ends_every_group() {
 fn exec_file_ends_what_its_child_left_running() {
     let (core, woke, _) = core("process.spawn /bin/sh");
     let body = serde_json::json!({ "kind": "execFile", "program": "/bin/sh",
-        "args": ["-c", "sleep 30 >/dev/null 2>&1 & echo $!"], "encoding": "utf8", "forceKillAfter": 500 });
+        "args": ["-c", "sleep 30 >/dev/null 2>&1 & echo $!"], "encoding": "utf8" });
     core.run(request(1, body, false), None).unwrap();
     let out = collect(&core, &woke, |o| !o.is_empty());
     let Outcome::Response(r) = &out[0] else {
@@ -373,18 +379,13 @@ fn exec_file_keeps_its_limits() {
     .unwrap();
     let r = body(&collect(&core, &woke, |o| !o.is_empty())[0]);
     assert_eq!(r["overflow"].as_str(), Some("stdout"));
-    let path = |ticket, program: &str| {
-        request(
-            ticket,
-            serde_json::json!({ "kind": "execPath", "program": program, "env": [["PATH", "/nonexistent:/bin"]] }),
-            false,
-        )
-    };
-    core.run(path(4, "path:sh"), None).unwrap();
     // A `path:` name is looked up on the call's own `env.PATH` when it gives one.
+    let path = serde_json::json!({ "kind": "execFile", "program": "path:sh", "args": ["-c", "exit 7"],
+        "env": [["PATH", "/nonexistent:/bin"]] });
+    core.run(request(4, path, false), None).unwrap();
     assert_eq!(
-        body(&collect(&core, &woke, |o| !o.is_empty())[0])["path"],
-        "/bin/sh"
+        body(&collect(&core, &woke, |o| !o.is_empty())[0])["code"],
+        7
     );
 }
 

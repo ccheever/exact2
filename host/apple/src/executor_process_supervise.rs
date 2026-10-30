@@ -8,11 +8,12 @@
 //! lives. Every deadline is on the supervision clock, so under the agent
 //! the drive's clock moves them.
 use super::clock::{Clock, Leave};
-use super::{deliver, event, ChildCtl, Input, Ran, Spec, CHUNK, HIGH_WATER};
+use super::{deliver, event, ChildCtl, Input, Ran, Spec, CHUNK};
 use super::{failed, Shared};
 use exact_runner::{FailureKind, Message, Outcome, ProcessOp};
 use ibex2::stdlib::abort::AbortController;
 use serde_json::json;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
 
@@ -158,6 +159,8 @@ pub(crate) struct Supervisor<'a> {
     /// For readiness probes against a real child (D4).
     probe: Option<ibex2::host::Bindings>,
     released: bool,
+    /// `exactReady`'s round passed with `onTimeout: "fail"` (D4).
+    timed_out: bool,
 }
 
 impl<'a> Supervisor<'a> {
@@ -189,6 +192,7 @@ impl<'a> Supervisor<'a> {
             leave,
             probe,
             released: false,
+            timed_out: false,
         }
     }
 
@@ -235,6 +239,12 @@ impl<'a> Supervisor<'a> {
                 consecutive = 0;
             }
             let close = json!({ "code": ended.code, "signal": ended.signal, "drained": ended.drained, "incarnation": n });
+            if self.timed_out {
+                return failed(
+                    FailureKind::Timeout,
+                    "exactReady: not ready within its timeout",
+                );
+            }
             if self.released {
                 return failed(FailureKind::Aborted, "the stream was let go");
             }
@@ -292,7 +302,8 @@ impl<'a> Supervisor<'a> {
         let mut exit: Option<(Option<i64>, Option<String>, f64)> = None;
         let mut eof = [!self.spec.pipes[1], !self.spec.pipes[2]];
         let mut drained = true;
-        let mut over = false;
+        // A write that answered `false` owes a `drain` (D2).
+        let mut owed = false;
         // Readiness: the next probe, and when the round times out (D4).
         let mut ready = false;
         let mut probe_at = self.spec.ready.as_ref().map(|_| started);
@@ -308,13 +319,15 @@ impl<'a> Supervisor<'a> {
         // yet taken here, so it falls only by what the child consumed.
         let mut held = 0u64;
         if gone {
-            self.release(&mut child, &mut escalate);
+            self.release(&mut child, &mut escalate, &mut pending);
         }
         loop {
             let now = self.clock.now();
             if !self.released && child.due().is_some() {
                 pending.extend(child.run(now - started));
             }
+            // What a release made of the child as these were taken.
+            let mut released = Vec::new();
             for seen in pending.drain(..) {
                 match seen {
                     Seen::Out(stderr, bytes) => {
@@ -343,7 +356,7 @@ impl<'a> Supervisor<'a> {
                                 }
                             };
                             if !deliver(self.shared, self.ticket, message, true) {
-                                self.release(&mut child, &mut escalate);
+                                self.release(&mut child, &mut escalate, &mut released);
                             }
                         }
                     }
@@ -355,7 +368,7 @@ impl<'a> Supervisor<'a> {
                             if !self.released
                                 && !deliver(self.shared, self.ticket, event("exit", exited), false)
                             {
-                                self.release(&mut child, &mut escalate);
+                                self.release(&mut child, &mut escalate, &mut released);
                             }
                         }
                     }
@@ -364,12 +377,14 @@ impl<'a> Supervisor<'a> {
                     Seen::Drained => {}
                 }
             }
-            // Its stdin's queue went below the mark it had passed (D2).
+            pending.extend(released);
+            // What the child took of its stdin; once nothing is queued, a
+            // write that answered `false` hears `drain`, as Node's does (D2).
             let queued = child.queued();
             self.ctl.consumed(held.saturating_sub(queued));
             held = queued;
-            if over && queued <= HIGH_WATER {
-                over = false;
+            if owed && self.ctl.queued.load(Ordering::Acquire) == 0 {
+                owed = false;
                 if !self.released {
                     deliver(
                         self.shared,
@@ -379,7 +394,6 @@ impl<'a> Supervisor<'a> {
                     );
                 }
             }
-            over |= queued > HIGH_WATER;
             // Readiness (D4): a script answers its own probe; a real child's is a GET.
             if !ready && !probing && !self.released && self.clock.passed(probe_at) {
                 match child.ready(now - started) {
@@ -408,7 +422,7 @@ impl<'a> Supervisor<'a> {
                 );
                 if self.spec.ready.as_ref().is_some_and(|r| r.fail) {
                     fail_ready = true;
-                    self.release(&mut child, &mut escalate);
+                    self.release(&mut child, &mut escalate, &mut pending);
                 } else {
                     round_end = self.spec.ready.as_ref().map(|r| now + r.timeout);
                 }
@@ -463,14 +477,13 @@ impl<'a> Supervisor<'a> {
             };
             match input {
                 Input::Tick => {}
-                Input::Release => self.release(&mut child, &mut escalate),
+                Input::Release => self.release(&mut child, &mut escalate, &mut pending),
                 Input::Op(m, _) if m != n => {}
-                Input::Op(_, ProcessOp::Write(bytes)) => {
+                Input::Op(_, ProcessOp::Write { data, drain }) => {
                     self.ctl.consumed(held.saturating_sub(child.queued()));
-                    child.write(bytes);
+                    child.write(data);
                     held = child.queued();
-                    // Past the mark now, whatever reads it before the next look.
-                    over |= held > HIGH_WATER;
+                    owed |= drain;
                 }
                 Input::Op(_, ProcessOp::End) => child.end(),
                 Input::Op(_, ProcessOp::Kill(signal)) => {
@@ -517,7 +530,7 @@ impl<'a> Supervisor<'a> {
             }
         }
         if fail_ready {
-            self.released = true;
+            self.timed_out = true;
         }
         let (code, signal, _) = exit.unwrap_or((None, None, 0.0));
         (
@@ -532,8 +545,14 @@ impl<'a> Supervisor<'a> {
     }
 
     /// Let the child go (D2): its kill signal to the group now, `SIGKILL`
-    /// after the grace (at once when it is 0).
-    fn release(&mut self, child: &mut Box<dyn Child>, escalate: &mut Option<f64>) {
+    /// after the grace (at once when it is 0). What the signal does (a
+    /// script's exit and close) goes to `pending`, so the loop ends with it.
+    fn release(
+        &mut self,
+        child: &mut Box<dyn Child>,
+        escalate: &mut Option<f64>,
+        pending: &mut Vec<Seen>,
+    ) {
         if self.released {
             return;
         }
@@ -544,7 +563,7 @@ impl<'a> Supervisor<'a> {
         } else {
             self.spec.kill_signal.as_str()
         };
-        let _ = child.signal(signal);
+        pending.extend(child.signal(signal));
         if grace > 0.0 {
             *escalate = Some(self.clock.now() + grace);
         }
@@ -596,13 +615,22 @@ pub(crate) fn exec_file(
             }));
             let start = clock.now();
             let limit = spec.timeout.map_or(after, |t| t.min(after));
-            while !clock.passed(Some(start + limit)) && !abort.signal().aborted() {
-                clock.wait_for(waiter, Some(start + limit));
-                let _ = rx.recv_timeout(clock.timeout(Some(start + limit)));
+            // Its signal's deadline, before it would have closed, ends it.
+            let cut = spec.deadline.filter(|d| *d < limit);
+            let until = Some(start + cut.unwrap_or(limit));
+            while !clock.passed(until) && !abort.signal().aborted() {
+                clock.wait_for(waiter, until);
+                let _ = rx.recv_timeout(clock.timeout(until));
             }
             clock.leave(waiter);
             if abort.signal().aborted() {
                 return failed(FailureKind::Aborted, "the execFile was let go");
+            }
+            if let Some(ms) = cut {
+                return failed(
+                    FailureKind::Timeout,
+                    format!("the execFile timed out after {ms} ms"),
+                );
             }
             let timed_out = spec.timeout.is_some_and(|t| t < after);
             let (code, signal) = if timed_out {

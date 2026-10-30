@@ -195,17 +195,30 @@ impl<D: DataSource> Runner<D> {
         Ok(())
     }
 
-    /// `batch` for publication once its commit stands; refused whole, and
-    /// said, when it writes to, ends or signals a child from an origin that
-    /// may not (LLP 1133.007 D13). The commit stands either way.
-    fn push_batch(&mut self, batch: SocketSend) {
-        let refusal = (batch.ops.iter()).find_map(|(_, _, op)| match op {
-            SocketOp::Process { op, .. } => self.admit_process(op.declared(), None).err(),
-            _ => None,
+    /// `batch` for publication once its commit stands. A write to, an end
+    /// of or a signal to a child from an origin that may not (LLP 1133.007
+    /// D13) is dropped and said, and a tool's call ends `person-required`
+    /// (LLP 1111 D4a); the batch's other operations go, and the commit
+    /// stands either way.
+    fn push_batch(&mut self, mut batch: SocketSend) {
+        let mut dropped = Vec::new();
+        batch.ops.retain(|(_, _, op)| {
+            let SocketOp::Process { op, .. } = op else {
+                return true;
+            };
+            let why = self.admit_process(op.declared(), None).err();
+            let kept = why.is_none();
+            dropped.extend(why);
+            kept
         });
-        match refusal {
-            Some(why) => self.log(refused(&batch.origin, &why)),
-            None => self.sockets.push(batch),
+        for why in &dropped {
+            self.log(refused_op(&batch.origin, why));
+        }
+        if dropped.iter().any(|why| why.starts_with("person-required")) {
+            self.call_person_required();
+        }
+        if !batch.ops.is_empty() {
+            self.sockets.push(batch);
         }
     }
 
@@ -275,6 +288,17 @@ pub(super) fn refused(origin: &SocketOrigin, why: &str) -> String {
     let (verb, name) = origin.words();
     exact_num::text!(
         "{} {} failed: {}; socket frames were refused",
+        verb,
+        name,
+        why
+    )
+}
+
+/// A child's operation dropped from its batch (LLP 1133.007 D13).
+pub(super) fn refused_op(origin: &SocketOrigin, why: &str) -> String {
+    let (verb, name) = origin.words();
+    exact_num::text!(
+        "{} {}: {}; dropped, the batch's other operations go",
         verb,
         name,
         why

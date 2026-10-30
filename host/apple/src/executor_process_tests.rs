@@ -4,14 +4,13 @@
 //! before anything runs.
 use super::super::Core;
 use exact_runner::{
-    CallOrigin, Outcome, ProcessOp, Request, RequestOut, SocketOp, SocketOrigin, SocketSend,
-    WorkClock,
+    CallOrigin, FailureKind, Outcome, ProcessOp, Request, RequestOut, SocketOp, SocketOrigin,
+    SocketSend, WorkClock,
 };
 use std::sync::mpsc::{channel, Receiver};
 use std::time::{Duration, Instant};
 
-const GRANTS: &str =
-    "process.spawn path:t3\nprocess.spawn /usr/bin/tar\nenv.read login:PATH\nenv.read HOME";
+const GRANTS: &str = "process.spawn path:t3\nprocess.spawn /usr/bin/tar\nenv.read login:PATH\nenv.read HOME\nnet.fetch http://127.0.0.1";
 
 fn script(json: &str) -> String {
     let dir = std::env::temp_dir().join(format!("exact-process-test-{}", std::process::id()));
@@ -169,7 +168,7 @@ fn a_scripted_child_streams_its_events_and_restarts_on_the_agents_clock() {
 }
 
 #[test]
-fn stdin_queues_and_a_read_below_the_mark_drains() {
+fn stdin_queues_and_drain_follows_once_it_is_empty() {
     let file = script(
         r#"{"incarnations":[{"pid":21,"steps":[{"at":10,"read":70000},{"at":20,"read":70000},{"at":30,"exit":0}]}]}"#,
     );
@@ -183,7 +182,16 @@ fn stdin_queues_and_a_read_below_the_mark_drains() {
     let clock = clock(&core);
     clock.advance(0.0);
     assert_eq!(events(&taken(&core)), ["spawn 21 0"]);
-    let write = |n: usize| ops(vec![(1, ProcessOp::Write(vec![b'x'; n]))]);
+    // The handle answered `false`: past 64 KiB.
+    let write = |n: usize| {
+        ops(vec![(
+            1,
+            ProcessOp::Write {
+                data: vec![b'x'; n],
+                drain: true,
+            },
+        )])
+    };
     let sent = core.socket(&write(100_000)).unwrap();
     assert_eq!(sent, vec![(1, 1, 100_000)]);
     assert_eq!(
@@ -194,10 +202,12 @@ fn stdin_queues_and_a_read_below_the_mark_drains() {
     // Past 1 MiB is refused whole.
     let over = core.socket(&write(1 << 20)).unwrap_err();
     assert!(over.contains("QuotaExceededError"), "{over}");
-    // 30,000 bytes left: below the mark it had passed.
+    // 30,000 bytes left: below 64 KiB, and no drain until it is empty (Node's).
     clock.advance(10.0);
-    assert_eq!(events(&taken(&core)), ["drain"]);
+    assert!(events(&taken(&core)).is_empty());
+    assert_eq!(core.socket_reader()(1), Some(30_000));
     clock.advance(20.0);
+    assert_eq!(events(&taken(&core)), ["drain"]);
     assert_eq!(core.socket_reader()(1), Some(0));
     // Stale incarnation, then end and a write after it.
     assert!(core
@@ -212,9 +222,9 @@ fn stdin_queues_and_a_read_below_the_mark_drains() {
 }
 
 #[test]
-fn drain_follows_the_read_that_takes_the_queue_below_the_mark() {
+fn only_a_write_that_answered_false_hears_drain() {
     let file = script(
-        r#"{"incarnations":[{"pid":22,"steps":[{"at":10,"read":40000},{"at":20,"exit":0}]}]}"#,
+        r#"{"incarnations":[{"pid":22,"steps":[{"at":10,"read":1000},{"at":20,"read":70000},{"at":30,"exit":0}]}]}"#,
     );
     let (core, _woke) = setup(&[("path:t3", &format!("script:{file}"))]);
     core.run(
@@ -226,11 +236,23 @@ fn drain_follows_the_read_that_takes_the_queue_below_the_mark() {
     let clock = clock(&core);
     clock.advance(0.0);
     taken(&core);
-    core.socket(&ops(vec![(1, ProcessOp::Write(vec![0; 90_000]))]))
-        .unwrap();
+    let write = |n: usize, drain: bool| {
+        ops(vec![(
+            1,
+            ProcessOp::Write {
+                data: vec![0; n],
+                drain,
+            },
+        )])
+    };
+    core.socket(&write(1000, false)).unwrap();
     // The supervisor sees the write on its next turn: move the clock by nothing.
     clock.advance(1.0);
     clock.advance(10.0);
+    assert!(events(&taken(&core)).is_empty(), "it answered true");
+    core.socket(&write(70_000, true)).unwrap();
+    clock.advance(11.0);
+    clock.advance(20.0);
     assert_eq!(events(&taken(&core)), ["drain"]);
 }
 
@@ -516,14 +538,25 @@ fn an_operation_for_an_ended_incarnation_reaches_no_later_one() {
         },
         SocketOp::Process {
             incarnation: 1,
-            op: ProcessOp::Write(vec![0; 500]),
+            op: ProcessOp::Write {
+                data: vec![0; 500],
+                drain: false,
+            },
         },
     ];
     let sent = super::send(&core.shared, &[(1, &stale[0]), (1, &stale[1])]);
     assert!(sent.is_empty(), "{sent:?}");
     assert_eq!(core.socket_reader()(1), Some(0));
     // The second's stdin is open, and counts what it was sent until read.
-    let write = |n: usize| ops(vec![(2, ProcessOp::Write(vec![b'x'; n]))]);
+    let write = |n: usize| {
+        ops(vec![(
+            2,
+            ProcessOp::Write {
+                data: vec![b'x'; n],
+                drain: false,
+            },
+        )])
+    };
     core.socket(&write(100_000)).unwrap();
     for t in [101.0, 102.0, 103.0] {
         clock.advance(t);
@@ -537,4 +570,161 @@ fn an_operation_for_an_ended_incarnation_reaches_no_later_one() {
         assert!(Instant::now() < deadline, "{:?}", core.socket_reader()(1));
         std::thread::sleep(Duration::from_millis(2));
     }
+}
+
+/// Outcomes, on the wall, until one is a stream's or a one-shot's last.
+fn to_the_end(core: &Core) -> Vec<Outcome> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut seen = taken(core);
+    while !seen.iter().any(|o| !matches!(o, Outcome::Message(_))) {
+        assert!(Instant::now() < deadline, "{:?}", events(&seen));
+        std::thread::sleep(Duration::from_millis(2));
+        seen.extend(taken(core));
+    }
+    seen
+}
+
+#[test]
+fn a_release_ends_a_child_its_signal_ends_without_waiting_out_the_grace() {
+    // No `ignore`: the release's SIGTERM ends the script at once.
+    let file = script(
+        r#"{"incarnations":[{"pid":81,"steps":[{"at":0,"stdout":"up"},{"at":10000,"exit":0}]}]}"#,
+    );
+    let (core, _woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+    let body = r#"{"kind":"spawn","program":"path:t3","forceKillAfter":5000}"#;
+    core.run(request(1, body, true), None).unwrap();
+    waiting(&core);
+    clock(&core).advance(0.0);
+    taken(&core);
+    core.forget(|_| false);
+    // The agent's clock stays at 0: neither the script's exit nor the grace comes.
+    ended(&core);
+}
+
+#[test]
+fn readiness_that_fails_ends_the_stream_as_a_timeout() {
+    let file = script(r#"{"incarnations":[{"pid":82,"steps":[{"at":0,"stdout":"up"}]}]}"#);
+    let (core, _woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+    let body = r#"{"kind":"spawn","program":"path:t3","encoding":"utf8",
+        "ready":{"url":"http://127.0.0.1/ready","interval":50,"timeout":100,"onTimeout":"fail"}}"#;
+    core.run(request(1, body, true), None).unwrap();
+    waiting(&core);
+    let clock = clock(&core);
+    clock.advance(0.0);
+    assert_eq!(events(&taken(&core)), ["spawn 82 0", "stdout up"]);
+    clock.advance(50.0);
+    clock.advance(100.0);
+    // `ready-timeout`, then the release (whose events a stream never hears,
+    // D2) and the stream's end as D4 says, with no wait for the grace.
+    let seen = events(&to_the_end(&core));
+    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert_eq!(seen[0], "ready-timeout");
+    assert!(seen[1].starts_with("failed Timeout"), "{seen:?}");
+    ended(&core);
+}
+
+#[test]
+fn readiness_that_retries_says_so_and_goes_on() {
+    let file =
+        script(r#"{"incarnations":[{"pid":83,"ready":250,"steps":[{"at":0,"stdout":"up"}]}]}"#);
+    let (core, _woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+    let body = r#"{"kind":"spawn","program":"path:t3","encoding":"utf8",
+        "ready":{"url":"http://127.0.0.1/ready","interval":50,"timeout":100}}"#;
+    core.run(request(1, body, true), None).unwrap();
+    waiting(&core);
+    let clock = clock(&core);
+    clock.advance(0.0);
+    taken(&core);
+    clock.advance(100.0);
+    assert_eq!(events(&taken(&core)), ["ready-timeout"]);
+    clock.advance(250.0);
+    assert_eq!(events(&taken(&core)), ["ready"]);
+}
+
+#[test]
+fn an_exec_files_signal_deadline_ends_it_as_a_timeout() {
+    let file = script(r#"{"execFile":{"stdout":"","stderr":"","code":0,"after":5000}}"#);
+    let (core, woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+    let mut out = request(1, r#"{"kind":"execFile","program":"path:t3"}"#, false);
+    // What `AbortSignal.timeout(100)` gives a request (js/src/prelude.js).
+    out.request.timeout_ms = Some(100);
+    core.run(out, None).unwrap();
+    let clock = clock(&core);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while clock.due() != Some(100.0) {
+        assert!(Instant::now() < deadline, "the deadline was never armed");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    clock.advance(100.0);
+    match next(&core, &woke) {
+        Outcome::Failed { kind, .. } => assert_eq!(kind, FailureKind::Timeout),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn the_host_refuses_what_the_binding_never_sends() {
+    let (core, woke) = setup(&[("path:t3", "script:/nowhere.json")]);
+    let refused = [
+        (r#"{"kind":"spawn","program":"path:t3","shell":true}"#, true),
+        (
+            r#"{"kind":"execFile","program":"path:t3","maxBuffer":0}"#,
+            false,
+        ),
+        (
+            r#"{"kind":"execFile","program":"path:t3","input":"!!"}"#,
+            false,
+        ),
+        (
+            r#"{"kind":"execFile","program":"path:t3","timeout":-1}"#,
+            false,
+        ),
+        (
+            r#"{"kind":"spawn","program":"path:t3","killSignal":"SIGSEGV"}"#,
+            true,
+        ),
+        (
+            r#"{"kind":"spawn","program":"path:t3","restart":{"when":"sometimes"}}"#,
+            true,
+        ),
+        (
+            r#"{"kind":"spawn","program":"path:t3","stdio":["inherit"]}"#,
+            true,
+        ),
+        // A spawn with no stream's place, and a one-shot as a stream.
+        (r#"{"kind":"spawn","program":"path:t3"}"#, false),
+        (r#"{"kind":"execFile","program":"path:t3"}"#, true),
+    ];
+    for (ticket, (body, stream)) in (1..).zip(refused) {
+        core.run(request(ticket, body, stream), None).unwrap();
+        match next(&core, &woke) {
+            Outcome::Failed { kind, message } => {
+                assert_eq!(kind, FailureKind::Refused, "{body}");
+                assert!(message.starts_with("process"), "{body}: {message}");
+            }
+            other => panic!("{body}: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn one_shots_have_room_of_their_own() {
+    let file = script(r#"{"execFile":{"stdout":"","stderr":"","code":0,"after":5000}}"#);
+    let (core, _woke) = setup(&[("path:t3", &format!("script:{file}"))]);
+    let body = r#"{"kind":"execFile","program":"path:t3"}"#;
+    for ticket in 1..=16 {
+        core.run(request(ticket, body, false), None).unwrap();
+    }
+    // None holds a count or bytes of the lane the app's other requests use.
+    let lane = |core: &Core| {
+        let state = core.shared.state.lock().unwrap();
+        (state.counts[1], state.bytes[1])
+    };
+    assert_eq!(lane(&core), (0, 0));
+    let refused = core.run(request(17, body, false), None).unwrap_err();
+    assert!(refused.contains("process limit"), "{refused}");
+    core.forget(|_| false);
+    ended(&core);
+    assert_eq!(lane(&core), (0, 0));
+    core.run(request(18, body, false), None).unwrap();
 }

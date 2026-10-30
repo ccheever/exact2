@@ -581,9 +581,10 @@
   global.Response = Response;
   global.fetch = function (url, init) { return request(url, init); };
   // `listen`: a listener's options (`exactListen`, LLP 1133.005 D1); `own(ticket,
-  // call)`: a child's stream owner (js/src/process.js).
-  function request(url, init, listen, own) {
+  // call)`: a child's stream owner and `child`: the call is js/src/process.js's, the one path to `exact-process:`.
+  function request(url, init, listen, own, child) {
     if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
+    if (!child && /^exact-process:/i.test(String(url))) return Promise.reject(new TypeError("fetch: exact-process: is @exact/child-process's: import spawn or execFile from it (LLP 1133.007 D12)"));
     var call = currentCall;
     // Refused with no answer running, and below in a let-go answer's continuation, as no answer waits for the reply
     // (where the web lets it run; a request with effects already sent runs to its end, LLP 1146 D2, §2.4).
@@ -1471,7 +1472,7 @@
   global.__exact_turn = function (id) { var t = id === "module" ? work.MODULE : id ? calls.get(Number(id)) || null : null; currentCall = t === work.MODULE ? null : t; work.setTurn(t); }; global.__exact_module_discarded = function () { work.runDiscarded(); }; // the executor's turns (js/src/module_work.rs): the turn's call is current, so a plain `.then` reaction runs as it (LLP 1146 D2)
   global.__exact_adopt = function (id, ticket) { var p = pending.get(Number(ticket)); if (!p || !p.claimed || p.stream || p.module || p.call !== calls.get(Number(id))) return ""; p.module = true; work.adopted(); return "adopted"; }; // a let-go call's fetch with effects the runner keeps (LLP 1146 D2): only one handed out (`claimed`, the one the call parked on, so its abort is a cancel, door 23); forgetting the call leaves it in flight and outstanding until its reply reaches the call's continuation in a module turn
   // The child-process module's seam (LLP 1133.007), natively only: js/src/process.js takes it, and it is gone.
-  if (global.__exact_process_host) global.__exact_process_seam = Object.freeze({ request: request, socketOwner: socketOwner, host: host, copyBytes: copyBytes, toBase64: toBase64 });
+  if (global.__exact_process_host) global.__exact_process_seam = Object.freeze({ request: function (url, init, listen, own) { return request(url, init, listen, own, true); }, socketOwner: socketOwner, host: host, copyBytes: copyBytes, toBase64: toBase64 });
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;
