@@ -59,8 +59,17 @@ impl<D: DataSource> Presenter<D> {
     /// ([`crate::text::cache::deferring_eviction`]): a paint that misses walks
     /// the cache once, not once per paragraph.
     pub fn frame(&mut self) -> Arc<Pixmap> {
-        self.frame_for(FrameTarget::Pixels)
-            .expect("capture has pixels or a CPU fallback")
+        #[cfg(windows)]
+        let window_damage = self.surfaces.direct_window.is_some() && self.dirty();
+        let frame = self
+            .frame_for(FrameTarget::Pixels)
+            .expect("capture has pixels or a CPU fallback");
+        // A geometry/accessibility snapshot has not submitted the window's new picture.
+        #[cfg(windows)]
+        if window_damage {
+            self.repaint();
+        }
+        frame
     }
 
     pub(crate) fn frame_for(&mut self, target: FrameTarget) -> Option<Arc<Pixmap>> {

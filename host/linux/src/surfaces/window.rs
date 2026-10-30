@@ -905,6 +905,11 @@ mod tests {
         let mut reported = true;
         p.brush
             .replace_backend(Box::new(crate::raster::Raster::new()));
+        p.frame();
+        assert!(
+            p.dirty(),
+            "a CPU snapshot must retain unpresented window damage"
+        );
         assert!(reserve_frame(&mut p, [80, 60], &mut reported));
         assert!(!reported);
         p.brush.replace_backend(Box::new(Lost(true, true)));
