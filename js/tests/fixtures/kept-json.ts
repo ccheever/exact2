@@ -84,6 +84,13 @@ function answer(source: string, args: unknown[]): unknown {
   if (source === "lengths") return String(lengths);
   if (source === "conversions") return String(conversions);
   if (source === "hookReads") return String(hookReads);
+  if (source === "newTargetReads") {
+    // A new target whose `prototype` read is counted (a Proxy over a function): the wrapper's one divergence.
+    let reads = 0;
+    const target = new Proxy(function () {}, { get: (t, k, r) => { if (k === "prototype") reads++; return Reflect.get(t, k, r); } });
+    Reflect.construct(Proxy, [{}, {}], target);
+    return String(reads);
+  }
   if (source === "proxy") {
     // The engine's Proxy, as an app sees it after the prelude tracks the ones it makes.
     const made = new Proxy({ a: 1 }, {}), revocable = Proxy.revocable({ b: 2 }, {});

@@ -22,6 +22,7 @@ component App
   resource rows = rows("frozen") as shape Row[]
   resource lengths = lengths() as shape string
   resource proxy = proxy() as shape string
+  resource newTargetReads = newTargetReads() as shape string
   resource conversions = conversions() as shape string
   resource hookReads = hookReads() as shape string
   view
@@ -205,5 +206,17 @@ fn a_nested_accessor_hook_is_read_once_a_reply_as_plain_json_reads_it() {
             (1, 1),
             "round {round}"
         );
+    }
+}
+
+/// The wrapper's one divergence from the engine's Proxy, pinned as it is today (LLP 1027.001 §3; QUEUE has
+/// the engine-side fix): Hermes reads an explicit new target's `prototype` once before the trap runs.
+#[test]
+fn constructing_the_proxy_with_an_explicit_new_target_reads_its_prototype_once() {
+    let mut m = module();
+    let mut s = Store::new("", []);
+    match m.answer(&mut s, "newTargetReads", &[]) {
+        Ok(Answer::Now(v)) => assert_eq!(v.as_str(), Some("1")),
+        other => panic!("{other:?}"),
     }
 }
