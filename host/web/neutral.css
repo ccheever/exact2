@@ -417,6 +417,10 @@
      not told the kernel's shape, so one with text stays centred even where the kernel calls it a chooser. */
   :where(#exact-root [popover]) { border: none; border-radius: 12px; padding: 0; background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-raised); }
   :where(#exact-root [popover]:is([role="menu"], [data-exact-chooser])) { box-sizing: border-box; min-width: 11rem; max-width: min(20rem, calc(100vw - 16px)); padding: 4px; }
+  /* A popover of the author's own content keeps it off its edges by the web's margin, as UIKit's and AppKit's keep a
+     view controller's content inside its layout margins (16 pt); the browser has none of its own. In `rem`, so it is
+     one value across the page that follows the reader's text size, not the popover's font. */
+  :where(#exact-root [popover]:not([role="menu"], [role="alertdialog"], [data-exact-chooser])) { padding: 1rem; }
   @supports (position-area: block-end) {
     :where(#exact-root [popover]:is(:not([role="alertdialog"]), [data-exact-chooser])) { inset: auto; margin: 4px 0; position-area: block-end span-inline-end; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; }
     :where(#exact-root [popover][style*="--exact-context-x"]) { margin: 0; position-area: none; left: var(--exact-context-x); top: var(--exact-context-y); position-try-fallbacks: --exact-context-start, --exact-context-up, --exact-context-up-start; }

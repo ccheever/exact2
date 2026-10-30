@@ -79,7 +79,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'back-padding-start': ['padding'], 'back-padding-end': ['padding'], 'bar-symbol-size': ['font-size'],
     'alert-width': ['width'], 'alert-margin': ['width'], 'alert-padding': ['padding'], 'alert-gap': ['gap'], 'alert-action-gap': ['gap'],
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
-    'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
+    'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'], 'popover-padding': ['padding'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
     'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height'], 'sheet-margin': ['width', 'height'], 'sheet-top': ['inset'],
     'list-row-inset': ['padding-left', 'padding-right'],
@@ -485,6 +485,11 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('menu press under hover'), await page.evaluate(() => css('item', 'backgroundImage') !== 'none')]).toEqual([at('menu press under hover'), true]);
       await page.evaluate(() => document.getElementById('item').removeAttribute('data-pressed'));
       await page.keyboard.press('Escape');
+      // A popover of the author's content has the web's margin, a padding its author wrote wins, and a menu keeps its own.
+      expect([at('popover margin'), await page.evaluate(() => {
+        document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<div popover id="content-popover">Plain</div><div popover id="padded-popover" style="padding: 8px">Padded</div>');
+        return ['content-popover', 'padded-popover', 'menu'].map(id => css(id, 'paddingTop'));
+      })]).toEqual([at('popover margin'), ['16px', '8px', '4px']]);
       await page.click('#invoker-end');
       [menu, invoker] = await page.evaluate(() => [box('menu'), box('invoker-end')]);
       expect([at('menu at the end'), Math.abs(menu[0] + menu[2] - invoker[0] - invoker[2]) <= 1, menu[1] - invoker[1] - invoker[3]]).toEqual([at('menu at the end'), true, 4]);
