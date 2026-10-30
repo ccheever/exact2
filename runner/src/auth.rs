@@ -568,10 +568,11 @@ impl Live {
         Ok(())
     }
 
-    /// The port a loopback receiver binds for it.
-    fn port(&self) -> Option<u16> {
-        let port = loopback_callback(&self.session.callback).map(|(_, port, _)| port);
-        port.filter(|_| self.listened)
+    /// The address a loopback receiver binds for it: its host and port, since
+    /// `127.0.0.1:N` and `[::1]:N` bind independently.
+    fn address(&self) -> Option<(&'static str, u16)> {
+        let address = loopback_callback(&self.session.callback).map(|(host, port, _)| (host, port));
+        address.filter(|_| self.listened)
     }
 }
 
@@ -725,9 +726,9 @@ pub fn arm<D: DataSource>(
     };
     // One sheet per window: another target's sheet or popup refuses this
     // one (D3). A loopback sign-in shows none, so several wait at once, each
-    // on its own port; a second on one port fails as its bind would.
+    // on its own address; a second on one address fails as its bind would.
     let auth = runner.auth_mut();
-    if live.port().is_some() && auth.live.iter().any(|l| l.port() == live.port()) {
+    if live.address().is_some() && auth.live.iter().any(|l| l.address() == live.address()) {
         settle(runner, ticket, 502, "port in use");
         return Arm::Settled;
     }
@@ -947,7 +948,11 @@ mod tests {
     #[test]
     fn a_loopback_callback_carries_exactly_one_code_or_error() {
         let cb = "http://127.0.0.1:4332/cb";
-        for good in ["?code=c&state=s1", "?state=s1&error=access_denied&iss=x"] {
+        for good in [
+            "?code=c&state=s1",
+            "?state=s1&error=access_denied&iss=x",
+            "?code=c&state=s1#x",
+        ] {
             assert!(one_code_or_error(&format!("{cb}{good}")).is_ok(), "{good}");
         }
         for bad in [
@@ -956,6 +961,8 @@ mod tests {
             "?code=a&code=b&state=s1",
             "?code=c&error=e&state=s1",
             "?error=&state=s1",
+            // A fragment is not the query; the receiver drops it too.
+            "?state=s1&#&code=c",
         ] {
             let e = one_code_or_error(&format!("{cb}{bad}")).unwrap_err();
             assert!(e.contains("exactly one code or error"), "{bad}: {e}");

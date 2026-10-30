@@ -17,9 +17,10 @@ made for a sheet). The receiver accepts on `state` alone (`host/listen/src/loopb
 **Reproduction.** Two targets' loopback sign-ins under the agent: the second is 409.
 
 **Fix.** A loopback sign-in shows no sheet: it neither refuses nor is refused by another target's session, and a
-second one on a live one's port is 502 `port in use`, as its bind is. Its callback must carry exactly one non-empty
-`code` and no `error`, or the reverse (RFC 6749 §4.1.2, §4.1.2.1); else the receiver answers 400 and keeps
-listening, and the agent's `type @t` is refused before the hold is spent.
+second one on a live one's host and port is 502 `port in use`, as its bind is. Its callback must carry exactly one
+non-empty `code` and no `error`, or the reverse (RFC 6749 §4.1.2, §4.1.2.1); else the receiver answers 400 and keeps
+listening, and the agent's `type @t` is refused before the hold is spent. The receiver drops a fragment before it
+reads the query, as the runner does.
 
 **Acceptance.** `cargo test -p contract --test it auth`, `-p exact-listen -- --include-ignored`; on macOS,
 `smoke-auth.mjs` and an `EXACT_DEVICE=real` drive: two sign-ins at once, a stray callback 400.

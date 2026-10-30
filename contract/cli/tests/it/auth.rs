@@ -3,7 +3,7 @@
 //! holds the request by its own ticket and answers it with a checked
 //! callback URL or `cancel`, a second target's sheet is 409, and a
 //! superseded session is forgotten for the host to cancel. Loopback
-//! sessions (LLP 1133.005 D9) wait side by side, one per port, and take
+//! sessions (LLP 1133.005 D9) wait side by side, one per address, and take
 //! only a callback with exactly one `code` or `error`.
 
 use exact_kernel::Kernel;
@@ -12,7 +12,7 @@ use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::{agent, Answer, DataError, DataSource, Event, Outcome, Runner, Store};
 
 const GRANTS: &str =
-    "auth.session https://as.test\nauth.callback app.test:/cb\nauth.callback http://127.0.0.1/cb";
+    "auth.session https://as.test\nauth.callback app.test:/cb\nauth.callback http://127.0.0.1/cb\nauth.callback http://[::1]/cb";
 
 struct Signer;
 
@@ -52,7 +52,7 @@ impl DataSource for Signer {
     }
 }
 
-const APP: &str = "shape R\n  text: string\ncomponent App\n  state cb = \"app.test:/cb\"\n  mutation signed as shape R\n  mutation other as shape R\n  action go\n    send signed = signIn(cb)\n  action bad\n    send signed = signIn(\"app.test:/elsewhere\")\n  action two\n    send other = other(cb)\n  action loopA\n    send signed = signIn(\"http://127.0.0.1:4401/cb\")\n  action loopB\n    send other = other(\"http://127.0.0.1:4402/cb\")\n  action loopSame\n    send other = other(\"http://127.0.0.1:4401/cb\")\n  view\n    column\n      button press=go testId=\"go\"\n        text \"go\"\n      button press=bad testId=\"bad\"\n        text \"bad\"\n      button press=two testId=\"two\"\n        text \"two\"\n      button press=loopA testId=\"loop-a\"\n        text \"loop a\"\n      button press=loopB testId=\"loop-b\"\n        text \"loop b\"\n      button press=loopSame testId=\"loop-same\"\n        text \"loop same\"\n      match signed\n        case some(s)\n          text s.text testId=\"out\"\n        case none\n          text \"\" testId=\"out\"\n";
+const APP: &str = "shape R\n  text: string\ncomponent App\n  state cb = \"app.test:/cb\"\n  mutation signed as shape R\n  mutation other as shape R\n  mutation third as shape R\n  action go\n    send signed = signIn(cb)\n  action bad\n    send signed = signIn(\"app.test:/elsewhere\")\n  action two\n    send other = other(cb)\n  action loopA\n    send signed = signIn(\"http://127.0.0.1:4401/cb\")\n  action loopB\n    send other = other(\"http://127.0.0.1:4402/cb\")\n  action loopSame\n    send other = other(\"http://127.0.0.1:4401/cb\")\n  action loopSix\n    send third = signIn(\"http://[::1]:4401/cb\")\n  view\n    column\n      button press=go testId=\"go\"\n        text \"go\"\n      button press=bad testId=\"bad\"\n        text \"bad\"\n      button press=two testId=\"two\"\n        text \"two\"\n      button press=loopA testId=\"loop-a\"\n        text \"loop a\"\n      button press=loopB testId=\"loop-b\"\n        text \"loop b\"\n      button press=loopSame testId=\"loop-same\"\n        text \"loop same\"\n      button press=loopSix testId=\"loop-six\"\n        text \"loop six\"\n      match signed\n        case some(s)\n          text s.text testId=\"out\"\n        case none\n          text \"\" testId=\"out\"\n";
 
 fn boot() -> Runner<Signer> {
     Runner::boot(
@@ -198,10 +198,10 @@ fn settled(r: &mut Runner<Signer>) -> (u64, u16) {
     (ticket, status)
 }
 
-/// Two loopback sign-ins wait at once, each on its own port, and complete
-/// independently; a callback with the right `state` and no `code` or
-/// `error` is refused and the hold stays; a third on a port in use is 502;
-/// a sheet beside a loopback sign-in opens (LLP 1133.005 D9).
+/// Loopback sign-ins wait at once, each on its own host and port, and
+/// complete independently; a callback with the right `state` and no `code`
+/// or `error` is refused and the hold stays; another on an address in use
+/// is 502; a sheet beside a loopback sign-in opens (LLP 1133.005 D9).
 #[test]
 fn loopback_sessions_wait_side_by_side_and_take_only_a_code_or_an_error() {
     let mut r = boot();
@@ -219,6 +219,15 @@ fn loopback_sessions_wait_side_by_side_and_take_only_a_code_or_an_error() {
         let json = format!(r#"{{"op":"type","ticket":{t},"text":"{url}"}}"#);
         agent::answer(r, &json).unwrap().0
     };
+    // `[::1]:4401` binds beside `127.0.0.1:4401`, so it waits too.
+    let six = press(&mut r, "loop-six");
+    assert_eq!(
+        auth::arm(&mut r, &six, true, Browser::Native, None),
+        Arm::Held
+    );
+    let reply = typed(&mut r, six.ticket, "http://[::1]:4401/cb?code=c&state=s1");
+    assert!(reply.contains("substituted"), "{reply}");
+    assert_eq!(settled(&mut r), (six.ticket, 200));
     let stray = typed(&mut r, a.ticket, "http://127.0.0.1:4401/cb?state=s1");
     assert!(stray.contains("exactly one code or error"), "{stray}");
     let both = typed(

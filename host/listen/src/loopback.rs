@@ -229,6 +229,10 @@ fn check<'a>(head: &'a str, callback: &Callback) -> Result<&'a str, &'static str
     if host.as_slice() != [want.as_str()] {
         return Err("This request is not for this address.");
     }
+    // A request target carries no fragment (RFC 9112 §3.2), and a browser
+    // sends none. Drop one as the runner's URL parse does, so both read the
+    // same query.
+    let target = target.split_once('#').map_or(target, |(before, _)| before);
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     if path != callback.path {
         return Err("This address answers only the sign-in's return.");
@@ -577,6 +581,27 @@ mod tests {
         want.sort();
         assert_eq!(got, want);
         drop(receivers);
+    }
+
+    /// The runner drops a fragment before it reads the query
+    /// (`exact_runner::auth::one_code_or_error`), so the receiver does too:
+    /// a `code` after `#` is none, and what follows `#` is not passed on.
+    #[test]
+    fn a_fragment_is_dropped_as_the_runner_drops_it() {
+        let cb = callback(4333);
+        let head = |target: &str| format!("GET {target} HTTP/1.1\r\nHost: 127.0.0.1:4333");
+        assert_eq!(
+            check(&head("/cb?state=s+A&#&code=c"), &cb),
+            Err("This return carries no single code or error.")
+        );
+        assert_eq!(
+            check(&head("/cb#?state=s+A&code=c"), &cb),
+            Err("This is not the sign-in this app is waiting for.")
+        );
+        assert_eq!(
+            check(&head("/cb?state=s+A&code=c#x"), &cb),
+            Ok("/cb?state=s+A&code=c")
+        );
     }
 
     #[test]
