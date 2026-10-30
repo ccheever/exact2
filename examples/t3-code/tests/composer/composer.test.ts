@@ -67,6 +67,11 @@ describe('composer controls', () => {
     expect(at({ runtimeMode: 'approval-required' })).toMatchObject({ accessDisplay: 'label', accessEmphasized: true, showModeBlock: true, effortOwnsMode: false,
       traitsTip: 'Effort: Medium', permissionsTip: 'Permissions: Supervised. Ask before commands and file changes.' });
     expect(at({ threadId: '', runtimeMode: 'approval-required' })).toMatchObject({ accessDisplay: 'hidden', permissionsInStrip: true, stripPermissionsTip: 'Permissions · ⇧⌘A' });
+    // Without traits there is no effort chip: the Permissions icon keeps composer.mode, and the strip opens it.
+    const bare = (extra: object) => composerView(client({ config: { providers: [provider('exact_fixture', [{ slug: 'gpt-6-astra', name: 'GPT-6-Astra' }])], settings }, ...extra }),
+      { approval: false, question: false, choiceOnly: false });
+    expect(bare({})).toMatchObject({ effortShown: false, accessDisplay: 'icon', effortOwnsMode: false, overflowPermissions: false, keyMode: 'Meta+Shift+A' });
+    expect(bare({ threadId: '' })).toMatchObject({ effortShown: false, accessDisplay: 'icon', effortOwnsMode: false, permissionsInStrip: true });
     // Settings › Appearance › Effort display "Bars": the level as bars, the word only for named levels.
     expect(at({ local: { favoriteModels: [], deviceSettings: { planModeEnabled: false }, clientSettings: { effortDisplay: 'bars' } } })).toMatchObject({ effortWord: '',
       effortBars: [{ x: 0, y: 6, height: 6, on: true }, { x: 4, y: 3, height: 9, on: true }, { x: 8, y: 0, height: 12, on: false }], effortBarsWidth: 10 });

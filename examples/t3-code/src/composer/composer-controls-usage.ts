@@ -21,7 +21,7 @@ import { REDEEM_IDLE, redeemStep, resetCreditsShown, resetCreditsSummary, type R
 import { redactedValue } from '../shared/redacted-text';
 import { startDetached, type DetachedReply } from './composer-replies';
 import { openExternal } from '../client/external-open';
-import { draftFallbackOf } from './composer-provider-selection';
+import { draftFallbackOf, draftModelFallback } from './composer-provider-selection';
 import { fanoutSelections } from './composer-controls-fanout';
 
 export { isUsageLimitsCommand };
@@ -135,9 +135,12 @@ export function dismissFallbackNotice(client: T3Client, window: string): void {
  * and "Use <default>" picks the default model.
  */
 function fallbackNotice(client: T3Client, now: number): UsageNotice | null {
-  const fallback = draftFallbackOf(client);
-  if (!fallback || client.threadId || fanoutSelections(client)) return null;
-  if (client.providerId !== fallback.selection.instanceId || client.modelId !== fallback.selection.model) return null;
+  const started = draftFallbackOf(client);
+  if (!started || client.threadId || fanoutSelections(client)) return null;
+  if (client.providerId !== started.selection.instanceId || client.modelId !== started.selection.model) return null;
+  // ChatView re-resolves every minute, so the notice goes once the default's window resets.
+  const fallback = draftModelFallback(client, started.defaultSelection, now);
+  if (!fallback || fallback.selection.instanceId !== started.selection.instanceId || fallback.selection.model !== started.selection.model) return null;
   const window = `${str(fallback.provider.instanceId)}:${fallback.resetsAt ?? ''}`;
   if (dismissedFallback.get(client)?.get(client.environmentId) === window) return null;
   const providers = arr(client.config.providers);

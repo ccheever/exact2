@@ -161,18 +161,21 @@ component QueuedTurn
             text message.summary flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
             box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(expanded ? 180 : 0)
               TimelineIcon(name="chevron-down", size=14, color="light-dark(#71717b, #a1a1a1)")
-        if bodyShown and message.images.length > 0
-          row flex-wrap="wrap" align-items="center" gap="0.25rem"
-            for thumb in message.images key=thumb.id
-              box width="2rem" height="2rem" overflow="hidden" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color="light-dark(#fcfcfc, #000000)" box-sizing="border-box" testId=`queued-thumb-${thumb.id}`
-                if urls.filter((entry) => entry.id == thumb.id).length > 0
-                  for entry in urls.filter((entry) => entry.id == thumb.id) key=entry.id
-                    image entry.url aria-label=thumb.name width="100%" height="100%" object-fit="cover"
-                else
-                  box width="100%" height="100%" background-color="light-dark(#fafafa99, #ffffff05)" aria-label=thumb.name
-        if bodyShown and message.body != ""
+        // A folded message's body, thumbnails included, scrolls inside the fold's padding (QueuedMessage's max-h-96 px-3 pb-2).
+        if bodyShown and (message.images.length > 0 or message.body != "")
           scroll width="100%" max-height=(folded ? "24rem" : "62500rem") padding-left=(folded ? "0.75rem" : "0px") padding-right=(folded ? "0.75rem" : "0px") padding-bottom=(folded ? "0.5rem" : "0px") box-sizing="border-box"
-            text message.body font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" color=(editing ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+            column width="100%" gap="0.5rem"
+              if message.images.length > 0
+                row flex-wrap="wrap" align-items="center" gap="0.25rem"
+                  for thumb in message.images key=thumb.id
+                    box width="2rem" height="2rem" overflow="hidden" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color="light-dark(#fcfcfc, #000000)" box-sizing="border-box" testId=`queued-thumb-${thumb.id}`
+                      if urls.filter((entry) => entry.id == thumb.id).length > 0
+                        for entry in urls.filter((entry) => entry.id == thumb.id) key=entry.id
+                          image entry.url aria-label=thumb.name width="100%" height="100%" object-fit="cover"
+                      else
+                        box width="100%" height="100%" background-color="light-dark(#fafafa99, #ffffff05)" aria-label=thumb.name
+              if message.body != ""
+                text message.body font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" color=(editing ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
       row align-items="center" gap="0.125rem" padding-right="0.25rem" box-sizing="border-box"
         // The sent form's links and time, shown while the row is hovered (group-hover/queued).
         if message.createdAt != ""

@@ -28,14 +28,9 @@ members T3Code
   action citeEnd
     citeDone = citeNonce
   // The transcript's viewport, read from its own scroll, wheel and keys, never estimated from message lengths: whether
-  // it is at its end, whether the composer rests (Settings' "Collapse composer on scroll": only a reader's movement of
-  // 24pt away from the end within 0.8 s of their wheel or key, with the geometry still, rests it; layout changes,
-  // history arriving and the follow of the end do not), and the pulls toward the end made while already there, which
-  // let a grown composer's reservation through (composer-overlay.ts). The snapshot reads them (transcript-facts.ts).
-  // A focused composer rests too, keeping its focus (ChatComposer canScrollCollapseComposer); a focus coming in
-  // (composerFocus), a press in the prompt (composerPressed) or an edit (restTyped) brings it back.
-  // Since T3 Code v0.1.5 the composer never rests (its Collapse composer on scroll setting is gone); the reader's
-  // position at the end still feeds the composer's reservation.
+  // it is at its end, and the pulls toward the end made while already there, which let a grown composer's reservation
+  // through (composer-overlay.ts). The snapshot reads them (transcript-facts.ts). The composer never rests (T3 Code
+  // v0.1.5 removed Collapse composer on scroll), so the resting state below stays off.
   derive canRest = false
   state restOwner = ""
   state restResting = false

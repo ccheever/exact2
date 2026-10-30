@@ -13,7 +13,7 @@ import { compatibilityProblem } from './protocol-outdated';
 import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged, reconcileStagedModels } from '../composer/composer-controls';
 import { adoptStash } from '../composer/composer-editor-stash';
 import { adoptComposerFiles } from '../composer/composer-editor-files';
-import { startOnFallback } from '../composer/composer-provider-selection'; // a new draft on the fallback model (#26164)
+import { startOnFallback } from '../composer/composer-provider-selection';
 import { sidebarOpened, sidebarRefreshed } from '../sidebar/sidebar-commands';
 import { takeRowDrops } from '../sidebar/legacy-sidebar-drop';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from '../composer/image-attachment-size';

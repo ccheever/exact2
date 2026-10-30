@@ -1,7 +1,7 @@
 // What the thread is doing now and the turns queued behind it, as rows at the end of the timeline,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef, and at v0.1.5 chat/ThreadNow.tsx and
-// chat/ThreadActivityBanners.tsx (childInputNowItem, backgroundWorkNowItem, goalNowItem),
-// chat/QueuedRunsControl.tsx, threadSync.ts and ChatView.tsx (timelineFooter, scrollToEndSummary).
+// adapted from T3 Code v0.1.5 (MIT); see LICENSE-T3: chat/ThreadNow.tsx, chat/ThreadActivityBanners.tsx
+// (childInputNowItem, backgroundWorkNowItem, goalNowItem), chat/QueuedRunsControl.tsx, threadSync.ts and ChatView.tsx
+// (timelineFooter, scrollToEndSummary).
 // threadEndRows is the timeline's footer and thread-end.contract draws its rows; the rows are
 // `Message`s, so each field below names its role.
 import { arr, obj, str, type Activity, type Message, type Obj } from '../client/domain';

@@ -35,8 +35,6 @@ keyframes ccSpin
   to rotate=360
 keyframes ccFadeIn
   from opacity=0
-// The controls arriving as the composer rests (from 4pt above) or expands (from 4pt below):
-// useComposerRestingTransition's COMPOSER_RESTING_CONTROLS_ARRIVAL_DRIFT_PX.
 
 // Lucide geometry (24px grid) for the composer's own glyphs.
 component CcIcon
@@ -285,12 +283,15 @@ component TraitsTrigger
   state over = false
   action hover(value: bool)
     over = value
-  derive ink = (over or open ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+  // ComposerControl's ink: the word mutes the whole chip; with bars it is foreground/80, and the bolt keeps the
+  // muted icon ink either way (an svg without a text- class).
+  derive muted = (over or open ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+  derive ink = (over or open ? "light-dark(#18181b, #f5f5f5)" : (data.composer.effortWord != "" ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)"))
   view
     box position="relative" display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=0 margin-left="-0.25rem" id="composer-traits-trigger"
       button -exact-menu="none" press=press hover=hover class=Control aria-label=data.composer.traitsTip aria-expanded=open aria-keyshortcuts=keys testId="reasoning-effort" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 flex-shrink=0 height="1.75rem" padding-left=(data.composer.effortWord != "" or iconOnly ? "0.0625rem" : "0.1875rem") padding-right="0.3125rem" padding-top=0 padding-bottom=0 gap="0.375rem" border-radius="0.5rem" background-color="#00000000" title=""
         if iconOnly
-          CcIcon(name="gauge", size=14, color=ink, weight=1.75)
+          CcIcon(name="gauge", size=14, color=muted, weight=1.75)
         else
           if data.composer.effortWord != ""
             text data.composer.effortWord font-size="0.875rem" font-weight=500 line-height="1.25rem" color=ink white-space="nowrap" testId="reasoning-effort-word"
@@ -304,12 +305,12 @@ component TraitsTrigger
             box position="relative" width=(data.composer.effortSpeed == "Ultrafast" ? "0.9375rem" : "0.75rem") height="0.75rem" flex-shrink=0 aria-hidden=true testId="reasoning-effort-fast"
               if data.composer.effortSpeed == "Ultrafast"
                 box position="absolute" left="0.1875rem" top=0 display="flex"
-                  CcIcon(name="zap", size=12, color=ink, weight=2)
+                  CcIcon(name="zap", size=12, color="light-dark(#71717b, #a1a1a1)", weight=2)
               box position="absolute" left=0 top=0 display="flex"
-                // Filled; Ultrafast's front bolt is cut out of the echo by a 4pt outline in the card's surface.
-                svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color=ink fill="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+                // Filled; Ultrafast's front bolt is cut out of the echo by a 4pt outline in the card's surface (composer.contract).
+                svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
                   if data.composer.effortSpeed == "Ultrafast"
-                    path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" stroke="light-dark(#ffffff, #161616)" stroke-width=4
+                    path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" stroke=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") stroke-width=4
                   path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" stroke="currentColor" stroke-width=2
           if data.composer.effortOther != ""
             text data.composer.effortOther font-size="0.75rem" font-weight=500 line-height="1rem" color=ink max-width="6rem" line-clamp=1 aria-hidden=true
@@ -572,14 +573,12 @@ component ComposerFooter
                 OverflowTrigger(open=(optionsOpen == "more"), disabled=locked, keys=[data.composer.overflowPermissions ? data.composer.keyMode : "", traitsOut ? data.composer.keyEffort : ""].filter((key) => key != "").join(" "), press=openOptions("more"))
         PrimaryActions(data=data, sendable=sendable, hasText=(text != ""), busy=busy, tipShift=tipShift, send=send, stop=stop, command=command, openOptions=openOptions)
 
-// The traits menu (MenuRadioItem rows: checked keep the foreground/8% wash,
-// the highlighted row takes accent) and the runtime-mode select (SelectItem,
-// selected wash wins), anchored above their trigger (side top, align start;
-// end-aligned when start would overflow). Arrows move focus between rows and
-// Enter/Space press the focused row; Escape is the dismiss layer's command.
-// The opener focuses the menu (traits) or the selected option (runtime), as
-// base-ui's Menu and Select do. Rows are inline so their key handler is this
-// component's own action (a lifted action does not receive the key's name).
+// The composer's menus, anchored above their trigger (side top, align start; end-aligned when start would
+// overflow): the effort menu (MenuRadioItem rows: checked keep the foreground/8% wash, the highlighted row takes
+// accent) and the overflow menu, each ending in the Permissions toggle while it is Permissions' home; the Permissions
+// chip's menu, which is the toggle alone; the implementation and context menus; and the strip's workspace and branch
+// menus. Arrows move focus between rows and Enter/Space press the focused row; Escape is the dismiss layer's command.
+// Rows are inline so their key handler is this component's own action (a lifted action does not receive the key's name).
 component ComposerMenus
   inject
     optionsAnchorX: number

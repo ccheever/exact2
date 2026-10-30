@@ -249,9 +249,10 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     providerIcon: acpInstanceIcon(client.config, provider),
     ...layout, traitsOverflow: ownership.traitsHidden, modeOverflow: ownership.modeHidden, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
     // Where Permissions live (resolveComposerControlsOwnership): the chip shows its label, its icon or nothing; the
-    // effort chip or the overflow menu answers composer.mode while it does not.
+    // effort chip or the overflow menu answers composer.mode while it does not. Without an effort chip, upstream's
+    // Permissions chip keeps its data-composer-shortcut="composer.mode", so it answers whatever ownership says.
     accessDisplay: ownership.accessDisplay, accessEmphasized: !accessMatchesDefault, showModeBlock: ownership.showModeBlock,
-    effortOwnsMode: ownership.effortOwnsModeShortcut, overflowPermissions: ownership.overflowShowsPermissions, permissionsInStrip,
+    effortOwnsMode: effort.shown && ownership.effortOwnsModeShortcut, overflowPermissions: ownership.overflowShowsPermissions, permissionsInStrip,
     permissionsTip: `Permissions: ${runtime.label}. ${runtime.description}`,
     stripPermissionsTip: ['Permissions', chordGlyphs(keyMode.split(' ')[0] ?? '')].filter(Boolean).join(' · '),
     runtimeMode: runtime.mode, runtimeLabel: runtime.label, runtimeIcon: runtime.icon, runtimeDescription: runtime.description,

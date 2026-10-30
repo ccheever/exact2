@@ -59,6 +59,8 @@ describe('a new thread on the fallback model says so', () => {
     expect(notice).toMatchObject({ id: 'fallback-model', variant: 'info', icon: 'gauge', title: 'Using Claude Fable 5.1', action: 'model',
       actionLabel: 'Use GPT-6.1 Sol', actionId: 'gpt-6.1-sol', actionValue: 'codex', dismiss: 'cclocal:fallback-dismiss', dismissLabel: 'Dismiss fallback model notice' });
     expect(notice!.description).toStartWith('Codex is out of usage · resets ');
+    // Past the default's reset the draft keeps the fallback, but the notice goes (ChatView's nowMinute).
+    expect(usageNotices(draft, Date.parse('2026-09-03T18:01:00Z'))).toEqual([]);
     Object.assign(draft, { providerId: 'codex', modelId: 'gpt-6.1-sol' });
     expect(usageNotices(draft, now)).toEqual([]);
   });
