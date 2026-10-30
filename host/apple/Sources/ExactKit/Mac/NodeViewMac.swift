@@ -409,7 +409,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package override func accessibilityChildren() -> [Any]? {
         if props["accessibilityElementsHidden"] == "true" || accessibilityHiddenWritten { return [] }
         if actsAsButton { return controlAccessibilityChildren() }
-        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? exposed(super.accessibilityChildren())
+        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? withAtoms(exposed(super.accessibilityChildren()))
     }
     /// The viewport's projected children must point back to it. Otherwise
     /// moving to a modal's authored container exposes the page behind it.

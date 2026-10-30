@@ -190,13 +190,13 @@ final class InlineAtomEditorMacTests: XCTestCase {
     }
 
     func testAPressSelectsTheAtomAndAnAccessibilityElementNamesIt() throws {
-        let (_, f, window) = editor()
+        let (node, f, window) = editor()
         defer { window.close() }
         let hit = try XCTUnwrap(f.atomFrames().first)
         XCTAssertEqual(hit.range, NSRange(location: a, length: b - a))
         XCTAssertEqual(f.atom(at: CGPoint(x: hit.frame.midX, y: hit.frame.midY))?.range, hit.range)
-        let element = try XCTUnwrap(f.accessibilityChildren()?.compactMap { $0 as? AtomElement }.first)
-        let walked = (Presenter.navigationOrder(f) ?? []).compactMap { $0 as? AtomElement }
+        let element = try XCTUnwrap(node.accessibilityChildren()?.compactMap { $0 as? AtomElement }.first)
+        let walked = (Presenter.navigationOrder(node) ?? []).compactMap { $0 as? AtomElement }
         XCTAssertTrue(walked.count == 1 && walked[0] === element, "in the order VoiceOver walks")
         let scoped = presenter.axElements(roots: [window.contentView!], scope: [3])["elements"] as? [[String: Any]] ?? []
         let pill = scoped.first { $0["name"] as? String == "A quote" }
@@ -213,6 +213,44 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(attachments(f).first?.atom.selected == true)
         let facts = try XCTUnwrap(MarkupCommands.selection(f.string, range: hit.range, atoms: AtomHandle.of(MarkdownAtoms(kinds: kinds, faces: faces))))
         XCTAssertTrue(facts.contains(#""atom":"[Quote](t3-citation:1)""#), facts)
+    }
+
+    /// D8 as ruled in §10 Q10 (2026-10-31): the atoms follow the field in
+    /// text order among its host's elements, past every wrapper that holds
+    /// the field alone (VoiceOver passes through those, but reads a scroll
+    /// area of several items only when the person interacts with it), where
+    /// VoiceOver's next-item command reaches them. The text view and the
+    /// field's own node list none, and an atom's parent lists it.
+    func testTheAtomsFollowTheFieldInTextOrderPastItsWrappers() throws {
+        let second = "[Other](t3-citation:2)"
+        let (node, f, window) = editor(source + " and " + second)
+        defer { window.close() }
+        let page = NodeView(id: 1, kind: "view", presenter: presenter), wrapper = NodeView(id: 2, kind: "view", presenter: presenter)
+        let after = NodeView(id: 4, kind: "view", presenter: presenter)
+        page.frame = NSRect(x: 0, y: 0, width: 500, height: 400)
+        wrapper.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        after.frame = NSRect(x: 0, y: 300, width: 500, height: 100)
+        window.contentView = page
+        page.addSubview(wrapper)
+        wrapper.addSubview(node)
+        page.addSubview(after)
+        XCTAssertEqual(f.atomElements.count, 2)
+        XCTAssertTrue(node.atomHost === page, "past the wrapper that holds the field alone")
+        XCTAssertFalse((f.accessibilityChildren() ?? []).contains { $0 is AtomElement }, "the text view's own children pass under VoiceOver's next item")
+        XCTAssertFalse((node.accessibilityChildren() ?? []).contains { $0 is AtomElement })
+        let flat = NSAccessibility.unignoredChildren(from: [page])
+        let text = try XCTUnwrap(flat.firstIndex { ($0 as AnyObject) === node.textAreaScroll || ($0 as AnyObject) === f }, "\(flat)")
+        XCTAssertTrue(flat.count >= text + 3 && flat[text + 1] as AnyObject === f.atomElements[0] && flat[text + 2] as AnyObject === f.atomElements[1], "after the field, in text order: \(flat)")
+        XCTAssertEqual(f.atomElements.map(\.range.location), [a, (source + " and " as NSString).length])
+        let parent = try XCTUnwrap(f.atomElements[0].accessibilityParent() as? NSObject)
+        let listed = NSAccessibility.unignoredChildren(from: (parent as? NSView)?.accessibilityChildren() ?? (parent as? NSWindow)?.accessibilityChildren() ?? [])
+        XCTAssertTrue(listed.contains { $0 as AnyObject === f.atomElements[0] }, "its parent lists it: \(parent)")
+        XCTAssertTrue(f.atomElements[1].accessibilityPerformPress())
+        XCTAssertEqual(f.selectedRange(), f.atomElements[1].range, "VO-Space presses the atom VoiceOver is on")
+        // A second item beside the field in the wrapper: the wrapper hosts them.
+        let beside = NodeView(id: 5, kind: "view", presenter: presenter)
+        wrapper.addSubview(beside)
+        XCTAssertTrue(node.atomHost === wrapper)
     }
 
     /// D8: a face's `ariaLabel` names its element and stands for it in the

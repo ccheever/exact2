@@ -2,8 +2,10 @@
 // Q9): each pill is its attachment's picture, which takes no events, so the
 // text view finds the atom under a press itself (D7), shows the arrow and
 // the `title` tooltip over it on the Mac (D2), and gives assistive
-// technology an element for it (D8): a child of the text view on the Mac, an
-// element beside it on iOS, where UIKit visits no element's own elements.
+// technology an element for it (D8), after the field: on the Mac its host
+// lists it (`NodeView.atomHost`), as VoiceOver's next-item command passes
+// over a text view's own children; on iOS it follows the text view in its
+// node, as UIKit visits no element's own elements.
 import CoreText
 #if canImport(UIKit)
 import UIKit
@@ -89,7 +91,8 @@ extension TextArea {
         for (_, atom, frame) in frames where !atom.title.isEmpty { addToolTip(frame, owner: self, userData: nil) }
         window?.invalidateCursorRects(for: self)
         observeAtomLook(!frames.isEmpty)
-        if changed { NSAccessibility.post(element: self, notification: .layoutChanged) }
+        if frames.isEmpty { Self.atomFields.remove(self) } else { Self.atomFields.add(self) }
+        if changed { NSAccessibility.post(element: owner.map { $0.atomHost ?? $0 } ?? self, notification: .layoutChanged) }
         for element in renamed { NSAccessibility.post(element: element, notification: .titleChanged) }
         #else
         installAtomTap(!frames.isEmpty)
@@ -149,6 +152,47 @@ extension TextArea: NSViewToolTipOwner {
     }
 }
 
+extension TextArea {
+    /// The Markdown fields with atoms, whose nodes' hosts list them.
+    nonisolated(unsafe) static let atomFields = NSHashTable<TextArea>.weakObjects()
+}
+
+extension NodeView {
+    /// The node whose elements list this field's atoms, after the field (LLP
+    /// 1045.000 D8, §10 Q10): its nearest ancestor holding more than the field,
+    /// or that is an element. VoiceOver's next-item command passes over a text
+    /// view's own children, and reads a scroll area that holds more than one
+    /// item only when the person interacts with it; one that holds a single
+    /// item it passes through, so the atoms go past every wrapper, scrolling
+    /// or not, that holds the field alone. Nil for a field with no such
+    /// ancestor: its own node lists them.
+    var atomHost: NodeView? {
+        var view = superview
+        while let v = view {
+            if let node = v as? NodeView, node.isAccessibilityElement() || Self.nodeChildren(of: node).count != 1 { return node }
+            view = v.superview
+        }
+        return nil
+    }
+    private static func nodeChildren(of view: NSView) -> [NodeView] {
+        view.subviews.flatMap { $0 is NodeView ? [$0 as! NodeView] : nodeChildren(of: $0) }
+    }
+    /// The atoms of the fields this node hosts, each run after the child that
+    /// holds its field, in text order.
+    func withAtoms(_ children: [Any]?) -> [Any]? {
+        guard var children, TextArea.atomFields.count > 0 else { return children }
+        for field in TextArea.atomFields.allObjects where !field.atomElements.isEmpty {
+            guard let node = field.owner, (node.atomHost ?? node) === self,
+                  let at = children.lastIndex(where: { child in
+                      guard let view = child as? NSView else { return false }
+                      return view === node || node.isDescendant(of: view) || view.isDescendant(of: node)
+                  }) else { continue }
+            children.insert(contentsOf: field.atomElements as [Any], at: at + 1)
+        }
+        return children
+    }
+}
+
 /// What a click on a pill lands on: it draws nothing and is hit only where
 /// `TextArea.atomHit` says.
 final class AtomCatcher: NSView {
@@ -165,8 +209,10 @@ final class AtomCatcher: NSView {
 
 /// An atom as assistive technology sees it: a button (or link, as
 /// declared) named by its face's `ariaLabel` or else its label, described
-/// by its title, at its pill. The agent joins it to the field's node, as
-/// iOS's container does.
+/// by its title, at its pill. The field's host lists it after the field
+/// (`NodeView.withAtoms`), so its parent is the host or, where the host is
+/// no element, the element that lists the host's children. The agent joins
+/// it to the field's node, as iOS's container does.
 package final class AtomElement: NSAccessibilityElement, AgentOwned {
     weak var field: TextArea?
     let range: NSRange
@@ -176,7 +222,11 @@ package final class AtomElement: NSAccessibilityElement, AgentOwned {
         (self.field, self.range, self.atom) = (field, range, atom)
         super.init()
     }
-    package override func accessibilityParent() -> Any? { field }
+    package override func accessibilityParent() -> Any? {
+        guard let field, let node = field.owner else { return field }
+        let host = node.atomHost ?? node
+        return host.isAccessibilityElement() ? host : NSAccessibility.unignoredAncestor(of: host)
+    }
     package override func accessibilityRole() -> NSAccessibility.Role? { atom.role == "link" ? .link : .button }
     package override func accessibilityLabel() -> String? { atom.spokenName }
     package override func accessibilityHelp() -> String? { atom.title.isEmpty ? nil : atom.title }
