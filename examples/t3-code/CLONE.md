@@ -45,6 +45,36 @@ source is preserved; this refresh does not repeat connected acceptance. The
 delivered TestFlight build is unchanged, and this integration reaches no new
 release checkpoint.
 
+Direct text-only emphasis now renders in both existing file-table preview owners.
+The adapter retains positioned decoded text, outer-child IDs and whole-segment
+fallback; nested formatting remains unsupported. The exact reference DM Sans
+400 and 700 italic assets are registered in the existing family. Actual cached
+CoreText runs on EAS resolve body/header Latin text to DMSans-Italic and
+DMSans-BoldItalic at 16-point light and 20-point dark appearance. Existing file
+prose italics and the transcript's 500-weight nearest-face selection also resolve
+to real italics. Emoji fallback is recorded separately. Asset-backed CoreText
+specimens and upright controls qualify the table glyphs.
+
+Both owners retain Source, returned Copy inputs and complete fences. Native word
+selection and a bounded code-to-strong handle drag are reachable; selected-copy
+bytes and guarded Copy execution remain unqualified. Wide tables pass legal-edge
+repeats and returns with zero horizontal range outside the table. Unsupported
+nesting retains its whole prose segment, and the unpaired control remains Source.
+The pinned fonts lack tabular digits despite preserved numeric style requests;
+tabular rendering remains unqualified. All 4,170 mobile tests, 276 focused tests,
+strict TypeScript, generator verification and all six root checks pass.
+
+The fresh normal build from clean functional commit `da653334f7` passes Home,
+Settings/Appearance/Back, Search typing/clearing and app keyboard dismissal,
+New Task/Back and ordinary relaunch with a changed PID on EAS. Preferences are
+unchanged. Its native module hash and ABI 18/runtime 5/Apple ABI 3/36-tag roster
+remain qualified. Every temporary entry and observer restores exactly; the EAS
+session is shut down. Evidence and limits are in
+`target/t3-poc-evidence/phone-emphasis-table-implementation/receipt.md`.
+Parent review and push are pending. Connected cloud routes and complete phone,
+iPad and desktop parity remain open. TestFlight is unchanged; this slice reaches
+no release checkpoint.
+
 Startup-crash parity remains open as GAP 004. The pinned reference reads fatal
 startup records from expo-updates; Exact exposes no equivalent record producer.
 The unavailable state remains truthful. Source findings and the required capture
