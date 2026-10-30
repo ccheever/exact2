@@ -137,6 +137,13 @@ worktrees alone. Every Cargo invocation uses this worktree's `target/`,
 including `--target-dir target` for the separate benchmark workspaces.
 Nothing else may build there; no other work may run during a series.
 
+Scoreboard CPU uses `G1_GPU_HOOK=0` with `powermetrics` off. The probe reads
+the switch once at load and records `gpuHookEnabled`; it leaves the drawable
+hook enabled. The driver defaults to off for flings and on for static workloads.
+For G5's GPU series, set `G1_GPU_HOOK=1` explicitly for every workload, including
+its fling control. GPU rows come from that series or a hook-on, power-off run.
+Power is measured separately and never joined to a scoreboard CPU row.
+
 The G4 driver and its four signed bundles are prepared under `target/g0/`.
 `build.sh`, `bundle.py` and the build logs retain the commands; the data must pass
 `data.sha256` before any run. Keep all raw attempts, quiet observations,

@@ -1106,11 +1106,23 @@ or UI Automation focus without a client click. See [G6d’s before/after tables
 and retained trials](../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
 
 **G4m and G5m, measured 2026-10-30**, source `42d5066572`, on the dedicated
-silver M5 Max. G4m's five interleaved fling/rest rounds and ten successful
-launches per arm become LLP 1149.001 §4's Mac baseline. Native/GPUI/Ink/egui
-fling process CPU is **156.91/129.79/110.90/108.28 ms/s**; all four ranges exceed
-G4's. All p95 intervals remain **8.33 ms**. Source, probe and power sampling
-changed, so this does not isolate hardware. [G4m's paired tables and power](../bench/heavy-list/gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac).
+silver M5 Max. G4m's original five interleaved fling/rest rounds and ten
+successful launches per arm use the GPU hook with power sampling. Their
+native/GPUI/Ink/egui fling process CPU is **156.91/129.79/110.90/108.28 ms/s**;
+all four ranges exceed G4's. All p95 intervals remain **8.33 ms**. Source,
+probe and power sampling changed, so this does not isolate hardware.
+[G4m's original tables and power](../bench/heavy-list/gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac).
+
+**G4m, the instrument's share, 2026-10-30:** five interleaved rounds each
+with hook/power off/off, on/off and on/on do not resolve a positive hook
+cost: every arm's paired CPU range crosses zero. Power sampling lowers
+measured app CPU by 5.78–11.02 ms/s at the paired medians, missing the
+predicted positive cost. LLP 1149.001 §4 now takes scoreboard CPU from
+hook-off, power-off runs, GPU from hook-on runs and power separately.
+That CPU baseline is **174.87/156.13/128.00/119.76 ms/s**; disabling the hook
+does not restore G4's levels. The driver and three control arms' application
+code are unchanged; the carrier includes Stage 0b chunk 4.
+[Configurations, paired differences and retained evidence](../bench/heavy-list/gpui/RESULTS.md#g4m-the-instruments-share).
 
 **G5:** three quiet rounds each of fling, bar and caret complete, **36/36**
 samples, **114/114** quiet observations, no focus losses. Native bar main-thread

@@ -3300,8 +3300,13 @@ other application is identified. It is rejected, and its one permitted retake
 passes. All **41 attempts** remain retained. The initial Ink qualification's
 complete-screen capture was inspected before the series.
 
-Cells give **G4m median (minimum–maximum)**, followed by G4's corresponding
-value. Cold has ten samples per arm; the other rows have five. G4's native
+Cells give **median (minimum–maximum)**, followed by G4's corresponding
+value. CPU cells marked **(a)** use the later hook-off, power-off series below:
+native main-thread CPU and GPUI's five CPU cells have ranges disjoint from
+the originals. Other CPU cells retain **original (c)** because their ranges
+overlap. The original values remain in the later comparison and raw files;
+the scoreboard uses configuration (a) throughout.
+Cold has ten samples per arm; the other rows have five. G4's native
 snapshot and painted-drawable endpoints, cadence denominators, GPUI's unchanged
 re-presentations and visual non-comparables still apply. Unlike G4's last three
 cold launches, all G4m launches have retained quiet observations.
@@ -3309,11 +3314,11 @@ cold launches, all G4m launches have retained quiet observations.
 | Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
 |---|---:|---:|---:|---:|
 | Cold to first complete frame, ms; native snapshot / painted drawable | 277.67 (257.26–664.05)<br>G4: 354.14 (330.80–862.31) | 219.07 (198.91–515.50)<br>G4: 313.13 (301.71–484.67) | 249.78 (232.86–264.97)<br>G4: 352.13 (311.68–1019.34) | 234.43 (203.64–269.47)<br>G4: 337.45 (310.81–445.11) |
-| Fling process CPU, ms/s | 156.91 (151.68–175.09)<br>G4: 131.91 (112.39–143.12) | 129.79 (120.63–135.25)<br>G4: 84.92 (82.05–89.05) | 110.90 (105.46–119.73)<br>G4: 86.41 (84.98–87.07) | 108.28 (99.29–109.32)<br>G4: 66.84 (64.93–71.54) |
-| Fling process CPU per presented frame, ms | —<br>G4: — | 1.457 (1.352–1.518)<br>G4: 0.961 (0.922–1.005) | 3.341 (3.206–3.629)<br>G4: 2.615 (2.591–2.696) | 2.587 (2.382–2.616)<br>G4: 1.642 (1.592–1.733) |
-| Fling main-thread CPU, ms/s | 106.06 (102.76–111.39)<br>G4: 84.51 (76.30–92.87) | 65.55 (59.68–66.71)<br>G4: 39.56 (38.97–41.52) | 55.62 (52.68–60.11)<br>G4: 43.83 (41.98–44.65) | 50.36 (46.79–51.13)<br>G4: 31.33 (30.28–33.69) |
-| Rest process CPU, ms/s | 2.192 (2.055–2.245)<br>G4: 1.288 (1.108–1.440) | 5.073 (4.623–5.166)<br>G4: 5.631 (4.911–5.678) | 2.379 (2.042–2.406)<br>G4: 1.469 (1.241–1.544) | 0.644 (0.457–0.712)<br>G4: 0.359 (0.307–0.494) |
-| Rest main-thread CPU, ms/s | 1.091 (1.040–1.148)<br>G4: 0.636 (0.536–0.692) | 3.191 (2.851–3.241)<br>G4: 3.495 (3.134–3.598) | 2.239 (1.952–2.278)<br>G4: 1.382 (1.158–1.466) | 0.523 (0.386–0.612)<br>G4: 0.288 (0.238–0.413) |
+| Fling process CPU, ms/s | 156.91 (151.68–175.09) (original c)<br>G4: 131.91 (112.39–143.12) | 156.13 (136.13–162.86) (a)<br>G4: 84.92 (82.05–89.05) | 110.90 (105.46–119.73) (original c)<br>G4: 86.41 (84.98–87.07) | 108.28 (99.29–109.32) (original c)<br>G4: 66.84 (64.93–71.54) |
+| Fling process CPU per presented frame, ms | —<br>G4: — | 1.751 (1.525–1.833) (a)<br>G4: 0.961 (0.922–1.005) | 3.341 (3.206–3.629) (original c)<br>G4: 2.615 (2.591–2.696) | 2.587 (2.382–2.616) (original c)<br>G4: 1.642 (1.592–1.733) |
+| Fling main-thread CPU, ms/s | 118.63 (114.85–120.12) (a)<br>G4: 84.51 (76.30–92.87) | 78.98 (68.79–83.15) (a)<br>G4: 39.56 (38.97–41.52) | 55.62 (52.68–60.11) (original c)<br>G4: 43.83 (41.98–44.65) | 50.36 (46.79–51.13) (original c)<br>G4: 31.33 (30.28–33.69) |
+| Rest process CPU, ms/s | 2.192 (2.055–2.245) (original c)<br>G4: 1.288 (1.108–1.440) | 5.374 (5.178–5.440) (a)<br>G4: 5.631 (4.911–5.678) | 2.379 (2.042–2.406) (original c)<br>G4: 1.469 (1.241–1.544) | 0.644 (0.457–0.712) (original c)<br>G4: 0.359 (0.307–0.494) |
+| Rest main-thread CPU, ms/s | 1.091 (1.040–1.148) (original c)<br>G4: 0.636 (0.536–0.692) | 3.442 (3.304–3.494) (a)<br>G4: 3.495 (3.134–3.598) | 2.239 (1.952–2.278) (original c)<br>G4: 1.382 (1.158–1.466) | 0.523 (0.386–0.612) (original c)<br>G4: 0.288 (0.238–0.413) |
 | Peak footprint during fling, MiB | 235.74 (198.41–240.30)<br>G4: 228.39 (211.35–232.45) | 413.75 (412.16–421.85)<br>G4: 406.42 (391.64–413.84) | 598.47 (592.45–606.92)<br>G4: 591.56 (587.67–593.42) | 512.95 (505.34–518.39)<br>G4: 507.81 (504.14–515.89) |
 | End-of-fling footprint, MiB | 216.47 (189.25–222.39)<br>G4: 216.61 (198.06–220.39) | 391.83 (388.33–395.63)<br>G4: 389.38 (388.77–391.05) | 245.38 (244.45–248.42)<br>G4: 246.08 (242.61–247.64) | 185.17 (180.74–287.61)<br>G4: 186.49 (179.99–188.63) |
 | End-of-rest footprint, MiB | 215.86 (188.56–221.72)<br>G4: 215.85 (197.42–219.58) | 209.64 (205.63–215.52)<br>G4: 208.55 (206.05–210.47) | 238.05 (237.16–241.30)<br>G4: 238.64 (235.56–240.38) | 176.99 (172.64–279.52)<br>G4: 178.28 (171.80–180.50) |
@@ -3336,10 +3341,11 @@ and main-thread CPU range lies above G4's. All four p95 medians agree at
 8.33 ms, but native's late-interval range is also above G4's. All four peak
 footprint ranges overlap G4's. Every cold median is below G4's minimum.
 Source, the GPU probe and simultaneous power sampling changed between series;
-these observations do not isolate a hardware difference. G4m is LLP 1149.001
-§4's Mac baseline for subsequent stages on this machine.
+these observations do not isolate a hardware difference. The later instrument comparison below supplies LLP 1149.001 §4's
+hook-off, power-off CPU baseline on this machine.
 
-Predictions were retained in `plan.txt` before the run, using the same probe
+The original (c) predictions and results below are unchanged. Predictions were
+retained in `plan.txt` before the run, using the same probe
 and driver metrics. A footprint prediction concerns the median, not overlapping
 ranges.
 
@@ -3399,6 +3405,7 @@ bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/g4m
 bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/g4m --json
 python3 target/g0/silver-run-42d5066572/power-summary.py target/g0/silver-run-42d5066572/g4m
 ```
+
 
 ## G5m: static workloads on the measurement Mac
 
@@ -4755,3 +4762,162 @@ Predicted process CPU added by the hook, in ms/s: native −5 to +5, GPUI
 each painted arm, and median peak footprint by at most 10% for every arm,
 in (b) versus (a) and (c) versus (b). These are hypotheses, not gates.
 `target/g4m-hook/plan.txt` retains the protocol and denominators.
+
+**No positive hook cost is resolved.** Every paired hook-on minus
+hook-off CPU range crosses zero. Hook-off CPU is higher than G4 for every
+arm, with disjoint ranges. Turning on `powermetrics` lowers measured app CPU
+in this experiment; the prediction of a small positive cost misses for all
+four arms. No clock or scheduling cause was isolated. These observations
+establish the instrument settings, not a renderer saving.
+
+Measured on 2026-10-30, 15:58–16:22 PDT, on the dedicated silver M5 Max.
+The checkout was refreshed to `origin/main` `f069d37722`; the probe change is
+`c22ef19622`. Only the carrier and probe were rebuilt. Native, GPUI and egui
+are copied from `42d5066572`, byte-identical before their code signatures;
+re-signing includes the changed probe. The driver and wheel-helper binaries
+are unchanged. All 105 data hashes and the GPUI/egui copies pass. The shared
+probe SHA-256 is
+`cc37debaa120a87f8e841f42205f5af7c50d0eede7af1b15b406823de702162c`.
+
+Five rounds rotate configurations **abc, bca, cab, abc, bca**; each round
+rotates the four arms as the existing driver does. Every sample starts after
+complete-scene readiness, then runs four 600-point flings over ten seconds
+and ten seconds at rest. There are no cold-only launches. Every configuration
+uses the same binaries, retained caches, 800×800-point outer window, 2× scale,
+120 Hz display and disabled tracing/counters. Configuration (c) uses
+`powermetrics --samplers cpu_power,gpu_power,tasks --show-process-energy
+--show-process-gpu -i 1000`. The recorded sampler PID exits before (a) or (b).
+
+**60/60 samples pass**, from 61 attempts. The first egui launch in (c) round
+one fails startup readiness; its one permitted retry passes. Both remain
+retained. There are no focus losses, thermal changes or Low Power Mode samples.
+All **285/285** quiet observations pass, with maximum 1/5/15-minute loads
+**11.01/8.96/8.72** and no compilers. Every sample posts 424 wheel events.
+Enabled GPU counts all complete, with zero invalid timestamps; disabled runs
+install no queue or buffer hook and record zero observed buffers.
+
+Medians (minimum–maximum), five samples per cell. Presented frames/s uses the
+whole ten-second fling, including pauses; native has no presented-frame
+instrument. GPUI includes unchanged re-presentations. The G4/G4m text,
+scroll-distance, readiness and whole-application limits still apply.
+
+| Arm; metric | G4 | G4m original (c) | (a) hook off, power off | (b) hook on, power off | (c) hook on, power on |
+|---|---:|---:|---:|---:|---:|
+| native; process CPU, ms/s | 131.91 (112.39–143.12) | 156.91 (151.68–175.09) | 174.87 (167.55–188.56) | 179.23 (169.59–181.80) | 165.00 (156.16–172.07) |
+| native; main CPU, ms/s | 84.51 (76.30–92.87) | 106.06 (102.76–111.39) | 118.63 (114.85–120.12) | 119.31 (118.50–121.22) | 110.18 (104.14–113.63) |
+| native; presented frames/s | — | — | — | — | — |
+| native; peak footprint, MiB | 228.39 (211.35–232.45) | 235.74 (198.41–240.30) | 230.92 (209.39–239.33) | 233.77 (231.49–236.70) | 237.16 (229.63–238.89) |
+| gpui; process CPU, ms/s | 84.92 (82.05–89.05) | 129.79 (120.63–135.25) | 156.13 (136.13–162.86) | 152.41 (139.05–163.43) | 132.29 (128.78–141.38) |
+| gpui; main CPU, ms/s | 39.56 (38.97–41.52) | 65.55 (59.68–66.71) | 78.98 (68.79–83.15) | 78.95 (69.85–84.85) | 66.63 (63.16–71.01) |
+| gpui; presented frames/s | 88.59 (88.38–89.00) | 89.09 (88.98–89.19) | 89.16 (88.87–89.29) | 89.17 (88.89–89.28) | 89.16 (89.07–89.29) |
+| gpui; peak footprint, MiB | 406.42 (391.64–413.84) | 413.75 (412.16–421.85) | 418.17 (412.63–431.42) | 413.56 (404.77–421.25) | 407.45 (402.74–417.09) |
+| ink; process CPU, ms/s | 86.41 (84.98–87.07) | 110.90 (105.46–119.73) | 128.00 (105.84–133.51) | 123.07 (116.70–136.40) | 117.29 (107.42–118.57) |
+| ink; main CPU, ms/s | 43.83 (41.98–44.65) | 55.62 (52.68–60.11) | 63.95 (56.19–67.87) | 62.71 (60.57–68.31) | 57.58 (51.81–60.33) |
+| ink; presented frames/s | 32.60 (32.29–33.20) | 32.99 (32.89–33.19) | 33.00 (32.99–33.20) | 33.00 (32.79–33.09) | 32.90 (32.69–32.90) |
+| ink; peak footprint, MiB | 591.56 (587.67–593.42) | 598.47 (592.45–606.92) | 602.66 (592.97–604.69) | 604.42 (600.89–606.81) | 595.02 (592.34–601.25) |
+| egui; process CPU, ms/s | 66.84 (64.93–71.54) | 108.28 (99.29–109.32) | 119.76 (105.58–123.56) | 116.97 (105.62–121.63) | 103.21 (100.23–114.13) |
+| egui; main CPU, ms/s | 31.33 (30.28–33.69) | 50.36 (46.79–51.13) | 56.49 (49.97–58.43) | 54.89 (49.59–58.34) | 48.90 (45.30–52.01) |
+| egui; presented frames/s | 40.90 (40.49–41.28) | 41.79 (41.48–41.89) | 41.70 (41.49–41.79) | 41.70 (41.59–41.80) | 41.79 (41.69–41.79) |
+| egui; peak footprint, MiB | 507.81 (504.14–515.89) | 512.95 (505.34–518.39) | 514.19 (508.05–516.11) | 512.52 (509.25–520.52) | 514.08 (501.20–519.83) |
+
+| Arm | Hook process CPU, ms/s | Hook main CPU, ms/s | Completed buffers in (b), ten seconds | Hook process CPU, µs/buffer | Power process CPU, ms/s | Power main CPU, ms/s |
+|---|---:|---:|---:|---:|---:|---:|
+| native | -2.140 (-11.726–11.682) | 1.919 (-0.964–4.227) | 0 (0–0) | — | -10.285 (-20.676–-4.590) | -9.137 (-15.021–-6.195) |
+| gpui | 3.511 (-23.809–10.046) | 3.485 (-13.300–3.832) | 896 (893–897) | 39.326 (-265.805–112.381) | -11.023 (-34.656–-4.606) | -7.938 (-18.693–-2.509) |
+| ink | 2.896 (-6.222–10.862) | 0.445 (-5.804–4.377) | 1236 (1234–1238) | 23.440 (-50.343–87.885) | -5.780 (-21.033–1.868) | -5.131 (-11.463–-0.479) |
+| egui | -2.851 (-13.461–11.395) | -2.884 (-6.901–7.411) | 3031 (3024–3038) | -9.388 (-44.413–37.607) | -9.873 (-15.460–1.250) | -5.995 (-12.076–0.348) |
+
+The second table uses **paired per-round differences**, (b)−(a) for the hook
+and (c)−(b) for power, rather than subtracting the first table's medians.
+The per-buffer estimate divides each paired process CPU-rate difference by
+(b)'s completed buffers/s and converts milliseconds to microseconds. All
+three estimates span zero: these five rounds cannot resolve a positive hook
+cost per buffer. Native's per-buffer cost is unavailable because its Core
+Animation GPU work is outside the process. The 8,379/2,399/1,198 counts in G5m
+are its bar workload; the denominator here is the observed fling count.
+Power deltas describe the app's CPU, excluding the sampler's own process CPU.
+Native and GPUI have negative process deltas in all five pairs; Ink and egui
+have one positive pair each. Negative deltas are not a claimed optimization.
+
+Predictions use the paired medians specified before measurement. A median
+inside its predicted band does not establish a cost whose range crosses zero.
+
+| Arm | Predicted hook CPU, ms/s → result | Predicted power CPU, ms/s → result |
+|---|---:|---:|
+| Native | -5 to +5 → -2.140, **met** | +0 to +5 → -10.285, **miss** |
+| GPUI | +1 to +10 → +3.511, **met** | +0 to +5 → -11.023, **miss** |
+| Ink | +1 to +10 → +2.896, **met** | +0 to +5 → -5.780, **miss** |
+| egui | +5 to +20 → -2.851, **miss** | +0 to +5 → -9.873, **miss** |
+
+The cadence prediction was at most 5% change, and peak footprint at most 10%,
+for each comparison's medians. **All meet** those bounds:
+
+| Arm | Frames/s change, b−a; c−b | Peak footprint change, b−a; c−b |
+|---|---:|---:|
+| Native | — | +1.231%; +1.450% |
+| GPUI | +0.010%; -0.012% | -1.102%; -1.477% |
+| Ink | -0.001%; -0.307% | +0.293%; -1.556% |
+| egui | +0.004%; +0.211% | -0.325%; +0.305% |
+
+Only native main CPU and GPUI's process, main, per-frame and two rest CPU
+ranges are disjoint from original G4m's; those cells above now carry (a).
+All CPU values for future scoreboard comparisons come from (a), including
+cells whose ranges overlap the originals. The hook-off process CPU medians
+are **174.87 / 156.13 / 128.00 / 119.76 ms/s** for native/GPUI/Ink/egui;
+this experiment does not restore G4's CPU levels. The full (a) table,
+including rest and per-frame CPU for all arms, is retained in
+`target/g4m-hook/silver/series-run/a/tables.md`.
+
+Raw files, all attempts, quiet observations, five power plists, schedule,
+commands, predictions, binaries and hashes remain on the silver Mac under
+`target/g0/hook-c22ef19622/`. The development copy of the records is
+`target/g4m-hook/silver/`; original G4m records are also copied under
+`target/g4m-hook/historical/g4m/`. `source.bundle` retains the measured patch;
+`prepare.py`, `run-hook.py`, `verify-code.py` and `analyze.py` retain its
+preparation, execution and derivation. No cited prior evidence was replaced.
+`analysis.json` includes every paired difference and the range-overlap test.
+Reproduce the report from the retained raw files in this worktree with:
+
+```sh
+python3 target/g4m-hook/analyze.py target/g4m-hook/silver/series-run target/g4m-hook/historical/g4m
+```
+
+The script re-runs the committed `aggregate.mjs` for each configuration and
+original G4m, checks five samples per arm, hook state, focus, thermal state,
+phase durations, quiet coverage and completed GPU counts, then writes
+`comparison.md` and `analysis.json`. Historical G4 cells match its published
+tables; original G4m's metrics reproduce exactly from its raw files.
+
+The probe reads `G1_GPU_HOOK=0|1` once at load. With zero it installs no
+command-queue or command-buffer hooks; the drawable hook stays enabled.
+Each result records `gpuHookEnabled`, so unavailable GPU accounting cannot
+be mistaken for zero GPU work. The probe defaults to on; the driver defaults
+to off for flings and on for static workloads. Set it to one for every
+workload in G5's GPU series, including its fling control.
+
+**Scoreboard instrument rule:** CPU comes from (a), GPU from (b) or G5's
+GPU series, and power from a separate run. A power run is never joined to a
+scoreboard CPU row. This is also LLP 1149.001 §4's rule.
+
+All six development-Mac checks pass on `c22ef19622`: all-target build,
+`cargo test --tests --no-fail-fast`, Clippy plus fmt, staged caps, boot and
+the workspace all-target check. With `RUST_TEST_THREADS=2`, the test command
+reports **7,384 passed, zero failed, 83 ignored** across 113 result summaries.
+Commands, exit codes and complete output are in `target/g4m-hook/checks/`;
+`suite-results.txt` retains every result line verbatim. No check needed a retry.
+The probe and driver compile with `-Wall -Wextra -Werror`. The probe's real
+Metal check runs with the hook off, on and unset; invalid input exits 2.
+Its enabled and disabled outputs are:
+
+```text
+probe: painter-specific completeness and one boot-expose wake passed
+probe: GPU hook off; three buffers completed, commit-phase accounting passed
+probe: painter-specific completeness and one boot-expose wake passed
+probe: GPU hook on; three buffers completed, commit-phase accounting passed
+```
+
+The branch was rebased onto `origin/main` `43e0d93b85`. That update changes
+pointer-focus handling, not Rust sources or this instrument. Post-rebase
+build, Clippy, fmt, caps, boot and workspace check all pass; output is retained in
+`target/g4m-hook/checks-rebased/`; the full test run above is on the measured
+source. The measurement series was not repeated after the rebase.
