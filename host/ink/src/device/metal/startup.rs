@@ -6,7 +6,7 @@ use crate::present::Thread;
 use objc2_quartz_core::CAMetalDrawable;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    mpsc, Arc,
+    mpsc, Arc, Mutex,
 };
 
 struct Context {
@@ -32,16 +32,24 @@ pub struct Startup {
     context: Context,
     ready: Option<Prepared>,
     pending: Option<mpsc::Receiver<Result<Prepared>>>,
+    completed: Arc<AtomicBool>,
+    cpu_submitted: bool,
+    compiler: Option<Compiler>,
     layer: Option<Layer>,
     thread: Rc<Thread>,
     shown: Arc<AtomicBool>,
     wake: Arc<dyn Fn() + Send + Sync>,
     frames: std::collections::VecDeque<mpsc::Receiver<Result<()>>>,
+    textures: Arc<Mutex<CpuTextures>>,
 }
 
 impl Startup {
+    pub fn waker(&self) -> Arc<dyn Fn() + Send + Sync> {
+        self.wake.clone()
+    }
+
     pub fn start(wake: Arc<dyn Fn() + Send + Sync>) -> Result<Self> {
-        Self::open(None, wake)
+        Self::open(None, wake, None)
     }
 
     /// An explicit archive location, including an absent archive, follows the
@@ -50,10 +58,25 @@ impl Startup {
         path: std::path::PathBuf,
         wake: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<Self> {
-        Self::open(Some(path), wake)
+        Self::open(Some(path), wake, None)
     }
 
-    fn open(path: Option<std::path::PathBuf>, wake: Arc<dyn Fn() + Send + Sync>) -> Result<Self> {
+    /// Hold an archive miss before compilation so tests can choose either race.
+    #[doc(hidden)]
+    #[cfg(debug_assertions)]
+    pub fn with_archive_gated(
+        path: std::path::PathBuf,
+        wake: Arc<dyn Fn() + Send + Sync>,
+        gate: mpsc::Receiver<()>,
+    ) -> Result<Self> {
+        Self::open(Some(path), wake, Some(gate))
+    }
+
+    fn open(
+        path: Option<std::path::PathBuf>,
+        wake: Arc<dyn Fn() + Send + Sync>,
+        gate: Option<mpsc::Receiver<()>>,
+    ) -> Result<Self> {
         let _trace = Trace::new(c"boot Metal constructor");
         let started = Instant::now();
         let device = {
@@ -85,8 +108,9 @@ impl Startup {
             }
         }
         let build = |strict| prepare(&context.device, path.clone(), strict);
-        let (ready, pending) = match build(true) {
-            Ok(prepared) => (Some(prepared), None),
+        let completed = Arc::new(AtomicBool::new(false));
+        let (ready, pending, compiler) = match build(true) {
+            Ok(prepared) => (Some(prepared), None, None),
             Err(_) => {
                 let worker = Context {
                     device: context.device.clone(),
@@ -94,27 +118,29 @@ impl Startup {
                     info: context.info.clone(),
                 };
                 let (sender, receiver) = mpsc::sync_channel(1);
-                let compiler_wake = wake.clone();
-                std::thread::Builder::new()
-                    .name("ink-pipelines".into())
-                    .spawn(move || {
-                        let result = autoreleasepool(|_| prepare(&worker.device, path, false));
-                        let _ = sender.send(result);
-                        compiler_wake();
-                    })
-                    .map_err(|e| Error::Device(e.to_string()))?;
-                (None, Some(receiver))
+                let done = completed.clone();
+                let compiler = Compiler::spawn(wake.clone(), move |cancelled| {
+                    let result = wait_gate(gate, cancelled)
+                        .and_then(|()| autoreleasepool(|_| prepare(&worker.device, path, false)));
+                    let _ = sender.send(result);
+                    done.store(true, Ordering::Release);
+                })?;
+                (None, Some(receiver), Some(compiler))
             }
         };
         Ok(Self {
             context,
             ready,
             pending,
+            completed,
+            cpu_submitted: false,
+            compiler,
             layer: None,
             thread: Rc::new(Thread::new()?),
             shown: Arc::new(AtomicBool::new(false)),
             wake,
             frames: Default::default(),
+            textures: Default::default(),
         })
     }
 
@@ -127,13 +153,10 @@ impl Startup {
         self.layer = Some(layer);
     }
 
-    /// A cache miss must submit a CPU frame even if compilation wins the race.
-    pub fn poll(&mut self, cpu_submitted: bool) -> Result<Option<super::super::Selected>> {
+    /// Use a finished compile immediately, or wait for an already queued CPU frame.
+    pub fn poll(&mut self) -> Result<Option<super::super::Selected>> {
         self.retire_frames()?;
-        if self.layer.is_some() && !self.shown.load(Ordering::Acquire) {
-            return Ok(None);
-        }
-        if self.ready.is_none() && cpu_submitted {
+        if self.ready.is_none() {
             if let Some(receiver) = &self.pending {
                 match receiver.try_recv() {
                     Ok(result) => {
@@ -147,6 +170,9 @@ impl Startup {
                     }
                 }
             }
+        }
+        if self.waiting_for_cpu() {
+            return Ok(None);
         }
         let Some(prepared) = self.ready.take() else {
             return Ok(None);
@@ -171,8 +197,15 @@ impl Startup {
         Ok(Some(super::super::Selected::Metal(Box::new(metal))))
     }
 
-    pub fn pending(&self) -> bool {
-        self.pending.is_some() || self.ready.is_some()
+    /// A non-consuming readiness check; compiling alone never creates damage.
+    pub fn ready(&self) -> bool {
+        !self.waiting_for_cpu()
+            && (self.ready.is_some()
+                || self.pending.is_some() && self.completed.load(Ordering::Acquire))
+    }
+
+    fn waiting_for_cpu(&self) -> bool {
+        self.cpu_submitted && self.layer.is_some() && !self.shown.load(Ordering::Acquire)
     }
 
     fn retire_frames(&mut self) -> Result<()> {
@@ -191,10 +224,10 @@ impl Startup {
         Ok(())
     }
 
-    pub fn present_cpu(&mut self, pixels: Arc<tiny_skia::Pixmap>) -> Result<()> {
+    pub fn present_cpu(&mut self, pixels: Arc<tiny_skia::Pixmap>) -> Result<bool> {
         self.retire_frames()?;
         if self.frames.len() >= 2 {
-            return Ok(());
+            return Ok(false);
         }
         let layer = self
             .layer
@@ -215,11 +248,103 @@ impl Startup {
             benchmark: crate::device::apple::benchmark_scene(),
             shown: self.shown.clone(),
             wake: self.wake.clone(),
+            transaction: layer.live_resize(),
+            textures: self.textures.clone(),
         };
         // Noncoalesced: the first CPU frame cannot be cancelled by a fast compiler.
-        self.frames.push_back(self.thread.send(move || work.run())?);
-        Ok(())
+        let wake = self.wake.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        if work.transaction {
+            let completion = super::present::Command(work.command.clone());
+            if let Some(drawable) = self.thread.call(move || work.run())?? {
+                drawable.present();
+            }
+            self.thread.send(move || {
+                let _ = sender.send(completion.completed());
+                wake();
+            })?;
+        } else {
+            self.thread.send(move || {
+                let _ = sender.send(work.run().map(|_| ()));
+                wake();
+            })?;
+        }
+        self.frames.push_back(receiver);
+        self.cpu_submitted = true;
+        Ok(true)
     }
+}
+
+impl Drop for Startup {
+    fn drop(&mut self) {
+        // Joining includes serialization; a hung driver cannot hold window teardown.
+        self.compiler.take();
+    }
+}
+
+type Wake = Arc<dyn Fn() + Send + Sync>;
+struct Compiler {
+    join: Option<std::thread::JoinHandle<()>>,
+    wake: Arc<Mutex<Option<Wake>>>,
+    cancelled: Arc<AtomicBool>,
+}
+impl Compiler {
+    fn spawn(
+        wake: Arc<dyn Fn() + Send + Sync>,
+        work: impl FnOnce(&AtomicBool) + Send + 'static,
+    ) -> Result<Self> {
+        let wake = Arc::new(Mutex::new(Some(wake)));
+        let notify = wake.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let stop = cancelled.clone();
+        let join = std::thread::Builder::new()
+            .name("ink-pipelines".into())
+            .spawn(move || {
+                work(&stop);
+                if let Some(wake) = notify.lock().unwrap().as_ref() {
+                    wake();
+                }
+            })
+            .map_err(|e| Error::Device(e.to_string()))?;
+        Ok(Self {
+            join: Some(join),
+            wake,
+            cancelled,
+        })
+    }
+}
+impl Drop for Compiler {
+    fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
+        self.wake.lock().unwrap().take();
+        let Some(join) = self.join.take() else {
+            return;
+        };
+        let deadline = Instant::now() + std::time::Duration::from_secs(2);
+        // std's JoinHandle has no timed join or completion notification.
+        while !join.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        if join.is_finished() {
+            let _ = join.join();
+        } else {
+            eprintln!("exact-ink: pipeline worker did not stop within 2 s; wake disconnected");
+        }
+    }
+}
+
+fn wait_gate(gate: Option<mpsc::Receiver<()>>, cancelled: &AtomicBool) -> Result<()> {
+    let Some(gate) = gate else {
+        return Ok(());
+    };
+    while !cancelled.load(Ordering::Acquire) {
+        match gate.recv_timeout(std::time::Duration::from_millis(50)) {
+            Ok(()) => return Ok(()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    Err(Error::Device("pipeline worker cancelled".into()))
 }
 
 fn prepare(
@@ -255,33 +380,47 @@ struct CpuFrame {
     benchmark: (bool, f32),
     shown: Arc<AtomicBool>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    transaction: bool,
+    textures: Arc<Mutex<CpuTextures>>,
 }
 // SAFETY: the worker owns encoding and its immutable pixels. No NSView crosses.
 unsafe impl Send for CpuFrame {}
 impl CpuFrame {
-    fn run(self) -> Result<()> {
+    fn run(self) -> Result<Option<super::present::Drawable>> {
         let _trace = Trace::new(c"worker CPU present");
         let result = self.encode();
         // An unavailable drawable still releases the reserved command-pool slot.
+        if !self.transaction {
+            if let Ok(Some(drawable)) = &result {
+                self.command
+                    .presentDrawable(ProtocolObject::from_ref(&*drawable.0));
+            }
+        }
         self.command.commit();
-        self.command.waitUntilCompleted();
+        if self.transaction {
+            self.command.waitUntilScheduled();
+        } else {
+            self.command.waitUntilCompleted();
+        }
         if self.command.status() == MTLCommandBufferStatus::Error {
             return Err(Error::DeviceLost(format!(
                 "CPU present failed: {:?}",
                 self.command.error()
             )));
         }
-        result
+        result.map(|drawable| if self.transaction { drawable } else { None })
     }
 
-    fn encode(&self) -> Result<()> {
+    fn encode(&self) -> Result<Option<super::present::Drawable>> {
+        self.layer.raw.setPresentsWithTransaction(self.transaction);
         crate::device::apple::benchmark_painter(false);
         crate::device::apple::benchmark_present(self.benchmark);
         let Some(drawable) = self.layer.raw.nextDrawable() else {
             self.layer.retry();
-            return Ok(());
+            return Ok(None);
         };
-        self.layer.track(ProtocolObject::from_ref(&*drawable));
+        self.layer
+            .track(ProtocolObject::from_ref(&*drawable), false);
         let shown = self.shown.clone();
         let wake = self.wake.clone();
         let handler =
@@ -302,52 +441,99 @@ impl CpuFrame {
             || target.height() != self.pixels.height() as usize
         {
             self.layer.retry();
-            return Ok(());
+            return Ok(None);
         }
-        let source = cpu_texture(&self.device, &self.pixels)?;
+        let source = self.textures.lock().unwrap().upload(
+            &self.device,
+            &self.pixels,
+            self.command.clone(),
+        )?;
         let command = &self.command;
         blit(command, &source, &target)?;
-        command.presentDrawable(ProtocolObject::from_ref(&*drawable));
-        Ok(())
+        Ok(Some(super::present::Drawable(drawable)))
+    }
+}
+
+#[derive(Default)]
+struct CpuTextures {
+    slots: [Option<CpuTexture>; 2],
+    next: usize,
+}
+struct CpuTexture {
+    texture: Retained<ProtocolObject<dyn MTLTexture>>,
+    bytes: Vec<u8>,
+    command: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+}
+// SAFETY: only the presentation worker uploads; the mutex serializes access.
+unsafe impl Send for CpuTextures {}
+impl CpuTextures {
+    fn upload(
+        &mut self,
+        device: &ProtocolObject<dyn MTLDevice>,
+        pixels: &tiny_skia::Pixmap,
+        command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLTexture>>> {
+        let slot = &mut self.slots[self.next];
+        if let Some(previous) = slot.as_mut().and_then(|s| s.command.take()) {
+            super::present::Command(previous).completed()?;
+        }
+        if slot.as_ref().is_none_or(|s| {
+            s.texture.width() != pixels.width() as usize
+                || s.texture.height() != pixels.height() as usize
+        }) {
+            *slot = Some(CpuTexture {
+                texture: cpu_texture(device, pixels.width(), pixels.height())?,
+                bytes: vec![0; pixels.data().len()],
+                command: None,
+            });
+        }
+        let slot = slot.as_mut().unwrap();
+        for (src, dst) in pixels
+            .data()
+            .chunks_exact(4)
+            .zip(slot.bytes.chunks_exact_mut(4))
+        {
+            dst.copy_from_slice(&[src[2], src[1], src[0], src[3]]);
+        }
+        // SAFETY: the previous GPU reader completed; the buffer covers the texture.
+        unsafe {
+            slot.texture
+                .replaceRegion_mipmapLevel_withBytes_bytesPerRow(
+                    MTLRegion {
+                        origin: point([0, 0]),
+                        size: MTLSize {
+                            width: pixels.width() as usize,
+                            height: pixels.height() as usize,
+                            depth: 1,
+                        },
+                    },
+                    0,
+                    NonNull::new(slot.bytes.as_mut_ptr().cast()).unwrap(),
+                    pixels.width() as usize * 4,
+                );
+        }
+        slot.command = Some(command);
+        self.next = (self.next + 1) % 2;
+        Ok(slot.texture.clone())
     }
 }
 
 fn cpu_texture(
     device: &ProtocolObject<dyn MTLDevice>,
-    pixels: &tiny_skia::Pixmap,
+    width: u32,
+    height: u32,
 ) -> Result<Retained<ProtocolObject<dyn MTLTexture>>> {
     let desc = MTLTextureDescriptor::new();
     desc.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
     // SAFETY: Pixmap has nonzero dimensions and owns their checked allocation.
     unsafe {
-        desc.setWidth(pixels.width() as usize);
-        desc.setHeight(pixels.height() as usize);
+        desc.setWidth(width as usize);
+        desc.setHeight(height as usize);
     }
     desc.setStorageMode(MTLStorageMode::Shared);
-    let texture = device
+    device
         .newTextureWithDescriptor(&desc)
-        .ok_or_else(|| Error::Device("CPU texture allocation".into()))?;
-    let mut bytes = pixels.data().to_vec();
-    for pixel in bytes.chunks_exact_mut(4) {
-        pixel.swap(0, 2);
-    }
-    // SAFETY: tightly packed BGRA bytes cover this new, unsubmitted texture.
-    unsafe {
-        texture.replaceRegion_mipmapLevel_withBytes_bytesPerRow(
-            MTLRegion {
-                origin: point([0, 0]),
-                size: MTLSize {
-                    width: pixels.width() as usize,
-                    height: pixels.height() as usize,
-                    depth: 1,
-                },
-            },
-            0,
-            NonNull::new(bytes.as_mut_ptr().cast()).unwrap(),
-            pixels.width() as usize * 4,
-        );
-    }
-    Ok(texture)
+        .ok_or_else(|| Error::Device("CPU texture allocation".into()))
 }
 
 fn blit(
@@ -373,6 +559,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dropping_startup_joins_its_compiler_and_disconnects_the_wake() {
+        let finished = Arc::new(AtomicBool::new(false));
+        let done = finished.clone();
+        let (_release, gate) = mpsc::channel();
+        let compiler = Compiler::spawn(Arc::new(|| panic!("wake after shutdown")), move |stop| {
+            assert!(wait_gate(Some(gate), stop).is_err());
+            done.store(true, Ordering::Release);
+        })
+        .unwrap();
+        drop(compiler);
+        assert!(
+            finished.load(Ordering::Acquire),
+            "the worker must exit before Drop returns"
+        );
+    }
+
+    #[test]
+    fn a_full_cpu_queue_refuses_the_frame_until_a_slot_completes() {
+        let mut startup = Startup::start(Arc::new(|| {})).unwrap();
+        let (first, a) = mpsc::channel();
+        let (second, b) = mpsc::channel();
+        startup.frames.extend([a, b]);
+        assert!(!startup
+            .present_cpu(Arc::new(tiny_skia::Pixmap::new(1, 1).unwrap()))
+            .unwrap());
+        assert_eq!(startup.frames.len(), 2);
+        first.send(Ok(())).unwrap();
+        startup.retire_frames().unwrap();
+        assert_eq!(startup.frames.len(), 1);
+        second
+            .send(Err(Error::DeviceLost(
+                "injected CPU command failure".into(),
+            )))
+            .unwrap();
+        assert!(matches!(startup.retire_frames(), Err(Error::DeviceLost(_))));
+        assert!(startup.frames.is_empty());
+    }
+
+    #[test]
     fn cpu_pixmap_blits_through_bgra_without_changing_a_channel() {
         let Some(device) = MTLCreateSystemDefaultDevice() else {
             assert!(
@@ -385,10 +610,26 @@ mod tests {
         for (i, pixel) in pixels.data_mut().chunks_exact_mut(4).enumerate() {
             pixel.copy_from_slice(&[i as u8, 130, 250 - i as u8, 255]);
         }
-        let source = cpu_texture(&device, &pixels).unwrap();
-        let target = cpu_texture(&device, &tiny_skia::Pixmap::new(7, 5).unwrap()).unwrap();
+        let mut ring = CpuTextures::default();
+        let target = cpu_texture(&device, 7, 5).unwrap();
         let queue = device.newCommandQueue().unwrap();
+        let mut handles = Vec::new();
+        for value in 0..8 {
+            let mut frame = pixels.clone();
+            frame.data_mut().fill(value);
+            let command = queue.commandBuffer().unwrap();
+            let source = ring.upload(&device, &frame, command.clone()).unwrap();
+            handles.push(Retained::as_ptr(&source));
+            blit(&command, &source, &target).unwrap();
+            command.commit();
+        }
+        assert_ne!(handles[0], handles[1]);
+        assert!(handles
+            .iter()
+            .enumerate()
+            .all(|(i, p)| *p == handles[i % 2]));
         let command = queue.commandBuffer().unwrap();
+        let source = ring.upload(&device, &pixels, command.clone()).unwrap();
         blit(&command, &source, &target).unwrap();
         command.commit();
         command.waitUntilCompleted();

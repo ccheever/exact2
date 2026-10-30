@@ -3,6 +3,9 @@ use super::*;
 
 pub struct Startup(std::convert::Infallible);
 impl Startup {
+    pub fn waker(&self) -> Arc<dyn Fn() + Send + Sync> {
+        match self.0 {}
+    }
     pub fn start(_: Arc<dyn Fn() + Send + Sync>) -> Result<Self> {
         Err(Error::Unsupported(
             "direct Metal requires the Metal toolchain",
@@ -14,13 +17,22 @@ impl Startup {
     pub fn attach(&mut self, _: Layer) {
         match self.0 {}
     }
-    pub fn poll(&mut self, _: bool) -> Result<Option<super::super::Selected>> {
+    #[doc(hidden)]
+    #[cfg(debug_assertions)]
+    pub fn with_archive_gated(
+        path: std::path::PathBuf,
+        wake: Arc<dyn Fn() + Send + Sync>,
+        _: std::sync::mpsc::Receiver<()>,
+    ) -> Result<Self> {
+        Self::with_archive(path, wake)
+    }
+    pub fn poll(&mut self) -> Result<Option<super::super::Selected>> {
         match self.0 {}
     }
-    pub fn pending(&self) -> bool {
+    pub fn ready(&self) -> bool {
         match self.0 {}
     }
-    pub fn present_cpu(&mut self, _: Arc<tiny_skia::Pixmap>) -> Result<()> {
+    pub fn present_cpu(&mut self, _: Arc<tiny_skia::Pixmap>) -> Result<bool> {
         match self.0 {}
     }
 }

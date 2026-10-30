@@ -3,18 +3,37 @@ use exact_ink::device::apple::Startup;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
+struct Directory(std::path::PathBuf);
+impl Directory {
+    fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "exact-metal-startup-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+}
+impl Drop for Directory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 #[test]
 fn archive_miss_starts_with_cpu_pixels_then_replaces_the_whole_frame_with_ink() {
-    let directory =
-        std::env::temp_dir().join(format!("exact-metal-startup-{}", std::process::id()));
-    std::fs::create_dir(&directory).unwrap();
-    let archive = directory.join("wrong-device/archive.bin");
+    let directory = Directory::new();
+    let archive = directory.0.join("wrong-device/archive.bin");
     let (finished, ready) = mpsc::sync_channel(1);
-    let preparing = match Startup::with_archive(
+    let (release, gate) = mpsc::channel();
+    let preparing = match Startup::with_archive_gated(
         archive.clone(),
         Arc::new(move || {
             let _ = finished.send(());
         }),
+        gate,
     ) {
         Ok(preparing) => preparing,
         Err(error) => {
@@ -44,20 +63,64 @@ fn archive_miss_starts_with_cpu_pixels_then_replaces_the_whole_frame_with_ink() 
     let mut presenter = make();
     presenter.install_apple_painter(preparing).unwrap();
     assert_eq!(presenter.painter.name, "cpu");
-    // Even a compiler that finishes before layout must not consume the first frame.
-    ready.recv_timeout(Duration::from_secs(30)).unwrap();
+    assert_eq!(
+        presenter.painter_state()["device"],
+        "CPU startup; Metal pipelines pending"
+    );
+    assert!(presenter.painter_state()["name"].is_null());
+    assert!(!presenter
+        .surfaces
+        .apple_boot
+        .as_ref()
+        .unwrap()
+        .preparing
+        .as_ref()
+        .unwrap()
+        .ready());
     let first = presenter
         .apple_frame_for(crate::paint::FrameTarget::Pixels)
         .unwrap()
         .unwrap();
     assert_eq!(presenter.painter.name, "cpu");
     assert_eq!(first.data(), expected.data());
+    assert_eq!(presenter.painter_state()["name"], "cpu");
+    assert!(
+        !presenter.dirty(),
+        "compilation must not cause a repaint loop"
+    );
+    release.send(()).unwrap();
+    ready.recv_timeout(Duration::from_secs(30)).unwrap();
+    assert!(presenter
+        .surfaces
+        .apple_boot
+        .as_ref()
+        .unwrap()
+        .preparing
+        .as_ref()
+        .unwrap()
+        .ready());
+    assert!(
+        presenter
+            .surfaces
+            .apple_boot
+            .as_ref()
+            .unwrap()
+            .preparing
+            .as_ref()
+            .unwrap()
+            .ready(),
+        "readiness does not consume the result"
+    );
+    presenter.poll_apple_painter().unwrap();
+    assert_eq!(presenter.painter_state()["name"], "cpu");
+    assert_eq!(presenter.painter_state()["installed"], "ink");
     let later = presenter
         .apple_frame_for(crate::paint::FrameTarget::Pixels)
         .unwrap()
         .unwrap();
     assert_eq!(presenter.painter.name, "ink");
     assert!(presenter.last_frame_succeeded());
+    assert_eq!(presenter.painter_state()["name"], "ink");
     let errors: Vec<_> = first
         .data()
         .chunks_exact(4)
@@ -87,5 +150,83 @@ fn archive_miss_starts_with_cpu_pixels_then_replaces_the_whole_frame_with_ink() 
     retained.install_apple_painter(warm).unwrap();
     assert_eq!(retained.painter.name, "ink");
     assert!(retained.painter.cached);
-    std::fs::remove_dir_all(directory).unwrap();
+
+    // The other ordering is a real miss whose compile finishes before installation.
+    let (finished, ready) = mpsc::channel();
+    let (release, gate) = mpsc::channel();
+    let fast = Startup::with_archive_gated(
+        directory.0.join("fast.bin"),
+        Arc::new(move || {
+            let _ = finished.send(());
+        }),
+        gate,
+    )
+    .unwrap();
+    release.send(()).unwrap();
+    ready.recv_timeout(Duration::from_secs(30)).unwrap();
+    let mut fast_presenter = make();
+    fast_presenter.install_apple_painter(fast).unwrap();
+    assert_eq!(
+        fast_presenter.painter.name, "ink",
+        "a completed compile needs no CPU frame"
+    );
+    assert_eq!(
+        fast_presenter
+            .apple_frame_for(crate::paint::FrameTarget::Pixels)
+            .unwrap()
+            .unwrap()
+            .data(),
+        later.data()
+    );
+
+    let (finished, ready) = mpsc::channel();
+    let (release, gate) = mpsc::channel();
+    let refused = Startup::with_archive_gated(
+        directory.0.join("refused.bin"),
+        Arc::new(move || {
+            let _ = finished.send(());
+        }),
+        gate,
+    )
+    .unwrap();
+    let mut failed = make();
+    failed.install_apple_painter(refused).unwrap();
+    // Refusing submission must keep damage, even when rasterization succeeded.
+    failed.apple_window_frame().unwrap();
+    assert!(!failed.last_frame_succeeded());
+    assert!(failed.dirty());
+    drop(release);
+    ready.recv_timeout(Duration::from_secs(30)).unwrap();
+    failed.poll_apple_painter().unwrap();
+    assert!(failed.painter_state()["lastRefusal"]
+        .as_str()
+        .unwrap()
+        .contains("pipeline worker cancelled"));
+    assert_eq!(
+        failed.painter_state()["device"],
+        "CPU startup; Metal pipelines failed"
+    );
+    assert_eq!(
+        failed
+            .apple_frame_for(crate::paint::FrameTarget::Pixels)
+            .unwrap()
+            .unwrap()
+            .data(),
+        expected.data()
+    );
+    failed.surfaces.apple_boot.as_mut().unwrap().refused(
+        exact_ink::device::Error::DeviceLost("injected failure".into()),
+        std::time::Instant::now(),
+    );
+    failed.poll_apple_painter().unwrap();
+    assert!(failed.painter_state()["recovering"].as_bool().unwrap());
+    assert!(failed.dirty());
+    assert!(failed
+        .apple_frame_for(crate::paint::FrameTarget::Pixels)
+        .unwrap()
+        .is_none());
+    assert!(
+        failed.dirty(),
+        "device backoff must preserve the scene's damage"
+    );
 }

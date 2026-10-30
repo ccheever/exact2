@@ -423,6 +423,8 @@ impl Canvas {
 #[derive(Default)]
 pub(crate) struct Surfaces {
     #[cfg(target_os = "macos")]
+    pub(crate) apple_layer: Option<exact_ink::device::apple::Layer>,
+    #[cfg(target_os = "macos")]
     pub(crate) apple_boot: Option<apple::Boot>,
     #[cfg(windows)]
     window_layers: Option<window::Layers>,

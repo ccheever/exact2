@@ -232,7 +232,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         p.set_pointer(None);
         p.tick(now);
         p.poll_apple_painter()?;
-        if p.dirty() {
+        if p.dirty() && p.apple_painter_can_draw() {
             if std::env::var_os("G1_OUTPUT").is_some() {
                 self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
                 let target = std::env::var("EXACT_BENCH_SCROLL_TARGET")
@@ -247,8 +247,9 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
             p.apple_window_frame()?;
             self.paint_ms += started.elapsed().as_secs_f64() * 1000.;
-            self.frames += 1;
-            if self.frames == 1 {
+            let submitted = p.last_frame_succeeded();
+            self.frames += u64::from(submitted);
+            if submitted && self.frames == 1 {
                 eprintln!("exact-apple-painted: first submission {:.3} ms; device {:.3}, shaders {:.3} ms; {}x{} at {}x (not a displayed timestamp)", self.started.elapsed().as_secs_f64() * 1000., p.painter.device_ms, p.painter.shaders_ms, p.viewport().0, p.viewport().1, self.scale);
             }
         }
@@ -366,7 +367,17 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                     }
                 }
             }
-            Event::Wake => {}
+            Event::Wake => {
+                if self
+                    .presenter
+                    .as_ref()
+                    .is_some_and(|p| p.apple_painter_starting())
+                {
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+            }
             Event::Closed => events.exit(),
             Event::Request(line, reply) => {
                 let _trace = Trace::new(c"agent request");
@@ -582,6 +593,14 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.started.elapsed().as_secs_f64() * 1000.
         };
         service(p, now, self.live, D::default);
+        if p.apple_painter_retry_deadline()
+            .is_some_and(|due| Instant::now() >= due)
+        {
+            if let Err(e) = p.poll_apple_painter() {
+                self.fail(events, e);
+                return;
+            }
+        }
         // Offscreen metadata can finish after the last visible image. Submit a
         // complete scene for the probe even when that completion owes no damage.
         if std::env::var_os("G1_OUTPUT").is_some()
@@ -594,7 +613,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         if self.live {
             p.admit_idle_timer(now);
         }
-        let active = !self.hidden && (p.dirty() || self.live && p.needs_animation_frame());
+        let active = !self.hidden
+            && p.apple_painter_can_draw()
+            && (p.dirty() || self.live && p.needs_animation_frame());
         let running = !self.hidden && (active || self.scrolling.active);
         self.display_active.store(running, Ordering::Release);
         if let Some(display) = &mut self.display {
@@ -604,9 +625,13 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             }
         }
         let wake = if !self.live { None } else { p.wake_due_ms() };
-        events.set_control_flow(wake.map_or(ControlFlow::Wait, |due| {
-            ControlFlow::WaitUntil(self.started + Duration::from_secs_f64(due.max(now) / 1000.))
-        }));
+        let wake = wake.map(|due| self.started + Duration::from_secs_f64(due.max(now) / 1000.));
+        events.set_control_flow(
+            wake.into_iter()
+                .chain(p.apple_painter_retry_deadline())
+                .min()
+                .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
+        );
     }
 }
 

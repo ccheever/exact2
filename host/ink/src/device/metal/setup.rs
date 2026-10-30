@@ -45,7 +45,7 @@ pub(super) struct Pipelines {
 impl Pipelines {
     pub fn save(&self) {
         #[cfg(target_os = "macos")]
-        let _trace = Trace::new(c"boot archive save");
+        let _trace = Trace::new(c"pipeline archive save");
         let Some((archive, path)) = &self.archive else {
             return;
         };
@@ -56,6 +56,10 @@ impl Pipelines {
             if std::fs::create_dir_all(dir).is_err() {
                 return;
             }
+            #[cfg(target_os = "macos")]
+            if let Some(started) = process_started() {
+                sweep_temporary_archives(dir, path, started);
+            }
         }
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -64,6 +68,66 @@ impl Pipelines {
             let _ = std::fs::rename(&temp, path);
         }
         let _ = std::fs::remove_file(temp);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn process_started() -> Option<std::time::SystemTime> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = size_of::<libc::proc_bsdinfo>();
+    // SAFETY: libproc writes exactly this record for our own PID.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            std::process::id() as i32,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size as i32,
+        )
+    };
+    if written != size as i32 {
+        return None;
+    }
+    let info = unsafe { info.assume_init() };
+    Some(
+        std::time::UNIX_EPOCH
+            + std::time::Duration::from_secs(info.pbi_start_tvsec)
+            + std::time::Duration::from_micros(info.pbi_start_tvusec),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn sweep_temporary_archives(dir: &Path, archive: &Path, started: std::time::SystemTime) {
+    let prefix = format!(
+        "{}.",
+        archive.file_stem().unwrap_or_default().to_string_lossy()
+    );
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !(name.starts_with(&prefix) || name.starts_with("pipelines-ink-metal-v2-"))
+            || !name.ends_with(".tmp")
+        {
+            continue;
+        }
+        let Some((_, serial)) = name.trim_end_matches(".tmp").rsplit_once('.') else {
+            continue;
+        };
+        let Some((pid, count)) = serial.split_once('-') else {
+            continue;
+        };
+        if pid.parse::<u32>().is_err() || count.parse::<u64>().is_err() {
+            continue;
+        }
+        if entry
+            .metadata()
+            .is_ok_and(|m| m.is_file() && m.modified().is_ok_and(|t| t < started))
+        {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
 }
 
@@ -90,7 +154,11 @@ impl Builder {
             return Err(Error::Device("Metal archive absent".into()));
         }
         #[cfg(target_os = "macos")]
-        let load = Trace::new(c"boot metallib load");
+        let load = Trace::new(if strict {
+            c"boot metallib load"
+        } else {
+            c"pipeline metallib load"
+        });
         let library = library(device)?;
         #[cfg(target_os = "macos")]
         drop(load);
@@ -120,7 +188,11 @@ impl Builder {
             }
         }
         #[cfg(target_os = "macos")]
-        let _open = Trace::new(c"boot archive open");
+        let _open = Trace::new(if strict {
+            c"boot archive open"
+        } else {
+            c"pipeline archive open"
+        });
         let desc = MTLBinaryArchiveDescriptor::new();
         if let Some(path) = path.as_ref().filter(|p| p.is_file()) {
             desc.setUrl(Some(&url(path)));
@@ -150,12 +222,18 @@ impl Builder {
         blend: bool,
     ) -> Result<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
         #[cfg(target_os = "macos")]
-        let _trace = Trace::new(match (format == MTLPixelFormat::RGBA8Unorm, blend) {
-            (true, true) => c"boot RGBA blend",
-            (true, false) => c"boot RGBA replace",
-            (false, true) => c"boot BGRA blend",
-            (false, false) => c"boot BGRA replace",
-        });
+        let _trace = Trace::new(
+            match (self.strict, format == MTLPixelFormat::RGBA8Unorm, blend) {
+                (true, true, true) => c"boot RGBA blend",
+                (true, true, false) => c"boot RGBA replace",
+                (true, false, true) => c"boot BGRA blend",
+                (true, false, false) => c"boot BGRA replace",
+                (false, true, true) => c"pipeline RGBA blend",
+                (false, true, false) => c"pipeline RGBA replace",
+                (false, false, true) => c"pipeline BGRA blend",
+                (false, false, false) => c"pipeline BGRA replace",
+            },
+        );
         let desc = MTLRenderPipelineDescriptor::new();
         desc.setVertexFunction(Some(&self.vertex));
         desc.setFragmentFunction(Some(&self.fragment));
@@ -265,4 +343,42 @@ pub(super) fn sampler(
     device
         .newSamplerStateWithDescriptor(&desc)
         .ok_or_else(|| Error::Device("sampler allocation".into()))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_sweep_removes_only_temporary_files_older_than_this_process() {
+        struct Directory(PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = Directory(
+            std::env::temp_dir().join(format!("ink-archive-sweep-{}", std::process::id())),
+        );
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let started = process_started().unwrap();
+        let archive = dir.0.join("pipelines-ink-metal-v2-test.bin");
+        let stale = dir.0.join("pipelines-ink-metal-v2-old.123-0.tmp");
+        let current = dir.0.join("pipelines-ink-metal-v2-test.124-0.tmp");
+        let unrelated = dir.0.join("another.123-0.tmp");
+        for path in [&archive, &stale, &current, &unrelated] {
+            let file = std::fs::File::create(path).unwrap();
+            file.set_modified(if path == &current {
+                started
+            } else {
+                started - std::time::Duration::from_secs(1)
+            })
+            .unwrap();
+        }
+        sweep_temporary_archives(&dir.0, &archive, started);
+        assert!(!stale.exists());
+        for path in [&archive, &current, &unrelated] {
+            assert!(path.is_file(), "{}", path.display());
+        }
+    }
 }

@@ -16,12 +16,12 @@ if (mode === '--boot') {
     if (!existsSync(join(directory, stem + '.json.trace.json'))) {
       assert(run.timeout || run.exit !== 0, `${stem}: successful launch without trace`);
       samples.push({sample: stem, arm: stem.split('-')[0], exit: run.exit ?? 'timeout', quiet: false, phaseMs: null,
-        archiveOpenMs: null, compileMs: null, firstPixelMs: null, firstCpuMs: null, firstInkMs: null});
+        archiveOpenMs: null, compileMs: null, firstPixelMs: null, firstCpuMs: null, firstInkMs: null,
+        firstCpuCompleteMs: null, firstInkCompleteMs: null});
       continue;
     }
     if (run.cacheMode === 'miss') {
       assert.equal(run.cachePresentAtLaunch, false, `${stem}: cache not removed`);
-      if (run.exit === 0) assert.equal(raw.cpuSubmitted, true, `${stem}: miss skipped CPU`);
     }
     if (run.cacheMode === 'retained' && run.exit === 0) {
       assert.equal(raw.cpuSubmitted, false, `${stem}: retained archive missed`);
@@ -32,6 +32,11 @@ if (mode === '--boot') {
     const window = existsSync(join(directory, stem + '.json.window')) ? read('.json.window') : {};
     const compile = events.find(e => e.name === 'worker compile pipelines');
     const firstShown = Math.min(...events.filter(e => e.name === 'presented' && e.ts > 0).map(e => e.ts));
+    if (run.cacheMode === 'miss' && run.exit === 0) {
+      assert(compile, `${stem}: miss without a compiler span`);
+      if (!raw.cpuSubmitted) assert(compile.ts + compile.dur <= firstShown,
+        `${stem}: ink presented before the miss finished compiling`);
+    }
     const arm = stem.split('-')[0];
     const names = arm === 'metal'
       ? ['boot Metal constructor', 'boot Metal attach layer', 'boot samplers buffers white textures']
@@ -55,6 +60,9 @@ if (mode === '--boot') {
       compileMs: phase('worker compile pipelines'),
       firstPixelMs: raw.firstDrawableMs ?? null, firstCpuMs: raw.firstCpuMs ?? null,
       firstInkMs: raw.firstInkMs ?? null, cpuSubmitted: raw.cpuSubmitted ?? null,
+      // Older probes did not establish completeness for each painter. Keep it missing.
+      firstCpuCompleteMs: raw.firstCpuCompleteMs ?? null,
+      firstInkCompleteMs: raw.firstInkCompleteMs ?? null,
       thermal: [raw.thermalStart ?? null, raw.thermalEnd ?? null],
       activeAtStart: raw.activeAtStart ?? null, windowActive: window.active ?? null, keyWindow: window.keyWindow ?? null,
       activationSuppressed: raw.activationSuppressed ?? null, compiledOnBoot,
@@ -69,15 +77,17 @@ if (mode === '--boot') {
     if (!rows.length) continue;
     medians[arm] = {count: rows.length, quiet: rows.filter(s => s.quiet).length,
       displayed: rows.filter(s => s.firstPixelMs !== null).length,
+      cpuCompleteSamples: rows.filter(s => s.firstCpuCompleteMs !== null).length,
+      inkCompleteSamples: rows.filter(s => s.firstInkCompleteMs !== null).length,
       phaseSamples: rows.filter(s => s.phaseMs !== null).length,
       activated: rows.filter(s => s.activeAtStart || s.windowActive || s.keyWindow).length,
       cpuWhileCompiling: rows.filter(s => s.cpuWhileCompiling).length};
-    for (const key of ['phaseMs', 'archiveOpenMs', 'compileMs', 'firstPixelMs', 'firstCpuMs', 'firstInkMs']) {
+    for (const key of ['phaseMs', 'archiveOpenMs', 'compileMs', 'firstPixelMs', 'firstCpuMs', 'firstInkMs', 'firstCpuCompleteMs', 'firstInkCompleteMs']) {
       const values = rows.map(s => s[key]).filter(v => v !== null).sort((a,b) => a-b);
       medians[arm][key] = values.length ? (values[Math.floor((values.length-1)/2)] + values[Math.floor(values.length/2)])/2 : null;
     }
   }
-  console.log(JSON.stringify({instrument: 'probe CACurrentMediaTime startup span union; MTLDrawable.presentedTime first pixels', medians, samples}, null, 2));
+  console.log(JSON.stringify({instrument: 'probe CACurrentMediaTime startup span union; MTLDrawable.presentedTime first pixels and per-painter complete scenes', medians, samples}, null, 2));
   process.exit(0);
 }
 const fourArms = readdirSync(join(directory, 'series', 'fling')).some(file => /^egui-/.test(file));

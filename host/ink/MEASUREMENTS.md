@@ -3154,6 +3154,16 @@ G6e restores the full-period reservation wait and removes the clean-frame skip: 
 
 ## Stage 0b — direct Metal startup (2026-10-30)
 
+Chunk 3's review corrections are verified without windows. Before qualification
+on the measurement Mac, the predictions are: zero redraws caused only by an
+unfinished compile; zero CPU submissions when compilation finishes before the
+first poll; at most two reusable CPU upload textures at one size; and no lost
+damage after a full CPU queue. Gated-worker and offscreen tests check those
+counts. The transition retains P2's exact CPU comparison and D9 band. These
+checks predict no new startup milliseconds: both miss and retained cohorts,
+including complete-scene timestamps for each painter, must be remeasured on
+the silver M5 Max after landing. No window series runs on this development Mac.
+
 Pre-change diagnosis and predictions (written before the implementation runs).
 The carrier's probe records inclusive `CACurrentMediaTime` spans. In the second
 passive diagnostic, Metal's constructor plus layer attachment took 11.591 ms;
@@ -3229,13 +3239,14 @@ synchronous compilation in the carrier. RGBA blending stays on the warm path
 because the first ink frame uses it. The compose target remains allocated by
 `Ink::begin`, when a frame needs it.
 
-`metal/startup.rs` keeps the CPU painter installed on a miss. A compiler worker
-creates the pipeline states, populates the archive and serializes it. The
-presentation worker uploads the CPU pixmap into a shared BGRA texture and blits
-it to the same `CAMetalLayer`. Its command is reserved before enqueueing, and
-outstanding CPU jobs are bounded at two. The handoff waits for a CPU drawable's
-nonzero presented timestamp, then queues the layer's framebuffer-only setting
-behind those jobs and replaces the backend. The replacement repaints the whole
+`metal/startup.rs` keeps the CPU painter installed while a miss compiles. A
+finished compile is consumed at the first poll, so it can precede the first
+CPU frame. The worker populates and serializes the archive. The presentation
+worker uploads CPU pixels through two reusable BGRA textures and blits them to
+the same `CAMetalLayer`. Its command is reserved before enqueueing; outstanding
+CPU jobs are bounded at two. If a CPU frame has been queued, the handoff waits
+for its nonzero presented timestamp, then queues the layer's framebuffer-only
+setting behind those jobs and replaces the backend. The replacement repaints the whole
 frame with ink; it does not blend an ink image with the CPU image. A compiler
 failure leaves the CPU painter installed.
 
@@ -3253,7 +3264,7 @@ but excluded from qualification.
 | --- | --- | --- |
 | P1: warm phase 8 ms, within wgpu +5 ms | Metal 6.581 ms; wgpu 6.699 ms; ten phase samples each | Faster than predicted; original phase gate met |
 | P2: zero pipeline compilation on the boot thread | Zero in all ten cache-miss traces; every first CPU drawable displayed while the compiler worker was still running | Met in the measured launches |
-| P2: missing-cache first CPU pixels ≤300 ms; first ink frame ≤450 ms | 231.070 ms and 418.335 ms p50; ten displayed samples each | Both timing predictions met |
+| P2: missing-cache first CPU pixels ≤300 ms; first full ink frame ≤450 ms | First CPU and ink drawables: 231.070 ms and 418.335 ms p50; ten displayed samples each. The old probe did not record completeness per painter | CPU timing met; ink drawable timing met, complete-ink timing unqualified |
 | P2: first headless pixels exactly CPU; later ink within D9 | First frame byte-identical to CPU; later ink mean 0.023/255, 0.000% beyond 32 | Met; corrected fixture, no handoff defect |
 | P3: ten retained launches start on ink, phase within 2 ms of P1's measured phase | All ten start on ink; phase 9.957 ms, +3.377 ms, with other Cargo jobs present | Phase prediction missed in this loaded cohort; unchanged quiet timing remains unqualified |
 | P4: both passive pilot arms have zero active/key windows | Zero in both arms of `passive-check-2/`; zero in the final measured cohorts | Met |
@@ -3493,3 +3504,160 @@ P3 stays a miss measured under load, with quiet qualification assigned to G4m
 on the silver M5 Max after this lane lands. The summed first-screen comparison
 required by r9 remains unqualified; the 100 ms obligation remains unmet under
 M10 following Q6's ruling. This chunk opens no windows and posts no input.
+
+
+### Chunk 3 — review corrections
+
+Claude 1–2: a compiler wake requests a poll, and an unfinished compile creates
+no damage. The gated transition test chooses both orderings: CPU before compile
+completion, and ink on the first frame when compilation has already finished.
+Sol 2 / Claude 3: `present_cpu` reports queue admission; a refused submission
+keeps damage and does not increment the carrier's submitted-frame count.
+Completion wakes follow receipt delivery, so capacity cannot wake a poll before
+its receipt is readable.
+
+Sol 1: CPU device loss invalidates the layer's generation and recreates the
+device with the shared 250 ms to 30 s retry backoff. The logical presenter and
+its damage remain alive; backoff disables painting. Sol 3 / Claude 8: CPU live
+resize commits on the presentation worker, waits until scheduled, and returns
+the drawable to be presented inside the caller's transaction. No live window
+or resize interaction was run here; that behavior still needs the measurement
+Mac's window check.
+
+Sol 5 / Claude 4: startup owns and joins the compiler, including archive
+serialization. Teardown waits at most two seconds, disconnects its wake and
+logs if a driver call has not returned; Metal provides no cancellation for
+that call. `save()` removes matching temporary archives older than the current
+process. Claude 9–10: CPU uploads reuse two textures and swizzle buffers, waiting
+for each slot's previous GPU reader; the transition's temporary directory has
+a drop guard.
+
+Claude 5: state records the startup reason and last refusal. Its painter name
+follows a nonzero displayed timestamp; the separately named installed painter
+can be ahead of it. Stale generations and out-of-order callbacks cannot change
+the displayed painter. Claude 6: the passive probe's first tick resumes an
+unshown layer's retries without activation or posted input. Sol 4: the probe
+records complete scenes separately for CPU and ink, and the aggregator reports
+those endpoints separately from first drawables. Earlier raw files lack these
+fields and continue to report them as missing.
+
+Claude 7: worker spans use `pipeline`, keeping them out of boot-only accounting.
+Sol 6: A1 now owes the BGRA blend pipeline and measurement of its startup cost.
+Claude 11: `QUEUE.md` names the cross-reboot registry-ID and strict archive-load
+check; no reboot was performed. Both miss and retained cohorts must be rerun on
+the silver M5 Max after landing, with the new painter-specific completeness
+endpoints. The preceding distributions are retained evidence, not qualification
+of these corrections.
+
+
+Chunk 3's predictions and windowless results:
+
+| Prediction and instrument | Result |
+| --- | --- |
+| Zero damage caused only by an unfinished compile; gated transition test | Met: after the CPU frame, `dirty()` is false while the gate holds the compiler |
+| Zero CPU frames when compilation finishes before the first poll; gated transition test | Met: the first frame uses ink and equals the later ink frame from the CPU-first ordering |
+| At most two reusable CPU textures at one size; Metal upload/blit test | Met: eight queued uploads alternate between two texture identities; the following channel readback is exact |
+| No lost damage after a full CPU queue; queue admission and presenter refusal tests | Met: two outstanding receipts refuse a third submission; a refused presenter submission keeps damage and reports no successful frame |
+| Exact CPU pixels, then D9 mean <5/255 and outliers <6%; required-Metal transition | Met: byte-identical CPU pixels, ink mean 0.023/255 and 0.000% beyond 32 |
+
+All six pre-rebase checks pass, including clippy and fmt. The root test log
+reports 7,373 passed, 0 failed and 83 ignored, including child runs. The carrier
+build and clippy for `exact-ink`, `exact-linux` and `exact-apple-painted` also
+pass. Commands, exits and full output are retained in
+`target/stage-0b/chunk-3/pre-rebase/` (`results.json`, and a log per command).
+The ink and transition runs, named pinned filters and image tests set
+`EXACT_INK_DEVICE=metal EXACT_REQUIRED=1`; Rust suites use
+`RUST_TEST_THREADS=2`. Verbatim result lines follow.
+
+`ink.log`:
+
+```text
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+`transition.log`:
+
+```text
+Metal archive transition: mean 0.023/255, 0.000% beyond 32
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1654 filtered out; finished in 1.70s
+```
+
+`linux.log` (includes child runs):
+
+```text
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1654 filtered out; finished in 0.93s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1654 filtered out; finished in 0.86s
+test result: ok. 170 passed; 0 failed; 15 ignored; 0 measured; 1470 filtered out; finished in 3.75s
+test result: ok. 1633 passed; 0 failed; 22 ignored; 0 measured; 0 filtered out; finished in 73.94s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.61s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.69s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s
+test result: ok. 130 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.76s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.59s
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+test result: ok. 104 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 10.18s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+```
+
+`pinned-paint.log`:
+
+```text
+test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 11.55s
+```
+
+`pinned-borders.log`:
+
+```text
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 2.22s
+```
+
+`pinned-tint.log`:
+
+```text
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 2.47s
+```
+
+`pinned-backdrop.log`:
+
+```text
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 3.33s
+```
+
+`pinned-gradients.log`:
+
+```text
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 2.87s
+```
+
+`pinned-visual.log`:
+
+```text
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 11.29s
+```
+
+`pinned-materials.log`:
+
+```text
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 8.69s
+```
+
+`images.log`:
+
+```text
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 5.66s
+```
+
+The probe is checked without a window using
+`clang -fobjc-arc -fblocks -DG1_PROBE_TEST bench/heavy-list/gpui/probe.m
+-framework AppKit -framework QuartzCore -framework Metal -o
+target/stage-0b/chunk-3/probe-test`, then `env -u G1_OUTPUT` on that executable.
+The fixture check is `bun target/stage-0b/chunk-3/aggregate-test.mjs`; its inputs,
+outputs and script are retained beside the logs. Verbatim:
+
+```text
+probe: painter-specific completeness and one boot-expose wake passed
+aggregate: per-painter complete scenes, fast misses, boot-only spans, and missing historical completeness passed
+```

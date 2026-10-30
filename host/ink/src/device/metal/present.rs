@@ -11,11 +11,11 @@ pub(super) struct Command(pub Retained<ProtocolObject<dyn MTLCommandBuffer>>);
 // SAFETY: encoded on its owner thread, then committed once on the render thread.
 // The owner only queries completion after that handoff.
 unsafe impl Send for Command {}
-struct Drawable(Retained<ProtocolObject<dyn CAMetalDrawable>>);
+pub(super) struct Drawable(pub(super) Retained<ProtocolObject<dyn CAMetalDrawable>>);
 // SAFETY: ownership moves from the render thread to the main-thread transaction.
 unsafe impl Send for Drawable {}
 impl Drawable {
-    fn present(self) {
+    pub(super) fn present(self) {
         self.0.present();
     }
 }
@@ -23,6 +23,18 @@ impl Drawable {
 impl Command {
     pub fn commit(self) {
         self.0.commit();
+    }
+
+    pub fn completed(self) -> Result<()> {
+        self.0.waitUntilCompleted();
+        if self.0.status() == MTLCommandBufferStatus::Error {
+            Err(Error::DeviceLost(format!(
+                "CPU present failed: {:?}",
+                self.0.error()
+            )))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -308,7 +320,7 @@ impl Renderer {
             self.layer.retry();
             return Ok(None);
         };
-        self.layer.track(ProtocolObject::from_ref(&*drawable));
+        self.layer.track(ProtocolObject::from_ref(&*drawable), true);
         if let Err(error) = encode(
             command,
             source,

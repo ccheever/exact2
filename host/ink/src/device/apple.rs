@@ -19,7 +19,7 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -27,6 +27,7 @@ struct Inner {
     view: Retained<NSView>,
     layer: Retained<CAMetalLayer>,
     retry: Arc<Retry>,
+    presentation: Arc<Presentation>,
     wake: Arc<dyn Fn() + Send + Sync>,
     _owner: Rc<dyn HasWindowHandle>,
 }
@@ -69,9 +70,11 @@ impl Layer {
             view,
             layer,
             retry: Arc::default(),
+            presentation: Arc::default(),
             wake: Arc::new(wake),
             _owner: owner,
         }));
+        result.register_boot_expose();
         result.resize(size, scale);
         Ok(result)
     }
@@ -84,6 +87,33 @@ impl Layer {
             .setDrawableSize(CGSize::new(size[0] as f64, size[1] as f64));
     }
 
+    fn register_boot_expose(&self) {
+        if std::env::var_os("G1_BOOT_ONLY").is_none() {
+            return;
+        }
+        type Register = unsafe extern "C" fn(*const std::ffi::c_void);
+        // SAFETY: the optional probe copies a void(void) Objective-C block.
+        let register = unsafe {
+            let symbol = libc::dlsym(libc::RTLD_DEFAULT, c"g1_boot_expose".as_ptr());
+            if symbol.is_null() {
+                return;
+            }
+            std::mem::transmute::<*mut std::ffi::c_void, Register>(symbol)
+        };
+        let retry = self.0.retry.clone();
+        let presentation = self.0.presentation.clone();
+        let wake = self.0.wake.clone();
+        let callback = block2::RcBlock::new(move || {
+            if presentation.painter().is_none() {
+                retry.exposed();
+                wake();
+            }
+        });
+        unsafe {
+            register(block2::RcBlock::as_ptr(&callback).cast());
+        }
+    }
+
     pub fn retry_requested(&self) -> bool {
         self.0.retry.requested.swap(false, Ordering::AcqRel)
     }
@@ -91,6 +121,17 @@ impl Layer {
     /// An input or surface transition permits another recovery attempt.
     pub fn resume_retries(&self) {
         self.0.retry.reset();
+    }
+
+    /// Discard callbacks from the failed device generation.
+    pub fn invalidate(&self) {
+        self.0.presentation.invalidate();
+        self.resume_retries();
+    }
+
+    /// The painter of the last drawable with a nonzero displayed timestamp.
+    pub fn presented_painter(&self) -> Option<&'static str> {
+        self.0.presentation.painter()
     }
 
     pub fn live_resize(&self) -> bool {
@@ -117,6 +158,8 @@ impl Layer {
             raw: self.0.layer.clone(),
             retry: self.0.retry.clone(),
             wake: self.0.wake.clone(),
+            presentation: self.0.presentation.clone(),
+            generation: self.0.presentation.0.lock().unwrap().generation,
         }
     }
 }
@@ -125,15 +168,23 @@ pub(crate) struct RenderLayer {
     pub raw: Retained<CAMetalLayer>,
     retry: Arc<Retry>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    presentation: Arc<Presentation>,
+    generation: u64,
 }
 impl RenderLayer {
     #[cfg(exact_ink_metal)]
     pub(crate) fn framebuffer_only(self) {
         self.raw.setFramebufferOnly(true);
     }
-    pub fn track(&self, drawable: &objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>) {
+    pub fn track(
+        &self,
+        drawable: &objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>,
+        ink: bool,
+    ) {
         let retry = self.retry.clone();
         let wake = self.wake.clone();
+        let presentation = self.presentation.clone();
+        let generation = self.generation;
         let block = block2::RcBlock::new(
             move |shown: std::ptr::NonNull<
                 objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDrawable>,
@@ -143,6 +194,9 @@ impl RenderLayer {
                 // https://developer.apple.com/documentation/metal/mtldrawable/presentedtime
                 let time = unsafe { shown.as_ref().presentedTime() };
                 trace_interval(c"presented", || (time, time, 0.));
+                if !presentation.record(generation, time, ink) {
+                    return;
+                }
                 if time == 0. && retry.failed() {
                     wake();
                 } else if time != 0. {
@@ -163,11 +217,48 @@ impl RenderLayer {
 }
 
 #[derive(Default)]
+struct Presentation(Mutex<Shown>);
+#[derive(Default)]
+struct Shown {
+    generation: u64,
+    time: f64,
+    painter: Option<&'static str>,
+}
+impl Presentation {
+    fn painter(&self) -> Option<&'static str> {
+        self.0.lock().unwrap().painter
+    }
+    fn invalidate(&self) {
+        let mut shown = self.0.lock().unwrap();
+        *shown = Shown {
+            generation: shown.generation + 1,
+            ..Shown::default()
+        };
+    }
+    fn record(&self, generation: u64, time: f64, ink: bool) -> bool {
+        let mut shown = self.0.lock().unwrap();
+        if shown.generation != generation {
+            return false;
+        }
+        // Completion callbacks can arrive in a different order from display.
+        if time > shown.time {
+            shown.time = time;
+            shown.painter = Some(if ink { "ink" } else { "cpu" });
+        }
+        true
+    }
+}
+
+#[derive(Default)]
 struct Retry {
     failures: AtomicU8,
     requested: AtomicBool,
 }
 impl Retry {
+    fn exposed(&self) {
+        self.failures.store(0, Ordering::Release);
+        self.requested.store(true, Ordering::Release);
+    }
     fn failed(&self) -> bool {
         let previous = self
             .failures
@@ -440,6 +531,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn painter_identity_follows_display_and_rejects_a_lost_generations_callbacks() {
+        let presented = Presentation::default();
+        assert_eq!(presented.painter(), None);
+        presented.record(0, 0., true);
+        assert_eq!(presented.painter(), None);
+        presented.record(0, 1., false);
+        assert_eq!(presented.painter(), Some("cpu"));
+        presented.record(0, 0., true);
+        assert_eq!(presented.painter(), Some("cpu"));
+        presented.record(0, 2., true);
+        assert_eq!(presented.painter(), Some("ink"));
+        presented.record(0, 1.5, false);
+        assert_eq!(presented.painter(), Some("ink"));
+        presented.invalidate();
+        assert!(!presented.record(0, 3., true));
+        assert_eq!(presented.painter(), None);
+        presented.record(1, 4., false);
+        assert_eq!(presented.painter(), Some("cpu"));
+    }
+
+    #[test]
     fn clearing_the_display_callback_waits_for_a_running_wake_and_releases_it() {
         let (entered, started) = std::sync::mpsc::channel();
         let (release, finish) = std::sync::mpsc::channel();
@@ -483,6 +595,14 @@ mod tests {
             }
             retry.reset();
         }
+        assert!(retry.failed());
+        assert!(!retry.failed());
+        retry.exposed();
+        assert!(retry.requested.swap(false, Ordering::AcqRel));
+        assert!(
+            retry.failed(),
+            "the first expose restores the retry allowance"
+        );
     }
 
     #[test]
