@@ -115,13 +115,21 @@ mobile tests, 253 focused tests including desktop minimap, strict TypeScript,
 generator verification and the six repository checks pass. Both actual preview
 components pass baseline/current EAS controls at 16-point light and 20-point dark.
 Heading/table controls, natural wrapping and single code pans remain usable.
-Idle native measurements now prove the long-code blanking mechanism. The raster
-is marked whole and settled at 592 points despite uncut paint widths of 787.54
-and 969.28 points. Legal inner scrolling exposes those missing pixels. Later
-outward pans chain into the fixture root. The separate end-padding discrepancy
+Baseline native measurements proved the long-code blanking mechanism. The raster
+was marked whole and settled at 592 points despite uncut paint widths of 787.54
+and 969.28 points. Legal inner scrolling exposed those missing pixels. Later
+outward pans chained into the fixture root. The separate end-padding discrepancy
 remains unqualified. Source and the temporary observer are restored exactly;
 evidence is under `target/t3-poc-evidence/phone-code-native-metrics/`.
-The painting correction remains pending. The normal app passes Home, Settings,
+The painting correction now retains measured coverage in each raster result.
+Both real preview owners pass initial, middle, legal edge and return pans on EAS,
+with exact source identity, one current image and zero CoreText pixel mismatches.
+Private native huge-line and tall-wide jumps also answer current demand with
+finite windows and idle convergence; paused-worker reversal keeps admitted work.
+Shared Apple tests pass; UIKit tests compile, and the shared tvOS target builds.
+Evidence is under `target/t3-poc-evidence/phone-code-raster-implementation/`.
+Independent review is pending. End padding and fixture-root chaining remain
+outside this painting correction. The normal app passes Home, Settings,
 Search, New task, Back and relaunch. Entries and normal declarations are restored;
 the cloud device is shut down. Evidence is under
 `target/t3-poc-evidence/phone-formatted-prose-implementation/`. Supplied-data
