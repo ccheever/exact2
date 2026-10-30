@@ -62,6 +62,17 @@ review finds no introduced issue, verifies the genuine reply, streaming, active
 Stop and exact recovery, and passes 373 read-only artifact comparisons. Its
 comment audit is clear.
 
+The bounded native Browser attempt stops before Files entry. The actual palette
+creates a fresh isolated project, but two right-panel toggle taps report platform
+delivery while state, tree and native captures retain a closed panel. No Files
+chooser, file preview or Browser iframe is reached. Browser navigation, reload
+and tab retention remain unqualified. The app quits normally and all owned
+processes exit. Product sources, the standard bundle, window defaults and the
+original server listener remain exact. Commands, the limited key probe and
+cleanup evidence are under
+`target/t3-poc-evidence/desktop-native-browser-acceptance/`. The primary-launcher
+runtime difference remains source-inferred. No release checkpoint is reached.
+
 The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
 `ace5a0a9533f05a3`; its module starts `1dda02be376510c2`. The official pinned
