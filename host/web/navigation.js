@@ -258,7 +258,7 @@ function commit(op) {
     originIndex = browserIndex();
     written[0] = stamp(0, op);
     history.replaceState(written[0], "", historyURL(op.url));
-  } else if (written[cursor]?.id === op.top) {
+  } else if (written[cursor]?.id === op.top && !(pop === null && op.url.includes("#") && written[cursor].url !== op.url && written[cursor].url.split("#")[0] === op.url.split("#")[0])) { // a new fragment on the visit shown is one more browser entry of it, as a same-document link's is (LLP 1153 D5)
     if (written[cursor].url !== op.url) {
       written[cursor] = stamp(cursor, op);
       history.replaceState(written[cursor], "", historyURL(op.url));
@@ -289,7 +289,7 @@ function popped({ j, state, url }) {
   // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
   // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationBack.way): the route's
   // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3). An entry given to `navigate` at the URL already shown, which this page did not write or which holds the visit shown, is accepted though nothing changed: a `replace` can give the only entry a reload wrote the URL of the one beneath it, and refusing would hold Back there. An earlier visit at that URL is still refused: accepting it would leave the visits after it on the stack.
-  const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
+  const step = owned && j === cursor - 1 && entry.id !== written[cursor]?.id, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
   let back = beneath && !!backControl(nav), own = false, why = null;
   pop = {};
   try {
@@ -383,7 +383,7 @@ export const navigation = {
       ? { row: pressedRow.row, list: pressedRow.list, route: pressedRow.route, id: String(op.top), url: op.url } : null;
     pressedRow = null;
     last = op;
-    if (pop) { pop.op = op; for (const id of op.removed) gone.add(id); }
+    if (pop) { pop.op = op; op.traversal = true; for (const id of op.removed) gone.add(id); } // a traversal's scroll puts back the visit's place (fragment.js)
     else { queue.push({ op }); drain(); }
   },
   // @ref LLP 1116.006 D4 — the agent's `back` from a route: the browser's Back where the entry beneath is the route beneath, else (a reload left none) the app bar's.
@@ -1105,11 +1105,11 @@ export function timeReporter(params, platform = globalThis) {
 // and not a route's — a driven page numbers its visits as a native host does (feed F16). The JS target launches here
 // too (rt.js re-exports it).
 export function launchLocation(platform = globalThis) {
-  const { pathname, search } = platform.location, q = new URLSearchParams(search);
-  if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
+  const { pathname, search, hash = "" } = platform.location, q = new URLSearchParams(search); // the fragment is the launch's too (LLP 1153 D5)
+  if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search + hash;
   for (const k of agentParameters) q.delete(k);
   const rest = q.toString();
-  return pathname + (rest ? '?' + rest : '');
+  return pathname + (rest ? '?' + rest : '') + hash;
 }
 // Drive facts use the launch URL after route changes too (storage-environment.js `launchHref`).
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;

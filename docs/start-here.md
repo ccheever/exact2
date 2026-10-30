@@ -137,7 +137,9 @@ prints one with its path and line); `apps/shelf` is a whole app.
 
 `app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests. A
 screen is a route: its `header` the iOS navigation bar (the Mac window's title and toolbar) over the `scroll` its
-`navigationScroll` names (`one-screen`; more screens: `contract vocab screen`). Every host, the web
+`navigationScroll` names (`one-screen`; more screens: `contract vocab screen`). A location's
+fragment is the same screen: `/item/7#moves` opens at its `id="moves"` once its data has arrived,
+and a `link href="#moves"` goes there. Every host, the web
 too, hides a stack's covered routes itself (not the page under a sheet, nor a wide split's list
 beside its detail); `for e in stack(nav)` keeps them mounted with their scroll, which `[top(nav)]`
 loses. A query follows the path:

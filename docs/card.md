@@ -22,6 +22,7 @@ functions: call -> result
   formatDecimal(units, digits) -> string  (cents to "12.34"; literal digits)
   formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
+  fragment(entry) -> string
   frame(id) -> Geometry  (action)
   go(router, location) -> Router
   s.includes(x) -> bool  (text or list)
@@ -99,7 +100,7 @@ test steps (app.test.contract; every other form: docs/contract-grammar.md)
   back
   fail fetch "<prefix>", pass fetch …
   request POST "/items" {…} as grace expect 409
-  size 390x844, epoch, time-zone, locale, seed, before data
+  size 390x844, at "/item/7#moves", epoch, time-zone, locale, seed, before data
 
 ops: a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back

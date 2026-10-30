@@ -6,6 +6,7 @@
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Implementer:** Astra (`gpt-6-astra` through Codex), assigned by Charlie 2026-09-14. Slice 1 (§9, chunks a–e) landed in `248f322`/`887caa6`, `3ff55a0`/`aac382c`, `63cf660`, `319d847`, and `2a3d793`/`e476354`, with follow-up fixes through `330177a` and the S6–S11 review fixes here. Slice 2's web history/serving and native URL lanes were integrated through `5444575`; Codex prepared delivery and addressed review findings on 2026-09-15. The TS binding (slice 3) waits for its first source consumer.
 **Date:** 2026-09-14
+**Amended (LLP 1153 D5, 2026-10-30):** a location may carry a fragment, which is no part of its canonical form; the entry holds it as `fragment`, `location_of` keeps it, and `fragment(entry)` reads it (§3).
 **Related:** LLP 1035.001 D1 (the route props, the Back control), D2 (the three outcomes), D6 (refusals are journal lines), D10 (the Router's semantic core — this RFC is the "later contract decision" its last bullet names); LLP 1005 §5–§8 (roster, boot, settlement, row slots); LLP 1006 (the compiler); LLP 1007 §4 (the glue), §6 (reload carries state); LLP 1012 (the eight operations); LLP 1017 P4c (per-instance state, and why a row holds no resource), P7 (tests in the language); LLP 1018 (the store); LLP 1023 §3 (the URL is the app); LLP 1027.001 §2 (Contract owns UI state; sources receive and return values), D1 (the standard utility surface); LLP 1030 D7 (a fact the runner answers itself); LLP 1031 D5 (navigation is an intention); LLP 1039 (the viewport fact the rail needs); `rules/DEFERRED.md` (no interactive-navigation model, no route payloads, no platform-suffixed routes). Research, never authority: exact1 LLP 0010, 0051, 0282, 0290, 0305, 0310, 0311, 0494; `~/projects/exact/router-core` and `packages/exact-router/src/browser.ts`
 
 ## Summary
@@ -159,9 +160,9 @@ This section is the whole router. It names no host, no Contract syntax, no
 executor. The Rust crate implements it, the TypeScript binding binds it,
 and the corpus in §8 holds every sentence.
 
-**Location.** A string `path[?query]`: an absolute path (`/`, segments
-separated by `/`) and an optional query. Never a scheme, host, or fragment.
-Its **canonical form** is what a browser yields for
+**Location.** A string `path[?query][#fragment]`: an absolute path (`/`,
+segments separated by `/`), an optional query and an optional fragment.
+Never a scheme or host. Its **canonical form** is what a browser yields for
 `new URL("https://x" + location)` as `pathname + search`, prefixing `/`
 first when the location does not start with it: dot segments
 resolved, the path percent-encode set applied per segment, the query's
@@ -169,10 +170,14 @@ percent-encode set applied to the query, everything else left as typed.
 Prefixing the origin makes every location an absolute path, so `//b` stays
 `//b` and canonicalization is idempotent even after dot-segment removal.
 Two locations name the same screen exactly when their canonical forms are
-equal. `location_of(href)` derives a location from any absolute URL: for
-`http`/`https`, `pathname + search`; for any other scheme, `"/"` followed
-by everything after `scheme://`, canonicalized — so `interview://post/42`
-and `https://interview.app/post/42` are the same location.
+equal. The fragment is no part of that form (LLP 1153 D5): it is what
+follows the first `#`, the fragment percent-encode set applied (the
+browser's `hash` without its `#`), and it rides on the entry beside its
+`url`. `location_of(href)` derives a location from any absolute URL, its
+fragment kept: for `http`/`https`, `pathname + search + hash`; for any
+other scheme, `"/"` followed by everything after `scheme://` up to its
+fragment, canonicalized, then the fragment — so `interview://post/42` and
+`https://interview.app/post/42` are the same location.
 
 **Table.** An ordered list of routes `{name, pattern, parent?, tab?,
 notfound?}`. A pattern is a path whose segments are literals or `:name`
@@ -193,9 +198,13 @@ matches segment for segment; `params` has one string field per `:name`
 declared anywhere in the table, `""` where the route does not bind it. The
 query is never matched; it rides in the entry's location.
 
-**Entry.** `{id: number, name: string, url: string, tab: string, params}`.
-`id` is minted from the value's counter, unique within the value's life,
-and never reused. `url` is the canonical location.
+**Entry.** `{id: number, name: string, url: string, tab: string, params,
+fragment: string}`. `id` is minted from the value's counter, unique within
+the value's life, and never reused. `url` is the canonical location;
+`fragment` is the fragment of the location that last named this visit,
+`""` when it had none. Every verb given a location writes its fragment on
+the visit it arrives at, so a location that differs from the top's only
+in its fragment changes the top in place and mints nothing.
 
 **Router.** `{tab: string, tabs: [{name, stack: [Entry]}], next: number}`.
 Every tab's stack is non-empty and begins with an entry matching that tab's
@@ -203,7 +212,8 @@ own root route, whose query or parameters may change through `replace`. The
 **selected stack** is the stack of `tab`; its last entry is the **top**.
 Reads: `stack(r)`, `top(r)`, `depth(r)`, `params(r, name)` (that `:name`'s
 non-empty values over the selected stack, root first, duplicates kept),
-`searchParam(entry, name)` (`URLSearchParams.get`, `""` when absent).
+`searchParam(entry, name)` (`URLSearchParams.get`, `""` when absent),
+`fragment(entry)`.
 
 **Chain.** `chain(table, location)`: the matched route, its declared
 ancestors, and its tab's root, each as an entry whose params are taken by
@@ -226,9 +236,11 @@ reports one refusal (the caller journals it, 1035.001 D6).
 | `go(r, loc)` | Traverse: if `loc` is the top, unchanged; else if it is in the selected stack, pop to its nearest occurrence (ids kept); else if it is the top of another tab, `select` that tab; else `push`. A browser Back or Forward past one step; a pasted in-app link. |
 
 **Laws** (the corpus is these, over a fixed table):
-`stack(back(push(r, u))) = stack(r)` for `u` not the top's url; `push(r, top(r).url) = r`; `back(r) = r` when `depth(r) = 1`;
+`stack(back(push(r, u))) = stack(r)` for `u` not the top's url; `push(r, top(r).url + f) = r` for `f` its fragment as written (`""` or `#` and the fragment); `back(r) = r` when `depth(r) = 1`;
 `select(select(r, t), t)` has depth 1; `open(open(r, u), u) = open(r, u)`;
-`top(replace(r, u)).id = top(r).id`; `go(r, top(r).url) = r`; ids in any
+`top(replace(r, u)).id = top(r).id`; `go(r, top(r).url + f) = r`, the same `f`;
+`push`, `replace` and `go` to `top(r).url + "#" + g` change only the top's
+fragment, to `g`; ids in any
 reachable value are distinct and `next` exceeds them all; every entry's
 `url` is canonical and `match(url)` gives back its `name` and `params`;
 `canonical` is idempotent and agrees with Chrome on the fixture set.

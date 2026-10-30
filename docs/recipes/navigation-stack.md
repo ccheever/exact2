@@ -136,10 +136,10 @@ test "add, open, delete after asking"
 
 - An alert's `aria-label` is its title. Escape/Back chooses Cancel; only `closedby="any"`
   dismisses outside. Another modal is a sheet, closed on ok ([after-a-write](after-a-write.md)).
-- Routes stay mounted: unique `testId`s. `clock settle` after a push, sheet or alert;
-  `clock data` before reading a save.
+- Routes stay mounted: unique `testId`s.
 - A run (a workout, a quiz) has one exit that ends it or asks; no Back leaves it running.
 - An unmatched location offers home (`notfound`); a missing detail says so.
+- `link href="#tags"` (or `/note/1#tags`) scrolls to `id="tags"` once its data lands.
 
 ## A screen open twice
 

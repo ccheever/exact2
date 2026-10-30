@@ -212,6 +212,79 @@ impl<D: DataSource> Presenter<D> {
         });
     }
 
+    /// The runner's `scrollToFragment(visit, fragment)`, once a route's
+    /// content has arrived (LLP 1153 D5): the node with that HTML `id` in the
+    /// visit's own route (a route beneath may hold the same id) at the start
+    /// of each scroll container above it, as `scrollIntoView` with
+    /// `block="start"`; `top`, or no such node, the route's scrollers at
+    /// their tops. A wheel turned since the router asked for it cancels it.
+    pub(super) fn scroll_to_fragment(&mut self, args: &[exact_plan::Value]) {
+        let visit = args.first().and_then(exact_plan::Value::as_number);
+        let fragment = args
+            .get(1)
+            .and_then(exact_plan::Value::as_str)
+            .unwrap_or_default();
+        if self
+            .fragment_armed
+            .take()
+            .is_some_and(|(_, wheels)| wheels != self.wheels)
+        {
+            self.host.log(format!(
+                "fragment #{fragment}: the person scrolled first; the route stays where it is"
+            ));
+            return;
+        }
+        let key = visit.map(|v| format!("{v}")).unwrap_or_default();
+        let kernel = self.host.kernel();
+        let Some(route) = kernel
+            .preorder_where(&self.host.roots(), |_, props| {
+                props.str(PropId::NavigationKey) == Some(key.as_str())
+                    && props.str(PropId::NavigationBack).is_none()
+            })
+            .first()
+            .copied()
+        else {
+            self.host.log(format!(
+                "fragment #{fragment}: no route of visit {key} is on the screen"
+            ));
+            return;
+        };
+        let id = exact_route::fragment_id(fragment);
+        let target = [Some(fragment), id.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter(|name| !name.is_empty())
+            .find_map(|name| {
+                (kernel.find_by_id(name).into_iter())
+                    .filter_map(|key| kernel.node_by_key(key).map(|n| n.id))
+                    .find(|n| self.is_inside(*n, route))
+            });
+        if let Some(target) = target {
+            self.scroll_into(target, true, true, |t, p| {
+                (
+                    aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,
+                    aligned("start", t.1, t.1 + t.3, p.1, p.3) - p.1,
+                )
+            });
+            return;
+        }
+        if !fragment.is_empty() && !id.is_some_and(|id| id.eq_ignore_ascii_case("top")) {
+            self.host.log(format!("fragment #{fragment}: no element in the route of visit {key} has that id; the route goes to its top"));
+        }
+        let scrolled: Vec<_> = (self.scroll.iter())
+            .filter(|(id, off)| {
+                **off != (0.0, 0.0) && (**id == route || self.is_inside(**id, route))
+            })
+            .map(|(id, off)| (*id, *off))
+            .collect();
+        for (id, off) in scrolled {
+            self.scroll.insert(id, (0.0, 0.0));
+            self.scroll_end_input(id, off, Completion::Instant);
+            self.collection_scroll_input(id, off);
+            self.dirty = true;
+        }
+    }
+
     /// An app's `scrollBy("element-id", x, y)`: that scroll container moves
     /// by the pixels given, clamped to its travel, as the web's
     /// `Element.scrollBy`; an element that does not scroll does not move.
@@ -466,3 +539,7 @@ fn inset(rect: Rect4, [top, right, bottom, left]: [f32; 4]) -> Rect4 {
         (rect.3 - top - bottom).max(0.0),
     )
 }
+
+#[cfg(test)]
+#[path = "fragment_tests.rs"]
+mod fragment_tests;

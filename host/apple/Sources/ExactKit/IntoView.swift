@@ -57,9 +57,10 @@ extension Presenter {
         NSAnimationContext.runAnimationGroup({ context in context.duration = 0; clip.animator().setBoundsOrigin(at) })
     }
 
-    func scrollElementIntoView(_ args: [Any]) {
+    /// `given`: the node to align, found by its caller (a fragment's, in its route: `Fragment.swift`).
+    func scrollElementIntoView(_ args: [Any], target given: NodeView? = nil) {
         guard let name = args.first as? String,
-              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
+              let target = given ?? views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
               target.window != nil else {
             session?.log("scrollIntoView \"\(args.first ?? "")\" refused: no live node with that id")
             return
@@ -162,6 +163,7 @@ final class ElementScrolls {
     /// reveal running on it is over: UIKit stops the animation for the drag.
     func userScrolled(_ scroll: UIScrollView) {
         FrameSampler.scrolled(scroll, in: presenter.session, person: true)
+        presenter.fragmentArmed = false // a fragment's scroll not yet made stays unmade (Fragment.swift)
         reveals[ObjectIdentifier(scroll)] = nil
         held.removeAll { entry in
             guard let node = entry.node else { return true }
@@ -274,9 +276,10 @@ extension Presenter {
         return groupedLists?.scroller(for: target.id) != nil || target.bounds.width > 0 || target.bounds.height > 0
     }
 
-    func scrollElementIntoView(_ args: [Any]) {
+    /// `given`: the node to align, found by its caller (a fragment's, in its route: `Fragment.swift`).
+    func scrollElementIntoView(_ args: [Any], target given: NodeView? = nil) {
         guard let name = args.first as? String,
-              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
+              let target = given ?? views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
             session?.log("scrollIntoView \"\(args.first ?? "")\" refused: no live node with that id")
             return
         }

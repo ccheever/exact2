@@ -188,7 +188,7 @@ test "a course is picked"
   short options are a `choice` (a segmented control).
 
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, backButtonDisplayMode, headerBackTitle, backButtonTitle, backBarButtonItem, navigationBackTitle, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
+names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, backButtonDisplayMode, headerBackTitle, backButtonTitle, backBarButtonItem, navigationBackTitle, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage, anchor, hashchange, location.hash
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -245,6 +245,11 @@ component App
   last was scrolled to, part way down and under the bar. Build locations with
   `path("recipe", name)`; a route's parameters are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
   over the screen is a sheet (`contract vocab modal`).
+- A fragment names a place on a screen, never another screen: `path("recipe", name) +
+  "#steps"`, a `link href="#steps"` on the screen shown, or a deep link's `#steps` is the
+  same visit with `fragment(e) == "steps"`. Once the route's data has arrived each host
+  scrolls the route to its `id="steps"` (`top`, or no such id: its top; `logs` name a missing id); a
+  return by Back or a tab keeps its place. A test opens there with `at "/recipe/Ramen#steps"`.
 - A welcome shown at first launch only is not a second route: the main screen is the root
   route and shows the welcome while a `persist` flag is unset (docs/recipes/first-launch.md).
   A stack's first visit keeps its root route: `replace` to another route is refused there.

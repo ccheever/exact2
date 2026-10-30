@@ -118,6 +118,7 @@ impl<D: DataSource> Presenter<D> {
         if self.overlay_wheel(x, y, dy) || self.alert_inert() && self.hit(x, y).is_none() {
             return;
         }
+        self.wheels += 1;
         self.restore_scroll_anchors();
         // A canvas that wants input takes the wheel, and the nodes' own
         // `wheel` is still heard (review b5-b 2), as the web's element hears it.

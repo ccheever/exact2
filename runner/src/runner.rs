@@ -1262,8 +1262,10 @@ impl<D: DataSource> Runner<D> {
         std::mem::take(&mut self.surfaces)
     }
 
-    /// The commands actions emitted since the last take.
+    /// The commands actions emitted since the last take, and the runner's
+    /// own scroll to a fragment once its route's content has arrived.
     pub fn take_commands(&mut self) -> Vec<Command> {
+        self.fragment_command();
         std::mem::take(&mut self.commands)
     }
 

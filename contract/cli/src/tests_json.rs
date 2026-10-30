@@ -164,6 +164,10 @@ fn step_json(step: &Step, s: &mut String) {
             s.push_str("{\"op\":\"time-zone\",\"value\":");
             q(zone, s);
         }
+        Step::At { location, .. } => {
+            s.push_str("{\"op\":\"at\",\"value\":");
+            q(location, s);
+        }
         Step::Locale { tag, .. } => {
             s.push_str("{\"op\":\"locale\",\"value\":");
             q(tag, s);

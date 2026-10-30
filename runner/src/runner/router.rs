@@ -3,7 +3,7 @@
 //! Chunk (c)'s compiler declares these positional records, in this exact order:
 //! Router { tab: string, tabs: Tab[], next: number },
 //! Tab { name: string, stack: Entry[] },
-//! Entry { id: number, name: string, url: string, tab: string, params: Params },
+//! Entry { id: number, name: string, url: string, tab: string, params: Params, fragment: string },
 //! Params { one string field per distinct :name, in first-declaration order }.
 //! The header slot's type leads to every shape; global type-row order is immaterial.
 //! The compiler checks the route table; its types are checked once at boot.
@@ -22,10 +22,28 @@ pub struct RouterChange {
     pub top: u64,
     /// Its canonical location.
     pub url: String,
+    /// Its fragment, `""` when it has none (LLP 1153 D5).
+    pub fragment: String,
+    /// Whether the host scrolls to that fragment once the route's content
+    /// has arrived: the top is a new visit with a fragment, or its fragment
+    /// changed. A return to a visit (Back, a tab switch) keeps its place.
+    pub scroll: bool,
     /// Removed ids, in the old value's tab/stack order.
     pub removed: Vec<u64>,
     /// Every retained visit's canonical location, in tab/stack order.
     pub visits: Vec<(u64, String)>,
+}
+
+impl RouterChange {
+    /// The top's location as a host writes it back: its url, then `#` and
+    /// its fragment when it has one.
+    pub fn location(&self) -> String {
+        if self.fragment.is_empty() {
+            self.url.clone()
+        } else {
+            format!("{}#{}", self.url, self.fragment)
+        }
+    }
 }
 
 /// The router seam (LLP 1047 D4): what the runner and its VM ask of a plan's
@@ -61,6 +79,11 @@ pub trait Routing {
     fn share(&self, token: &str, files: Value) -> bool;
     /// This launch's claims (D3), drawn from `seed` the first time.
     fn claims(&self, seed: f64) -> std::cell::RefMut<'_, crate::share_in::Claims>;
+    /// Whether a committed change asked for a scroll to its top's fragment
+    /// that no host has been told to make yet (LLP 1153 D5).
+    fn fragment_due(&self) -> bool;
+    /// That visit's id and fragment, once.
+    fn take_fragment(&mut self) -> Option<(u64, String)>;
 }
 
 /// The plan's router, if it declares one (LLP 1038 D2): what a host that
@@ -79,6 +102,8 @@ pub struct RouterContext {
     table: Table,
     committed: Option<Value>,
     pending: Option<RouterChange>,
+    /// The visit and fragment a host scrolls to once the content settles.
+    fragment: Option<(u64, String)>,
     refusals: RefCell<Vec<String>>,
     /// The last router value a call read, checked and converted once, with
     /// the reads made of it: a binding that calls `stack(nav)` or `top(nav)`
@@ -134,10 +159,10 @@ impl RouterContext {
             plan,
             entry_ty,
             "Entry",
-            &["id", "name", "url", "tab", "params"],
+            &["id", "name", "url", "tab", "params", "fragment"],
         )?;
         primitive(plan, fields[0], TypeKind::Number)?;
-        for field in &fields[1..4] {
+        for field in fields[1..4].iter().chain(&fields[5..]) {
             primitive(plan, *field, TypeKind::String)?;
         }
         let names = table.param_names();
@@ -154,6 +179,7 @@ impl RouterContext {
             table,
             committed: None,
             pending: None,
+            fragment: None,
             refusals: RefCell::new(Vec::new()),
             reads: RefCell::new(None),
             // A cold share's tokens arrive with the boot's other facts.
@@ -169,7 +195,7 @@ impl RouterContext {
 
     fn entry(&self, value: &Value) -> Option<Entry> {
         let v = record(value)?;
-        if v.len() != 5 {
+        if v.len() != 6 {
             return None;
         }
         let params = record(&v[4])?;
@@ -187,6 +213,7 @@ impl RouterContext {
                 .zip(params)
                 .map(|(name, value)| Some((name.clone(), value.as_str()?.to_owned())))
                 .collect::<Option<_>>()?,
+            fragment: v[5].as_str()?.into(),
         })
     }
 
@@ -253,6 +280,7 @@ impl RouterContext {
                     .map(|n| Value::str(e.params.get(n).map_or("", String::as_str)))
                     .collect(),
             ),
+            Value::str(&e.fragment),
         ])
     }
 
@@ -301,6 +329,12 @@ impl RouterContext {
 
     fn call_verb(&self, plan: &Plan, f: Stdlib, args: &[Value]) -> Option<Value> {
         let first = args.first()?;
+        if f == Stdlib::Fragment {
+            if !first.conforms(plan, self.entry_ty) {
+                return None;
+            }
+            return Some(Value::str(&self.entry(first)?.fragment));
+        }
         if f == Stdlib::SearchParam {
             if !first.conforms(plan, self.entry_ty) {
                 return None;
@@ -565,19 +599,30 @@ impl Routing for RouterContext {
         };
         let top = exact_route::top(&r).ok_or_else(|| invalid("router has no top"))?;
         let ids: SortedSet<_> = r.tabs.iter().flat_map(|t| &t.stack).map(|e| e.id).collect();
-        let removed = self
+        let before: Vec<Entry> = self
             .committed
             .as_ref()
             .and_then(|v| self.router(v))
             .into_iter()
             .flat_map(|r| r.tabs)
             .flat_map(|t| t.stack)
+            .collect();
+        // @ref LLP 1153 D5 — a new visit with a fragment, or a fragment that
+        // changed, scrolls; a visit returned to keeps its place.
+        let scroll = match before.iter().find(|e| e.id == top.id) {
+            Some(old) => old.fragment != top.fragment,
+            None => !top.fragment.is_empty(),
+        };
+        let removed = before
+            .iter()
             .filter(|e| !ids.contains(&e.id))
             .map(|e| e.id)
             .collect();
         Ok(Some(RouterChange {
             top: top.id,
             url: top.url.clone(),
+            fragment: top.fragment.clone(),
+            scroll,
             removed,
             visits: r
                 .tabs
@@ -593,7 +638,8 @@ impl Routing for RouterContext {
         if let Some(mut change) = change {
             if let Some(pending) = self.pending.take() {
                 // A clock seek may commit more than once before a host drains
-                // effects. Keep every removed id and the latest selected top.
+                // effects. Keep every removed id and the latest selected top,
+                // and its scroll while it shows the same fragment.
                 let mut removed = pending.removed;
                 for id in change.removed {
                     if !removed.contains(&id) {
@@ -601,9 +647,29 @@ impl Routing for RouterContext {
                     }
                 }
                 change.removed = removed;
+                change.scroll |= pending.scroll
+                    && pending.top == change.top
+                    && pending.fragment == change.fragment;
+            }
+            if change.scroll {
+                self.fragment = Some((change.top, change.fragment.clone()));
+            } else if self
+                .fragment
+                .as_ref()
+                .is_some_and(|(id, _)| *id != change.top)
+            {
+                self.fragment = None;
             }
             self.pending = Some(change);
         }
+    }
+
+    fn fragment_due(&self) -> bool {
+        self.fragment.is_some()
+    }
+
+    fn take_fragment(&mut self) -> Option<(u64, String)> {
+        self.fragment.take()
     }
 
     fn take_refusals(&self) -> Vec<String> {
@@ -719,6 +785,35 @@ impl<D: DataSource> Runner<D> {
         self.log_router_refusals();
     }
 
+    /// The host's scroll to the selected visit's fragment, as the command
+    /// `scrollToFragment(visit, fragment)`, once the content it waits for
+    /// has arrived: the data source is ready and no request is in flight
+    /// (LLP 1153 D5, LLP 1113). The host finds the element in that visit's
+    /// route. An author's own `scrollIntoView` before then wins.
+    pub(super) fn fragment_command(&mut self) {
+        if !self.router.as_ref().is_some_and(|r| r.fragment_due()) {
+            return;
+        }
+        let authored = self.commands.iter().any(|c| c.name == "scrollIntoView");
+        if !authored && (!self.data.ready() || self.has_pending()) {
+            return;
+        }
+        let Some((visit, fragment)) = self.router.as_mut().and_then(|r| r.take_fragment()) else {
+            return;
+        };
+        if authored {
+            self.log(format!(
+                "fragment #{fragment}: the app's own scrollIntoView took its place"
+            ));
+            return;
+        }
+        self.commands.push(super::Command {
+            name: "scrollToFragment".into(),
+            args: vec![Value::Number(visit as f64), Value::str(&fragment)],
+            source: None,
+        });
+    }
+
     pub(super) fn log_router_refusals(&mut self) {
         let lines = self
             .router
@@ -747,7 +842,8 @@ impl<D: DataSource> Runner<D> {
             .is_some_and(|r| r.matches_pattern(location))
     }
 
-    /// The canonical location of a retained visit, or `None` when it is absent.
+    /// The location of a retained visit, its fragment included, or `None`
+    /// when it is absent.
     pub fn visit_location(&self, id: u64) -> Option<String> {
         let (_, router) = self.carry_router()?;
         router
@@ -755,7 +851,7 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .flat_map(|tab| &tab.stack)
             .find(|entry| entry.id == id)
-            .map(|entry| entry.url.clone())
+            .map(Entry::location)
     }
 
     /// The location of the visit beneath visit `id` on the stack that holds
@@ -767,7 +863,7 @@ impl<D: DataSource> Runner<D> {
         let (_, router) = self.carry_router()?;
         router.tabs.iter().find_map(|tab| {
             let at = tab.stack.iter().position(|e| e.id == id)?;
-            at.checked_sub(1).map(|below| tab.stack[below].url.clone())
+            at.checked_sub(1).map(|below| tab.stack[below].location())
         })
     }
 

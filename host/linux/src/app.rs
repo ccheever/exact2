@@ -923,9 +923,10 @@ mod tests {
     #[test]
     fn launch_arguments_share_url_interpretation_with_other_hosts() {
         for (args, expected) in [
+            // The fragment rides on the launch location (LLP 1153 D5).
             (
-                vec!["--agent", "s2b://post/42?q=a b#ignored", "/later"],
-                "/post/42?q=a%20b",
+                vec!["--agent", "s2b://post/42?q=a b#moves", "/later"],
+                "/post/42?q=a%20b#moves",
             ),
             (vec!["--flag", "https://example.com/post/7"], "/post/7"),
             (vec!["/post/../post/8", "s2b://later"], "/post/8"),

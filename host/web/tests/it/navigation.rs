@@ -29,11 +29,14 @@ fn incoming_notification_locations_use_the_route_corpus_through_the_web_abi() {
             };
             let count = bridge.input_write(href.as_bytes());
             let len = bridge.location_of(count);
-            assert_eq!(
-                std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap(),
-                case["expected"].as_str().unwrap(),
-                "{href}"
-            );
+            let location = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+            // A canonical case through a URL keeps its fragment (LLP 1153
+            // D5), which its canonical form drops.
+            let location = match section {
+                "canonical" => location.split('#').next().unwrap_or_default(),
+                _ => location,
+            };
+            assert_eq!(location, case["expected"].as_str().unwrap(), "{href}");
         }
     }
 }

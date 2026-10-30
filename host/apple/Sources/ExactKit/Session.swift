@@ -1095,7 +1095,7 @@ public final class ExactSession {
         // Each batch says what its turn left owed; batches apply in the owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
         if canvasOwed { askCanvasDraw() }
-        for op in batch.ops where op.op == .router { routerOp = op.payload }
+        for op in batch.ops where op.op == .router { routerOp = op.payload; if op.payload["scroll"] as? Bool == true { presenter.fragmentArmed = true } } // a scroll to its fragment, which the runner's `scrollToFragment` makes (LLP 1153 D5)
         // @ref LLP 1048.003 D1 — the head's title, for the app that owns the chrome.
         for op in batch.ops where op.op == .title {
             presenter.headTitle(op.payload["title"] as? String)
@@ -1202,6 +1202,7 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
                     continue
                 }
+                if name == "scrollToFragment" { app.deliver { [weak self] in self?.presenter.scrollToFragment(args) }; continue }
                 if name == "fastSeek" || name == "load" || name == "requestFullscreen" {
                     app.deliver { [weak self] in self?.presenter.mediaCommand(name, args) }
                     continue
@@ -1417,6 +1418,8 @@ public final class ExactSession {
     /// containing app's to open (`openURL`).
     @discardableResult public func follow(_ href: String) -> Bool {
         guard state != .destroyed, !href.isEmpty else { return false }
+        // A link to a fragment (`href="#moves"`) is the visit shown, at that fragment (LLP 1153 D5).
+        let href = href.hasPrefix("#") ? String((routerOp?["url"] as? String ?? "/").prefix { $0 != "#" }) + href : href
         if href.hasPrefix("/"), !href.hasPrefix("//"), booted, runtime.routeMatches(href) { return navigate(href) }
         delegate?.exactSession(self, command: "openURL", args: [href])
         return true

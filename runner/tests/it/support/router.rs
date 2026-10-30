@@ -25,6 +25,7 @@ pub fn builder(table: &exact_route::Table) -> PlanBuilder {
             ("url", string),
             ("tab", string),
             ("params", params),
+            ("fragment", string),
         ],
     );
     let entries = b.list(entry);
@@ -46,6 +47,13 @@ pub fn builder(table: &exact_route::Table) -> PlanBuilder {
     let url = b.code(url);
     b.set_slot_init(initial_url, url);
     b.derive("url", string, url);
+    let mut fragment = Asm::new();
+    fragment
+        .load_slot(nav)
+        .call(Stdlib::Top)
+        .call(Stdlib::Fragment);
+    let fragment = b.code(fragment);
+    b.derive("fragment", string, fragment);
     for (f, ty) in [
         (Stdlib::Stack, entries),
         (Stdlib::Top, entry),

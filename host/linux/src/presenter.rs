@@ -311,6 +311,11 @@ pub struct Presenter<D: DataSource> {
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// Commands from the last commits, consumed by `run_commands`.
     commands: Vec<exact_runner::Command>,
+    /// The router change that asked for a scroll to its fragment, and the
+    /// wheels turned by then (`wheels`): one turned since cancels the scroll
+    /// (LLP 1153 D5; `reveal.rs`).
+    fragment_armed: Option<(exact_runner::RouterChange, u64)>,
+    wheels: u64,
     /// Range replacement selects wait until the action's commands finish.
     field_select_tasks: Vec<ViewId>,
     field_change_tasks: std::collections::BTreeSet<ViewId>,
@@ -554,6 +559,8 @@ impl<D: DataSource> Presenter<D> {
             painter,
             updates: None,
             commands: Vec::new(),
+            fragment_armed: None,
+            wheels: 0,
             field_select_tasks: Vec::new(),
             field_change_tasks: Default::default(),
             agent: crate::app::AGENT_BOOT.get(),
@@ -885,6 +892,15 @@ impl<D: DataSource> Presenter<D> {
             .runner_mut()
             .publish_sockets(|batch| executor.socket(batch));
         let commands = self.host.take_commands();
+        if let Some(op) = (self.host.router_op()).filter(|op| {
+            op.scroll
+                && self
+                    .fragment_armed
+                    .as_ref()
+                    .is_none_or(|(armed, _)| armed != *op)
+        }) {
+            self.fragment_armed = Some((op.clone(), self.wheels));
+        }
         if !commands.is_empty() {
             self.commands.extend(commands);
             self.executor.notify();

@@ -107,7 +107,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // D4.3), as Back is its own `back`: a link to a route never reloads the page.
   // A modified or other-button click, a `target` or `download`, is the
   // browser's alone — a pressing link's press does not also run — and so are
-  // other origins, fragments of this page and undeclared paths (a file).
+  // other origins and undeclared paths (a file). A link to a fragment is a
+  // location too (LLP 1153 D5): `href="#moves"` is the visit shown, read from
+  // the attribute, since the shell's `<base href="/">` resolves it to `/`.
   // The page's own `exact` names the route table and the root's handler.
   document.addEventListener("click", event => {
     const a = event.target.closest?.("a[href]");
@@ -115,14 +117,18 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const press = a.exactHandlers?.includes("press");
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
       || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) event.stopPropagation(); return; }
-    const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === globalThis.history?.state?.url;
+    const shown = globalThis.history?.state?.url ?? location.pathname + location.search, href = a.getAttribute("href") ?? "";
+    const url = new URL(href[0] === "#" ? shown.split("#")[0] + href : a.href, location.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === shown.split("#")[0];
     // (A JS-target page with no GPU surface writes nothing in: its route table is its own.)
     const { wasm, writeIn = () => 0, navigate, go } = globalThis.exact;
-    if (url.origin !== location.origin || (here && url.hash) || wasm.exact_route_match(writeIn(to)) !== 1) return;
+    if (url.origin !== location.origin || wasm.exact_route_match(writeIn(to)) !== 1) return;
     const nav = root.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
     event.preventDefault();
-    if (press || here) return;
-    if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
+    if (press || (here && !url.hash && !shown.includes("#"))) return;
+    const moved = (heard ? navigate(to + url.hash) : go(to + url.hash))?.ops?.some(op => op.op === "router"), say = line => wasm.exact_log(writeIn(line));
+    // The fragment shown, again, scrolls again, as the browser's does.
+    if (!moved && here && url.hash && globalThis.exact.fragment) globalThis.exact.fragment.scroll(root, globalThis.history?.state?.id, url.hash.slice(1), say);
+    else if (!moved) say(`history: link ${JSON.stringify(to + url.hash)} refused`);
   }, true);
   document.addEventListener("keydown", (event) => {
     touched = true; // any key, Tab included: a route's focus shows the ring to a keyboard's user (`arrive`, below)

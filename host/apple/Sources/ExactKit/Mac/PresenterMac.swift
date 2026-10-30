@@ -31,6 +31,7 @@ package final class Presenter {
     package var views: [UInt32: NodeView] = [:]
     /// The page viewport's programmatic element reveal, while AppKit owns its interpolation.
     var pageElementAnimation: UUID?
+    var fragmentArmed = false // a router change asked for a scroll to its fragment, which no live scroll has cancelled (Fragment.swift)
     lazy var focusEvents = FocusEvents(self)
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()

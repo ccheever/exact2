@@ -1,0 +1,62 @@
+// Fragments (LLP 1153 D5): a location's fragment rides on the visit it
+// arrives at and is no part of its identity. A push, replace or go that
+// changes only the fragment keeps the visit; go pops to an earlier visit or
+// selects another tab's top and writes the fragment there; open's leaf takes
+// it; the fragment percent-encode set applies; fragment() reads it.
+routes nav
+  tab home "/"
+    item "/item/:id"
+  tab other "/other"
+
+component App
+  derive current = top(nav)
+  derive frag = fragment(current)
+  derive visits = stack(nav).length
+  action open(url: string)
+    nav = open(nav, url)
+  action push(url: string)
+    nav = push(nav, url)
+  action replace(url: string)
+    nav = replace(nav, url)
+  action go(url: string)
+    nav = go(nav, url)
+  action select(name: string)
+    nav = select(nav, name)
+  view
+    column
+      text `${current.id}|${current.url}|${frag}|${visits}` testId="top"
+      button "x" press=open("/item/7#moves") testId="open-moves"
+      button "x" press=push("/item/7#stats") testId="push-stats"
+      button "x" press=push("/item/7") testId="push-plain"
+      button "x" press=push("/item/8#a b") testId="push-other"
+      button "x" press=go("/item/7#moves") testId="go-moves"
+      button "x" press=replace("/item/9#é<>`\"x#y") testId="replace-encoded"
+      button "x" press=select("other") testId="select-other"
+      button "x" press=go("/item/7#again") testId="go-home-again"
+      button "x" press=go("/other#here") testId="go-other"
+
+test "a fragment-only change keeps the visit"
+  tap "open-moves"
+  expect text "top" == "2|/item/7|moves|2"
+  tap "push-stats"
+  expect text "top" == "2|/item/7|stats|2"
+  tap "push-plain"
+  expect text "top" == "2|/item/7||2"
+
+test "go pops to the visit and writes its fragment"
+  tap "open-moves"
+  tap "push-other"
+  expect text "top" == "3|/item/8|a%20b|3"
+  tap "go-moves"
+  expect text "top" == "2|/item/7|moves|2"
+  tap "replace-encoded"
+  expect text "top" == "2|/item/9|%C3%A9%3C%3E%60%22x#y|2"
+
+test "go selects another tab's top and writes its fragment"
+  tap "open-moves"
+  tap "select-other"
+  expect text "top" == "1|/other||1"
+  tap "go-home-again"
+  expect text "top" == "2|/item/7|again|2"
+  tap "go-other"
+  expect text "top" == "1|/other|here|1"
