@@ -5171,9 +5171,10 @@ walks and encodes another frame on every display callback.
 
 The baseline headless run uses direct Metal and a readback target: it does
 not acquire or present a window drawable. G5m's retained window probe above
-supplies the drawable evidence (119.74 presents/s). The lane's starting main
-commit has no `EXACT_INK_COUNTERS` implementation; setting it supplies no
-counter evidence. The initial trace and its reduced rows are retained in
+supplies the drawable evidence (119.74 presents/s). Neither the lane's starting main
+commit nor the measured revision has an `EXACT_INK_COUNTERS` implementation.
+Setting it supplies no counter evidence, so per-period instance re-emission
+and encoding counters could not be collected. The initial trace and its reduced rows are retained in
 `target/m2b/before-periods-2.jsonl` (complete), `before-periods.jsonl` (the
 initial eight-period attempt) and `before-periods-summary.json`; its scratch
 entry and build commands are under `target/m2b/trace/` and `trace-build*.log`.
@@ -5187,14 +5188,13 @@ Ink bar and the native arm remain within G5m's three-round CPU and frame-rate
 ranges. The headless 120-period trace should paint only at the two half-second
 steps. Each prediction is judged on its named instrument, including misses.
 
-
 ### Three quiet rounds on the silver Mac
 
-2026-10-30, source `4eea9b7d90`. All four arms were rebuilt from this lane and
-ad-hoc signed with the same probe. The G5m static driver ran three rotating
+2026-10-30, source `41b339e758`, rebased onto main `43e0d93b85`. All four
+arms were rebuilt from this lane and ad-hoc signed with the same probe. The G5m static driver ran three rotating
 rounds of fling, bar and caret: 36 accepted samples, no exclusions or focus
 losses, and all 114 five-second observations quiet. Powermetrics collected
-535 samples. The qualification capture shows the complete heavy list.
+534 samples. The qualification capture shows the complete heavy list.
 
 The sampler now supplies a deadline for steps, delays and phase edges, or
 continuous demand; paused and finished plays supply none. The presenter
@@ -5206,18 +5206,18 @@ The native lowerer and sampled values are unchanged.
 |---|---|---|
 | Headless caret: two paints in 120 display periods after its starting frame | 2 paints; 2 opacity changes; no continuous display demand | Met |
 | Probe: caret 2 presents/s | 2.00 (2.00–2.00) | Met |
-| Probe: caret process CPU below 5 ms/s | 25.968 (25.383–27.410), from G5m's 154.320 (149.241–159.467) | Miss |
-| Probe: caret GPU work at most 5 ms/s | 4.346 (4.344–4.349), from 212.438 (159.497–260.022) | Met |
-| Powermetrics: caret whole-machine GPU power at most 0.03 W | 0.014 (0.014–0.017), from 0.718 (0.708–0.753) | Met |
-| Probe: bar CPU and cadence stay in G5m's ranges | 149.400 CPU ms/s; 119.67 presents/s | Literal range prediction missed: CPU is below the old 150.781–166.870 range; cadence's median is inside its old range |
-| Probe: native CPU and cadence stay in G5m's ranges | Caret 11.755 CPU ms/s, 119.86 display ticks/s; bar 92.867 CPU ms/s, 119.98 ticks/s | CPU medians are inside; cadence medians are just outside, so the literal range prediction missed |
+| Probe: caret process CPU below 5 ms/s | 27.148 (25.611–27.577), from G5m's 154.320 (149.241–159.467) | Miss |
+| Probe: caret GPU work at most 5 ms/s | 4.349 (4.347–4.359), from 212.438 (159.497–260.022) | Met |
+| Powermetrics: caret whole-machine GPU power at most 0.03 W | 0.019 (0.016–0.022), from 0.718 (0.708–0.753) | Met |
+| Probe: bar CPU and cadence stay in G5m's ranges | 157.413 CPU ms/s; 119.75 presents/s | Medians are inside; the highest cadence sample, 119.940, exceeds the old 119.865 upper edge, so the literal range prediction missed |
+| Probe: native CPU and cadence stay in G5m's ranges | Caret 12.255 CPU ms/s, 119.98 display ticks/s; bar 89.749 CPU ms/s, 119.96 ticks/s | Miss: caret CPU is above the old 12.217 upper edge; bar CPU is below its old 90.519 lower edge. Cadence medians are inside |
 
 The caret's 40 completed command buffers per sample replace G5m's
-2,399–2,400. Its remaining CPU is mostly the main thread (23.601 ms/s);
+2,399–2,400. Its remaining CPU is mostly the main thread (24.661 ms/s);
 the under-5 target remains unmet. The continuous bar still presents at the
-display rate. Its CPU ranges overlap G5m's, although the new median is lower.
-Native's lowest bar CPU sample also falls below its old range. Its cadence
-medians differ from the old range edges by 0.015 Hz (bar) and 0.008 Hz (caret).
+display rate; its CPU range is inside G5m's. Native CPU differs from G5m's
+medians by +0.079 ms/s for caret and −2.816 ms/s for bar. The literal range
+prediction is not met, even though the bar difference is a reduction.
 Native cadence is the probe's display link, not drawable presentation; its
 Core Animation work is not in the process command-buffer GPU rows.
 
@@ -5226,49 +5226,51 @@ Core Animation work is not in the process command-buffer GPU rows.
 | Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
 |---|---:|---:|---:|---:|
 | Quiet samples | 3 | 3 | 3 | 3 |
-| Process CPU, ms/s | 92.867 (86.332–93.689) | 151.036 (150.233–151.384) | 149.400 (147.310–156.774) | 159.221 (155.103–161.925) |
-| Main-thread CPU, ms/s | 84.416 (78.491–85.313) | 97.679 (96.647–98.226) | 74.340 (69.409–75.407) | 77.978 (75.778–79.039) |
-| Frames/s; native display link / painted drawables | 119.98 (119.76–120.06) | 119.84 (119.69–119.93) | 119.67 (119.45–119.96) | 119.69 (119.61–119.81) |
-| Peak footprint, MiB | 127.30 (125.33–132.49) | 302.06 (301.55–303.02) | 352.02 (352.02–358.66) | 444.34 (439.56–445.03) |
-| End footprint, MiB | 127.00 (125.06–132.09) | 301.64 (301.16–303.02) | 352.02 (347.59–355.58) | 444.08 (439.02–444.36) |
-| GPU busy time, ms/s; process command buffers | — | 32.575 (32.479–32.619) | 191.384 (162.298–259.181) | 23.203 (23.175–23.355) |
-| GPU ms/frame; native cadence / painted drawables | — | 0.2716 (0.2714–0.2722) | 1.6022 (1.3562–2.1605) | 0.1939 (0.1938–0.1949) |
-| Completed command buffers per sample | 0 (0–0) | 1200 (1198–1201) | 2400 (2397–2400) | 8386 (8379–8393) |
+| Process CPU, ms/s | 89.749 (88.419–90.048) | 146.498 (140.512–149.985) | 157.413 (152.553–160.141) | 163.823 (163.569–165.908) |
+| Main-thread CPU, ms/s | 81.772 (80.648–81.991) | 93.614 (90.811–95.351) | 73.475 (72.507–76.914) | 81.107 (80.662–81.390) |
+| Frames/s; native display link / painted drawables | 119.96 (119.88–119.98) | 119.70 (119.69–119.72) | 119.75 (119.66–119.94) | 119.90 (119.80–120.00) |
+| Peak footprint, MiB | 126.53 (125.28–126.67) | 303.22 (301.20–303.58) | 356.08 (347.05–362.30) | 444.56 (441.17–449.39) |
+| End footprint, MiB | 126.05 (124.89–126.17) | 302.80 (301.20–303.13) | 350.78 (347.05–354.67) | 444.31 (440.80–448.89) |
+| GPU busy time, ms/s; process command buffers | — | 32.435 (32.426–32.479) | 191.163 (155.103–204.514) | 23.154 (23.018–23.212) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2709 (0.2709–0.2713) | 1.5964 (1.2962–1.7051) | 0.1930 (0.1921–0.1936) |
+| Completed command buffers per sample | 0 (0–0) | 1198 (1198–1200) | 2399 (2399–2402) | 8400 (8393–8407) |
 
 ### Caret, after M2b
 
 | Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
 |---|---:|---:|---:|---:|
 | Quiet samples | 3 | 3 | 3 | 3 |
-| Process CPU, ms/s | 11.755 (11.642–11.906) | 17.855 (17.440–18.713) | 25.968 (25.383–27.410) | 15.113 (14.870–15.508) |
-| Main-thread CPU, ms/s | 10.732 (10.652–10.864) | 14.392 (14.105–15.141) | 23.601 (23.075–24.908) | 12.820 (12.777–13.258) |
-| Frames/s; native display link / painted drawables | 119.86 (119.78–119.88) | 2.00 (2.00–2.00) | 2.00 (2.00–2.00) | 2.00 (2.00–2.00) |
-| Peak footprint, MiB | 130.75 (125.50–131.75) | 292.22 (292.17–292.72) | 346.97 (343.99–353.74) | 440.16 (439.94–445.86) |
-| End footprint, MiB | 130.36 (125.09–131.45) | 291.77 (291.67–292.19) | 343.59 (340.61–350.72) | 439.84 (439.66–445.50) |
-| GPU busy time, ms/s; process command buffers | — | 0.568 (0.567–0.569) | 4.346 (4.344–4.349) | 0.378 (0.377–0.382) |
-| GPU ms/frame; native cadence / painted drawables | — | 0.2839 (0.2836–0.2843) | 2.1739 (2.1724–2.1754) | 0.1888 (0.1885–0.1909) |
+| Process CPU, ms/s | 12.255 (11.719–12.369) | 17.977 (17.939–18.224) | 27.148 (25.611–27.577) | 14.965 (14.827–15.316) |
+| Main-thread CPU, ms/s | 11.271 (10.741–11.371) | 14.633 (14.502–14.832) | 24.661 (23.512–24.823) | 12.730 (12.704–12.855) |
+| Frames/s; native display link / painted drawables | 119.98 (119.89–120.06) | 2.00 (2.00–2.00) | 2.00 (2.00–2.00) | 2.00 (2.00–2.00) |
+| Peak footprint, MiB | 127.95 (127.80–137.75) | 292.64 (292.56–293.59) | 355.94 (355.78–356.61) | 443.25 (432.63–443.44) |
+| End footprint, MiB | 127.72 (127.53–137.47) | 292.14 (292.14–293.09) | 352.88 (352.75–353.27) | 442.83 (432.44–443.30) |
+| GPU busy time, ms/s; process command buffers | — | 0.563 (0.561–0.567) | 4.349 (4.347–4.359) | 0.377 (0.371–0.377) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2816 (0.2808–0.2836) | 2.1756 (2.1744–2.1799) | 0.1885 (0.1857–0.1887) |
 | Completed command buffers per sample | 0 (0–0) | 20 (20–20) | 40 (40–40) | 140 (140–140) |
 
 | Whole-machine GPU power, W; median (range) | Native | GPUI | Ink | egui |
 |---|---:|---:|---:|---:|
-| Bar | 0.022 (0.021–0.030) | 0.283 (0.276–0.295) | 0.727 (0.712–0.732) | 0.174 (0.172–0.184) |
-| Caret | 0.004 (0.004–0.011) | 0.007 (0.006–0.013) | 0.014 (0.014–0.017) | 0.011 (0.011–0.013) |
+| Bar | 0.024 (0.022–0.027) | 0.284 (0.268–0.288) | 0.782 (0.768–0.784) | 0.182 (0.179–0.192) |
+| Caret | 0.002 (0.001–0.002) | 0.015 (0.007–0.016) | 0.019 (0.016–0.022) | 0.005 (0.005–0.007) |
 
 These are powermetrics estimates for the whole machine, not process watts.
 The process GPU rows above sum the probe's completed command-buffer spans.
 
 ### Reproduction and retained evidence
 
-In this lane's worktree, `target/m2b/silver-run-4eea9b7d90/` retains the signed
+In this lane's worktree, `target/m2b/silver-run-41b339e758/` retains the signed
 bundles, build and qualification logs, provenance hashes, driver, aggregator
 outputs, captures, all raw attempts, quiet observations and power samples.
 The measurement Mac retains the same files at
-`~/projects/exact2-measure/target/g0/m2b-4eea9b7d90/`. G5m's before cohort is
-also copied to `target/m2b/g5m-before/`. No retained baseline was replaced.
+`~/projects/exact2-measure/target/g0/m2b-41b339e758/`. G5m's before cohort is
+also copied to `target/m2b/g5m-before/`. The preliminary cohort before the
+rebase is retained at `target/m2b/silver-run-4eea9b7d90/` and the measurement
+Mac's `target/g0/m2b-4eea9b7d90/`. No retained cohort was replaced.
 
 ```sh
-bun bench/heavy-list/gpui/aggregate.mjs target/m2b/silver-run-4eea9b7d90/g5m-after
-python3 target/m2b/silver-run-4eea9b7d90/power-summary.py target/m2b/silver-run-4eea9b7d90/g5m-after
+bun bench/heavy-list/gpui/aggregate.mjs target/m2b/silver-run-41b339e758/g5m-after
+python3 target/m2b/silver-run-41b339e758/power-summary.py target/m2b/silver-run-41b339e758/g5m-after
 ```
 
 `target/m2b/after-periods.jsonl` repeats the baseline headless instrument:
@@ -5279,3 +5281,28 @@ between. `after-agent.jsonl` and `after.png` retain the app drive, including
 one frame per step, no intervening frames, paused and delayed plays, the final
 sample, and continuous motion. The motion tests cover all four step positions,
 reverse boundaries and lowered plays.
+
+### Validation
+
+At `41b339e758`, all six checks passed, including the full root test run and
+workspace compilation. The full `exact-linux` library and test suites,
+`exact-motion`, and the painted carrier's five Rust tests passed. The pinned
+`paint`, `borders`, `tint`, `backdrop`, `gradients`, `visual` and `materials`
+filters, and the integration `image` filter, each passed with
+`EXACT_INK_DEVICE=metal EXACT_REQUIRED=1`. The kernel, runner and native
+sampler protocol did not change. The Apple Rust tests ran in the root suite;
+Swift XCTests were not run.
+
+`target/m2b/validation.txt` contains the commands and their complete verbatim
+output; `validation-summary.txt` contains the result lines. The final six
+checks are under `target/m2b/final-validation/`; the additional suites are
+under `target/m2b/integrated/`. Earlier root runs hit the compiler-growth and
+SVG wall-clock assertions, and an earlier Linux run hit upload and image
+waits. Their logs and isolated reruns remain under `target/m2b/`; the final
+full root and Linux runs passed without changing those tests.
+
+The retained binary and probe hashes match their provenance. Recomputed
+process and power tables match the published tables; Python versions differ
+in the power JSON's floating-point sums by at most 1.8e-13. The original JSON
+and the recomputation are both retained. `target/m2b/integrated/reproduction.log`
+records these checks.
