@@ -60,12 +60,14 @@ type LinkGroups = { href?: string; autolink?: string; label?: string };
 export function threadLinksIn(markdown: string): { href: string; label: string | null }[] {
   if (!hasThreadLinks(markdown)) return [];
   const links: { href: string; label: string | null }[] = [];
-  for (const match of markdown.matchAll(OUTSIDE_CODE)) {
-    const groups = (match.groups ?? {}) as LinkGroups, href = groups.href ?? groups.autolink;
-    if (href === undefined || parseThreadLinkHref(href) === null) continue;
+  // A replace, not matchAll: Hermes's matchAll finds nothing with this expression's backreferences.
+  markdown.replace(OUTSIDE_CODE, (source, ...args) => {
+    const groups = args.at(-1) as LinkGroups, href = groups.href ?? groups.autolink;
+    if (href === undefined || parseThreadLinkHref(href) === null) return source;
     const written = groups.label?.trim() ?? '';
     links.push({ href, label: written && parseThreadLinkHref(written) === null ? written : null });
-  }
+    return source;
+  });
   return links;
 }
 
