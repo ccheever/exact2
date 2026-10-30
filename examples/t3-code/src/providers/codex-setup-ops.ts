@@ -10,7 +10,7 @@ import { providerWritable } from './provider-permissions';
 // let an answer go after the request left (let-go.ts). The desktop's receiveProviderAuthCallback
 // is openAuthSession's loopback redirect (LLP 1133.005 D9): a flow names the authorization URL
 // whose callback it wants (`flow.receiving`), the window holds a resource on it (app.contract
-// `codexLoopback`), and that answer (`receiveCallback`) has the host bind the redirect's port,
+// `codexLoopback`, or `codexLoopbackSecond` while another sign-in waits), and that answer (`receiveCallback`) has the host bind the redirect's port,
 // open the browser and answer the one callback, then completes the flow; a new URL, or none, lets
 // the answer go, which frees the port. `returnUrl` is omitted from provider.auth.start (the server
 // does not use it in client mode; the clone registers no URL scheme) and is '' in the handoff.
@@ -109,10 +109,11 @@ async function openPage(context: CodexContext, url: string): Promise<void> {
 }
 
 /**
- * receiveCodexAuthCallback's wait, as the window's resource on `flow.receiving` (app.contract `codexLoopback`):
+ * receiveCodexAuthCallback's wait, as the window's resource on `flow.receiving` (codex-setup-host.ts codexReceiving):
  * openAuthSession binds the redirect's 127.0.0.1 port before the browser opens and answers the one GET on its path
- * with this sign-in's `state`; a callback with exactly one code or error (codexCallbackUrl) completes the flow. A refusal
- * (the port in use, the browser, a cancel) is RECEIVE_FAILED, which leaves the pasted-URL form.
+ * with this sign-in's `state` and exactly one code or error; a request without one gets a 400 and the receiver keeps
+ * listening (codexCallbackUrl's rule, LLP 1133.005 D9). A refusal (the port in use, the browser, a cancel) is
+ * RECEIVE_FAILED, which leaves the pasted-URL form.
  */
 export async function receiveCallback(context: CodexContext, url: string): Promise<'received' | 'failed' | 'gone'> {
   const flow = codexFlow(context.host, context.instanceId), request = readCodexAuthorizationRequest(url);

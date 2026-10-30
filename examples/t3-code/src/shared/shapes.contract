@@ -407,8 +407,10 @@ shape CodexReceive
   phase: string
 shape Snapshot
   externalOpen: ExternalOpen
-  // The ChatGPT sign-in whose callback the loopback receiver waits for (codex-setup-host.ts): app.contract codexLoopback.
+  // The ChatGPT sign-ins whose callbacks the loopback receivers wait for, one per slot, "" for a free one
+  // (codex-setup-host.ts codexReceiving): app.contract codexLoopback and codexLoopbackSecond.
   codexReceiving: string
+  codexReceivingSecond: string
   updateEverything: UpdateEverythingView
   serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool

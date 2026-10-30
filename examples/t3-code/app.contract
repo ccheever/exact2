@@ -103,9 +103,11 @@ component T3Code
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
   resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restResting, restAtEnd, restPulls, transportSeen, composerTyping, layoutFrames, wallTime.formatLocale) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts); the connections' news (transport.ts); the typing guard (composer-typing-guard.ts)
-  // receiveCodexAuthCallback: while a ChatGPT sign-in waits on its loopback callback, this answer holds openAuthSession's
-  // receiver on the redirect's port (codex-setup-ops.ts receiveCallback); another URL, or none, lets it go.
+  // receiveCodexAuthCallback: while a ChatGPT sign-in waits on its loopback callback, its slot's answer holds
+  // openAuthSession's receiver on the redirect's port (codex-setup-ops.ts receiveCallback); another URL, or none, lets it
+  // go. Two wait at once, each on its own port (codex-setup-host.ts LOOPBACK_SLOTS).
   resource codexLoopback = codexReceive(data.codexReceiving) as shape CodexReceive
+  resource codexLoopbackSecond = codexReceive(data.codexReceivingSecond) as shape CodexReceive
   // The notification permission, read again when the app comes to the front: the shell posts while it is `granted`
   // (shell-notify.ts). Data code makes the posts, and a package enters the plan only by a name Contract reads, so this
   // read is also what lets the agent answer data code's calls, which it refuses for a package not in the plan

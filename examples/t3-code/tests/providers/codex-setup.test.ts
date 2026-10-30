@@ -243,7 +243,19 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     // While the focused connection is down, the window's resource still names the URL, so its receiver is not let go.
     const client = { connection: 'reconnecting', environmentId: 'env-lane', origin: fake.origin, generation: 2 } as unknown as T3Client, module = { available: true } as unknown as Native;
     codexFlow(client, instanceId).receiving = authorizationUrl;
-    expect(codexReceiving(client, module)).toBe(authorizationUrl);
+    expect(codexReceiving(client, module)).toEqual([authorizationUrl, '']);
+  });
+
+  test('two sign-ins wait at once, each keeping its receiver while the other ends (CodexAuthCallback.test.ts: two accounts)', () => {
+    const client = { connection: 'connected', environmentId: 'env-two', origin: 'http://two.test', generation: 1 } as unknown as T3Client, module = { available: true } as unknown as Native;
+    const first = codexFlow(client, 'codex-a'), second = codexFlow(client, 'codex-b'), third = codexFlow(client, 'codex-c');
+    first.receiving = 'https://auth.openai.com/a'; second.receiving = 'https://auth.openai.com/b';
+    expect(codexReceiving(client, module)).toEqual(['https://auth.openai.com/a', 'https://auth.openai.com/b']);
+    // The first completes: the second stays in its slot, so its receiver is not let go and bound again.
+    first.receiving = ''; third.receiving = 'https://auth.openai.com/c';
+    expect(codexReceiving(client, module)).toEqual(['https://auth.openai.com/c', 'https://auth.openai.com/b']);
+    second.receiving = ''; third.receiving = '';
+    expect(codexReceiving(client, module)).toEqual(['', '']);
   });
 
   test('a sign-in the browser has not called back in five minutes expires (receiveCodexAuthCallback)', async () => {

@@ -60,7 +60,7 @@ import { highlightAsk, highlightStore, highlightView } from './src/highlight/hig
 import { noteServerUpdateClock } from './src/connections/server-update-notices';
 import { terminalDrawerView, terminalOpen } from './src/terminal/terminal-drawer-view';
 import { terminalFocused } from './src/terminal/terminal-focus';
-import { codexContext, codexPrepare, codexReceive, codexReceiving, codexTarget } from './src/providers/codex-setup-host'; // ManagedCodexSetup's commands, effects and loopback callback
+import { codexContext, codexPrepare, codexReceive, codexReceivingSlots, codexTarget } from './src/providers/codex-setup-host'; // ManagedCodexSetup's commands, effects and loopback callback
 import { codexSetupOp } from './src/providers/codex-setup-ops';
 import { chatGptPlanSnapshot } from './src/providers/chatgpt-plan-view';
 import { autoBalancePrepare } from './src/composer/auto-balance'; // Settings › Load balancing, read for the composer
@@ -156,7 +156,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     return highlightView('data', () => ({ ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[11] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
       linkMenu: chatLinkMenuView(client, native, storage), // a Markdown web link's menu rows (external-link-menu.ts)
       externalOpen: externalOpenRequest(), // the latest link to open outside the app (external-open.ts)
-      codexReceiving: codexReceiving(client, native) })); // the ChatGPT sign-in waiting on its loopback callback (app.contract codexLoopback)
+      ...codexReceivingSlots(client, native) })); // the ChatGPT sign-ins waiting on their loopback callbacks (app.contract codexLoopback)
   }
   if (source === 'threadFind') return native?.available ? threadFindTick(client, native, Number(args[1]) || 0, arr(args[2]).map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) })), String(args[3] || '')) : threadFindView(client);
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
