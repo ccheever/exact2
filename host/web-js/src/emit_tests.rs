@@ -1102,4 +1102,13 @@ fn a_canvas_inside_a_canvas_reads_the_other_name() {
         assert!(css.contains(want), "{want}: {css}");
     }
     assert!(!css.contains("--exact-progress-aligned:initial"), "{css}");
+    // A component's root inside the canvas reads the canvas's names: uses are inlined.
+    let source = "component App\n  view\n    box justify-items=\"center\" width=240 height=60\n      canvas height=50\n        Inner()\n\ncomponent Inner\n  view\n    canvas height=20\n";
+    let out = crate::emit::emit(&contract::compile(source).unwrap(), false, false).unwrap();
+    assert!(
+        out.css
+            .contains("justify-self:var(--exact-progress-aligned-2,start)"),
+        "{}",
+        out.css
+    );
 }
