@@ -664,7 +664,7 @@ mod tests {
     fn mica_refusal_uses_page_color_in_both_schemes() {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
-        p.brush.replace_backend(Box::new(Lost(false)));
+        p.brush.replace_backend(Box::new(Lost(false, false)));
         p.surfaces.direct_window = Some(DirectWindow::new(window.clone()));
         for dark in [false, true] {
             p.set_system_scheme(dark);
@@ -737,10 +737,14 @@ mod tests {
         assert_eq!(p.brush.collect_retired_devices(), 0);
     }
 
-    struct Lost(bool);
+    struct Lost(bool, bool);
     impl Backend for Lost {
         fn prepare_window_frame(&mut self, _: [u32; 2]) -> Result<bool, String> {
-            Err("injected reservation refusal".into())
+            if self.1 {
+                Err("injected reservation refusal".into())
+            } else {
+                Ok(true)
+            }
         }
         fn attach_window(
             &mut self,
@@ -803,7 +807,7 @@ mod tests {
             crate::presenter::PainterChoice::Cpu,
         )
         .unwrap();
-        p.brush.replace_backend(Box::new(Lost(true)));
+        p.brush.replace_backend(Box::new(Lost(true, false)));
         p.surfaces.direct_window = Some(DirectWindow::new(window.clone()));
         assert!(p.window_frame(window.clone()).unwrap().is_none());
         assert!(p.last_frame_succeeded());
@@ -869,7 +873,7 @@ mod tests {
             exact_ink::device::d3d11::Window::from_owner(std::rc::Rc::new(UnusedWindow)).unwrap();
         let mut p = cpu_presenter();
         p.frame();
-        p.brush.replace_backend(Box::new(Lost(false)));
+        p.brush.replace_backend(Box::new(Lost(false, true)));
         let mut direct = DirectWindow::new(window);
         assert!(!p.dirty());
         assert!(direct.frame(&mut p).unwrap().is_none());
@@ -903,7 +907,7 @@ mod tests {
             .replace_backend(Box::new(crate::raster::Raster::new()));
         assert!(reserve_frame(&mut p, [80, 60], &mut reported));
         assert!(!reported);
-        p.brush.replace_backend(Box::new(Lost(true)));
+        p.brush.replace_backend(Box::new(Lost(true, true)));
         assert!(!reserve_frame(&mut p, [80, 60], &mut reported));
         assert!(p.brush.device_lost());
         assert!(!reported);
@@ -914,7 +918,7 @@ mod tests {
     fn refused_hardware_attachment_retries_warp_and_reports_it() {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
-        p.brush.replace_backend(Box::new(Lost(true)));
+        p.brush.replace_backend(Box::new(Lost(true, false)));
         let startup = Startup::new(false);
         let direct = DirectWindow::attach(&mut p, window.clone(), [80, 60], startup).unwrap();
         p.surfaces.direct_window = Some(direct);
@@ -941,7 +945,7 @@ mod tests {
     fn refused_warp_does_not_block_later_hardware_recovery() {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
-        p.brush.replace_backend(Box::new(Lost(true)));
+        p.brush.replace_backend(Box::new(Lost(true, false)));
         let mut direct = DirectWindow::new(window.clone());
         direct.open = |warp| {
             if warp {
@@ -993,7 +997,7 @@ mod tests {
     fn an_ordinary_paint_error_does_not_replace_the_device() {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
-        p.brush.replace_backend(Box::new(Lost(false)));
+        p.brush.replace_backend(Box::new(Lost(false, false)));
         p.surfaces.direct_window = Some(DirectWindow::new(window.clone()));
         p.window_frame(window).unwrap();
         let direct = p.surfaces.direct_window.as_ref().unwrap();
