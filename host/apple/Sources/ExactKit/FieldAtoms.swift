@@ -65,7 +65,7 @@ extension TextArea {
     /// off): what is read and pointed at follows. An element whose atom
     /// keeps its range and role is kept, so VoiceOver's focus on it stays
     /// while its face's label or title changes, as an upload's percentage
-    /// does; it is read anew and its new name announced as a title change.
+    /// does; it is read anew, and on macOS a title change is posted for it.
     package func atomsChanged() {
         let frames = atomFrames()
         let old = atomElements
@@ -165,10 +165,12 @@ final class AtomCatcher: NSView {
 
 /// An atom as assistive technology sees it: a button (or link, as
 /// declared) named by its label, described by its title, at its pill.
-package final class AtomElement: NSAccessibilityElement {
+/// The agent joins it to the field's node, as iOS's container does.
+package final class AtomElement: NSAccessibilityElement, AgentOwned {
     weak var field: TextArea?
     let range: NSRange
     var atom: MarkupAtom
+    var agentViewId: UInt32? { field?.owner?.id }
     init(field: TextArea, range: NSRange, atom: MarkupAtom) {
         (self.field, self.range, self.atom) = (field, range, atom)
         super.init()

@@ -15,14 +15,16 @@ the same (`host/apple/Sources/ExactKit/FieldAtoms.swift:71`); a new label made a
 posted `layoutChanged` (macOS), or replaced the owner's `accessibilityElements` (iOS). The Mac's pills
 are in the text view's `AXChildrenInNavigationOrder` (AppKit derives it from `accessibilityChildren`), but
 `agent.mjs macos tree --ax <field>` left them out: its scope kept only elements a node owns
-(`AgentAccessibility.swift:193`).
+(`AgentAccessibility.swift:193`), and a Mac pill's element was owned by none (its parent is the text
+view, not the node; on iOS its container is the node).
 
 **Reproduction.** `InlineAtomEditorMacTests.testANewFaceAloneDrawsThePillAgain`: a face from 0% to 87%.
 
 **Fix.** An element is kept while its range and role stay; its label and title are read anew, and macOS
-posts `titleChanged` for it. iOS sets the kept element's `accessibilityLabel`. A scoped `tree --ax` also
-keeps an element no node owns when it is under a kept one.
+posts `titleChanged` for it. iOS sets the kept element's `accessibilityLabel`. The agent joins a Mac
+pill's element to the field's node, as on iOS, and a scoped `tree --ax` also keeps an element no node
+owns when it is under a kept one.
 
 **Acceptance.** The Mac and iOS tests above keep the element and read "A quote 87%";
 `testAPressSelectsTheAtomAndAnAccessibilityElementNamesIt` finds the pill in the navigation order and in
-a scoped tree.
+a scoped tree, joined to the field's node.

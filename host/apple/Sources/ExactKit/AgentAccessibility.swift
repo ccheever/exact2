@@ -191,7 +191,7 @@ extension Presenter {
         if !parts.isEmpty { coverage["parts"] = parts }
         var ancestors: [[String: Any]] = []
         if let scope {
-            // An element no node owns (a text area's pill) goes with the element it is under.
+            // An element no node owns goes with the element it is under.
             var inScope = Set<Int>()
             let kept = w.elements.indices.filter { k in
                 let joined = (w.elements[k]["id"] as? UInt32).map(scope.contains)

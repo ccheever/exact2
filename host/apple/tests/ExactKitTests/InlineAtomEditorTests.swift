@@ -194,8 +194,10 @@ final class InlineAtomEditorMacTests: XCTestCase {
         let element = try XCTUnwrap(f.accessibilityChildren()?.compactMap { $0 as? AtomElement }.first)
         let walked = (Presenter.navigationOrder(f) ?? []).compactMap { $0 as? AtomElement }
         XCTAssertTrue(walked.count == 1 && walked[0] === element, "in the order VoiceOver walks")
-        let scoped = (presenter.axElements(roots: [window.contentView!], scope: [3])["elements"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
-        XCTAssertTrue(scoped.contains("A quote"), "`tree --ax` of the field lists it: \(scoped)")
+        let scoped = presenter.axElements(roots: [window.contentView!], scope: [3])["elements"] as? [[String: Any]] ?? []
+        let pill = scoped.first { $0["name"] as? String == "A quote" }
+        XCTAssertNotNil(pill, "`tree --ax` of the field lists it: \(scoped.compactMap { $0["name"] })")
+        XCTAssertEqual(pill?["id"] as? UInt32, 3, "joined to the field's node, as on iOS")
         XCTAssertEqual(element.accessibilityRole(), .button)
         XCTAssertEqual(element.accessibilityLabel(), "A quote")
         XCTAssertEqual(element.accessibilityHelp(), "The quoted passage")
