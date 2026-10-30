@@ -28,6 +28,8 @@ export interface Message { secret?: ReturnType<typeof import('../timeline/secret
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
   /** A folded automation or agent message's one line. */
   summary?: string;
+  /** A queued automation or agent message's fold heading: "Automation", or the sending thread's title. */
+  sender?: string;
   findLines?: { id: string; parts: { id: string; text: string; find: number }[] }[];
   meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean;
   /** An answer the reference offers Fork from this response on. */

@@ -3,6 +3,7 @@ use Activity from "../shared/shapes.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
 use CcIcon from "./composer-controls.contract"
 use TimelineTip from "../shell/shell-tip.contract"
+use TimelineIcon from "../timeline/timeline-icons-kit.contract"
 
 // The end of the timeline, after the last message (thread-end.ts builds the rows, whose fields it documents):
 // ThreadNow's lines and QueuedRunsControl's dashed, unsent bubbles. Colours are the served build's tokens: muted
@@ -118,8 +119,8 @@ component LineDetails
           else
             text [message.title, message.body, message.detail].filter((part) => part != "").join(" ") font-size="0.75rem" line-height="1.03125rem" white-space="normal" overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)" testId=`thread-now-details-text-${message.id}`
 
-// QueuedRunsControl's row: a dashed, unfilled bubble (a turn not sent yet, read in full as a sent turn is), then its
-// actions under it: Send now (Button xs ghost-muted) and a separator while it can be sent, "Saving" while the send
+// QueuedRunsControl's row: a dashed, unfilled bubble (a turn not sent yet, read in full as a sent turn is), wearing its
+// sent form's attribution, then its actions under it: Send now (Button xs ghost-muted) while it can be sent, "Saving" while the send
 // is in flight, the pencil (its reason as its tooltip while disabled) and remove; while it is edited, "Editing in the
 // composer" and Cancel. Bubbles are 12pt apart (gap-3), the "Show all" row 8pt below, and the queue ends with 16pt.
 component QueuedTurn
@@ -131,17 +132,36 @@ component QueuedTurn
     command: action
     urls: AttachmentUrl[]
   state over = ""
+  state rowOver = false
+  state expanded = false
   action hover(name: string, value: bool)
     over = value ? name : (over == name ? "" : over)
+  action hoverRow(value: bool)
+    rowOver = value
+  action toggle
+    expanded = not expanded
   derive editing = message.status == "editing"
   derive pending = message.status == "pending"
+  // QueuedMessage: an automation's or another agent's message folds to one line, as its sent form does.
+  derive folded = message.intent == "automation" or message.intent == "agent"
+  derive bodyShown = not folded or expanded
   view
-    column width="100%" align-items="flex-end" gap="0.25rem" padding-bottom=(message.continues ? "0.75rem" : message.collapsible ? "0.5rem" : "1rem") box-sizing="border-box" position="relative" aria-label=message.title aria-current=(editing ? "true" : "") animation=(still ? "none" : "teFadeIn 150ms ease-out") testId=(message.runId != "" ? `queued-${message.runId}` : "queued-pending")
+    column width="100%" align-items="flex-end" gap="0.25rem" padding-bottom=(message.continues ? "0.75rem" : message.collapsible ? "0.5rem" : "1rem") box-sizing="border-box" position="relative" hover=hoverRow aria-label=message.title aria-current=(editing ? "true" : "") animation=(still ? "none" : "teFadeIn 150ms ease-out") testId=(message.runId != "" ? `queued-${message.runId}` : "queued-pending")
       if message.attribution != ""
         // The queue's live count (QueuedRunsControl's sr-only aria-live region).
         text message.attribution role="status" position="absolute" width=1 height=1 overflow="hidden" opacity=0 font-size=1
-      column min-width=0 max-width="80%" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="1rem" border-width=1 border-style="dashed" border-color=(editing ? "light-dark(#1b4ed899, #346bf199)" : "light-dark(#71717b66, #a1a1a166)") testId="queued-bubble"
-        if message.images.length > 0
+      if message.intent == "t3code"
+        text "Sent by T3 Code" margin-right="0.25rem" font-size="0.6875rem" line-height="0.9375rem" color="light-dark(#71717bb3, #a1a1a1b3)" testId="queued-sent-by"
+      column width=(folded and expanded ? "100%" : "auto") min-width=0 max-width="80%" gap="0.5rem" padding-left=(folded ? "0px" : "0.75rem") padding-right=(folded ? "0px" : "0.75rem") padding-top=(folded ? "0px" : "0.5rem") padding-bottom=(folded ? "0px" : "0.5rem") box-sizing="border-box" border-radius="1rem" border-width=1 border-style="dashed" border-color=(editing ? "light-dark(#1b4ed899, #346bf199)" : "light-dark(#71717b66, #a1a1a166)") testId="queued-bubble"
+        if folded
+          // FoldedMessageHeader: the sender's glyph and name, the line, and a chevron that turns while open.
+          button press=toggle aria-expanded=expanded aria-label=`${message.sender} ${message.summary}` testId=`queued-fold-${message.runId}` width="100%" min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="1rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem" title=""
+            TimelineIcon(name=(message.intent == "automation" ? "calendar-clock" : "messages-square"), size=16, color="light-dark(#71717b, #a1a1a1)")
+            text message.sender max-width="50%" flex-shrink=0 line-clamp=1 font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+            text message.summary flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+            box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(expanded ? 180 : 0)
+              TimelineIcon(name="chevron-down", size=14, color="light-dark(#71717b, #a1a1a1)")
+        if bodyShown and message.images.length > 0
           row flex-wrap="wrap" align-items="center" gap="0.25rem"
             for thumb in message.images key=thumb.id
               box width="2rem" height="2rem" overflow="hidden" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color="light-dark(#fcfcfc, #000000)" box-sizing="border-box" testId=`queued-thumb-${thumb.id}`
@@ -150,16 +170,25 @@ component QueuedTurn
                     image entry.url aria-label=thumb.name width="100%" height="100%" object-fit="cover"
                 else
                   box width="100%" height="100%" background-color="light-dark(#fafafa99, #ffffff05)" aria-label=thumb.name
-        if message.body != ""
-          text message.body font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" color=(editing ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+        if bodyShown and message.body != ""
+          scroll width="100%" max-height=(folded ? "24rem" : "62500rem") padding-left=(folded ? "0.75rem" : "0px") padding-right=(folded ? "0.75rem" : "0px") padding-bottom=(folded ? "0.5rem" : "0px") box-sizing="border-box"
+            text message.body font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" color=(editing ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
       row align-items="center" gap="0.125rem" padding-right="0.25rem" box-sizing="border-box"
+        // The sent form's links and time, shown while the row is hovered (group-hover/queued).
+        if message.createdAt != ""
+          row margin-right="0.25rem" padding-left="0.25rem" padding-right="0.25rem" gap="0.5rem" align-items="center" opacity=(rowOver ? 1 : 0) testId=`queued-meta-${message.runId}`
+            if message.intent == "agent" and message.sourceThreadId != ""
+              QueuedLink(label="Open thread", press=command("open-related-thread", message.sourceThreadId, "", 0), testId=`queued-open-thread-${message.runId}`)
+            if message.groupId != ""
+              QueuedLink(label="Open automation", press=command("open-scheduled-task", message.groupId, "", 0), testId=`queued-open-automation-${message.runId}`)
+            TimelineTip(label=message.timeTip, side="top", align="center", offset=24)
+              text message.timestamp font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
         if message.actionLabel != ""
           TimelineTip(label=message.intentTip, side="top", align="center", offset=28)
             button press=command("cc:queued-steer", message.runId, "", 0) hover=hover("send") disabled=(message.runId == "" or busy) opacity=(message.runId == "" or busy ? 0.64 : 1) testId=`queued-send-${message.runId}` height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over == "send" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
               box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
                 CcIcon(name="arrow-up", size=14, color=(over == "send" ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"), weight=1.75)
               text message.actionLabel font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(over == "send" ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
-          box width=1 height="1rem" margin-left="0.5rem" margin-right="0.5rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" aria-hidden=true
         if pending
           row gap="0.25rem" align-items="center" padding-left="0.25rem" padding-right="0.25rem" testId="queued-saving"
             CcIcon(name="clock", size=12, color="light-dark(#71717b, #a1a1a1)", weight=1.75)
@@ -175,6 +204,19 @@ component QueuedTurn
           TimelineTip(label="Remove from queue", side="top", align="center", offset=28)
             button press=command("cc:queued-remove", message.runId, "", 0) hover=hover("remove") disabled=(message.runId == "" or busy) opacity=(message.runId == "" or busy ? 0.64 : 1) testId=`queued-remove-${message.runId}` aria-label="Remove queued message" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over == "remove" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
               CcIcon(name="x", size=14, color=(over == "remove" ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"), weight=1.75)
+
+// InlineButton tone muted: muted, the foreground and an underline while hovered.
+component QueuedLink
+  props
+    label: string
+    press: action
+    testId: string
+  state hovered = false
+  action hover(value: bool)
+    hovered = value
+  view
+    button press=press hover=hover testId=testId padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
+      text label font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") text-decoration-line=(hovered ? "underline" : "none")
 
 // "Show all N queued" / "Show fewer" (InlineButton tone muted, 12pt, a 14pt chevron that turns while the queue shows
 // in full), at the queue's end; then the queue's 16pt.

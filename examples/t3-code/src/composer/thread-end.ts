@@ -4,7 +4,7 @@
 // chat/QueuedRunsControl.tsx, threadSync.ts and ChatView.tsx (timelineFooter, scrollToEndSummary).
 // threadEndRows is the timeline's footer and thread-end.contract draws its rows; the rows are
 // `Message`s, so each field below names its role.
-import { arr, obj, str, type Activity, type Message } from '../client/domain';
+import { arr, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { activeRun } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { childThreadInputs, childThreadInputsTitle } from '../sidebar/subagent-requests';
@@ -17,6 +17,8 @@ import { commandChords } from './composer-presentation';
 import { probe, probeKey, type Probe } from './composer-menus';
 import { anchorFrame } from '../shared/laid-out-widths';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
+import { userMessagePresentation } from '../timeline/user-message';
+import { scheduledTaskTitle } from '../timeline/timeline-presentation';
 
 /**
  * A line of thread state (`kind` "thread-now"): `icon` with `tone` "info" on the one line that needs you, `title`, then
@@ -149,11 +151,28 @@ export function threadNowRows(client: T3Client): Message[] {
 }
 
 /**
+ * QueuedMessage: who sent a queued message, as its sent form shows it. An automation's and another agent's fold to one
+ * line under `sender` ("Automation" or the sending thread's title) with `summary` (the task's title or the first line);
+ * T3 Code's says "Sent by T3 Code". `taskId` opens the automation, `senderThreadId` the sending thread.
+ */
+export function queuedSender(client: T3Client, message: Obj | undefined, text: string) {
+  const presentation = message ? userMessagePresentation(message) : null, attribution = presentation?.attribution ?? '';
+  const senderThreadId = attribution === 'agent' ? str(message?.senderThreadId) : '';
+  const sender = attribution === 'automation' ? 'Automation'
+    : attribution === 'agent' ? str(client.shell.threads.find(thread => thread.id === senderThreadId)?.title).trim() || 'Agent' : '';
+  const summary = attribution === 'automation' ? scheduledTaskTitle(client, presentation!.scheduledTaskId) || (text.split(/\r?\n/, 1)[0] ?? '')
+    : attribution === 'agent' ? text.split(/\r?\n/).find(line => line.trim()) ?? '' : '';
+  return { attribution, sender, summary, taskId: presentation?.scheduledTaskId ?? '', senderThreadId };
+}
+
+/**
  * The queued turns as rows. A "queued" row is one dashed bubble: `body` its text in full, `images` its thumbnails,
  * `runId` ('' for a send still saving), `status` "editing", "pending" or "", `title` its accessible name; `actionLabel`
  * "Send now" while it can be sent, with `intentTip` that button's tooltip; `detail` the pencil's tooltip and `failed`
  * whether the pencil is disabled; `continues` another bubble follows and `collapsible` the "Show all" row follows;
- * `attribution` is the queue's announcement on the first row. A "queued-more" row is that button: `title` its label,
+ * `attribution` is the queue's announcement on the first row. Its sender (queuedSender): `intent` "automation", "agent"
+ * or "t3code", `sender` and `summary` the fold's heading and line, `groupId` the automation's task, `sourceThreadId`
+ * the sending thread, and `createdAt` the message's time. A "queued-more" row is that button: `title` its label,
  * `expanded` while the queue shows in full.
  */
 export function queuedTurnRows(client: T3Client): Message[] {
@@ -168,8 +187,9 @@ export function queuedTurnRows(client: T3Client): Message[] {
   const collapsible = items.length > QUEUE_VISIBLE_ROWS, full = queueShownInFull(client);
   const visible = collapsible && !full ? items.slice(0, QUEUE_VISIBLE_ROWS - 1) : items;
   const rows = visible.map((item, position): Message => {
-    const editing = !!item.runId && item.runId === edit?.runId;
-    return { id: `queued:${item.key}`, kind: 'queued', title: `Queued message ${position + 1} of ${items.length}, not sent`, body: item.text, runId: item.runId,
+    const editing = !!item.runId && item.runId === edit?.runId, from = queuedSender(client, item.message, item.text);
+    return { intent: from.attribution, sender: from.sender, summary: from.summary, groupId: from.taskId, sourceThreadId: from.senderThreadId,
+      ...(item.message ? { createdAt: str(item.message.createdAt) } : {}), id: `queued:${item.key}`, kind: 'queued', title: `Queued message ${position + 1} of ${items.length}, not sent`, body: item.text, runId: item.runId,
       images: item.thumbnails.map(thumb => ({ id: thumb.id, name: thumb.name, snapshot: false, appName: '', appInitial: '', windowTitle: '', accessible: true, video: false })),
       status: editing ? 'editing' : item.pending ? 'pending' : '',
       actionLabel: canSend && !editing ? 'Send now' : '',

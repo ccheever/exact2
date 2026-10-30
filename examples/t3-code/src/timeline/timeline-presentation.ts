@@ -335,7 +335,7 @@ export function timelineSnapshot(client: T3Client) {
 }
 
 /** The automation's task title from the environment's live task list (scheduledTasksLive), '' until it arrives. */
-function scheduledTaskTitle(client: T3Client, taskId: string): string {
+export function scheduledTaskTitle(client: T3Client, taskId: string): string {
   if (!taskId) return '';
   return str(liveEnvironment(client, null, client.environmentId)?.tasks.value?.find(task => task.id === taskId)?.title);
 }
@@ -627,7 +627,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       icon: message.icon ?? '', tone: message.tone ?? '', failed: message.failed === true, live: message.live === true,
       startedMs: message.startedMs ?? 0, elapsed: message.elapsed ?? '', detail: message.detail ?? '', status: message.status ?? '', groupId: message.groupId ?? '',
       continues: message.continues === true, revert: message.revert ?? -1, intent: message.intent ?? '', intentTip: message.intentTip ?? '',
-      attribution: message.attribution ?? '', summary: message.summary ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
+      attribution: message.attribution ?? '', summary: message.summary ?? '', sender: message.sender ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
       secret: message.secret ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], audio: message.audio ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };

@@ -161,6 +161,8 @@ shape Message
   attribution: string
   // A folded automation or agent message's one line (its task title or first line).
   summary: string
+  // A queued automation or agent message's fold heading ("Automation", or the sending thread's title).
+  sender: string
   targetId: string
   actionLabel: string
   copied: number
