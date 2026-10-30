@@ -726,23 +726,19 @@ threshold; D15 is.
 The numbers land in this section as each chunk and stage does; a stage with no numbers has
 not landed.
 
-**Stage 0b, 2026-10-30.** The warm device-plus-pipeline gate is met in the Mac
-carrier: direct Metal is **6.581 ms** p50 against wgpu's **6.699 ms**, ten warm
-phase traces each on the same probe, within the permitted 5 ms excess. Ten
-archive-deleted launches display CPU pixels at **231.070 ms** p50 and the first
-full ink frame at **418.335 ms**, with compilation and serialization on a worker;
-nine have quiet before/after snapshots. The headless CPU-to-ink D9 assertion
-passes: exact CPU pixels first, then ink at mean error **0.023/255**, with
-**0.000%** of pixels beyond 32. Ten retained-cache launches under load give
-**9.957 ms** for the phase and **407.945 ms** to ink. P3's phase prediction
-misses in that loaded cohort; quiet retained-cache timing remains **unqualified**.
-That qualification comes from the measurement Mac's next series, **G4m on the
-silver M5 Max after this lane lands**, with no remeasurement on this development
-Mac. LLP 1149.001 r9's summed first-screen comparison remains **unqualified**:
-the warm cohort lacks complete ten-launch display distributions. The complete
-first screen within **100 ms** remains **unmet**, now owned by M10 under Q6's
-ruling. [Stage 0b's predictions, implementation, raw files
-and qualification limits](../host/ink/MEASUREMENTS.md#stage-0b--direct-metal-startup-2026-10-30).
+**Stage 0b, quiet measurement Mac, 2026-10-30.** Ten phase traces per arm give
+**5.497 ms** for direct Metal and **6.117 ms** for wgpu, meeting the original
+warm-phase gate and P3's within-2-ms prediction against the earlier 6.581 ms
+Metal phase. The earlier loaded 9.957 ms P3 miss remains in its own cohort.
+Ten archive misses display CPU at **172.746 ms**, a complete CPU screen at
+**176.912 ms**, then complete Ink at **336.596 ms** p50, while compilation runs
+on a worker. No boot window activates or becomes key. The prior headless D9
+comparison remains exact CPU, then Ink mean **0.023/255**, **0.000%** beyond 32.
+The revised summed first-screen comparison is **unqualified**: retained Metal
+launches 4, 5, 7 and 8 submit but yield no displayed timestamp before the probe's
+deadline. The six successes' **205.451 ms** complete-screen median is conditional;
+all ten wgpu controls display, at **232.820 ms** p50. The **100 ms** application
+budget remains unmet. [Cohorts, predictions, raw files and limits](../host/ink/MEASUREMENTS.md#predictions-beside-results).
 
 ### 4.1 The GPUI arm
 
@@ -1110,22 +1106,26 @@ and disclose their freshly copied images; desktop captures use input attachment
 or UI Automation focus without a client click. See [G6d’s before/after tables
 and retained trials](../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
 
-**G5, prepared 2026-10-29; run set aside 2026-10-30**: all four arms have
-bar and caret workloads, and the shared probe records Metal command-buffer
-GPU spans by phase. The development-Mac series on 2026-10-30, 09:30–09:38
-PDT, was spoiled: only 44 of 91 monitor observations were quiet, load reached
-170 as other lanes built, nearly every fling and bar sample had a focus-loss
-sidecar, and only 14 power samples were collected in eight minutes. Raw files
-remain under `target/g5/series` on that Mac; no row is taken from the run.
-G5 stays **prepared**, with its workload expectations untested by a qualified
-run. Measurement moves to **G5m** on the dedicated silver M5 Max. Its four arms,
-probe and driver were rebuilt from `ae835f960c` on 2026-10-30, but window
-qualification is blocked: after waking the display, IORegistry reports a
-locked session and the probe sees `loginwindow` as frontmost. No G5m workload,
-GPU or power row is measured; M8 remains unqualified. All four arms launched
-in both modes in the earlier development-Mac qualification; egui's
-blinking remains unverified after three inactive or focus-lost observations
-(`bench/heavy-list/gpui/RESULTS.md`, “G5”).
+**G4m and G5m, measured 2026-10-30**, source `42d5066572`, on the dedicated
+silver M5 Max. G4m's five interleaved fling/rest rounds and ten successful
+launches per arm become LLP 1149.001 §4's Mac baseline. Native/GPUI/Ink/egui
+fling process CPU is **156.91/129.79/110.90/108.28 ms/s**; all four ranges exceed
+G4's. All p95 intervals remain **8.33 ms**. Source, probe and power sampling
+changed, so this does not isolate hardware. [G4m's paired tables and power](../bench/heavy-list/gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac).
+
+**G5:** three quiet rounds each of fling, bar and caret complete, **36/36**
+samples, **114/114** quiet observations, no focus losses. Native bar main-thread
+CPU is **84.487 ms/s**, missing the below-10 prediction. Ink and GPUI present
+bar at **119.76 frames/s**; egui at **119.59**. GPUI and egui present caret
+exactly twice per second; Ink stays at **119.74 frames/s** and **154.320 process
+ms/s**, falsifying the idle-between-blinks expectation. All four blinks are
+captured with focus held, including egui. Ink's summed GPU spans per presented
+frame are **2.3090 ms fling / 1.6398 bar / 1.7741 caret**, or **27.7% / 19.7% /
+21.3%** of an 8.33 ms refresh. **M8 is not earned:** these are before M3, include
+the compose/present path and do not isolate plain-pipeline savings. Native's
+Core Animation GPU work is outside the process hook. PID/wall-clock power joins
+and all ranges are in [G5m](../bench/heavy-list/gpui/RESULTS.md#g5m-static-workloads-on-the-measurement-mac).
+The spoiled development-Mac G5 series remains retained and excluded.
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and

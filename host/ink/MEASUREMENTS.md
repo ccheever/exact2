@@ -3161,8 +3161,8 @@ first poll; at most two reusable CPU upload textures at one size; and no lost
 damage after a full CPU queue. Gated-worker and offscreen tests check those
 counts. The transition retains P2's exact CPU comparison and D9 band. These
 checks predict no new startup milliseconds: both miss and retained cohorts,
-including complete-scene timestamps for each painter, must be remeasured on
-the silver M5 Max after landing. No window series runs on this development Mac.
+including complete-scene timestamps for each painter, are remeasured below on
+the silver M5 Max. No window series runs on this development Mac.
 
 Pre-change diagnosis and predictions (written before the implementation runs).
 The carrier's probe records inclusive `CACurrentMediaTime` spans. In the second
@@ -3217,20 +3217,16 @@ cache-miss gate.
 
 ### Implementation and gates
 
-The original warm-phase gate is **met** on this carrier: ten interleaved launches per arm give
-**6.581 ms** for direct Metal and **6.699 ms** for wgpu. Metal is **0.118 ms below**
-wgpu, against the allowed 5 ms excess. Part two's cache-miss handoff passes the
-headless D9 comparison: the first frame is byte-identical to the CPU painter,
-and the later ink frame has mean error **0.023/255**, with **0.000%** of pixels
-beyond 32. The corrected fixture found no handoff defect. The ten cache-miss
-launches below exercise presentation through the same layer. Retained-cache
-quiet timing remains **unqualified**: P3 missed under load on this development
-Mac. That qualification comes from the measurement Mac's next series, **G4m
-on the silver M5 Max after this lane lands**. LLP 1149.001 r9, integrated at the
-rebase, reads part one on the summed first-screen path; that comparison remains
-**unqualified**, since the warm cohort lacks complete ten-launch display
-distributions. Q6 assigns the still-**unmet** 100 ms first screen to M10, with
-its decision point on 2026-11-30.
+The original warm-phase gate is **met**: the quiet measurement-Mac cohort below
+is **5.497 ms** on Metal against **6.117 ms** on wgpu, ten phase traces each.
+P3's phase timing now passes; its earlier loaded miss remains in that record.
+Part two's prior headless D9 comparison passes: exact CPU pixels, then Ink mean
+error **0.023/255**, with **0.000%** beyond 32. The new ten archive misses display
+CPU first in all ten, then complete Ink, with no boot-thread compilation.
+LLP 1149.001 r9's summed first-screen comparison stays **unqualified**: four of
+ten quiet retained Metal launches lack displayed timestamps. Q6 assigns the
+still-**unmet** 100 ms application first screen to M10, with its decision point
+on 2026-11-30.
 
 `metal/setup.rs` opens one archive and one metallib for both RGBA states and the
 BGRA replacement state. The unused BGRA blend state is gone. Cached states use
@@ -3260,32 +3256,96 @@ but excluded from qualification.
 
 ### Predictions beside results
 
-**Measurement-Mac quiet qualification, 2026-10-30: not run.** The carrier and
-boot-only probe were rebuilt from `origin/main` `ae835f960c`. The prepared
-cohorts are ten retained Metal launches interleaved with ten wgpu controls,
-then ten Metal launches with only the archive named by `cache_path` removed.
-The carrier logs `/Users/ccheever/.cache/exact/pipelines-ink-metal-v2-4294969116-a1314db7919a63d7.bin`
-on this Mac; its actual default is `~/.cache/exact`, not `~/Library/Caches`.
-No archive was removed for a cohort. After waking the display, the session
-remains locked and `loginwindow` is frontmost. No boot cohort was launched.
-P1–P5 remain the predictions below, with no new quiet result: P3's loaded miss
-still stands, and the retained complete-screen distributions and summed
-Metal/wgpu first-screen comparison remain missing. Preparation and the two
-failed window qualifications are retained under
-`target/g0/refresh-ae835f960c/` on the silver Mac and `target/g0/silver-current/`
-in the measurement lane's development worktree; G4m in the benchmark report
-records the session evidence. No number from those failed attempts enters
-the loaded or quiet startup distributions.
+**Quiet qualification on the measurement Mac, 2026-10-30.** Source
+`42d5066572`, G4m's release carrier and linked boot-only probe, 800×768 points
+at 2×. Ten retained Metal launches alternate with ten wgpu controls, reversing
+order per pair; ten more Metal launches delete only the actual `cache_path`:
+`/Users/ccheever/.cache/exact/pipelines-ink-metal-v2-4294969116-a1314db7919a63d7.bin`.
+This carrier uses `~/.cache/exact`, not `~/Library/Caches`. Each miss retains the
+archive's before/after bytes and hash and proves absence at launch. No driver
+cache is cleared. Every before/after quiet observation passes with no compiler
+processes; no build or other benchmark runs beside these cohorts.
 
-| Prediction, recorded above before its run | Result | Assessment |
+The **original warm-phase gate and P3's phase prediction pass**: Metal's
+5.497 ms is 0.620 ms below wgpu's and 1.084 ms below the original P1 cohort's
+6.581 ms. The phase uses all ten traces, including launches with no displayed
+timestamp. **The revised summed first-screen gate remains unqualified.**
+Retained Metal launches **4, 5, 7 and 8** submit frames but record no positive
+presented time before the probe exits 2 at its 30-second deadline. Their phase
+traces have zero dropped events. They remain failures with missing display
+times; the six-success median is not a ten-launch first-screen result.
+All ten wgpu controls and all ten archive misses complete.
+
+Values are p50. The six Metal displayed samples are explicitly conditional
+on a displayed timestamp. The loaded column is the earlier development-Mac
+cohort above, not a paired machine comparison; its old probe did not record
+per-painter completeness.
+
+| Measurement | Quiet retained Metal | Quiet wgpu control | Quiet Metal archive miss | Earlier loaded retained Metal |
+| --- | ---: | ---: | ---: | ---: |
+| Phase samples / launches | 10/10 | 10/10 | 10/10 | 10/10 |
+| Displayed / complete-Ink samples | 6/6 | 10/10 | 10/10 | 10 / not recorded |
+| Device/layer phase union, ms | 5.497 | 6.117 | 0.443 | 9.957 |
+| First displayed pixel, ms | 205.451 (n=6) | 232.820 | 172.746 | 407.945 |
+| First complete CPU screen, ms | — | — | 176.912 | not recorded |
+| First Ink drawable, ms | 205.451 (n=6) | 232.820 | 336.596 | 407.945 |
+| First complete Ink screen, ms | 205.451 (n=6) | 232.820 | 336.596 | not recorded |
+| First observed painter | Ink in 6; 4 missing | Ink in 10 | CPU in 10 | Ink in 10 |
+| First Ink displayed drawable's ordinal | 1 (n=6) | 1 | 4 (3–4) | not recorded |
+| Worker compilation/serialization, ms | 0 | 0 | 202.721 | 0 |
+| Active or key boot windows | 0 | 0 | 0 | 0 |
+
+The first wgpu control costs **299.469 ms** in the phase and **601.613 ms**
+to its complete screen; the remaining phase values are **5.922–7.322 ms**
+and screens **223.660–287.303 ms**. This first control is retained in the
+published ten, not dropped as warmup. Metal's phase range is **5.091–7.722 ms**.
+All successful launches have nominal thermal endpoints and Low Power Mode off;
+the four timeouts do not produce those endpoint fields.
+
+Per-launch displayed timestamps, milliseconds of process age. The switch ordinal
+counts positive displayed timestamps in the retained trace, joined to the probe's
+first-Ink timestamp. It is not a submitted-frame index.
+
+| Launch | Retained phase | Retained complete Ink | Miss first CPU pixel | Miss complete CPU | Miss switch ordinal | Miss complete Ink |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 5.945 | 205.345 | 179.319 | 179.319 | 4 | 337.652 |
+| 2 | 5.507 | 186.457 | 164.384 | 164.384 | 3 | 331.051 |
+| 3 | 5.245 | 208.545 | 159.582 | 167.916 | 4 | 334.582 |
+| 4 | 5.678 | missing (exit 2) | 211.312 | 211.312 | 4 | 419.646 |
+| 5 | 5.487 | missing (exit 2) | 168.873 | 177.206 | 3 | 335.539 |
+| 6 | 6.303 | 199.840 | 176.619 | 176.619 | 4 | 343.285 |
+| 7 | 5.191 | missing (exit 2) | 204.036 | 204.036 | 4 | 387.369 |
+| 8 | 5.091 | missing (exit 2) | 192.105 | 208.772 | 4 | 375.438 |
+| 9 | 5.383 | 205.557 | 159.832 | 168.166 | 4 | 334.832 |
+| 10 | 7.722 | 225.984 | 142.507 | 175.840 | 4 | 334.173 |
+
+| Prediction written before measurement | Quiet result | Assessment |
 | --- | --- | --- |
-| P1: warm phase 8 ms, within wgpu +5 ms | Metal 6.581 ms; wgpu 6.699 ms; ten phase samples each | Faster than predicted; original phase gate met |
-| P2: zero pipeline compilation on the boot thread | Zero in all ten cache-miss traces; every first CPU drawable displayed while the compiler worker was still running | Met in the measured launches |
-| P2: missing-cache first CPU pixels ≤300 ms; first full ink frame ≤450 ms | First CPU and ink drawables: 231.070 ms and 418.335 ms p50; ten displayed samples each. The old probe did not record completeness per painter | CPU timing met; ink drawable timing met, complete-ink timing unqualified |
-| P2: first headless pixels exactly CPU; later ink within D9 | First frame byte-identical to CPU; later ink mean 0.023/255, 0.000% beyond 32 | Met; corrected fixture, no handoff defect |
-| P3: ten retained launches start on ink, phase within 2 ms of P1's measured phase | All ten start on ink; phase 9.957 ms, +3.377 ms, with other Cargo jobs present | Phase prediction missed in this loaded cohort; unchanged quiet timing remains unqualified |
-| P4: both passive pilot arms have zero active/key windows | Zero in both arms of `passive-check-2/`; zero in the final measured cohorts | Met |
-| P5: zero command-pool stalls in ten cache-miss launches | Ten completed; no stalls | Met |
+| P1: warm phase 8 ms, within wgpu +5 ms | Metal 5.497 ms; wgpu 6.117 ms; ten phase traces each | Faster than predicted; original phase gate met |
+| P2: zero compilation on the boot thread | Zero in all ten misses; every first CPU pixel displays while the compiler worker is running | Met |
+| P2: first CPU pixel ≤300 ms and complete Ink ≤450 ms | 172.746 / 336.596 ms p50; maxima 211.312 / 419.646 ms | Met in all ten misses; completeness now recorded |
+| P2: headless CPU pixels exact, then Ink within D9 | Prior corrected test: exact CPU, later mean 0.023/255 and 0.000% beyond 32 | Previous pass retained; no pixel implementation changed or headless rerun here |
+| P3: retained phase within 2 ms of original P1; ten launches start on Ink | 5.497 ms, −1.084 ms; six first displayed frames are Ink, four display timestamps missing | Timing met; ten displayed first-painter outcomes remain unqualified |
+| P4: zero active/key boot windows | Zero across all thirty launches | Met |
+| P5: zero command-pool stalls in ten misses | Ten complete without a queue hang | Met |
+
+The earlier loaded P3 miss remains a miss in that cohort. Quiet timing is now
+qualified; first-screen reliability is not. The 100 ms application budget remains
+unmet, including the complete CPU fallback screen. No layer or application gate
+is discharged using the six successful retained launches alone.
+
+Raw files are retained on the silver Mac under
+`target/g0/run-42d5066572/{boot-retained,boot-miss}/` and here under
+`target/g0/silver-run-42d5066572/`. Each launch has its context, cache facts,
+PID, exit, log, window report and trace; successful launches also have probe
+JSON. `boot-audit.json` preserves the displayed-ordinal join. The original
+locked-session preparation under `target/g0/refresh-ae835f960c/` remains
+retained and contributes no sample. Reproduce the cohorts without a window:
+
+```sh
+bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/boot-retained --boot
+bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/boot-miss --boot
+```
 
 ### Instrument and retained samples
 
@@ -3350,9 +3410,8 @@ launching a sample (`retained-final/`, `retained-final-2/`, `retained-final-3/`;
 the latter two driver logs retain the failures). This loaded cohort proves the
 archive was reused; it establishes neither unchanged quiet timing nor a
 cache-retention regression. No retained launches are remeasured on this
-development Mac. The required quiet retained-cache phase qualification comes
-from **G4m on the silver M5 Max**, the measurement Mac's next series after
-this lane lands.
+development Mac. The quiet measurement-Mac cohort above now qualifies the retained phase;
+its four missing displayed timestamps leave the first-screen comparison open.
 
 Raw files are retained under this worktree's `target/stage-0b/`. Each launch has
 its `.run.json` context and executable/probe hashes, `.log`, probe `.json` when
@@ -3517,7 +3576,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1653 filtered out; f
 The earlier failed fixture runs and launch cohorts remain in `target/stage-0b/`.
 The corrected headless test qualifies the CPU-to-ink pixel handoff; it does not
 measure a window's transition cadence or requalify retained-cache timing.
-P3 stays a miss measured under load, with quiet qualification assigned to G4m
+P3 stays a miss in the loaded cohort; G4m now supplies the quiet phase qualification
 on the silver M5 Max after this lane lands. The summed first-screen comparison
 required by r9 remains unqualified; the 100 ms obligation remains unmet under
 M10 following Q6's ruling. This chunk opens no windows and posts no input.

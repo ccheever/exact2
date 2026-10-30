@@ -3263,20 +3263,20 @@ their hashes. No timing or resource row is taken from these launches.
 
 ## Stage 0b: direct Metal startup (2026-10-30)
 
-The Mac carrier meets the warm phase gate: **6.581 ms** p50 for direct Metal
-against **6.699 ms** for wgpu, ten phase traces each. Ten archive-deleted launches
-display CPU pixels at **231.070 ms** p50 and the first ink frame at **418.335 ms**,
-with compilation off the boot thread. Ten retained-cache launches start on ink
-at **407.945 ms**, with a **9.957 ms** phase under load, missing P3's prediction.
-The headless D9 transition assertion now passes: exact CPU pixels first, then
-ink at mean error **0.023/255**, with **0.000%** of pixels beyond 32. Quiet
-retained-cache timing remains unqualified until **G4m on the silver M5 Max**,
-the measurement Mac's next series after this lane lands. LLP 1149.001 r9's
-summed first-screen comparison remains unqualified; the warm cohort lacks
-complete ten-launch display distributions. The separate 100 ms first-screen
-obligation remains unmet, now owned by M10 under Q6's ruling. [Stage 0b's full record](../../../host/ink/MEASUREMENTS.md#stage-0b--direct-metal-startup-2026-10-30)
-contains the predictions, phase breakdown, quiet-run and missing-timestamp
-limits, checks and retained files under `target/stage-0b/`.
+The quiet measurement-Mac cohort meets the original warm-phase gate:
+**5.497 ms** p50 for direct Metal against **6.117 ms** for wgpu, ten phase
+traces each. P3's phase prediction now passes against the original 6.581 ms;
+the earlier loaded **9.957 ms** remains a miss in its own cohort. Ten archive
+misses display CPU pixels at **172.746 ms**, a complete CPU screen at
+**176.912 ms**, and complete Ink at **336.596 ms** p50, with compilation off
+the boot thread. All thirty boot windows remain inactive and non-key.
+Four of ten retained Metal launches submit but produce no displayed timestamp
+before the probe exits; the six successes' **205.451 ms** complete-screen
+median is conditional. All ten wgpu controls display, at **232.820 ms** p50.
+The revised summed first-screen gate remains **unqualified**, and the 100 ms
+application obligation remains **unmet**. [The full record](../../../host/ink/MEASUREMENTS.md#predictions-beside-results)
+retains all attempts, per-painter timestamps, switch ordinals and the older
+loaded comparison. The headless D9 test's earlier pass remains unchanged.
 
 ## G4m: the four arms on the measurement Mac
 
@@ -3385,7 +3385,7 @@ measurement slot was rerun for that cleanup failure.
 
 Python 3.9's monotonic clock has a process-local epoch on this Mac. The original
 quiet observations remain untouched; `clock-calibration.jsonl` records explicit
-`CACurrentMediaTime`/wall-clock pairs for the power join, with **1.218 ms** offset
+`CACurrentMediaTime`/wall-clock pairs for the power join, with **1.242 ms** offset
 spread. G5m's monitor reads `CACurrentMediaTime` directly. Neither correction
 changes the timed driver or the arms.
 
@@ -3405,22 +3405,149 @@ python3 target/g0/silver-run-42d5066572/power-summary.py target/g0/silver-run-42
 
 ## G5m: static workloads on the measurement Mac
 
-The four arms and shared GPU probe are rebuilt from `ae835f960c`, as G4m
-records. The prepared series has three interleaved rounds of fling, bar and
-caret, first-round static captures, the quiet monitor and simultaneous power
-sampling. No series has run: the silver Mac's locked session prevents the
-required activation and key-window qualification. The two failed qualification
-attempts are retained with G4m. Egui's caret blink remains unverified.
+Measured 2026-10-30 on G4m's four rebuilt arms and linked GPU probe, source
+`42d5066572`. Three interleaved rounds of fling, bar and caret yield **36/36**
+accepted samples, **114/114** quiet observations and no rejected attempts.
+Maximum 1/5/15-minute loads are **10.43/7.85/7.62**, with no compiler processes.
+All launches retain focus, nominal thermal endpoints, Low Power Mode off,
+G4m's dimensions and 2× scale. Static phases stay at row zero with zero wheel
+input. Captures precede timing in the first static round.
 
-| G5 expectation, unchanged before measurement | G5m result |
+All four bar capture pairs show different fill lengths. GPUI's and egui's
+first caret pairs show the 80-device-pixel caret on and off, with focus held.
+Native's and Ink's first pairs both catch the hidden state. Separate eight-frame
+capture sequences after timing show **0/80/80/0/0/80/80/0** caret pixels in
+both arms, with no focus loss. Egui's blink is therefore verified, resolving
+G5's earlier open check. The supplemental captures contribute no timing sample.
+
+The GPU hook accounts for every committed buffer in its commit phase: all
+counts complete, with zero invalid timestamps. Times sum command-buffer spans,
+including any overlap, at the clock the workload earns. They are not a union
+of GPU occupancy or a shader-only cost. Native submits no buffers through this
+hook; Core Animation's work in WindowServer remains outside it. Native's 120 Hz
+row is display-link cadence, not a count of displayed content changes.
+
+Medians (minimum–maximum), three runs per arm and workload:
+
+bar
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 3 | 3 | 3 | 3 |
+| Process CPU, ms/s | 92.564 (90.519–95.920) | 146.946 (144.467–155.659) | 154.178 (150.781–166.870) | 165.564 (165.204–191.106) |
+| Main-thread CPU, ms/s | 84.487 (82.399–87.438) | 94.704 (93.887–101.078) | 74.406 (71.240–79.708) | 81.734 (80.918–95.319) |
+| Frames/s; native display link / painted drawables | 119.93 (119.74–119.96) | 119.76 (119.47–119.79) | 119.76 (119.08–119.86) | 119.59 (119.51–119.70) |
+| Peak footprint, MiB | 128.11 (126.86–130.64) | 303.19 (301.70–306.75) | 356.34 (356.25–364.13) | 443.45 (441.70–450.17) |
+| End footprint, MiB | 127.78 (126.56–130.20) | 302.81 (301.70–305.44) | 355.58 (353.05–364.13) | 442.94 (440.74–449.42) |
+| GPU busy time, ms/s; process command buffers | — | 32.379 (32.332–32.706) | 196.550 (163.489–213.628) | 23.251 (23.217–23.361) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2706 (0.2703–0.2731) | 1.6398 (1.3651–1.7939) | 0.1944 (0.1943–0.1952) |
+| Completed command buffers per sample | 0 (0–0) | 1198 (1197–1199) | 2399 (2398–2399) | 8379 (8372–8386) |
+
+caret
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 3 | 3 | 3 | 3 |
+| Process CPU, ms/s | 12.176 (11.619–12.217) | 17.188 (17.126–17.598) | 154.320 (149.241–159.467) | 15.623 (15.526–16.815) |
+| Main-thread CPU, ms/s | 11.146 (10.522–11.296) | 13.956 (13.794–14.195) | 73.887 (72.356–76.607) | 13.479 (13.272–14.015) |
+| Frames/s; native display link / painted drawables | 119.98 (119.86–120.05) | 2.00 (2.00–2.00) | 119.74 (119.67–119.97) | 2.00 (2.00–2.00) |
+| Peak footprint, MiB | 128.84 (128.70–139.22) | 292.36 (292.20–302.14) | 356.03 (355.92–362.16) | 442.20 (440.30–444.02) |
+| End footprint, MiB | 128.42 (128.42–138.92) | 291.99 (291.67–301.69) | 354.50 (353.03–355.06) | 441.88 (439.99–443.66) |
+| GPU busy time, ms/s; process command buffers | — | 0.567 (0.566–0.567) | 212.438 (159.497–260.022) | 0.379 (0.377–0.381) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2836 (0.2829–0.2837) | 1.7741 (1.3328–2.1673) | 0.1896 (0.1885–0.1908) |
+| Completed command buffers per sample | 0 (0–0) | 20 (20–20) | 2399 (2399–2400) | 140 (140–140) |
+
+fling
+
+| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |
+|---|---:|---:|---:|---:|
+| Quiet samples | 3 | 3 | 3 | 3 |
+| Process CPU, ms/s | 169.594 (154.607–173.340) | 132.453 (128.650–137.303) | 123.137 (114.198–123.463) | 104.650 (92.955–110.449) |
+| Main-thread CPU, ms/s | 102.070 (100.402–106.527) | 66.719 (62.813–69.686) | 57.452 (55.786–60.338) | 49.654 (43.099–52.288) |
+| Frames/s; native display link / painted drawables | 118.44 (118.28–118.49) | 89.07 (88.90–89.09) | 32.90 (32.69–33.19) | 41.79 (41.69–42.00) |
+| Peak footprint, MiB | 235.92 (212.17–240.02) | 413.61 (413.56–417.61) | 597.19 (594.83–604.13) | 520.17 (503.41–520.47) |
+| End footprint, MiB | 201.91 (197.63–211.19) | 392.38 (391.27–396.77) | 248.09 (246.41–249.78) | 185.39 (185.13–187.81) |
+| GPU busy time, ms/s; process command buffers | — | 22.727 (22.617–23.254) | 76.373 (75.484–76.403) | 8.244 (8.202–8.277) |
+| GPU ms/frame; native cadence / painted drawables | — | 0.2552 (0.2539–0.2616) | 2.3090 (2.3009–2.3225) | 0.1963 (0.1963–0.1985) |
+| Completed command buffers per sample | 0 (0–0) | 895 (893–895) | 1236 (1230–1238) | 3038 (3031–3052) |
+
+The fling control retains G4m's input and pause pattern; its GPU-per-frame row
+includes uploads and every observed command buffer over the full phase, divided
+by displayed drawables. Its CPU ranges overlap G4m's, although Ink's median
+123.14 ms/s is above G4m's 119.73 maximum. This is observed inter-series spread,
+not an optimization result.
+
+### G5's expectation, checked line by line
+
+| Expectation stated before any run | Result |
 | --- | --- |
-| Native bar main-thread CPU below 10 ms/s | Unmeasured |
-| Ink and GPUI pay the frame's bookkeeping | Untested; no qualified CPU or GPU samples |
-| Egui rebuilds visible rows each bar frame | Untested; CPU totals alone cannot establish the stacks |
-| Every caret arm stays near idle between two visibility changes/s | Untested; no held-focus cadence or blink captures |
-| Continuous caret submissions would falsify the idle expectation | Untested |
+| Native bar main-thread CPU below 10 ms/s because Core Animation runs the animation | **Miss:** 84.487 (82.399–87.438) ms/s. The series does not attribute its stacks. |
+| Ink and GPUI pay the frame's bookkeeping in bar | Consistent with 119.76 presented frames/s each and main-thread CPU 74.406 / 94.704 ms/s; the amount specifically spent on bookkeeping is not isolated. |
+| Egui rebuilds visible rows each bar frame | Its existing `ui` path visits visible rows per repaint; 119.59 presentations/s and 81.734 main-thread ms/s are consistent. The probe does not count row rebuilds or attribute their CPU. |
+| Every caret arm is near idle between two changes per second | **Falsified for Ink:** 119.74 presentations/s and 154.320 process ms/s. GPUI and egui present exactly 20 frames per ten seconds; their CPU remains 17.188 / 15.623 ms/s, above G4m rest. Native uses 12.176 ms/s; its off-process submissions are unmeasured. |
+| Continuous caret submissions would falsify the idle expectation | **Falsified:** Ink completes 2,399–2,400 buffers per sample. GPUI completes 20 and egui 140 for their 20 presentations; neither continuously presents between blinks. |
 
-**M8 remains unqualified.** No G5m GPU row exists, and Q3 requires the GPU
-share after M3. This preparation provides no evidence for adding the plain
-pipeline. Power, both static resource tables and the fling control remain
-unmeasured; no row from the spoiled development-Mac run is substituted.
+**M8 is not earned by this series.** Ink's summed GPU spans per displayed
+frame are **2.3090 ms fling, 1.6398 ms bar and 1.7741 ms caret**, or **27.7%,
+19.7% and 21.3%** of an 8.33 ms refresh. These exceed 15% **before M3** and
+include its compose/present path. Q3 requires the GPU share **after M3**;
+these rows do not satisfy that precondition or isolate the cost a plain pipeline
+would remove. Keep that decision open until the post-M3 measurement. No shader
+or renderer design changes here.
+
+### G5m power
+
+533 power samples use G4m's PID/wall-clock join and edge exclusions.
+Cells are medians (minimum–maximum) of three duration-weighted run means.
+The process-path and underflow warnings recur; the same power-estimate limits
+apply. Ink's caret system-GPU estimate remains close to its bar's, while the
+other caret arms' estimates are small. These are whole-machine watts, not
+per-process power or proof of a causal saving.
+
+| Metric | Native | GPUI | Ink | egui |
+|---|---:|---:|---:|---:|
+| Fling interior: system CPU, W | 10.575 (10.443–15.841) | 11.593 (9.259–12.516) | 10.234 (8.595–10.997) | 10.421 (8.791–12.971) |
+| Fling interior: system GPU, W | 0.029 (0.027–0.031) | 0.205 (0.204–0.207) | 0.231 (0.226–0.232) | 0.071 (0.069–0.080) |
+| Fling interior: process energy impact/s | 525.67 (417.04–628.24) | 110.40 (84.12–118.43) | 97.68 (83.68–105.81) | 97.19 (70.75–124.58) |
+| Fling interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 344.7 (339.7–354.2) | 338.0 (280.9–338.0) |
+| Fling interior: system GPU active, % | 4.33 (4.18–4.48) | 16.70 (16.47–17.16) | 12.21 (11.32–12.97) | 9.68 (9.56–10.85) |
+| Bar interior: system CPU, W | 10.618 (9.649–12.160) | 10.894 (10.267–13.660) | 11.089 (10.226–13.571) | 10.370 (9.316–12.146) |
+| Bar interior: system GPU, W | 0.022 (0.021–0.029) | 0.276 (0.269–0.286) | 0.724 (0.715–0.767) | 0.177 (0.168–0.180) |
+| Bar interior: process energy impact/s | 57.77 (57.47–58.60) | 103.10 (100.93–113.89) | 104.21 (100.43–107.02) | 91.90 (91.44–94.76) |
+| Bar interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 340.1 (338.0–340.7) | 338.0 (338.0–341.3) | 338.0 (338.0–338.0) |
+| Bar interior: system GPU active, % | 6.79 (6.66–8.21) | 22.10 (21.05–22.23) | 32.63 (26.39–40.19) | 22.79 (22.00–23.14) |
+| Caret interior: system CPU, W | 9.151 (7.863–13.019) | 13.259 (10.384–15.424) | 8.954 (7.117–11.841) | 10.733 (10.499–11.693) |
+| Caret interior: system GPU, W | 0.010 (0.003–0.011) | 0.007 (0.007–0.015) | 0.718 (0.708–0.753) | 0.010 (0.008–0.017) |
+| Caret interior: process energy impact/s | 5.52 (5.46–6.20) | 10.46 (10.41–10.51) | 96.08 (90.74–100.58) | 7.20 (7.18–8.09) |
+| Caret interior: system GPU clock, MHz | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) | 338.0 (338.0–338.0) |
+| Caret interior: system GPU active, % | 1.82 (0.65–1.94) | 0.96 (0.94–2.15) | 32.11 (26.16–38.22) | 1.80 (1.43–3.01) |
+
+Raw phases, first-round captures, power and quiet observations are in
+`target/g0/run-42d5066572/g5m/` on the silver Mac and
+`target/g0/silver-run-42d5066572/g5m/` here. The separate blink sequences are
+`caret-capture-native/` and `caret-capture-ink/` beside them. `capture-audit.json`,
+`caret-capture-audit.json`, `audit.json` and `power-summary.json` retain the
+pixel counts and joins. Reproduce the three workload tables with:
+
+```sh
+bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/g5m
+bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/g5m --verify
+python3 target/g0/silver-run-42d5066572/power-summary.py target/g0/silver-run-42d5066572/g5m
+```
+
+### Measurement-lane validation
+
+All six repository checks pass in the development worktree after rebasing onto
+`origin/main` `8c88ae6902`: all-target build, tests, Clippy plus fmt, staged caps,
+boot and the workspace all-target check. Tests use `RUST_TEST_THREADS=2`:
+**7,384 passed, zero failed, 83 ignored**, across 113 result summaries.
+The Ibex failure in the brief was fixed upstream by `ae835f960c`; it does not
+reproduce, and this lane makes no fix. Complete commands, exits and verbatim
+output are in `target/g0/checks-final-8c88ae6902/`. The earlier full run
+on the measured source base `42d5066572` also passes, with 7,380 tests passed
+and 83 ignored, in `target/g0/checks-run-42d5066572/`.
+
+Both G4m tables and all three G5m tables reproduce exactly from their raw files;
+G5's committed `--verify` passes with zero exclusions. Both boot summaries also
+reproduce exactly. Power rows reproduce from the retained plists and clock join.
+No renderer, workload, committed probe or driver source changes in this lane.
