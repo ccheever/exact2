@@ -181,7 +181,9 @@ final class TextRasterizer {
         // Asked once, and only when needed: it walks the clipping ancestors.
         lazy var urgent = isUrgent()
         guard let engine = node.text else { return true }
-        let key = key(node, urgent: { urgent })
+        var key = key(node, urgent: { urgent })
+        let pending = working.last { $0.node === node && $0.incarnation == node.incarnation && $0.namespace == engine.namespace && !$0.wasAbandoned }
+        if let pending, pending.key.containsWindow(key) { key = pending.key }
         if !now, node.textRasterServes(key), node.specs?.accepted?.result.coverage.whole == true {
             node.adoptTextRaster(key); return true
         }
@@ -192,7 +194,6 @@ final class TextRasterizer {
             && key.spec.runs.reduce(0) { $0 + $1.text.utf16.count } <= Self.urgentWords
         let missingPixels = !node.textRasterAnswers(visible) || now || otherWords
         let firstPixels = urgent && missingPixels
-        let pending = working.last { $0.node === node && $0.incarnation == node.incarnation && $0.namespace == engine.namespace && !$0.wasAbandoned }
         if !now, let hit = keptImage(key, namespace: engine.namespace) {
             if let pending { _ = pending.abandon() }
             node.textRasterKey = key; node.textRasterFailed = false

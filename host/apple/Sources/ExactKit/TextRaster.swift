@@ -57,6 +57,18 @@ struct TextRasterKey: Hashable {
         spec == key.spec && size == key.size && box == key.box && scale == key.scale
     }
 
+    /// A reservation already owns its allowance. A later budget change alone
+    /// must not cancel a window that is still being painted for this demand.
+    func containsWindow(_ key: TextRasterKey) -> Bool {
+        guard sameContent(as: key), room == key.room, clip == key.clip else { return false }
+        switch (retention, key.retention) {
+        case (.room, .room): return true
+        case let (.viewport(required, preferred, _), .viewport(nextRequired, nextPreferred, _)):
+            return required == nextRequired && preferred.contains(nextPreferred)
+        default: return false
+        }
+    }
+
     func serves(_ key: TextRasterKey, coverage: TextRasterCoverage, demand: CGRect) -> Bool {
         guard sameContent(as: key), coverage.covers(demand) else { return false }
         // Vertical ink and shadow caps follow the allocation, even when x follows the viewport.

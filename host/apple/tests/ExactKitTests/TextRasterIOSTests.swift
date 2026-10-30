@@ -392,6 +392,10 @@ final class TextRasterIOSTests: XCTestCase {
             XCTAssertEqual(node.incarnation, incarnation)
             XCTAssertEqual(node.paragraphSpec(), spec)
         }
+        for _ in 0..<TextRasterizer.concurrency * 3 {
+            XCTAssertFalse(p.refreshVisibleText(), "current admitted demand stays out of deferred debt while workers are paused")
+            XCTAssertTrue(node.textRasterAnswers(p.textScrollportRect(node)))
+        }
         drain(p)
         _ = p.refreshVisibleText()
         drain(p)
