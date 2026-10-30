@@ -113,8 +113,10 @@ retains the same memo and document. Both flows keep the exact unsent draft and a
 empty persisted thread ID. No provider conversation is used.
 
 All 540 Browser tests, 6,921 desktop tests, strict application TypeScript and all
-six root checks pass. This wrapper correction awaits root's independent review
-and push. The earlier asset correction's independent review found no introduced
+six root checks pass. Independent wrapper review finds no introduced defect,
+repeats all 540 Browser tests, and verifies the actual receiver, visible retention,
+signed bundle, probe restoration and cleanup. Its comment and suppression audits
+are clear. The earlier asset correction's independent review found no introduced
 defect, passed 123 existing tests and 13 boundary probes, and verified its signed
 bundle and native records. Its comment audit was clear.
 
