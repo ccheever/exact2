@@ -1315,9 +1315,12 @@ impl<D: DataSource> Presenter<D> {
     /// Report the shell's frame in viewport points and whether it opened
     /// modally. A popover leaves the document reachable to structural reads.
     /// Native alerts, as on Apple, report no authored geometry.
-    fn report_top_layer(&mut self) {
+    pub(super) fn report_top_layer(&mut self) {
         let Some(open) = &self.top.open else {
-            self.host.runner_mut().top_layer_frames(&[], None);
+            // An open authored popover is the page's own subtree, drawn at its
+            // box (alert.rs): reads see it, as the web's do.
+            let frames: Vec<_> = self.alert_popover_frame().into_iter().collect();
+            self.host.runner_mut().top_layer_frames(&frames, None);
             return;
         };
         let rect = match open.kind {

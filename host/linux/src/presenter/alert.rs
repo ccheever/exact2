@@ -262,6 +262,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.queue_toggle(key, true);
+        self.report_top_layer();
         self.back_changed();
         true
     }
@@ -272,6 +273,9 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         self.queue_surface_closed(open.key, open.modal);
+        if !open.modal {
+            self.report_top_layer();
+        }
         if let Err(e) = self.pointer_cancel(now) {
             self.host.log(e);
         }
@@ -700,6 +704,13 @@ impl<D: DataSource> Presenter<D> {
             self.alert_close_request(now);
         }
         modal
+    }
+    /// The open popover's root and painted box, for the runner's top layer
+    /// (structural reads); none for a modal box, which reads count as open.
+    pub(super) fn alert_popover_frame(&mut self) -> Option<exact_runner::geometry::TopLayerFrame> {
+        let id = self.alert_root().filter(|_| !self.alert_inert())?;
+        let (x, y, w, h) = self.box_of(id)?.rect;
+        Some((id, [x, y, w, h].map(f64::from), None))
     }
     /// Whether `id` is the open popover's invoker or inside it.
     fn alert_invoker_holds(&self, id: ViewId) -> bool {
