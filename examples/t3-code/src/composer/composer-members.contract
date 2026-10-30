@@ -32,9 +32,11 @@ members T3Code
     // Settings is itself a route dialog (AppRouteModal, `settings-dialog`); a dialog over it covers the sample.
     let covered = preview ? connecting or projectsOpen or paletteOpen or providerDialog != "" or restEditor != "" or welcome.show or querySelectorAll("[data-dialog-focus~=\"open\"]").filter((id) => id != "settings-dialog").length > 0 : modal
     if not covered and item.seq == chip.finish.seq and item.generation == (preview ? richPromptPreview.generation : richComposer.generation) and item.snapshotOwner == data.snapshotOwner and (preview ? promptPreviewVisible and item.owner == promptPreviewOwner and item.value == promptPreviewText and item.inputSerial == promptPreviewSerial and not promptPreviewComposing : composerFieldLive and item.owner == richComposerOwner and item.value == composerText and item.inputSerial == composerFieldInputSerial and not composerComposing) and frame(target).width > 0
-      if item.focus == "after" or item.focus == "select" or (item.focus == "outside" and (focused == "" or focused.startsWith("chip-popover") or focused == "citation-comment-text"))
+      // After an outside press the focus comes back only if the press left it nowhere: on no element, or on the closed
+      // popup's own (a focus event names what the press focused, the dialog included).
+      if item.focus == "after" or item.focus == "select" or ((item.focus == "outside" or item.focus == "return") and (focused == "" or frame(focused).unavailable))
         focus(target)
-        setSelectionRange(target, item.focus == "select" ? item.start : item.end, item.end)
+        setSelectionRange(target, item.focus == "select" or item.focus == "return" ? item.start : item.end, item.end)
       if item.send and not preview and not commandPending and data.canSend and data.requestMode != "question"
         commandPending = true
         send changed = command("send-citation", `${item.seq}`, "", 0)

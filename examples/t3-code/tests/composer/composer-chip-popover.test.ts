@@ -15,6 +15,8 @@ import { appPath } from '../support/app-files';
 import { observeComposer } from '../support/composer-field-fixture';
 import { NO_CHIP_FINISH } from '../../src/composer/composer-chip-store';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { citationField } from '../timeline/citation-field.fixture';
+import { formatAssistantCitationHref } from '../../src/timeline/diff-citations';
 
 const press = (extra: Obj = {}): Obj => ({ seq: 3, open: true, surface: 'composer', owner: 'draft:t1', kind: 'skill', name: 'frontend-design', label: 'Frontend Design', frame: [120, 640, 128, 19.5], ...extra });
 const skills: Obj[] = [{ name: 'imagegen', displayName: 'Image Gen', description: 'Generate images.', path: '/Users/me/.codex/skills/imagegen/SKILL.md' },
@@ -116,11 +118,11 @@ describe('a skill chip\'s details popover', () => {
     const first = open();
     await chipPopoverLocal(client, native, 'chip-close', `${first.seq}`, 'escape');
     expect(chipPopoverView(client)).toMatchObject({ open: false, finish: { seq: first.seq, value, focus: 'select', start: chip.start, end: chip.end } });
-    // An outside press leaves the focus where it put it: the finish takes none (FloatingFocusManager returns it only to a
-    // tabbable trigger, and an editor chip is no tab stop).
+    // An outside press gives the chip the focus back unless the press focused another element (FloatingFocusManager's
+    // returnFocus): 'return' selects the chip, and the root decides whether the press focused something else.
     const outside = open();
     await chipPopoverLocal(client, native, 'chip-close', `${outside.seq}`, '');
-    expect(chipPopoverView(client)).toMatchObject({ open: false, finish: { seq: outside.seq, focus: 'none' } });
+    expect(chipPopoverView(client)).toMatchObject({ open: false, finish: { seq: outside.seq, focus: 'return', start: chip.start, end: chip.end } });
     const next = open();
     await chipPopoverLocal(client, native, 'chip-close', `${first.seq}`, 'escape');
     expect(chipPopoverView(client)).toMatchObject({ open: true, seq: next.seq });
@@ -133,5 +135,13 @@ describe('a skill chip\'s details popover', () => {
     expect(chipPopoverView(client).open).toBe(false);
     expect(calls.some(call => String(call.op).startsWith('editorChip'))).toBe(false);
     await expect(chipPopoverLocal(client, native, 'chip-open', '1', '')).rejects.toThrow('Unknown editor action: chip-open');
+  });
+
+  test("an outside press on a citation's comment puts the caret after the chip, its own rule", async () => {
+    const href = formatAssistantCitationHref({ version: 1, environmentId: 'env', threadId: 'verify-timeline', messageId: 'message:fixture',
+      text: 'quoted', start: 0, end: 6, prefix: '', suffix: '' });
+    const state = citationField(`[Assistant quote](${href}) `), press = state.press();
+    await chipPopoverLocal(state.client, state.native, 'chip-close', `${press.seq}`, '');
+    expect(chipPopoverView(state.client)).toMatchObject({ open: false, finish: { seq: press.seq, focus: 'outside' } });
   });
 });
