@@ -76,6 +76,7 @@ pub(super) use declared::CHOSEN;
 pub(super) use disclosed::STATED;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
+pub(super) use processes::Refused;
 pub(super) use services::CLAIMED;
 use std::sync::{Arc, Mutex};
 use values::{absent_is_none, fill, set_path};

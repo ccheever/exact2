@@ -30,7 +30,7 @@ pub(super) struct Checkpoint {
     failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
     writes: super::writes::Writes,
-    unsent: Vec<(usize, String, Vec<Value>)>,
+    unsent: Vec<Unsent>,
     reconciling: Vec<usize>,
     pending: Vec<PendingReq>,
     queues: super::queue::Saved,
@@ -47,6 +47,8 @@ pub(super) struct Checkpoint {
     resource_inspection: Vec<crate::perf::ResourceWork>,
     /// Who each request and `then` is from (LLP 1133.023 D7).
     origins: super::modules::OriginsSaved,
+    /// The arguments refused a child's resource (LLP 1133.007 D13).
+    refused_args: super::modules::Refused,
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
@@ -123,6 +125,7 @@ impl<D: DataSource> Runner<D> {
             refused: self.keeping.refused.len(),
             resource_inspection: self.ids.work.resources.clone(),
             origins: self.origins_saved(),
+            refused_args: self.refused_saved(),
             letting: self.letting_len(),
         }
     }
@@ -196,6 +199,7 @@ impl<D: DataSource> Runner<D> {
                 self.pending = c.pending;
                 self.letting_restored(c.letting);
                 self.origins_restore(c.origins);
+                self.refused_restore(c.refused_args);
                 self.queues.restore(c.queues);
                 self.timers = c.timers;
                 if let Some(p) = c.published {
@@ -419,7 +423,7 @@ impl<D: DataSource> Runner<D> {
         // opened at launch was refused, and lost). A queue's waits in its
         // queue instead, every send in order, its head asked once the source
         // is ready (LLP 1092 D2).
-        let mut unsent: Vec<(usize, String, Vec<Value>)> = Vec::new();
+        let mut unsent: Vec<Unsent> = Vec::new();
         for (m, source, sargs) in &outcome.sends {
             let m = *m as usize;
             self.accept_write(m, source, sargs);
@@ -427,7 +431,7 @@ impl<D: DataSource> Runner<D> {
             let early = !self.data.ready() && !exact_plan::runner_owned_source(source);
             if early && !queue {
                 unsent.retain(|u| u.0 != m);
-                unsent.push((m, source.clone(), sargs.clone()));
+                unsent.push((m, source.clone(), sargs.clone(), self.sent_by()));
                 // It replaces a send still in flight (newest wins).
                 replaced.push(m);
                 continue;
@@ -567,10 +571,10 @@ impl<D: DataSource> Runner<D> {
         }
         // Waiting from here, so the settlement sees them pending; a refusal
         // puts the waiting sends back as they were (the checkpoint).
-        for (m, source, args) in &unsent {
+        for (m, source, args, by) in &unsent {
             self.unsent.retain(|u| u.0 != *m);
             if !assigned.contains(m) {
-                self.unsent.push((*m, source.clone(), args.clone()));
+                self.unsent.push((*m, source.clone(), args.clone(), *by));
                 self.pending_mut[*m] = true;
             }
         }
@@ -667,7 +671,7 @@ impl<D: DataSource> Runner<D> {
                 self.forget(Target::Mutation(m));
             }
         }
-        for (m, _, _) in unsent.iter().filter(|u| !assigned.contains(&u.0)) {
+        for (m, ..) in unsent.iter().filter(|u| !assigned.contains(&u.0)) {
             self.log(super::lines::unsent(
                 self.plan.str(self.plan.mutations[*m].name),
             ));
@@ -904,7 +908,7 @@ impl<D: DataSource> Runner<D> {
         self.number_data_call(&mut request);
         request.reach = self.reach_of(self.origin_for(Some(target)));
         self.log(super::lines::enqueued(ticket, &name, &request));
-        let refusal = self.process_refusal(&request);
+        let refusal = self.ask_refusal(target, &args, &request);
         self.note_asked(target, ticket);
         self.note_handles(ticket, &source, &request.body);
         self.note_send(ticket, &request.body);
@@ -986,7 +990,7 @@ impl<D: DataSource> Runner<D> {
         for (i, awaiting) in self.awaiting.iter().enumerate() {
             self.pending_res[i] |= *awaiting;
         }
-        for (m, _, _) in &self.unsent {
+        for (m, ..) in &self.unsent {
             self.pending_mut[*m] = true;
         }
     }

@@ -20,11 +20,20 @@ pub(in crate::runner) struct Processes {
     pub(super) clock: Option<Arc<dyn WorkClock>>,
     /// Each child stream's facts as its messages told them, by ticket.
     children: std::collections::BTreeMap<u64, ChildState>,
-    /// The arguments of each resource a tool, a wake or the device asked
-    /// while its child ran: asked again with them, by any origin, the
-    /// resource keeps what it has (D13).
-    refused: Vec<(Target, Vec<Value>)>,
+    /// The arguments of each resource a tool, a wake or the device asked a
+    /// child of: while it ran, or when its start was refused. Asked again
+    /// with them, by any origin, the resource keeps what it has, or its
+    /// start is refused (D13). A refused commit puts the list back.
+    refused: Refused,
 }
+
+/// [`Processes`]'s refused arguments, by resource, for a commit's
+/// checkpoint.
+pub(in crate::runner) type Refused = Vec<(Target, Vec<Value>)>;
+
+/// The refusal a host never sees: a program from any origin but the app's.
+const PERSON_REQUIRED: &str =
+    "person-required: only a person's input or the app's own code starts a program (LLP 1133.007 D13)";
 
 /// What `state.streams` shows of a child process (LLP 1133.007 D2).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -93,10 +102,59 @@ impl<D: DataSource> Runner<D> {
         Some(match why.starts_with("person-required") {
             true => {
                 self.call_person_required();
-                "person-required: only a person's input or the app's own code starts a program (LLP 1133.007 D13)"
+                PERSON_REQUIRED
             }
             false => "process: a call @exact/child-process does not declare (LLP 1133.007 D12)",
         })
+    }
+
+    /// [`Self::process_refusal`] of `target`'s request asked at `args`: a
+    /// resource asked again at arguments a tool, a wake or the device asked
+    /// is refused from any origin, and a person-required refusal of a
+    /// resource's ask keeps its arguments refused, until they change (D13).
+    pub(in crate::runner) fn ask_refusal(
+        &mut self,
+        target: Target,
+        args: &[Value],
+        request: &Request,
+    ) -> Option<&'static str> {
+        if request.is_process() && self.args_refused(target, args) {
+            let (kind, _) = crate::process::summary(&request.body);
+            self.log(format!("process refused, person-required: {kind} at arguments a tool, a wake or the device asked (LLP 1133.007 D13)"));
+            self.call_person_required();
+            return Some(PERSON_REQUIRED);
+        }
+        let why = self.process_refusal(request)?;
+        if why == PERSON_REQUIRED {
+            self.refuse_args(target, args);
+        }
+        Some(why)
+    }
+
+    /// Whether resource `target` was refused at `args` (D13).
+    fn args_refused(&self, target: Target, args: &[Value]) -> bool {
+        let refused = &self.extensions.processes.refused;
+        refused.iter().any(|(t, a)| *t == target && a == args)
+    }
+
+    /// Resource `target`'s arguments `args` stay refused, by any origin,
+    /// until they change: the one set it keeps. A send is asked anew.
+    fn refuse_args(&mut self, target: Target, args: &[Value]) {
+        if let Target::Resource(_) = target {
+            let refused = &mut self.extensions.processes.refused;
+            refused.retain(|(t, _)| *t != target);
+            refused.push((target, args.to_vec()));
+        }
+    }
+
+    /// The refused arguments, for a commit's checkpoint.
+    pub(in crate::runner) fn refused_saved(&self) -> Refused {
+        self.extensions.processes.refused.clone()
+    }
+
+    /// A refused commit's: the refused arguments as it found them.
+    pub(in crate::runner) fn refused_restore(&mut self, saved: Refused) {
+        self.extensions.processes.refused = saved;
     }
 
     /// Whether resource `i`, which settlement would ask again at `args`
@@ -114,8 +172,7 @@ impl<D: DataSource> Runner<D> {
         forced: bool,
     ) -> bool {
         let target = Target::Resource(i);
-        let refused = &self.extensions.processes.refused;
-        if refused.iter().any(|(t, a)| *t == target && a == args) {
+        if self.args_refused(target, args) {
             return true;
         }
         let Some((running, asked)) = self.child_of(target) else {
@@ -126,9 +183,7 @@ impl<D: DataSource> Runner<D> {
             return false;
         }
         if asked != args {
-            let refused = &mut self.extensions.processes.refused;
-            refused.retain(|(t, _)| *t != target);
-            refused.push((target, args.to_vec()));
+            self.refuse_args(target, args);
         }
         self.call_person_required();
         let (resource, what) = (
