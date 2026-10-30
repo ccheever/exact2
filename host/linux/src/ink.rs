@@ -15,7 +15,7 @@ use tiny_skia::{FillRule, Path, PathBuilder, Pixmap, Transform};
 mod clips;
 mod effects;
 mod stats;
-pub use stats::{Statistics, StatisticsReader};
+pub use stats::{counter_state, Statistics, StatisticsReader};
 mod gradient;
 mod images;
 mod rows;
@@ -140,6 +140,7 @@ impl Ink {
         shape: &Shape,
         ts: Transform,
     ) -> Result<Option<rows::GeometryInstance>> {
+        self.observe_transform(ts);
         if self.error.is_some() || shape.rect.2 <= 0. || shape.rect.3 <= 0. {
             return Ok(None);
         }
@@ -167,6 +168,7 @@ impl Ink {
         clips: &[(&Path, FillRule)],
         ts: Transform,
     ) -> Result<Option<rows::GeometryInstance>> {
+        self.observe_transform(ts);
         let dev = self.device_transform(ts);
         if self.error.is_some() {
             return Ok(None);
@@ -238,6 +240,7 @@ impl Ink {
     }
 
     fn border(&mut self, part: &BorderFill, ts: Transform) -> Result<()> {
+        self.observe_transform(ts);
         if let Some(((outer, outer_radii), (inner, inner_radii))) = part.ring {
             if part.clip.is_none()
                 && part.ring_clip.is_none()
@@ -401,6 +404,7 @@ impl Backend for Ink {
     }
 
     fn fill(&mut self, shape: &Shape, c: [u8; 4], ts: Transform) {
+        self.observe_transform(ts);
         let dev = self.device_transform(ts);
         if c[3] == 255
             && self.rows.capture.is_empty()
@@ -447,6 +451,7 @@ impl Backend for Ink {
         outer: &Shape,
         ts: Transform,
     ) -> bool {
+        self.observe_transform(ts);
         let dev = self.device_transform(ts);
         if dev.kx != 0.
             || dev.ky != 0.
@@ -500,6 +505,7 @@ impl Backend for Ink {
         ts: Transform,
         tint: Option<[u8; 4]>,
     ) {
+        self.observe_transform(ts);
         let size = images::sampling_size(
             [image.width(), image.height()],
             dst,
@@ -515,10 +521,12 @@ impl Backend for Ink {
         self.canvas(&pixels, dst, &[], Transform::identity());
     }
     fn island_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
+        self.observe_transform(ts);
         let result = self.blended_image(&pixels, dst, ts, mode);
         self.accept(result);
     }
     fn canvas(&mut self, pixels: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+        self.observe_transform(ts);
         let result = self.images.pixmap(&mut self.device, pixels);
         if let Some(texture) = self.accept(result) {
             self.picture(texture, dst, clips, ts, None);
@@ -542,18 +550,22 @@ impl Backend for Ink {
     }
 
     fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
+        self.observe_transform(ts);
         let result = self.svg(s, ts);
         self.accept(result);
     }
     fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
+        self.observe_transform(ts);
         let result = self.css_clip(path, ts);
         self.accept(result).unwrap_or(false)
     }
     fn push_svg_clip(&mut self, clip: &exact_kernel::svg::scene::Clip, ts: Transform) -> usize {
+        self.observe_transform(ts);
         let result = self.svg_clip(clip, ts);
         self.accept(result).unwrap_or(0)
     }
     fn push_clip(&mut self, shape: &Shape, ts: Transform) {
+        self.observe_transform(ts);
         let result = self.clip(shape, ts);
         self.accept(result);
     }
@@ -591,6 +603,7 @@ impl Backend for Ink {
         mask: &std::result::Result<GradientPaint, [u8; 4]>,
         ts: Transform,
     ) {
+        self.observe_transform(ts);
         let ts = self.record_transform(ts);
         if self.record(rows::Marker::Mask(*shape, mask.clone(), ts)) {
             return;
@@ -604,6 +617,7 @@ impl Backend for Ink {
         filter: &exact_kernel::style::BackdropFilter,
         ts: Transform,
     ) {
+        self.observe_transform(ts);
         let ts = self.record_transform(ts);
         if self.record(rows::Marker::Backdrop(*shape, filter.clone(), ts)) {
             return;
@@ -744,6 +758,16 @@ impl Backend for Ink {
     fn row_reusable(&self, id: u32, origin: (f32, f32)) -> bool {
         self.reusable(id, origin)
     }
+    fn group_begin(&mut self, _id: u32, scroll: (f32, f32)) {
+        if exact_ink::counters::enabled() {
+            self.rows.scrolls.push(scroll);
+        }
+    }
+    fn group_end(&mut self) {
+        if exact_ink::counters::enabled() {
+            self.rows.scrolls.pop();
+        }
+    }
     fn row_begin(&mut self, id: u32, origin: (f32, f32), _: Option<u32>) {
         self.record_row(id, origin);
     }
@@ -772,6 +796,7 @@ impl Backend for Ink {
         self.replace_slot(row, id)
     }
     fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {
+        self.observe_transform(ts);
         // Transforming a rasterized group would move the stationary outer clips.
         // @ref LLP 1149 D4: let the walk apply motion before clipping.
         if base[0] != 0. || base[1] != 0. || base[2] != 1. || base[3] != 0. {

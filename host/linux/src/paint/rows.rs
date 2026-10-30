@@ -12,6 +12,7 @@
 //! a node only makes the row suspect: kept while every node sits where it
 //! sat relative to the row.
 use super::*;
+use exact_ink::counters::{self, Counter};
 use exact_kernel::id::{IdMap, IdSet};
 use exact_kernel::NodeKey;
 
@@ -458,6 +459,7 @@ impl Painter {
             }
             self.picture(walk, &node, *content, *outer, *ts);
             self.backend.slot_end();
+            counters::add(Counter::ImagePatches, 1);
         }
         let row = self.rows.kept.get_mut(&key).expect("kept");
         for (i, (id, ..)) in changed {
@@ -548,6 +550,7 @@ impl Painter {
                 || (kept.is_some_and(|row| self.row_valid(row, &node, walk, scale, false))
                     && self.pictures_again(walk, node.key)));
         if let Some(row) = self.rows.kept.get(&node.key).filter(|_| valid) {
+            counters::add(Counter::RowsReplayed, 1);
             let d = (origin.0 - row.origin.0, origin.1 - row.origin.1);
             for b in &row.boxes {
                 let mut b = *b;
@@ -576,6 +579,33 @@ impl Painter {
                 self.backend.row_draw(rid, origin, bounds);
             }
             return;
+        }
+        if counters::enabled() {
+            counters::add(Counter::RowsRecorded, 1);
+            if let Some(row) = self.rows.kept.get(&node.key) {
+                let reason = if row.stale {
+                    Some(Counter::RowsStale)
+                } else if !self.row_valid(row, &node, walk, scale, false) {
+                    Some(if self.rows.suspect.contains(&node.key) {
+                        Counter::RowsSuspect
+                    } else {
+                        Counter::RowsOther
+                    })
+                } else if row
+                    .images
+                    .iter()
+                    .any(|(id, kept)| !same_picture(walk.scene.images.get(id), kept))
+                {
+                    Some(Counter::RowsPictures)
+                } else {
+                    None
+                };
+                if let Some(reason) = reason {
+                    counters::add(reason, 1);
+                }
+            } else {
+                counters::add(Counter::RowsNew, 1);
+            }
         }
         let old = self.rows.kept.remove(&node.key);
         // Potentials found this epoch, else the old recording's when its

@@ -442,7 +442,8 @@ impl<D: DataSource> Presenter<D> {
             "shadersMs": self.painter.shaders_ms,
             "cached": self.painter.cached,
             "recovering": recovering,
-            "lastRefusal": refusal
+            "lastRefusal": refusal,
+            "counters": crate::ink::counter_state()
         })
     }
 

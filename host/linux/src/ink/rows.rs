@@ -37,6 +37,12 @@ pub(super) struct PathGeometry {
 
 pub(super) type GeometryInstance = (Instance, Bindings, Option<PathGeometry>);
 
+fn zero_interval(glyph: f32, recorded: f32, current: f32) -> bool {
+    let before = glyph + recorded - recorded.round();
+    let after = before + recorded.round() - current.round();
+    (-1. ..0.).contains(&before) || (-1. ..0.).contains(&after) || (before < 0.) != (after < 0.)
+}
+
 enum CaptureKind {
     Row(u32),
     Slot(u32, Option<u32>),
@@ -48,6 +54,8 @@ pub(super) struct Capture {
     origin: (f32, f32),
     pub(super) drawing: Drawing<Marker>,
     slots: HashMap<u32, Slot>,
+    glyphs: Vec<(f32, f32)>,
+    scaled: bool,
 }
 
 impl Capture {
@@ -68,12 +76,16 @@ struct Row {
     drawing: Rc<Drawing<Marker>>,
     textures: Vec<TextureId>,
     slots: HashMap<u32, Slot>,
+    glyphs: Vec<(f32, f32)>,
+    scaled: bool,
+    scroll: (f32, f32),
 }
 
 #[derive(Default)]
 pub(super) struct Rows {
     kept: HashMap<u32, Rc<Row>>,
     pub(super) capture: Vec<Capture>,
+    pub(super) scrolls: Vec<(f32, f32)>,
 }
 
 fn textures(drawing: &Drawing<Marker>) -> Vec<TextureId> {
@@ -152,6 +164,8 @@ impl Ink {
             origin,
             drawing: Drawing::default(),
             slots: HashMap::new(),
+            glyphs: Vec::new(),
+            scaled: false,
         });
     }
 
@@ -176,6 +190,9 @@ impl Ink {
                 drawing: Rc::new(c.drawing),
                 textures,
                 slots: c.slots,
+                glyphs: c.glyphs,
+                scaled: c.scaled,
+                scroll: self.rows.scrolls.last().copied().unwrap_or_default(),
             }),
         );
         id
@@ -209,6 +226,8 @@ impl Ink {
             origin,
             drawing: Drawing::default(),
             slots: HashMap::new(),
+            glyphs: Vec::new(),
+            scaled: false,
         });
     }
 
@@ -267,6 +286,8 @@ impl Ink {
             origin: slot.origin,
             drawing: Drawing::default(),
             slots: HashMap::new(),
+            glyphs: Vec::new(),
+            scaled: false,
         });
         true
     }
@@ -288,8 +309,57 @@ impl Ink {
         self.rows.kept.get(&id).is_some_and(|row| {
             let dx = (origin.0 - row.origin.0) * self.scale;
             let dy = (origin.1 - row.origin.1) * self.scale;
-            dx.fract() == 0. && dy.fract() == 0.
+            let reusable = dx.fract() == 0. && dy.fract() == 0.;
+            if !reusable {
+                use exact_ink::counters::{self, Counter};
+                counters::add(Counter::RowFractional, 1);
+                if counters::enabled() {
+                    let scroll = self.rows.scrolls.last().copied().unwrap_or_default();
+                    let reason = if row.scaled {
+                        Counter::A2Scaled
+                    } else if row.glyphs.iter().any(|&(x, y)| {
+                        zero_interval(x, row.scroll.0 * self.scale, scroll.0 * self.scale)
+                            || zero_interval(y, row.scroll.1 * self.scale, scroll.1 * self.scale)
+                    }) {
+                        Counter::A2Zero
+                    } else {
+                        Counter::A2Eligible
+                    };
+                    counters::add(reason, 1);
+                }
+            }
+            reusable
         })
+    }
+
+    pub(super) fn observe_glyph(&mut self, x: f32, y: f32, transform: Transform) {
+        self.observe_transform(transform);
+        if exact_ink::counters::enabled() {
+            if let Some(c) = self
+                .rows
+                .capture
+                .iter_mut()
+                .find(|c| matches!(c.kind, CaptureKind::Row(_)))
+            {
+                c.glyphs.push((x, y));
+            }
+        }
+    }
+
+    pub(super) fn observe_transform(&mut self, transform: Transform) {
+        if exact_ink::counters::enabled() {
+            if let Some(c) = self
+                .rows
+                .capture
+                .iter_mut()
+                .find(|c| matches!(c.kind, CaptureKind::Row(_)))
+            {
+                c.scaled |= transform.sx != 1.
+                    || transform.sy != 1.
+                    || transform.kx != 0.
+                    || transform.ky != 0.;
+            }
+        }
     }
 
     pub(super) fn draw_row(&mut self, id: u32, origin: (f32, f32)) -> Result<()> {
@@ -403,6 +473,8 @@ impl Ink {
             origin,
             drawing: Drawing::default(),
             slots: HashMap::new(),
+            glyphs: Vec::new(),
+            scaled: false,
         });
     }
 

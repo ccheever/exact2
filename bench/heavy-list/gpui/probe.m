@@ -128,7 +128,21 @@ static NSDictionary *gpuUsage(int phase) {
 static struct { const char *name; double start, end, value; mach_port_t thread; } intervals[131072];
 static size_t intervalCount, intervalDropped;
 static BOOL tracing;
+static BOOL dispatchTracing;
 static pthread_mutex_t traceLock = PTHREAD_MUTEX_INITIALIZER;
+static const char *(*counterName)(size_t);
+static uint64_t (*counterValue)(size_t, bool);
+int g1_present_clear(void) { return getenv("G1_PRESENT_CLEAR") != NULL; }
+void g1_set_counter_reader(const char *(*name)(size_t), uint64_t (*value)(size_t, bool)) {
+    counterName = name; counterValue = value;
+}
+
+// Live socket diagnostics must not activate the app through winit's launch path.
+static void backgroundActivate(id object, SEL selector) {}
+static void backgroundActivateIgnoring(id object, SEL selector, BOOL ignoring) {}
+static void backgroundOrder(id window, SEL selector, id sender) {
+    [(NSWindow *)window orderFront:sender];
+}
 void g1_interval(const char *name, double start, double end, double value) {
     if (!tracing) return;
     pthread_mutex_lock(&traceLock);
@@ -146,6 +160,43 @@ void g1_boot_expose(void (^callback)(void)) {
             g1_interval("layer first transaction completed", now, now, 0);
         }];
     }
+}
+
+static void sendEvent(id app, SEL selector, NSEvent *event) {
+    double start = CACurrentMediaTime();
+    IMP original = class_getMethodImplementation(NSApplication.class, @selector(g1_originalSendEvent:));
+    ((void (*)(id, SEL, NSEvent *))original)(app, selector, event);
+    g1_interval("AppKit event delivery", start, CACurrentMediaTime(), event.type);
+}
+
+static void observeRunLoop(void) {
+    static double active[32];
+    static unsigned depth;
+    CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(NULL,
+        kCFRunLoopEntry | kCFRunLoopExit | kCFRunLoopAfterWaiting | kCFRunLoopBeforeWaiting,
+        true, 0, ^(CFRunLoopObserverRef o, CFRunLoopActivity activity) {
+            double now = CACurrentMediaTime();
+            if (activity == kCFRunLoopEntry) {
+                if (depth && active[depth - 1]) {
+                    g1_interval("run loop dispatch", active[depth - 1], now, depth);
+                    active[depth - 1] = 0;
+                }
+                if (depth == 32) abort();
+                active[depth++] = now;
+            } else if (activity == kCFRunLoopAfterWaiting && depth) {
+                active[depth - 1] = now;
+                g1_interval("run loop wake", now, now, depth);
+            } else if (depth) {
+                if (active[depth - 1]) g1_interval("run loop dispatch", active[depth - 1], now, depth);
+                active[depth - 1] = 0;
+                if (activity == kCFRunLoopExit) {
+                    depth--;
+                    if (depth) active[depth - 1] = now;
+                }
+            }
+        });
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+    CFRelease(observer);
 }
 
 void g1_ready(int complete, size_t item, float offset) {
@@ -206,6 +257,7 @@ static id nextDrawable(id layer, SEL selector) {
 }
 
 static NSDictionary *usage(void) {
+    double began = dispatchTracing ? CACurrentMediaTime() : 0;
     struct rusage_info_v4 r = {0};
     if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&r)) abort();
     thread_basic_info_data_t thread;
@@ -213,8 +265,49 @@ static NSDictionary *usage(void) {
     if (thread_info(mainThread, THREAD_BASIC_INFO, (thread_info_t)&thread, &count) != KERN_SUCCESS) abort();
     double main = thread.user_time.seconds + thread.system_time.seconds
         + (thread.user_time.microseconds + thread.system_time.microseconds) / 1e6;
-    return @{@"time": @(CACurrentMediaTime()), @"cpu": @((r.ri_user_time + r.ri_system_time) * tickSeconds),
-             @"main": @(main), @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)};
+    NSMutableDictionary *sample = [@{@"time": @(CACurrentMediaTime()), @"cpu": @((r.ri_user_time + r.ri_system_time) * tickSeconds),
+             @"main": @(main), @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)} mutableCopy];
+    if (counterName && counterValue) {
+        NSMutableDictionary *values = [NSMutableDictionary dictionary], *high = [NSMutableDictionary dictionary];
+        size_t i = 0;
+        for (; counterName(i); i++) {
+            NSString *name = @(counterName(i));
+            values[name] = @(counterValue(i, false)); high[name] = @(counterValue(i, true));
+        }
+        sample[@"counters"] = @{@"values": values, @"highWater": high, @"displayedFrames": @(counterValue(i, false))};
+    }
+    if (dispatchTracing) g1_interval("probe usage", began, CACurrentMediaTime(), 0);
+    return sample;
+}
+
+static NSDictionary *endpointUsage(void) {
+    NSMutableDictionary *sample = [usage() mutableCopy];
+    if (!getenv("G1_THREAD_CPU")) return sample;
+    thread_act_array_t threads = NULL;
+    mach_msg_type_number_t length = 0;
+    if (task_threads(mach_task_self(), &threads, &length) != KERN_SUCCESS) abort();
+    NSMutableArray *values = [NSMutableArray array];
+    for (mach_msg_type_number_t i = 0; i < length; i++) {
+        thread_basic_info_data_t basic;
+        thread_identifier_info_data_t identity;
+        thread_extended_info_data_t extended = {0};
+        mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+        kern_return_t a = thread_info(threads[i], THREAD_BASIC_INFO, (thread_info_t)&basic, &count);
+        count = THREAD_IDENTIFIER_INFO_COUNT;
+        kern_return_t b = thread_info(threads[i], THREAD_IDENTIFIER_INFO, (thread_info_t)&identity, &count);
+        count = THREAD_EXTENDED_INFO_COUNT;
+        thread_info(threads[i], THREAD_EXTENDED_INFO, (thread_info_t)&extended, &count);
+        if (a == KERN_SUCCESS && b == KERN_SUCCESS) {
+            double cpu = basic.user_time.seconds + basic.system_time.seconds
+                + (basic.user_time.microseconds + basic.system_time.microseconds) / 1e6;
+            [values addObject:@{@"id":@(identity.thread_id), @"port":@(threads[i]),
+                @"name":@(extended.pth_name), @"cpu":@(cpu), @"time":@(CACurrentMediaTime())}];
+        }
+        mach_port_deallocate(mach_task_self(), threads[i]);
+    }
+    vm_deallocate(mach_task_self(), (vm_address_t)threads, length * sizeof(thread_t));
+    sample[@"threads"] = values;
+    return sample;
 }
 
 static void writeJSON(NSDictionary *data, NSString *path) {
@@ -227,6 +320,7 @@ static void writeJSON(NSDictionary *data, NSString *path) {
 }
 
 static void saveTrace(void) {
+    double began = dispatchTracing ? CACurrentMediaTime() : 0;
     NSMutableArray *events = [NSMutableArray array];
     pthread_mutex_lock(&traceLock);
     for (size_t i = 0; i < intervalCount; i++) {
@@ -246,6 +340,7 @@ static void saveTrace(void) {
         @"traceEvents": events, @"presented": times, @"mainThread": @(mainThread), @"dropped": @(dropped)};
     writeJSON(trace, [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"trace-pid-%d.json", getpid()]]);
     writeJSON(trace, [output stringByAppendingString:@".trace.json"]);
+    if (dispatchTracing) g1_interval("probe export", began, CACurrentMediaTime(), 0);
 }
 
 static NSScrollView *scrollView(NSView *root) {
@@ -284,6 +379,7 @@ static NSData *signature(NSView *view) {
 @property NSMutableDictionary *result;
 @property NSDictionary *start;
 @property uint64_t peak;
+@property NSDictionary *peakSample;
 @property int phase;
 @property double windowAt;
 @property dispatch_source_t signals;
@@ -398,16 +494,27 @@ static NSData *signature(NSView *view) {
             [self.coldTimes addObject:@(link.timestamp)];
         }
         pthread_mutex_lock(&lock);
-        BOOL ready = firstComplete > 0 && (!getenv("G1_BOOT_ONLY") || !atomic_load(&cpuSubmitted) || firstInkComplete > 0);
+        BOOL ready = (firstComplete > 0 || (getenv("G1_AGENT_CPU_ONLY") && atomic_load(&completeScene))) && (!getenv("G1_BOOT_ONLY") || !atomic_load(&cpuSubmitted) || firstInkComplete > 0);
         pthread_mutex_unlock(&lock);
         if ((getenv("G1_BOOT_ONLY") || now - self.windowAt >= 2) && (!painted || ready)) [self ready];
-        if (now - processStart > 30) { fprintf(stderr, "probe: first complete frame timed out\n"); if (tracing) saveTrace(); exit(2); }
+        if (now - processStart > 30) {
+            writeJSON(@{@"usage":usage(), @"completeScene":@(atomic_load(&completeScene)),
+                @"firstComplete":@(firstComplete), @"drawableCalls":@(atomic_load(&drawableCalls)),
+                @"visible":@(self.window.visible), @"occlusion":@(self.window.occlusionState)},
+                [output stringByAppendingString:@".timeout"]);
+            if (tracing) saveTrace();
+            fprintf(stderr, "probe: first complete frame timed out\n"); exit(2);
+        }
     } else if (self.phase == 1) {
         if (!NSApp.active || !self.window.keyWindow) self.inactiveTicks++;
         [self.ticks addObject:@{@"timestamp": @(link.timestamp), @"delivered": @(now),
             @"period": @(link.targetTimestamp - link.timestamp)}];
-        self.peak = MAX(self.peak, [usage()[@"footprint"] unsignedLongLongValue]);
+        NSDictionary *sample = usage();
+        if ([sample[@"footprint"] unsignedLongLongValue] > self.peak) {
+            self.peak = [sample[@"footprint"] unsignedLongLongValue]; self.peakSample = sample;
+        }
     }
+    if (dispatchTracing) g1_interval("probe display tick", now, CACurrentMediaTime(), self.phase);
 }
 - (void)ready {
     if (!painted) {
@@ -465,6 +572,11 @@ static NSData *signature(NSView *view) {
     }
     self.coldPixels = nil;
     self.coldTimes = nil;
+    if (getenv("G1_AGENT_CPU_ONLY")) {
+        self.result[@"cpuOnly"] = @YES;
+        self.result[@"coldMs"] = NSNull.null;
+        self.result[@"coldCriterion"] = @"CPU-only diagnostic: scene complete; no displayed-startup claim";
+    }
     self.link.paused = YES;
     self.phase = -1;
     NSPoint point = NSMakePoint(400, 400);
@@ -489,23 +601,30 @@ static NSData *signature(NSView *view) {
             writeJSON(self.result, output);
             exit(0);
         }
-        self.start = usage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue];
+        self.start = endpointUsage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue]; self.peakSample = self.start;
         self.samples = [NSMutableArray arrayWithObject:self.start];
         self.memory = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
         dispatch_source_set_timer(self.memory, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_MSEC);
         dispatch_source_set_event_handler(self.memory, ^{
+            double began = dispatchTracing ? CACurrentMediaTime() : 0;
             [self observeFocus];
             NSDictionary *sample = usage();
             [self.samples addObject:sample];
-            self.peak = MAX(self.peak, [sample[@"footprint"] unsignedLongLongValue]);
+            if ([sample[@"footprint"] unsignedLongLongValue] > self.peak) {
+                self.peak = [sample[@"footprint"] unsignedLongLongValue]; self.peakSample = sample;
+            }
+            if (dispatchTracing) g1_interval("probe timer", began, CACurrentMediaTime(), self.phase);
         });
         dispatch_resume(self.memory);
         self.phase = 1; self.link.paused = NO; setGPUPhase(1);
         writeJSON(self.start, [output stringByAppendingFormat:@".%@", workload]);
     } else if (self.phase == 1) {
         setGPUPhase(2);
-        NSDictionary *end = usage();
-        self.result[workload] = @{ @"start": self.start, @"end": end, @"peak": @(MAX(self.peak, [end[@"footprint"] unsignedLongLongValue])), @"displayLink": self.ticks,
+        NSDictionary *end = endpointUsage();
+        if ([end[@"footprint"] unsignedLongLongValue] > self.peak) {
+            self.peak = [end[@"footprint"] unsignedLongLongValue]; self.peakSample = end;
+        }
+        self.result[workload] = @{ @"start": self.start, @"end": end, @"peak": @(self.peak), @"peakSample": self.peakSample, @"displayLink": self.ticks,
             @"wheelEvents": @(self.wheels), @"wheelDeltaY": @(self.wheelDelta), @"wheelPositions": self.wheelPositions,
             @"inactiveTicks": @(self.inactiveTicks), @"samples": self.samples };
         if (tracing) writeJSON(self.result[@"fling"], [output stringByAppendingString:@".fling-data"]);
@@ -513,14 +632,15 @@ static NSData *signature(NSView *view) {
         NSScrollView *scroll = scrollView(self.window.contentView);
         if (scroll) self.result[@"nativeOffsetEnd"] = @(scroll.contentView.bounds.origin.y);
         if (painted) self.result[[arm stringByAppendingString:@"OffsetEnd"]] = @{@"item": @(topItem), @"withinItem": @(topOffset)};
-        self.start = usage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue];
+        self.start = endpointUsage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue]; self.peakSample = self.start;
         self.samples = [NSMutableArray arrayWithObject:self.start];
         self.phase = 2;
         writeJSON(self.start, [output stringByAppendingString:@".rest"]);
-        if (tracing) saveTrace();
+        if (tracing && !getenv("G1_REST_TRACE")) saveTrace();
     } else if (self.phase == 2) {
         setGPUPhase(0);
-        self.result[@"rest"] = @{ @"start": self.start, @"end": usage(), @"peak": @(self.peak), @"samples": self.samples };
+        self.result[@"rest"] = @{ @"start": self.start, @"end": endpointUsage(), @"peak": @(self.peak), @"peakSample": self.peakSample, @"samples": self.samples };
+        if (tracing) saveTrace();
         self.result[@"thermalEnd"] = @(NSProcessInfo.processInfo.thermalState);
         self.result[@"activeAtEnd"] = @(NSApp.active && self.window.keyWindow);
         self.result[@"focusLosses"] = self.focusLosses;
@@ -543,7 +663,20 @@ __attribute__((constructor)) static void initialize(void) {
     @autoreleasepool {
         const char *path = getenv("G1_OUTPUT");
         if (!path) return;
+        if (getenv("G1_AGENT_CPU_ONLY") && !getenv("EXACT_AGENT_LIVE")) abort();
         tracing = getenv("G1_TRACE") != NULL;
+        dispatchTracing = tracing && getenv("G1_DISPATCH_TRACE");
+        if (dispatchTracing) {
+            Method method = class_getInstanceMethod(NSApplication.class, @selector(sendEvent:));
+            class_addMethod(NSApplication.class, @selector(g1_originalSendEvent:), method_getImplementation(method), method_getTypeEncoding(method));
+            method_setImplementation(method, (IMP)sendEvent);
+            observeRunLoop();
+        }
+        if (getenv("EXACT_AGENT_LIVE")) {
+            method_setImplementation(class_getInstanceMethod(NSApplication.class, @selector(activate)), (IMP)backgroundActivate);
+            method_setImplementation(class_getInstanceMethod(NSApplication.class, @selector(activateIgnoringOtherApps:)), (IMP)backgroundActivateIgnoring);
+            method_setImplementation(class_getInstanceMethod(NSWindow.class, @selector(makeKeyAndOrderFront:)), (IMP)backgroundOrder);
+        }
         loaded = CACurrentMediaTime();
         mach_timebase_info_data_t timebase;
         mach_timebase_info(&timebase);

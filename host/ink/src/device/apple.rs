@@ -208,6 +208,7 @@ impl RenderLayer {
                 if time == 0. && retry.failed() {
                     wake();
                 } else if time != 0. {
+                    crate::counters::displayed();
                     retry.reset();
                 }
             },
@@ -323,6 +324,7 @@ pub struct Trace {
     name: &'static core::ffi::CStr,
     start: f64,
     hook: TraceHook,
+    value: f64,
 }
 impl Trace {
     pub fn new(name: &'static core::ffi::CStr) -> Option<Self> {
@@ -330,12 +332,26 @@ impl Trace {
             name,
             start: unsafe { CACurrentMediaTime() },
             hook,
+            value: 0.,
+        })
+    }
+    pub fn with_value(name: &'static core::ffi::CStr, value: f64) -> Option<Self> {
+        Self::new(name).map(|mut span| {
+            span.value = value;
+            span
         })
     }
 }
 impl Drop for Trace {
     fn drop(&mut self) {
-        unsafe { (self.hook)(self.name.as_ptr(), self.start, CACurrentMediaTime(), 0.) };
+        unsafe {
+            (self.hook)(
+                self.name.as_ptr(),
+                self.start,
+                CACurrentMediaTime(),
+                self.value,
+            )
+        };
     }
 }
 type TraceHook = unsafe extern "C" fn(*const core::ffi::c_char, f64, f64, f64);
@@ -410,6 +426,7 @@ impl DisplayLink {
             context: *mut std::ffi::c_void,
         ) -> i32 {
             trace_mark(c"display callback", || 0.);
+            let _trace = Trace::new(c"display link wake");
             let callback = unsafe { &*context.cast::<CallbackSlot>() };
             callback.call();
             0
@@ -516,6 +533,38 @@ pub(crate) fn benchmark_painter(ink: bool) {
             mark(i32::from(ink));
         }
     }
+}
+
+/// Let the linked probe read the carrier thread's counters at its CPU endpoints.
+pub fn benchmark_counters() {
+    if !crate::counters::enabled() {
+        return;
+    }
+    type Register = unsafe extern "C" fn(
+        extern "C" fn(usize) -> *const core::ffi::c_char,
+        extern "C" fn(usize, bool) -> u64,
+    );
+    // SAFETY: the optional probe exports this signature and calls back on main.
+    unsafe {
+        let p = libc::dlsym(libc::RTLD_DEFAULT, c"g1_set_counter_reader".as_ptr());
+        if !p.is_null() {
+            std::mem::transmute::<*mut core::ffi::c_void, Register>(p)(
+                crate::counters::probe_name,
+                crate::counters::probe_value,
+            );
+        }
+    }
+}
+
+/// Only a linked benchmark probe can replace the final sample with a clear.
+pub fn benchmark_present_clear() -> bool {
+    type Clear = unsafe extern "C" fn() -> i32;
+    static CLEAR: std::sync::OnceLock<Option<Clear>> = std::sync::OnceLock::new();
+    let clear = CLEAR.get_or_init(|| unsafe {
+        let symbol = libc::dlsym(libc::RTLD_DEFAULT, c"g1_present_clear".as_ptr());
+        (!symbol.is_null()).then(|| std::mem::transmute::<*mut std::ffi::c_void, Clear>(symbol))
+    });
+    clear.is_some_and(|clear| unsafe { clear() != 0 })
 }
 
 /// Set the probe's metadata on the worker immediately before drawable acquisition.

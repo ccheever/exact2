@@ -3625,3 +3625,139 @@ bun bench/heavy-list/gpui/exclusive.mjs --verify
 bun bench/heavy-list/gpui/exclusive.mjs target/s1-4/g3-control/ink-1.json.trace.json --seconds=10
 bun bench/heavy-list/gpui/exclusive.mjs target/s1-4/g3-before/ink-1.json.trace.json
 ```
+
+### Live-carrier predictions and instruments
+
+The production bake refuses the live agent, as its trust boundary requires.
+The agent measurements therefore use the optimized `host-dev` carrier. They
+are diagnostics, not replacements for G4's release scoreboard. The first
+agent drive completed 1,200 requests, but its full 20 MB `state` response
+extended the fling endpoint to 41.510 seconds; that run is retained as
+`target/s0/baseline-agent/` and excluded from ten-second comparisons. The
+next launch timed out waiting for a complete frame. Both failures remain.
+
+Before the counter runs, the predictions are:
+
+- The phased 1,200-request wheel produces at least one fractional-shift
+  refusal; at least half of these refusals meet A2's proposed eligibility.
+  The live `state` counter delta is the instrument. A2 is observed only;
+  the current reuse decision is unchanged.
+- The viewport pool retains at least 16 targets, with at least 100 MiB idle
+  at its byte high-water mark. A timestamped counter sample and `vmmap`
+  distinguish logical texture storage from process physical footprint.
+  Incomplete candidates and allocations blocked by them are counted apart.
+- Dispatcher-only service passes remain nonzero after separating wheel,
+  link, worker, timer, agent and draw causes. Combined causes remain combined
+  in the trace; individual cause counters overlap and are not a partition.
+- One enabled cumulative-counter increment costs less than 1 µs in the
+  optimized `exact-ink` measurement test. Enabling all observations adds
+  less than 5% to process CPU in paired unprofiled agent runs. The latter
+  includes eligibility checks, pool scans, probe reads and compact state
+  requests; it is not the increment's cost alone.
+- The NucBox direct-D3D11 pool remains below G6b's pathological 1,201
+  retained targets, and fractional-shift refusals are nonzero on the
+  unchanged four-gesture Windows driver. No Mac/Windows CPU equality is
+  predicted.
+
+`target/s0/posted-profile.py` prepares the existing posted-fling driver and
+`sample` capture. It refuses to run without a fresh GO. The 30-second GO
+poll is retained in `target/s0/go-poll.jsonl`; it expires three hours after
+the lane start. The live-agent profile needs neither focus nor posted input.
+
+### Fresh agent trace and first counter observations
+
+`target/s0/fresh-cpu-only/` is the first complete ten-second agent drive.
+After three displayed-readiness timeouts, the probe can explicitly wait for
+CPU scene completion (`G1_AGENT_CPU_ONLY=1`). This mode leaves displayed
+startup unknown; it does not manufacture a presented timestamp. The carrier's
+visibility and presentation policies are unchanged. One timeout retained a
+complete scene, three submissions and no displayed callbacks, with AppKit
+reporting the window visible and unoccluded (`counters-agent-2/ink.json.timeout`).
+
+The fresh trace contains 1,200 phased requests over 10.068653 seconds; its
+probe window is 10.145215 seconds. Process/main CPU is **882.383/549.722
+ms/s**. Its continuous socket input repeats hit-testing paints and oversized
+clip-mask work, as S1.4 observed. It is not the posted G4 trajectory and
+cannot supply a replacement for G4's 44 ms/s main-thread budget.
+
+| Fresh trace phase | Exclusive elapsed ms/s | Count |
+|---|---:|---:|
+| paint walk | 389.395 | 1284 |
+| main resource wait | 235.672 | 4984 |
+| path raster | 41.576 | 3871 |
+| scene encode | 31.830 | 6107 |
+| texture allocate | 20.514 | 3873 |
+| carrier draw | 16.462 | 965 |
+| carrier service | 15.453 | 2749 |
+| agent request | 11.575 | 1200 |
+| glyph raster | 2.328 | 724 |
+| layout | 2.204 | 2985 |
+| refinement | 1.230 | 3714 |
+
+The GPU present interval averages 0.722 ms. The callback phase has p50
+5.092 ms and p99 5.190 ms against the presented grid. Full thread tables
+and hashes are `target/s0/fresh-cpu-only.{md,json}`; the reducer regenerates
+them from `fresh-cpu-only/ink.json.trace.json` and its sibling endpoints.
+Elapsed waits exceed CPU time here; subtracting marked elapsed from CPU
+would give a negative number, not an unattributed CPU owner.
+
+The subsequent `marked-on/` run adds the dispatch marks and counters.
+Its 10.061795-second probe window contains:
+
+| Observation | Phase delta |
+|---|---:|
+| paint attempts / submitted / displayed | 1145 / 1144 / 0 |
+| whole-row recordings / replay decisions | 13833 / 11048 |
+| fractional-shift refusals | 13781 |
+| A2 eligible / glyph-zero fallback / scaled fallback | 13454 / 327 / 0 |
+| new / stale / suspect / picture-invalid recordings | 51 / 77 / 1 / 25 |
+| image-slot patches | 126 |
+| viewport allocations / retirements | 23 / 18 |
+| allocations blocked by incomplete matching targets | 4 |
+| incomplete matching candidates inspected | 2603 |
+| clip-mask targets built | 9076 |
+| shaping-cache hits / misses | 58 / 135 |
+| paragraph-measure cache hits / misses | 489 / 193 |
+
+The fractional-refusal and ≥50% A2-eligibility predictions are met (97.63%
+eligible). These classify the proposed policy; no row becomes reusable.
+A fractional refusal can also have a stale, suspect or picture cause; those
+counts overlap. A replay decision can be culled before drawing. Paint attempts
+count completed painter snapshots, including refused presents.
+
+The pool's process high water is **12 targets / 112.5 MiB**. At the process
+footprint peak of **869.314 MiB**, the probe records **8 targets / 75 MiB**:
+six reserved for the current frame, two idle (18.75 MiB), none held by
+incomplete work. The ≥16-target and ≥100 MiB idle-at-peak predictions both
+miss. The pool cannot account for this footprint; these logical bytes must
+not be equated with physical footprint. The separate profiled run retains
+`marked-profile/vmmap.txt`: its 727.3 MiB snapshot precedes that run's
+861.783 MiB probe peak, so it is not a map taken at the exact peak.
+
+The first period gauge reset only on delivered link ticks, accumulating
+passes while that link was stopped. That gauge is superseded: the counter
+now advances nominal monitor periods on service turns, including at rest.
+`exclusive.mjs` also bins passes on complete refresh intervals, anchored to
+presented times when available and explicitly labelled nominal otherwise.
+The other counters above are unaffected by that gauge correction.
+
+### Observer cost and trace boundaries
+
+The optimized increment test reports 1,224,083 ns disabled and 1,265,208 ns
+enabled for 1,000,000 increments: **1.224/1.265 ns per loop iteration**. The
+<1 µs prediction is met for this tight-loop instrument, not for the whole
+observer (`counter-overhead-off.log`, `counter-overhead-on.log`).
+
+The first paired live runs do **not** establish the <5% observer bound.
+`marked-off/` has no fling submissions or display-link callbacks; `marked-on/`
+has 1,144 submissions. Both fail the quiet rule: maximum load exceeds 43
+and compiler processes are present. Their CPU values are retained, not
+interpreted as an observer-cost difference. `marked-profile/` adds `sample`
+and `vmmap`; its requests take 15.273221 seconds, so it is also excluded
+from a ten-second performance comparison.
+
+The original traced rest window included serialization of its fling and
+end-of-rest traces. `G1_REST_TRACE=1` defers export until after the rest CPU
+endpoint. With this boundary, the marked counter run measures **3.499 ms/s
+process CPU** at rest, versus 84.609 ms/s in the earlier export-containing
+window. These are different observations, not a renderer optimization.

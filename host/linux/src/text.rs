@@ -825,6 +825,7 @@ impl TextEngine {
 
     fn source(&mut self, key: (u64, u64)) -> Rc<ShapedSource> {
         if let Some(source) = self.paragraphs.source(key) {
+            exact_ink::counters::add(exact_ink::counters::Counter::ShapeHits, 1);
             return source;
         }
         let spec = self.paragraphs.spec(key).expect("current identity");
@@ -834,6 +835,7 @@ impl TextEngine {
     }
 
     fn build_source(&mut self, spec: Arc<Spec>) -> Rc<ShapedSource> {
+        exact_ink::counters::add(exact_ink::counters::Counter::ShapeMisses, 1);
         self.shape_calls += 1;
         #[cfg(test)]
         identified_tests::shaped(&spec);
@@ -971,7 +973,9 @@ impl TextEngine {
         };
         if self.layout_calls == before {
             self.hits += 1;
+            exact_ink::counters::add(exact_ink::counters::Counter::MeasureHits, 1);
         } else {
+            exact_ink::counters::add(exact_ink::counters::Counter::MeasureMisses, 1);
             self.shaping += started.elapsed();
         }
         metrics

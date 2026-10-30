@@ -36,6 +36,7 @@ impl Ink {
         let parent = self.pool.take(&mut self.device)?;
         self.device
             .render(&encoder.finish(), parent, Some([0.; 4]))?;
+        exact_ink::counters::add(exact_ink::counters::Counter::ClipMasks, 1);
         let texture = if let Some(mask) = mask {
             let mut encoder = Encoder::new(self.size[0], self.size[1]);
             let mut instance = Instance::new(Kind::Layer, Brush::Image, rect);
@@ -57,6 +58,7 @@ impl Ink {
             let target = self.pool.take(&mut self.device)?;
             self.device
                 .render(&encoder.finish(), target, Some([0.; 4]))?;
+            exact_ink::counters::add(exact_ink::counters::Counter::ClipMasks, 1);
             target
         } else {
             parent

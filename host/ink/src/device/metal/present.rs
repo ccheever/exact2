@@ -344,6 +344,7 @@ impl Renderer {
             None
         };
         trace_mark(c"present committed", || 0.);
+        crate::counters::submitted();
         self.ring.retire(command);
         Ok(pending)
     }
@@ -361,11 +362,28 @@ fn encode(
     let pass = MTLRenderPassDescriptor::new();
     let attachment = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
     attachment.setTexture(Some(target));
-    attachment.setLoadAction(MTLLoadAction::DontCare);
+    let clear = crate::device::apple::benchmark_present_clear();
+    attachment.setLoadAction(if clear {
+        MTLLoadAction::Clear
+    } else {
+        MTLLoadAction::DontCare
+    });
+    if clear {
+        attachment.setClearColor(MTLClearColor {
+            red: 0.,
+            green: 0.,
+            blue: 0.,
+            alpha: 1.,
+        });
+    }
     attachment.setStoreAction(MTLStoreAction::Store);
     let encoder = command
         .renderCommandEncoderWithDescriptor(&pass)
         .ok_or_else(|| Error::Device("drawable encoder".into()))?;
+    if clear {
+        encoder.endEncoding();
+        return Ok(());
+    }
     let width = target.width() as f32;
     let height = target.height() as f32;
     let viewport = [width, height, 0., 0.];

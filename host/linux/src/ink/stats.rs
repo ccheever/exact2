@@ -3,6 +3,31 @@ use super::*;
 use exact_ink::atlas::Stats;
 use std::{cell::Cell, rc::Rc};
 
+/// Timestamped cumulative observations and high-water marks for the agent.
+pub fn counter_state() -> serde_json::Value {
+    let Some(s) = exact_ink::counters::snapshot() else {
+        return serde_json::Value::Null;
+    };
+    let names = exact_ink::counters::NAMES;
+    let values: serde_json::Map<_, _> = names
+        .iter()
+        .zip(s.values)
+        .map(|(n, v)| ((*n).into(), v.into()))
+        .collect();
+    let high: serde_json::Map<_, _> = names
+        .iter()
+        .zip(s.high_water)
+        .map(|(n, v)| ((*n).into(), v.into()))
+        .collect();
+    let displayed = if cfg!(target_os = "macos") {
+        serde_json::json!(s.displayed)
+    } else {
+        serde_json::Value::Null
+    };
+    serde_json::json!({"timeUnixMs": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64() * 1000.,
+        "values": values, "highWater": high, "updates": s.updates, "displayedFrames": displayed})
+}
+
 /// Retained atlas storage and work performed in the last completed frame.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Statistics {
@@ -42,6 +67,7 @@ impl Ink {
     }
 
     pub(super) fn update_statistics(&self) {
+        exact_ink::counters::add(exact_ink::counters::Counter::PaintAttempts, 1);
         let (glyphs, color_glyphs) = self.glyphs.stats();
         self.statistics.0.set(Statistics {
             snapshots: self.statistics.read().snapshots + 1,

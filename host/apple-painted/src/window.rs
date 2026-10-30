@@ -1,3 +1,4 @@
+use exact_ink::counters;
 use exact_ink::device::apple::{trace_mark, DisplayLink, Layer, Trace};
 use exact_linux::{
     app::{self, Config},
@@ -16,7 +17,7 @@ use std::{
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
+    event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
     platform::macos::{EventLoopBuilderExtMacOS, MonitorHandleExtMacOS},
@@ -53,6 +54,7 @@ struct App<D: DataSource> {
     wheel_phases: [u64; 2],
     scrolling: Scrolling,
     benchmark_complete: bool,
+    service_causes: u8,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -152,6 +154,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         wheel_phases: [0; 2],
         scrolling: Scrolling::default(),
         benchmark_complete: false,
+        service_causes: 0,
     };
     if let Err(error) = events.run_app(&mut state) {
         eprintln!("{error}");
@@ -211,6 +214,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             &self.display,
             self.window.as_ref().and_then(|w| w.current_monitor()),
         ) {
+            counters::refresh_rate(monitor.refresh_rate_millihertz().unwrap_or(60_000));
             if let Err(e) = display.set_display(monitor.native_id()) {
                 eprintln!("{e}");
             }
@@ -230,6 +234,8 @@ impl<D: DataSource + Default + 'static> App<D> {
             self.started.elapsed().as_secs_f64() * 1000.
         };
         let started = Instant::now();
+        counters::service(counters::DRAW);
+        let service_trace = Trace::with_value(c"draw service", f64::from(counters::DRAW) + 1.);
         p.pump(now);
         if self.live {
             p.animation_frame(now);
@@ -237,6 +243,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         p.run_commands(D::default);
         p.hatch_turn();
         p.poll_images();
+        drop(service_trace);
         p.set_pointer(None);
         p.tick(now);
         p.poll_apple_painter()?;
@@ -267,11 +274,25 @@ impl<D: DataSource + Default + 'static> App<D> {
 }
 
 impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
+    fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
+        let _trace = Trace::new(match cause {
+            StartCause::Init => c"winit init",
+            StartCause::Poll => c"winit poll",
+            StartCause::ResumeTimeReached { .. } => c"winit timer wake",
+            StartCause::WaitCancelled { .. } => c"winit event wake",
+        });
+        self.service_causes = if matches!(cause, StartCause::ResumeTimeReached { .. }) {
+            counters::TIMER
+        } else {
+            0
+        };
+    }
     fn resumed(&mut self, events: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
         }
         let setup = (|| -> Result<(), String> {
+            exact_ink::device::apple::benchmark_counters();
             let window = Rc::new(
                 events
                     .create_window(
@@ -362,6 +383,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     fn user_event(&mut self, events: &ActiveEventLoop, event: Event) {
         match event {
             Event::Tick => {
+                self.service_causes |= counters::LINK;
                 trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
                 let unshown = self.awaiting_first_present();
@@ -382,6 +404,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
             }
             Event::Wake => {
+                self.service_causes |= counters::WORKER;
                 if self
                     .presenter
                     .as_ref()
@@ -394,10 +417,15 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             }
             Event::Closed => events.exit(),
             Event::Request(line, reply) => {
+                self.service_causes |= counters::AGENT;
                 let _trace = Trace::new(c"agent request");
                 if let Some(p) = &mut self.presenter {
                     let request: serde_json::Value =
                         serde_json::from_str(&line).unwrap_or_default();
+                    if request["op"] == "state" && request["counters"] == true {
+                        let _ = reply.send(exact_linux::ink::counter_state().to_string());
+                        return;
+                    }
                     if matches!(
                         request["op"].as_str(),
                         Some("tap" | "type" | "clock" | "prefer")
@@ -433,6 +461,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         }
     }
     fn window_event(&mut self, events: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        let _trace = Trace::new(c"winit window event");
+        if matches!(event, WindowEvent::MouseWheel { .. }) {
+            self.service_causes |= counters::WHEEL;
+        } else if !matches!(event, WindowEvent::RedrawRequested) {
+            self.service_causes |= counters::WINDOW;
+        }
         if matches!(
             event,
             WindowEvent::CursorMoved { .. }
@@ -597,6 +631,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
         let unshown = self.awaiting_first_present();
+        let _trace = Trace::new(c"winit dispatch");
         let Some(p) = &mut self.presenter else {
             return;
         };
@@ -608,7 +643,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         } else {
             self.started.elapsed().as_secs_f64() * 1000.
         };
-        service(p, now, self.live, D::default);
+        service(p, now, self.live, D::default, self.service_causes);
         if p.apple_painter_retry_deadline()
             .is_some_and(|due| Instant::now() >= due)
         {
@@ -703,8 +738,15 @@ fn live_wheel<D: DataSource>(
     Ok(serde_json::json!({"wheel":[dx,dy],"clock":p.host().now(),"live":true}))
 }
 
-fn service<D: DataSource>(p: &mut Presenter<D>, now: f64, live: bool, data: impl FnMut() -> D) {
-    let _trace = Trace::new(c"carrier service");
+fn service<D: DataSource>(
+    p: &mut Presenter<D>,
+    now: f64,
+    live: bool,
+    data: impl FnMut() -> D,
+    causes: u8,
+) {
+    counters::service(causes);
+    let _trace = Trace::with_value(c"carrier service", f64::from(causes) + 1.);
     // Timers can expire without a frame. Leaving their deadline in the past
     // makes WaitUntil wake continuously even though the display link is stopped.
     if live {
@@ -851,12 +893,12 @@ mod tests {
         p.frame();
         assert!(!p.dirty());
         let due = p.wake_due_ms().unwrap();
-        service(&mut p, due + 1., true, || ());
+        service(&mut p, due + 1., true, || (), 0);
         assert!(!p.dirty());
         assert!(!p.host().motion() && !p.wants_display_frames());
         assert!(p.wake_due_ms().unwrap() > due + 1.);
         let next = p.wake_due_ms();
-        service(&mut p, due + 1000., false, || ());
+        service(&mut p, due + 1000., false, || (), 0);
         assert_eq!(p.wake_due_ms(), next, "the agent owns its clock");
     }
 }

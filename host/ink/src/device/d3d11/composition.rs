@@ -624,6 +624,7 @@ impl D3d11 {
             c.refused_checks = c.refused_checks.saturating_add(1);
         }
         Ok(if did_present {
+            crate::counters::submitted();
             start.elapsed().as_secs_f64() * 1000.
         } else {
             0.

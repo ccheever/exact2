@@ -16,7 +16,9 @@ use windows::{
 };
 
 fn out() -> PathBuf {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/ink-s2");
+    let path = std::env::var_os("EXACT_INK_TEST_OUTPUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/ink-s2"));
     fs::create_dir_all(&path).unwrap();
     path
 }
