@@ -1615,9 +1615,10 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
     validate_groups(groups);
     std::string fetch_primitives;
     std::string abort_hooks;
+    std::string headers_hooks;
     std::unique_ptr<Reachability> reachability;
     auto read_bootstrap_name = [&](const char* option, const char* kind,
-                                   Groups required) {
+                                   Groups required, const char* group) {
       if (option == nullptr) return std::string{};
       std::string name(option);
       if (name.empty())
@@ -1629,8 +1630,7 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
             "identifier ([A-Za-z_$][A-Za-z0-9_$]*)");
       if (!has(groups, required))
         throw std::invalid_argument(
-            std::string(kind) + " require the " +
-            (required == GROUP_FETCH ? "FETCH" : "ABORT") + " group");
+            std::string(kind) + " require the " + group + " group");
       // hasProperty follows the global's prototype chain, so inherited names
       // such as `toString` or `__proto__` collide as well.
       if (rt.global().hasProperty(rt, bootstrap_output_key(rt, name)))
@@ -1639,18 +1639,26 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
       return name;
     };
     fetch_primitives = read_bootstrap_name(
-        options.fetch_primitives, "fetch primitives", GROUP_FETCH);
+        options.fetch_primitives, "fetch primitives", GROUP_FETCH, "FETCH");
     abort_hooks = read_bootstrap_name(
-        options.abort_hooks, "abort hooks", GROUP_ABORT);
-    if (!fetch_primitives.empty() && fetch_primitives == abort_hooks)
-      throw std::invalid_argument(
-          "trusted-bootstrap outputs require distinct global names");
-    if (!fetch_primitives.empty() || !abort_hooks.empty())
+        options.abort_hooks, "abort hooks", GROUP_ABORT, "ABORT");
+    headers_hooks = read_bootstrap_name(
+        options.headers_hooks, "headers hooks", GROUP_PURE, "PURE");
+    const std::string* outputs[] = {&fetch_primitives, &abort_hooks,
+                                    &headers_hooks};
+    for (size_t i = 0; i < 3; ++i)
+      for (size_t j = i + 1; j < 3; ++j)
+        if (!outputs[i]->empty() && *outputs[i] == *outputs[j])
+          throw std::invalid_argument(
+              "trusted-bootstrap outputs require distinct global names");
+    if (!fetch_primitives.empty() || !abort_hooks.empty() ||
+        !headers_hooks.empty())
       reachability = std::make_unique<Reachability>(rt);
     auto expected = expected_scripts(groups);
     if (script_count != expected.size() || (script_count != 0 && scripts == nullptr))
       throw std::invalid_argument("Ibex2 binding bytecode count does not match groups");
     jsi::Value published_abort_hooks = jsi::Value::undefined();
+    jsi::Value published_headers_hooks = jsi::Value::undefined();
     for (size_t i = 0; i < script_count; ++i) {
       if (scripts[i].name == nullptr || scripts[i].bytes == nullptr ||
           std::strcmp(scripts[i].name, expected[i]) != 0)
@@ -1709,6 +1717,17 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
         }
         freeze(rt, object);
         published_abort_hooks = jsi::Value(rt, object);
+      }
+      if (std::strcmp(script.name, "headers") == 0 && !headers_hooks.empty()) {
+        auto hooks = rt.global().getProperty(rt, "__ibex2_headers_hooks");
+        if (!hooks.isObject())
+          throw jsi::JSError(rt, "headers binding did not publish its hooks");
+        auto object = hooks.getObject(rt);
+        auto guard = object.getProperty(rt, "guard");
+        if (!guard.isObject() || !guard.getObject(rt).isFunction(rt))
+          throw jsi::JSError(rt, "headers binding published invalid hooks");
+        freeze(rt, object);
+        published_headers_hooks = jsi::Value(rt, object);
       }
       if (std::strcmp(script.name, "blob") == 0) {
         if (!value.isObject())
@@ -1840,8 +1859,9 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
     if (has(groups, GROUP_FETCH)) {
       global.setProperty(rt, "fetch", fetch(grants));
     } else if (has(groups, GROUP_PURE)) {
-      for (const char* name : {"__ibex2_headers_free", "__ibex2_text_encode",
-                               "__ibex2_text_decode", "__ibex2_text_encode_into"})
+      for (const char* name : {"__ibex2_headers_free", "__ibex2_headers_hooks",
+                               "__ibex2_text_encode", "__ibex2_text_decode",
+                               "__ibex2_text_encode_into"})
         remove_global(rt, global, name);
     }
     if (has(groups, GROUP_WEBSOCKET))
@@ -1887,6 +1907,14 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
       publish_bootstrap_output(
           "abort hooks", abort_hooks,
           published_abort_hooks.getObject(rt), members);
+    }
+    if (!headers_hooks.empty()) {
+      if (!published_headers_hooks.isObject())
+        throw jsi::JSError(rt, "headers binding hooks were not retained");
+      constexpr const char* members[] = {"guard"};
+      publish_bootstrap_output(
+          "headers hooks", headers_hooks,
+          published_headers_hooks.getObject(rt), members);
     }
     if (!state_->bootstrap_outputs.empty())
       state_->reachability = std::move(reachability);
