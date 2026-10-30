@@ -527,13 +527,16 @@ impl Em<'_> {
             ))));
         }
         if id == StyleId::JustifyItems && parts.css.contains("--exact-progress-justify:") {
-            // Aligning as the justify-items writer admits it (grid.js `gridValue`): a value it
-            // refuses (a CSS-wide keyword, a legacy form, `last baseline`, a function) is `unset`,
-            // which computes to `normal`, so it aligns nothing. Spaces collapsed, as a server
-            // render's DOM keeps the string unparsed (dom.js).
+            // Aligning only for a value that aligns a block child (`start`, `center`, … with its
+            // `safe`/`unsafe` forms, `baseline`): anything else is `normal`, `stretch`, a value
+            // the justify-items writer refuses (grid.js `gridValue`: a CSS-wide keyword, a legacy
+            // form, `last baseline`, a function) or one the browser rejects, all of which align
+            // nothing. Comments dropped and spaces collapsed first, as a server render's DOM keeps
+            // the string unparsed (dom.js).
             let normal = self.uses.rt("normal");
             writes.push(("--exact-progress-aligned".into(), String::new(), Some(format!(
-                "v=>{{const s={normal}(\"justify-items\",String(v??\"\")).toLowerCase().replace(/\\s+/g,\" \").trim();return !s||s.includes(\"(\")||/^(?:normal|stretch|inherit|initial|unset|revert|revert-layer|last baseline|legacy(?: (?:left|right|center))?|(?:left|right|center) legacy)$/.test(s)?\"initial\":\"auto\"}}"
+                "v=>{{const s={normal}(\"justify-items\",String(v??\"\")).toLowerCase().replace(/\\/\\*[\\s\\S]*?\\*\\//g,\" \").replace(/\\s+/g,\" \").trim();return /^(?:(?:safe|unsafe) )?(?:start|end|center|self-start|self-end|flex-start|flex-end|left|right)$|^(?:first )?baseline$/.test(s)?\"auto\":\"initial\"}}"
+
             ))));
         }
         if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
