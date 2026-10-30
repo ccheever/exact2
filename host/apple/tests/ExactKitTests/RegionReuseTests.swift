@@ -434,7 +434,7 @@ import XCTest
         DispatchQueue(label: "reuse-selection-reference").async {
             let layout = RegionWorkerLayout.shape(s,width: 320), p = layout.metadata
             let dense = RegionParagraph(source: s,sourceSHA256: p.sourceSHA256,lines: layout.lines,baselines: p.baselines,
-                width: p.width,height: p.height,lineBottoms: p.lineBottoms,offeredWidth: p.offeredWidth)
+                width: p.width,height: p.height,lineBottoms: p.lineBottoms,offeredWidth: p.offeredWidth,attributed: layout.preparation.attributed)
             reference.rectangles = dense.selectionRects(NSRange(location: 0,length: 12),in: box,dirty: box)
             XCTAssertEqual(layout.selectionRects(NSRange(location: 0, length: 12), in: box), reference.rectangles)
             completed.signal()

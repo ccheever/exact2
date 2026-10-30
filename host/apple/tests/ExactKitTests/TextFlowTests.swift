@@ -232,6 +232,23 @@ final class TextFlowTests: XCTestCase {
         XCTAssertEqual(flowed.fragments[0].width, pair.fragments[0].width, accuracy: 0.02)
     }
 
+    /// A flowed line aligns as an ordinary one: a right-aligned `pre-wrap`
+    /// paragraph's last space counts, so it ends at the room's edge, beside a
+    /// float too (`TextEngine.penOffset`).
+    func testAFlowedLineAlignsWithTheTrailingSpacesItsWidthCounts() {
+        var input = spec("Say ")
+        input.whiteSpace = 1; input.align = 2
+        let plain = engine.paragraph(input, width: 100)
+        let say = engine.paragraph(spec("Say"), width: .infinity).width
+        let start = plain.origin(0, align: 2, width: 100)
+        XCTAssertLessThan(start, 100 - say - 1, "the space is inside the line")
+        let clear = engine.layoutFlow(plain.shape!, width: 100, flow: [])
+        XCTAssertEqual(clear.origin(0, align: 2, width: 100), start, accuracy: 0.02)
+        // A float 30 wide at the start: the line has the 70 beside it
+        let beside = engine.layoutFlow(plain.shape!, width: 100, flow: [TextFlowShape(kind: 2, x: 0, y: 0, a: 30, b: 50)])
+        XCTAssertEqual(beside.origin(0, align: 2, width: 100), start, accuracy: 0.02)
+    }
+
     func testAdvanceClustersMatchCoreTextOffsetsAcrossScripts() {
         for (text, family) in [("Latin letters and words", 0), ("office affinity ffi fi fl", 3),
                                ("مرحبا بالعالم العربية لَا", 0), ("שלום עולם בעברית", 0),
