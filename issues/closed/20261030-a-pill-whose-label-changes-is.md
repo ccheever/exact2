@@ -1,7 +1,7 @@
 # A pill whose label changes is a new element for VoiceOver
 
 **Status:** Closed
-**Resolution:** fixed: an atom's element is kept while its range and role stay, and reads its new label and title
+**Resolution:** fixed: an atom's element is kept while its range and role stay and reads its new label and title; the agent's scoped `tree --ax` lists the pills
 **Systems:** host/apple
 **Author:** Daehyeon Mun
 **Date:** 2026-10-30
@@ -12,12 +12,17 @@ on an uploading pill was lost at every report. The reference keeps one element (
 
 **Cause.** `TextArea.atomsChanged` kept an atom's element only while its range, label and role stayed
 the same (`host/apple/Sources/ExactKit/FieldAtoms.swift:71`); a new label made a new `AtomElement` and
-posted `layoutChanged` (macOS), or replaced the owner's `accessibilityElements` (iOS).
+posted `layoutChanged` (macOS), or replaced the owner's `accessibilityElements` (iOS). The Mac's pills
+are in the text view's `AXChildrenInNavigationOrder` (AppKit derives it from `accessibilityChildren`), but
+`agent.mjs macos tree --ax <field>` left them out: its scope kept only elements a node owns
+(`AgentAccessibility.swift:193`).
 
 **Reproduction.** `InlineAtomEditorMacTests.testANewFaceAloneDrawsThePillAgain`: a face from 0% to 87%.
 
 **Fix.** An element is kept while its range and role stay; its label and title are read anew, and macOS
-posts `titleChanged` for it. iOS sets the kept element's `accessibilityLabel`.
+posts `titleChanged` for it. iOS sets the kept element's `accessibilityLabel`. A scoped `tree --ax` also
+keeps an element no node owns when it is under a kept one.
 
-**Acceptance.** The Mac and iOS tests above keep the element and read "A quote 87%". The Mac's text view
-serves the pills in `AXChildrenInNavigationOrder` (AppKit derives it from `accessibilityChildren`).
+**Acceptance.** The Mac and iOS tests above keep the element and read "A quote 87%";
+`testAPressSelectsTheAtomAndAnAccessibilityElementNamesIt` finds the pill in the navigation order and in
+a scoped tree.
