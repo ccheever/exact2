@@ -57,7 +57,10 @@ clone window defaults, all product sources and all 156 bundle files remain exact
 Native OS chrome, physical keys, IME and normal-app credential restart behavior
 remain unqualified. Evidence and limits are under
 `target/t3-poc-evidence/desktop-exact-controller-acceptance/`. Desktop parity remains
-incomplete. Mobile driver work and TestFlight remain unchanged.
+incomplete. Mobile driver work and TestFlight remain unchanged. Independent
+review finds no introduced issue, verifies the genuine reply, streaming, active
+Stop and exact recovery, and passes 373 read-only artifact comparisons. Its
+comment audit is clear.
 
 The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
