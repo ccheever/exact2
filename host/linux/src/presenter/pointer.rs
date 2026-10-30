@@ -154,6 +154,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let kernel = self.host.kernel();
         self.pointer_held = kernel.node(held).map(|n| n.key);
+        self.pointer_held_at = Some((x, y));
         self.pointer_path = path
             .iter()
             .filter_map(|&v| kernel.node(v).map(|n| n.key))
@@ -286,7 +287,11 @@ impl<D: DataSource> Presenter<D> {
         }
         self.pointer_buttons = 0;
         let path = std::mem::take(&mut self.pointer_path);
-        let Some((x, y)) = at.or(self.contact_position()).or(self.pointer) else {
+        let Some((x, y)) = at
+            .or(self.contact_position())
+            .or(self.pointer)
+            .or(self.pointer_held_at)
+        else {
             return (None, false);
         };
         let mut error = None;

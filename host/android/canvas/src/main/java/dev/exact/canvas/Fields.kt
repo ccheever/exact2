@@ -649,6 +649,16 @@ internal class Fields(context: Context) : FrameLayout(context) {
     var keeps = false
         private set
 
+    /** Whether a field has the touch that is down ([Flings]). */
+    val owning: Boolean get() = state == OWNED
+    /** Whether a field holds the touch that is down until exact2 says what is under it ([Flings]). */
+    val holding: Boolean get() = state == HOLDING
+    private var given: (() -> Unit)? = null
+
+    /** Runs [action] when exact2's answer gives the held touch to exact2, just before its lift goes on to exact2;
+     * never when the field takes the touch. */
+    fun whenGiven(action: () -> Unit) { given = action }
+
     override fun requestDisallowInterceptTouchEvent(disallow: Boolean) {
         keeps = disallow
         super.requestDisallowInterceptTouchEvent(disallow)
@@ -694,6 +704,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
         val events = ArrayList(held)
         held.clear()
         if (f != null && f.id == field && fields[field] === f) {
+            given = null
             state = OWNED
             Exact.fieldInput(f.id, f.generation) // a finger down in it: real input, which lets a held state go
             for (e in events) {
@@ -707,8 +718,10 @@ internal class Fields(context: Context) : FrameLayout(context) {
                 val action = when (e.actionMasked) {
                     MotionEvent.ACTION_DOWN -> 0; MotionEvent.ACTION_UP -> 1; MotionEvent.ACTION_MOVE -> 2; else -> 3
                 }
+                if (action == 1) given?.invoke()
                 v.forward(action, e.x, e.y, e.getToolType(0), -1L)
             }
+            given = null
         }
         for (e in events) e.recycle()
     }
@@ -732,6 +745,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
     private fun drop() {
         for (e in held) e.recycle()
         held.clear()
+        given = null
         state = NONE; target = null
     }
 

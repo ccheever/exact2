@@ -495,8 +495,9 @@ trackpad's three-finger swipe where "Swipe between pages" uses three fingers, or
 driver's side button. A two-finger swipe goes back and forward through pages, as in any Mac
 app, and a swipe up or down reaches the app only where Mission Control and App Exposé leave
 three fingers moving vertically to apps. AppKit reports no finger count, so on the Mac a swipe
-with a `touch-count` never runs. tvOS, Android, the web, Linux and Windows make none. Give its
-action a button too: a swipe is a path gesture (WCAG 2.2, 2.5.1).
+with a `touch-count` never runs. On Android it is the platform's fling, which a field, control
+or `press` node between keeps, and a `touch-count` there counts the most fingers the touch had
+down at once. tvOS, the web, Linux and Windows make none. Give its action a button too: a swipe is a path gesture (WCAG 2.2, 2.5.1).
 `swiperight=action` is a drag: the node follows the finger to the right and releases past a
 knee (a swipe to reply). A list row's swipe actions are below.
 

@@ -59,6 +59,7 @@ mod field_pointer;
 mod field_scroll;
 #[cfg(test)]
 mod field_tests;
+mod fling;
 #[cfg(test)]
 mod frame_target_tests;
 mod group;
@@ -243,6 +244,9 @@ pub struct Presenter<D: DataSource> {
     hover_point: Option<(f32, f32)>,
     /// The node holding the pointer's `pointerdown` until it lifts: the innermost hearing a pointer event, which hears the moves.
     pointer_held: Option<exact_kernel::NodeKey>,
+    /// Where the held pointer last was: the up of a cancel that comes after
+    /// its contact ended, as a second finger's does, reports it.
+    pointer_held_at: Option<(f32, f32)>,
     /// Where the last pointer press was, its `clientX`/`clientY` (LLP 1021 D2).
     pub(crate) press_point: Option<(f32, f32)>,
     /// The nodes from the held one up that hear `pointerdown` or
@@ -307,6 +311,8 @@ pub struct Presenter<D: DataSource> {
     refusal_turn: bool,
     collection: collection::State,
     contact: Option<contact::Contact>,
+    /// The touch's first hit, for its fling (`fling.rs`).
+    landed: Option<exact_kernel::NodeKey>,
     retained_motion: Option<retained_action::MotionPermit>,
     arrange: Option<arrange::State>,
     group: Option<group::State>,
@@ -488,6 +494,7 @@ impl<D: DataSource> Presenter<D> {
             refusal_turn: false,
             collection: collection::State::default(),
             contact: None,
+            landed: None,
             retained_motion: None,
             transform_geometry: Default::default(),
             arrange: None,
@@ -529,6 +536,7 @@ impl<D: DataSource> Presenter<D> {
             hovered: Vec::new(),
             hover_point: None,
             pointer_held: None,
+            pointer_held_at: None,
             press_point: None,
             pointer_path: Vec::new(),
             pointer_walking: false,

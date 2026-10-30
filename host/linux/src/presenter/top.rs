@@ -1198,6 +1198,7 @@ impl<D: DataSource> Presenter<D> {
             return false;
         };
         self.top.long_presses = self.top.long_presses.wrapping_add(1);
+        self.contact_taken();
         if let Err(e) = self.pointer_cancel(now_ms) {
             self.host.log(e);
         }

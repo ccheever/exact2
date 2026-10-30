@@ -100,6 +100,9 @@ internal class Scrolling(private val view: ExactView) {
     private var lastY = 0f
     private var flingAt = 0
 
+    /** Whether a scroll has the touch that is down, so that exact2 hears no more of it. */
+    val dragging: Boolean get() = mode == DRAGGING
+
     /**
      * A touch event: whether it was taken here (a scroll's), so that exact2 does not hear it. A down, and every move
      * until the touch is known to be a scroll, goes on to exact2: it may be a tap, a press, or a gesture of its own.

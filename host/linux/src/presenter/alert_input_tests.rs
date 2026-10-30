@@ -272,3 +272,44 @@ fn scrollbars_drag_and_page_only_scrollers_inside_the_authored_box() {
         }
     }
 }
+
+#[test]
+fn a_cancel_that_a_moves_handler_causes_reports_that_moves_position() {
+    // The pan's handler removes the open popover, whose closing cancels the pointer during the move
+    let source = r#"component App
+  state shown = true
+  state ups = 0
+  state at = 0
+  action open
+    showPopover("pop")
+  action moved(dx: number, dy: number)
+    shown = false
+  action up(e: PointerEvent)
+    ups = ups + 1
+    at = e.clientX
+  view
+    column width=400 height=400
+      button testId="open" press=open width=100 height=40
+        text "Open"
+      box testId="pad" width=400 height=100 pan=moved touch-action="none" pointerup=up
+      if shown
+        column id="pop" popover="manual" width=100 height=40
+          text "Pop"
+"#;
+    let mut p = boot(source, Kind::Dialog);
+    tap(&mut p, "open");
+    assert!(p.alert.is_some(), "the popover is open");
+    p.set_pointer_kind(PointerKind::Touch);
+    let (_, y, _, h) = p.rect_of(id(&p, "pad")).unwrap();
+    let (y, t) = (y + h / 2., p.host.now() + 100.);
+    p.pointer_down(100., y, t).unwrap();
+    p.pointer_move(40., y, t + 10.).unwrap();
+    assert!(p.alert.is_none(), "the pan's handler closed it");
+    assert_eq!(p.host.runner().slot("at"), Some(&Value::Number(40.)));
+    p.pointer_up(40., y, t + 20.).unwrap();
+    assert_eq!(
+        p.host.runner().slot("ups"),
+        Some(&Value::Number(1.)),
+        "one up"
+    );
+}

@@ -435,6 +435,7 @@ impl<D: DataSource> Presenter<D> {
     /// contact never waits for.
     pub fn pointer_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.touched();
+        self.landed = None;
         if self.overlay_pointer(0, x, y, now_ms) || self.scrollbar_pointer(0, x, y) {
             return Ok(true);
         }
@@ -447,6 +448,9 @@ impl<D: DataSource> Presenter<D> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
         let result = match self.contact_down(x, y, now_ms) {
             Ok(taken) => {
+                if self.contact.as_ref().is_some_and(|c| c.canvas.is_some()) {
+                    self.contact_taken();
+                }
                 // Keep the down target's identity before its handler can remove it.
                 let focus = self.contact.as_ref().and_then(|c| {
                     let node = self.host.kernel().node_by_key(c.hit)?;
@@ -594,6 +598,8 @@ impl<D: DataSource> Presenter<D> {
         else {
             return Ok(false);
         };
+        // Keep the first hit before refusing input that is not live, so that the touch's fling passes to an ancestor
+        self.landed = Some(hit);
         if !self.input_live(hit) {
             return Ok(false);
         }
@@ -727,6 +733,10 @@ impl<D: DataSource> Presenter<D> {
         event_ms: f64,
     ) -> Result<bool, String> {
         self.retire_pointer();
+        // Keep where the held pointer is before a handler this move runs can cancel it
+        if self.pointer_held.is_some() && self.pointer_sample(x, y, now_ms).is_ok() {
+            self.pointer_held_at = Some((x, y));
+        }
         // A finger hovers nothing, down or lifted (LLP 1115.001 D7.4): what
         // a mouse hovered before it came is left.
         let at = (!self.direct()).then_some((x, y));
@@ -797,6 +807,7 @@ impl<D: DataSource> Presenter<D> {
             contact.position = (x, y);
             if contact.panning || dx.abs().max(dy.abs()) > slop {
                 contact.panning = true;
+                self.contact_taken();
                 if let Some((key, _)) = contact.press.take() {
                     self.host.press_feedback(key, false, now_ms);
                 }
@@ -845,6 +856,7 @@ impl<D: DataSource> Presenter<D> {
                 return match self.begin_group(binding, contact.origin, now_ms) {
                     Ok(true) => {
                         contact.group = true;
+                        self.contact_taken();
                         let moved = self.move_group((x, y), now_ms);
                         self.contact = Some(contact);
                         moved
@@ -912,6 +924,7 @@ impl<D: DataSource> Presenter<D> {
                         }
                     }
                     contact.hold = Some(held);
+                    self.contact_taken();
                     contact.origin = (x, y);
                 }
                 Ok(None) => {

@@ -1,4 +1,4 @@
-//! A driver's scroll steps and the reader's touches (LLP 1076 §3.3): a
+//! A driver's scroll steps and the reader's touches and flings (LLP 1076 §3.3): a
 //! driver's scroll moves the feed (a finger's is `scroll.rs`), and a touch
 //! is the presenter's pointer at the view's pixels. Each touch says what touched (LLP 1115.001 D7.4): this entry is
 //! where a finger is told from a mouse, which desktop Linux's own inputs
@@ -66,5 +66,16 @@ impl<D: DataSource + Default> CanvasHost<D> {
             _ => self.p.pointer_cancel(now),
         };
         self.touched(action, x, y, now, r);
+    }
+
+    /// The fling of the touch that is lifting, which neither the reader's
+    /// scrolling nor a hosted field kept (LLP 1057.001 §8): its direction and
+    /// the most pointers the touch had down at once.
+    pub fn swipe(&mut self, direction: &str, pointers: u32) {
+        let now = self.now();
+        if let Err(e) = self.p.fling(direction, pointers, now) {
+            eprintln!("exact: {e}");
+        }
+        self.force = true;
     }
 }

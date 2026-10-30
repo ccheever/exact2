@@ -1,8 +1,10 @@
-//! The reader's keys and system Back (`canvas/keys.rs`): what `canvas_jni!`
-//! defines beside its own, over the same `HOST`.
+//! The reader's keys, system Back (`canvas/keys.rs`) and a touch's fling
+//! (`canvas/input.rs`): what `canvas_jni!` defines beside its own, over the
+//! same `HOST`.
 
-/// `Native.key`, `Native.namedKey`, `Native.back`, `Native.open` and `Native.share`, expanded inside
-/// `canvas_jni!`'s module, whose `with`, `string` and `flag` they use.
+/// `Native.key`, `Native.namedKey`, `Native.back`, `Native.open`, `Native.share`
+/// and `Native.swipe`, expanded inside `canvas_jni!`'s module, whose `with`,
+/// `string` and `flag` they use.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! canvas_jni_keys {
@@ -64,6 +66,19 @@ macro_rules! canvas_jni_keys {
         ) {
             let request = string(env, request);
             with(|h| h.share(&request));
+        }
+
+        /// The fling of the touch that is lifting, in `direction`, `pointers`
+        /// being the most it had down at once (LLP 1057.001 §8, `Flings.kt`).
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_swipe(
+            env: *mut JNIEnv,
+            _class: jclass,
+            direction: jstring,
+            pointers: jint,
+        ) {
+            let direction = string(env, direction);
+            with(|h| h.swipe(&direction, pointers.max(0) as u32));
         }
     };
 }

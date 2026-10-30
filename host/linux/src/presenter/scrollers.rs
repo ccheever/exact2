@@ -155,6 +155,16 @@ impl<D: DataSource> Presenter<D> {
         let Some(hit) = self.hit(x, y) else {
             return Under::default();
         };
+        Under {
+            chain: self.chain_from(hit),
+            claims: self.claims_at(hit),
+            field: self.hosted_at(hit),
+        }
+    }
+
+    /// The scrollers on `hit`'s path, innermost first and the page last, each
+    /// with the axes it takes part on for a drag from there.
+    pub(super) fn chain_from(&mut self, hit: ViewId) -> Vec<Scroller> {
         let limits = self.collection_scroll_limits();
         let mut chain = Vec::new();
         // The axes still open to the scrollers farther out.
@@ -192,11 +202,7 @@ impl<D: DataSource> Presenter<D> {
         if page.axes.0 || page.axes.1 {
             chain.push(page);
         }
-        Under {
-            chain,
-            claims: self.claims_at(hit),
-            field: self.hosted_at(hit),
-        }
+        chain
     }
 
     /// The axes a contact on `hit` would be the presenter's own gesture
