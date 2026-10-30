@@ -24,12 +24,23 @@ allowing the window's other authored removals. All six root checks, locked clone
 Rust tests, Clippy, formatting and the quick semantics comparison pass. The
 44 selected shared native tests, UIKit test compilation and tvOS no-install build pass.
 
-The fresh standard desktop bundle from clean source `667c11267d` uses C ABI 18,
+The desktop manifest's unused `t3-browser` native tag is removed in `859f7b8676`.
+Browser already uses an iframe and the separate `t3-browser-page` hatch.
+The clean standard bundle's actual module table has every requested factory,
+and the obsolete roster warning is gone. Browser sources and the runtime pin
+remain exact. All six root checks and 6,909 desktop TypeScript tests pass.
+An isolated normal launch on port 16438 reports protocol 2 and the required
+command-context capability, then quits normally with all recorded children.
+The original server listener and clone window defaults remain unchanged.
+Evidence is under `target/t3-poc-evidence/desktop-browser-roster-fix/`.
+Independent review is pending. Browser and chat UI acceptance remain open.
+
+The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
 `ace5a0a9533f05a3`; its module starts `1dda02be376510c2`. The official pinned
 runtime stages with matching archive, committed and release checksums, all 11
 Mach-O signatures, version and scratch startup. The development build retains
-its signing, package qualification and production-home guards. It warns that
+its signing, package qualification and production-home guards. That artifact warned that
 `t3-browser` is declared but absent from the native module; Browser behavior
 remains unqualified.
 
@@ -52,8 +63,8 @@ or draft persistence remain unqualified. No project or thread is created. Clone
 window defaults are restored, the original server listener is unchanged, and all
 owned processes are closed. Evidence and exact commands are under
 `target/t3-poc-evidence/desktop-native-baseline-acceptance/receipt.md`.
-No product source changes. Parent review and push remain pending. Mobile stays
-blocked, full platform parity remains incomplete, and TestFlight is unchanged.
+That startup baseline changed no product source. Mobile UI work stays blocked,
+full platform parity remains incomplete, and TestFlight is unchanged.
 
 Fresh normal iPhone builds use C ABI 18 and runtime compatibility 5, retaining
 Apple native ABI 3 and the qualified 36-tag roster. EAS passes native Home controls,
