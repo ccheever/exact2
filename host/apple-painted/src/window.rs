@@ -19,7 +19,7 @@ use winit::{
     event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
-    platform::macos::MonitorHandleExtMacOS,
+    platform::macos::{EventLoopBuilderExtMacOS, MonitorHandleExtMacOS},
     window::{Window, WindowId},
 };
 
@@ -113,7 +113,11 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
     if live {
         config.clock_started = Some(started);
     }
-    let events = match EventLoop::<Event>::with_user_event().build() {
+    let mut builder = EventLoop::<Event>::with_user_event();
+    if std::env::var_os("G1_BOOT_ONLY").is_some() {
+        builder.with_activate_ignoring_other_apps(false);
+    }
+    let events = match builder.build() {
         Ok(e) => e,
         Err(e) => {
             eprintln!("{e}");
@@ -227,6 +231,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         p.poll_images();
         p.set_pointer(None);
         p.tick(now);
+        p.poll_apple_painter()?;
         if p.dirty() {
             if std::env::var_os("G1_OUTPUT").is_some() {
                 self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
@@ -267,6 +272,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                                 self.config.size.0,
                                 self.config.size.1,
                             ))
+                            .with_active(std::env::var_os("G1_BOOT_ONLY").is_none())
                             .with_visible(false),
                     )
                     .map_err(|e| e.to_string())?,
@@ -278,7 +284,19 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 size.width as f32 / self.scale as f32,
                 size.height as f32 / self.scale as f32,
             );
-            let (mut p, warning) = app::boot_presenter::<D>(&mut self.config, viewport)?;
+            let (mut p, warning) = if self.config.painter()
+                == exact_linux::presenter::PainterChoice::Ink
+                && std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("metal")
+            {
+                let proxy = self.proxy.clone();
+                let preparing = exact_ink::device::apple::Startup::start(Arc::new(move || {
+                    let _ = proxy.send_event(Event::Wake);
+                }))
+                .map_err(|e| e.to_string())?;
+                app::boot_presenter_with_metal::<D>(&mut self.config, viewport, preparing)?
+            } else {
+                app::boot_presenter::<D>(&mut self.config, viewport)?
+            };
             if let Some(warning) = warning {
                 return Err(warning);
             }
@@ -297,6 +315,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             )
             .map_err(|e| e.to_string())?;
             p.attach_apple_layer(layer.clone())?;
+            trace_mark(c"boot device milliseconds", || p.painter.device_ms);
+            trace_mark(c"boot shaders milliseconds", || p.painter.shaders_ms);
             let proxy = self.proxy.clone();
             let pending = self.tick_pending.clone();
             let active = self.display_active.clone();

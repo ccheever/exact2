@@ -726,6 +726,18 @@ threshold; D15 is.
 The numbers land in this section as each chunk and stage does; a stage with no numbers has
 not landed.
 
+**Stage 0b, 2026-10-30.** The warm device-plus-pipeline gate is met in the Mac
+carrier: direct Metal is **6.581 ms** p50 against wgpu's **6.699 ms**, ten warm
+phase traces each on the same probe, within the permitted 5 ms excess. Ten
+archive-deleted launches display CPU pixels at **231.070 ms** p50 and the first
+full ink frame at **418.335 ms**, with compilation and serialization on a worker;
+nine have quiet before/after snapshots. The cache-miss obligation remains
+**unmet**: the headless CPU-to-ink D9 assertion has not run successfully, and ten
+retained-cache launches under load give **9.957 ms** for the phase and
+**407.945 ms** to ink, leaving unchanged quiet timing unqualified. The complete
+first screen within **100 ms** remains **unmet**; Q6 is awaiting its ruling. [Stage 0b's predictions, implementation, raw files
+and qualification limits](../host/ink/MEASUREMENTS.md#stage-0b--direct-metal-startup-2026-10-30).
+
 ### 4.1 The GPUI arm
 
 Charlie (2026-10-28): "we are going to need a measurement vs a GPUI based solution at some
