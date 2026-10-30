@@ -90,9 +90,8 @@ function fileTableSlice(node, start, end) {
 function fileSegments(source) {
   if (source.includes('\r')) return null;
   const document = markdownPreviewParser.parse(source);
-  if (!document.children.some(node => node.type === 'table')) return null;
   const segments = [];
-  let position = 0, proseNodes = [], usable = false;
+  let position = 0, proseNodes = [];
   const prose = end => {
     if (!source.slice(position, end).trim()) return;
     const tables = [];
@@ -106,8 +105,7 @@ function fileSegments(source) {
         tableEnd = table.end;
       }
     }
-    if (tables.length) usable = true;
-    segments.push({ kind: 'prose', start: position, end, tables });
+    segments.push({ kind: 'prose', start: position, end, tables, nodes: proseNodes });
   };
   for (const node of document.children) {
     if (node.type !== 'code') { proseNodes.push(node); continue; }
@@ -119,7 +117,7 @@ function fileSegments(source) {
     proseNodes = [];
   }
   prose(source.length);
-  return usable ? segments : null;
+  return segments;
 }
 
 function matchingProsePlans(source, blocks) {
@@ -208,6 +206,95 @@ function insertTables(text, fragments, plan) {
   return result;
 }
 
+// Positions are UTF-16 offsets in the original document, including Markdown delimiters.
+function paragraphBreaks(source, node, range) {
+  const breaks = [];
+  const children = (parent, start, end) => {
+    let cursor = start;
+    for (const child of parent.children) {
+      const span = fileNodeRange(child, cursor, end);
+      if (!span || span.start === span.end) return false;
+      const gap = source.slice(cursor, span.start), raw = source.slice(span.start, span.end);
+      // Remark omits one trailing space before a soft LF that starts a text leaf.
+      if (gap && !(gap === ' ' && source[span.start] === '\n')) return false;
+      if (child.type === 'text') {
+        if (/[`\\[\]<>*_~|&#$@]/.test(raw) || /\b(?:[a-z][a-z\d+.-]*:\/\/|www\.)/i.test(raw)
+          || raw.replace(/ (?=\n)/g, '') !== child.value) return false;
+        for (let index = span.start; index < span.end; index++) {
+          if (source[index] !== '\n') continue;
+          const from = source[index - 1] === ' ' ? index - 1 : index;
+          if (from < start || /\s/.test(source[from - 1] ?? '') || !source[index + 1] || /\s/.test(source[index + 1])) return false;
+          breaks.push({ start: from, end: index + 1 });
+        }
+      } else if (child.type === 'strong' || child.type === 'emphasis') {
+        const width = child.type === 'strong' ? 2 : 1, delimiter = raw.slice(0, width);
+        if (!['*'.repeat(width), '_'.repeat(width)].includes(delimiter) || !raw.endsWith(delimiter)
+          || !children(child, span.start + width, span.end - width)) return false;
+      } else if (child.type === 'inlineCode') {
+        if (!/^`[^`\n]+`$/.test(raw)) return false;
+      } else if (child.type === 'break') {
+        if (!/^(?: {2,}|\\)\n$/.test(raw)) return false;
+      } else return false;
+      cursor = span.end;
+    }
+    return /^ *$/.test(source.slice(cursor, end));
+  };
+  const raw = source.slice(range.start, range.end);
+  if (/^\d+[.)](?:[ \t]|$)/m.test(raw) || !children(node, range.start, range.end)) return null;
+  return breaks;
+}
+
+function certifiedBreaks(source, text, fragments, plan) {
+  if (/[\t\u2028\u2029]|^[ \t]+\S/m.test(text) || plan.nodes.some(hasFileTableContext)) return null;
+  const paragraphs = [], breaks = [];
+  let cursor = plan.start;
+  for (const node of plan.nodes) {
+    const range = fileNodeRange(node, cursor, plan.end);
+    if (!range || source.slice(cursor, range.start).trim()) return null;
+    const start = range.start - plan.start, end = range.end - plan.start;
+    if (node.type === 'paragraph') {
+      if (!fragments.some(fragment => fragment.kind === 'markdown' && start >= fragment.start && end <= fragment.end)) return null;
+      const admitted = paragraphBreaks(source, node, range);
+      if (!admitted) return null;
+      paragraphs.push({ start, end });
+      breaks.push(...admitted.map(span => ({ start: span.start - plan.start, end: span.end - plan.start })));
+    } else if (!fragments.some(fragment => fragment.kind === node.type && fragment.start === start && end <= fragment.end)) return null;
+    cursor = range.end;
+  }
+  if (source.slice(cursor, plan.end).trim()) return null;
+  for (const fragment of fragments) {
+    if (fragment.kind !== 'markdown') continue;
+    let end = fragment.start;
+    for (const paragraph of paragraphs) {
+      if (paragraph.start < fragment.start || paragraph.end > fragment.end) continue;
+      if (text.slice(end, paragraph.start).trim()) return null;
+      end = paragraph.end;
+    }
+    if (text.slice(end, fragment.end).trim()) return null;
+  }
+  let end = 0;
+  for (const span of breaks) {
+    if (span.start < end || !fragments.some(fragment => fragment.kind === 'markdown'
+      && span.start >= fragment.start && span.end <= fragment.end)) return null;
+    end = span.end;
+  }
+  return breaks;
+}
+
+function foldedSlice(text, fragment, breaks) {
+  if (breaks === null) {
+    const original = text.slice(fragment.start, fragment.end);
+    return fragment.plainFold ? original.replace(/(\S) ?\n(?=\S)/g, '$1 ') : original;
+  }
+  let result = '', cursor = fragment.start;
+  for (const span of breaks) {
+    if (span.start < fragment.start || span.end > fragment.end) continue;
+    result += text.slice(cursor, span.start) + ' ';
+    cursor = span.end;
+  }
+  return result + text.slice(cursor, fragment.end);
+}
+
 /** Final file-preview instructions; all cuts use the unchanged source partition. */
 export function fileMarkdownPlan(source, blocks) {
   const plans = matchingProsePlans(source, blocks), result = [];
@@ -216,14 +303,13 @@ export function fileMarkdownPlan(source, blocks) {
     let fragments = proseFragments(block.text);
     const plan = plans.get(blockIndex);
     if (plan?.tables.length) fragments = insertTables(block.text, fragments, plan);
+    const breaks = plan ? certifiedBreaks(source, block.text, fragments, plan) : null;
     for (const fragment of fragments) {
       const { kind, idSuffix } = fragment;
       if (kind === 'table') result.push({ kind, blockIndex, idSuffix, columns: fragment.columns, rows: fragment.rows });
       else if (kind === 'heading') result.push({ kind, blockIndex, idSuffix, text: fragment.text, level: fragment.level });
       else {
-        const original = block.text.slice(fragment.start, fragment.end);
-        const text = fragment.plainFold ? original.replace(/(\S) ?\n(?=\S)/g, '$1 ') : original;
-        result.push({ kind, blockIndex, idSuffix, text });
+        result.push({ kind, blockIndex, idSuffix, text: foldedSlice(block.text, fragment, breaks) });
       }
     }
   }
