@@ -149,7 +149,13 @@ async function reused(): Promise<Session> {
 
 async function parallel(): Promise<Session> {
   const [a, b] = await Promise.all([fetch("https://api.castle.xyz/a"), fetch("https://api.castle.xyz/b")]);
-  return {ok:true,username:"parallel",error:Array.from(new Uint8Array(await a.arrayBuffer())).join(",") + "/" + await b.text()};
+  // A fetched reply's clone reads the same bytes; its statusText is empty: the host gives none. Its headers, and its
+  // clone's, take no change, and its body reads once, as a fetched Response's do (Fetch's "immutable" guard, "consume
+  // body").
+  const said = (f: () => unknown): string => { try { f(); return "changed"; } catch (e) { return (e as Error).name; } };
+  const read = await b.text(), again = await b.text().then(() => "read again", (e: Error) => e.name);
+  return {ok:true,username:"parallel",error:[Array.from(new Uint8Array(await a.clone().arrayBuffer())).join(","), read, JSON.stringify(a.statusText),
+    said(() => a.headers.set("x-a", "b")), said(() => a.clone().headers.set("x-a", "b")), again, String(b.bodyUsed), said(() => b.clone())].join("/")};
 }
 
 // A fetch the app aborts from another answer (the abort runtime gap): its
@@ -314,11 +320,18 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       } else {
         const b = new Uint8Array([1, 2]).buffer as ArrayBuffer & { transfer?: () => ArrayBuffer };
         if (typeof b.transfer !== "function") return "unsupported";
+        const view = new Uint8Array(b);
         b.transfer();
-        init = { method: "POST", body: new Uint8Array(b) };
+        init = { method: "POST", body: view };
       }
       return fetch("https://api.castle.xyz/blob", init).then(r => r.text(), (e: Error) => `refused: ${e.message}`);
     }
+    // A HEAD's reply has no body (Fetch, "HTTP-network fetch"): it reads empty as often as asked, and is never used
+    case "head": return fetch("https://api.castle.xyz/blob", { method: "HEAD" })
+      .then(async r => [JSON.stringify(await r.text()), JSON.stringify(await r.text()), String(r.bodyUsed)].join("/"));
+    // Nor has a reply whose status has none (a 204's, a 205's, a 304's)
+    case "noBody": return fetch("https://api.castle.xyz/blob")
+      .then(async r => [r.status, JSON.stringify(await r.text()), JSON.stringify(await r.text()), String(r.bodyUsed)].join("/"));
     // A deadline for the whole exchange: a timeout rejects with its kind.
     case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
       .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);
