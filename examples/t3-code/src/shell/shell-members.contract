@@ -344,8 +344,8 @@ members T3Code
   // order sidebar, conversation, composer, thread details, right panel and terminal; in Settings, its sections and its
   // page. An area takes back the control it last held while that control is still shown (the conversation's only while
   // it is in view, so the timeline keeps following a running turn), else its own stop: the open thread's row or the
-  // sidebar's search, the conversation itself, the composer, the card or panel itself, the terminal's page. A modal
-  // keeps the key, as only its own shortcut buttons hear chords while it shows.
+  // sidebar's search, the conversation itself, the composer, the card's first control, the panel itself, the terminal's
+  // page. A modal keeps the key, as only its own shortcut buttons hear chords while it shows.
   state workspaceArea = ""
   state workspaceTargets: WorkspaceTarget[] = []
   action workspaceEntered(area: string, e: FocusEvent)
@@ -378,6 +378,15 @@ members T3Code
       focus("composer")
     else if area == "settings-nav"
       focus(`settings-${navActiveRoute(settingsRoute)}`)
+    else if area == "details"
+      // The card's first enabled control in tree order: its holder is placed out of flow and has no height.
+      let editorOff = details.cwd == "" or details.editorId == "" or details.editorUnavailable != ""
+      let first = ["details-workspace", editorOff ? "" : "details-open-editor", "details-choose-editor", "details-run-script", "details-script-actions", "details-add-script"].filter((id) => id != "" and frame(id).width > 0)
+      match first.at(0)
+        case some(id)
+          focus(id)
+        case none
+          focus(workspaceContainer(area))
     else
       focus(workspaceContainer(area))
   // TriageDraftHero's "or run npx t3 triage": the command is copied and the button reads "Copied" for 1.5 s.

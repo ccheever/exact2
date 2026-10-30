@@ -913,8 +913,14 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
     if (target.part === 'clear-overrides') {
       const entries = arr(JSON.parse(value)).map(entry => ({ environmentId: str(entry.environmentId), projectId: str(entry.projectId) })).filter(entry => scope.selected.some(environment => environment.environmentId === entry.environmentId));
       plan = planProjectOverridesClear(connectedOf(client, scope, settings), entries, [key!]);
-    } else plan = target.row === 'background-advanced' ? settingPlan(client, scope, key!, advancedBackgroundValue(context.settings, target.part, value), false, settings)
-      : settingPlan(client, scope, key!, clear ? undefined : serverValue(key!, value, context, target.part), clear, settings);
+    } else if (target.row === 'background-advanced') plan = settingPlan(client, scope, key!, advancedBackgroundValue(context.settings, target.part, value), false, settings);
+    else {
+      const next = clear ? undefined : serverValue(key!, value, context, target.part);
+      // SnoozePresetsRow's save(): an edit that leaves the list as it was writes nothing, unless the environments disagree.
+      const current = serverState(context, key!);
+      if (key === 'snoozePresets' && next !== undefined && !current.mixed && same(next, snoozePresetsOf({ snoozePresets: current.value as Json }))) return '';
+      plan = settingPlan(client, scope, key!, next, clear, settings);
+    }
   }
   // useRunScopedPlan: a refused plan warns; every write is awaited and the failures are named.
   const refused = scopedPlanNotice(plan);

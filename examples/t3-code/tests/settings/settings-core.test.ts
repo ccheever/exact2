@@ -170,6 +170,11 @@ describe('general rows', () => {
     expect(rowOf()).toMatchObject({ resettable: true, inheritance: 'environment' });
     await applyCoreSetting(as(client), native, 'snooze-options:reset|||', '');
     expect(client.writes.at(-1)).toEqual({ patch: { snoozePresets: DEFAULT_SNOOZE_PRESETS } });
+    // An edit that leaves the list as it was (a blank amount, the unit already shown, the same time) writes nothing.
+    const writes = client.writes.length;
+    for (const [part, raw] of [['amount:0', ''], ['amount:0', '1'], ['unit:0', 'hours'], ['time:3', '09:00'], ['when:4', 'monday']])
+      await applyCoreSetting(as(client), native, `snooze-options:${part}|||`, raw);
+    expect(client.writes.length).toBe(writes);
     expect(rowOf(resolveScope(as(client), '', 'repo', ''))).toBeUndefined();
   });
   test('project scope: overrides, t3.json and environment-wide rows', () => {

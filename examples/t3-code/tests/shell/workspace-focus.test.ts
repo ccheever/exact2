@@ -58,9 +58,9 @@ describe('F6 between workspace areas', () => {
     const focused: string[] = [], sent: unknown[][] = [];
     const container = (area: string) => area === 'composer' ? 'frame-overlay' : `workspace-${area}`;
     const scope: Env = {
-      settingsOpen: false, settingsRoute: 'general', data: { threadId: 't1' }, details: { inline: true }, canvas: { cardShown: shown.includes('details') }, terminalDrawer: { open: shown.includes('terminal') },
+      settingsOpen: false, settingsRoute: 'general', data: { threadId: 't1' }, details: { inline: true, cwd: '/repo', editorId: 'vscode', editorUnavailable: '' }, canvas: { cardShown: shown.includes('details') }, terminalDrawer: { open: shown.includes('terminal') },
       frame: (id: string) => {
-        const visible = shown.some(area => container(area) === id) || ['row-t1', 'held-button'].includes(id) || (id === 'settings-navigation' && shown.includes('settings-nav'));
+        const visible = shown.some(area => container(area) === id) || ['row-t1', 'held-button', ...(over.controls as string[] ?? [])].includes(id) || (id === 'settings-navigation' && shown.includes('settings-nav'));
         return { width: visible ? 100 : 0, height: visible ? 100 : 0, x: 0, y: 0, unavailable: !visible };
       },
       focus: (id: string) => focused.push(id), command: (...args: unknown[]) => sent.push(args), navActiveRoute: (route: string) => route,
@@ -98,7 +98,17 @@ describe('F6 between workspace areas', () => {
     w.enter('details', 'gone-button');
     w.move(-1);
     w.move(1);
-    expect(w.focused.at(-1)).toBe('workspace-details'); // the held control is gone: the card itself
+    expect(w.focused.at(-1)).toBe('workspace-details'); // the held control is gone and the card shows no control
+    // Else the card's first enabled control, as upstream's FOCUSABLE_SELECTOR fallback: the wrapper is out of flow.
+    const card = window(['composer', 'details'], { controls: ['details-open-editor', 'details-choose-editor', 'details-add-script'] });
+    card.enter('composer', 'composer');
+    card.move(1);
+    expect([card.state.workspaceArea, card.focused.at(-1)]).toEqual(['details', 'details-open-editor']);
+    const noEditor = window(['composer', 'details'], { controls: ['details-open-editor', 'details-choose-editor', 'details-add-script'],
+      details: { inline: true, cwd: '/repo', editorId: 'vscode', editorUnavailable: 'No SSH route to Studio' } });
+    noEditor.enter('composer', 'composer');
+    noEditor.move(1);
+    expect(noEditor.focused.at(-1)).toBe('details-choose-editor'); // a disabled Open is passed over
     const settings = window(['settings-nav', 'settings'], { settingsOpen: true });
     settings.move(1);
     expect([settings.state.workspaceArea, settings.focused.at(-1)]).toEqual(['settings-nav', 'settings-general']);
