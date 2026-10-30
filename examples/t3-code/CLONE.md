@@ -75,6 +75,14 @@ The rebuilt normal app preserves Dark appearance across a process restart.
 Restoring System appearance persists across a second restart. Both restarted
 processes retain the native Home controls on EAS.
 
+The normal EAS build from `af1afbe000` also preserves base text size 22,
+custom code size 18, custom terminal size 14 and Word break after a process
+restart. Preview wrapping and Home navigation remain usable. Restoring base 16,
+automatic code and terminal sizing, and Word break off persists through another
+restart. Defaults are restored and the cloud session is shut down. Evidence is
+under `target/t3-poc-evidence/phone-typography-preferences/`. This qualifies
+offline preference behavior, not quantitative font or connected terminal parity.
+
 Text-only strong table cells now render through the existing native text runs.
 The generated adapter admits direct strong nodes with positioned plain-text
 children and retains whole-segment fallback for unsupported content. Existing
