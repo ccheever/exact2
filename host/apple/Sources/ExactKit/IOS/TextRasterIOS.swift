@@ -45,14 +45,8 @@ final class TextRasterizer {
     static let concurrency = max(2, min(4, ProcessInfo.processInfo.activeProcessorCount / 2))
     private static let maxInFlight = concurrency * 2
     private static let maximumBytes = TextRasterJob.maximumBytes
-    /// Base plus the shared allowance for pixels ahead of the visible port.
     private static let leadBytes = 48 * 1024 * 1024
-    /// Every partial paragraph, shown or being painted, takes its bytes
-    /// beyond `maximumBytes` from this one allowance, so they do not grow
-    /// with the number of tall paragraphs near the port: a band left
-    /// without any is as tall as the main thread's.
     private static let leadRoom = leadBytes - maximumBytes
-    /// Paragraphs with viewport requests, weakly, for retained-output accounting.
     private let banded = NSHashTable<NodeView>.weakObjects()
     /// The most text (UTF-16 units) a changed paragraph paints on the main
     /// thread to replace its old words at once: a paragraph's worth. A
@@ -133,7 +127,6 @@ final class TextRasterizer {
         return key
     }
 
-    /// Old displayed output and every unfinished reservation remain charged, including this node's replacements.
     private func leadTaken() -> Int {
         func charge(_ taken: Int, _ bytes: Int) -> Int {
             taken + min(Self.leadRoom - taken, max(0, bytes - Self.maximumBytes))
@@ -148,7 +141,6 @@ final class TextRasterizer {
         }
     }
 
-    /// Before final CoreText runs exist, reserve the worst output format for the required port and halo.
     private func reservation(_ key: TextRasterKey) -> Int {
         guard case let .viewport(required, _, budget) = key.retention else { return Self.maximumBytes }
         var x: CGFloat = 0, y: CGFloat = 0
@@ -377,9 +369,6 @@ extension NodeView {
         NumeralLink.installed != nil && !Capture.capturing
             && (style["content_transition"]?.string ?? "none") != "none"
     }
-    /// The whole paragraph's pixels are up for its current text and box: a
-    /// refresh has nothing to do for it until a change clears its key
-    /// (`invalidateText`, `textRasterGeometryChanged`, `dropTextRaster`).
     var currentTextRaster: AcceptedTextRaster? {
         guard let accepted = specs?.accepted, let key = textRasterKey, accepted.namespace == text?.namespace,
               key.scale == max(1, window?.screen.scale ?? traitCollection.displayScale), key.size == paragraphBox().size,
@@ -399,7 +388,6 @@ extension NodeView {
         return accepted.result.coverage.covers(demand.offsetBy(dx: -at.x, dy: -at.y))
     }
 
-    /// Unknown x support is resolved against finite ancestor clips, within the y index.
     func textPaintBounds(in clip: CGRect) -> CGRect {
         if let accepted = currentTextRaster {
             let at = textPlace(scale: accepted.key.scale)

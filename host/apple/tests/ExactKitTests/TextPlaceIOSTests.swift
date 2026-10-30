@@ -138,8 +138,6 @@ final class TextPlaceIOSTests: XCTestCase {
         XCTAssertFalse(node.textRasterFailed, "pixels for the band, not UIKit's backing store")
     }
 
-    /// A kept image whose ink a narrow view cut does not keep a wider view's,
-    /// which it cannot serve, out of the cache: the wider one replaces it.
     func testAWiderViewsLabelReplacesANarrowOnesInTheCache() throws {
         let session = ExactApp.shared.makeSession(label: "text-box-kept")
         self.session = session
@@ -149,7 +147,6 @@ final class TextPlaceIOSTests: XCTestCase {
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
         self.window = window
-        // About 440 points of ink: past a 20-point view's limit (its bounds and 256 points), within a 400-point one's
         let label = String(repeating: "M", count: 60), style: [String: Any] = ["font_size": 10.0, "white_space": "nowrap"]
         var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
         for (id, width) in [(2, 20.0), (3, 400.0), (4, 400.0)] {
@@ -222,12 +219,6 @@ final class TextPlaceIOSTests: XCTestCase {
         XCTAssertLessThanOrEqual(CGFloat(pixels.width), (400 + 2 * TextRasterJob.maxInkOverflow) * scale + 2, "bounded across")
     }
 
-    /// Ink the view's bounds cut (a line running past them) is painted again,
-    /// in the frame that shows it, when the view grows to show more of it:
-    /// the old pixels do not answer for the larger view, and kept pixels cut
-    /// so serve no larger view. A box that only moves in its view keeps its
-    /// pixels (`testAParagraphWhoseBoxMovesKeepsItsPixelsAndMovesInTheAnimation`).
-    /// The type is small enough for the cut line's pixels to be kept.
     func testInkTheViewCutIsPaintedAgainWhenTheViewGrows() throws {
         let (p, node) = try paragraph("text-box-grows", text: String(repeating: "M", count: 175), style: ["white_space": "nowrap", "font_size": 7.0], box: [0, 0, 80, 40])
         let pixels = try XCTUnwrap(node.textRaster)
