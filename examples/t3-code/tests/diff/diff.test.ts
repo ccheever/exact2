@@ -90,6 +90,18 @@ describe('diff panel', () => {
     expect(requests(calls).length).toBe(count);
     expect(snapshot(client)).toMatchObject({ diffOpen: true, diffError: 'That turn is no longer available.' });
   });
+  // Open diff names its tool call (#26304); the panel opens that call's run at its file.
+  test('a file change\'s Open diff (tool-diff) opens the panel at the change its tool call made', async () => {
+    const { client, command, calls } = harness();
+    const change = { id: 'fc', type: 'file_change', runId: 'r1', fileName: 'fixture-result.md', status: 'completed', updatedAt: '2026-10-03T14:14:00Z' };
+    client.thread!.projection.visibleTurnItems = [{ position: 0, visibility: 'local', sourceThreadId: 't1', sourceItemId: 'fc', item: change }];
+    await command('tool-diff', JSON.stringify(['t1', 'fc']), '', 0);
+    expect(requests(calls).at(-1)).toMatchObject({ method: 'orchestration.getTurnDiff', payload: { threadId: 't1', fromTurnCount: 0, toTurnCount: 1 } });
+    expect(client.diffState.selections['env:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'fixture-result.md', baseRef: null, reveal: 1 });
+    const { toolCallDiffTarget } = await import('../../src/timeline/timeline-inspect');
+    expect(toolCallDiffTarget(client.projection, JSON.stringify(['t1', 'fc']))).toEqual({ threadId: 't1', itemId: 'fc', revision: '2026-10-03T14:14:00Z', runId: 'r1', filePath: 'fixture-result.md' });
+    expect(toolCallDiffTarget(client.projection, JSON.stringify(['t1', 'gone']))).toBeNull();
+  });
   test('scope, whitespace, layout, wrap, tree and collapse are real and stateful', async () => {
     const { client, command, calls } = harness();
     await command('diff');

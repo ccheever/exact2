@@ -23,7 +23,7 @@ export interface Activity { replArguments?: ReturnType<typeof import('../timelin
   startedMs?: number; initials?: string; driverIcon?: string; targetLabel?: string; modelLine?: string; effort?: string; speed?: string; speedLabel?: string;
   /** A thread read's label in parts: `<linkPrefix> “<linkTitle>”`, the title opening linkThreadId. */
   linkPrefix?: string; linkTitle?: string; linkThreadId?: string }
-export interface Message { secret?: ReturnType<typeof import('../timeline/secret-card').secretCard>; id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
+export interface Message { secret?: ReturnType<typeof import('../timeline/secret-card').secretCard>; approval?: import('../timeline/timeline-approvals').TimelineApprovalView[]; id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; elapsed?: string; detail?: string; status?: string; groupId?: string; continues?: boolean;
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
   /** A folded automation or agent message's one line. */

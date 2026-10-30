@@ -99,14 +99,32 @@ describe('thread links and pending answers', () => {
     expect(relabelThreadLinks(markdown, threads)).toBe('[Renamed](t3-thread://v1/mcp:1) [Literal](t3-thread://v1/literal%3A1)');
     expect(relabelThreadLinks('`[Old](t3-thread://v1/mcp:1)`\n\n```md\n[Old](t3-thread://v1/mcp:1)\n```', threads)).toContain('[Old]');
     expect(relabelThreadLinks('[Missing](t3-thread://v1/gone)', threads)).toBe('[Missing](t3-thread://v1/gone)');
-    expect(parseThreadLinkHref('t3-thread://v1/thread:mcp%3A1')).toBe('thread:mcp%3A1');
+    expect(parseThreadLinkHref('t3-thread://v1/thread:mcp%3A1')).toEqual({ environmentId: null, threadId: 'thread:mcp%3A1' });
     expect(parseThreadLinkHref('t3-thread://v1/ ')).toBeNull();
-    expect(formatThreadLink('t1', 'A [title]\\\n')).toBe('[A title](t3-thread://v1/t1)');
+    expect(formatThreadLink({ environmentId: null, threadId: 't1' }, 'A [title]\\\n')).toBe('[A title](t3-thread://v1/t1)');
+  });
+  // threadLinks.ts at v0.1.5 (#26239).
+  test('a v2 link names its environment; without a label it is an autolink', () => {
+    expect(parseThreadLinkHref('t3-thread://v2/env-1/thread:a%3A1')).toEqual({ environmentId: 'env-1', threadId: 'thread:a%3A1' });
+    for (const bad of ['t3-thread://v2/env-1', 't3-thread://v2//t1', 't3-thread://v2/env-1/ ', 't3-thread://v3/env/t1']) expect(parseThreadLinkHref(bad)).toBeNull();
+    expect(formatThreadLink({ environmentId: 'env-1', threadId: 't1' }, ' Fix CI ')).toBe('[Fix CI](t3-thread://v2/env-1/t1)');
+    expect(formatThreadLink({ environmentId: 'env-1', threadId: 't1' })).toBe('<t3-thread://v2/env-1/t1>');
+    expect(formatThreadLink({ environmentId: null, threadId: 't1' }, ' ')).toBe('<t3-thread://v1/t1>');
+  });
+  test('relabeling writes the current title only for a thread of the message\'s environment', () => {
+    const threads = [{ id: 't1', title: 'Current' }];
+    expect(relabelThreadLinks('[Old](t3-thread://v2/env-a/t1) [Old](t3-thread://v2/env-b/t1)', threads, 'env-a'))
+      .toBe('[Current](t3-thread://v2/env-a/t1) [Old](t3-thread://v2/env-b/t1)');
+    // An autolink reads the title too; one that stays keeps its URL as its text, as CommonMark draws it.
+    expect(relabelThreadLinks('<t3-thread://v2/env-a/t1> <t3-thread://v2/env-b/t2> `<t3-thread://v1/t1>`', threads, 'env-a'))
+      .toBe('[Current](t3-thread://v2/env-a/t1) [t3-thread://v2/env-b/t2](t3-thread://v2/env-b/t2) `<t3-thread://v1/t1>`');
   });
   test('an answer carries actual thread ids while unknown context remains written', () => {
     const chip = contextLink('thread', contextId('thread', 't1'), 'Review');
     const text = `${chip} ${chip} [unknown](t3-context://v1/thread/missing)`;
     expect(projectPendingUserInputAnswer(text, [{ contextId: contextId('thread', 't1'), threadId: 't1' }])).toBe('[Review](t3-thread://v1/t1) [Review](t3-thread://v1/t1) [unknown](t3-context://v1/thread/missing)');
+    // A record names its thread's environment, so the link does (pendingUserInput.ts, #26239).
+    expect(projectPendingUserInputAnswer(chip, [{ contextId: contextId('thread', 't1'), environmentId: 'env-1', threadId: 't1' }])).toBe('[Review](t3-thread://v2/env-1/t1)');
     expect(projectPendingUserInputAnswer(['Workspace'], [])).toEqual(['Workspace']);
   });
   test('a thread absent from the shell still opens through its bounded snapshot', async () => {
@@ -128,7 +146,7 @@ describe('thread links and pending answers', () => {
     const text = contextLink('thread', contextId('thread', 'thread:mcp%3A1'), 'Delegated');
     const records = threadContextRecords(client, text);
     expect(records[0]!.threadId).toBe('thread:mcp%3A1');
-    expect(projectPendingUserInputAnswer(text, records)).toBe('[Delegated](t3-thread://v1/thread:mcp%3A1)');
+    expect(projectPendingUserInputAnswer(text, records)).toBe(`[Delegated](t3-thread://v2/${client.environmentId}/thread:mcp%3A1)`);
   });
 });
 

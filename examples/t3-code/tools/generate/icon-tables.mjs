@@ -78,7 +78,7 @@ export const TIMELINE_ICON = [
   'download', 'quote', 'message-square', 'triangle-alert', ['list-collapse', 'list-chevrons-down-up'],
   ['device', 'smartphone'], 'loader-circle', 'minus', 'circle', 'chevron-down', 'chevron-right', 'code',
   'workflow', 'external-link', 'arrow-up-right', 'arrow-right', 'alarm-clock', 'circle-check', 'shield-check',
-  'calendar-clock', 'circle-stop', 'list-todo', 'pause', 'play', 'circle-alert',
+  'calendar-clock', 'circle-stop', 'list-todo', 'pause', 'play', 'circle-alert', 'terminal', 'shield',
 ];
 
 /** panel-icons.contract PanelIcon: the right panel's surfaces. */

@@ -23,7 +23,7 @@ import { assistantCitationLabel, parseAssistantCitationHref } from './diff-citat
 import { COMPOSER_CITATION } from '../composer/composer-source-chips';
 import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
 import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
-import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink } from './thread-links';
+import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink, threadLinksIn, unknownThreadLinkLabel } from './thread-links';
 import { notePullRequestLinks } from './pull-link-registry';
 
 export interface ChipView {
@@ -213,9 +213,10 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   }
   // A citation by its destination, whatever its label reads, as the composer sends it (COMPOSER_CITATION).
   if (text.includes('](t3-citation:')) for (const match of text.matchAll(COMPOSER_CITATION)) if (parseAssistantCitationHref(match[1]!)) add(citationChip(match[1]!));
+  // A thread link, an autolink too, is its thread's chip (MarkdownThreadLink → ThreadContextChip).
+  for (const link of threadLinksIn(text)) { const chip = threadLinkChip(link.href, link.label, threads, client); if (chip) add(chip); }
   if (text.includes('](')) for (const link of markdownLinks(text)) {
-    // A thread link is its thread's chip (MarkdownThreadLink → ThreadContextChip, T3 Code 74541bab17).
-    if (!link.image && link.href.startsWith('t3-thread://v1/')) { const chip = threadLinkChip(link.href, link.label, threads, client); if (chip) add(chip); continue; }
+    if (!link.image && link.href.startsWith('t3-thread://')) continue;
     // Exactly the destinations markdown.rs draws as file chips: kept by the URL transform, and file-shaped.
     if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:') || !chatFileLink(link.href)) continue;
     // A link chip's `target` is what the link wrote from the workspace root, which the workspace search can resolve.
@@ -250,17 +251,25 @@ function citationChip(href: string): Omit<ChipView, 'id' | 'owner' | 'menu'> {
     detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
 }
 /**
- * A `t3-thread://v1/<id>` link's chip: the thread's live title (the link's label until it resolves), "Open thread" or
- * "Thread no longer available", and what a press opens (`target`; `detail` "link" routes it through openThreadLink, so an
- * archived thread's transcript still opens and another environment's thread focuses that environment).
+ * A thread link's chip (MarkdownThreadLink): the thread's current title, never a title written into the link, which only
+ * stands in for an empty one; "Open thread"; and what a press opens (`target`; `detail` "link" routes it through
+ * openThreadLink, so another environment's thread focuses that environment). A link that resolves to nothing is the
+ * unresolved chip, named by its written label or by why: "Thread on another machine" or "Thread no longer available".
  */
-function threadLinkChip(href: string, label: string, threads: Obj[], client?: T3Client): Omit<ChipView, 'id' | 'owner' | 'menu'> | null {
-  const written = parseThreadLinkHref(href);
-  if (!written) return null;
-  const local = threads.find(thread => thread.id === written) ?? threads.find(thread => thread.id === percentDecodedThreadLinkId(written));
-  const target = client ? resolveThreadLink(client, written) : local ? { id: str(local.id), thread: local } : null;
-  return { href, kind: 'thread', label: str(target?.thread.title).trim() || label.trim() || written, size: '', tip: target ? 'Open thread' : 'Thread no longer available',
-    detail: 'link', icon: '', target: target?.id ?? written };
+function threadLinkChip(href: string, label: string | null, threads: Obj[], client?: T3Client): Omit<ChipView, 'id' | 'owner' | 'menu'> | null {
+  const link = parseThreadLinkHref(href);
+  if (!link) return null;
+  const local = () => {
+    const thread = link.environmentId !== null && link.environmentId !== client?.environmentId ? undefined
+      : threads.find(thread => thread.id === link.threadId) ?? threads.find(thread => thread.id === percentDecodedThreadLinkId(link.threadId));
+    return thread ? { id: str(thread.id), thread } : null;
+  };
+  const target = client ? resolveThreadLink(client, link) : local();
+  if (!target) {
+    const unknown = unknownThreadLinkLabel(link, client?.environmentId ?? '');
+    return { href, kind: 'unresolved', label: label ?? unknown, size: '', tip: unknown, detail: '', icon: '', target: '' };
+  }
+  return { href, kind: 'thread', label: str(target.thread.title).trim() || label || 'Untitled thread', size: '', tip: 'Open thread', detail: 'link', icon: '', target: target.id };
 }
 /** skillPopoverDescription and skillInstructionsOpener's path: a skill chip's `detail` and `target`. */
 function skillDetails(skill: Obj | undefined, label: string): Pick<ChipView, 'label' | 'size' | 'tip' | 'detail' | 'icon' | 'target'> {

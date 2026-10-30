@@ -201,3 +201,13 @@ describe('A strip or chevron jumps through the public keyed command', () => {
     expect(t.calls.at(-1)).toEqual(['scrollIntoView', 'transcript', 'u1', { offset: -24, behavior: 'instant' }]);
   });
 });
+
+// timelineMinimapItems.ts at v0.1.5 (#26239).
+describe('a thread link in the minimap preview', () => {
+  test('previews a thread autolink as prose, not its URL', () => {
+    const preview = (body: string) => minimapItems([{ id: 'u', kind: 'user', body: 'Go' }, { id: 'a', kind: 'assistant', body }])[0]!.excerpt;
+    expect(preview('Started <t3-thread://v2/env-1/thread-1> and [Fix CI](t3-thread://v2/env-1/t2).')).toBe('Started a thread and Fix CI.');
+    // The drawn body writes an autolink as a link whose text is its URL (relabelThreadLinks).
+    expect(preview('Started [t3-thread://v1/thread-1](t3-thread://v1/thread-1).')).toBe('Started a thread.');
+  });
+});

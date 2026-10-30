@@ -1,4 +1,4 @@
-// Compactions T3 Code starts, adapted from T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3):
+// Compactions T3 Code starts, adapted from T3 Code v0.1.5 (MIT, see LICENSE-T3):
 // packages/contracts/src/orchestrationV2.ts (isCompactionCommandMessage, idleCompactionOf),
 // packages/client-runtime/src/userMessage.ts (IDLE_COMPACTING_LABELS, IDLE_COMPACTION_TITLES),
 // packages/shared/src/claudeCompaction.ts (claudeResumeCompactionAge) and
@@ -13,13 +13,13 @@ export type IdleCompaction = 'beforeCacheExpires' | 'onReturn';
 /** The working row while T3 Code's own compaction runs. */
 export const IDLE_COMPACTING_LABELS: Record<IdleCompaction, string> = {
   beforeCacheExpires: 'Compacting before the cache expires…',
-  onReturn: 'Compacting after being idle…',
+  onReturn: 'Compacting…',
 };
 
 /** Leads the finished compaction's token counts, in place of "Context compacted". */
 export const IDLE_COMPACTION_TITLES: Record<IdleCompaction, string> = {
   beforeCacheExpires: 'Context automatically compacted before cache expiry',
-  onReturn: 'Context compacted after being idle',
+  onReturn: 'Context compacted before sending',
 };
 
 /** isCompactionCommandMessage: a prompt that only asks the provider to compact, so its turn is the compaction itself. */
@@ -65,8 +65,9 @@ export interface Compactions {
   /** The running compaction whose Working row says why the message just sent waits: compacting on return, or one a
    * resume question asked for. Any other compaction shows only its live divider. */
   waiting: string | null;
-  /** The Working row's label while `waiting` compacts. */
-  label: string | undefined;
+  /** When the compaction `waiting` names began, which the Working row times: an answered resume question's compaction
+   *  item, as the question is answered mid-turn; undefined for compacting on return, which the turn's start times. */
+  startedAt: string | undefined;
   /** A compaction is running, so no Thinking row shows. */
   active: boolean;
   /** The active `/compact` turn compacted and did nothing else: no Working or Thinking row is left. */
@@ -105,12 +106,12 @@ export function compactions(entries: Entry[], isWorking: boolean, unsettled: str
   const onlyFinished = finished && !entries.some(entry => runOf(entry) === unsettled && !isCompaction(entry)
     && !(entry.kind === 'message' && isCompactionCommand(entry.item)));
   const running = activeRun && !finished ? unsettled : null;
-  const waiting = running !== null && runs.get(running) === 'onReturn' ? running
-    : activeEntry?.entry.runId && ages.has(activeEntry.id) ? activeEntry.entry.runId : null;
-  const age = activeEntry ? ages.get(activeEntry.id) : undefined;
+  const onReturn = running !== null && runs.get(running) === 'onReturn';
+  const resumeEntry = activeEntry?.entry.runId && ages.has(activeEntry.id) ? activeEntry : undefined;
+  const waiting = onReturn ? running : resumeEntry?.entry.runId ?? null;
   return {
     runs, compacted, running, waiting, onlyFinished,
-    label: waiting === null ? undefined : age ? `Compacting after ${age} idle…` : IDLE_COMPACTING_LABELS.onReturn,
+    startedAt: onReturn ? undefined : resumeEntry?.createdAt,
     active: activeEntry !== undefined || activeRun && !finished,
     title: (runId, entryId) => {
       if (!runId) return undefined;
