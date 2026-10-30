@@ -146,6 +146,33 @@ check('a button is marked open while the popover it opened is open, a submenu\'s
   await until(marked, []);
 }), 60000);
 
+check('a popover closes when the control that opened it leaves the screen: hidden, or removed', () => inChrome(async (evaluate, press, until) => {
+  // A route switched away from is `visibility: hidden` (navigation.js), an undisplayed one `display: none`; one popped
+  // removes its controls (Back).
+  for (const hide of ['visibility = "hidden"', 'display = "none"']) {
+    await press('opener');
+    await until('open()', ['menu']);
+    await evaluate(`document.getElementById('opener').style.${hide}`);
+    await until('open()', []);
+    await evaluate(`document.getElementById('opener').removeAttribute('style')`);
+  }
+  await press('opener');
+  await until('open()', ['menu']);
+  await evaluate(`document.getElementById('opener').remove()`);
+  await until('open()', []);
+}), 60000);
+
+check('one sweep looks at the open popovers each frame, however often one reopens', () => inChrome(async (evaluate, press, until) => {
+  await evaluate(`window.sweeps = 0; const raf = requestAnimationFrame; window.requestAnimationFrame = fn => raf(t => { if (fn.name === 'sweep') sweeps++; fn(t); })`);
+  // Hidden and shown again from another button in one task, five times: one toggle each, open to open.
+  await evaluate(`{ const m = document.getElementById('menu'); m.showPopover({ source: document.getElementById('opener') }); }`);
+  await until('open()', ['menu']);
+  for (let i = 0; i < 5; i++) await evaluate(`{ const m = document.getElementById('menu'); m.hidePopover(); m.showPopover({ source: document.getElementById(${i % 2 ? "'opener'" : "'react'"}) }); }`);
+  await evaluate('new Promise(requestAnimationFrame)');
+  const per = await evaluate(`new Promise(ok => { const before = sweeps; requestAnimationFrame(() => requestAnimationFrame(() => ok((sweeps - before) / 2))); })`);
+  expect(per).toBe(1);
+}), 60000);
+
 check('a click the input glue swallows as stray opens nothing, though this rule heard it first', () => inChrome(async (evaluate, press, until) => {
   await press('opener');
   await until('open()', ['menu']);
