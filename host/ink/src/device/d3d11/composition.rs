@@ -253,7 +253,6 @@ impl Composition {
     fn acquire(&mut self, timeout_ms: u32) -> Result<bool> {
         unsafe {
             if !window_drawable(self._window.hwnd) {
-                self.acquired = false;
                 self.occluded_checks = self.occluded_checks.saturating_add(1);
                 return Ok(false);
             }
@@ -262,7 +261,6 @@ impl Composition {
             let activating =
                 !self.active || self.scene.content.get() != self.swap.as_raw() as usize;
             if !activating && !presented(self.swap.Present(0, DXGI_PRESENT_TEST))? {
-                self.acquired = false;
                 self.occluded_checks = self.occluded_checks.saturating_add(1);
                 return Ok(false);
             }
@@ -437,7 +435,7 @@ impl D3d11 {
         Some(retry_delay(c.refresh_period(), c.occluded_checks))
     }
 
-    /// Reserve capacity before painting, waiting at most one display period.
+    /// Reserve capacity before painting, waiting one display period rounded to ms.
     /// `present` consumes this reservation without polling the handle again.
     pub fn prepare_present(&mut self, size: [u32; 2]) -> Result<bool> {
         self.collect_presented_devices();
@@ -839,10 +837,12 @@ mod tests {
         device
             .render(&Frame::default(), target, Some([1.; 4]))
             .unwrap();
+        assert!(device.prepare_present([80, 60]).unwrap());
         unsafe {
             let _ = ShowWindow(window.hwnd, SW_HIDE);
         }
         assert_eq!(device.present(target).unwrap(), 0.);
+        assert!(device.composition.as_ref().unwrap().acquired);
         assert!(!device.composition.as_ref().unwrap().active);
         unsafe {
             let _ = ShowWindow(window.hwnd, SW_SHOW);
