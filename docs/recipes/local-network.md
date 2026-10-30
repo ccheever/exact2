@@ -32,13 +32,13 @@ component App
     openURL("app-settings:")
   view
     column
-      if network.available and (network.state == "prompt" or network.state == "unknown")
+      if network.available && (network.state == "prompt" || network.state == "unknown")
         text "Lights finds the WLED lights on your network. Your device asks once."
       if network.state == "denied"
         text "Local Network access is off. Turn it on in Settings, or add a light by its address."
         button press=openSettings
           text "Open Settings"
-      if not network.available
+      if !network.available
         text "This device can't look for lights. Add one by its address."
 ```
 

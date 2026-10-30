@@ -44,5 +44,5 @@ test "a hold charges the capsule, and letting go stops it"
 
 - `hold(true)` is bound where the component is used, so `pointerdown=down` runs the root's
   action with `true`; the component never writes the root's state.
-- Two capsules gate two tasks, or one task on either flag (`when leftHeld or rightHeld`)
+- Two capsules gate two tasks, or one task on either flag (`when leftHeld || rightHeld`)
   whose action steps the one held.

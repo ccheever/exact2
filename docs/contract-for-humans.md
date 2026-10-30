@@ -329,13 +329,13 @@ work where values are expected. Conditions must be booleans: a nonempty string,
 nonzero number, list, or option is not implicitly true.
 
 ```text
-count > 0 and not loading
+count > 0 && !loading
 selected != none
 items.length > 0
 busy ? "Working…" : "Save"
 ```
 
-`and`, `or`, and `not` also accept `&&`, `||`, and `!`. Logical operators and
+Boolean logic uses `&&`, `||`, and `!`. Logical operators and
 conditional branches short-circuit. Use parentheses around a composite node
 attribute or positional expression to make its boundary obvious.
 

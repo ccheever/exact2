@@ -38,7 +38,7 @@ Host commands are statements: `focus(id)`, `blur()`, `showModal(id)`,
 What the web has and Contract lacks is a composition or the data module's:
 
 - With `p` a predicate `x => …`: `find` is `first(xs.filter(p))`, `some` is
-  `xs.map(p).includes(true)`, `every` is `not xs.map(p).includes(false)`, `findIndex` is
+  `xs.map(p).includes(true)`, `every` is `!xs.map(p).includes(false)`, `findIndex` is
   `xs.map(p).indexOf(true)`.
 - A count's noun follows the number: `${n} ${n == 1 ? "book" : "books"}`, never "1 books"
   (`lower-count-plural`).

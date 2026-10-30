@@ -37,7 +37,7 @@ component App
   resource nfc = nfcStatus() as shape NFCStatus else empty()
   state lastTag = ""
   mutation scanned as shape NDEFScanEnd
-  derive panelShown = nfc.readerUI == "app" and nfc.state == "granted" and pending(scanned)
+  derive panelShown = nfc.readerUI == "app" && nfc.state == "granted" && pending(scanned)
   task panel key=panelShown
     after(1, syncPanel)
   action startScan

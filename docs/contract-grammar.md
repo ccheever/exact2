@@ -1842,7 +1842,7 @@ the scroll from happening (web, macOS, Linux; iOS has none):
 
 ```text
 action wheeled(e: WheelEvent)
-  if e.ctrlKey or e.metaKey
+  if e.ctrlKey || e.metaKey
     zoom = zoom * (1 - e.deltaY / 100)
     preventDefault()
 scroll wheel=wheeled …
@@ -2248,7 +2248,7 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   `isComposing` is true on a key that comes while an input method composes
   text, between its `compositionstart` and `compositionend` (UI Events). On
   the web that is every such key, the Enter that picks a candidate
-  included, so an Enter or Escape handler skips it with `not e.isComposing`,
+  included, so an Enter or Escape handler skips it with `!e.isComposing`,
   as web code does. A keydown an input method processed, `keyCode` 229 in
   the DOM, is composing there too, as web code's `e.keyCode === 229` test
   takes it: Safari sends the Enter that commits a composition after
@@ -2307,13 +2307,13 @@ phone the software keyboard's Return is Enter, so it sends there too):
 
 ```text
 action compose(k: string, e: KeyboardEvent)
-  if k == "Enter" and not e.shiftKey
+  if k == "Enter" && !e.shiftKey
     send(draft)
     preventDefault()
 ```
 
 `textarea value=draft input=write key=compose`. A shortcut reads the modifier
-the platform's users press: `(e.metaKey or e.ctrlKey) and k == "s"` saves on a
+the platform's users press: `(e.metaKey || e.ctrlKey) && k == "s"` saves on a
 Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 "composer" key "Shift+Enter"`, `key "Meta+s"`).
 
@@ -2328,19 +2328,19 @@ a task that clears the flag:
 ```text
 action down(k: string, e: KeyboardEvent)
   hints = e.metaKey
-  if e.metaKey and e.code == "KeyW" and not e.repeat
+  if e.metaKey && e.code == "KeyW" && !e.repeat
     closed = closed + 1
     preventDefault()
 action up(k: string, e: KeyboardEvent)
   hints = e.metaKey
 action forget()
   hints = false
-task release when hints and not page.hasFocus
+task release when hints && !page.hasFocus
   after(1, forget)
 ```
 
 `resource page = exactPage() as shape Page` (`hasFocus: bool`), `column
-key=down keyup=up`, and `if hints and page.hasFocus` around the hints. The
+key=down keyup=up`, and `if hints && page.hasFocus` around the hints. The
 driver holds and releases a key with `type "list" key "Meta" down` and `key
 "Meta" up`, takes the focus away with `prefer has-focus false` (then `clock
 +1` for the task), and `key "a" for 1200` repeats a key while held, as a

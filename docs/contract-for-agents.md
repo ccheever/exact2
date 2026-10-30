@@ -957,7 +957,7 @@ Resource inputs are not asynchronous prerequisites, and HTTP request lanes do
 not make resources depend on one another. A resource that reads another resource
 uses its current displayed value; it does not wait for the upstream request to
 succeed. While that request is pending, the value may be a retained answer, and
-`not pending(upstream)` does not prove the latest request succeeded.
+`!pending(upstream)` does not prove the latest request succeeded.
 
 An authenticated source must await the app's shared current-session helper
 before issuing its protected request. It must verify that the session authorizes
@@ -1008,7 +1008,7 @@ combined request, use a mutation per request, or declare the mutation `queue`
 request in flight; every later send waits, in order, with the arguments it was
 made with, and is asked after the reply before it and that reply's `then`, so
 `then` runs once per reply, in send order. `pending(m)` is true while a send is
-in flight or waits: send while it is pending, since `not pending(m)` means the
+in flight or waits: send while it is pending, since `!pending(m)` means the
 spinner is off, not that a send may be skipped. Assigning a queue's slot forgets
 nothing — every reply still lands over it — so a mutation that must drop a late
 reply (a session's sign-in) does not declare `queue`. At most 64 sends wait; the
@@ -4577,7 +4577,7 @@ accessibility tree still shows one bullet a character, as Chrome exposes it).
 What the app stores (`state.slots`, its data module) is the app's own; an
 `app.test.contract` `type … append` into a filled password field is refused.
 
-`aria-busy=(not ready)` marks a region as still loading: assistive technology
+`aria-busy=(!ready)` marks a region as still loading: assistive technology
 hears it, and time to interactive (`modules/observe`) waits until no element is
 busy.
 

@@ -41,7 +41,7 @@ component App
     openURL("app-settings:")
   view
     column
-      if location.available and location.state != "denied"
+      if location.available && location.state != "denied"
         button press=useLocation testId="use-location"
           text "Use my location"
       if location.state == "denied"

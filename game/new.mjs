@@ -509,7 +509,7 @@ component App
         text (match failure(result) { case some(f) => f.code, case none => "" }) testId="query-error"
       else
         text result.text testId="query-result"
-        if not result.complete
+        if !result.complete
           text "Partial answer; more rows may exist." testId="partial"
       text "Mutation: ${mutation}" role="heading" aria-level=2
       textarea value=mutationArgs input=editMutation testId="mutation-args" aria-label="Mutation arguments as JSON"
@@ -709,7 +709,7 @@ component ${titleOf(name).replaceAll(' ', '')}
   resource greeting = greeting("${contractString(title)}") as shape Greeting
   state liked = false
   action like
-    liked = not liked
+    liked = !liked
   view
     main testId="root" navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
       for e in stack(nav) key=e.id

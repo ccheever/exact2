@@ -28,9 +28,9 @@ component App
   resource battery = getBattery() as shape BatteryManager else empty(level=-1)
   resource network = connection() as shape NetworkInformation else empty(type="unknown")
   resource power = powerState() as shape PowerState else empty()
-  derive hot = match power.thermalState { case some(t) => t == "serious" or t == "critical", case none => false }
-  derive animated = skyChoice == "play" or (skyChoice == "" and not (power.lowPowerMode or hot))
-  derive saving = power.lowPowerMode or network.saveData
+  derive hot = match power.thermalState { case some(t) => t == "serious" || t == "critical", case none => false }
+  derive animated = skyChoice == "play" || (skyChoice == "" && !(power.lowPowerMode || hot))
+  derive saving = power.lowPowerMode || network.saveData
   action toggleMotion
     skyChoice = animated ? "pause" : "play"
   view

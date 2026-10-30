@@ -283,7 +283,7 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `launched = true`); it then hears every return. To keep the run out of the
   launch as well, latch the hide (`task hid when page.visibilityState ==
   "hidden"` with `after(1, markHidden)` setting `wasHidden`) and gate the return
-  on `wasHidden and page.visibilityState == "visible"`, clearing `wasHidden` in
+  on `wasHidden && page.visibilityState == "visible"`, clearing `wasHidden` in
   its action: that misses a return which lands before the hide's timer has fired
   (`prefer visibility-state hidden` then `visible` with no clock step between).
   (Web and iOS simulator, 2026-10-06.)
@@ -908,7 +908,7 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   `speechRecognitionStatus.local` describes the engine, not its installed
   languages. Gate recognition on `speechRecognitionAvailability` and offer
   `installSpeechRecognition` when it answers `downloadable`. Recorder hid
-  Download behind `not speech.local` on an iPhone whose `en_KR` model was
+  Download behind `!speech.local` on an iPhone whose `en_KR` model was
   missing. Refresh availability after installation. (LLP 1133.020.)
 - **An audio player is silent in iPhone Silent mode.** The default audio
   session is `ambient`. An app whose purpose includes media playback should
@@ -1122,7 +1122,7 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
     if from >= 0
       dx = e.offsetX - half
       dy = e.offsetY - half
-      dragging = dragging or dx * dx + dy * dy > 64
+      dragging = dragging || dx * dx + dy * dy > 64
   action up(i: number, e: PointerEvent)
     if dragging
       drop(from, from + floor(e.offsetX / cell))
@@ -1630,7 +1630,7 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   answering everything the view shows (a `snapshot`), and writes that
   `db.write` (admit; the device predicts) rather than `db.send`, so no write
   waits on a round: the write's `refreshes world` runs it. Gate the live
-  timer on `not pending(...)` of every mutation. (Harmony, `~/projects/harmony`,
+  timer on `!pending(...)` of every mutation. (Harmony, `~/projects/harmony`,
   2026-10-21.)
 
 - **The Mac or iOS app says `Snapback4: the native module is not available: …
