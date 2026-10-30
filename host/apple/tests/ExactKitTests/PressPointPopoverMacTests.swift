@@ -15,7 +15,7 @@ final class PressPointPopoverMacTests: XCTestCase {
       state y = 0
       state pointed = false
       action open(e: MouseEvent)
-        pointed = e.clientX != 0 or e.clientY != 0
+        pointed = e.clientX != 0 || e.clientY != 0
         x = e.clientX
         y = e.clientY
         showPopover("pop", source="open")

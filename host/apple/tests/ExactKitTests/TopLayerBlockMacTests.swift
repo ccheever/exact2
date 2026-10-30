@@ -80,7 +80,7 @@ final class TopLayerBlockMacTests: XCTestCase {
         component Proof
           state inflow = false
           action toggle
-            inflow = not inflow
+            inflow = !inflow
           view
             column testId="page" width="100%" height="100%"
               button testId="open" popovertarget="pop"

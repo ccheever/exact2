@@ -400,11 +400,11 @@ extension TableListMacTests {
               list \(windowed ? "virtualized=true estimated-item-height=48" : "") flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
                 for r in rows key=`k${r}`
                   row testId=`edge-${r}` height=40 width="100%" box-sizing="border-box" align-items="center"
-                    border-bottom=(r % 10 == 1 ? "3px solid #ff0000" : (r % 10 == 2 or (r == 5 and edge == 1) ? "none" : none))
-                    border-top=(r % 10 == 4 or (r == 6 and edge == 2) ? "none" : none)
-                    border-top-width=(r == 6 and edge == 3 ? 0 : none)
-                    \(windowed ? "" : "display=(r == 6 and edge == 3 ? \"none\" : \"flex\")")
-                    margin-bottom=\(windowed ? "8" : "(r % 10 == 0 or r % 10 == 1 ? 8 : 0)")
+                    border-bottom=(r % 10 == 1 ? "3px solid #ff0000" : (r % 10 == 2 || (r == 5 && edge == 1) ? "none" : none))
+                    border-top=(r % 10 == 4 || (r == 6 && edge == 2) ? "none" : none)
+                    border-top-width=(r == 6 && edge == 3 ? 0 : none)
+                    \(windowed ? "" : "display=(r == 6 && edge == 3 ? \"none\" : \"flex\")")
+                    margin-bottom=\(windowed ? "8" : "(r % 10 == 0 || r % 10 == 1 ? 8 : 0)")
                     if r % 10 != 8
                       text `Row ${r}` flex=1
                     if r % 10 == 7

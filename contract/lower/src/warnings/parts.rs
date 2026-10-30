@@ -93,7 +93,7 @@ pub(super) fn empty_state_in_list(checked: &Checked<'_>) -> Vec<LowerError> {
                 if name == "EmptyState" {
                     out.push(LowerError {
                         id: "lower-empty-state-in-list",
-                        message: "`EmptyState` inside a `list` is drawn as one of its rows; it centres in the screen in place of the list: `if items.length == 0 and not pending(items)`, the `EmptyState`, `else` the `list` (pattern list-detail)".into(),
+                        message: "`EmptyState` inside a `list` is drawn as one of its rows; it centres in the screen in place of the list: `if items.length == 0 && !pending(items)`, the `EmptyState`, `else` the `list` (pattern list-detail)".into(),
                         span: *span,
                     });
                 }

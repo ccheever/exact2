@@ -24,7 +24,7 @@ impl Lowerer<'_> {
         if event == "submit" && tag == "textarea" {
             return err(
                 "lower-handler-tag",
-                "a `textarea` has no `submit`: its Enter breaks the line, as HTML's does; for Enter to send, take the key's event (`key=compose` with `action compose(k: string, e: KeyboardEvent)`) and, when `k == \"Enter\" and not e.shiftKey`, send and call `preventDefault()`",
+                "a `textarea` has no `submit`: its Enter breaks the line, as HTML's does; for Enter to send, take the key's event (`key=compose` with `action compose(k: string, e: KeyboardEvent)`) and, when `k == \"Enter\" && !e.shiftKey`, send and call `preventDefault()`",
                 a.span,
             );
         }

@@ -26,7 +26,7 @@ final class KeyCaptureEscapeMacTests: XCTestCase {
         recording = true
       view
         column testId="page" width="100%" height="100%" padding=20 gap=12
-          if recording or taking
+          if recording || taking
             row aria-modal=true testId="modal"
               Recorder(prompt=(recording ? "Press shortcut" : "Unassigned"), capture=took, cancel=took("blur"))
           else

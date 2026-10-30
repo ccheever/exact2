@@ -744,7 +744,7 @@ component App
   state columns = "${cards}"
   state wide = false
   action resize
-    wide = not wide
+    wide = !wide
   action change
     columns = "calc(5e-1 * 100% - 10px) calc(5e-1 * 100% - 10px)"
   view

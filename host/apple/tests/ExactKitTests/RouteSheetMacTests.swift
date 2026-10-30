@@ -65,7 +65,7 @@ final class RouteSheetMacTests: XCTestCase {
               button testId="open-kept" press=open("kept")
                 text "Kept"
             text `saved ${saved} cancelled ${cancelled} name ${name} query ${query}` testId="status"
-          if screen == "add" or screen == "over"
+          if screen == "add" || screen == "over"
             column navigationKey="add" navigationPresentation="modal" testId="add" position="absolute" inset=0 display="flex" flex-direction="column"
               header testId="add-header" display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
                 button id="back" press=cancel testId="add-cancel"
@@ -423,7 +423,7 @@ final class RouteSheetMacTests: XCTestCase {
                 button testId="open" press=open
                   text "Open"
               if screen == "sized"
-                column navigationKey="sized" navigationPresentation="modal" testId="sized" position="absolute" inset=0 width=(mode == 3 or mode == 5 ? none : mode == 1 ? "125%" : mode == 2 ? "calc(100% + 80px)" : "480px") height=(mode == 3 or mode == 4 ? none : mode == 1 ? "150%" : mode == 2 ? "calc(100% + 100px)" : "300px")
+                column navigationKey="sized" navigationPresentation="modal" testId="sized" position="absolute" inset=0 width=(mode == 3 || mode == 5 ? none : mode == 1 ? "125%" : mode == 2 ? "calc(100% + 80px)" : "480px") height=(mode == 3 || mode == 4 ? none : mode == 1 ? "150%" : mode == 2 ? "calc(100% + 100px)" : "300px")
                   header
                     button id="back" press=cancel
                       text "Cancel"

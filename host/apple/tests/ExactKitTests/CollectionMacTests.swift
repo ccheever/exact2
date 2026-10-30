@@ -54,7 +54,7 @@ final class CollectionMacTests: XCTestCase {
             saved = first
             offset = within
           action toggle
-            shown = not shown
+            shown = !shown
           action restore
             match saved
               case some(key)

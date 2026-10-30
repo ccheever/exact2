@@ -140,7 +140,7 @@ const second = makeFixture({ dependencies: { '@fixture/frames': frames } });
 const contract = readFileSync(join(second.app, 'app.contract'), 'utf8')
   .replace('use takePhoto,', 'use watching, Watching from "@fixture/frames"\nuse takePhoto,')
   .replace('  state placed = true\n', '  state placed = true\n  state reading = false\n  resource watched = watching(track=(reading ? track : "")) as shape Watching else empty()\n')
-  .replace('  action unplace\n', '  action read\n    reading = not reading\n  action unplace\n')
+  .replace('  action unplace\n', '  action read\n    reading = !reading\n  action unplace\n')
   .replace('      if placed\n', '      text `${watched.live}` testId="watched"\n      button press=read testId="read"\n        text "Read"\n      if placed\n');
 writeFileSync(join(second.app, 'app.contract'), contract);
 const secondRun = await inPage(second.app, async (page, until, tap) => {
