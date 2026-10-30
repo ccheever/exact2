@@ -184,6 +184,10 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     compat: &str,
     composed: exact_linux::Composed,
 ) -> i32 {
+    if let Some(result) = exact_ink::device::d3d11::startup_watchdog::helper() {
+        return result;
+    }
+    exact_ink::device::d3d11::startup_watchdog::start();
     let started = Instant::now();
     app::prepare_environment(compat);
     counters::initialize();
@@ -206,7 +210,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         ),
         device.as_deref(),
     );
-    let preparing = if direct {
+    let preparing = if direct && !exact_ink::device::d3d11::startup_watchdog::after_layout() {
         match exact_ink::device::d3d11::Startup::start(
             exact_ink::device::direct_d3d11(device.as_deref()).unwrap(),
         ) {
@@ -946,6 +950,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         let mut direct = false;
         let booted = if let Some(preparing) = self.preparing.take() {
             app::boot_presenter_with_device::<D>(&mut self.config, viewport, preparing)
+        } else if self.direct && exact_ink::device::d3d11::startup_watchdog::after_layout() {
+            app::boot_presenter_after_layout_device::<D>(&mut self.config, viewport)
         } else {
             app::boot_presenter::<D>(&mut self.config, viewport)
         };

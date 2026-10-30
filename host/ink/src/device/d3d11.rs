@@ -29,6 +29,7 @@ mod rich_edit;
 mod setup;
 mod startup;
 pub use startup::Startup;
+pub mod startup_watchdog;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

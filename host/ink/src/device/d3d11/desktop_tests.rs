@@ -104,6 +104,10 @@ impl Shelf {
             .env("EXACT_SIZE", size)
             .env("EXACT_AGENT_WINDOW_READY", "library-count")
             .env(
+                "EXACT_STARTUP_STACKS",
+                out().join(format!("{name}.stacks.txt")),
+            )
+            .env(
                 "EXACT_AGENT_STORAGE",
                 format!("ink-s2-{name}-{}", std::process::id()),
             )
@@ -795,6 +799,56 @@ fn shelf_startup_intervals() {
     std::env::set_var("EXACT_AGENT_WINDOW_PROBE", "off");
     shelf_startup_series();
     std::env::remove_var("EXACT_AGENT_WINDOW_PROBE");
+}
+
+#[test]
+#[ignore = "NucBox desktop; 100 paired Shelf launches, startup tail only"]
+fn shelf_startup_tail_series() {
+    let exe = std::env::var("INK_SHELF").unwrap();
+    for round in 0..100 {
+        for step in 0..2 {
+            let arm = ["entry", "layout"][(round + step) % 2];
+            std::env::set_var("EXACT_STARTUP_DEVICE_AT", arm);
+            let name = format!("tail-{round:03}-{arm}");
+            let mut app = Shelf::launch(&name, &exe, "ink", "1024x720", Some(120), false);
+            until("bounded startup run finishes", || {
+                app.child.try_wait().unwrap().is_some()
+            });
+            assert!(app.child.wait().unwrap().success(), "{}", app.text());
+            println!("S1W_STARTUP {name}\n{}", app.text());
+        }
+    }
+    std::env::remove_var("EXACT_STARTUP_DEVICE_AT");
+}
+
+#[test]
+#[ignore = "NucBox desktop; verify the startup watchdog with a 200 ms layout hold"]
+fn shelf_startup_watchdog() {
+    let exe = std::env::var("INK_SHELF").unwrap();
+    std::env::set_var("EXACT_STARTUP_TEST_HOLD", "1");
+    let app = Shelf::launch("watchdog-held", &exe, "ink", "1024x720", None, false);
+    std::env::remove_var("EXACT_STARTUP_TEST_HOLD");
+    let path = out().join("watchdog-held.stacks.txt");
+    until("all-thread startup capture completes", || {
+        fs::read_to_string(&path).is_ok_and(|s| s.contains("threads_enumerated="))
+    });
+    let stacks = fs::read_to_string(path).unwrap();
+    assert!(stacks.matches("\nthread ").count() >= 2, "{stacks}");
+    assert!(
+        stacks.contains("startup_watchdog::phase"),
+        "PDB must resolve the held boot thread: {stacks}"
+    );
+    app.close();
+    let app = Shelf::launch(
+        "watchdog-ordinary",
+        &exe,
+        "ink",
+        "1024x720",
+        Some(120),
+        false,
+    );
+    let log = app.close();
+    println!("S1W_WATCHDOG ordinary\n{log}");
 }
 
 #[test]
