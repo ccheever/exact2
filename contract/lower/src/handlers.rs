@@ -48,7 +48,7 @@ impl Lowerer<'_> {
                 )
             }
         };
-        let Some(ai) = self.root.actions.iter().position(|x| x.name == name) else {
+        let Some(ai) = self.action_names.get(name).copied() else {
             return err(
                 "lower-unknown-action",
                 format!("`{name}` is not an action of the root"),

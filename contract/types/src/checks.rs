@@ -432,6 +432,11 @@ pub(super) fn infer_owned_state_initializers(
         let t = Ty::Option(Box::new(ct.mutations[i].clone()));
         settled.push((m.name.clone(), Ref::Mutation(i as u32), t));
     }
+    // One scope for every initializer, its second frame grown as each state
+    // settles: copying the names for each state is quadratic in a large root.
+    let mut base = Scope::default();
+    base.push(settled);
+    base.push(names);
     for (i, state) in c.states.iter().enumerate() {
         let regions = match owners.get(i).copied().unwrap_or(Owner::Root) {
             Owner::Root => None,
@@ -440,7 +445,10 @@ pub(super) fn infer_owned_state_initializers(
                 let Some(owner_scope) = scopes.get(&(tag, arm)) else {
                     if !complete {
                         // Its region was skipped: the view check says why.
-                        names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
+                        base.push_name_at(
+                            1,
+                            (state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()),
+                        );
                         continue;
                     }
                     return err(
@@ -460,16 +468,17 @@ pub(super) fn infer_owned_state_initializers(
             }
         };
         if let Some(regions) = regions {
-            let mut scope = Scope::default();
-            scope.push(settled.clone());
-            scope.push(names.clone());
+            let mut scope = base.clone();
             scope.frames.extend(regions);
             if let Some(e) = super::component::initializer_scope(c, i, &scope, &types.shapes) {
                 return Err(e);
             }
             ct.slots[i] = infer(&state.expr, &scope, &types.shapes)?;
         }
-        names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
+        base.push_name_at(
+            1,
+            (state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()),
+        );
     }
     Ok(())
 }

@@ -27,12 +27,14 @@ pub(crate) fn tints(
     out: &mut Vec<LowerError>,
 ) {
     let (mut seen, mut faces, mut found) = (BTreeSet::new(), BTreeSet::new(), Vec::new());
+    let mut made = std::collections::HashMap::new();
     walk(
         nodes,
         false,
         &mut Pass {
             styles,
             lowered,
+            made: &mut made,
             seen: &mut seen,
             faces: &mut faces,
             out: &mut found,
@@ -55,6 +57,9 @@ fn place(span: contract_syntax::Span) -> (u32, u32, u32) {
 struct Pass<'a> {
     styles: &'a [StyleDecl],
     lowered: &'a TextStyles,
+    /// What lowering made of each button place, read once: a component used
+    /// many times has one place for all its inlined buttons.
+    made: &'a mut std::collections::HashMap<contract_syntax::Span, Option<bool>>,
     seen: &'a mut BTreeSet<(u32, u32, u32)>,
     faces: &'a mut BTreeSet<(u32, u32, u32)>,
     out: &'a mut Vec<LowerError>,
@@ -85,7 +90,7 @@ fn walk(nodes: &[Node], face: bool, pass: &mut Pass<'_>) {
                         }
                     }
                 }
-                let face = tag == "button" && native(node, attrs, pass.lowered);
+                let face = tag == "button" && native(node, attrs, pass.lowered, pass.made);
                 walk(children, face, pass);
             }
             Node::When {
@@ -109,18 +114,33 @@ fn walk(nodes: &[Node], face: bool, pass: &mut Pass<'_>) {
 /// (`TextStyle::native`) when it made it so anywhere, or drew it everywhere it is known. Where
 /// that is not known (no node reached, or a shared slot's style merged away by its other rows),
 /// whether its `appearance` is anything but a literal `"none"`.
-fn native(node: &Node, attrs: &[Attr], lowered: &TextStyles) -> bool {
+fn native(
+    node: &Node,
+    attrs: &[Attr],
+    lowered: &TextStyles,
+    memo: &mut std::collections::HashMap<contract_syntax::Span, Option<bool>>,
+) -> bool {
     let span = node.span();
-    let made: Vec<_> = lowered
-        .iter()
-        .filter(|((at, _, tag), _)| *at == span && tag == "button")
-        .map(|(_, style)| style.as_ref().and_then(|s| s.native))
-        .collect();
-    if made.contains(&Some(true)) {
-        return true;
-    }
-    if !made.is_empty() && made.iter().all(|native| *native == Some(false)) {
-        return false;
+    let made = *memo.entry(span).or_insert_with(|| {
+        let mut made = lowered
+            .range((span, 0, String::new())..)
+            .take_while(|((at, _, _), _)| *at == span)
+            .filter(|((_, _, tag), _)| tag == "button")
+            .map(|(_, style)| style.as_ref().and_then(|s| s.native))
+            .peekable();
+        made.peek()?;
+        let mut all_drawn = true;
+        for native in made {
+            match native {
+                Some(true) => return Some(true),
+                Some(false) => {}
+                None => all_drawn = false,
+            }
+        }
+        all_drawn.then_some(false)
+    });
+    if let Some(made) = made {
+        return made;
     }
     !attrs
         .iter()

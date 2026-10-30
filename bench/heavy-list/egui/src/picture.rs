@@ -1,7 +1,6 @@
 use egui::{ColorImage, Context, CornerRadius, Image, Rect, TextureHandle, TextureOptions, Ui};
 use std::{
     collections::HashMap,
-    ffi::CString,
     path::PathBuf,
     sync::{Arc, Mutex, OnceLock, mpsc},
     time::Instant,
@@ -19,6 +18,7 @@ pub fn diagnostic(message: std::fmt::Arguments<'_>) {
     }
 }
 
+#[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn g1_thumbnail(path: *const i8, w: u32, h: u32, ow: *mut u32, oh: *mut u32) -> *mut u8;
     fn free(bytes: *mut std::ffi::c_void);
@@ -60,33 +60,45 @@ impl Pictures {
                         "decode {} {}x{}",
                         key.file, key.width, key.height
                     ));
-                    let path = CString::new(directory.join(&key.file).to_str().unwrap()).unwrap();
-                    let (mut width, mut height) = (0, 0);
-                    let image = unsafe {
-                        let pointer = g1_thumbnail(
-                            path.as_ptr(),
-                            key.width,
-                            key.height,
-                            &mut width,
-                            &mut height,
-                        );
-                        if pointer.is_null() {
-                            Err(format!("thumbnail: {}", key.file))
-                        } else {
-                            let mut rgba = std::slice::from_raw_parts(
-                                pointer,
-                                width as usize * height as usize * 4,
-                            )
-                            .to_vec();
-                            free(pointer.cast());
-                            // The shared ImageIO decoder returns premultiplied BGRA.
-                            for pixel in rgba.chunks_exact_mut(4) {
-                                pixel.swap(0, 2);
+                    #[cfg(target_os = "windows")]
+                    let image = crate::windows::thumbnail(
+                        &directory.join(&key.file),
+                        key.width,
+                        key.height,
+                    )
+                    .map_err(|error| error.to_string());
+                    #[cfg(target_os = "macos")]
+                    let image = {
+                        let path =
+                            std::ffi::CString::new(directory.join(&key.file).to_str().unwrap())
+                                .unwrap();
+                        let (mut width, mut height) = (0, 0);
+                        unsafe {
+                            let pointer = g1_thumbnail(
+                                path.as_ptr(),
+                                key.width,
+                                key.height,
+                                &mut width,
+                                &mut height,
+                            );
+                            if pointer.is_null() {
+                                Err(format!("thumbnail: {}", key.file))
+                            } else {
+                                let mut rgba = std::slice::from_raw_parts(
+                                    pointer,
+                                    width as usize * height as usize * 4,
+                                )
+                                .to_vec();
+                                free(pointer.cast());
+                                // The shared ImageIO decoder returns premultiplied BGRA.
+                                for pixel in rgba.chunks_exact_mut(4) {
+                                    pixel.swap(0, 2);
+                                }
+                                Ok(ColorImage::from_rgba_premultiplied(
+                                    [width as usize, height as usize],
+                                    &rgba,
+                                ))
                             }
-                            Ok(ColorImage::from_rgba_premultiplied(
-                                [width as usize, height as usize],
-                                &rgba,
-                            ))
                         }
                     };
                     diagnostic(format_args!(
@@ -154,6 +166,11 @@ impl Pictures {
             self.complete
         ));
         // egui-wgpu uploads textures after App::ui and acquires the drawable after that.
-        unsafe { g1_scene_complete(i32::from(self.complete), item, offset) };
+        #[cfg(target_os = "macos")]
+        unsafe {
+            g1_scene_complete(i32::from(self.complete), item, offset)
+        };
+        #[cfg(target_os = "windows")]
+        crate::windows::scene_complete(self.complete, item, offset);
     }
 }

@@ -13,7 +13,11 @@ pub fn color(rgb: u32) -> Color32 {
 
 fn format(size: f32, bold: bool, rgb: u32) -> TextFormat {
     TextFormat {
-        font_id: FontId::proportional(size),
+        font_id: if cfg!(target_os = "windows") && bold {
+            FontId::new(size, FontFamily::Name("semibold".into()))
+        } else {
+            FontId::proportional(size)
+        },
         color: color(rgb),
         coords: egui::epaint::text::VariationCoords::new([(
             b"wght",

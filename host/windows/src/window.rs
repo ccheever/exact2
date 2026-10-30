@@ -43,6 +43,7 @@ struct App<D: DataSource> {
     scale: f64,
     refit_after_scale: bool,
     next_frame: Instant,
+    redraw_pending: bool,
     failed: bool,
     minimized: bool,
     occluded: bool,
@@ -68,6 +69,9 @@ struct App<D: DataSource> {
 
 impl<D: DataSource> Drop for App<D> {
     fn drop(&mut self) {
+        if std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() == Ok("on") {
+            eprintln!("exact-windows: successful frames {}", self.frames);
+        }
         self.timers.clear();
         self.accessibility.take();
         // The module's GPU swapchain must release its HWND before the window.
@@ -119,6 +123,41 @@ fn next_frame_deadline(deadline: Instant, started: Instant, period: Duration) ->
     } else {
         // After a stall or suspension, resume without a burst of catch-up frames.
         started + period
+    }
+}
+
+struct FrameSchedule {
+    cadence: Option<Instant>,
+    retry: Option<Instant>,
+    present: Option<Instant>,
+}
+
+fn presentation_resumes(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::Occluded(false)
+            | WindowEvent::Focused(true)
+            | WindowEvent::Resized(_)
+            | WindowEvent::ScaleFactorChanged { .. }
+    )
+}
+
+impl FrameSchedule {
+    fn admit(&self, now: Instant) -> Instant {
+        self.cadence
+            .into_iter()
+            .chain(self.present)
+            .fold(now, Instant::max)
+    }
+
+    fn defer(&self, now: Instant, pending: &mut bool) -> bool {
+        *pending = self.admit(now) > now;
+        *pending
+    }
+
+    fn redraw(&self, now: Instant, requested: bool) -> Option<Instant> {
+        let requested = if requested { Some(now) } else { self.retry }?;
+        Some(requested.max(self.admit(now)))
     }
 }
 
@@ -280,6 +319,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         buttons: 0,
         scale: 1.,
         next_frame: started,
+        redraw_pending: false,
         failed: false,
         minimized: false,
         occluded: false,
@@ -425,7 +465,17 @@ impl<D: DataSource + Default + 'static> App<D> {
                 .is_some_and(|p| p.wants_display_frames() || p.host().motion());
         let unpaced =
             self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
-        if continuous && !unpaced && frame_started < self.next_frame {
+        let schedule = FrameSchedule {
+            cadence: (continuous && !unpaced).then_some(self.next_frame),
+            retry: None,
+            present: self
+                .presenter
+                .as_ref()
+                .and_then(|p| p.painter_present_deadline()),
+        };
+        // A refused present defers the next paint. Ordinary D3D11 redraws acquire
+        // the latency waitable before painting; they need no second timer delay.
+        if schedule.defer(frame_started, &mut self.redraw_pending) {
             return Ok(());
         }
         let now = self.now();
@@ -612,15 +662,22 @@ impl<D: DataSource + Default + 'static> App<D> {
                 self.started.elapsed().as_secs_f64() * 1000.
             );
         }
+        // Activation can leave the baked picture unchanged. A clean frame need
+        // not present again just to acknowledge that its data source is ready.
+        p.first_pixel();
+        let activated_at = frame_started.elapsed().as_secs_f64() * 1000.;
         // A screen's ready marker can exclude background requests that do not
         // contribute to it. Shelf's library-count appears with its seeded books.
         let screen_ready = std::env::var("EXACT_AGENT_WINDOW_READY").map_or_else(
             |_| !p.pending(),
             |target| p.host().kernel().find_by_test_id(&target).len() == 1,
         );
-        if (self.frame_limit.is_some() || std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some())
+        if (self.frame_limit.is_some()
+            || std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+            || std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() == Ok("on"))
             && !self.measured_first_screen
             && p.last_frame_succeeded()
+            && !p.dirty()
             && !p.data_activating()
             && screen_ready
         {
@@ -685,12 +742,10 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
         }
         let logged_at = frame_started.elapsed().as_secs_f64() * 1000.;
-        p.first_pixel();
         if !self.jump_list_started && p.last_frame_succeeded() {
             self.jump_list_started = true;
             crate::jump_list::start(self.config.compat.clone());
         }
-        let activated_at = frame_started.elapsed().as_secs_f64() * 1000.;
         if let Some(access) = &mut self.accessibility {
             access.sync(p, window, &self.name);
         }
@@ -719,7 +774,6 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
         if repaint_owed || p.dirty() {
             p.repaint();
-            window.request_redraw();
         }
         if self.frame_limit.is_some_and(|limit| self.frames >= limit) {
             // Bounded measurements write their per-frame log after the timed run.
@@ -996,6 +1050,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         if let (Some(access), Some(window)) = (&mut self.accessibility, &self.window) {
             access.process_event(window, &event);
         }
+        if presentation_resumes(&event) {
+            if let Some(p) = &mut self.presenter {
+                p.reset_painter_present_deadline();
+            }
+        }
         if matches!(event, WindowEvent::CloseRequested) {
             // The window is going: its hatch, then the app's, ends.
             if let Some(p) = &mut self.presenter {
@@ -1203,6 +1262,18 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        self.wait(events, |p| {
+            (p.painter_retry_deadline(), p.painter_present_deadline())
+        });
+    }
+}
+
+impl<D: DataSource + Default + 'static> App<D> {
+    fn wait(
+        &mut self,
+        events: &ActiveEventLoop,
+        deadlines: impl FnOnce(&Presenter<D>) -> (Option<Instant>, Option<Instant>),
+    ) {
         let now = self.now();
         for fired in self.timers.take_due(now) {
             self.deliver_timer(fired, now);
@@ -1243,11 +1314,6 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         let Some(p) = &mut self.presenter else { return };
         let retirement = p.collect_painter_retirement(Instant::now());
-        if p.dirty() && !self.minimized && !self.occluded {
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-        }
         let pads_active = self.focused && !self.minimized && p.has_gamepad_input();
         if self.pads_active != pads_active {
             self.pads_active = pads_active;
@@ -1273,24 +1339,28 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             self.fail(events, e);
             return;
         }
-        if !self.minimized
-            && (self.frame_limit.is_some()
-                || (!self.occluded && (p.wants_display_frames() || p.host().motion())))
-        {
-            if Instant::now() >= self.next_frame {
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
-            events.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
-        } else if let Some(due) = p.wake_due_ms() {
+        if let Some(due) = p.wake_due_ms() {
             let deadline = self.started + Duration::from_secs_f64((due / 1000.).max(0.));
             events.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             events.set_control_flow(ControlFlow::Wait);
         }
-        if let Some(due) = p.painter_retry_deadline() {
-            if Instant::now() >= due {
+        let continuous =
+            self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion();
+        let unpaced =
+            self.frame_limit.is_some() && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some();
+        let (retry, present) = deadlines(p);
+        let schedule = FrameSchedule {
+            cadence: (continuous && !unpaced).then_some(self.next_frame),
+            retry,
+            present,
+        };
+        let now = Instant::now();
+        let redraw = (!self.minimized && !self.occluded)
+            .then(|| schedule.redraw(now, p.dirty() || continuous || self.redraw_pending))
+            .flatten();
+        if let Some(due) = redraw {
+            if now >= due {
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
@@ -1338,4 +1408,4 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

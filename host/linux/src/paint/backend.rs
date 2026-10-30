@@ -83,6 +83,14 @@ pub trait Backend {
     fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
         None
     }
+    /// Clear capacity backoff after a window becomes drawable or changes extent.
+    #[cfg(windows)]
+    fn reset_present_deadline(&mut self) {}
+    /// Reserve a directly presented frame before allocating its paint targets.
+    #[cfg(windows)]
+    fn prepare_window_frame(&mut self, _size: [u32; 2]) -> Result<bool, String> {
+        Ok(true)
+    }
     /// Only device removal invalidates a directly presenting device's resources.
     #[cfg(windows)]
     fn device_lost(&self) -> bool {
@@ -359,6 +367,14 @@ impl super::Painter {
     #[cfg(windows)]
     pub(crate) fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
         self.backend.presentation_retry_delay()
+    }
+    #[cfg(windows)]
+    pub(crate) fn reset_present_deadline(&mut self) {
+        self.backend.reset_present_deadline();
+    }
+    #[cfg(windows)]
+    pub(crate) fn prepare_window_frame(&mut self, size: [u32; 2]) -> Result<bool, String> {
+        self.backend.prepare_window_frame(size)
     }
     #[cfg(windows)]
     pub(crate) fn device_lost(&self) -> bool {

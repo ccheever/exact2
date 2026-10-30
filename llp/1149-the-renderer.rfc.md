@@ -1040,6 +1040,58 @@ color and accessibility gaps, and unequal scroll work; the run cannot rank
 renderers or decide D15's unmeasured arms (`bench/heavy-list/gpui/RESULTS.md`,
 “G4”).
 
+**G6, Windows, 2026-10-29**: the release heavy list on the NucBox,
+800×800 outer window, 100% scale, 60 Hz. Ten quiet interleaved launches
+originally gave DWM complete-screen proxies of **175.98/716.21/248.76 ms**
+for Ink D3D11 / Ink wgpu / egui; supported AMD shader-cache resets raised
+them to **249.30/1007.25/348.00 ms**. Both wgpu arms select Radeon 8060S
+**DX12**; egui explicitly requests it. G6e restores G6c's full-period
+waitable reservation and removes the clean-frame skip while keeping G6d's
+lifecycle fixes. Five quiet D3D11 flings give **84.08/62.31 ms/s** process/main
+CPU, **58.15 displays/s**, **16.74 ms p95 / 16.85 ms p99**, no late intervals,
+and **1,247 snapshots / 1,247 successful frames**. Peak/ending working set
+are **153.18/153.16 MiB**, with zero median rest CPU and zero rest displays.
+The cadence thresholds pass; the strict CPU range gate fails against G6c's
+**84.05 ms/s** upper bound (G6e maximum **93.39 ms/s**). No third policy is
+tried. All six D3D11 desktop journeys and both-device native suites pass on
+the measured source; the device-loss fixture's frame-start recovery interval
+is **1,850 ms**, including a **1,446 ms** first fallback paint, with identical
+recovered pixels and Mica restored. Ten quiet startups give **160.78 ms DWM /
+177.66 ms DXGI**. G6d's readiness-order correction prevents these historical
+series from isolating
+a scheduling gain; G6c's paired-startup question remains open. The unchanged
+Ink/wgpu and egui controls used **121.41/24.91 ms/s** fling CPU,
+**324.75/181.74 MiB** peak and **322.48/170.00 MiB** ending working set;
+egui's p95 was **16.77 ms**, while Ink/wgpu's readback/softbuffer cadence
+is unavailable. S2's Shelf **142/859 ms** first screens and **48/139 ms**
+device creation, with **457 ms** wgpu pipelines, do not predict egui's
+whole-app startup. Egui owns layout, text and virtualization without the
+kernel or runner; Windows uses Segoe UI, with Consolas in egui's code runs.
+Eframe exposes no DXGI swap chain, so its readiness is a DWM proxy plus
+next-dispatch delay. These whole-app paths retain unequal scroll work,
+geometry, images and readiness. See [G6e's comparison, trace and qualification](../bench/heavy-list/gpui/RESULTS.md#g6e-the-full-period-reservation-wait-restored).
+
+**G6d, Windows, 2026-10-30**: reservation errors retry without terminating;
+visibility, focus, resize and DPI events clear presentation backoff; successful
+presents retry transient Mica refusal, bounded to three attempts. Clean redraws
+skip reservation but still detect device removal. Each capacity wait requests
+half a period, with an event-loop turn between the first two attempts and
+backoff after further timeouts. All six D3D11 desktop journeys and both-device
+native suites pass; TDR returns from CPU/WARP to hardware in **398.810 ms**, with
+Mica restored and identical pixels. Five quiet flings give **84.07/63.89 ms/s**
+process/main CPU, **153.85 MiB** peak/end working set and **16.75 ms** display p95.
+**1,166 snapshots / 1,166 frames** preserve the paint invariant, but G6c’s cadence
+is not fully preserved: **56.41 versus 58.25 displays/s**, **0.993 versus zero**
+late intervals/s, and **33.33 versus 17.17 ms** p99. After three performance
+revisions, the cadence regression was queued; G6e above restores it. Ten quiet
+startup launches give
+**161.84 ms DWM / 176.85 ms DXGI**; readiness now follows data activation in the
+same draw, so these historical distributions do not isolate a startup gain.
+Egui and Ink/wgpu were not remeasured. The paired-control scripts are committed
+and disclose their freshly copied images; desktop captures use input attachment
+or UI Automation focus without a client click. See [G6d’s before/after tables
+and retained trials](../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms

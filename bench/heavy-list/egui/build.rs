@@ -1,4 +1,7 @@
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
     println!("cargo:rerun-if-changed=../gpui/src/thumbnail.m");
     cc::Build::new()
         .file("../gpui/src/thumbnail.m")

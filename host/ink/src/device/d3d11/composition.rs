@@ -124,7 +124,40 @@ struct Visual {
     target: IDCompositionTarget,
     visual: IDCompositionVisual,
     content: std::cell::Cell<usize>,
-    backdrop: bool,
+    backdrop: Cell<Backdrop>,
+}
+
+#[derive(Clone, Copy)]
+struct Backdrop {
+    available: bool,
+    retries: u8,
+}
+impl Backdrop {
+    fn new(available: bool) -> Self {
+        Self {
+            available,
+            retries: 0,
+        }
+    }
+
+    fn after_present(&mut self, set: impl FnOnce() -> bool) -> bool {
+        if self.available || self.retries == 3 {
+            return false;
+        }
+        self.retries += 1;
+        self.available = set();
+        eprintln!(
+            "exact-ink: Mica retry {}/3 after present: {}",
+            self.retries,
+            if self.available {
+                "restored"
+            } else {
+                "refused"
+            }
+        );
+        // Restoring Mica needs one transparent frame to replace the opaque fallback.
+        self.available || self.retries < 3
+    }
 }
 impl Drop for Visual {
     fn drop(&mut self) {
@@ -139,6 +172,7 @@ pub(super) struct Composition {
     swap: IDXGISwapChain2,
     scene: Rc<Visual>,
     latency: HANDLE,
+    acquired: bool,
     size: [u32; 2],
     _window: Window,
     pub creation_ms: f64,
@@ -146,7 +180,8 @@ pub(super) struct Composition {
     visual_ms: f64,
     active: bool,
     reported_display: bool,
-    occluded_checks: u32,
+    refused_checks: u32,
+    capacity_wait: Option<Duration>,
 }
 impl Drop for Composition {
     fn drop(&mut self) {
@@ -187,7 +222,18 @@ impl Composition {
             let visual_started = Instant::now();
             let existing = window.visual.borrow().upgrade();
             let scene = match existing {
-                Some(scene) => scene,
+                Some(scene) => {
+                    // A device reset can clear the HWND's material while the
+                    // composition visual survives the device handoff.
+                    let available = if fault("mica-recovery") {
+                        eprintln!("exact-ink: injected Mica refusal during device recovery");
+                        false
+                    } else {
+                        set_backdrop(window.hwnd)
+                    };
+                    scene.backdrop.set(Backdrop::new(available));
+                    scene
+                }
                 None => {
                     // No rendering device: the visual must not retain WARP after
                     // its swap chain retires. DCompositionCreateDevice2 permits
@@ -202,7 +248,7 @@ impl Composition {
                         target,
                         visual,
                         content: Default::default(),
-                        backdrop: set_backdrop(window.hwnd),
+                        backdrop: Cell::new(Backdrop::new(set_backdrop(window.hwnd))),
                     });
                     *window.visual.borrow_mut() = Rc::downgrade(&scene);
                     scene
@@ -223,6 +269,7 @@ impl Composition {
                 swap,
                 scene,
                 latency,
+                acquired: false,
                 size,
                 _window: window,
                 creation_ms: start.elapsed().as_secs_f64() * 1000.,
@@ -230,7 +277,8 @@ impl Composition {
                 visual_ms,
                 active: false,
                 reported_display: false,
-                occluded_checks: 0,
+                refused_checks: 0,
+                capacity_wait: None,
             })
         }
     }
@@ -241,6 +289,33 @@ impl Composition {
             .map(|s| s.currentCompositionRate);
         rate.and_then(|r| refresh_period(r.Numerator, r.Denominator))
             .unwrap_or(Duration::from_secs_f64(1. / 60.))
+    }
+
+    fn acquire(&mut self, timeout_ms: u32) -> Result<bool> {
+        self.capacity_wait = None;
+        unsafe {
+            if !window_drawable(self._window.hwnd) {
+                self.refused_checks = self.refused_checks.saturating_add(1);
+                return Ok(false);
+            }
+            // A visual without its first picture can TEST as occluded. The
+            // window's visibility still guards its first wait and present.
+            let activating =
+                !self.active || self.scene.content.get() != self.swap.as_raw() as usize;
+            if !activating && !presented(self.swap.Present(0, DXGI_PRESENT_TEST))? {
+                self.refused_checks = self.refused_checks.saturating_add(1);
+                return Ok(false);
+            }
+            if !self.acquired {
+                let started = Instant::now();
+                self.acquired = latency_ready(WaitForSingleObject(self.latency, timeout_ms))?;
+                if !self.acquired {
+                    self.capacity_wait = Some(started.elapsed());
+                }
+            }
+            record_capacity(&mut self.refused_checks, self.acquired);
+        }
+        Ok(self.acquired)
     }
 
     fn activate(&mut self) -> Result<()> {
@@ -269,6 +344,7 @@ impl Composition {
         if self.size == size {
             return Ok(());
         }
+        self.acquired = false;
         unsafe {
             self.swap.ResizeBuffers(
                 2,
@@ -394,15 +470,57 @@ impl D3d11 {
     pub fn has_window(&self) -> bool {
         self.composition.is_some()
     }
+    /// Detect removal on a redraw that needs no paint or capacity reservation.
+    pub fn device_lost(&self) -> bool {
+        unsafe { self.device.GetDeviceRemovedReason().is_err() }
+    }
     pub fn presentation_pending(&self) -> bool {
         self.presentation_pending
+    }
+    /// Forget capacity refusals, preserving any acquired reservation.
+    pub fn reset_present_deadline(&mut self) {
+        self.presentation_pending = false;
+        if let Some(c) = &mut self.composition {
+            c.refused_checks = 0;
+            c.capacity_wait = None;
+        }
     }
     pub fn presentation_retry_delay(&self) -> Option<Duration> {
         if !self.presentation_pending {
             return None;
         }
         let c = self.composition.as_ref()?;
-        Some(retry_delay(c.refresh_period(), c.occluded_checks))
+        let period = c.refresh_period();
+        Some(c.capacity_wait.map_or_else(
+            || retry_delay(period, c.refused_checks),
+            |waited| capacity_retry_delay(period, c.refused_checks, waited),
+        ))
+    }
+
+    /// Reserve capacity before painting, waiting one display period rounded to ms.
+    /// `present` consumes this reservation without polling the handle again.
+    pub fn prepare_present(&mut self, size: [u32; 2]) -> Result<bool> {
+        self.collect_presented_devices();
+        self.presentation_pending = true;
+        let c = self
+            .composition
+            .as_mut()
+            .ok_or(Error::Unsupported("no composition window"))?;
+        c.capacity_wait = None;
+        if let Err(error) = c.resize(size) {
+            c.refused_checks = 0;
+            return Err(error);
+        }
+        let timeout = reservation_wait_ms(c.refresh_period());
+        let ready = match c.acquire(timeout) {
+            Ok(ready) => ready,
+            Err(error) => {
+                c.refused_checks = 0;
+                return Err(error);
+            }
+        };
+        self.presentation_pending = !ready;
+        Ok(ready)
     }
 
     pub fn present(&mut self, id: TextureId) -> Result<f64> {
@@ -424,6 +542,14 @@ impl D3d11 {
             let _ = PRESENTED.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
         }
         self.presentation_pending = matches!(result, Ok(ms) if ms == 0.);
+        if matches!(result, Ok(ms) if ms > 0.) {
+            if let Some(c) = &self.composition {
+                let mut backdrop = c.scene.backdrop.get();
+                self.presentation_pending |=
+                    backdrop.after_present(|| set_backdrop(c._window.hwnd));
+                c.scene.backdrop.set(backdrop);
+            }
+        }
         result
     }
     fn present_frame(&mut self, id: TextureId) -> Result<f64> {
@@ -439,7 +565,7 @@ impl D3d11 {
         let activating = !composition.active
             || composition.scene.content.get() != composition.swap.as_raw() as usize;
         let swap = composition.swap.clone();
-        let opaque = !composition.scene.backdrop;
+        let opaque = !composition.scene.backdrop.get().available;
         let background = composition
             ._window
             .background
@@ -447,22 +573,10 @@ impl D3d11 {
             .map(|v| f64::from(v) / 255.);
         let mut did_present;
         unsafe {
-            // An unattached visual can TEST as occluded even in a visible window.
-            // Window visibility guards both paths before either waits or presents.
-            if !window_drawable(composition._window.hwnd) {
-                composition.occluded_checks = composition.occluded_checks.saturating_add(1);
+            if !composition.acquire(0)? {
                 return Ok(0.);
             }
-            // Before Commit, DXGI can consider the unattached visual occluded.
-            // A TEST present would prevent drawing its first image.
-            if !activating && !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
-                composition.occluded_checks = composition.occluded_checks.saturating_add(1);
-                return Ok(0.);
-            }
-            composition.occluded_checks = 0;
-            if !latency_ready(WaitForSingleObject(composition.latency, 0))? {
-                return Ok(0.);
-            }
+            composition.acquired = false;
             let back: ID3D11Texture2D = swap.GetBuffer(0)?;
             let mut view = None;
             self.device
@@ -507,7 +621,7 @@ impl D3d11 {
         }
         if !did_present {
             let c = self.composition.as_mut().unwrap();
-            c.occluded_checks = c.occluded_checks.saturating_add(1);
+            c.refused_checks = c.refused_checks.saturating_add(1);
         }
         Ok(if did_present {
             start.elapsed().as_secs_f64() * 1000.
@@ -583,10 +697,27 @@ fn refresh_period(numerator: u32, denominator: u32) -> Option<Duration> {
         .then(|| Duration::from_secs_f64(f64::from(denominator) / f64::from(numerator)))
 }
 
-fn retry_delay(period: Duration, occluded_checks: u32) -> Duration {
+fn reservation_wait_ms(period: Duration) -> u32 {
+    period.as_nanos().div_ceil(1_000_000).min(100) as u32
+}
+
+fn record_capacity(refused_checks: &mut u32, ready: bool) {
+    *refused_checks = if ready {
+        0
+    } else {
+        refused_checks.saturating_add(1)
+    };
+}
+
+fn retry_delay(period: Duration, refused_checks: u32) -> Duration {
     period
-        .saturating_mul(1 << occluded_checks.min(8))
+        .saturating_mul(1 << refused_checks.min(8))
         .min(Duration::from_secs(1))
+}
+
+fn capacity_retry_delay(period: Duration, refused_checks: u32, waited: Duration) -> Duration {
+    // The wait consumes the first period; repeated timeouts add idle backoff.
+    retry_delay(period, refused_checks.saturating_sub(1)).saturating_sub(waited)
 }
 
 fn presented(status: windows::core::HRESULT) -> Result<bool> {
@@ -672,6 +803,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn material_recovery_retries_after_present_without_replacing_the_device() {
+        let mut backdrop = Backdrop::new(false);
+        assert!(backdrop.after_present(|| false));
+        assert!(!backdrop.available);
+        assert!(backdrop.after_present(|| true));
+        assert!(backdrop.available);
+        assert!(!backdrop.after_present(|| panic!("restored material must stop retrying")));
+        let mut refused = Backdrop::new(false);
+        for retry in 1..=3 {
+            assert_eq!(refused.after_present(|| false), retry < 3);
+        }
+        assert!(!refused.after_present(|| panic!("permanent refusal must stop retrying")));
+    }
+
+    #[test]
     fn failed_statistics_release_after_three_completed_checks() {
         let mut retirement = Retirement {
             present: None,
@@ -698,6 +844,29 @@ mod tests {
             assert!(retry_delay(period, 8) >= Duration::from_secs(1));
         }
         assert_eq!(refresh_period(0, 1), None);
+    }
+
+    #[test]
+    fn timeouts_back_off_after_a_full_period_reservation_wait() {
+        for hz in [60, 120, 144] {
+            let period = refresh_period(hz, 1).unwrap();
+            let waited = Duration::from_millis(reservation_wait_ms(period) as u64);
+            assert!(waited >= period && waited - period < Duration::from_millis(1));
+            assert_eq!(capacity_retry_delay(period, 1, waited), Duration::ZERO);
+            assert_eq!(waited + capacity_retry_delay(period, 2, waited), period * 2);
+            assert_eq!(capacity_retry_delay(period, 1, period * 2), Duration::ZERO);
+            let mut refused = 0;
+            let mut previous = Duration::ZERO;
+            for _ in 0..12 {
+                record_capacity(&mut refused, false);
+                let delay = waited + capacity_retry_delay(period, refused, waited);
+                assert!(delay >= previous && delay <= Duration::from_secs(1));
+                previous = delay;
+            }
+            assert_eq!(previous, Duration::from_secs(1));
+            record_capacity(&mut refused, true);
+            assert_eq!(retry_delay(period, refused), period);
+        }
     }
 
     #[test]
@@ -773,6 +942,7 @@ mod tests {
         let original =
             std::mem::replace(&mut device.composition.as_mut().unwrap().latency, blocked);
         let start = Instant::now();
+        assert!(!device.prepare_present([80, 60]).unwrap());
         let result = device.present(target);
         device.composition.as_mut().unwrap().latency = original;
         unsafe { CloseHandle(blocked).unwrap() };
@@ -780,7 +950,17 @@ mod tests {
         assert!(start.elapsed() < Duration::from_millis(100));
         assert!(device.presentation_pending());
         assert!(!device.composition.as_ref().unwrap().active);
-        assert!(device.present(target).unwrap() > 0.);
+        assert!(device.prepare_present([80, 60]).unwrap());
+        // A successful wait owns the next present even if another zero-timeout
+        // poll would refuse. Replace the handle to make a second poll observable.
+        let blocked = unsafe { CreateEventW(None, true, false, None).unwrap() };
+        let original =
+            std::mem::replace(&mut device.composition.as_mut().unwrap().latency, blocked);
+        let result = device.present(target);
+        device.composition.as_mut().unwrap().latency = original;
+        unsafe { CloseHandle(blocked).unwrap() };
+        assert!(result.unwrap() > 0.);
+        assert!(!device.composition.as_ref().unwrap().acquired);
         assert!(!device.presentation_pending());
     }
 
@@ -795,10 +975,12 @@ mod tests {
         device
             .render(&Frame::default(), target, Some([1.; 4]))
             .unwrap();
+        assert!(device.prepare_present([80, 60]).unwrap());
         unsafe {
             let _ = ShowWindow(window.hwnd, SW_HIDE);
         }
         assert_eq!(device.present(target).unwrap(), 0.);
+        assert!(device.composition.as_ref().unwrap().acquired);
         assert!(!device.composition.as_ref().unwrap().active);
         unsafe {
             let _ = ShowWindow(window.hwnd, SW_SHOW);
@@ -827,6 +1009,11 @@ mod tests {
             device.retire_after_present(previous);
         }
         device.composition = composition;
+        // Hold the display condition independently of how quickly WARP finishes.
+        // Missing statistics otherwise release a device after three checks.
+        for (_, retirement) in &mut device.retiring_devices {
+            retirement.present = Some(u32::MAX);
+        }
         assert_eq!(device.retiring_devices.len(), 2);
         device.trim().unwrap();
         assert_eq!(device.retiring_devices.len(), 2);

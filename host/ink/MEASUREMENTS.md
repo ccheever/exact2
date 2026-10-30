@@ -3139,3 +3139,15 @@ The three ETL captures remain in the mirror's `target/ink-s29/` and are diagnost
 only. The eight temporary desktop tasks were removed and tracing stopped.
 The code builds and the recovery/bound changes are qualified, but the tail requirement and its causal diagnosis remain open. DirectX 11 remains the
 branch's configured default; this report does not approve landing it.
+
+G6 measures the heavy list on this NucBox through direct D3D11, Ink/wgpu and egui/DX12, with retained and reset driver caches: [tables, instruments and native qualification limits](../../bench/heavy-list/gpui/RESULTS.md#g6-egui-against-ink-on-windows).
+
+G6b traces the heavy-list D3D11 fling's repeated paints under composition
+backpressure and fixes the recovery material and DPI fixture failures; see
+[the attribution and qualification results](../../bench/heavy-list/gpui/RESULTS.md#g6b-the-d3d11-fling-traced).
+
+G6c honors the Windows carrier's presentation deadline: [the D3D11 fling, startup and desktop journeys remeasured](../../bench/heavy-list/gpui/RESULTS.md#g6c-one-paint-per-refresh).
+
+G6d fixes the Windows review findings and rechecks the NucBox: [lifecycle qualification, three pacing trials and the remaining cadence regression](../../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
+
+G6e restores the full-period reservation wait and removes the clean-frame skip: [cadence restored, the strict CPU gate missed, and native qualification](../../bench/heavy-list/gpui/RESULTS.md#g6e-the-full-period-reservation-wait-restored).

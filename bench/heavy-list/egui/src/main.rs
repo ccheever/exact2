@@ -9,6 +9,8 @@ mod heights;
 mod model;
 mod picture;
 mod row;
+#[cfg(target_os = "windows")]
+mod windows;
 
 struct HeavyList {
     messages: Vec<model::Message>,
@@ -20,6 +22,11 @@ struct HeavyList {
 }
 
 impl eframe::App for HeavyList {
+    #[cfg(target_os = "windows")]
+    fn logic(&mut self, _: &egui::Context, _: &mut eframe::Frame) {
+        windows::after_frame();
+    }
+
     fn ui(&mut self, ui: &mut Ui, _: &mut eframe::Frame) {
         picture::diagnostic(format_args!(
             "frame {} begin",
@@ -89,6 +96,10 @@ impl eframe::App for HeavyList {
             }
             ui.set_min_size(vec2(self.width, self.heights.total()));
             self.images.finish_frame(first, viewport.top() - top);
+            #[cfg(target_os = "windows")]
+            if windows::needs_observation() {
+                ui.ctx().request_repaint();
+            }
         });
     }
 }
@@ -99,7 +110,36 @@ fn fonts(ctx: &egui::Context) {
     fonts
         .families
         .insert(FontFamily::Name("italic".into()), fallback);
-    for (name, family, path) in [
+    #[cfg(target_os = "windows")]
+    fonts.families.insert(
+        FontFamily::Name("semibold".into()),
+        fonts.families[&FontFamily::Proportional].clone(),
+    );
+    #[cfg(target_os = "windows")]
+    let faces = [
+        (
+            "Segoe UI",
+            FontFamily::Proportional,
+            "C:/Windows/Fonts/segoeui.ttf",
+        ),
+        (
+            "Consolas",
+            FontFamily::Monospace,
+            "C:/Windows/Fonts/consola.ttf",
+        ),
+        (
+            "Segoe UI Italic",
+            FontFamily::Name("italic".into()),
+            "C:/Windows/Fonts/segoeuii.ttf",
+        ),
+        (
+            "Segoe UI Semibold",
+            FontFamily::Name("semibold".into()),
+            "C:/Windows/Fonts/seguisb.ttf",
+        ),
+    ];
+    #[cfg(target_os = "macos")]
+    let faces = [
         (
             "SF Pro",
             FontFamily::Proportional,
@@ -115,7 +155,8 @@ fn fonts(ctx: &egui::Context) {
             FontFamily::Name("italic".into()),
             "/System/Library/Fonts/SFNSItalic.ttf",
         ),
-    ] {
+    ];
+    for (name, family, path) in faces {
         match std::fs::read(path) {
             Ok(bytes) => {
                 fonts
@@ -169,7 +210,14 @@ fn main() -> eframe::Result {
         index
     });
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::METAL;
+    #[cfg(target_os = "macos")]
+    {
+        setup.instance_descriptor.backends = wgpu::Backends::METAL;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        setup.instance_descriptor.backends = wgpu::Backends::DX12;
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Heavy list · egui")
@@ -208,7 +256,10 @@ fn main() -> eframe::Result {
                 .expect("wgpu backend")
                 .adapter
                 .get_info();
+            #[cfg(target_os = "macos")]
             assert_eq!(adapter.backend, wgpu::Backend::Metal);
+            #[cfg(target_os = "windows")]
+            assert_eq!(adapter.backend, wgpu::Backend::Dx12);
             eprintln!("renderer: {} ({:?})", adapter.name, adapter.backend);
             Ok(Box::new(HeavyList {
                 heights: heights::Heights::new(file.messages.len()),

@@ -62,6 +62,7 @@ mod nodes;
 mod overflow;
 pub mod params;
 mod popover_surface;
+mod root_names;
 mod routes;
 mod row_look;
 mod scale;
@@ -211,6 +212,12 @@ pub(crate) struct Lowerer<'a> {
     pub mutations: Vec<exact_plan::MutationsId>,
     /// Each mutation's `option<T>` slot, by mutation index.
     pub mutation_slots: Vec<exact_plan::SlotsId>,
+    /// The root's states (`Ok`) and mutations (`Err`) by name ([`root_names`]).
+    pub(crate) slot_names: std::collections::HashMap<&'a str, Result<usize, usize>>,
+    /// The root's actions by name, to the first declaration's index.
+    pub(crate) action_names: std::collections::HashMap<&'a str, usize>,
+    /// The root's mutations by name, to the first declaration's index.
+    pub(crate) mutation_names: std::collections::HashMap<&'a str, usize>,
     pub actions: Vec<exact_plan::ActionsId>,
     /// The file's `style` declarations, by name (LLP 1017 P6).
     pub styles: BTreeMap<String, Vec<Attr>>,
@@ -401,6 +408,9 @@ fn lower_with_sites(
         resources: Vec::new(),
         mutations: Vec::new(),
         mutation_slots: Vec::new(),
+        slot_names: root_names::slots(root),
+        action_names: root_names::first(root.actions.iter().map(|a| a.name.as_str())),
+        mutation_names: root_names::first(root.mutations.iter().map(|m| m.name.as_str())),
         actions: Vec::new(),
         styles: BTreeMap::new(),
         decorations: BTreeMap::new(),
@@ -772,14 +782,14 @@ fn lower_body(
             l.b.set_mutation_queue(l.mutations[i]);
         }
         if let Some((name, _)) = &m.then {
-            let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
+            let action = l.actions[l.action_names[name.as_str()]];
             l.b.set_mutation_then(l.mutations[i], action);
         }
     }
     // Each module event the root hears, and the action it runs (LLP 1133.004 D6).
     for m in &file.modules {
         let Some(name) = &m.handler else { continue };
-        let Some(i) = root.actions.iter().position(|a| &a.name == name) else {
+        let Some(&i) = l.action_names.get(name.as_str()) else {
             continue;
         };
         l.b.module_event(
