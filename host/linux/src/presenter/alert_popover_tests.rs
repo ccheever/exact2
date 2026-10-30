@@ -215,3 +215,189 @@ fn reads_see_an_open_popovers_subtree() {
     p.frame();
     assert_eq!(marked(&mut p), Some(Value::list(vec![])));
 }
+
+/// What the runner's `frame()` reads for `name`.
+fn read_frame(p: &mut Presenter<()>, name: &str) -> Option<Value> {
+    p.host.runner_mut().act("measure", vec![]).unwrap();
+    let _ = name;
+    p.host.runner().slot("box").cloned()
+}
+
+const MEASURED: &str = "  state saves = 0\n  state box = []\n  action measure\n    box = [frame(\"menu\").x, frame(\"menu\").y, frame(\"menu\").width, frame(\"menu\").height]";
+
+fn painted(p: &mut Presenter<()>, name: &str) -> Value {
+    let (x, y, w, h) = p.rect_of(id(p, name)).expect("drawn");
+    Value::list([x, y, w, h].map(|v| Value::Number(f64::from(v))).to_vec())
+}
+
+/// The popover's box the reads see follows its placement: after its
+/// invoker moves, and once (not twice) through its own transform.
+#[test]
+fn reads_see_an_open_popovers_box_where_it_is_drawn() {
+    let source = APP
+        .replace("  state saves = 0", MEASURED)
+        .replace(
+            "testId=\"open\" popovertarget",
+            "testId=\"open\" position=\"absolute\" right=20 top=100 popovertarget",
+        )
+        .replace(
+            "role=\"dialog\" width=200",
+            "role=\"dialog\" width=200 transform=\"translateX(10px)\"",
+        );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    let drawn = painted(&mut p, "menu");
+    assert_eq!(read_frame(&mut p, "menu"), Some(drawn));
+    assert!(p.resize(600., 400.).is_none());
+    p.frame();
+    let drawn = painted(&mut p, "menu");
+    assert_eq!(
+        read_frame(&mut p, "menu"),
+        Some(drawn),
+        "after the invoker moved"
+    );
+}
+
+/// Any button that targets the open popover toggles it, not only the one
+/// that opened it: its press is no light dismiss (HTML).
+#[test]
+fn a_second_invoker_closes_the_open_popover_once() {
+    let source = APP.replace(
+        "      column id=\"menu\"",
+        "      button \"Again\" testId=\"again\" popovertarget=\"menu\" width=120 height=30\n      column id=\"menu\"",
+    );
+    let mut p = boot(&source);
+    click(&mut p, "open", 0.);
+    assert!(p.alert.is_some());
+    click(&mut p, "again", 200.);
+    assert!(p.alert.is_none(), "the second invoker's toggle closes it");
+}
+
+/// The agent's tap on a page control the popover covers lands on the
+/// popover, as a person's would: nothing under it is pressed.
+#[test]
+fn the_agents_tap_on_a_covered_page_control_presses_nothing() {
+    let source = APP.replace(
+        "      column id=\"menu\"",
+        "      button \"Under\" testId=\"under\" press=probe position=\"absolute\" left=0 top=64 width=200 height=40\n      column id=\"menu\"",
+    );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    let menu = p.rect_of(id(&p, "menu")).unwrap();
+    let under = p.rect_of(id(&p, "under")).unwrap();
+    assert!(
+        under.1 >= menu.1 && under.1 + under.3 <= menu.1 + menu.3,
+        "{menu:?} covers {under:?}"
+    );
+    let _ = p.tap(id(&p, "under"));
+    p.run_commands(|| ());
+    p.frame();
+    assert_eq!(count(&p, "probes"), Some(Value::Number(0.)));
+    assert!(p.alert.is_some(), "the press landed on the popover");
+}
+
+/// Tab goes from the invoker into its popover and from the popover's last
+/// stop to what follows the invoker (HTML's popover focus scope).
+#[test]
+fn tab_enters_the_popover_after_its_invoker() {
+    let source = APP.replace(
+        "      column id=\"menu\"",
+        "      button \"After\" testId=\"after\" width=120 height=30\n      column id=\"menu\"",
+    );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    for next in ["save", "other", "after"] {
+        p.key_down("Tab", 0.);
+        assert_eq!(p.focus, Some(id(&p, next)), "{next}");
+    }
+}
+
+/// A `dialog` shown as a popover runs the dialog focusing steps: its first
+/// stop takes the focus (HTML).
+#[test]
+fn a_dialog_popover_focuses_its_first_stop() {
+    let source = APP.replace(
+        "column id=\"menu\" testId=\"menu\" popover=\"auto\" role=\"dialog\"",
+        "dialog id=\"menu\" testId=\"menu\" popover=\"auto\"",
+    );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    assert!(p.alert.is_some());
+    assert_eq!(p.focus, Some(id(&p, "save")));
+}
+
+/// A manual popover keeps no focus to give back: hidden with the focus
+/// inside, the focus is not returned to its invoker (HTML).
+#[test]
+fn a_manual_popover_gives_no_focus_back() {
+    let source = APP
+        .replace("popover=\"auto\"", "popover=\"manual\"")
+        .replace(
+            "testId=\"other\"",
+            "testId=\"other\" popovertarget=\"menu\" popovertargetaction=\"hide\" autofocus=true",
+        );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    assert_eq!(p.focus, Some(id(&p, "other")));
+    tap(&mut p, "other");
+    assert!(p.alert.is_none());
+    assert_ne!(p.focus, Some(id(&p, "open")));
+}
+
+/// Back under a manual popover is the page's: nothing closes it, so the
+/// app does not take Back with no route to go back to.
+#[test]
+fn back_under_a_manual_popover_is_the_pages() {
+    let mut p = boot(&APP.replace("popover=\"auto\"", "popover=\"manual\""));
+    tap(&mut p, "open");
+    assert!(!p.system_back(0.), "nothing to go back to");
+    assert!(p.alert.is_some());
+}
+
+/// A page key the popover doesn't handle reaches the page's shortcuts.
+#[test]
+fn a_page_shortcut_works_under_a_popover() {
+    let source = APP.replace(
+        "testId=\"probe\" press=probe",
+        "testId=\"probe\" press=probe aria-keyshortcuts=\"Alt+P\"",
+    );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    p.hardware_key("AltLeft", "Alt", true, false);
+    p.hardware_key("KeyP", "p", true, false);
+    p.hardware_key("KeyP", "p", false, false);
+    p.hardware_key("AltLeft", "Alt", false, false);
+    p.run_commands(|| ());
+    assert_eq!(count(&p, "probes"), Some(Value::Number(1.)));
+}
+
+/// A long press on the live page under a manual popover opens its context
+/// popover there.
+#[test]
+fn a_long_press_works_under_a_manual_popover() {
+    let source = APP
+        .replace("popover=\"auto\"", "popover=\"manual\"")
+        .replace(
+            "testId=\"probe\" press=probe",
+            "testId=\"probe\" press=probe contextPopover=\"menu\"",
+        );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    let (x, y, ..) = p.rect_of(id(&p, "probe")).unwrap();
+    assert!(p.long_press(x + 5., y + 5., 500.));
+}
+
+/// A wheel over a popover that doesn't scroll goes on to the page.
+#[test]
+fn a_wheel_over_a_popover_scrolls_the_page() {
+    let source = APP.replace(
+        "        button \"Other\" testId=\"other\" height=30\n",
+        "        button \"Other\" testId=\"other\" height=30\n      box height=2000\n",
+    );
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    let (x, y, w, h) = p.rect_of(id(&p, "menu")).unwrap();
+    p.wheel_at(x + w / 2., y + h / 2., 0., 100.);
+    p.frame();
+    assert!(p.page().1 > 0., "the page scrolled: {:?}", p.page());
+}
