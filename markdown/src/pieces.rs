@@ -91,6 +91,8 @@ pub struct AtomPiece {
     pub background_color: String,
     /// The face's `direction`, `ltr` or `rtl`; empty to follow the line.
     pub direction: String,
+    /// The face's `ariaLabel`, the accessible name; empty for the label.
+    pub aria_label: String,
 }
 
 /// One list level's indent, CSS px: the browser's `padding-inline-start` on
@@ -470,6 +472,7 @@ fn atom_piece(
             color: face.map(|f| f.color.clone()).unwrap_or_default(),
             background_color: face.map(|f| f.background_color.clone()).unwrap_or_default(),
             direction: face.map(|f| f.direction.clone()).unwrap_or_default(),
+            aria_label: face.map(|f| f.aria_label.clone()).unwrap_or_default(),
         })),
     }
 }

@@ -64,7 +64,7 @@ extension TextArea {
     /// The atoms changed (a restyle, a new width, a new face, markup turned
     /// off): what is read and pointed at follows. An element whose atom
     /// keeps its range and role is kept, so VoiceOver's focus on it stays
-    /// while its face's label or title changes, as an upload's percentage
+    /// while its face's name or title changes, as an upload's percentage
     /// does; it is read anew, and on macOS a title change is posted for it.
     package func atomsChanged() {
         let frames = atomFrames()
@@ -77,7 +77,7 @@ extension TextArea {
                 return AtomElement(field: self, range: range, atom: atom)
             }
             #if os(macOS)
-            if kept.atom.label != atom.label || kept.atom.title != atom.title { renamed.append(kept) }
+            if kept.atom.spokenName != atom.spokenName || kept.atom.title != atom.title { renamed.append(kept) }
             #endif
             kept.atom = atom
             return kept
@@ -164,8 +164,9 @@ final class AtomCatcher: NSView {
 }
 
 /// An atom as assistive technology sees it: a button (or link, as
-/// declared) named by its label, described by its title, at its pill.
-/// The agent joins it to the field's node, as iOS's container does.
+/// declared) named by its face's `ariaLabel` or else its label, described
+/// by its title, at its pill. The agent joins it to the field's node, as
+/// iOS's container does.
 package final class AtomElement: NSAccessibilityElement, AgentOwned {
     weak var field: TextArea?
     let range: NSRange
@@ -177,7 +178,7 @@ package final class AtomElement: NSAccessibilityElement, AgentOwned {
     }
     package override func accessibilityParent() -> Any? { field }
     package override func accessibilityRole() -> NSAccessibility.Role? { atom.role == "link" ? .link : .button }
-    package override func accessibilityLabel() -> String? { atom.label }
+    package override func accessibilityLabel() -> String? { atom.spokenName }
     package override func accessibilityHelp() -> String? { atom.title.isEmpty ? nil : atom.title }
     package override func isAccessibilityElement() -> Bool { true }
     package override func accessibilityFrame() -> NSRect {
@@ -233,16 +234,16 @@ extension TextArea {
 }
 
 /// An atom as assistive technology sees it, beside the text view in its
-/// node: a button (or link, as declared) named by its label, described by
-/// its title, at its pill.
+/// node: a button (or link, as declared) named by its face's `ariaLabel` or
+/// else its label, described by its title, at its pill.
 package final class AtomElement: UIAccessibilityElement {
     weak var field: TextArea?
     let range: NSRange
-    var atom: MarkupAtom { didSet { accessibilityLabel = atom.label; accessibilityHint = atom.title.isEmpty ? nil : atom.title } }
+    var atom: MarkupAtom { didSet { accessibilityLabel = atom.spokenName; accessibilityHint = atom.title.isEmpty ? nil : atom.title } }
     init(field: TextArea, range: NSRange, atom: MarkupAtom) {
         (self.field, self.range, self.atom) = (field, range, atom)
         super.init(accessibilityContainer: field.owner ?? field)
-        accessibilityLabel = atom.label
+        accessibilityLabel = atom.spokenName
         accessibilityHint = atom.title.isEmpty ? nil : atom.title
         accessibilityTraits = atom.role == "link" ? .link : .button
     }

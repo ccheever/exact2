@@ -16,7 +16,8 @@ pub(crate) fn declare(shapes: &mut Shapes) {
     );
     // A field is never defaulted (LLP 1035.005.000 D3): an empty `color` or
     // `backgroundColor` is the kind's paint, as an empty label is the default,
-    // and an empty `direction` follows the atom's line.
+    // an empty `direction` follows the atom's line, and an empty `ariaLabel`
+    // leaves the label as the accessible name.
     shapes.map.insert(
         "AtomFace".into(),
         vec![
@@ -30,6 +31,7 @@ pub(crate) fn declare(shapes: &mut Shapes) {
                 "direction".into(),
                 Ty::Enum(vec!["ltr".into(), "rtl".into(), "".into()]),
             ),
+            ("ariaLabel".into(), Ty::String),
         ],
     );
     // In the order `exact_runner::AtomEvent` writes it.

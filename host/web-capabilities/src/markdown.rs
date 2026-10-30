@@ -83,7 +83,7 @@ pub fn pieces(source: &str, atoms: &str, faces: &str) -> String {
                 quoted(&mut out, field);
             }
             out.push_str(&format!(",{},{}", range.start, range.end));
-            for face in [&a.color, &a.background_color, &a.direction] {
+            for face in [&a.color, &a.background_color, &a.direction, &a.aria_label] {
                 out.push(',');
                 quoted(&mut out, face);
             }
@@ -120,14 +120,14 @@ mod tests {
     }
 
     /// An atom piece carries its label, flag 64, its indent and its detail,
-    /// its face's paint and direction last.
+    /// its face's paint, direction and accessible name last.
     #[test]
     fn an_atom_is_a_piece_with_its_detail() {
         let atoms = r#"[{"name":"citation","link":"t3-citation:"}]"#;
-        let faces = r##"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.svg","title":"T","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"","direction":"ltr"}]"##;
+        let faces = r##"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.svg","title":"T","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"","direction":"ltr","ariaLabel":"Quoted passage"}]"##;
         assert_eq!(
             with_atoms("a [q](t3-citation:1)", atoms, faces),
-            r##"[["a ",1,0,0,""],["Quote",1,0,72,"",0,["citation","button","i.svg","T","t3-citation:1","[q](t3-citation:1)",2,20,"light-dark(#d52c36, #ff6762)","","ltr"]]]"##
+            r##"[["a ",1,0,0,""],["Quote",1,0,72,"",0,["citation","button","i.svg","T","t3-citation:1","[q](t3-citation:1)",2,20,"light-dark(#d52c36, #ff6762)","","ltr","Quoted passage"]]]"##
         );
     }
 }
