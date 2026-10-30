@@ -1077,13 +1077,28 @@ Inspect and the inspector each counts as an outside press, as the window's other
 window's count went 8 to 13, one per press). Escape in a new binding's recorder after a real
 click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeholder fix).
 
+**Checked with real input (2026-10-30)** (bundle of `2f29f2074d`, a lane copy on its own home, `second`
+seeded with `--turns --pull-request`, pointer and keys through `orca computer`, VoiceOver read from its
+caption panel):
+
+- Context added at the selection keeps a selected chip (2 of 2): with the `README.md` mention selected,
+  a review comment from the diff went in before it; with that review comment selected, an image from
+  Attach files went in before it. Neither chip was replaced.
+- A chip's details popover, the parts that hold: Escape closes it and the prompt keeps the focus with
+  the chip selected (3 of 3, a review comment), and a press outside it closes it and leaves the focus
+  where the press put it (Search threads, 1 of 1).
+- Mark unread on "Background thread (no run)" from the thread's actions menu: the server refused it
+  ("has no completed run to mark unread", in its trace) and the app showed no toast or banner (1 of 1).
+- The context popover under VoiceOver: the meter reads "Context window 6.2% used, dialog pop up,
+  button", and VO-Space opens the popover, which reads "Context Window", "6.2% · 12k/200k" and
+  "Context window usage, 6%, progress indicator" (1 of 1). The Usage page's bars were not checked.
+- VoiceOver reads a composer image chip as "Image attachment, sunset.png, 13 KB", in the prompt's
+  value and as the chip itself when VoiceOver interacts with the prompt (1 of 1).
+- A freshly saved EAS host ("Realinput EAS", saved by a pointer press) draws Edit and Remove at full
+  opacity, as the older host beside it does (1 of 1).
+
 **Fixed, not checked with real input or VoiceOver:**
 
-- Context another panel adds to the composer (a review comment, a terminal excerpt, a thread
-  dropped from the sidebar, a citation, a Browser annotation, an attached file or image) goes in
-  at the start of the selection and deletes nothing, as the reference's `insertComposerText` at
-  "cursor" (ChatComposer.tsx:6041-6120): a chip left selected after its preview closes stays in
-  the draft. It replaced the selected chip before (session L, 3 of 3).
 - A chip's details popover (a skill, a review comment, a preview annotation, a terminal excerpt)
   takes the focus as it opens, by pointer or VO-Space: its first tabbable (View instructions, the
   terminal output) or the popup, so VoiceOver reads '<label>, dialog'. Escape gives the prompt
@@ -1093,13 +1108,20 @@ click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeh
   Skill Frontend Design, and 2 more items, group' with the popup focused; Escape returns to the
   chip; a press on the Typography heading leaves the focus on the page. Before, VoiceOver kept
   reading the prompt (N11, N25).
-- Mark unread shows nothing when the server refuses it, from every menu and environment, as the
-  reference's `useMarkThreadUnread` (`reportFailure: false`): the flat row, multi-selection and
-  More actions menus showed 'Failed to mark thread unread' before (`sidebar-mark-unread.test.ts`).
+  **Failed on 2026-10-30:** a pointer press opens the popover but the keyboard focus stays on the
+  prompt (a review comment 0 of 3, the Settings sample's skill chip 0 of 1); VoiceOver reads "Prompt
+  font preview, edit text, … Skill Frontend Design. Show details, is selected". VO-Space on a chip
+  opens nothing (a review comment, the sample's skill chip and an image chip, 0 of 1 each), though
+  VO-Space on 'Default' opens the model picker. An accessibility press on the skill chip opens the
+  popover, again with the focus left on the prompt.
 - Pairing a saved environment again reconnects it with the new credential, as the reference's
   `EnvironmentRegistry.register` restarts its connection: a background environment that failed for
   want of a credential connects and its row stops saying 'Connection failed'. Before, it kept the
-  failure (`connections-repair.test.ts`).
+  failure (`connections-repair.test.ts`). Checked by that test only: no fixture makes the failed
+  credential cheap.
+- The Thread title instructions textarea's grip (`resize: vertical`). Not checked: `orca computer
+  drag` delivered nothing in this app (the grip twice, a drag-select in the prompt twice), and its
+  scroll did not move a page either.
 
 **Checked with real keys** (2026-10-16):
 
@@ -1149,24 +1171,26 @@ Real-input sessions should type IME rows with held keys: orca's zero-dwell press
 input method commit a jamo at once. They should switch input sources with the system shortcut or
 menu, not TISSelectInputSource, before they judge IME rows.
 
-**Not checked yet:** the context popover and progress bars under VoiceOver (the ACP stand-in's
-threads now have a context meter), and an italic font face (no fixture has italic text). Also:
+**Not checked yet:** the Usage page's progress bars under VoiceOver (the 2026-10-30 session had no
+`--limits` seed), and an italic font face (no fixture has italic text). Also:
 
-- Escape on the Merge confirmation over the thread-details popover in a narrow window.
+- Escape on the Merge confirmation over the thread-details popover in a narrow window. Not checked on
+  2026-10-30: `orca computer` cannot resize the window, and its drags deliver nothing here.
 - VO-Space on the chip kinds session K did not press (sample.py, an image, a video, doc.pdf, the
-  citation and the thread chip pass).
-- Once, in session L, VO-Right from Message skipped every composer chip; after the caret moved it
-  read them in text order, every later time. Not isolated.
+  citation and the thread chip pass). On 2026-10-30 VO-Space opened no chip at all (see the chip
+  popover row above).
+- VO-Right from Message skips every composer chip. Once in session L; on 2026-10-30 it went from
+  Message to 'Default, collapsed, button' 2 of 2, with an image chip and a review comment in the
+  draft. The chips are the prompt's children now, and VoiceOver reaches them only by interacting
+  with the prompt (VO-Shift-Down).
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
 sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and GitHub writes.
 
-**Next real-input session:** the fixes under "Fixed, not checked" (in the composer, a selected
-file, image or review comment chip kept when a review comment, an image or an annotation is added;
-VO-Space and a click on a review comment, annotation and the Settings sample's skill chip reading
-the dialog, then Escape back to the prompt with the chip selected), and the rows under "Not
-checked yet".
+**Next real-input session:** the chip popover's focus, by pointer and by VO-Space, once it is fixed;
+the textarea grip and the narrow-window Merge row, which need a tool whose drags reach the app; the
+Usage page's bars under VoiceOver; and the VO-Right row.
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` (each has its
 README) give This machine plus two lane environments, a machines list, and an ACP agent stand-in.
