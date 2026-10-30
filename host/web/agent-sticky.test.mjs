@@ -1,6 +1,6 @@
 // The agent's tap and a sticky box (QUEUE "The agent's tap doesn't scroll a target covered by a sticky overlay clear of
 // it"; theme2's 14:49 ruling): a target whose middle a sticky box of its own scroller covers is scrolled into the band
-// the box leaves (`reveal`, host/web/input-glue.js), as a person scrolls a row out from under a docked bar, and pressed;
+// the box leaves (`reveal`, host/web/agent-input.js), as a person scrolls a row out from under a docked bar, and pressed;
 // a pass-through sticky (pointer-events: none), which the tap's own hit-test passes, scrolls nothing; a popover over a
 // row is no scroll's to clear, and the tap still refuses there; nor a dock taller than the band it leaves.
 import { test, expect } from 'bun:test';
@@ -105,7 +105,7 @@ const drive = async (session) => {
   expect(await scrollTop()).toBe(still);
 };
 
-// (The JS page; the wasm page's glue.js calls the same `reveal`, from input-glue.js.)
+// (The JS page; the wasm page's glue.js calls the same `reveal`, from agent-input.js.)
 test('a tap scrolls its target clear of a sticky box of its own scroller, and only then (theme2\'s 14:49 conditions)', async () => {
   const session = await open({ host: 'web', url: await serve() });
   try { await drive(session); } finally { await session.close(); }

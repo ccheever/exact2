@@ -75,10 +75,12 @@ check('a radio group is a segmented control with one Tab stop, and the arrows mo
   const look = id => evaluate(`(s => [s.backgroundColor, s.boxShadow !== 'none', s.borderRadius])(getComputedStyle(document.getElementById('${id}')))`);
   const [track, ground] = await evaluate(`['track', 'ground'].map(id => getComputedStyle(document.getElementById(id)).backgroundColor)`);
   expect([track === 'rgba(0, 0, 0, 0)', /^rgb\(/.test(ground)]).toEqual([false, true]); // the sheet carries both roles (neutral-look.test.mjs holds their values)
-  expect(await evaluate(`(s => [s.backgroundColor, s.borderRadius])(getComputedStyle(document.getElementById('tip')))`)).toEqual([track, '8px']);
+  // Apple's continuous curve over the radius scaled to its reach, where the engine draws `corner-shape`.
+  const curved = await evaluate(`CSS.supports('corner-shape', 'superellipse(2)')`), radius = curved ? '12.16px' : '8px', chip = curved ? '9.12px' : '6px';
+  expect(await evaluate(`(s => [s.backgroundColor, s.borderRadius])(getComputedStyle(document.getElementById('tip')))`)).toEqual([track, radius]);
   expect(await evaluate(`document.getElementById('tip').getBoundingClientRect().width < document.getElementById('exact-root').getBoundingClientRect().width / 2`)).toBe(true);
-  expect(await look('t18')).toEqual([ground, true, '6px']);
-  expect(await look('t15')).toEqual(['rgba(0, 0, 0, 0)', false, '6px']);
+  expect(await look('t18')).toEqual([ground, true, chip]);
+  expect(await look('t15')).toEqual(['rgba(0, 0, 0, 0)', false, chip]);
   // The accessibility tree: a radio group of radios, the checked one checked.
   const { nodes } = await call('Accessibility.getFullAXTree', {});
   const radios = nodes.filter(n => n.role?.value === 'radio').map(n => [n.name?.value, n.properties?.find(p => p.name === 'checked')?.value.value]);
@@ -97,7 +99,7 @@ check('a radio group is a segmented control with one Tab stop, and the arrows mo
   // The arrows: the next radio past the disabled one, focused and pressed; wrapping at either end; Up and Down too.
   await key(call, 'ArrowRight');
   expect(await evaluate(`[document.activeElement.id, pressed.splice(0), document.getElementById('t25').getAttribute('aria-checked')]`)).toEqual(['t25', ['t25'], 'true']);
-  expect(await look('t25')).toEqual([ground, true, '6px']);
+  expect(await look('t25')).toEqual([ground, true, chip]);
   await key(call, 'ArrowRight');
   expect(await evaluate(`[document.activeElement.id, pressed.splice(0)]`)).toEqual(['t15', ['t15']]);
   await key(call, 'ArrowLeft');

@@ -230,7 +230,7 @@ async function withBackPage(engine, run) {
     .replace('<div id="exact-root"></div>', () => `<div id="exact-root"><div id="wrapper">${stack('detail', symbol())}</div></div>`)
     .replace('<script type="module" src="./glue.js"></script>', () => `<script type="module">
       import { navigation, inertAncestor } from '/navigation.js';
-      import { reveal, viewBox } from '/input-glue.js';
+      import { reveal, viewBox } from '/agent-input.js';
       const root = document.getElementById('exact-root'); navigation.connect(root, () => false, () => {});
       window.project = () => navigation.project(root, () => {}); project();
       Object.assign(window, { reveal, viewBox, inertAncestor, ready: true });

@@ -79,7 +79,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'back-padding-start': ['padding'], 'back-padding-end': ['padding'], 'bar-symbol-size': ['font-size'],
     'alert-width': ['width'], 'alert-margin': ['width'], 'alert-padding': ['padding'], 'alert-gap': ['gap'], 'alert-action-gap': ['gap'],
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
-    'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
+    'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'], 'popover-padding': ['padding'], 'popover-margin': ['margin', 'margin-left'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
     'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height'], 'sheet-margin': ['width', 'height'], 'sheet-top': ['inset'],
     'list-row-inset': ['padding-left', 'padding-right'],
@@ -133,7 +133,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'button-tint-alpha': `{ background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); }`,
     'button-hover-tinted': `:hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-hover-tinted')}, transparent); }`,
     'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
-    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-tinted')}, transparent); }`,
+    'button-pressed-tinted': `[data-button-style="bordered-tinted"]):is([data-pressed], [data-exact-open]):not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-tinted')}, transparent); }`,
     'button-pressed-alpha': [`{ background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-alpha')}, transparent),`, `& > :not(img), &::after { opacity: ${alpha('button-pressed-alpha')}; }`, `& > img { --exact-tint: color-mix(in srgb, currentColor ${percent('button-pressed-alpha')}, transparent); }`],
     'button-pressed-lighten': [`color-mix(in srgb, var(--exact-accent, AccentColor), #fff ${percent('button-pressed-lighten')})); background-image: none; }`, `{ background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, #fff ${percent('button-pressed-lighten')}, transparent); }`],
     'bar-hover-alpha': `{ opacity: var(--exact-hover-dim, ${alpha('bar-hover-alpha')}); }`,
@@ -158,7 +158,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // Every symbol's scale is one of the two rows: a bar item's restates the image's.
   expect(all(neutral, '--exact-symbol-scale').sort()).toEqual([String(value.get('symbol-scale')), String(value.get('button-symbol-scale'))]);
   expect(all(neutral, 'font-weight').sort()).toEqual(['400', String(value.get('control-weight'))]);
-  expect(shell.includes(`font-weight: ${value.get('control-weight')}; --exact-said-font-weight: ; border-radius: var(--exact-control-radius, ${length('control-radius')});`)).toBe(true);
+  expect(shell.includes(`font-weight: ${value.get('control-weight')}; --exact-said-font-weight: ; border-radius: var(--exact-control-radius, calc(${length('control-radius')} * var(--exact-curve-reach))); corner-shape: var(--exact-control-curve, var(--exact-curve));`)).toBe(true);
   expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
 });
 
@@ -264,7 +264,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         segments: [box('segments')[2] < 300, Math.abs(box('segments')[2] - box('chosen')[2] - box('segment')[2] - 6) < 1, box('segments')[3], css('chosen', 'boxShadow') !== 'none'],
         bar: [color('bar'), color('bar', 'backgroundColor'), css('bar', 'backdropFilter') ?? css('bar', 'webkitBackdropFilter'), css('bar', 'borderBottomWidth'), color('bar-button', 'borderTopColor')[3]],
         tabs: [color('tabs', 'backgroundColor'), css('tabs', 'borderTopWidth'), css('tabs', 'boxShadow')],
-        list: [color('list', 'backgroundColor'), css('card', 'borderTopLeftRadius'), color('list-said', 'backgroundColor')],
+        list: [color('list', 'backgroundColor'), css('card', 'borderTopLeftRadius'), css('card', 'cornerTopLeftShape') ?? 'round', color('list-said', 'backgroundColor')],
+        curved: CSS.supports('corner-shape', 'superellipse(2)'),
         sheet: [color('sheet', 'backgroundColor'), css('sheet', 'position'), box('sheet')[2], box('sheet')[3]],
       }));
       expect([at('page'), got.page]).toEqual([at('page'), [INK[scheme], GROUND[scheme]]]);
@@ -301,7 +302,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('bar'), got.bar]).toEqual([at('bar'), [INK[scheme], GROUND[scheme], 'none', '1px', 0]]);
       expect([at('tabs'), got.tabs]).toEqual([at('tabs'), [GROUND[scheme], '1px', 'none']]);
       // A grouped list: the neutral ground over the sheet's literal, 12 px cards; a ground the author wrote stays.
-      expect([at('list'), got.list]).toEqual([at('list'), [scheme === 'light' ? [245, 245, 245, 1] : GROUND[scheme], '12px', [1, 2, 3, 1]]]);
+      // Apple's continuous curve where the engine draws `corner-shape`, over the radius scaled to its reach.
+      const surface = got.curved ? ['18.24px', 'superellipse(1.6)'] : ['12px', 'round'];
+      expect([at('list'), got.list]).toEqual([at('list'), [scheme === 'light' ? [245, 245, 245, 1] : GROUND[scheme], ...surface, [1, 2, 3, 1]]]);
       // A sheet in a wide window is a card, 560 wide and a sheet's height whatever it holds: 45rem, less the window's
       // 64 px margin in this 700 px window.
       expect([at('sheet'), got.sheet]).toEqual([at('sheet'), [GROUND[scheme], 'fixed', 560, 636]]);
@@ -309,6 +312,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // The unsaid hover: a wash over a pressable nobody styled, and a link in running text underlines.
       await page.hover('#pressable');
       expect([at('hover'), await page.evaluate(() => css('pressable', 'backgroundImage') !== 'none')]).toEqual([at('hover'), true]);
+      // None while a finger was the last pointer used (the input glue's mark), under the same `:hover`.
+      const touched = (input) => page.evaluate((input) => { document.documentElement.dataset.exactInput = input; return css('pressable', 'backgroundImage') !== 'none'; }, input);
+      expect([at('touched'), await touched('touch'), await touched('mouse')]).toEqual([at('touched'), false, true]);
       // None over a box that says `disabled`, nor over a pressable in one.
       await page.evaluate(() => document.getElementById('pressable').insertAdjacentHTML('afterend', '<div data-exact-on="press" disabled id="pressable-off" style="width:120px;height:40px">off <span data-exact-on="press" id="pressable-in">in</span></div>'));
       await page.hover('#pressable-off', { position: { x: 100, y: 30 } });
@@ -399,6 +405,11 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // own keeps it.
       const OWN = [[52, 199, 89, 1], '1'], [inks, heldInks] = (await highlight('translucent')).map((seen) => seen[4]);
       expect([at('symbols'), inks, heldInks]).toEqual([at('symbols'), [[inks[0][0], '1'], OWN, OWN], [[[...inks[0][0].slice(0, 3), 0.75], '1'], OWN, OWN]]);
+      // A button whose popover is open (menu-rows.js marks it) shows its press.
+      const shows = (id, mark) => page.evaluate(([id, mark]) => { const b = document.getElementById(id); b.toggleAttribute(mark, true); const seen = [css(id, 'backgroundImage'), css(id, 'backgroundColor')]; b.removeAttribute(mark); return seen; }, [id, mark]);
+      const open = await shows('bordered', 'data-exact-open');
+      expect([at('open'), open]).toEqual([at('open'), await shows('bordered', 'data-pressed')]);
+      expect([at('open'), open[0]]).not.toEqual([at('open'), await page.evaluate(() => css('bordered', 'backgroundImage'))]);
       // Released (the input glue marks it), a button eases out of its press over a quarter second: a filled button's
       // fill, a face, a symbol in the button's ink, a sheet's word and a wash; a symbol in a colour of its own has
       // nothing to ease.
@@ -466,7 +477,60 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('menu'), Math.abs(menu[0] - invoker[0]) <= 1, menu[1] - invoker[1] - invoker[3], menu[2]]).toEqual([at('menu'), true, 4, 176]);
       expect([at('menu rows'), await page.evaluate(() => [color('item'), color('item', 'backgroundColor'), css('item', 'borderTopStyle'), color('item-delete'), color('menu', 'backgroundColor')])])
         .toEqual([at('menu rows'), [INK[scheme], [0, 0, 0, 0], 'none', RED[scheme], SURFACE[scheme]]]);
+      // One highlight, the focused row's (the input glue moves the focus with the pointer), with no ring beside it, and
+      // no second one under the pointer.
+      await page.evaluate(() => document.getElementById('item-delete').focus({ focusVisible: true }));
+      await page.hover('#item');
+      expect([at('menu highlight'), await page.evaluate(() => [css('item-delete', 'backgroundImage') !== 'none', css('item', 'backgroundImage'), css('item-delete', 'outlineStyle')])])
+        .toEqual([at('menu highlight'), [true, 'none', 'none']]);
+      // A row pressed under the pointer without the focus (a tap in Safari) shows its press.
+      await page.evaluate(() => document.getElementById('item').setAttribute('data-pressed', ''));
+      expect([at('menu press under hover'), await page.evaluate(() => css('item', 'backgroundImage') !== 'none')]).toEqual([at('menu press under hover'), true]);
+      await page.evaluate(() => document.getElementById('item').removeAttribute('data-pressed'));
       await page.keyboard.press('Escape');
+      // A corner shape its author wrote wins over the platform's curve, on a sidebar's tab too.
+      expect([at('authored corner'), await page.evaluate(() => {
+        if (!CSS.supports('corner-shape', 'bevel')) return 'no corner-shape';
+        document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<div data-exact-sidebar><div role="tablist"><button role="tab" id="bevelled-tab" style="corner-shape: bevel">Tab</button></div></div>');
+        return css('bevelled-tab', 'cornerTopLeftShape');
+      })]).toEqual([at('authored corner'), expect.stringMatching(/^(bevel|superellipse\(0\)|no corner-shape)$/)]);
+      // A popover of the author's content has the web's margin, a padding its author wrote wins, and a menu keeps its own.
+      expect([at('popover margin'), await page.evaluate(() => {
+        document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<div popover id="content-popover">Plain</div><div popover id="padded-popover" style="padding: 8px">Padded</div>');
+        return ['content-popover', 'padded-popover', 'menu'].map(id => css(id, 'paddingTop'));
+      })]).toEqual([at('popover margin'), ['16px', '8px', '4px']]);
+      // Placed at a button as wide as the window, a long popover starts at the button, clear of it (below, or above
+      // where there is no room), and keeps 16 px off the window's edge it extends toward, whatever its own direction;
+      // one placed at an inset point takes no inline margin. Each is what it measured, or why it could not.
+      const edge = await page.evaluate(() => {
+        if (!CSS.supports('position-area', 'block-end')) return 'no anchor positioning';
+        document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<button id="wide-invoker" style="display: block; width: 100%">Open</button>' + ['ltr', 'rtl'].map(dir => `<div popover id="long-${dir}" dir="${dir}">` + 'A popover long enough to fill the line. '.repeat(6) + '</div>').join('') + '<div popover id="inset-popover" style="--exact-inset-x: 40px; --exact-inset-y: 40px">Inset</div>');
+        const invoker = document.getElementById('wide-invoker').getBoundingClientRect();
+        const placed = ['ltr', 'rtl'].map(dir => {
+          const pop = document.getElementById(`long-${dir}`);
+          pop.showPopover({ source: document.getElementById('wide-invoker') });
+          const r = pop.getBoundingClientRect();
+          pop.hidePopover();
+          return [dir, Math.round(r.left - invoker.left) || 0, r.top >= invoker.bottom - 0.5 || r.bottom <= invoker.top + 0.5, innerWidth - r.right >= 15.5];
+        });
+        const inset = getComputedStyle(document.getElementById('inset-popover'));
+        // Toward the window's left: in a right-to-left window, and flipped from a narrow button at the right end of a
+        // left-to-right one. Each ends at its button's right edge.
+        const leftward = (name, invoker) => {
+          const pop = document.getElementById('long-ltr');
+          pop.showPopover({ source: invoker });
+          const r = pop.getBoundingClientRect(), b = invoker.getBoundingClientRect();
+          pop.hidePopover();
+          return [name, Math.round(b.right - r.right) || 0, r.left >= 15.5];
+        };
+        document.documentElement.dir = 'rtl';
+        const rtl = leftward('rtl window', document.getElementById('wide-invoker'));
+        document.documentElement.removeAttribute('dir');
+        document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<button id="right-invoker" style="display: block; margin-left: auto">More</button>');
+        const flipped = leftward('flipped', document.getElementById('right-invoker'));
+        return [...placed, ['inset', inset.marginLeft, inset.marginRight], rtl, flipped];
+      });
+      expect([at('popover edge'), edge]).toEqual([at('popover edge'), edge === 'no anchor positioning' ? edge : [['ltr', 0, true, true], ['rtl', 0, true, true], ['inset', '0px', '0px'], ['rtl window', 0, true], ['flipped', 0, true]]]);
       await page.click('#invoker-end');
       [menu, invoker] = await page.evaluate(() => [box('menu'), box('invoker-end')]);
       expect([at('menu at the end'), Math.abs(menu[0] + menu[2] - invoker[0] - invoker[2]) <= 1, menu[1] - invoker[1] - invoker[3]]).toEqual([at('menu at the end'), true, 4]);
@@ -515,7 +579,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // An alert reads from the start. Its actions share the row equally (416 less 24 of padding each side and a 12 px
       // gap is 178 each), and a destructive one's edge is its red, where the other's is the look's line.
       const alert = await page.evaluate(() => { document.getElementById('alert').showModal(); return [css('alert', 'width'), css('alert', 'textAlign'), css('alert', 'borderTopLeftRadius'), color('alert', 'backgroundColor'), box('delete')[2], box('cancel')[2], css('delete', 'borderTopColor') === css('delete', 'color'), css('cancel', 'borderTopColor') === css('delete', 'borderTopColor')]; });
-      expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', '12px', SURFACE[scheme], 178, 178, true, false]]);
+      expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', surface[0], SURFACE[scheme], 178, 178, true, false]]);
       await context.close();
     }
     // A touch device: a control is 44 px, but for a small one, which keeps its own box as UIKit's does. (A narrow
@@ -548,9 +612,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet
         const at = (t) => { for (const a of opened.getAnimations()) { a.pause(); a.currentTime = t; } return Math.round(box('opened')[1]); };
         const path = moving.length ? [at(0), at(200)] : [];
         for (const a of opened.getAnimations()) a.finish();
-        return [css('opened', 'position'), box('opened'), css('opened', 'borderTopLeftRadius'), css('opened', 'borderBottomLeftRadius'), box('tabs')[1] < box('opened')[1] + box('opened')[3], css('opened', 'zIndex'), moving, path.length === 0 || (path[0] === 712 && path[1] > 12 && path[1] < 712)];
+        return [css('opened', 'position'), box('opened'), CSS.supports('corner-shape', 'superellipse(2)') ? css('opened', 'borderTopLeftRadius') === '18.24px' : css('opened', 'borderTopLeftRadius') === '12px', css('opened', 'borderBottomLeftRadius'), box('tabs')[1] < box('opened')[1] + box('opened')[3], css('opened', 'zIndex'), moving, path.length === 0 || (path[0] === 712 && path[1] > 12 && path[1] < 712)];
       });
-      expect([engine, reducedMotion, got]).toEqual([engine, reducedMotion, ['fixed', [0, 12, 400, 688], '12px', '0px', true, '1', reducedMotion === 'reduce' ? [] : ['box-shadow', 'translate'], true]]);
+      expect([engine, reducedMotion, got]).toEqual([engine, reducedMotion, ['fixed', [0, 12, 400, 688], true, '0px', true, '1', reducedMotion === 'reduce' ? [] : ['box-shadow', 'translate'], true]]);
       await context.close();
     }
   } finally {

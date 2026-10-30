@@ -525,6 +525,41 @@ fn a_native_button_marks_bound_size_and_padding() {
 }
 
 #[test]
+fn a_capsule_control_takes_no_curve() {
+    // Written, the capsule's round corner is in the node's CSS beside its radius.
+    let plan = contract::compile(
+        r#"component App
+  view
+    button "Go" -exact-corner-style="capsule" testId="go"
+"#,
+    )
+    .unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let go = parts
+        .iter()
+        .flatten()
+        .find(|part| part.props.get("data-testid").is_some_and(|id| id == "go"))
+        .unwrap();
+    assert!(
+        go.css.contains("--exact-control-curve:round;"),
+        "{}",
+        go.css
+    );
+    // Bound, the module writes the curve with the radius.
+    let plan = contract::compile(
+        r#"component App
+  state round = true
+  view
+    button "Go" -exact-corner-style=(round ? "capsule" : "medium")
+"#,
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("--exact-control-curve"), "{js}");
+}
+
+#[test]
 fn static_authored_clears_keep_inline_css_over_platform_rules() {
     let plan = contract::compile(
         r##"component App

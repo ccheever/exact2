@@ -98,7 +98,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
 async function serve() {
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
-    const file = ['navigation.js', 'input-glue.js', 'prompt-glue.js', 'alert-message.js'].find(name => req.url === '/' + name);
+    const file = ['navigation.js', 'input-glue.js', 'agent-input.js', 'prompt-glue.js', 'alert-message.js'].find(name => req.url === '/' + name);
     if (!file) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, file)));
   });
@@ -131,7 +131,11 @@ async function inChrome(test, width = 600, motion = false) {
       await call('Input.dispatchKeyEvent', { type: 'keyDown', key: name, code, windowsVirtualKeyCode: vk, ...(text ? { text } : {}) });
       await call('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code, windowsVirtualKeyCode: vk });
     };
-    await test(evaluate, press, key);
+    const move = async (id) => {
+      const at = id ? await evaluate(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`) : { x: 1, y: 1 };
+      await call('Input.dispatchMouseEvent', { type: 'mouseMoved', ...at });
+    };
+    await test(evaluate, press, key, move);
   } finally {
     await suite.close();
     server.close();
@@ -247,7 +251,7 @@ check('a modal route is a dialog to assistive technology: the focus moves in, an
   expect(await evaluate(`pop(); push('1', '/item/1'); ${sheet('1')}`)).toEqual([null, null, null, null]);
 }), 60000);
 
-check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inChrome(async (evaluate, press, key) => {
+check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inChrome(async (evaluate, press, key, move) => {
   const arrow = name => key(name, name, { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Home: 36, End: 35 }[name]);
   const after = async (name) => { await arrow(name); return evaluate('document.activeElement.id + " " + nav.getAttribute("navigationKey")'); };
   // Left and Right along a tablist, wrapping, with Home and End: the focus moves and nothing is pressed (the selected
@@ -282,6 +286,33 @@ check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inCh
   expect(await after('ArrowDown')).toBe('m-1 list');
   await evaluate(`document.getElementById('add').focus()`);
   expect(await after('ArrowUp')).toBe('m-4 list');
+  // A mouse moves the same focus, as NSMenu moves its one highlight: the arrows go on from the row under it, which is
+  // not `:focus-visible`; a disabled row takes none; and leaving the rows gives the focus back to what held it before
+  // (here a button outside the menu), so Down enters from the top again.
+  const focused = () => evaluate(`document.activeElement.id + (document.activeElement.matches(':focus-visible') ? ' ring' : '')`);
+  await evaluate(`document.getElementById('add').focus()`);
+  await move('m-3');
+  expect(await focused()).toBe('m-3');
+  expect(await after('ArrowDown')).toBe('m-4 list');
+  await move('m-2');
+  expect(await focused()).toBe('m-4 ring');
+  await move('m-1');
+  await move();
+  expect((await focused()).split(' ')[0]).toBe('add');
+  expect(await after('ArrowDown')).toBe('m-1 list');
+  // Leaving the rows straight onto a button outside the menu gives the focus back too.
+  await evaluate(`document.body.insertAdjacentHTML('beforeend', '<button id="far" style="position: fixed; right: 0; bottom: 0">Far</button>'); document.getElementById('add').focus()`);
+  await move('m-3');
+  expect(await focused()).toBe('m-3');
+  await move('far');
+  expect((await focused()).split(' ')[0]).toBe('add');
+  // Entered by the arrows first, the menu still gives the focus back to its button when the pointer leaves it.
+  await evaluate(`document.getElementById('add').focus()`);
+  expect(await after('ArrowDown')).toBe('m-1 list');
+  await move('m-3');
+  await move('far');
+  expect((await focused()).split(' ')[0]).toBe('add');
+  await evaluate(`document.getElementById('far').remove()`);
   // With the menu closed, and in a field, the arrows are the page's own.
   await evaluate(`document.getElementById('menu').hidePopover(); document.getElementById('search').focus()`);
   expect(await after('ArrowDown')).toBe('search list');
@@ -338,10 +369,10 @@ check('in a wide window\'s split the focus follows the detail and comes back to 
 }, 1200), 60000);
 
 check('the agent\'s reveal leaves what a tap refuses where it is', () => inChrome(async (evaluate, press) => {
-  // Before a tap the driver scrolls its target into view (input-glue.js `reveal`), as a person would. Under a sheet the
+  // Before a tap the driver scrolls its target into view (agent-input.js `reveal`), as a person would. Under a sheet the
   // list is inert: nobody can scroll or press it, the tap is refused, and a refusal leaves the page as it was. (Shelf in
   // conformance: a refused tap on a covered row's swipe action left the row scrolled to it, on the page that was asked.)
-  const reveal = `import('./input-glue.js').then(m => [m.reveal(document.getElementById('row-far'), 1).scrolled, document.getElementById('scroller').scrollTop > 0])`;
+  const reveal = `import('./agent-input.js').then(m => [m.reveal(document.getElementById('row-far'), 1).scrolled, document.getElementById('scroller').scrollTop > 0])`;
   await press('add');
   expect(await evaluate(`document.getElementById('list').inert`)).toBe(true);
   expect(await evaluate(reveal)).toEqual([false, false]);

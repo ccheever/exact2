@@ -714,7 +714,7 @@ function inputFixture() {
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
     root: { querySelectorAll: s => s.includes('aria-modal') ? [] : buttons, addEventListener() {}, contains: () => true }, // press feedback's listener: press.test.mjs drives it
     // The shortcuts' keydown listens in the capture phase, a pressable's activation in the bubble phase.
-    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown') f[capture ? 'keydown' : 'keyActivate'] = fn; }, activeElement: { closest: () => null }, getElementById: id => (id === 'exact-snap' ? {} : null), styleSheets: [] },
+    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown') f[capture ? 'keydown' : 'keyActivate'] = fn; }, activeElement: { closest: () => null }, getElementById: id => (id === 'exact-snap' ? {} : null), styleSheets: [], documentElement: { dataset: {} } },
     HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLButtonElement: class {},
     MutationObserver: class { observe() {} disconnect() {} takeRecords() { return []; } }, queueMicrotask, Element: class {}, matchMedia: () => ({ matches: false, addEventListener() {} }), // the input glue's start: sheets, looks, hover
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
