@@ -14,7 +14,7 @@ use windows::{
     Win32::{
         Foundation::*,
         System::{
-            Diagnostics::{Debug::*, ToolHelp::*},
+            Diagnostics::{Debug::*, ProcessSnapshotting::*},
             Threading::*,
         },
     },
@@ -103,12 +103,27 @@ impl Drop for Handle {
         }
     }
 }
-struct Suspended(HANDLE);
-impl Drop for Suspended {
+struct Snapshot(HPSS);
+impl Drop for Snapshot {
     fn drop(&mut self) {
         unsafe {
-            ResumeThread(self.0);
+            PssFreeSnapshot(GetCurrentProcess(), self.0);
         }
+    }
+}
+struct Marker(HPSSWALK);
+impl Drop for Marker {
+    fn drop(&mut self) {
+        unsafe {
+            PssWalkMarkerFree(self.0);
+        }
+    }
+}
+fn checked(code: u32) -> std::io::Result<()> {
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::from_raw_os_error(code as i32))
     }
 }
 
@@ -155,10 +170,37 @@ fn dump(pid: u32, output: &mut impl Write) -> Result<(), Box<dyn std::error::Err
     // symbol-server downloads must not hold the sampled thread suspended.
     unsafe {
         let process = Handle(OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+            PROCESS_QUERY_INFORMATION
+                | PROCESS_VM_READ
+                | PROCESS_CREATE_PROCESS
+                | PROCESS_DUP_HANDLE,
             false,
             pid,
         )?);
+        // Freeze contexts and their stack memory before loading PDBs. The clone
+        // is copy-on-write; the target runs while DbgHelp walks the snapshot.
+        let started = Instant::now();
+        let mut snapshot = HPSS::default();
+        checked(PssCaptureSnapshot(
+            process.0,
+            PSS_CAPTURE_VA_CLONE | PSS_CAPTURE_THREADS | PSS_CAPTURE_THREAD_CONTEXT,
+            Some(CONTEXT_FULL_AMD64.0),
+            &mut snapshot,
+        ))?;
+        let snapshot = Snapshot(snapshot);
+        let mut clone = PSS_VA_CLONE_INFORMATION::default();
+        checked(PssQuerySnapshot(
+            snapshot.0,
+            PSS_QUERY_VA_CLONE_INFORMATION,
+            (&mut clone as *mut PSS_VA_CLONE_INFORMATION).cast(),
+            size_of_val(&clone) as u32,
+        ))?;
+        writeln!(
+            output,
+            "snapshot_ms={:.3}",
+            started.elapsed().as_secs_f64() * 1000.
+        )?;
+        let process = clone.VaCloneHandle;
         let exe = std::env::current_exe()?;
         let search: Vec<u16> = exe
             .parent()
@@ -170,26 +212,36 @@ fn dump(pid: u32, output: &mut impl Write) -> Result<(), Box<dyn std::error::Err
         SymSetOptions(
             SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS,
         );
-        SymInitializeW(process.0, PCWSTR(search.as_ptr()), true)?;
-        let snapshot = Handle(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)?);
-        let mut entry = THREADENTRY32 {
-            dwSize: size_of::<THREADENTRY32>() as u32,
-            ..Default::default()
-        };
-        let mut more = Thread32First(snapshot.0, &mut entry).is_ok();
+        SymInitializeW(process, PCWSTR(search.as_ptr()), true)?;
+        let mut marker = HPSSWALK::default();
+        checked(PssWalkMarkerCreate(None, &mut marker))?;
+        let marker = Marker(marker);
         let mut count = 0;
-        while more {
-            if entry.th32OwnerProcessID == pid {
-                count += 1;
-                writeln!(output, "\nthread {}", entry.th32ThreadID)?;
-                if let Err(error) = thread(process.0, entry.th32ThreadID, output) {
-                    writeln!(output, "unavailable: {error}")?;
-                }
+        loop {
+            let mut entry = PSS_THREAD_ENTRY::default();
+            let bytes = std::slice::from_raw_parts_mut(
+                (&mut entry as *mut PSS_THREAD_ENTRY).cast::<u8>(),
+                size_of_val(&entry),
+            );
+            let result = PssWalkSnapshot(snapshot.0, PSS_WALK_THREADS, marker.0, Some(bytes));
+            if result == ERROR_NO_MORE_ITEMS.0 {
+                break;
             }
-            more = Thread32Next(snapshot.0, &mut entry).is_ok();
+            checked(result)?;
+            count += 1;
+            writeln!(
+                output,
+                "\nthread {} capture_filetime={:08x}{:08x}",
+                entry.ThreadId, entry.CaptureTime.dwHighDateTime, entry.CaptureTime.dwLowDateTime
+            )?;
+            if entry.ContextRecord.is_null() {
+                writeln!(output, "unavailable: no captured context")?;
+            } else if let Err(error) = thread(process, &*entry.ContextRecord, output) {
+                writeln!(output, "unavailable: {error}")?;
+            }
         }
         writeln!(output, "\nthreads_enumerated={count}")?;
-        SymCleanup(process.0)?;
+        SymCleanup(process)?;
     }
     Ok(())
 }
@@ -197,7 +249,7 @@ fn dump(pid: u32, output: &mut impl Write) -> Result<(), Box<dyn std::error::Err
 #[cfg(target_arch = "x86_64")]
 unsafe fn thread(
     process: HANDLE,
-    id: u32,
+    captured: &CONTEXT,
     output: &mut impl Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     unsafe extern "system" fn functions(process: HANDLE, address: u64) -> *mut std::ffi::c_void {
@@ -207,25 +259,10 @@ unsafe fn thread(
         unsafe { SymGetModuleBase64(process, address) }
     }
     unsafe {
-        let thread = Handle(OpenThread(
-            THREAD_GET_CONTEXT | THREAD_SUSPEND_RESUME | THREAD_QUERY_INFORMATION,
-            false,
-            id,
-        )?);
-        if SuspendThread(thread.0) == u32::MAX {
-            return Err(windows::core::Error::from_thread().into());
-        }
-        let held = Suspended(thread.0);
-        // Windows requires 16-byte alignment; win32metadata's CONTEXT is
-        // repr(C) with only 8-byte alignment on x64.
         #[repr(C, align(16))]
         struct Aligned(CONTEXT);
-        let mut aligned = Aligned(CONTEXT {
-            ContextFlags: CONTEXT_FULL_AMD64,
-            ..Default::default()
-        });
+        let mut aligned = Aligned(*captured);
         let context = &mut aligned.0;
-        GetThreadContext(thread.0, context)?;
         let mut frame = STACKFRAME64::default();
         frame.AddrPC.Offset = context.Rip;
         frame.AddrStack.Offset = context.Rsp;
@@ -241,7 +278,7 @@ unsafe fn thread(
             if !StackWalk64(
                 0x8664,
                 process,
-                thread.0,
+                HANDLE::default(),
                 &mut frame,
                 (context as *mut CONTEXT).cast(),
                 None,
@@ -257,8 +294,7 @@ unsafe fn thread(
                 break;
             }
         }
-        drop(held);
-        // Resume before formatting or file I/O. Raw addresses survive absent PDBs.
+        // Raw addresses survive absent PDBs.
         for address in &addresses[..count] {
             let mut buffer = [0u64; 512];
             let symbol = buffer.as_mut_ptr().cast::<SYMBOL_INFOW>();
@@ -295,6 +331,10 @@ unsafe fn thread(
 }
 
 #[cfg(not(target_arch = "x86_64"))]
-unsafe fn thread(_: HANDLE, _: u32, _: &mut impl Write) -> Result<(), Box<dyn std::error::Error>> {
+unsafe fn thread(
+    _: HANDLE,
+    _: &CONTEXT,
+    _: &mut impl Write,
+) -> Result<(), Box<dyn std::error::Error>> {
     Err("startup stack walking is currently qualified only on x64".into())
 }

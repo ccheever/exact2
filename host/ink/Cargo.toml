@@ -49,7 +49,7 @@ windows = { version = "0.62", features = [
     "Win32_UI_Controls_RichEdit", "Win32_UI_Input_Ime", "Win32_UI_WindowsAndMessaging",
     "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Power",
     "Win32_System_StationsAndDesktops", "Win32_Security",
-    "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Kernel",
+    "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ProcessSnapshotting", "Win32_System_Kernel",
 ] }
 
 [target.'cfg(windows)'.dev-dependencies]
