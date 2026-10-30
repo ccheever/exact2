@@ -667,7 +667,7 @@ static NSData *signature(NSView *view) {
         self.result[workload] = @{ @"start": self.start, @"end": end, @"peak": @(self.peak), @"peakSample": self.peakSample, @"displayLink": self.ticks,
             @"wheelEvents": @(self.wheels), @"wheelDeltaY": @(self.wheelDelta), @"wheelPositions": self.wheelPositions,
             @"inactiveTicks": @(self.inactiveTicks), @"samples": self.samples };
-        if (tracing) writeJSON(self.result[@"fling"], [output stringByAppendingString:@".fling-data"]);
+        if (tracing) writeJSON(self.result[workload], [output stringByAppendingFormat:@".%@-data", workload]);
         self.ticks = nil; self.link.paused = YES;
         NSScrollView *scroll = scrollView(self.window.contentView);
         if (scroll) self.result[@"nativeOffsetEnd"] = @(scroll.contentView.bounds.origin.y);
@@ -685,7 +685,7 @@ static NSData *signature(NSView *view) {
         self.result[@"activeAtEnd"] = @(NSApp.active && self.window.keyWindow);
         self.result[@"focusLosses"] = self.focusLosses;
         self.phase = 3;
-        dispatch_source_cancel(self.memory);
+        if (self.memory) dispatch_source_cancel(self.memory);
         // Retain completions and presentations for buffers committed at the phase boundary.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
             self.result[@"gpu"] = @{workload: gpuUsage(1), @"rest": gpuUsage(2), @"outside": gpuUsage(0)};
