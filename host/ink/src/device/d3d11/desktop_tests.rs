@@ -360,12 +360,22 @@ impl Shelf {
                 if GetForegroundWindow() != self.hwnd {
                     let foreground = GetWindowThreadProcessId(GetForegroundWindow(), None);
                     let current = GetCurrentThreadId();
-                    let attached = foreground != 0
-                        && foreground != current
-                        && AttachThreadInput(current, foreground, true).as_bool();
+                    let target = GetWindowThreadProcessId(self.hwnd, None);
+                    // The test thread has no event loop. Attachment requires a
+                    // message queue; share both the foreground and target queues.
+                    // https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-attachthreadinput
+                    let _ = PeekMessageW(&mut MSG::default(), None, 0, 0, PM_NOREMOVE);
+                    let mut attached = Vec::new();
+                    for thread in [foreground, target] {
+                        if thread != 0 && thread != current && !attached.contains(&thread) {
+                            assert!(AttachThreadInput(current, thread, true).as_bool());
+                            attached.push(thread);
+                        }
+                    }
+                    BringWindowToTop(self.hwnd).unwrap();
                     let _ = SetForegroundWindow(self.hwnd);
-                    if attached {
-                        assert!(AttachThreadInput(current, foreground, false).as_bool());
+                    for thread in attached.into_iter().rev() {
+                        assert!(AttachThreadInput(current, thread, false).as_bool());
                     }
                 }
                 GetForegroundWindow() == self.hwnd
