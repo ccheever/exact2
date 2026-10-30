@@ -1,10 +1,9 @@
 // Pending approvals on their timeline row, adapted from T3 Code v0.1.5 (MIT, see LICENSE-T3):
 // apps/web/src/components/chat/TimelinePendingApprovalRow.tsx, ComposerPendingApprovalActions.tsx (its inline
-// presentation), packages/client-runtime/src/state/threadRequests.ts (fullAccessOverrideExplanation) and
-// MessagesTimeline.tsx (pendingApprovalsByRequestId, unmatchedPendingApprovals).
+// presentation) and MessagesTimeline.tsx (pendingApprovalsByRequestId, unmatchedPendingApprovals).
 import { str } from '../client/domain';
 import type { T3Client } from '../client/client';
-import { composerRequests, pendingRequests } from '../composer/requests';
+import { composerRequests, fullAccessOverrideExplanation, pendingRequests } from '../composer/requests';
 
 const APPROVAL_PRESENTATION: Record<string, { icon: string; label: string; detailLabel: string }> = {
   command: { icon: 'terminal', label: 'Command approval', detailLabel: 'Command' },
@@ -13,13 +12,6 @@ const APPROVAL_PRESENTATION: Record<string, { icon: string; label: string; detai
   permission: { icon: 'wrench', label: 'App permission approval', detailLabel: 'Permission request' },
   'mcp-elicitation': { icon: 'hammer', label: 'App access approval', detailLabel: 'App access request' },
 };
-
-/** fullAccessOverrideExplanation: why an approval reached the user although the thread runs with full access. */
-function fullAccessOverrideExplanation(override: string): string {
-  return override === 'ask_rule'
-    ? "Full access skips approvals, but an ask rule in the agent's own settings matches this action, so it still asks. Remove or narrow that rule to stop these prompts."
-    : "Full access skips approvals, but the agent still stops for a few safety checks of its own that no setting can skip, such as a delete whose path it can't verify. T3 Code can't turn these off, so check the request and approve it if it's what you expect.";
-}
 
 export interface ApprovalChoice { id: string; label: string; warning: string; primary: boolean }
 /** A pending approval as its timeline row draws it (`TimelineApproval`, timeline-approval.contract). */

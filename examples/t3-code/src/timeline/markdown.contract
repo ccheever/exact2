@@ -47,12 +47,10 @@ shape ChatTableRow
   header: bool
   cells: ChatCell[]
 // A table column: the cell that sizes it (drawn invisibly in every row, so the
-// host's own metrics set the width), whether it reached the 24rem cap, and its
-// share of any spare room (its estimated width).
+// host's own metrics set the width) and its share of any spare room (its estimated width).
 shape ChatColumn
   id: string
   sizer: ChatRun[]
-  capped: bool
   header: bool
   grow: number
   // GFM alignment from the table's rule row: "left", "right" or "center" (markdown_table_align.rs).
@@ -479,7 +477,7 @@ component BlockBody
         if block.kind == "quote"
           box width=2 flex-shrink=0 background-color=prose opacity=0.35
         if block.flow
-          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.kind == "heading" ? (block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14) : 14), weight=(block.kind == "heading" ? 600 : 400), source=source, blockId=block.id, cite=cite, ms=ms, me=me)
+          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.kind == "heading" ? (block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14) : 14), weight=(block.kind == "heading" ? 600 : 400), source=source, scope=scope, blockId=block.id, cite=cite, ms=ms, me=me)
         else
           text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" overflow-wrap="anywhere" color=prose
             ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
@@ -495,7 +493,7 @@ component BlockBody
           text flex=1 min-width=0 padding-left=(at == 0 ? "0px" : "0.75rem") padding-right=(at == block.cells.length - 1 ? "0px" : "0.75rem") padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.875rem" line-height=1.625 color=prose
             ChatRuns(runs=cell.runs, size=14, weight=(block.header ? 600 : 400), ms=-1, me=-1)
     if block.kind == "table"
-      MarkdownTable(block=block, prose=prose, fit=fit, chips=chips, urls=urls, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
+      MarkdownTable(block=block, scope=scope, source=source, prose=prose, fit=fit, chips=chips, urls=urls, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
     if block.kind == "image"
       // An image line draws through its media chip (media-views.ts markdownMediaChips).
       if chips.filter((c) => c.kind == "media" and c.href == block.href).length > 0
@@ -614,6 +612,10 @@ fn pressLink(href: string): bool = webLink(href) or href.startsWith("#")
 // A run of a link that is not a pull request link (a pull request link's words are each a link of their own, PrLinkRun).
 fn linkRun(run: ChatRun, chips: ChipView[]): bool = (run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length == 0
 
+// An inline code span's element id: an answer's is its Cite text (`cite-<source>-<block>-<run>`); any other's names its
+// document, so a double-click's selection (FlowRuns selectCode) stays in its own message.
+fn codeNode(source: string, scope: string, blockId: string, runId: string): string = source != "" ? `cite-${source}-${blockId}-${runId}` : `code-${scope}-${blockId}-${runId}`
+
 // Prose with inline code, word by word on 22.75pt lines so every code span is a
 // bordered box whose text shares the line's baseline (`.chat-markdown code`). A word
 // wider than the line breaks anywhere, as `.chat-markdown`'s `overflow-wrap: anywhere`.
@@ -635,6 +637,8 @@ component FlowRuns
     // Each word and code span reports its part of a selection to the answer (Cite), as the
     // reference's text nodes of one block are one stream (`source` "" outside answers).
     source: string
+    // The document's id (BlockBody's `scope`): a code span's id outside answers (codeNode).
+    scope: string
     blockId: string
     cite: action
     // The cited text in this block's offsets while its comment is open (-1: none).
@@ -647,11 +651,10 @@ component FlowRuns
     else
       linkOpen("link", href, e)
   // ChatMarkdown's selectInlineCode: word selection stops at hyphens and dots, so a double-click takes the whole code
-  // span. The double-click is the span's alone, so it also starts Cite's wait, as AnswerMarkdown's would. Only an
-  // answer's spans have ids of their own (`source`); elsewhere the word selection stays.
+  // span. The double-click is the span's alone, so in an answer it also starts Cite's wait, as AnswerMarkdown's would.
   action selectCode(id: string, length: number)
+    setSelectionRange(id, 0, length)
     if source != ""
-      setSelectionRange(id, 0, length)
       citeHold()
   view
     row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items="flex-start"
@@ -684,7 +687,7 @@ component FlowRuns
         // words are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
         if run.mono and not inlineFile(run, chips) and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))
           box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) cursor=(run.kind == "link" and run.label != "" and not webLink(run.href) ? "pointer" : "auto") height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
-            text id=`cite-${source}-${blockId}-${run.id}` testId=(source != "" ? `code-${source}-${blockId}-${run.id}` : "") selectionchange=cite(blockId, run.id) dblclick=selectCode(`cite-${source}-${blockId}-${run.id}`, run.text.length) font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#18181b1a, #f5f5f51a)") color="light-dark(#18181b, #f5f5f5)"
+            text id=codeNode(source, scope, blockId, run.id) testId=`code-${scope}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) dblclick=selectCode(codeNode(source, scope, blockId, run.id), run.text.length) font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#18181b1a, #f5f5f51a)") color="light-dark(#18181b, #f5f5f5)"
               FindParts(parts=run.findParts)
         if inlineFile(run, chips)
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
@@ -1248,6 +1251,9 @@ component CopyCodeButton
 component MarkdownTable
   props
     block: ChatBlock
+    // BlockBody's document id and Cite source: a cell's code span's id and its double-click's wait (CellRuns).
+    scope: string
+    source: string
     prose: string
     fit: bool
     // A cell's images draw through their media chips (ChatMarkdownImage in the `td`).
@@ -1263,7 +1269,7 @@ component MarkdownTable
             row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" role="row"
               for cell, at in tableRow.cells key=`${cell.id}\t${cell.runs.map((part) => part.text).join("")}`
                 for column in block.columns.filter((entry) => entry.id == cell.id) key=column.id
-                  TableCell(cell=cell, column=column, header=tableRow.header, first=(at == 0), last=(at == tableRow.cells.length - 1), rtl=(block.dir == "rtl"), prose=prose, chips=chips, urls=urls, local=local, nodePrefix=`${block.id}-${tableRow.id}-${cell.id}`)
+                  TableCell(cell=cell, column=column, header=tableRow.header, first=(at == 0), last=(at == tableRow.cells.length - 1), rtl=(block.dir == "rtl"), prose=prose, chips=chips, urls=urls, local=local, nodePrefix=`${block.id}-${tableRow.id}-${cell.id}`, scope=scope, source=source)
       // mt-0.5 -mx-1: the footer's button stands 4pt out, within the row's own inset.
       row margin-left="-0.25rem" margin-right="-0.25rem" margin-top="0.125rem" align-items="center" justify-content="flex-end"
         Tip(label="Copy table", side="top", align="end", offset=28)
@@ -1290,11 +1296,13 @@ component TableCell
     local: action
     // The cell's table block, row and column: its images' node ids (markdownGalleryIds).
     nodePrefix: string
+    scope: string
+    source: string
   view
     column position="relative" flex-grow=column.grow flex-shrink=1 min-width="auto" padding-left=((rtl ? last : first) ? "0px" : "0.75rem") padding-right=((rtl ? first : last) ? "0px" : "0.75rem") padding-top=(header ? "0.55rem" : "0.45rem") padding-bottom=(header ? "0.55rem" : "0.45rem") box-sizing="border-box" justify-content="flex-start" role=(header ? "columnheader" : "cell")
       if cellBoxes(cell.runs)
         // A code span keeps its bordered box (inline spans paint backgrounds only); an image is its picture.
-        CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=false, justify=cellJustify(column.align, rtl), chips=chips, urls=urls, local=local, nodePrefix=nodePrefix)
+        CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=false, justify=cellJustify(column.align, rtl), chips=chips, urls=urls, local=local, nodePrefix=nodePrefix, scope=scope, source=source)
       else
         text width=0 min-width="100%" font-size="0.875rem" line-height=1.625 overflow-wrap="break-word" color=prose text-align=column.align
           ChatRuns(runs=cell.runs, size=14, weight=(header ? 600 : 400), ms=-1, me=-1)
@@ -1311,6 +1319,8 @@ fn cellBoxes(runs: ChatRun[]): bool = runs.filter((part) => part.mono or part.ki
 // A cell holding code spans, chips or images: its runs side by side, each code span 12pt SF
 // Mono in its 1pt-bordered, 4.2pt-padded box on the cell's 22.75pt line, an image inline (ChatMarkdownImage, not standalone).
 component CellRuns
+  inject
+    citeHold: action
   props
     runs: ChatRun[]
     weight: number
@@ -1321,6 +1331,14 @@ component CellRuns
     urls: AttachmentUrl[]
     local: action
     nodePrefix: string
+    // The document's id and the answer's Cite source ("" outside answers), as FlowRuns has them.
+    scope: string
+    source: string
+  // FlowRuns' selectCode: a double-click selects the whole code span.
+  action selectCode(id: string, length: number)
+    setSelectionRange(id, 0, length)
+    if source != ""
+      citeHold()
   view
     // It fills its cell as TableCell's text does.
     row width=0 min-width="100%" max-width="6250rem" min-height="1.421875rem" flex-wrap=(nowrap ? "nowrap" : "wrap") align-items="center" justify-content=justify overflow=(nowrap ? "hidden" : "visible")
@@ -1329,7 +1347,7 @@ component CellRuns
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
             InlineFileChip(run=run, chip=chip, local=local)
         if run.mono and not inlineFile(run, chips)
-          text flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
+          text id=`code-${scope}-${nodePrefix}-${run.id}` testId=`code-${scope}-${nodePrefix}-${run.id}` dblclick=selectCode(`code-${scope}-${nodePrefix}-${run.id}`, run.text.length) flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
             FindParts(parts=run.findParts)
         if not run.mono and run.kind == "file"
           FileChip(run=run)
