@@ -29,17 +29,35 @@ static NSDictionary *readJSON(NSString *path) {
     return data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
 }
 
-static NSDictionary *waitFile(NSString *path, NSTask *app) {
+static NSDictionary *waitResult(NSString *path, NSTask *app, BOOL startup) {
     double deadline = CACurrentMediaTime() + 45;
     while (CACurrentMediaTime() < deadline) {
         NSDictionary *value = readJSON(path);
         if (value) return value;
-        if (!app.running) fail([NSString stringWithFormat:@"app exited %d before %@", app.terminationStatus, path]);
+        if (!app.running) {
+            if (startup) return nil;
+            fail([NSString stringWithFormat:@"app exited %d before %@", app.terminationStatus, path]);
+        }
         [NSThread sleepForTimeInterval:0.02];
     }
     [app terminate];
+    if (startup) return nil;
     fail([@"timed out: " stringByAppendingString:path]);
     return nil;
+}
+
+static NSDictionary *waitFile(NSString *path, NSTask *app) { return waitResult(path, app, NO); }
+
+static void rejectStartup(NSTask *app, NSString *output, NSFileHandle *log) {
+    if (app.running) [app terminate];
+    [app waitUntilExit];
+    appPID = 0;
+    NSDictionary *result = @{@"accepted": @NO, @"reason": @"startup readiness failed",
+        @"exit": @(app.terminationStatus), @"pid": @(app.processIdentifier)};
+    [[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:NULL]
+        writeToFile:output atomically:YES];
+    [log closeFile];
+    fprintf(stdout, "%s discarded: startup readiness failed\n", output.UTF8String); fflush(stdout);
 }
 
 static NSTask *launch(NSString *path, NSArray *arguments, NSDictionary *environment, NSFileHandle *log) {
@@ -135,10 +153,17 @@ int main(int argc, const char **argv) {
                 runningApp = app;
                 fprintf(stdout, "%s pid=%d\n", name.UTF8String, app.processIdentifier); fflush(stdout);
                 activate(app);
-                waitFile([output stringByAppendingString:@".window"], app);
+                if (!waitResult([output stringByAppendingString:@".window"], app, YES)) {
+                    rejectStartup(app, output, log);
+                    continue;
+                }
                 NSMutableArray *checks = [NSMutableArray array];
                 BOOL focused = focus(app, output, checks);
-                NSDictionary *ready = waitFile([output stringByAppendingString:@".ready"], app);
+                NSDictionary *ready = waitResult([output stringByAppendingString:@".ready"], app, YES);
+                if (!ready) {
+                    rejectStartup(app, output, log);
+                    continue;
+                }
                 if (motion && round == first && getenv("G5_CAPTURE") && focused && !lostFocus(output)) {
                     for (int frame = 0; frame < 2; frame++) {
                         NSString *capture = [output stringByAppendingFormat:@".%d.png", frame];
