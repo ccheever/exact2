@@ -101,6 +101,20 @@ impl Painter {
         let roll = roll.filter(|_| Rc::ptr_eq(&shown, &paragraph));
         let backgrounds = text_backgrounds(kernel, node, self.dark, walk.reveal);
         let backgrounds = shown.inline_backgrounds(&backgrounds, &kernel.env());
+        let focus = walk
+            .scene
+            .focus
+            .filter(|id| self.ringless != Some(*id))
+            .and_then(|id| kernel.node(id))
+            .filter(|n| {
+                n.node_type == NodeType::Text && n.props.bool(PropId::Disabled) != Some(true)
+            });
+        let focus = focus.map(|focused| {
+            (
+                inline::focus_fragments(kernel, &shown, &palette, focused.id),
+                control::ring(&focused, self.dark),
+            )
+        });
         let reveal = walk.reveal;
         let at = |painter: &mut Self, origin: (f32, f32)| {
             // Inline backgrounds, under the glyphs, per line fragment.
@@ -117,6 +131,14 @@ impl Painter {
                 }
                 None => {
                     painter.text_paint(node, kernel, &shown, &palette, origin, rect, ts, reveal)
+                }
+            }
+            if let Some((fragments, accent)) = &focus {
+                for shape in fragments {
+                    let mut shape = *shape;
+                    shape.rect.0 += origin.0;
+                    shape.rect.1 += origin.1;
+                    painter.field_ring(&shape, *accent, ts);
                 }
             }
         };

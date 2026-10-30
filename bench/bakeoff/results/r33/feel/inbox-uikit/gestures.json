@@ -1,0 +1,487 @@
+{
+ "app": "dev.bakeoff.inbox.b0fcfa5",
+ "udid": "ACD602B1-2A41-4638-8C48-2FC0CA225FE7",
+ "display": [
+  402,
+  874
+ ],
+ "steps": 0,
+ "gestures": [
+  {
+   "name": "slow-drag",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    382
+   ],
+   "velocity": 250,
+   "press": 0.1,
+   "hold": 0.5,
+   "start": 1793204574269.816,
+   "end": 1793204576569.756
+  },
+  {
+   "name": "fling-1500",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 1500,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204577078.491,
+   "end": 1793204577528.98
+  },
+  {
+   "name": "fling-4000",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 4000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204580798.469,
+   "end": 1793204581153.064
+  },
+  {
+   "name": "blank-check",
+   "kind": "check",
+   "start": 1793204584939,
+   "end": 1793204585461
+  },
+  {
+   "name": "fling-6000",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 6000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204585765.2112,
+   "end": 1793204586095.825
+  },
+  {
+   "name": "fling-up-1",
+   "kind": "drag",
+   "from": [
+    201,
+    382
+   ],
+   "to": [
+    201,
+    623
+   ],
+   "velocity": 8000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204589798.096,
+   "end": 1793204590113.368
+  },
+  {
+   "name": "fling-up-2",
+   "kind": "drag",
+   "from": [
+    201,
+    382
+   ],
+   "to": [
+    201,
+    623
+   ],
+   "velocity": 8000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204591319.252,
+   "end": 1793204591636.5151
+  },
+  {
+   "name": "fling-up-3",
+   "kind": "drag",
+   "from": [
+    201,
+    382
+   ],
+   "to": [
+    201,
+    623
+   ],
+   "velocity": 8000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204592839.322,
+   "end": 1793204593155.109
+  },
+  {
+   "name": "fling-up-4",
+   "kind": "drag",
+   "from": [
+    201,
+    382
+   ],
+   "to": [
+    201,
+    623
+   ],
+   "velocity": 8000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204594358.7961,
+   "end": 1793204594677.6062
+  },
+  {
+   "name": "fling-up-5",
+   "kind": "drag",
+   "from": [
+    201,
+    382
+   ],
+   "to": [
+    201,
+    623
+   ],
+   "velocity": 8000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204595881.712,
+   "end": 1793204596203.323
+  },
+  {
+   "name": "fling-up-6",
+   "kind": "drag",
+   "from": [
+    201,
+    382
+   ],
+   "to": [
+    201,
+    623
+   ],
+   "velocity": 8000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204597407.232,
+   "end": 1793204597761.509
+  },
+  {
+   "name": "blank-check",
+   "kind": "check",
+   "start": 1793204599676,
+   "end": 1793204600210
+  },
+  {
+   "name": "pull-top",
+   "kind": "drag",
+   "from": [
+    201,
+    382
+   ],
+   "to": [
+    201,
+    622
+   ],
+   "velocity": 400,
+   "press": 0.1,
+   "hold": 0.3,
+   "start": 1793204600518.7832,
+   "end": 1793204601863.172
+  },
+  {
+   "name": "fling-partway",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 3000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204602896.4019,
+   "end": 1793204603310.2078
+  },
+  {
+   "name": "status-bar",
+   "kind": "tap",
+   "at": [
+    322,
+    31
+   ],
+   "start": 1793204606746.0442,
+   "end": 1793204607057.6611
+  },
+  {
+   "name": "fling-for-tap",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 4000,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204608613.029,
+   "end": 1793204608963.1582
+  },
+  {
+   "name": "tap-decelerating",
+   "kind": "tap",
+   "at": [
+    201,
+    550
+   ],
+   "start": 1793204609166.187,
+   "end": 1793204609440.373
+  },
+  {
+   "name": "find-carousel-1",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 600,
+   "press": 0.05,
+   "hold": 0.3,
+   "start": 1793204611159.167,
+   "end": 1793204612281.299
+  },
+  {
+   "name": "find-carousel-2",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 600,
+   "press": 0.05,
+   "hold": 0.3,
+   "start": 1793204613396.508,
+   "end": 1793204614529.777
+  },
+  {
+   "name": "find-carousel-3",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 600,
+   "press": 0.05,
+   "hold": 0.3,
+   "start": 1793204615656.543,
+   "end": 1793204616736.852
+  },
+  {
+   "name": "find-carousel-4",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 600,
+   "press": 0.05,
+   "hold": 0.3,
+   "start": 1793204617867.121,
+   "end": 1793204618970.083
+  },
+  {
+   "name": "find-carousel-5",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 600,
+   "press": 0.05,
+   "hold": 0.3,
+   "start": 1793204620097.873,
+   "end": 1793204621177.4978
+  },
+  {
+   "name": "find-carousel-6",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 600,
+   "press": 0.05,
+   "hold": 0.3,
+   "start": 1793204622305.881,
+   "end": 1793204623613.695
+  },
+  {
+   "name": "find-carousel-7",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 600,
+   "press": 0.05,
+   "hold": 0.3,
+   "start": 1793204624741.572,
+   "end": 1793204625777.795
+  },
+  {
+   "name": "find-carousel-8",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    478
+   ],
+   "velocity": 600,
+   "press": 0.05,
+   "hold": 0.3,
+   "start": 1793204626906.281,
+   "end": 1793204628021.767
+  },
+  {
+   "name": "scrub-top",
+   "kind": "tap",
+   "at": [
+    322,
+    31
+   ],
+   "start": 1793204629143.6929,
+   "end": 1793204629457.0598
+  },
+  {
+   "name": "scrub-reveal",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    569
+   ],
+   "velocity": 1500,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204631027.466,
+   "end": 1793204631444.384
+  },
+  {
+   "name": "scrub",
+   "kind": "scrub",
+   "from": [
+    398,
+    336
+   ],
+   "to": [
+    398,
+    779
+   ],
+   "back": [
+    398,
+    322
+   ],
+   "start": 1793204631855.349,
+   "end": 1793204635307.192
+  },
+  {
+   "name": "scrub-sampled-reveal",
+   "kind": "drag",
+   "from": [
+    201,
+    719
+   ],
+   "to": [
+    201,
+    569
+   ],
+   "velocity": 1500,
+   "press": 0.05,
+   "hold": 0,
+   "start": 1793204636764.884,
+   "end": 1793204637155.0742
+  },
+  {
+   "name": "scrub-sampled",
+   "kind": "scrub",
+   "from": [
+    398,
+    338
+   ],
+   "to": [
+    398,
+    779
+   ],
+   "back": [
+    398,
+    322
+   ],
+   "start": 1793204637563.1562,
+   "end": 1793204641171.962
+  },
+  {
+   "name": "blank-check",
+   "kind": "check",
+   "start": 1793204642640,
+   "end": 1793204643179
+  }
+ ],
+ "listId": 1
+}

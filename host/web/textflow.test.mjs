@@ -573,10 +573,11 @@ test('a batch that wants frames presents every animation frame and keeps timer t
 // its event to the detached original. A mock dispatch misses the double route.
 // Run an in-page fixture (a function) in headless Chrome over these glue modules; its result by value.
 async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js', '/prompt-glue.js', '/alert-message.js'], files = {}, runtime = false, drive = null) {
-  const served = new Set(modules);
+  const served = new Set([...modules, '/timer-waits-glue.js', '/timer-observations.js']);
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
     if (files[path]) return new Response(Bun.file(files[path]));
+    if (path === '/timer-observations.js') return new Response(Bun.file(new URL('./timer-observations.js', import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     if (runtime && path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
     if (runtime && path.endsWith('.js')) {
       const js = Bun.file(new URL('../web-js' + path, import.meta.url));
@@ -1166,4 +1167,20 @@ test('an ellipsis-only fragment paints at its ellipsis run\'s baseline', () => {
   expect(fragmentBaseline(ellipsisOnly, state, baselines)).toBe(20);
   expect(fragmentBaseline({ ...ellipsisOnly, ellipsis: false }, state, baselines)).toBe(16);
   expect(fragmentBaseline({ paint_start: 0, paint_end: 12, ellipsis: false }, state, baselines)).toBe(40);
+});
+
+
+test('a tolerant wake uses a timeout and is replaced when its window shrinks', () => {
+  let serial = 0;
+  const timers = new Map(), frames = new Map();
+  const scheduler = createTimerScheduler({ now: () => 0, advance() {},
+    raf(f) { frames.set(++serial, f); return serial; }, cancel(id) { frames.delete(id); },
+    delay(f, ms) { timers.set(++serial, {f, ms}); return serial; }, clearDelay(id) { timers.delete(id); } });
+  scheduler.update(100, false, [], 50);
+  expect(frames.size).toBe(0);
+  expect([...timers.values()].map(t => t.ms)).toEqual([150]);
+  scheduler.update(100, false, [], 20);
+  expect([...timers.values()].map(t => t.ms)).toEqual([120]);
+  scheduler.dispose();
+  expect(timers.size).toBe(0);
 });

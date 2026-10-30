@@ -13,6 +13,9 @@
 // The bar's search field filters as you type (`contract vocab search`); an empty list, a failed
 // read and no match are each an `EmptyState` in the list's place. Save is disabled until valid;
 // Enter (Return on iOS) in the title saves, as a form does on the web (`submit=save`).
+// A directory (Contacts) is `listStyle="plain"`, a `section` per letter headed by it: its headers
+// pin as it scrolls and UIKit's A–Z index comes with them (Favorites above the letters stay out
+// of it). Keep the list the route's child after its `header`, in no row beside another box.
 use Badge, EmptyState from "exact:content"
 
 routes nav

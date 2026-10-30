@@ -45,7 +45,8 @@ ExactEnv.stamp("NSApplication.shared")
 // Under a script (LLP 1012) the app is an accessory — no Dock tile, no
 // activation, so a running smoke never takes the focus from whoever is
 // typing; its window is made key for a `type` when one comes (`AgentMac`).
-app.setActivationPolicy(agentMode ? .accessory : .regular)
+// A menu-bar app (`LSUIElement`) stays one: no Dock tile (LLP 1133.025 D4).
+app.setActivationPolicy(agentMode || LaunchKind.accessory ? .accessory : .regular)
 ExactEnv.stamp("setActivationPolicy")
 // EXACT_AGENT_ACTIVATE=1 (set only by scripts/measure-controls.mjs, never by
 // default): this one run is activated and its window made key, as AppKit
@@ -94,6 +95,12 @@ final class Adapter: ExactSessionDelegate {
         // `window.close()` (studio diary R17): the window this session
         // shows, without asking its `beforeunload` again.
         case "close": windows.first { $0.session === session }?.close()
+        // Bare `focus()`, as the web's `window.focus()` (LLP 1133.025 §8): the
+        // session's window shown if hidden, brought forward, and the app asks
+        // to be activated, which macOS 14's cooperative activation decides.
+        case "focus":
+            if agentMode { session.log("focus window") }
+            windows.first { $0.session === session }?.front()
         case "relaunch":
             guard !delegate.relaunching, delegate.quitting?.holding != true else { return }
             delegate.relaunching = true
@@ -410,11 +417,15 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
 
     /// In front — never activated under a script (LLP 1012), so a running
     /// smoke never takes the focus from whoever is typing.
+    /// Bare `focus()` (LLP 1133.005 D10): the app unhidden, the window
+    /// deminiaturized and ordered front, and activation asked for, which
+    /// macOS 14's cooperative activation may refuse; nothing more then.
     func front() {
-        if agentMode && !agentActivates { window.orderFrontRegardless() } else {
-            window.makeKeyAndOrderFront(nil)
-            app.activate(ignoringOtherApps: true)
-        }
+        if agentMode && !agentActivates { window.orderFrontRegardless(); return }
+        if app.isHidden { app.unhide(nil) }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        if #available(macOS 14.0, *) { app.activate() } else { app.activate(ignoringOtherApps: true) }
     }
 
     /// The app's `close()`: the window goes, unasked.
@@ -441,7 +452,9 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// (`beforeunload`, studio diary R17); a window it keeps stays. The one
     /// window of an app that keeps running is hidden instead (LLP 1069.010 D8).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if !closing, ExactDocuments.hidesOnClose(window, only: windows.count == 1) { return false }
+        // A one-window app whose status item is placed keeps running (LLP 1133.025 D4).
+        let keeps = ExactDocuments.keepsRunning() || (ExactDocuments.launchMode != "navigate-new" && session.placesStatusItems)
+        if !closing, ExactDocuments.hidesOnClose(window, only: windows.count == 1, keepsRunning: keeps) { return false }
         return closing || session.beforeUnload()
     }
 
@@ -594,8 +607,28 @@ Agent.hostState = {
 
 final class Delegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
+        LaunchKind.install()
         exact.installNotificationClicks { session in windows.first { $0.session === session }?.front() }
         exact.installWakes()
+        exact.installReach()
+    }
+    /// The Dock menu, one menu: the manifest's shortcuts, then the app's (LLP
+    /// 1133.023 D3), then the front window's session's `-exact-menu="dock"`
+    /// buttons (LLP 1133.025 D5), above AppKit's own items.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let shortcuts = ExactShortcuts.dockMenu(), buttons = frontWindow()?.session.dockMenu
+        guard let shortcuts, let buttons else { return shortcuts ?? buttons }
+        shortcuts.autoenablesItems = false // a disabled button's item stays dimmed
+        shortcuts.addItem(.separator())
+        for item in buttons.items { buttons.removeItem(item); shortcuts.addItem(item) }
+        return shortcuts
+    }
+    /// A Spotlight result of the app's index opened (LLP 1133.023 D4).
+    func application(_ application: NSApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        guard let location = ExactContentIndex.location(of: userActivity) else { return false }
+        (frontWindow() ?? openWindow()).front()
+        ExactContentIndex.open(location)
+        return true
     }
     /// A one-window app quits with its window; one whose documents each
     /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac
@@ -604,13 +637,18 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// too when an app that keeps running hides its window (LLP 1069.010 D8), and that
     /// app ends only after its own `close()`.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        ExactDocuments.endsWithoutWindows(hiding: windows.contains { !$0.closing })
+        // A window a status item reaches, or that a launch with no window
+        // made, is hidden, not gone (LLP 1133.025 D4, D6).
+        if windows.contains(where: { !$0.closing && ($0.session.placesStatusItems || PageFacts.isUnshown($0.window)) }) { return false }
+        return ExactDocuments.endsWithoutWindows(hiding: windows.contains { !$0.closing })
     }
     /// The Dock icon clicked, or the app opened again, with no window
     /// showing: the window an app that keeps running hid comes back as it
     /// was (LLP 1069.010 D8); a `navigate-new` app opens a new one.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag, ExactDocuments.keepsRunning(),
+        // Hidden by `keepRunning`, by a close while a status item is placed,
+        // or by a launch with no window (LLP 1133.025 D4, D6).
+        if !flag, ExactDocuments.launchMode != "navigate-new",
            let hidden = windows.first(where: { !$0.window.isVisible && !$0.window.isMiniaturized }) {
             hidden.front()
             return false
@@ -750,7 +788,7 @@ func finishLaunching() {
             planWatch = t
         }
     }
-    DevMenu.install(session: session, planPath: devPlanPath ?? ExactEnv.environment["EXACT_PLAN"])
+    DevMenu.install(session: session, planPath: devPlanPath ?? ExactEnv.environment["EXACT_PLAN"], frameHealthContainer: window.contentView?.superview)
     // `SIGUSR1` saves the front window's trace (LLP 1142 D5).
     TraceSignal.install { DevMenu.session ?? session }
 
@@ -810,7 +848,10 @@ func finishLaunching() {
         route(ExactDocuments.paths(of: files))
     }
     firstWindow.coverChrome()
-    window.makeKeyAndOrderFront(nil)
+    // A launch with no window (LLP 1133.025 D6): made, not shown; its first
+    // pixel is the first commit and its status items.
+    let withoutWindow = LaunchKind.withoutWindow
+    if withoutWindow { launchWithoutWindow() } else { window.makeKeyAndOrderFront(nil) }
     if let url = launchDevelopmentURL {
         launchDevelopmentURL = nil
         DispatchQueue.main.async { ExactDevelopmentLink.open(url) }
@@ -818,7 +859,7 @@ func finishLaunching() {
     ExactEnv.stamp("makeKeyAndOrderFront")
     // Under a script: in front regardless, so the window is seen (a covered
     // window's canvases render nothing, LLP 1009 D4) — but never activated.
-    if agentMode && !agentActivates { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+    if withoutWindow {} else if agentMode && !agentActivates { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
     ExactEnv.stamp("activate")
 
     /// Agent mode: the driver owns the process from here — one JSON line in,
@@ -842,6 +883,22 @@ func finishLaunching() {
             exit(0)
         }
     }
+}
+
+/// A launch with no window (LLP 1133.025 D6): something must reach the app.
+/// The Dock's reopen does for a regular app; an accessory app has only its
+/// status items, so where none is placed once the data's first commit has
+/// settled, or when the last goes while the window is hidden, the window
+/// shows.
+func launchWithoutWindow() {
+    session.presentWithoutWindow(window)
+    let reach = {
+        guard LaunchKind.accessory, !firstWindow.closing, !window.isVisible, !session.placesStatusItems else { return }
+        session.log("no-window launch: nothing reaches the app; window shown")
+        firstWindow.front()
+    }
+    session.onStatusItemsPlaced = { placed in if !placed { reach() } }
+    NotificationCenter.default.addObserver(forName: ExactSession.dataActivated, object: session, queue: .main) { _ in reach() }
 }
 
 /// A refused EXACT_PLAN: attaching the view then boots the embedded plan,

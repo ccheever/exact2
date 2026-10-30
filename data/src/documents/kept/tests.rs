@@ -1,7 +1,9 @@
+#[cfg(unix)]
 use super::super::{mint, relaunch, resolve, Resolved};
 use super::*;
 
 /// A scratch folder and a kept set's file for one test.
+#[cfg(unix)]
 fn scratch(name: &str) -> (PathBuf, PathBuf) {
     let root = std::env::temp_dir().join(format!("exact-kept-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -12,6 +14,7 @@ fn scratch(name: &str) -> (PathBuf, PathBuf) {
     (canonical.clone(), canonical.join("kept.json"))
 }
 
+#[cfg(unix)]
 fn paths(owner: u64) -> Vec<String> {
     list(owner)
         .unwrap()
@@ -24,6 +27,7 @@ fn paths(owner: u64) -> Vec<String> {
 
 /// What a launch's host does: open the set, find each object where its
 /// path says, and say the platform's list holds them all.
+#[cfg(unix)]
 fn launch(owner: u64, app: &str, file: &Path) {
     open(owner, app, file);
     let found: Vec<_> = to_restore(owner)
@@ -33,6 +37,7 @@ fn launch(owner: u64, app: &str, file: &Path) {
     restore(owner, &found);
 }
 
+#[cfg(unix)]
 fn reads(path: &str, owner: u64) -> bool {
     matches!(resolve(path, owner), Ok(Resolved::Real { .. }))
 }
@@ -199,7 +204,7 @@ fn the_platforms_list_and_the_apps_forget_drop_an_entry_and_its_own_save_keeps_i
 
     let forgotten = Arc::new(Mutex::new(Vec::new()));
     let into = forgotten.clone();
-    on_forgotten(Arc::new(move |identity| {
+    on_forgotten(Arc::new(move |identity, _| {
         into.lock().unwrap().push(identity)
     }));
     forget(7522, &b).unwrap();

@@ -1,0 +1,34 @@
+dev.bakeoff.podcasts.b1979ee: SwiftUI.UpdateCoalescingCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 23.47 s of motion
+  bad   hitch ratio (ms/s)                     35
+  bad   longest frame (ms)                     184.2
+  tell  main thread p95 (ms/frame)             9.08
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       502
+  ok    momentum hand-off (content/asked)      0.96
+  bad   flings that drop a frame at the lift   2/4
+  bad   offset jumps while decelerating        8
+  ok    edge bounce settle (s)                 0.65
+  n/a   rubber band (overscroll/finger)        –
+  ok    rubber band settle (s)                 0.57
+  ok    status-bar scroll to top (s)           0.51
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              546.9
+  bad   scrub: longest frame (ms)              167.6
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  12 ok, 1 tell, 6 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 35):
+    slow-drag: 5 late frames (0 on a timer's tick), 111 ms late; app code 129 ms (in Core Animation 43) · SwiftUI 10 ms; in display links and ports 74 ms, the main queue 48 ms, events 10 ms
+    fling-6000: 1 late frame (0 on a timer's tick), 46 ms late; app code 37 ms (in Core Animation 12) · SwiftUI 3 ms · text & drawing 3 ms; in display links and ports 20 ms, events 17 ms
+    status-bar: 2 late frames (0 on a timer's tick), 133 ms late; app code 131 ms (in Core Animation 55) · SwiftUI 15 ms · text & drawing 3 ms; in display links and ports 123 ms, the main queue 3 ms
+    fling-for-tap: 3 late frames (0 on a timer's tick), 146 ms late; app code 143 ms (in Core Animation 105) · SwiftUI 5 ms; in the main queue 89 ms, display links and ports 54 ms, run-loop observers (the commit) 3 ms
+    tap-decelerating: 1 late frame (0 on a timer's tick), 168 ms late; app code 165 ms (in Core Animation 160) · Core Animation (main waits on com.apple.UIKit.inProcessAnimationManager) 5 ms · SwiftUI 3 ms; in display links and ports 168 ms, the main queue 3 ms
+    find-carousel-1: 2 late frames (0 on a timer's tick), 48 ms late; app code 58 ms (in Core Animation 48); in display links and ports 48 ms, the main queue 8 ms, events 3 ms
+    find-carousel-4: 1 late frame (0 on a timer's tick), 43 ms late; app code 45 ms (in Core Animation 43); in display links and ports 43 ms, events 3 ms
+    scrub-top: 1 late frame (0 on a timer's tick), 61 ms late; app code 60 ms (in Core Animation 29) · SwiftUI 10 ms · text & drawing 5 ms; in display links and ports 42 ms, events 23 ms
+    scrub-reveal: 3 late frames (0 on a timer's tick), 66 ms late; app code 75 ms (in Core Animation 51); in display links and ports 73 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 30 late frames (0 on a timer's tick), 1814 ms late; app code 1630 ms (in SwiftUI 648) · SwiftUI 471 ms · text & drawing 82 ms; in events 1126 ms, display links and ports 367 ms, the main queue 71 ms, timers 3 ms

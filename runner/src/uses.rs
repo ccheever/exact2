@@ -85,9 +85,6 @@ pub enum Capability {
     /// A navigation root's tabs (LLP 1075.003 §3.7): a plan that binds
     /// `aria-controls`. The web's document shows each tab's stack.
     Tabs,
-    /// `showNotification` and `closeNotification` (rules/DEFERRED.md,
-    /// 2026-10-04): a plan whose code runs one.
-    Notifications,
     /// A native grouped list: a `list` whose appearance is `auto`, which
     /// Contract marks with `listStyle` (LLP 1084 D2). A native host draws it
     /// with the platform's list; the web draws its authored nodes, so the web
@@ -129,7 +126,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 30] = [
+    pub const ALL: [Capability; 29] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -152,7 +149,6 @@ impl Capability {
         Capability::Segments,
         Capability::Dataset,
         Capability::Tabs,
-        Capability::Notifications,
         Capability::GroupedLists,
         Capability::Io,
         Capability::Transitions,
@@ -187,7 +183,6 @@ impl Capability {
             Capability::Segments => "segments",
             Capability::Dataset => "dataset",
             Capability::Tabs => "tabs",
-            Capability::Notifications => "notifications",
             Capability::GroupedLists => "grouped_lists",
             Capability::Io => "io",
             Capability::Transitions => "transitions",
@@ -423,9 +418,6 @@ pub fn uses(plan: &Plan) -> Uses {
     if runs_command(plan, &["share"]) {
         uses = uses.with(Capability::Share);
     }
-    if runs_command(plan, &["showNotification", "closeNotification"]) {
-        uses = uses.with(Capability::Notifications);
-    }
     if runs_command(
         plan,
         &[
@@ -433,6 +425,7 @@ pub fn uses(plan: &Plan) -> Uses {
             "showOpenFilePicker",
             "showDirectoryPicker",
             "showSaveFilePicker",
+            "requestPermission",
         ],
     ) {
         uses = uses.with(Capability::Documents);

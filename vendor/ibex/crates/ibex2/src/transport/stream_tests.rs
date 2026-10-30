@@ -270,3 +270,55 @@ fn portable_request_timeout_bounds_waiting_for_headers_and_body() {
         peer.join().unwrap();
     }
 }
+
+/// An upload's progress (Exact patch 23): the portable transport tells each
+/// read ureq takes of the body, rising to the whole, and frames the body by
+/// its length.
+#[test]
+fn the_portable_transport_tells_an_uploads_bytes_sent() {
+    use crate::stdlib::fetch::Sent;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/up", listener.local_addr().unwrap());
+    let peer = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let mut head = Vec::new();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        while !head.ends_with(b"\r\n\r\n") {
+            let mut byte = [0];
+            socket.read_exact(&mut byte).unwrap();
+            head.push(byte[0]);
+        }
+        let mut body = vec![0; 1 << 20];
+        socket.read_exact(&mut body).unwrap();
+        socket
+            .write_all(b"HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .unwrap();
+        String::from_utf8(head).unwrap().to_ascii_lowercase()
+    });
+    let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = told.clone();
+    let mut request = Request::get(&url);
+    request.method = "POST".into();
+    request.body = Some(vec![7; 1 << 20]);
+    request.sent = Some(Sent(
+        Arc::new(move |loaded, total| seen.lock().unwrap().push((loaded, total))),
+        None,
+    ));
+    let response = RustlsHttpTransport::new().send(&request).unwrap();
+    assert_eq!(
+        (response.status, response.body.as_slice()),
+        (201, &b"ok"[..])
+    );
+    let head = peer.join().unwrap();
+    assert!(
+        head.contains("content-length: 1048576") && !head.contains("transfer-encoding"),
+        "{head}"
+    );
+    let told = told.lock().unwrap();
+    assert!(told.len() > 1, "one report for the whole body: {told:?}");
+    assert!(told.windows(2).all(|w| w[0].0 < w[1].0), "{told:?}");
+    assert!(told.iter().all(|&(_, total)| total == 1 << 20), "{told:?}");
+    assert_eq!(told.last(), Some(&(1 << 20, 1 << 20)));
+}

@@ -8,6 +8,8 @@ mod fill;
 mod key_reads;
 #[path = "ownership_tests.rs"]
 mod ownership;
+#[path = "position_tests.rs"]
+mod position;
 #[path = "rekey_tests.rs"]
 mod rekey;
 #[path = "smooth_tests.rs"]
@@ -1404,4 +1406,27 @@ fn an_unreported_resize_the_reader_did_not_make_keeps_the_end() {
         },
     );
     assert!(h.snapshot().correction.is_none());
+}
+
+#[test]
+fn measured_row_operations_count_scroll_and_whole_list_retirement() {
+    let mut h = Harness::new(3000, false, false);
+    assert!(
+        h.ids.work.sites.is_empty(),
+        "ordinary execution collects nothing"
+    );
+    h.ids.work.sites = vec![crate::perf::SiteWork::default(); h.plan.nodes.len()];
+    let site = h.ids.site(h.snapshot().view).unwrap().0 as usize;
+    h.send(h.feedback(16000.0));
+    let counts = h.ids.work.sites[site];
+    assert!(counts.row_constructed > 0 && counts.row_constructed < 100);
+    assert!(counts.row_retired > 0, "scrolled-out rows retire");
+    let mounted = h.snapshot().rows.len() as u64;
+    let mut u = Update::new(env_with(&h.plan, &h.slots, h.strings), &h.sites, &mut h.ids);
+    let children = std::mem::take(&mut h.tree.children);
+    super::super::destroy_all(&mut u, children);
+    assert_eq!(
+        h.ids.work.sites[site].row_retired,
+        counts.row_retired + mounted
+    );
 }

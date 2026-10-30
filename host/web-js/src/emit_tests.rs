@@ -25,6 +25,40 @@ fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization
     }
 }
 
+/// @ref LLP 1145 D4 — list.js reads `reach-margin` from the list's options.
+#[test]
+fn a_reach_margin_is_a_list_option() {
+    let source = "component App\n  action more\n    let n = 1\n  view\n    list virtualized=true height=200 reachend=more reach-margin=\"0px 200%\"\n      for x in [1, 2] key=x\n        text `${x}`\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("reach:\"0px 200%\""), "{js}");
+}
+
+/// @ref LLP 1010 §6.11 — list.js reads `keep-mounted` again at each update.
+#[test]
+fn keep_mounted_is_a_list_option_read_again() {
+    let source = "component App\n  state ids = [1, 2]\n  view\n    list virtualized=true height=200 keep-mounted=[first(ids), ids.at(-1)]\n      for x in ids key=x\n        text `${x}`\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("keep:()=>"), "{js}");
+}
+
+#[test]
+fn a_page_given_app_files_is_no_source_until_the_glue_gives_them() {
+    let plan = contract::compile(
+        "component App\n  view\n    iframe src=\"assets/viewer.html?file=app:/cache/a.pdf\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(
+        js.contains("\"data-app-src\":\"assets/viewer.html?file=app:/cache/a.pdf\""),
+        "{js}"
+    );
+    assert!(!js.contains("\"src\":\"assets/viewer.html"), "{js}");
+}
+
 #[test]
 fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
     let plan = contract::compile(
@@ -280,6 +314,20 @@ fn user_select_is_written_for_webkit_too() {
     }
 }
 
+/// CSS `resize` reaches the textarea as written, literal and bound: the
+/// browser draws the grip and writes the dragged size inline itself.
+#[test]
+fn resize_is_written_as_css() {
+    let plan = contract::compile(
+        "component App\n  state wide = false\n  view\n    column\n      textarea resize=\"vertical\"\n      textarea resize=(wide ? \"both\" : \"block\")\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let all = format!("{}{}", out.js, out.css);
+    assert!(all.contains("resize:vertical"), "{all}");
+    assert!(out.js.contains("\"resize\""), "{}", out.js);
+}
+
 /// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s
 /// attribute, as a bound one is its property; without it the browser draws
 /// an indeterminate bar.
@@ -357,6 +405,27 @@ fn aria_disabled_is_an_attribute_for_static_and_bound_values() {
     assert!(
         js.matches("\"aria-disabled\"").count() >= 2,
         "the bound value uses the same DOM attribute: {js}"
+    );
+}
+
+/// LLP 1045 D11: a literal `paragraphDirs` is the element's attribute from
+/// its creation, before the Markdown editor mounts and reads it; a bound one
+/// writes the same attribute.
+#[test]
+fn paragraph_dirs_is_written_before_the_editor_mounts() {
+    let plan = contract::compile(
+        "component App\n  state dirs = \"ltr rtl\"\n  view\n    column\n      textarea value=\"\" markup=\"markdown\" paragraphDirs=\"rtl\"\n      textarea value=\"\" markup=\"markdown\" paragraphDirs=dirs\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let literal = js
+        .find("\"data-paragraph-dirs\":\"rtl\"")
+        .unwrap_or_else(|| panic!("{js}"));
+    let mount = js.find("mde(").unwrap_or_else(|| panic!("{js}"));
+    assert!(literal < mount, "the attribute precedes the mount: {js}");
+    assert!(
+        js.matches("\"data-paragraph-dirs\"").count() >= 2,
+        "the bound value uses the same attribute: {js}"
     );
 }
 

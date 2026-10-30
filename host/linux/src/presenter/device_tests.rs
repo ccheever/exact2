@@ -1,6 +1,7 @@
 //! The device's settings reach the app through the presenter's doors
 //! (LLP 1115.001 D3.1, D3.2): what a shell tells with [`Presenter::set_device`].
 use super::*;
+use exact_kernel::StyleId;
 
 /// An app that reads every preference a device sets, and sizes a box in `rem`.
 const READS: &str = "shape Media\n  prefersColorScheme: string\n  prefersReducedMotion: bool\n  prefersContrast: string\n  pointer: string\n  hover: string\ncomponent App\n  resource media = exactViewport() as shape Media\n  view\n    column width=300 height=300\n      text `${media.prefersColorScheme} ${media.prefersReducedMotion} ${media.prefersContrast} ${media.pointer} ${media.hover}` testId=\"facts\"\n      box testId=\"rem\" width=\"10rem\" height=\"1rem\"\n";
@@ -60,6 +61,60 @@ fn a_host_that_is_told_nothing_reports_a_light_system_and_a_mouse() {
     assert_eq!(facts(&p), "light false no-preference fine hover");
     assert_eq!(width(&p, "rem"), 160.0);
     assert!(p.device().is_none() && !p.dark());
+}
+
+#[test]
+fn text_scaling_reflows_default_fields_and_preserves_authored_fonts_and_drafts() {
+    let source = r#"component App
+  view
+    column width=350
+      text "Readable text" testId="body"
+      textarea value="Keep this draft" rows=1 width=300 testId="field"
+      textarea value="Fixed author font" rows=1 width=300 font-size=12 testId="fixed"
+      button testId="button"
+        text "Action"
+      box width="10rem" height=1 testId="rem"
+"#;
+    let mut p = boot(source);
+    let height = |p: &Presenter<()>, name: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(name)[0])
+            .unwrap()
+            .frame
+            .height
+    };
+    let original = (height(&p, "body"), height(&p, "field"), height(&p, "fixed"));
+    assert!(p.set_text_scale(2.0).is_none());
+    assert!(height(&p, "body") > original.0 * 1.5);
+    assert!(
+        height(&p, "field") > original.1,
+        "field: {} -> {}",
+        original.1,
+        height(&p, "field")
+    );
+    assert_eq!(height(&p, "fixed"), original.2);
+    assert_eq!(width(&p, "rem"), 320.0);
+    let k = p.host().kernel();
+    let field = k.node_by_key(k.find_by_test_id("field")[0]).unwrap();
+    assert_eq!(field.props.str(PropId::Value), Some("Keep this draft"));
+    for (name, size) in [("field", 32.0), ("fixed", 12.0), ("button", 32.0)] {
+        let node = k.node_by_key(k.find_by_test_id(name)[0]).unwrap();
+        assert_eq!(node.computed_row(StyleId::FontSize, |s| s.font_size), size);
+    }
+    let epoch = k.epoch();
+    assert!(p.set_text_scale(2.0).is_none());
+    assert_eq!(p.host().kernel().epoch(), epoch);
+    let mut replacement = boot(source);
+    p.restore_time(&mut replacement.host).unwrap();
+    assert_eq!(height(&replacement, "field"), height(&p, "field"));
+    for invalid in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        assert!(p.set_text_scale(invalid).is_none());
+        assert_eq!(width(&p, "rem"), 320.0);
+    }
+    assert!(p.set_text_scale(1.0).is_none());
+    assert_eq!(height(&p, "body"), original.0);
+    assert_eq!(height(&p, "field"), original.1);
+    assert_eq!(width(&p, "rem"), 160.0);
 }
 
 #[test]
@@ -327,5 +382,64 @@ fn a_phones_locale_is_its_format_locale_too() {
     assert_eq!(
         (place.locale.as_str(), place.format_locale.as_str()),
         ("ko-KR", "")
+    );
+}
+
+/// A page symbol is drawn in its `color`, inherited here from a custom button
+/// or a box, as Apple and the web draw one (LLP 1081 §4), not in the accent.
+#[test]
+fn a_page_symbol_takes_its_color() {
+    let source = "component App\n  view\n    column\n      button appearance=\"none\" color=\"#ff0000\" testId=\"b\"\n        image \"symbol:emoji\" width=48 height=48\n      view color=\"#ff0000\" testId=\"v\"\n        image \"symbol:emoji\" width=48 height=48\n";
+    let mut p = boot(source);
+    for id in ["b", "v"] {
+        let frame = {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id(id)[0]).unwrap().frame
+        };
+        let shot = p.frame();
+        let (mut red, mut other) = (0, 0);
+        for y in 0..frame.height as u32 {
+            for x in 0..frame.width as u32 {
+                let c = shot.pixel(frame.x as u32 + x, frame.y as u32 + y).unwrap();
+                if c.red() > 150 && c.green() < 100 && c.blue() < 100 {
+                    red += 1;
+                } else if c.blue() > 150 && c.red() < 100 {
+                    other += 1;
+                }
+            }
+        }
+        assert!(red > 100 && other == 0, "{id}: {red} red, {other} accent");
+    }
+}
+
+/// A grouped row's leading symbol and chevron keep the tints the platform's
+/// sheet gives them (the accent, a tertiary grey), as UIKit tints a list
+/// cell's image; only an author's `color` is the symbol's own.
+#[test]
+fn a_grouped_rows_symbols_keep_the_platforms_tints() {
+    let source = "component App\n  view\n    list appearance=\"auto\" listStyle=\"inset-grouped\" width=300 height=200 color=\"#000000\"\n      section\n        row\n          image \"symbol:star\" testId=\"lead\"\n          text \"Starred\"\n          image \"symbol:forward-chevron\" testId=\"tail\"\n";
+    let mut p = boot(source);
+    let shot = p.frame();
+    let k = p.host().kernel();
+    let ink = |id: &str| {
+        let f = k.node_by_key(k.find_by_test_id(id)[0]).unwrap().frame;
+        (0..f.height as u32)
+            .flat_map(|y| (0..f.width as u32).map(move |x| (x, y)))
+            .filter_map(|(x, y)| shot.pixel(f.x as u32 + x, f.y as u32 + y))
+            .map(|c| {
+                let c = c.demultiply();
+                [c.red(), c.green(), c.blue()]
+            })
+            .min_by_key(|c| u16::from(c[0]) + u16::from(c[1]) + u16::from(c[2]))
+            .unwrap()
+    };
+    let (lead, tail) = (ink("lead"), ink("tail"));
+    assert!(
+        lead[2] > 150 && lead[0] < 100,
+        "the star is the accent: {lead:?}"
+    );
+    assert!(
+        tail[0] > 100 && tail[0].abs_diff(tail[2]) < 30,
+        "the chevron is a grey: {tail:?}"
     );
 }

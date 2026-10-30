@@ -514,6 +514,86 @@ Owners as they free up (the lead's order).
    fixed sample props, `testId`s on part nodes, and in each slot a marker content switchable between two glyphs;
    normal app retention applies to it; and the clone's copies replaced, on a signed-out copy of the clone with no
    account writes.
+   **The exports (as of LLP 1121 stage 15 B, 2026-10-26):** `@exact/cards` exports PostCard, AtCard, ProfileHeader
+   (with its ProfileAlert shape), **Avatar** `(src, size)`, **VerifiedBadge** `(badge, size, ink, mark)` and (batch
+   2, 2026-10-27) **PersonRow**;
+   `@exact/actions` ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton and (batch 2, 2026-10-27)
+   **FollowButton**; `@exact/lists` ListRow and SwitchRow. Avatar and VerifiedBadge were the cards' shared pieces until stage 15 B exported them with their params
+   unchanged and no defaults: a consumer passes `size`, and VerifiedBadge's `ink` and `mark`, as token or role names
+   (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or its own), not literal colours, as
+   PostCard does, so an app's design restyles them by the tokens' full names. `apps/library-gate` holds each in a
+   box named for its cell (neither has an `id` prop), VerifiedBadge's `"none"` an empty box. **The exported
+   VerifiedBadge's `badge` type changed in batch 2** (theme2's Q-badge ruling, 2026-10-27): batch 1 exported it as a
+   `string` with `""` for none; it is now `enum<"none", "verified", "verifier">`, ProfileHeader's type, so a
+   consumer passes `"none"`, a dynamic argument must be of that enum (a `string` is refused), and `""` no longer
+   compiles. PostCard's `badge` took the same type, as it passes its own to VerifiedBadge; AtCard draws no badge.
+   `contract gallery` gives an enum prop the view compares with literals in an `if` (by `==` or `!=`) a cell per
+   declared value, as it gave batch 1's string a cell per literal (so VerifiedBadge keeps three cells, PostCard,
+   ProfileHeader and PersonRow show each badge, and ListRow's `accessory`, PostCard's `context` and FollowButton's
+   `icon` gain theirs); library-gate places PostCard with each badge as samples to match.
+   **PersonRow** `(id, label, avatar, name, handle, badge, pill, description, descriptionLines, divider, disabled,
+   press)` with one slot, the header's trailing control (a FollowButton, the app's own, or nothing), is a person in a
+   list: Bluesky's ProfileCard (Header: the 40 avatar, the name with its md badge, the handle; Labels' pill;
+   Description) in ProfileCardWithFollowBtn's row (py_md px_xl). It links to the person, as ProfileCard.Link does, with
+   ONE press target: the link (testId `<id>-link`, `role="link"`, its `label` the app's, `press`) is everything but
+   the slot, the avatar, the names, the pill, the description and the row's padding on its side (theme2's 2b
+   sign-off condition). They are text (the description is a plain string, never rich text with links or mentions
+   of its own), so they fold into the link's spoken `label` and nothing interactive nests in it. The row takes no
+   press, role or Tab stop, and the slot is the link's sibling, never inside it: on iOS an element with a role is
+   one accessibility element and hides what it holds, and a second pressable would be a second Tab stop everywhere
+   and a second control on Linux. The slot's column sits at the trailing edge, its control centred on the
+   avatar's line as in Bluesky's header. What's left outside Bluesky's card tap, and so the explore copy's named
+   change: the slot's own column (its control, the row's trailing padding and the space under the control); and
+   because that column is beside the link, the pill and the description run under the names, not under the
+   control, so a description wraps that much narrower than Bluesky's when a trailing control is placed (with an
+   empty slot the link's text stops a header gap short of the trailing padding, its press area reaching it). `disabled` is the link's
+   `aria-disabled` and dims the link, not the app's trailing control, and doesn't stop `press`, so a copy whose
+   row is a disabled button (the clone's ChatPersonRow) doesn't join (theme2's condition (b)). Its words are the app's: `handle` is the second line as shown, `pill` the pill's
+   text (`""` for none). `divider` is `"bottom"`, `"top"` (Bluesky's border_t) or `"none"`. Its spacing is Bluesky's
+   only: a copy's other padding is a named pixel change in its gate, with no density variant (theme2's 2026-10-27
+   ruling). Its colours (divider, handle, pill, badge and mark) are params over the cards' tokens, its sizes
+   `cards.person-*` tokens. Library-gate places it once per compiler-marked variant value (divider, disabled), with
+   a picture, each badge, the pill and descriptions as samples, each slot holding its marker.
+   **FollowButton** `(id, following, text, label, tone, size, shape, icon, press)` is a person's Follow button, an
+   authored pressable under D9's exception as PostButton is, with Bluesky's variants only (FollowButtonInner's
+   Button): `tone` primary, inverted, subtle or overlay; `size` small or tiny; `shape` pill or round (icon only);
+   `icon` both, follow, following or none. A copy's drift from its nearest variant is a named pixel change in its
+   gate, never a param. Its words are the app's (`text` shown, `label` spoken, `""` speaking `text`); it says
+   following by its label alone, with no `aria-pressed` (theme2's 2026-10-27 ruling), and a round one's `label`,
+   which the compiler can't require, is checked non-empty on every round library-gate cell and by the adopting
+   copy's script. Its tone-by-state colours and three press scales are params over `actions.follow-*` tokens, its
+   sizes tokens (theme2's sign-off: tokens, not per-size params). Stated limit: its label's font weight is fixed per
+   size (500 small, 600 tiny), since there is no weight token kind for an app to restyle it. Its primary tone is
+   Bluesky's literal (`actions.follow-fill = light-dark(#006aff, #0f73ff)` under fixed white
+   `actions.follow-ink`), not the platform accent (theme2's 2026-10-27 23:51 ruling: Apple's default accent under
+   white text would drop to 3.52:1 light and 3.23:1 dark). An app or a theme importer reaches it by setting
+   `actions.follow-fill` and `actions.follow-ink` by full name. The ruled import path, owned by dtool3 and not built
+   yet, is for its importer to map an imported accent there with an ink chosen for 4.5:1 (today the shadcn and
+   Astryx importers map an accent to `AccentColor` only), so an import doesn't recolour the primary until it lands. Listed, a pre-existing gap not fixed here: the dark default, white on `#0f73ff`,
+   is 4.27:1 (light, on `#006aff`, 4.66:1), under 4.5:1 for the 13 px weight-500 small label. The overlay tone is
+   fixed (the video feed's own dark theme) and the subtle shades (`primary_50`, `primary_600`) stay Bluesky's
+   literal values by choice, as before, rather than a `color-mix()` of the fill. Its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
+   beside Bluesky's paths. Library-gate places it once per compiler-marked variant value (following, tone, size,
+   shape) with each icon pattern and each tone and size following as samples.
+   **Stage 15 B batch 2 (2026-10-27)** adds `@exact/cards`' **EmptyState** and `@exact/lists`' **MenuItem** and
+   **MenuGroup**, with Bluesky's sizes as the packages' tokens (`cards.empty-*`, `lists.menu-*`), their colours
+   params defaulting to platform roles; every text is the app's. The menu is drawn, not the platform's list cell
+   or menu, because Bluesky's native menu is a sheet of drawn items. MenuItem's `first` prop stands in for a slot
+   index, which would let MenuGroup draw the hairlines between its children. `apps/library-gate` holds MenuGroup in
+   a box named for its cell (it has no `id` prop), its slot marked, with MenuItem's cells inside.
+   **Its follow-up (2026-10-28)** gives EmptyState Bluesky's per-call variants: `iconSize` medium (3xl, 48 points:
+   the default, so the first value), small (2xl, 32) or large (4xl, 64, the chats'), in a 64-point box either way;
+   `tone` high (the message contrast_high, the default), medium (contrast_medium, the lists' and Bookmarks') or label
+   (the message and the icon in the text colour, the chats'); and `buttonTone` primary or secondary (Bookmarks' Go
+   home), each with its colour a param over its own `cards.empty-*` token. It had drawn every icon at 64. Its primary
+   button stays Bluesky's brand primary as a literal (`cards.empty-button`, `light-dark(#006aff, #0f73ff)` under
+   fixed white `cards.empty-button-ink`), not the platform accent: white on Apple's default accent is 3.52:1 in light
+   and 3.23:1 in dark, under 4.5:1 for its 13-point label (theme2's 23:51 ruling, with FollowButton's primary). An
+   imported accent doesn't reach it yet: the shadcn and Astryx importers write `AccentColor`, and mapping an accent
+   onto the brand tokens (`cards.empty-button` and `cards.empty-button-ink`, `actions.follow-fill` and
+   `actions.follow-ink`) with an ink chosen for contrast is PENDING, dtool3's item from theme2's 23:51 ruling; until
+   it lands an app sets each fill AND its ink by full name, the ink chosen to meet 4.5:1 on its fill. A gap this
+   keeps, LISTED: the dark default, white on #0f73ff, is itself 4.27:1, under 4.5:1 for that label.
 
 **The gate** (`~/x2theme/stage12-gate-run.txt`), each line with its oracle. **The required hosts**, for every line
 that runs per host: the web (the JS target and wasm), iOS, macOS, Linux, Android's reader and the terminal. A
@@ -663,3 +743,8 @@ amendment). Moving the packages' own path icons to them is in review.
 **QUEUE:** web semantics for a selected bar item (`role="tab"` needs a tablist); the pressed look of a custom popover
 invoker; even-odd and two-colour package icons; the Android slot-marker flake. §9 Q5 (per-instance variant pins)
 and Q6 (apps restyling parts) stay "for now": the design tool's second pass showed no need.
+
+**Stage 14 (2026-10-26):** the QUEUE's even-odd package icons are done. Every nonzero and even-odd path icon in
+`@exact/cards` and `@exact/actions` is a package icon token, drawn at its node's exact frame on every host
+(LLP 1121 §10, stage 14 C: `5b2bd17345`..`0e796f5bc8`). Two-colour package icons stay in QUEUE. The third wave is
+stage 15 B.

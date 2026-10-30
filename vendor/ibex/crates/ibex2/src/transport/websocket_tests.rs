@@ -1626,6 +1626,35 @@ fn an_idle_connection_blocks_without_periodic_wakeups() {
     drop(socket);
 }
 
+#[test]
+fn an_idle_pending_receive_blocks_without_writable_wakeups() {
+    let (port, peer) = idle_peer_for_exit_test();
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(observer.clone());
+    let controller = AbortController::new();
+    let mut socket = open_on(&transport, port, "/idle-receive", &controller.signal()).unwrap();
+    let receive = std::thread::spawn(move || socket.next());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !observer.receiving.load(Ordering::Acquire) && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    // A negative observation over an idle interval, as for the idle socket
+    // above, now with an outstanding receive and no peer traffic.
+    std::thread::sleep(Duration::from_millis(50));
+    let before = observer.returns.load(Ordering::Acquire);
+    std::thread::sleep(Duration::from_millis(150));
+    let after = observer.returns.load(Ordering::Acquire);
+    let receiving = observer.receiving.load(Ordering::Acquire);
+    controller.abort();
+    assert!(receive.join().unwrap().is_err());
+    peer.join().unwrap();
+    assert!(receiving, "the pump never accepted the receive");
+    assert_eq!(
+        after, before,
+        "an idle receive repeatedly woke on an empty write queue"
+    );
+}
+
 #[cfg(test)]
 fn idle_peer_for_exit_test() -> (u16, std::thread::JoinHandle<()>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2112,4 +2141,41 @@ fn a_connect_answer_follows_the_http_1_grammar() {
             String::from_utf8_lossy(malformed)
         );
     }
+}
+
+#[test]
+fn an_abort_while_the_socket_name_is_still_resolving_returns_at_once() {
+    // As a hung resolver: the lookup is held, and the abort returns the
+    // connect without waiting for it (`lookup`).
+    use super::super::lookup::gate::Gate;
+    let controller = AbortController::new();
+    let signal = controller.signal();
+    let (gated, gate) = channel();
+    let (done, connected) = channel();
+    std::thread::spawn(move || {
+        gated.send(Gate::hold_here()).unwrap();
+        let url = url::Url::parse("ws://resolving.invalid/").unwrap();
+        let result = TcpSocketTransport::new()
+            .connect(&url, 1024, &signal)
+            .map(|_| ());
+        let _ = done.send(result);
+    });
+    let gate = super::super::lookup::gate::Opens(gate.recv().unwrap());
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while gate.0.waiting() == 0 {
+        assert!(std::time::Instant::now() < end, "the lookup never began");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    let aborted = std::time::Instant::now();
+    controller.abort();
+    let result = connected
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("returned at the abort");
+    let error = result.unwrap_err().to_string();
+    assert!(
+        aborted.elapsed() < std::time::Duration::from_millis(500),
+        "returned at the abort"
+    );
+    assert!(error.contains("abort"), "{error}");
+    drop(gate);
 }

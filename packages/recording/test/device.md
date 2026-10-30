@@ -18,12 +18,23 @@ Each step says what to do and what should happen.
 3. **A call during a take.** Record, then call the phone from another
    one. The take pauses (Resume shows) while the call rings. End the
    call: nothing records until you tap Resume, and then the take goes on.
-4. **Leaving the app.** Record, then go to the home screen for ten
-   seconds and come back. Without `audio` in `host.ios.backgroundModes`
-   (the recorder's default) the take paused when you left: Resume shows.
-   On iOS with the mode (add `"backgroundModes": ["audio"]` to
-   `host.ios` in `apps/recorder/app.json` and build again), the orange
-   indicator stays on and the take records on.
+4. **Leaving the app.** The recorder writes `device.microphone-background`
+   (LLP 1133.033 D3), so a take goes on while the app is hidden. Record,
+   lock the phone for five minutes, unlock, come back and Stop: the take
+   is five minutes long and plays back with what you said while locked.
+   - iPhone: the orange indicator stays on while locked.
+   - Android: while recording, the notification shade shows an ongoing
+     "Recording" notification with a running timer; tapping it opens the
+     recorder. `adb shell dumpsys activity services com.exact.recorder`
+     lists `ForegroundService$Capture` with `types=0x00000080`
+     (microphone) while the app is hidden. Swipe the notification away:
+     the take goes on (Android 14), and Settings' Task Manager still lists
+     the app.
+   - Without the line (remove it from `apps/recorder/app.ts` and build
+     again): leaving the app pauses the take on both phones, and Resume
+     shows when you come back. Tap Resume, speak again, then Stop.
+     Playback includes both spoken parts and excludes the time away; a
+     moving timer alone is not a pass.
 5. **A headset.** With Bluetooth earbuds connected, record a take: it
    records from the earbuds' microphone (iOS offers it by default).
 6. **Revoking.** In Settings, turn the microphone off for Recorder and
@@ -40,3 +51,10 @@ Each step says what to do and what should happen.
    recorder` on a Mac whose microphone answers): two sessions record from
    one microphone, each its own take, and one records on after the other
    ends.
+10. **A take the Task Manager stopped** (Android 14 or later, LLP 1133.033
+    D5). Record for twenty seconds with the app hidden, then stop the app
+    as the Task Manager's Stop does: `adb shell cmd activity stop-app
+    com.exact.recorder`. The notification goes. Open the recorder again:
+    `adb logcat -s exact` shows `recording: recovered …/take-N.m4a`, the
+    take is in the list after its next refresh (record and stop another
+    take if it is not), and it plays back up to the stop.

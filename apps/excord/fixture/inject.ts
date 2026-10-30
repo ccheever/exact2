@@ -15,6 +15,7 @@ interface Controls {
   react(channelId: string, messageId: string): Promise<void>;
   broadcast(event: string, data: unknown): Promise<unknown>;
   badRequest(message: string): never;
+  holdGuilds(ms: number): void;
 }
 
 export async function inject(world: World, request: Injection, controls: Controls): Promise<void> {
@@ -22,6 +23,8 @@ export async function inject(world: World, request: Injection, controls: Control
   const { typingUsers, failNext, badRequest } = controls;
   const history = world.messages[channelId];
   if (what === 'fail-next') { failNext.add(channelId); return; }
+  // The next launch's guilds come 3 s after its READY (the launch-restore tests).
+  if (what === 'hold-guilds') { controls.holdGuilds(3000); return; }
   if (what === 'typing') {
     const user = world.users[typingUsers.get(channelId)?.has(world.users[1].id) ? 2 : 1];
     await controls.typing(channelId, user.id);
@@ -37,6 +40,24 @@ export async function inject(world: World, request: Injection, controls: Control
       const created = controls.create(channelId, texts[i], author, at + i * 500);
       await controls.broadcast('MESSAGE_CREATE', created);
     }
+    return;
+  }
+  // A message to translate (LLP 1133.027 §10, drive 7).
+  if (what === 'japanese') {
+    const created = controls.create(channelId, '明日の会議は十時からです。', world.users[1].id, at);
+    await controls.broadcast('MESSAGE_CREATE', created);
+    return;
+  }
+  // A message with a link to each of two channels and to a direct message: what an address change by an
+  // in-app link opens (the warm-navigation tests); and a link to a message #general never had, which leaves
+  // the reader at that channel's end (the restore tests).
+  if (what === 'links') {
+    const named = (name: string) => world.channels.find(c => c.name === name)!.id;
+    const dm = world.private_channels[0].id;
+    const content = `Moved to <#${named('help')}>, also <#${named('random')}>, back in <#${named('general')}>, and https://discord.com/channels/@me/${dm}`
+      + `, or [a message never sent](https://discord.com/channels/@me/${named('general')}/1)`;
+    const created = controls.create(channelId, content, world.users[1].id, at);
+    await controls.broadcast('MESSAGE_CREATE', created);
     return;
   }
   if (what === 'delete-unread') {

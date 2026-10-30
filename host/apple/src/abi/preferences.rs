@@ -11,6 +11,51 @@ use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// Frame tasks at their presentation target after timer admission.
+    pub fn admitted_frame(&mut self, target_ms: f64, wall_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.admitted_frame(target_ms, wall_ms));
+        self.emit(out)
+    }
+
+    /// Delegate ordinary live timers to independent platform callbacks.
+    pub fn native_timers(&mut self, enabled: bool) {
+        self.native_timers = enabled;
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().use_native_timers(enabled);
+        }
+    }
+
+    /// Deliver one platform timer instance; stale generations do nothing.
+    pub fn fire_native_timer(&mut self, index: u32, generation: u64, now: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.fire_native_timer(index, generation, now));
+        self.emit(out)
+    }
+
+    /// Set whether the display drives frame tasks.
+    pub fn present_frames(&mut self, on: bool) {
+        if let Some(h) = self.host.as_mut() {
+            h.present_frames(on);
+        }
+    }
+
+    /// Configure and admit timer waits through the host's batch boundary.
+    pub fn timer_waits(&mut self, kinds: u8, cutoff: f64, mode: u32) -> u32 {
+        if mode == 0 {
+            self.wait_kinds = kinds;
+        }
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.timer_waits(kinds, cutoff, mode));
+        self.emit(out)
+    }
+
     /// 1 when the running plan reads `onLine`, and before boot: the host
     /// watches the network only then.
     pub fn reads_on_line(&self) -> u32 {
@@ -222,6 +267,9 @@ impl<D: DataSource> Bridge<D> {
             .filter(|l| !l.is_empty())
             .partition(|l| l.starts_with("agent "));
         let agent: Vec<&str> = agent.iter().map(|l| &l["agent ".len()..]).collect();
+        // Binding tells the module its views' state at once (`retell_views`), which reaches it only through
+        // the current source's native slot: before data is prepared that slot has not yet adopted the module.
+        self.adopt_app_module();
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().bind_extensions(&real, &agent);
         }

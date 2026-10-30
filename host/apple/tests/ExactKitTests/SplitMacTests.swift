@@ -256,6 +256,33 @@ final class SplitMacTests: XCTestCase {
         XCTAssertNotNil(route.layer?.backgroundColor, "an author's explicit role still paints")
     }
 
+    /// A card on that ground (secondary-background, the under-page grey on the Mac) paints its own fill while the
+    /// ground under it still lets the split surface show through
+    func testACardOnAnUnsaidWindowGroundPaintsTheUnderPageGrey() throws {
+        let session = try boot(tabs: false, size: CGSize(width: 900, height: 500))
+        let p = session.presenter
+        _ = compose(ExactView(session: session), width: 900, sidebar: false)
+        try press("row-a")
+        let ground: [String: Any] = ["sys": "windowBackgroundColor", "c": [[255, 255, 255, 255], [30, 30, 30, 255]]]
+        let route = try node("route-book-a")
+        p.apply(wireBatch([["op": "style", "id": route.id, "style": ["background_color": ground]]]))
+        let card = NodeView(id: 99_997, kind: "view", presenter: p)
+        p.views[card.id] = card
+        route.container.addSubview(card)
+        card.frame = NSRect(x: 16, y: 16, width: 200, height: 80)
+        card.applyStyle(["background_color": .object(["sys": .string("underPageBackgroundColor"), "c": .array([.array([242, 242, 247, 255]), .array([28, 28, 30, 255])])])])
+        route.display(); card.display()
+        XCTAssertTrue(route.standsOnSplitGround, "the ground still shows the split's surface")
+        XCTAssertNil(route.layer?.backgroundColor, "and paints none of its own")
+        XCTAssertFalse(card.standsOnSplitGround)
+        // The card's layer paints AppKit's under-page grey, as resolved where it stands
+        let srgb = { (c: CGColor) in c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components?.map { ($0 * 255).rounded() } }
+        let painted = try XCTUnwrap(card.layer?.backgroundColor.flatMap(srgb), "the card's layer has a fill")
+        var want = NSColor.underPageBackgroundColor.cgColor
+        card.effectiveAppearance.performAsCurrentDrawingAppearance { want = NSColor.underPageBackgroundColor.cgColor }
+        XCTAssertEqual(painted, try XCTUnwrap(srgb(want)))
+    }
+
     func testPublicLayoutSamplesAndScreenshotClicksShareThePageOrigin() throws {
         let source = app(tabs: true).replacingOccurrences(of: "box testId=`half-${e.params.id}`", with: "box press=count testId=`half-${e.params.id}`")
         let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500), source: source)

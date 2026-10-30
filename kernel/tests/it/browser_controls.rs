@@ -1188,3 +1188,99 @@ fn html_maxlength_counts_utf16_and_does_not_modify_authored_values() {
     props.set(PropId::Type, PropValue::Str("number".into()));
     assert_eq!(exact_kernel::control::limit_text(&props, "12345"), "12345");
 }
+
+/// A host draws a checkbox one size whatever the node (an Apple host's
+/// circle, 22 points): a checkbox made after its host reported one is laid
+/// out at that size, its own report of it moves nothing, and one reported
+/// at another size is that size, which the next new one takes.
+#[test]
+fn a_new_checkbox_takes_the_size_its_host_last_reported_for_one() {
+    let checkbox = |id| {
+        [
+            Op::CreateView {
+                id,
+                node_type: NodeType::Control,
+            },
+            Op::SetProp {
+                id,
+                prop: PropId::Type,
+                value: PropValue::Str("checkbox".into()),
+            },
+        ]
+    };
+    let size = |kernel: &Kernel, id| {
+        let f = kernel.node(id).unwrap().frame;
+        (f.width, f.height)
+    };
+    let offer = Offer::definite(400.0, 600.0);
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&rows(
+                "display:flex;align-items:flex-start;width:400px",
+            ))),
+        },
+    ];
+    ops.extend(checkbox(2));
+    ops.extend([
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    assert_eq!(
+        size(&kernel, 2),
+        (13.0, 13.0),
+        "the look's mark before any report"
+    );
+    kernel.set_intrinsic_size(2, Some((22.0, 22.0))).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    assert_eq!(size(&kernel, 2), (22.0, 22.0));
+
+    let mut more = checkbox(3).to_vec();
+    more.push(Op::SetChildren {
+        id: 1,
+        children: vec![2, 3],
+    });
+    kernel.apply(1, 2, &more).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    assert_eq!(
+        size(&kernel, 3),
+        (22.0, 22.0),
+        "the last report stands for a new one"
+    );
+    let stamp = kernel.layout_stamp();
+    kernel.set_intrinsic_size(3, Some((22.0, 22.0))).unwrap();
+    let receipt = kernel.compute_layout(1, offer).unwrap();
+    assert!(
+        receipt.changed.is_empty(),
+        "its own report of that size moves nothing"
+    );
+    assert_eq!(kernel.layout_stamp().1, stamp.1);
+
+    kernel.set_intrinsic_size(3, Some((30.0, 30.0))).unwrap();
+    let mut last = checkbox(4).to_vec();
+    last.push(Op::SetChildren {
+        id: 1,
+        children: vec![2, 3, 4],
+    });
+    kernel.apply(2, 3, &last).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    assert_eq!(
+        size(&kernel, 2),
+        (22.0, 22.0),
+        "a reported mark keeps its own size"
+    );
+    assert_eq!(
+        (size(&kernel, 3), size(&kernel, 4)),
+        ((30.0, 30.0), (30.0, 30.0))
+    );
+}

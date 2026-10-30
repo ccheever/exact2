@@ -8,6 +8,27 @@ import XCTest
 @testable import ExactKit
 
 final class HostCoversMacTests: XCTestCase {
+    /// A report made inside a callback the runtime waits on is told after the
+    /// callback returns, and recorded as delivered only then.
+    func testAReportWaitsForTheServedCallbackToReturn() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.apply(wireBatch([["op": "create", "id": 1, "kind": "view"], ["op": "roots", "ids": [1]]]))
+        for covered in [true, false] {
+            let delivered = expectation(description: "the current cover reaches the runtime outside its callback")
+            p.onCovers = { changes in
+                XCTAssertFalse(Owner.shared.isServingMain)
+                XCTAssertEqual(changes.map { "\($0.0):\($0.1 == .whole ? "whole" : "none")" }, [covered ? "1:whole" : "1:none"])
+                delivered.fulfill()
+            }
+            Owner.shared.sync {
+                Owner.shared.callMain { p.covers.report("test", covered ? [1: .whole] : [:]) }
+            }
+            wait(for: [delivered], timeout: 5)
+            XCTAssertEqual(p.covers.delivered, covered ? [1: .whole] : [:])
+        }
+    }
+
     /// A real session over the kernel: a column of a 50-point bar and a box
     /// that takes the rest of a 300 by 400 page.
     func testABoxCoveredWholeLeavesLayoutAndComesBackWhenTheCoverIsWithdrawn() throws {

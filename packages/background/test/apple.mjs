@@ -65,6 +65,67 @@ function makeFixture() {
   return { app, id, remove: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
+// Two system tasks can cover a sync already raised by the network callback.
+// Check their lifetime directly; neither simulator nor OS scheduling is deterministic.
+function overlappingWakes() {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-background-wakes-'));
+  try {
+    const source = join(dir, 'Check.swift'), seam = join(dir, 'ExactPackage.o'), binary = join(dir, 'check');
+    writeFileSync(source, String.raw`import ExactPackage
+import Foundation
+
+@main struct Check {
+    static func main() {
+        let defaults = UserDefaults.standard
+        let previous = defaults.data(forKey: "exact.background")
+        defaults.removeObject(forKey: "exact.background")
+        defer { defaults.set(previous, forKey: "exact.background") }
+        func wait(_ ready: () -> Bool) {
+            let limit = Date().addingTimeInterval(5)
+            while !ready() && Date() < limit { _ = RunLoop.main.run(mode: .default, before: limit) }
+            precondition(ready(), "callback did not arrive")
+        }
+        let context = ExactPackageContext(agent: true, session: "test", changed: { _ in }, log: { print($0) }, now: { 0 })
+        let module = BackgroundModule(context: context)
+        var registered = false
+        module.later("registerSync", ["tag": "outbox"], preferred: nil) { _ in registered = true }
+        wait { registered }
+        var ended: ((String) -> Void)?
+        var raised = 0, done: [Bool] = []
+        func wake(_ kind: String) -> ExactWake {
+            ExactWake(kind: kind, keys: ["sync"], deadline: nil, platform: nil, raise: { _, _, callback in
+                raised += 1
+                ended = callback
+            }, done: { done.append($0) })
+        }
+        module.woke(wake("processing"))
+        wait { raised == 1 }
+        module.woke(wake("refresh"))
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        wait { drained }
+        precondition(done.isEmpty, "a platform task finished while its sync was still running")
+        precondition(raised == 1, "the same sync was raised twice")
+        ended?("completed")
+        wait { done.count == 2 }
+        precondition(done.allSatisfy { $0 }, "completed sync failed a platform task")
+        var tags: [[String: Any]]?
+        module.later("syncTags", [:], preferred: nil) { tags = $0["exact:answer"] as? [[String: Any]] }
+        wait { tags != nil }
+        precondition(tags?.isEmpty == true, "completed sync was not retired")
+        print("PASS overlapping platform wakes await one sync and retire it")
+    }
+}
+`);
+    run('xcrun', ['swiftc', '-parse-as-library', '-module-name', 'ExactPackage', '-emit-module',
+      '-emit-module-path', join(dir, 'ExactPackage.swiftmodule'), '-c', resolve(root, 'host/apple/modules/ExactPackage.swift'), '-o', seam], root);
+    run('xcrun', ['swiftc', '-parse-as-library', '-I', dir, resolve(pkg, 'apple/Background.swift'), source, seam, '-o', binary], root);
+    console.log(run(binary, [], dir).trim());
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+overlappingWakes();
+
 for (const host of hosts.length ? hosts : ['macos']) {
   const where = host === 'ios' ? 'ios-simulator' : 'macos';
   if (host === 'ios' && !sim) throw new Error('ios: name a simulator you booted (--sim <udid>)');
@@ -100,6 +161,7 @@ for (const host of hosts.length ? hosts : ['macos']) {
     const { open } = await import(resolve(root, 'scripts/agent.mjs'));
     const session = () => open({ host, app: 'bgfixture', bind: 'background', storage: `bgfixture-${process.pid}` });
     let s = await session();
+    let periodicDeadline;
     try {
       const status = await until(s, 'status', (t) => /^true /.test(t ?? ''));
       check(where, 'the status reads true granted true true', status === 'true granted true true', status);
@@ -129,6 +191,7 @@ for (const host of hosts.length ? hosts : ['macos']) {
       let requests = {};
       for (const end = Date.now() + 15_000; Date.now() < end && !requests['background periodicsync p']; await Bun.sleep(500)) requests = stored();
       const p = requests['background periodicsync p'];
+      periodicDeadline = p?.at;
       check(where, 'the host keeps a refresh request for the periodic tag, 15 minutes on', p?.kind === 'refresh' && Math.abs(p.at - asked - 900000) < 60000,
         JSON.stringify(requests));
       if (host === 'ios') {
@@ -152,6 +215,9 @@ for (const host of hosts.length ? hosts : ['macos']) {
       const kept = await until(s, 'tags', (t) => t === 't2');
       await s.clock('+1000 real');
       check(where, 'a relaunch keeps the tag and its backoff', kept === 't2' && pulls === before, `${kept} pulls=${pulls - before}`);
+      const deadline = stored()['background periodicsync p']?.at;
+      check(where, 'a relaunch preserves the periodic deadline', Math.abs(deadline - periodicDeadline) < 250,
+        JSON.stringify({ before: periodicDeadline, after: deadline }));
     } finally {
       await s.close();
     }

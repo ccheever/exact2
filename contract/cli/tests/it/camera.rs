@@ -7,6 +7,10 @@
 
 use exact_runner::{CallOrigin, Dispatch, Outcome, Reply, Response, Runner, Work};
 use serde_json::{json, Value as Json};
+#[cfg(unix)]
+use std::os::unix::fs::symlink as symlink_dir;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_dir;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -41,7 +45,7 @@ impl App {
         std::fs::create_dir_all(path.join("node_modules/@exact")).unwrap();
         for package in ["camera", "media-capture"] {
             let to = packages.join(package).canonicalize().unwrap();
-            std::os::unix::fs::symlink(to, path.join("node_modules/@exact").join(package)).unwrap();
+            symlink_dir(to, path.join("node_modules/@exact").join(package)).unwrap();
         }
         std::fs::write(path.join("app.contract"), APP).unwrap();
         Self(path.canonicalize().unwrap())
@@ -224,4 +228,55 @@ fn a_tool_s_capture_start_is_refused() {
     r.act("shutter", Vec::new()).unwrap();
     pump(&mut r, &mut parked);
     assert_eq!(sent(&calls, "takePhoto"), 1, "{}", logs(&r));
+}
+
+/// An implementation's disclosure (D8 item 9): what it says through its
+/// `changed` is listed as its extension's `implementation`, each field
+/// replacing the one of its name said before.
+#[test]
+fn an_implementation_s_disclosure_is_listed() {
+    let (_app, mut r, _calls) = boot("disclosed");
+    let mut parked = Vec::new();
+    pump(&mut r, &mut parked);
+    r.listen(Arc::new(|| {}));
+    let say = |r: &Runner<Granted>, extension: &str, state: Json| {
+        let body = json!({ "extension": extension, "state": state });
+        r.native_slot().changed(&format!("exact-state:{body}"));
+    };
+    say(
+        &r,
+        "media-capture",
+        json!({ "tracks": [{ "id": "track-1", "lease": true }] }),
+    );
+    say(&r, "camera", json!({ "photos": [] }));
+    say(
+        &r,
+        "camera",
+        json!({ "photos": [{ "path": "app:/tmp/camera/1.jpg" }] }),
+    );
+    r.apply_announced();
+    let state: Json = serde_json::from_str(&r.extensions_json().unwrap()).unwrap();
+    assert_eq!(
+        state["media-capture"]["implementation"]["tracks"][0]["lease"],
+        true
+    );
+    assert_eq!(
+        state["camera"]["implementation"],
+        json!({ "photos": [{ "path": "app:/tmp/camera/1.jpg" }] })
+    );
+    say(
+        &r,
+        "media-capture",
+        json!({ "tracks": [{ "id": "track-1", "lease": false }] }),
+    );
+    r.apply_announced();
+    let state: Json = serde_json::from_str(&r.extensions_json().unwrap()).unwrap();
+    assert_eq!(
+        state["media-capture"]["implementation"]["tracks"][0]["lease"],
+        false
+    );
+    assert!(
+        state["media-capture"]["permissions"].is_object(),
+        "beside the runner's own"
+    );
 }

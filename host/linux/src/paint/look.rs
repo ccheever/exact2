@@ -16,6 +16,11 @@ use exact_kernel::generated::metric;
 use exact_kernel::style::{metrics, roles};
 use exact_kernel::ColorValue;
 
+/// The system contrast palette, when enabled.
+pub(crate) fn contrast() -> Option<crate::presenter::ContrastPalette> {
+    crate::presenter::contrast::current()
+}
+
 /// Whether this process paints the neutral look.
 pub(crate) fn neutral() -> bool {
     roles::column() == roles::Column::Neutral
@@ -25,6 +30,20 @@ pub(crate) fn neutral() -> bool {
 /// Material oracle's door): `app::show_material_look`.
 pub(crate) fn material() -> bool {
     metrics::column() == metrics::Column::Material
+}
+
+/// The symbol shapes this process draws (LLP 1115.001 D14): Windows' and
+/// Android's own where they draw a role differently, else the table's,
+/// which the Linux desktop shares with the web. Android's swapchain host,
+/// which shows no Material look, still draws Android's symbols.
+pub(crate) fn symbols() -> exact_kernel::SymbolSet {
+    if cfg!(windows) {
+        exact_kernel::SymbolSet::Fluent
+    } else if material() || cfg!(target_os = "android") {
+        exact_kernel::SymbolSet::Material
+    } else {
+        exact_kernel::SymbolSet::Web
+    }
 }
 
 /// A length of the neutral look for a control whose font size is `em`, in
@@ -58,6 +77,9 @@ pub(crate) fn fade(mut color: [u8; 4], alpha: f32) -> [u8; 4] {
 /// The line that marks a control's edge (`--exact-line`): the label's ink at
 /// the look's opacity, which reads at 3:1 on either ground.
 pub(crate) fn line(dark: bool) -> [u8; 4] {
+    if let Some(palette) = contrast() {
+        return palette.text;
+    }
     fade(
         role("-exact-label", dark),
         number(metric::CONTROL_LINE_ALPHA),
@@ -92,7 +114,12 @@ pub(crate) fn ink_on(fill: [u8; 4]) -> [u8; 4] {
 /// `accent-color` where it sets one, else the `AccentColor` role.
 pub(crate) fn accents(authored: Option<[u8; 4]>, dark: bool) -> ([u8; 4], [u8; 4]) {
     let accent = authored.unwrap_or_else(|| role("AccentColor", dark));
-    (accent, ink_on(accent))
+    let ink = if authored.is_none() {
+        contrast().map_or_else(|| ink_on(accent), |p| p.highlighted_text)
+    } else {
+        ink_on(accent)
+    };
+    (accent, ink)
 }
 
 /// The page's own colour under a scheme: the `-exact-background` role (LLP

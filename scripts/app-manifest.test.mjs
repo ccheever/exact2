@@ -5,6 +5,27 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
+test('each painted host admits ink, carries it in native metadata and refuses gpu', async () => {
+  const { readManifest, nativeManifestMetadata } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-painter-'));
+  const base = { name: 'Painter', app: { id: 'dev.exact.painter', name: 'Painter' } };
+  const read = host => {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...base, host }));
+    return readManifest(dir, 'painter');
+  };
+  try {
+    for (const platform of ['windows', 'linux', 'android']) {
+      const manifest = read({ [platform]: { painter: 'ink' } });
+      assert.equal(nativeManifestMetadata(manifest, platform).host.painter, 'ink');
+      for (const other of ['windows', 'linux', 'android'].filter(p => p !== platform)) {
+        assert.equal(nativeManifestMetadata(manifest, other).host.painter, undefined);
+      }
+      assert.equal(nativeManifestMetadata(read({ [platform]: {} }), platform).host.painter, undefined);
+      assert.throws(() => read({ [platform]: { painter: 'gpu' } }), /painter/);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('readManifest takes the web manifest\'s description', async () => {
   const { readManifest } = await import('./app.mjs');
   const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
@@ -348,6 +369,23 @@ test('foreground update intervals are positive seconds and reach both Apple bund
       manifest.deploy.check.interval = interval;
       save();
       assert.throws(() => readManifest(dir, 'checks'), /interval/);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('shortcuts reach manifest.json without the native bakes\' words, and a remote icon is refused', async () => {
+  const { readManifest, webAppManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-shortcuts-'));
+  const save = (shortcuts) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Shelf', app: { id: 'dev.exact.shelf', name: 'Shelf' }, shortcuts }));
+  try {
+    save([{ name: 'Add Book', url: '/add', apple: { symbol: 'plus' }, android: { rank: 0 } }]);
+    const manifest = readManifest(dir, 'shelf');
+    assert.deepEqual(manifest.shortcuts[0].apple, { symbol: 'plus' });
+    assert.deepEqual(webAppManifest(manifest, 'Shelf').shortcuts, [{ name: 'Add Book', url: '/add' }]);
+    assert.equal(webAppManifest({ shortcuts: [] }, 'Shelf').shortcuts, undefined);
+    for (const bad of [{ name: 'Add', url: 'https://example.com/add' }, { name: '', url: '/add' }, { name: 'Add', url: '/add', icons: [{ src: 'https://example.com/i.png' }] }]) {
+      save([bad]);
+      assert.throws(() => readManifest(dir, 'shelf'), /shortcuts\[0\]/);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

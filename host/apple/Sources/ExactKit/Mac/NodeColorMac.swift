@@ -5,6 +5,9 @@
 import AppKit
 
 extension NodeView {
+    /// The colour of row `key` for a face Exact bakes into an image, as `channels` gives it: AppKit
+    /// greys no tint behind a sheet (`undimmedChannels` on UIKit)
+    func undimmedChannels(_ key: String, dark: Bool) -> [Double]? { channels(key, dark: dark) }
     func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, tint: ownTint(for: $0)) } }
     package func color(_ key: String, _ fallback: NSColor) -> NSColor { cgColor(key).flatMap { NSColor(cgColor: $0) } ?? fallback }
     /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.

@@ -393,6 +393,10 @@ pub struct RuntimeState {
     #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
     pub(crate) intl_datetime: crate::stdlib::intl_datetime::Registry,
     pub(crate) sqlite: crate::sqlite_abi::Registry,
+    /// The advisory locks this runtime's code holds, by handle (exact2 LLP
+    /// 1133.007 D6a): only this runtime's `unlock` releases one, and its
+    /// shutdown releases them all.
+    pub(crate) file_locks: Mutex<(u64, HashMap<u64, std::fs::File>)>,
     app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
     controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
@@ -566,6 +570,7 @@ impl RuntimeState {
             #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
             intl_datetime: crate::stdlib::intl_datetime::Registry::new(),
             sqlite: crate::sqlite_abi::Registry::default(),
+            file_locks: Mutex::new((0, HashMap::new())),
             app_directories,
             responses: Mutex::new(std::collections::HashMap::new()),
             controls: Mutex::new(std::collections::HashMap::new()),
@@ -976,6 +981,10 @@ impl RuntimeState {
 
     pub fn shutdown(&self) {
         self.image_work().close();
+        // Closing each descriptor releases its lock.
+        drop(std::mem::take(
+            &mut self.file_locks.lock().unwrap_or_else(|e| e.into_inner()).1,
+        ));
         let image_tasks =
             std::mem::take(&mut *self.image_tasks.lock().expect("image tasks poisoned"));
         drop(image_tasks);

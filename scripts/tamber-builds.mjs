@@ -51,8 +51,9 @@ const POLLED_MS = 5_000, POLLED = 64, STREAMS = 256, BUILDS = 256, DESIGN_TOLD_M
 const QUEUED = 64, QUEUE_BYTES = 128 * 1024;
 // One poll's answer, and so any frame in it, is at most this many bytes:
 // Linux reads a commands response of at most 64 KiB, and the resident loop
-// writes each frame it relays as one event, which Apple bounds at 64 KiB
-// (PlanURL.swift). A frame over it goes as a notice.
+// writes each frame it relays as one event, which Apple bounds at 1 MiB
+// (PlanURL.swift). A frame over it goes as a notice, or (not live: a plan's
+// copies, at most COPIES_BYTES) alone.
 const POLL_BYTES = 32 * 1024;
 // A long poll (`wait`) is held at most this long: well under the 5 s a
 // polled stream lives unpolled, and the 5 s a client's request lasts.
@@ -150,7 +151,21 @@ function reportRefused(r) {
  * `hold-cleared`). `correspond(from, to, site)` is the one site of plan `to`
  * that site `site` of plan `from` is, by their source maps, or null.
  * `timers` (`{set, clear}`, a test's clock) wait out a design-only status. */
-export function buildChannel({ send = () => {}, log = () => {}, selected = null, correspond = () => null, timers = { set: setTimeout, clear: clearTimeout } } = {}) {
+export function buildChannel({ send = () => {}, log = () => {}, selected = null, correspond = () => null, copiesFor = () => null, timers = { set: setTimeout, clear: clearTimeout } } = {}) {
+  // Its plan's copies (tamber/1.17, `copiesFor(planDigest)`: their encoding, null with no map read yet, false past the
+  // copies limit), for `select` to walk by: once per plan per registration,
+  // to a build that says it walks by them (the `copies` capability; a page of an older build gets none, and `levels`),
+  // with inspect mode on or, inspecting, when its status names a new plan. The page keeps them whatever its mode.
+  const copiesSent = new Map(); // id -> the plan digest whose copies its registration was sent
+  const copiesOf = id => {
+    const b = builds.get(id), digest = b?.planDigest ?? null;
+    if (!digest || !b.capabilities?.includes('copies') || copiesSent.get(id) === digest) return null;
+    const data = copiesFor(digest);
+    if (!data) return null; // (null: no map read yet; false: past the copies limit, which `selectUp` answers)
+    copiesSent.set(id, digest);
+    return { plan: digest, data };
+  };
+  const onFrame = (id, seq) => { const copies = copiesOf(id); return { kind: 'inspect', on: true, seq, ...(copies ? { copies } : {}) }; };
   const picks = new Map(); // build id -> its last selection's {plan, site, instance}, for `select` (tamber/1.16)
   const streams = new Map(); // nonce -> { write(frame), build: id | null, seen?, poll? }
   const builds = new Map(); // id -> { id, host, capabilities, plan, design, status, nonce }
@@ -293,17 +308,25 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       let queue = []; // [{f, n}], n its bytes
       // The long poll held for this stream, woken by the next frame.
       let waiting = null;
-      const opened = this.open((f) => {
-        f = bounded(f);
+      // One frame queued, past the ones it replaces.
+      const queued = (f) => {
         // Only the latest pin matters: it replaces the whole set.
         if (f.kind === 'pin') queue = queue.filter(q => q.f.kind !== 'pin');
         // Likewise a hold: the latest replaces the one before.
         if (f.kind === 'hold') queue = queue.filter(q => q.f.kind !== 'hold');
         // And a navigation: only where the latest goes.
         if (f.kind === 'navigate') queue = queue.filter(q => q.f.kind !== 'navigate');
-        // Likewise inspect: the latest on/off, and one refresh.
-        if (f.kind === 'inspect') queue = queue.filter(q => q.f.kind !== 'inspect' || !!q.f.refresh !== !!f.refresh);
+        // Likewise inspect, each of its sorts: the latest on/off, select and copies, and one refresh.
+        const sort = g => (g.refresh ? 'refresh' : g.select ? 'select' : 'on' in g ? 'mode' : 'copies');
+        if (f.kind === 'inspect') queue = queue.filter(q => q.f.kind !== 'inspect' || sort(q.f) !== sort(f));
         queue.push({ f, n: Buffer.byteLength(JSON.stringify(f)) });
+      };
+      const opened = this.open((f) => {
+        f = bounded(f);
+        // A plan's copies (1.17) go on their own, ahead of the frame that carried them, so no later inspect frame
+        // coalesces them away: the latest copies stand, as the page keeps them whatever its mode.
+        if (f.kind === 'inspect' && f.copies && ('on' in f || f.select || f.refresh)) { const { copies, ...rest } = f; queued({ kind: 'inspect', copies }); f = rest; }
+        queued(f);
         queueMicrotask(() => waiting?.());
         if (queue.length <= QUEUED && queue.reduce((sum, q) => sum + q.n, 0) <= QUEUE_BYTES) return;
         // Over its bound: the live-table frames pending are one notice of
@@ -389,12 +412,13 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
         // build it was, and that build's pin goes with it.
-        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); untell(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); navigated.delete(s.build); }
+        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); untell(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); copiesSent.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); navigated.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id); untell(r.id);
+        copiesSent.delete(r.id);
         builds.set(r.id, { id: r.id, host: r.host, ...(r.page ? { page: r.page } : {}), capabilities: r.capabilities, plan: r.plan ?? null, planDigest: r.planDigest ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
-        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); untell(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); navigated.delete(id); } }
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); untell(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); copiesSent.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); navigated.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
         // Its pin, or none, as the server holds it now (a reload is a new
         // document; a pin cleared while it was away is cleared there too).
@@ -404,7 +428,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         // And inspect mode as the server holds it: on when a present client
         // turned it on, else off (a page that kept it across a reconnect
         // whose owner went meanwhile leaves it).
-        if (r.capabilities?.includes('inspect')) s.write({ kind: 'inspect', on: inspectors.has(r.id), seq: inspectSeq.get(r.id) ?? 0 });
+        if (r.capabilities?.includes('inspect')) s.write(inspectors.has(r.id) ? onFrame(r.id, inspectSeq.get(r.id) ?? 0) : { kind: 'inspect', on: false, seq: inspectSeq.get(r.id) ?? 0 });
         // And its hold, where its plan still has the site (a reload).
         if (r.capabilities?.includes('hold')) replayHold(r.id, r.planDigest ?? null, true);
         announce();
@@ -436,6 +460,10 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         if ('planDigest' in r) b.planDigest = r.planDigest ?? null;
         // A rebuild that kept its stream: its hold, under its new plan.
         if (b.planDigest && b.planDigest !== was) replayHold(b.id, b.planDigest);
+        // And, inspecting, the new plan's copies (a page that registered before its plan was known, or rebuilt on its
+        // stream): a frame of copies alone, which changes no inspect mode.
+        const copies = b.planDigest !== was && inspectors.has(b.id) ? copiesOf(b.id) : null;
+        if (copies) frame(b.id, { kind: 'inspect', copies });
         if (typeof r.design === 'string') b.design = r.design;
         tellStatus(b);
       } else if (r.kind === 'held') {
@@ -552,8 +580,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
      * build that can (`id` null). The builds it went to, and those that
      * cannot inspect; inspect mode is its client's, turned off when it goes
      * (`clear`). */
-    /** `client`'s selection on build `id` moved `up` call sites (tamber/1.16 `inspect` `select`): sent to the page,
-     * which selects that ancestor and reports it as a click would; refused unless `client` inspects that build. */
+    /** `client`'s selection on build `id` moved `up` copies (tamber/1.16 `inspect` `select`; 1.17 by the page's own tree
+     * and the plan's copies it was sent): sent to the page, which selects that ancestor and reports it as a click would,
+     * with `moved`; refused unless `client` inspects that build. */
     selectUp(client, id, up, { levels, plan, from, instance }) {
       sweep();
       if (!listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
@@ -562,6 +591,20 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       // everywhere (theme2 15:02), so the client reads its chain again; never `unsupported`, which is a page that can't.
       const pick = picks.get(id);
       if (!pick || pick.plan !== plan || pick.site !== from || pick.instance !== JSON.stringify(instance ?? [])) return { stale: true, error: 'the selection moved since its chain was read: select again' };
+      // A plan past the copies limit never gets them, so no move can land there: the build is said unable to step
+      // (unsupported, theme2's ruling; the tool greys its up control until it registers again), never stale, which
+      // would have the tool ask again for good.
+      const b = builds.get(id);
+      if (b.capabilities?.includes('copies') && b.planDigest && copiesFor(b.planDigest) === false) {
+        const detail = 'this build cannot move its selection up (select): its plan is past the copies limit (2^20 sites, 512 KiB encoded); click the node instead';
+        b.unsupported = { what: 'inspect', detail };
+        send({ event: 'unsupported', build: id, what: 'inspect', detail });
+        return { builds: [id] };
+      }
+      // Its plan's copies first, when none went yet (its source map read since the plan was named: a native build's
+      // arrives after its status).
+      const copies = copiesOf(id);
+      if (copies) frame(id, { kind: 'inspect', copies });
       frame(id, { kind: 'inspect', select: { up, levels, plan, from, instance } });
       return { builds: [id] };
     },
@@ -573,7 +616,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       const owners = new Map(inspectors);
       for (const t of can) {
         if (refresh) frame(t, { kind: 'inspect', refresh: true });
-        else { const seq = ++inspects; inspectSeq.set(t, seq); frame(t, { kind: 'inspect', on: !!on, seq }); if (on) inspectors.set(t, client); else inspectors.delete(t); }
+        else { const seq = ++inspects; inspectSeq.set(t, seq); frame(t, on ? onFrame(t, seq) : { kind: 'inspect', on: false, seq }); if (on) inspectors.set(t, client); else inspectors.delete(t); }
       }
       // Off everywhere is off on a build of this client's that is away too:
       // its registration is told off, not replayed on.
@@ -779,11 +822,10 @@ export function selectRequest(channel, request, sitesOf) {
   const up = request.select?.up;
   if (!Number.isSafeInteger(up) || up < 1 || up > 64) return { status: 400, error: { message: '`select` is `{up: n}`, n a whole number from 1 to 64' } };
   if (typeof request.build !== 'string') return { status: 400, error: { message: '`select` names the `build` whose selection moves' } };
-  // The plan sites it may land on, level by level, by the last selection's map, and the plan and site they were taken
-  // from: the page moves only that selection, under that plan, choosing by its own tree.
+  // The last selection's plan, site and instance: the page moves only that selection, under that plan, walking its own
+  // tree by the plan's copies (1.17), to the root past the last; with the 1.16 levels for a page of a build before 1.17.
   const at = sitesOf(request.build, up);
   if (!at) return { status: 409, error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } };
-  if (!at.levels.length) return { status: 409, error: { message: 'nothing above the selected node owns a node of its own to move to' } };
   const done = channel.selectUp(request.client, request.build, up, at);
   return done.error ? { status: 409, error: { message: done.error, ...(done.stale ? { stale: true } : {}) } } : { ok: done };
 }

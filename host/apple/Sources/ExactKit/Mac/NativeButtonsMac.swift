@@ -153,7 +153,9 @@ final class NativeButtonMac: NSButton {
         refusesFirstResponder = true
         defer { refusesFirstResponder = false }
         clicked = false
+        tracked = event
         super.mouseDown(with: event)
+        tracked = nil
         owner?.pointerReleased(nil)
         // The loop ends a click with the action; the second of two is then
         // a double click, heard from the node up after its press, the web's
@@ -162,6 +164,11 @@ final class NativeButtonMac: NSButton {
     }
     /// The tracking loop sent the action: the click landed.
     private var clicked = false
+    /// The press AppKit is tracking: the click an action sent inside the
+    /// loop is, its release the current event (VoiceOver's press, with no
+    /// loop, has none, whatever click is still current).
+    private var tracked: NSEvent?
+    var trackedClick: NSEvent? { tracked.map { NSApp.currentEvent?.type == .leftMouseUp ? NSApp.currentEvent ?? $0 : $0 } }
     /// AppKit has no cancelled mouse-up; an agent's cancellation withdraws its action.
     private var heldContact = false
     private var cancelsHeldContact = false
@@ -204,8 +211,10 @@ extension NodeView {
     /// one), as iOS resolves it. The focus stays where it is, for a click,
     /// for Space on the focused button and for Return's press of a default
     /// button alike (LLP 1115.000 D7.1): the action's own `focus()` is what
-    /// moves it. Then `press` and the canvas's pointer return.
-    func activateNative() {
+    /// moves it. Then `press` and the canvas's pointer return. `mouse`: the
+    /// mouse's press AppKit sent the action for, whose point the press
+    /// carries (`Presenter.pressPoint`); a key's has none.
+    func activateNative(mouse: NSEvent? = nil) {
         guard let presenter, !disabled, !inert else { return }
         let click = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
         var target: NodeView?, bubbled = false
@@ -234,6 +243,7 @@ extension NodeView {
         }
         guard presenter.views[target.id] === target else { return }
         presenter.menus.activating(from: self, pressing: target) {
+            presenter.nativeClick = mouse; defer { presenter.nativeClick = nil }
             presenter.press(target.id, bubbled: bubbled)
         }
         if !bubbled { target.finishPointerPress() }
@@ -269,7 +279,7 @@ extension ControlHost {
 
     @objc func nativePressed(_ sender: NSControl) {
         guard let button = sender as? NativeButtonMac else { return }
-        button.owner?.activateNative()
+        button.owner?.activateNative(mouse: button.trackedClick)
     }
 
     /// Its look, face, accent, enabled state and accessibility, written only

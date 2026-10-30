@@ -11,7 +11,10 @@ use exact_runner::{SocketOp, Store, Target};
 use serde_json::Value as Json;
 
 /// One operation as the prelude records it: `{"op":"text","data":…}`,
-/// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`.
+/// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`;
+/// a listener's `{"op":"line","connection":…,"data":…}` or
+/// `{"op":"end","connection":…}`; a child's `{"op":"write","data":base64,"incarnation":n,"drain":true}`, `end` or
+/// `{"op":"kill","signal":…}`.
 pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
     let j: Json = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let data = || j.get("data").and_then(Json::as_str).unwrap_or("");
@@ -32,7 +35,42 @@ pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
                 .unwrap_or("")
                 .to_string(),
         }),
-        _ => Err("socket: an operation that is not text, binary or close".into()),
+        // A child's (LLP 1133.007 D2; js/src/process.js), by incarnation.
+        Some(op @ ("write" | "end" | "kill")) if j.get("incarnation").is_some() => {
+            let incarnation = (j.get("incarnation").and_then(Json::as_u64))
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or("child: an operation with no incarnation")?;
+            let op = match op {
+                "write" => exact_runner::ProcessOp::Write {
+                    data: exact_runner::agent::unbase64(data())
+                        .ok_or("child: bytes that are not base64")?,
+                    drain: j.get("drain").and_then(Json::as_bool).unwrap_or(false),
+                },
+                "end" => exact_runner::ProcessOp::End,
+                _ => exact_runner::ProcessOp::Kill(
+                    j.get("signal")
+                        .and_then(Json::as_str)
+                        .unwrap_or("SIGTERM")
+                        .to_string(),
+                ),
+            };
+            Ok(SocketOp::Process { incarnation, op })
+        }
+        // A listener's, to one connection (LLP 1133.005 D6).
+        Some(op @ ("line" | "end")) => {
+            let connection = (j.get("connection").and_then(Json::as_u64))
+                .ok_or("listen: a connection that is not a number")?;
+            Ok(match op {
+                "line" => SocketOp::Line {
+                    connection,
+                    text: data().to_string(),
+                },
+                _ => SocketOp::End { connection },
+            })
+        }
+        _ => Err(
+            "socket: an operation that is not text, binary, close, line, end, write or kill".into(),
+        ),
     }
 }
 

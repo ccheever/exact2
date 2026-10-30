@@ -6,7 +6,7 @@ use crate::presenter::{PainterChoice, Presenter};
 fn boot(view: &str) -> Presenter<()> {
     let source = format!("component App\n  view\n    column align-items=\"start\"\n{view}");
     let plan = contract::compile(&source).unwrap();
-    let (presenter, error) = Presenter::boot_with(
+    let (mut presenter, error) = Presenter::boot_with(
         &plan.encode(),
         (),
         (300.0, 300.0),
@@ -16,6 +16,22 @@ fn boot(view: &str) -> Presenter<()> {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
+    // The middle-alignment assertion below uses DejaVu Sans's x-height.
+    let text = presenter.text().clone();
+    *text.borrow_mut() = crate::text::TextEngine::from_font_files(
+        &[std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/fixtures/fonts/assets"
+        ))],
+        "DejaVu Sans",
+    );
+    let kernel = presenter
+        .host()
+        .kernel()
+        .rehydrate(Box::new(crate::text::Measurer(text)));
+    *presenter.host_mut().runner_mut().kernel_mut() = kernel;
+    presenter.resize(300.0, 300.0);
+    presenter.frame();
     presenter
 }
 

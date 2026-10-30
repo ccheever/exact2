@@ -114,7 +114,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     package var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.intersection(FileDrag.events) != oldValue.intersection(FileDrag.events) { syncDropTypes() }; syncDisabledLook() } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types; a disabled pressable's look
     var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
-    var layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
+    var layoutOffset = CGPoint.zero, layoutResize = CGSize.zero // layout*: the box layout moved it from, and its surface's size from the laid-out one (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     /// How far its frame stands from layout's: a lifted Arrange row's
     /// translation plus `stickyOffset` (`applyTransform`).
@@ -236,14 +236,24 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var authoredInert: Bool { inert(forAccessibility: false, blocked: false) }
     private func inert(forAccessibility: Bool, blocked: Bool = true) -> Bool {
         if blocked, forAccessibility ? presenter?.dialogs.accessibilityBlocks(self) == true : presenter?.dialogs.blocks(self) == true { return true }
-        var ancestor: NSView? = self
+        var ancestor: NSView? = self, walked: [ObjectIdentifier] = [], inert = false
         while let view = ancestor {
-            if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
+            if let known = NodeView.hitInert?[ObjectIdentifier(view)] { inert = known; break }
+            walked.append(ObjectIdentifier(view))
+            if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { inert = true; break }
             if let node = view as? NodeView, presenter?.dialogs.owns(node) == true { break }
             ancestor = presenter?.authoredSuperview(of: view) ?? view.superview
         }
-        return false
+        // Every view walked ends at the same answer, so a hit test asks each ancestor once.
+        if NodeView.hitInert != nil { for id in walked { NodeView.hitInert?[id] = inert } }
+        return inert
     }
+    /// The ancestor walk's answers while a hit test runs: it asks every node it visits whether it is
+    /// inert, and nothing that decides it changes until it returns. Without them a hit test in a long
+    /// list walked to the root from each node, most of the main thread's time while content scrolled
+    /// under the pointer.
+    static var hitInert: [ObjectIdentifier: Bool]?
+    static var hitDepth = 0
     /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
     var accessibilityHiddenByProp: Bool {
         sequence(first: self as NSView, next: { self.presenter?.authoredSuperview(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
@@ -522,7 +532,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             addSubview(f)
             field = f
         }
-        presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
+        if kind != "iframe" { presenter.leaves.embed(self) } // a video's player, a module's box (LLP 1068 §5.1); a web view waits for the props (`embedFrame`)
     }
     required init?(coder: NSCoder) { nil }
     package override var isFlipped: Bool { true }
@@ -658,6 +668,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // A collection's knob keeps the offset the reader saw (CollectionMac.swift).
         if let sv = scroll, let drag = KnobDrag.of(sv), !drag.admits(sv.contentView, correcting: presenter?.collections.correcting == true) { return }
         if let o = scroll?.contentView.bounds.origin { presenter?.onScrolled?(id, Double(o.x), Double(o.y)) }
+        if let sv = scroll { presenter?.session?.frameHealth.trackScrolled(sv) }
         presenter?.stickies.scrolled(id)
         presenter?.collectionScrolled(id)
         presenter?.transformGeometry.changed()
@@ -752,6 +763,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // overflow and transformed or placed children still need the full walk.
         if overlay == nil, !frame.contains(point), (clipsToBounds || subviews.isEmpty),
            plane == nil { return nil }
+        NodeView.hitDepth += 1
+        if NodeView.hitDepth == 1 { NodeView.hitInert = [:] }
+        defer { NodeView.hitDepth -= 1; if NodeView.hitDepth == 0 { NodeView.hitInert = nil } }
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if drawsRowBezel, let bezel = rowBezelRect, !bezel.contains(convert(point, from: superview)) { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
@@ -1205,6 +1219,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         styleTextArea()
+        styleLentFieldSide()
         if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
@@ -1219,7 +1234,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
-    /// picture (`BoxFilter`), drawn again after each batch.
+    /// picture (`BoxFilter`), drawn again when what it shows changes.
     private(set) var boxFilter: BoxFilter?
     var hasBoxFilter: Bool { boxFilter != nil }
     func applyFilter() {
@@ -1230,7 +1245,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if f.set(style["filter"]) {
             boxFilter = f
             layer?.mask = f.hide
-            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter() }
+            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter(fresh: $0) }
             renderFilter()
         } else if let f = boxFilter {
             f.remove()
@@ -1240,7 +1255,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
 
-    func renderFilter() {
+    func renderFilter(fresh: Bool = true) {
         guard let f = boxFilter, let layer else { return }
         guard superview != nil else { f.remove(); return }
         // The picture renders the layer as it stands: a box that is layer
@@ -1248,7 +1263,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // display, so a new filtered box is not pictured empty.
         if layerBoxEligible, !Capture.capturing { applyLayerPaint() }
         setPaintPosition(paintZPosition)
-        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2, dark: drawsDark)
+        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2, dark: drawsDark,
+                 node: id, fresh: fresh, shown: window == nil || !visibleRect.isEmpty) { [weak self] in
+            if let self { presenter?.boxFilters.landed(self) }
+        }
     }
 
     package override func viewDidMoveToSuperview() {

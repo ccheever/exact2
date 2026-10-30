@@ -5,7 +5,8 @@
 // A row's testIds name its message's id (a send's nonce until Discord confirms
 // it); its identity in the list is its key, which a confirmation keeps.
 
-use Run, Block, Media, FileRef, Embed, Reaction, ReplyRef, Message from "./shapes.contract"
+use Run, Block, Media, FileRef, Embed, Reaction, Poll, ReplyRef, Message from "./shapes.contract"
+use Translated, TranslationView from "./translate.contract"
 use Badge from "exact:content"
 
 // A code token's colour, after Xcode's default theme in the platform's palette.
@@ -16,16 +17,25 @@ fn codeColor(kind: string): string = kind == "hl-keyword" ? "-exact-system-pink"
 fn recent(day: string): bool = day == "Today" or day == "Yesterday" or day == "Tomorrow"
 fn stamp(at: number, clock: number, offset: number): string = recent(formatDay(at, clock, offset, "day")) ? formatDay(at, clock, offset, "day-time") : `${formatDay(at, clock, offset, "list")}, ${formatTime(at, offset, "short")}`
 
+// How long a poll has left, as Discord words it.
+fn timeLeft(ms: number): string = ms >= 86400000 ? `${floor(ms / 86400000)}d left` : ms >= 3600000 ? `${floor(ms / 3600000)}h left` : `${max(1, ceil(ms / 60000))}m left`
+fn votes(n: number): string = n == 1 ? "1 vote" : `${formatNumber(n, "decimal")} votes`
+
 fn decoration(r: Run): string = r.underline and r.strike ? "underline line-through" : r.underline ? "underline" : r.strike ? "line-through" : "none"
 
 component MessageRow
   props
     m: Message
+    contrast: bool
+    // A touch screen's: a row swipes left to reply, as Discord's mobile apps do; with a mouse or trackpad
+    // a drag selects text instead.
+    touch: bool
     clock: number
     offset: number
     isNew: bool
     lit: bool
     revealed: string[]
+    picks: string[]
     swipeX: number
     dragging: bool
     reveal: action
@@ -42,6 +52,12 @@ component MessageRow
     reply: action
     profile: action
     follow: action
+    // A page a link opens: over the app where the platform shows one, else the browser (LLP 1133.024 D13).
+    browse: action
+    poll: action
+    // Translations kept for the session, and Show Original's action (translate.contract).
+    translations: Translated[]
+    original: action
   derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
@@ -57,110 +73,145 @@ component MessageRow
           Badge(label="NEW", tint=some("-exact-system-red"))
       if m.system != ""
         row gap=12 padding="2px 16px" align-items="center"
-          image "symbol:forward" font="-exact-subheadline" color="-exact-system-green" margin-left=12
+          image `symbol:${m.systemIcon}` font="-exact-subheadline" color=(m.systemIcon == "forward" ? "-exact-system-green" : "-exact-secondary-label") margin-left=12
           text m.system font="-exact-subheadline" color="-exact-secondary-label" flex=1 min-width=0
       else
-        column position="relative" padding="2px 16px" testId=`row-${m.id}` hover=hover(m.key)
-          background-color=(hovered ? "-exact-quaternary-fill" : "transparent")
-          translate=`${0 - swipeX}px 0px` transition=(dragging ? "none" : "translate -exact-spring(300, 30, 1)")
-          pan=swipe(m.key) panrelease=swipeEnd(m.id, m.author) touch-action="pan-left pan-y"
-          contextmenu=aim(m.key, m.id, m.mine, m.source, m.author) contextPopover="message-menu"
-          opacity=(m.state == "pending" ? 0.5 : 1)
-          // A message that mentions the reader: Discord's gold wash and bar.
-          if m.mentionsMe
-            view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=0.12 pointer-events="none" aria-hidden=true
-            view position="absolute" left=0 top=0 bottom=0 width=2 background-color="-exact-system-yellow" pointer-events="none" aria-hidden=true
-          // A jump's target: Discord's yellow wash, fading once the reader has seen it.
-          view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=(lit ? 0.22 : 0) transition="opacity 800ms ease-out" pointer-events="none" aria-hidden=true
-          // A reply's original, joined to the avatar below by Discord's spine. A deleted original
-          // has nowhere to jump to; one the store does not hold yet loads when tapped.
-          for r in m.reply key=r.id
-            row align-items="stretch" gap=6 min-width=0 padding-left=19 padding-bottom=2
-              view width=29 margin-top=9 flex-shrink=0 border-left="2px solid -exact-separator" border-top="2px solid -exact-separator" border-top-left-radius=6 aria-hidden=true
-              if r.state == "deleted"
-                text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1 testId=`reply-to-${m.id}`
-              else
-                button appearance="none" press=jump(r.id) flex=1 min-width=0 testId=`reply-to-${m.id}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
-                  row gap=4 align-items="center" min-width=0
-                    if r.state == "unknown"
-                      text "Tap to see the original message" font="-exact-footnote" color="-exact-secondary-label"
-                    else
-                      image r.avatar width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill"
-                      text r.author font="-exact-footnote" font-weight=600 color=(r.color != "" ? r.color : "-exact-secondary-label") flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-                      text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-          row gap=12 align-items="flex-start"
-            if leads
-              button appearance="none" press=profile(m.authorId, m.id) flex-shrink=0 aria-label=`${m.author}, profile` testId=`avatar-${m.id}`
-                image m.avatar width="2.5rem" height="2.5rem" border-radius="1.25rem" object-fit="cover" background-color="-exact-tertiary-fill"
-            else
-              // A pointer over a grouped message shows its time in the gutter, as Discord's desktop app does.
-              text (hovered ? formatTime(m.at, offset, "short") : "") width="2.5rem" flex-shrink=0 font="-exact-caption2" font-variant-numeric="tabular-nums" color="-exact-secondary-label" text-align="right" white-space="nowrap" padding-top=3 aria-hidden=true
-            column flex=1 min-width=0 gap=4
-              if leads
-                row gap=6 align-items="baseline" flex-wrap="wrap"
-                  text m.author font-weight=600 color=(m.color != "" ? m.color : "-exact-label") press=profile(m.authorId, m.id) testId=`author-${m.id}`
-                  if m.bot
-                    Badge(label="APP", tint=some("AccentColor"))
-                  text stamp(m.at, clock, offset) font="-exact-caption1" color="-exact-secondary-label"
-              for b in m.blocks key=b.id
-                BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal, follow=follow)
-              // Two pictures or more tile, as Discord lays them out: two or four in two columns, three as one tall
-              // and two beside it, more in three columns.
-              if m.media.length == 3
-                // Three: the first tall beside the other two, stacked.
-                view display="grid" grid-template-columns="2fr 1fr" grid-template-rows="1fr 1fr" aspect-ratio="3 / 2" gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
-                  for i, n in m.media key=i.id
-                    TileView(i=i, mkey=m.key, square=false, tall=(n == 0), revealed=revealed, reveal=reveal, show=show)
-              else if m.media.length > 1
-                view display="grid" grid-template-columns=(m.media.length == 2 or m.media.length == 4 ? "1fr 1fr" : "1fr 1fr 1fr") gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
-                  for i in m.media key=i.id
-                    TileView(i=i, mkey=m.key, square=true, tall=false, revealed=revealed, reveal=reveal, show=show)
-              else
-                for i in m.media key=i.id
-                  MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
-              for f in m.files key=f.id
-                if f.spoiler and not revealed.includes(`${m.key}:${f.id}`)
-                  button appearance="none" press=reveal(`${m.key}:${f.id}`) align-self="flex-start" padding="12px 20px" border-radius=8 background-color="-exact-secondary-label" aria-label="Spoiler file, double tap to reveal" testId=`file-${m.key}-${f.id}`
-                    text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
+        Swipe(touch=touch, move=swipe(m.key), release=swipeEnd(m.id, m.author))
+          column position="relative" padding="2px 16px" testId=`row-${m.id}` hover=hover(m.key)
+            background-color=(hovered ? "-exact-quaternary-fill" : "transparent")
+            translate=`${0 - swipeX}px 0px` transition=(dragging ? "none" : "translate -exact-spring(300, 30, 1)")
+            contextmenu=aim(m.key, m.id, m.mine, (m.forwarded ? m.plain : m.source), m.author, m.forwarded) contextPopover="message-menu"
+            opacity=(m.state == "pending" ? 0.5 : 1)
+            // A message that mentions the reader: Discord's gold wash and bar.
+            if m.mentionsMe
+              view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=0.12 pointer-events="none" aria-hidden=true
+              view position="absolute" left=0 top=0 bottom=0 width=2 background-color="-exact-system-yellow" pointer-events="none" aria-hidden=true
+            // A jump's target: Discord's yellow wash, fading once the reader has seen it.
+            view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=(lit ? 0.22 : 0) transition="opacity 800ms ease-out" pointer-events="none" aria-hidden=true
+            // A reply's original, joined to the avatar below by Discord's spine. A deleted original
+            // has nowhere to jump to; one the store does not hold yet loads when tapped.
+            for r in m.reply key=r.id
+              row align-items="stretch" gap=6 min-width=0 padding-left=19 padding-bottom=2
+                view width=29 margin-top=9 flex-shrink=0 border-left="2px solid -exact-separator" border-top="2px solid -exact-separator" border-top-left-radius=6 aria-hidden=true
+                if r.state == "command"
+                  row gap=4 align-items="center" flex=1 min-width=0 testId=`used-${m.id}`
+                    image r.avatar width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill"
+                    text r.author font="-exact-footnote" font-weight=600 color=(r.color != "" ? r.color : "-exact-secondary-label") flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                    text "used" font="-exact-footnote" color="-exact-secondary-label" flex-shrink=0
+                    text r.preview font="-exact-footnote" color="AccentColor" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                else if r.state == "deleted"
+                  text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1 testId=`reply-to-${m.id}`
                 else
-                  link href=f.url testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
-                    row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
-                      image "symbol:document" width=28 height=28 color="AccentColor" flex-shrink=0
-                      column flex=1 min-width=0
-                        text f.name color="AccentColor" font-weight=500 line-clamp=1
-                        text f.size font="-exact-caption1" color="-exact-secondary-label"
-              for e in m.embeds key=e.id
-                EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal, show=show, follow=follow)
-              if m.reactions.length > 0
-                row gap=6 flex-wrap="wrap" padding-top=2
-                  for x in m.reactions key=x.id
-                    button appearance="none" press=react(m.id, x.emoji != "" ? x.emoji : x.id) testId=`reaction-${m.key}-${x.id}` aria-label=`${x.name}, ${x.count}` aria-pressed=x.me -exact-press-haptic="selection"
-                      row gap=4 align-items="center" padding="3px 8px" border-radius=8
-                        background-color=(x.me ? "-exact-tertiary-fill" : "-exact-quaternary-fill")
-                        border=(x.me ? "1px solid AccentColor" : "1px solid transparent")
-                        if x.src != ""
-                          image x.src width=18 height=18 aria-label=x.name
-                        else
-                          text x.emoji
-                        text `${x.count}` font="-exact-footnote" font-weight=600 font-variant-numeric="tabular-nums" color=(x.me ? "AccentColor" : "-exact-secondary-label")
-              if m.state == "failed"
-                row gap=12 align-items="center" testId=`failed-${m.id}`
-                  text "Not sent." font="-exact-footnote" color="-exact-system-red"
-                  button press=retry(m.key) testId=`retry-${m.id}`
-                    text "Retry"
-                  button press=discard(m.key) destructive=true testId=`discard-${m.id}`
-                    text "Delete"
-          // A pointer's quick actions, at the message's top right.
-          if hovered and m.state == "sent"
-            row position="absolute" top=-14 right=16 padding=2 gap=2 border-radius=8 border="1px solid -exact-separator" background-color="-exact-background" testId=`tools-${m.id}`
-              button appearance="none" press=react(m.id, "👍") padding="4px 6px" border-radius=6 aria-label="React with thumbs up" testId=`tool-react-${m.id}`
-                text "👍"
-              button appearance="none" press=reply(m.id, m.author) padding="4px 6px" border-radius=6 aria-label="Reply" testId=`tool-reply-${m.id}`
-                image "symbol:reply" width=18 height=18 color="-exact-secondary-label"
-              button appearance="none" press=aim(m.key, m.id, m.mine, m.source, m.author) popovertarget="message-menu" padding="4px 6px" border-radius=6 aria-label="More" testId=`tool-more-${m.id}`
-                image "symbol:more" width=18 height=18 color="-exact-secondary-label"
-          if swipeX > 0
-            image "symbol:reply" width=22 height=22 position="absolute" right=-36 top=8 opacity=(swipeX >= 56 ? 1 : swipeX / 56) color="-exact-secondary-label"
+                  button appearance="none" press=jump(r.id) flex=1 min-width=0 testId=`reply-to-${m.id}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
+                    row gap=4 align-items="center" min-width=0
+                      if r.state == "unknown"
+                        text "Tap to see the original message" font="-exact-footnote" color="-exact-secondary-label"
+                      else
+                        image r.avatar width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill"
+                        text r.author font="-exact-footnote" font-weight=600 color=(r.color != "" ? r.color : "-exact-secondary-label") flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                        text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+            row gap=12 align-items="flex-start"
+              if leads
+                button appearance="none" press=profile(m.authorId, m.id) flex-shrink=0 aria-label=`${m.author}, profile` testId=`avatar-${m.id}`
+                  image m.avatar width="2.5rem" height="2.5rem" border-radius="1.25rem" object-fit="cover" background-color="-exact-tertiary-fill"
+              else
+                // A pointer over a grouped message shows its time in the gutter, as Discord's desktop app does.
+                text (hovered ? formatTime(m.at, offset, "short") : "") width="2.5rem" flex-shrink=0 font="-exact-caption2" font-variant-numeric="tabular-nums" color="-exact-secondary-label" text-align="right" white-space="nowrap" padding-top=3 aria-hidden=true
+              column flex=1 min-width=0 gap=4
+                if leads
+                  row gap=6 align-items="baseline" flex-wrap="wrap"
+                    text m.author font-weight=600 min-width=0 max-width="100%" overflow-wrap="break-word" color=(not contrast and m.color != "" ? m.color : "-exact-label") press=profile(m.authorId, m.id) testId=`author-${m.id}`
+                    if m.bot
+                      Badge(label="APP", tint=some("AccentColor"))
+                    text stamp(m.at, clock, offset) font="-exact-caption1" color="-exact-secondary-label"
+                // A forward: its own words, Discord's label, and the forwarded message behind a bar.
+                for b in m.note key=b.id
+                  BlockView(b=b, mkey=m.key, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
+                if m.forwarded
+                  row gap=4 align-items="center"
+                    image "symbol:forward" width=14 height=14 color="-exact-secondary-label"
+                    text "Forwarded" font="-exact-footnote" font-style="italic" color="-exact-secondary-label"
+                column gap=4 min-width=0 border-left=(m.forwarded ? "3px solid -exact-separator" : "none") padding-left=(m.forwarded ? 10 : 0)
+                  for b in m.blocks key=b.id
+                    BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal, follow=follow)
+                  // Two pictures or more tile, as Discord lays them out: two or four in two columns, three as one tall
+                  // and two beside it, more in three columns.
+                  if m.media.length == 3
+                    // Three: the first tall beside the other two, stacked.
+                    view display="grid" grid-template-columns="2fr 1fr" grid-template-rows="1fr 1fr" aspect-ratio="3 / 2" gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
+                      for i, n in m.media key=i.id
+                        TileView(i=i, mkey=m.key, square=false, tall=(n == 0), revealed=revealed, reveal=reveal, show=show)
+                  else if m.media.length > 1
+                    view display="grid" grid-template-columns=(m.media.length == 2 or m.media.length == 4 ? "1fr 1fr" : "1fr 1fr 1fr") gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
+                      for i in m.media key=i.id
+                        TileView(i=i, mkey=m.key, square=true, tall=false, revealed=revealed, reveal=reveal, show=show)
+                  else
+                    for i in m.media key=i.id
+                      MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
+                  for f in m.files key=f.id
+                    if f.spoiler and not revealed.includes(`${m.key}:${f.id}`)
+                      button appearance="none" press=reveal(`${m.key}:${f.id}`) align-self="flex-start" padding="12px 20px" border-radius=8 background-color="-exact-secondary-label" aria-label="Spoiler file, double tap to reveal" testId=`file-${m.key}-${f.id}`
+                        text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
+                    else
+                      link href=f.url press=browse(f.url) testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
+                        row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
+                          image "symbol:document" width=28 height=28 color="AccentColor" flex-shrink=0
+                          column flex=1 min-width=0
+                            text f.name color="AccentColor" font-weight=500 line-clamp=1
+                            text f.size font="-exact-caption1" color="-exact-secondary-label"
+                  for s in m.stickers key=s.id
+                    image s.src width=160 height=160 object-fit="contain" aria-label=s.name testId=`sticker-${m.key}-${s.id}`
+                  for e in m.embeds key=e.id
+                    EmbedView(e=e, mkey=m.key, clock=clock, offset=offset, revealed=revealed, reveal=reveal, show=show, follow=follow, browse=browse)
+                  for p in m.poll key=p.question
+                    PollView(p=p, mkey=m.key, mid=m.id, clock=clock, picks=picks, results=revealed.includes(`poll:${m.id}`), poll=poll)
+                for t in translations.filter(x => x.id == m.id) key = t.id
+                  TranslationView(t=t, original=original)
+                if m.reactions.length > 0
+                  row gap=6 flex-wrap="wrap" padding-top=2
+                    for x in m.reactions key=x.id
+                      button appearance="none" press=react(m.id, x.emoji != "" ? x.emoji : x.id) testId=`reaction-${m.key}-${x.id}` aria-label=`${x.name}, ${x.count}` aria-pressed=x.me -exact-press-haptic="selection"
+                        row gap=4 align-items="center" padding="3px 8px" border-radius=8
+                          background-color=(x.me ? "-exact-tertiary-fill" : "-exact-quaternary-fill")
+                          border=(x.me ? "1px solid AccentColor" : "1px solid transparent")
+                          if x.src != ""
+                            image x.src width=18 height=18 aria-label=x.name
+                          else
+                            text x.emoji
+                          text `${x.count}` font="-exact-footnote" font-weight=600 font-variant-numeric="tabular-nums" color=(x.me ? "AccentColor" : "-exact-secondary-label")
+                if m.state == "failed"
+                  row gap=12 align-items="center" flex-wrap="wrap" testId=`failed-${m.id}`
+                    text "Not sent." font="-exact-footnote" color="-exact-system-red"
+                    button press=retry(m.key) testId=`retry-${m.id}`
+                      text "Retry"
+                    button press=discard(m.key) destructive=true testId=`discard-${m.id}`
+                      text "Delete"
+            // A pointer's quick actions, at the message's top right.
+            if hovered and m.state == "sent"
+              row position="absolute" top=-14 right=16 padding=2 gap=2 border-radius=8 border="1px solid -exact-separator" background-color="-exact-background" testId=`tools-${m.id}`
+                button appearance="none" press=react(m.id, "👍") padding="4px 6px" border-radius=6 aria-label="React with thumbs up" testId=`tool-react-${m.id}`
+                  text "👍"
+                button appearance="none" press=reply(m.id, m.author) padding="4px 6px" border-radius=6 aria-label="Reply" testId=`tool-reply-${m.id}`
+                  image "symbol:reply" width=18 height=18 color="-exact-secondary-label"
+                button appearance="none" press=aim(m.key, m.id, m.mine, (m.forwarded ? m.plain : m.source), m.author, m.forwarded) popovertarget="message-menu" padding="4px 6px" border-radius=6 aria-label="More" testId=`tool-more-${m.id}`
+                  image "symbol:more" width=18 height=18 color="-exact-secondary-label"
+            if swipeX > 0
+              image "symbol:reply" width=22 height=22 position="absolute" right=-36 top=8 opacity=(swipeX >= 56 ? 1 : swipeX / 56) color="-exact-secondary-label"
+
+// A row a touch screen swipes; with a mouse or trackpad a drag selects the row's text instead, as it does in
+// Discord's desktop app, so there the gesture is not there at all.
+component Swipe
+  props
+    touch: bool
+    move: action
+    release: action
+  slot
+  view
+    if touch
+      view pan=move panrelease=release touch-action="pan-left pan-y"
+        children
+    else
+      children
 
 component BlockView
   props
@@ -189,53 +240,63 @@ component BlockView
           row flex=1 min-width=0 padding-left=(b.level * 16)
             text b.marker width="1.5rem" flex-shrink=0 color="-exact-secondary-label"
             text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-              Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
+              Runs(runs=b.runs, kind=b.kind, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
         else
           if b.kind == "heading"
             text flex=1 min-width=0 role="heading" aria-level=(b.level + 2) overflow-wrap="break-word" white-space="pre-wrap" padding-top=4
-              HeadingRuns(runs=b.runs, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
+              Runs(runs=b.runs, kind=b.kind, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
           else
             if b.kind == "subtext"
               text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                SmallRuns(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
+                Runs(runs=b.runs, kind=b.kind, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
             else
               if jumbo
                 text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
                   JumboRuns(runs=b.runs)
               else
                 text flex=1 min-width=0 overflow-wrap="break-word" white-space="pre-wrap"
-                  Runs(runs=b.runs, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
+                  Runs(runs=b.runs, kind=b.kind, level=b.level, mkey=mkey, revealed=revealed, reveal=reveal, follow=follow)
 
-// A paragraph's runs at body size. A run's style does not cascade from its
-// paragraph, so each says its own.
+// Inline runs keep their behavior at every block's type size. A run's style
+// does not cascade from its paragraph, so each says its own.
 component Runs
   props
     runs: Run[]
+    kind: string
+    level: number
     mkey: string
     revealed: string[]
     reveal: action
     follow: action
+  derive face = kind == "heading" ? (level == 1 ? "-exact-title2" : level == 2 ? "-exact-title3" : "-exact-headline") : kind == "subtext" ? "-exact-footnote" : "-exact-body"
+  derive weight = kind == "heading" ? 700 : 400
+  derive ink = kind == "subtext" ? "-exact-secondary-label" : "-exact-label"
   view
     for r in runs key=r.id
-      if r.kind == "time"
-        TimeRun(r=r)
+      if r.spoiler != "" and not revealed.includes(`${mkey}:${r.spoiler}`)
+        text r.text font=face font-weight=(r.bold ? 700 : weight) font-style=(r.italic ? "italic" : "normal")
+          background-color="-exact-system-gray" color="-exact-system-gray" border-radius=3
+          aria-label="Spoiler" press=reveal(`${mkey}:${r.spoiler}`) testId=`spoiler-${mkey}-${r.spoiler}`
       else
-        if r.spoiler != "" and not revealed.includes(`${mkey}:${r.spoiler}`)
-          text r.text background-color="-exact-system-gray" color="-exact-system-gray" border-radius=3 press=reveal(`${mkey}:${r.spoiler}`) testId=`spoiler-${mkey}-${r.spoiler}`
+        if r.kind == "time"
+          TimeRun(r=r, face=face, weight=weight, ink=ink)
         else
           if r.kind == "code"
-            text r.text font-family="ui-monospace" font-size="0.875em" background-color="-exact-tertiary-fill" border-radius=4
+            if kind == "heading" or kind == "subtext"
+              text r.text font=face font-family="ui-monospace" font-weight=weight color=ink background-color="-exact-tertiary-fill" border-radius=4
+            else
+              text r.text font-family="ui-monospace" font-size="0.875em" background-color="-exact-tertiary-fill" border-radius=4
           else
             // A link to Discord opens in the app; any other in the browser.
             if r.kind == "link" and r.ref != ""
-              text r.text color="AccentColor" press=follow(r.ref) font-weight=(r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal") testId=`follow-${mkey}-${r.id}`
+              text r.text color="AccentColor" press=follow(r.ref) font=face font-weight=(weight == 700 ? 700 : r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) testId=`follow-${mkey}-${r.id}`
             else if r.kind == "link"
-              text r.text href=r.href font-weight=(r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal")
+              text r.text href=r.href font=face font-weight=(weight == 700 ? 700 : r.bold ? 600 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
             else
               if (r.kind == "user" or r.kind == "channel") and r.ref != ""
-                text r.text font-weight=500 color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4 press=follow(r.ref) testId=`follow-${mkey}-${r.id}`
+                text r.text font=face font-weight=(weight == 700 ? 700 : 500) color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4 press=follow(r.ref) testId=`follow-${mkey}-${r.id}`
               else if r.kind == "user" or r.kind == "role" or r.kind == "channel" or r.kind == "everyone"
-                text r.text font-weight=500 color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4
+                text r.text font=face font-weight=(weight == 700 ? 700 : 500) color="AccentColor" background-color="-exact-tertiary-fill" border-radius=4
               else
                 if r.kind == "edited"
                   text r.text font="-exact-caption2" color="-exact-tertiary-label"
@@ -243,41 +304,8 @@ component Runs
                   if r.kind == "emoji"
                     image r.href width="1.375em" height="1.375em" object-fit="contain" vertical-align="middle" aria-label=r.text
                   else
-                    text r.text font-weight=(r.bold ? 700 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
+                    text r.text font=face color=ink font-weight=(r.bold ? 700 : weight) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
 
-component HeadingRuns
-  props
-    runs: Run[]
-    level: number
-    mkey: string
-    revealed: string[]
-    reveal: action
-    follow: action
-  view
-    for r in runs key=r.id
-      if r.ref != ""
-        text r.text font=(level == 1 ? "-exact-title2" : level == 2 ? "-exact-title3" : "-exact-headline") font-weight=700 color="AccentColor" press=follow(r.ref) testId=`follow-${mkey}-${r.id}`
-      else if level == 1
-        text r.text font="-exact-title2" font-weight=700 font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
-      else
-        if level == 2
-          text r.text font="-exact-title3" font-weight=700 font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
-        else
-          text r.text font="-exact-headline" font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
-
-component SmallRuns
-  props
-    runs: Run[]
-    mkey: string
-    revealed: string[]
-    reveal: action
-    follow: action
-  view
-    for r in runs key=r.id
-      if r.ref != ""
-        text r.text font="-exact-footnote" color="AccentColor" press=follow(r.ref) testId=`follow-${mkey}-${r.id}`
-      else
-        text r.text font="-exact-footnote" color="-exact-secondary-label" font-weight=(r.bold ? 700 : 400) font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r)
 
 component JumboRuns
   props
@@ -292,26 +320,30 @@ component JumboRuns
 component TimeRun
   props
     r: Run
+    face: string
+    weight: number
+    ink: string
   view
     if r.format == "relative"
-      time datetime=r.at format="relative" background-color="-exact-tertiary-fill" border-radius=4
+      time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="relative" background-color="-exact-tertiary-fill" border-radius=4
     else
       if r.format == "time-short"
-        time datetime=r.at format="time-short" background-color="-exact-tertiary-fill" border-radius=4
+        time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="time-short" background-color="-exact-tertiary-fill" border-radius=4
       else
         if r.format == "time-medium"
-          time datetime=r.at format="time-medium" background-color="-exact-tertiary-fill" border-radius=4
+          time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="time-medium" background-color="-exact-tertiary-fill" border-radius=4
         else
           if r.format == "date-short"
-            time datetime=r.at format="date-short" background-color="-exact-tertiary-fill" border-radius=4
+            time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="date-short" background-color="-exact-tertiary-fill" border-radius=4
           else
             if r.format == "date-long"
-              time datetime=r.at format="date-long" background-color="-exact-tertiary-fill" border-radius=4
+              time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="date-long" background-color="-exact-tertiary-fill" border-radius=4
             else
-              time datetime=r.at format="date-full" background-color="-exact-tertiary-fill" border-radius=4
+              time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="date-full" background-color="-exact-tertiary-fill" border-radius=4
 
-// An image reserves the box Discord declared before it decodes (§3.1); one
-// with no declared size takes the width and decodes to its own height.
+// Spoilers load only after disclosure. Without dimensions, their cover reserves
+// a provisional box; the revealed image takes its natural aspect ratio. A
+// picture's `id` is what the viewer zooms out of on iOS (its route's `navigationSource`).
 component MediaView
   props
     i: Media
@@ -319,26 +351,18 @@ component MediaView
     revealed: string[]
     reveal: action
     show: action
+  derive sized = i.width > 0 and i.height > 0
+  derive covered = i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
   view
-    if i.width > 0 and i.height > 0
-      view position="relative" width=i.fitWidth max-width="100%" aspect-ratio=`${i.width} / ${i.height}` border-radius=8 overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
-        // A spoiler opens only once revealed.
-        if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
-          image i.src width="100%" height="100%" object-fit="cover" aria-hidden=true
-          button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Spoiler, double tap to reveal"
-            text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
-        else
-          button appearance="none" press=show(i.full, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
-            image i.src width="100%" height="100%" object-fit="cover"
-    else
-      if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
-        button appearance="none" press=reveal(`${mkey}:${i.id}`) align-self="flex-start" padding="40px 60px" border-radius=8 background-color="-exact-secondary-label" aria-label="Spoiler, double tap to reveal" testId=`media-${mkey}-${i.id}`
-          text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
+    view position="relative" width=(sized ? i.fitWidth : 320) max-width="100%" aspect-ratio=(sized ? `${i.width} / ${i.height}` : covered ? "16 / 9" : "auto") border-radius=8 overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
+      if covered
+        button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-system-gray" aria-label="Reveal spoiler image" testId=`reveal-media-${mkey}-${i.id}`
+          text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
       else
-        button appearance="none" press=show(i.full, i.alt, 0, 0) align-self="flex-start" aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
-          image i.src width="100%" max-width=320 border-radius=8 testId=`media-${mkey}-${i.id}`
+        button appearance="none" press=show(`${mkey}-${i.id}`, i.full, i.src, i.alt, i.width, i.height) width="100%" height=(sized ? "100%" : "auto") aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+          image i.src id=`photo-${mkey}-${i.id}` width="100%" height=(sized ? "100%" : "auto") aspect-ratio=(sized ? "auto" : "auto 16 / 9") object-fit="cover" aria-label=i.alt testId=`media-image-${mkey}-${i.id}`
 
-// A picture in a mosaic, cropped to fill its cell: a square, or the grid's cell (`tall` spans its rows).
+// A cropped picture in a multi-image message.
 component TileView
   props
     i: Media
@@ -351,38 +375,123 @@ component TileView
   view
     view position="relative" aspect-ratio=(square ? "1 / 1" : "auto") grid-row=(tall ? "1 / 3" : "auto") overflow="hidden" background-color="-exact-secondary-background" testId=`media-${mkey}-${i.id}`
       if i.spoiler and not revealed.includes(`${mkey}:${i.id}`)
-        image i.src width="100%" height="100%" object-fit="cover" aria-hidden=true
-        button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Spoiler, double tap to reveal"
+        button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Reveal spoiler image" testId=`reveal-media-${mkey}-${i.id}`
           text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
       else
-        button appearance="none" press=show(i.full, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
-          image i.src width="100%" height="100%" object-fit="cover"
+        button appearance="none" press=show(`${mkey}-${i.id}`, i.full, i.src, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+          image i.src id=`photo-${mkey}-${i.id}` width="100%" height="100%" object-fit="cover"
 
 component EmbedView
   props
     e: Embed
     mkey: string
+    clock: number
+    offset: number
     revealed: string[]
     reveal: action
     show: action
     follow: action
+    browse: action
   view
-    row max-width="26rem" border-radius=6 overflow="hidden" background-color="-exact-secondary-background" testId=`embed-${mkey}-${e.id}`
-      view width=4 flex-shrink=0 background-color=(e.color != "" ? e.color : "-exact-separator")
-      column flex=1 min-width=0 padding=10 gap=4
-        if e.provider != ""
-          text e.provider font="-exact-caption1" color="-exact-secondary-label"
-        if e.author != ""
-          text e.author font="-exact-footnote" font-weight=600
-        if e.title != ""
-          if e.url != ""
-            link href=e.url
-              text e.title font-weight=600
+    // The border outside, the spine and fill clipped inside its inner corner (CSS clips a child to the padding edge).
+    view max-width="26rem" border-radius=6 border="1px solid -exact-separator" testId=`embed-${mkey}-${e.id}`
+      row border-radius=5 overflow="hidden" background-color="-exact-secondary-background"
+        view width=4 flex-shrink=0 background-color=(e.color != "" ? e.color : "-exact-separator")
+        column flex=1 min-width=0 padding=10 gap=4
+          if e.provider != ""
+            text e.provider font="-exact-caption1" color="-exact-secondary-label" overflow-wrap="break-word"
+          if e.author != ""
+            row gap=6 align-items="center" min-width=0
+              if e.authorIcon != ""
+                image e.authorIcon width=20 height=20 border-radius=10 object-fit="cover" flex-shrink=0 aria-hidden=true
+              if e.authorUrl != ""
+                link href=e.authorUrl min-width=0
+                  text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+              else
+                text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+          if e.title != ""
+            if e.url != ""
+              link href=e.url press=browse(e.url) testId=`embed-title-${mkey}-${e.id}`
+                text e.title font-weight=600 overflow-wrap="break-word"
+            else
+              text e.title font-weight=600 overflow-wrap="break-word"
+          for b in e.description key=b.id
+            BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
+          if e.fields.length > 0
+            row flex-wrap="wrap" column-gap=16 row-gap=8 padding-top=2
+              for f in e.fields key=f.id
+                column gap=2 min-width=0 flex=(f.inline ? "1 1 28%" : "1 1 100%") testId=`field-${mkey}-${f.id}`
+                  text f.name font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+                  for b in f.value key=b.id
+                    BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
+          for i in e.image key=i.id
+            MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
+          if e.footer != "" or e.at > 0
+            row gap=6 align-items="center" padding-top=2 min-width=0
+              if e.footerIcon != ""
+                image e.footerIcon width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 aria-hidden=true
+              text (e.footer != "" and e.at > 0 ? `${e.footer} • ${stamp(e.at, clock, offset)}` : e.footer != "" ? e.footer : stamp(e.at, clock, offset)) font="-exact-caption1" color="-exact-secondary-label" min-width=0 overflow-wrap="break-word" testId=`footer-${mkey}-${e.id}`
+        for t in e.thumbnail key=t.id
+          image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt
+
+// A poll, as Discord draws it: before the reader votes, its answers to choose and a Vote button; once they
+// have voted, asked to see the results, or the poll has closed, each answer's share as a bar.
+// `poll(what, message, answer, multi)` does what the card asks: "pick", "vote", "unvote", "results" or "back".
+component PollView
+  props
+    p: Poll
+    mkey: string
+    mid: string
+    clock: number
+    picks: string[]
+    results: bool
+    poll: action
+  derive ended = p.closed or (p.expiry > 0 and clock >= p.expiry)
+  derive tally = ended or p.voted or results
+  derive chosen = picks.filter(k => k.startsWith(`${mid}:`)).length
+  view
+    column max-width="28rem" padding=16 gap=12 border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background" testId=`poll-${mkey}`
+      column gap=2
+        text p.question font="-exact-headline"
+        text (p.multi ? "Select one or more answers" : "Select one answer") font="-exact-footnote" color="-exact-secondary-label"
+      column gap=8
+        for a in p.answers key=a.id
+          if tally
+            row position="relative" z-index=0 overflow="hidden" align-items="center" gap=8 padding="10px 12px" border-radius=8
+              border=(a.me ? "1px solid AccentColor" : "1px solid -exact-separator")
+              aria-label=`${a.text}${p.known ? `, ${votes(a.count)}, ${a.percent}%` : ""}${a.me ? ", your vote" : ""}${a.winner ? ", winning answer" : ""}` testId=`poll-${mkey}-${a.id}`
+              view position="absolute" z-index=-1 top=0 left=0 bottom=0 width=`${a.percent}%` background-color=(a.me ? "AccentColor" : "-exact-tertiary-fill") opacity=(a.me ? 0.2 : 1)
+              if a.src != ""
+                image a.src width=20 height=20 aria-label=a.emoji
+              else if a.emoji != ""
+                text a.emoji
+              text a.text flex=1 min-width=0 font-weight=(a.winner ? 600 : 400)
+              if a.me or a.winner
+                image "symbol:select-fill" width=18 height=18 color=(a.me ? "AccentColor" : "-exact-system-green")
+              if p.known
+                text votes(a.count) font="-exact-footnote" color="-exact-secondary-label" font-variant-numeric="tabular-nums" testId=`poll-${mkey}-${a.id}-votes`
+                text `${a.percent}%` font-weight=600 font-variant-numeric="tabular-nums" min-width="2.75em" text-align="right" testId=`poll-${mkey}-${a.id}-share`
           else
-            text e.title font-weight=600
-        for b in e.description key=b.id
-          BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
-        for i in e.image key=i.id
-          MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
-      for t in e.thumbnail key=t.id
-        image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt
+            button appearance="none" press=poll("pick", mid, a.id, p.multi) aria-pressed=picks.includes(`${mid}:${a.id}`) testId=`poll-${mkey}-${a.id}` -exact-press-haptic="selection"
+              row align-items="center" gap=8 padding="10px 12px" border-radius=8
+                border=(picks.includes(`${mid}:${a.id}`) ? "1px solid AccentColor" : "1px solid -exact-separator")
+                background-color=(picks.includes(`${mid}:${a.id}`) ? "-exact-quaternary-fill" : "transparent")
+                if a.src != ""
+                  image a.src width=20 height=20 aria-label=a.emoji
+                else if a.emoji != ""
+                  text a.emoji
+                text a.text flex=1 min-width=0 text-align="left"
+                image (picks.includes(`${mid}:${a.id}`) ? "symbol:select-fill" : "symbol:circle") width=20 height=20
+                  color=(picks.includes(`${mid}:${a.id}`) ? "AccentColor" : "-exact-tertiary-label")
+      row align-items="center" gap=12 flex-wrap="wrap"
+        text `${p.known ? `${votes(p.votes)} · ` : ""}${ended ? "Poll closed" : p.expiry > 0 ? timeLeft(p.expiry - clock) : "No end"}` font="-exact-footnote" color="-exact-secondary-label" font-variant-numeric="tabular-nums"
+        if not ended and not p.voted
+          button appearance="none" press=poll(results ? "back" : "results", mid, "", p.multi) testId=`poll-${mkey}-results`
+            text (results ? "Go back to vote" : "Show results") font="-exact-footnote" font-weight=600 color="AccentColor"
+        if not ended and p.voted
+          button appearance="none" press=poll("unvote", mid, "", p.multi) testId=`poll-${mkey}-unvote`
+            text "Remove vote" font="-exact-footnote" font-weight=600 color="AccentColor"
+        if not tally
+          view flex=1
+          button press=poll("vote", mid, "", p.multi) disabled=(chosen == 0) buttonStyle="filled" testId=`poll-${mkey}-vote`
+            text "Vote"

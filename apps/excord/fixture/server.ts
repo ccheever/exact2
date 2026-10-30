@@ -2,14 +2,18 @@
 // A Discord stand-in for tests and agent drives (llp/0001 §4.4): the user gateway (zlib-stream or
 // text) and the REST paths Excord uses, over the seeded world, plus `/control/*` to inject traffic.
 // `bun apps/excord/fixture/server.ts --world transcript --reset-on-identify`; app.ts's `origin` points here.
+// `--history-delay <ms>` holds each older page's answer that long (a phone network's round trip).
 // POST /control/clock {advance_ms} advances the selected clock for timestamps, nonce expiry,
 // rate limits and reaction batches, flushing due batches before returning. Reset clears the offset.
 // With passive capabilities, full guild events require subscribeAll, POST /control/subscribe
 // {guild_id} after login, or op 14 {guild_id} / op 37 {subscriptions: {[guild_id]: {}}}.
 // Either subscription opcode accepts either shape.
 // POST /control/hold-sends {on} holds the app's sends until released, in order.
+// POST /control/hold-media {on} holds full-size pictures (a /media/ GET with no query, as the viewer asks;
+// the transcript's resized ones carry `width`) until released.
 // POST /control/heartbeat-request asks every socket for op 1; POST /control/react-many
 // {channel_id, message_id, emoji, user_ids} adds reactions and flushes their batch immediately.
+// POST /control/vote {channel_id, message_id, user_id, answer_id, add} adds or takes back one vote on a poll.
 // POST /control/rotate-token {token} makes the account's token `token` (a reset keeps it) and sends
 // each session a READY carrying it as `auth_token`, as Discord rotates a client's token; /control/state's
 // `identify_token` is the token the last IDENTIFY carried.
@@ -101,6 +105,9 @@ export interface FixtureOptions {
   reactionDebounceMs?: number; // Default: 500 ms from the first add in each message's batch.
   subscribeAll?: boolean; // Default: false; true subscribes every new session to all seeded guilds.
   rateLimits?: { default?: RateLimit; messages?: RateLimit; routes?: Record<string, RateLimit> };
+  // An older page's answer (a GET of a channel's messages with `before=`) waits this long, as a phone network's
+  // round trip does: nothing else does, not the newest page, the gateway or a send. Default: 0.
+  historyDelayMs?: number;
 }
 interface Bucket extends RateLimit { used: number; reset: number }
 interface ForcedLimit { route?: string; global: boolean; count: number; retry_after: number }
@@ -267,6 +274,10 @@ export function startFixture(options: FixtureOptions = {}) {
   let rotatedToken: string | null = null, identifyToken: string | null = null;
   let stopAcks = false, readyBytes = 0, loginBytes = 0, frameParts = 1, syntheticCounter = 10000;
   let readyShape: GuildShape = {};
+  // The next login holds the guilds back for this long (READY names them unavailable, GUILD_CREATE comes later):
+  // what the launch's restore waits on while the reader acts first. Kept through a reset (it is for the next
+  // IDENTIFY, which resets the world; an explicit reset drops it).
+  let holdGuildsMs = 0;
   let closed = false;
   let resetVersion = 0;
   let clockOffsetMs = 0, messageTimestamp = 0, messageSequence = 0, passiveUpdateCount = 0;
@@ -286,6 +297,9 @@ export function startFixture(options: FixtureOptions = {}) {
   let holdSends = false;
   const heldSends: (() => void)[] = [];
   const releaseSends = () => { holdSends = false; for (const resume of heldSends.splice(0)) resume(); };
+  let holdMedia = false;
+  const heldMedia: (() => void)[] = [];
+  const releaseMedia = () => { holdMedia = false; for (const resume of heldMedia.splice(0)) resume(); };
   const injectionDispatches = new AsyncLocalStorage<InjectedDispatch[]>();
 
   function nextMessage(requested = nowMs()) {
@@ -462,7 +476,10 @@ export function startFixture(options: FixtureOptions = {}) {
     const shape = readyShape;
     readyShape = {};
     loginBytes = 0;
+    const held = holdGuildsMs;
+    holdGuildsMs = 0;
     const ready = sizedReady(world, session.id, gatewayUrl, session.seq + 1, size, shape);
+    if (held) ready.d.guilds = world.guilds.map(guild => ({ id: guild.id, unavailable: true }));
     let sent = await send(socket, dispatch(session, 'READY', ready.d));
     if (version !== resetVersion || socket.data.closed) return;
     sent += await send(socket, dispatch(session, 'READY_SUPPLEMENTAL', {
@@ -472,6 +489,12 @@ export function startFixture(options: FixtureOptions = {}) {
     }));
     if (world.lazyGuildId) {
       sent += await send(socket, dispatch(session, 'GUILD_CREATE', world.guilds.find(guild => guild.id === world.lazyGuildId)));
+    }
+    if (held) {
+      setTimeout(() => {
+        if (version !== resetVersion || socket.data.closed) return;
+        for (const guild of world.guilds) void send(socket, dispatch(session, 'GUILD_CREATE', guild)).catch(() => {});
+      }, held);
     }
     while (!socket.data.closed && sent <= burst && burst > 0) {
       const guild = syntheticGuild(world, syntheticCounter++, Math.min(200000, burst - sent + 4096));
@@ -671,6 +694,20 @@ export function startFixture(options: FixtureOptions = {}) {
     if (changed) await broadcast(add ? 'MESSAGE_REACTION_ADD' : 'MESSAGE_REACTION_REMOVE', changed);
   }
 
+  // One voter's vote on one answer, which Discord sends as its own event. Only the reader's choice is kept.
+  async function pollVote(channelId: string, messageId: string, userId: string, answerId: number, add: boolean) {
+    const poll = (message(channelId, messageId) as { poll?: any }).poll;
+    if (!poll?.answers.some((a: { answer_id: number }) => a.answer_id === answerId)) throw new HttpError(400, 'Not an answer');
+    poll.results ??= { is_finalized: false, answer_counts: [] };
+    let count = poll.results.answer_counts.find((a: { id: number }) => a.id === answerId);
+    if (!count) poll.results.answer_counts.push(count = { id: answerId, count: 0, me_voted: false });
+    count.count = Math.max(0, count.count + (add ? 1 : -1));
+    if (userId === world.me.id) count.me_voted = add;
+    const guildId = channel(channelId).guild_id;
+    await broadcast(add ? 'MESSAGE_POLL_VOTE_ADD' : 'MESSAGE_POLL_VOTE_REMOVE', { user_id: userId, channel_id: channelId,
+      message_id: messageId, answer_id: answerId, ...(guildId ? { guild_id: guildId } : {}) });
+  }
+
   async function typing(channelId: string, userId: string) {
     const destination = channel(channelId);
     const user = world.users.find(value => value.id === userId);
@@ -740,12 +777,14 @@ export function startFixture(options: FixtureOptions = {}) {
       socket.data.closed = true; socket.close(keep ? 4004 : 1000, 'Fixture reset');
     }
     sockets.clear(); sessions.clear(); buckets.clear(); reactionUsers.clear();
-    typingUsers.clear(); failNext.clear(); releaseSends();
+    typingUsers.clear(); failNext.clear(); releaseSends(); releaseMedia();
     clearTimeout(reactionTimer); reactionTimer = undefined;
     clockOffsetMs = messageTimestamp = messageSequence = passiveUpdateCount = 0;
     forced.length = requests.length = frames.length = 0;
     connectionCounter = sessionCounter = identifyCount = resumeCount = loginsDone = 0;
     readyBytes = loginBytes = 0; readyShape = {}; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
+    // An IDENTIFY's reset (`keep`) leaves the guild hold for that login; an explicit reset drops it.
+    if (!keep) holdGuildsMs = 0;
     world = buildWorld();
     if (rotatedToken) world.token = rotatedToken;
     if (keep) {
@@ -768,6 +807,7 @@ export function startFixture(options: FixtureOptions = {}) {
         const dispatches: InjectedDispatch[] = [];
         await injectionDispatches.run(dispatches, () => inject(world, request, {
           origin, typingUsers, failNext, remove, typing, broadcast,
+          holdGuilds: (ms: number) => { holdGuildsMs = ms; },
           isCurrent: () => version === resetVersion && !closed,
           create: (channelId, content, authorId, at) => createMessage(channelId, content, authorId, {}, at),
           react: async (channelId, id) => {
@@ -782,6 +822,10 @@ export function startFixture(options: FixtureOptions = {}) {
       case 'hold-sends':
         if (typeof body.on !== 'boolean') throw new HttpError(400, 'on must be a boolean');
         if (body.on) holdSends = true; else releaseSends();
+        break;
+      case 'hold-media':
+        if (typeof body.on !== 'boolean') throw new HttpError(400, 'on must be a boolean');
+        if (body.on) holdMedia = true; else releaseMedia();
         break;
       case 'clock':
         clockOffsetMs += integer(body.advance_ms, 0, 8640000000000000 - nowMs());
@@ -836,6 +880,9 @@ export function startFixture(options: FixtureOptions = {}) {
         if (typeof body.add !== 'boolean') throw new HttpError(400, 'add must be a boolean');
         await react(textField(body, 'channel_id'), textField(body, 'message_id'), parseEmoji(body.emoji),
           textField(body, 'user_id'), body.add); break;
+      case 'vote':
+        if (typeof body.add !== 'boolean' || !Number.isInteger(body.answer_id)) throw new HttpError(400, 'add must be a boolean, answer_id an integer');
+        await pollVote(textField(body, 'channel_id'), textField(body, 'message_id'), textField(body, 'user_id'), body.answer_id, body.add); break;
       case 'react-many': {
         const channelId = textField(body, 'channel_id'), id = textField(body, 'message_id');
         const emoji = parseEmoji(body.emoji);
@@ -924,6 +971,22 @@ export function startFixture(options: FixtureOptions = {}) {
         return { id: f.id, upload_url: `${origin}/upload/${encodeURIComponent(name)}`, upload_filename: name };
       }) } };
     }
+    // A vote replaces the reader's earlier one; no answers takes it back. Discord sends an event an answer.
+    const vote = /^\/channels\/([^/]+)\/polls\/([^/]+)\/answers\/@me$/.exec(path);
+    if (vote && method === 'PUT') {
+      const [, channelId, messageId] = vote;
+      const poll = (message(channelId, messageId) as { poll?: any }).poll;
+      if (!poll) throw new HttpError(400, 'Not a poll');
+      const chosen = (await readBody(request)).answer_ids;
+      const answers = poll.answers.map((a: { answer_id: number }) => String(a.answer_id));
+      if (!Array.isArray(chosen) || chosen.some(id => typeof id !== 'string' || !answers.includes(id))
+        || (!poll.allow_multiselect && chosen.length > 1)) throw new HttpError(400, 'Invalid answers');
+      for (const id of answers) {
+        const mine = !!poll.results?.answer_counts.find((a: { id: number }) => String(a.id) === id)?.me_voted;
+        if (mine !== chosen.includes(id)) await pollVote(channelId, messageId, world.me.id, Number(id), !mine);
+      }
+      return { status: 204 };
+    }
     const match = /^\/channels\/([^/]+)\/(messages|typing)(?:\/([^/]+)(?:\/(ack|reactions)(?:\/([^/]+)\/@me)?)?)?$/.exec(path);
     if (!match) throw new HttpError(404, 'Unknown endpoint');
     const [, channelId, kind, messageId, action, encodedEmoji] = match;
@@ -947,6 +1010,7 @@ export function startFixture(options: FixtureOptions = {}) {
         query.limit = limit;
       }
       if ([query.before, query.after, query.around].filter(Boolean).length > 1) throw new HttpError(400, 'Conflicting cursors');
+      if (query.before && options.historyDelayMs) await new Promise(resume => setTimeout(resume, options.historyDelayMs));
       return { status: 200, body: pageMessages(world.messages[channelId], query) };
     }
     if (!messageId && method === 'POST') {
@@ -1022,11 +1086,14 @@ export function startFixture(options: FixtureOptions = {}) {
       const failingSend = request.method === 'POST' && /^\/api\/v9\/channels\/([^/]+)\/messages$/.exec(url.pathname);
       const retry = isRest && !(failingSend && failNext.has(failingSend[1]))
         ? limitRequest(request.method, url.pathname, headers) : undefined;
-      if (request.method === 'GET' && (url.pathname.startsWith('/media/') || url.pathname.startsWith('/emojis/'))) {
+      if (request.method === 'GET' && (url.pathname.startsWith('/media/') || url.pathname.startsWith('/emojis/') || url.pathname.startsWith('/stickers/'))) {
         const media = /^\/media\/([a-z]+)\.png$/.exec(url.pathname);
         const emoji = /^\/emojis\/(50[0-8])\.png$/.exec(url.pathname);
-        const name = media?.[1] ?? (emoji ? emojiNames[Number(emoji[1]) - 500] : undefined);
+        // The world's one sticker (601) is drawn with an emoji's picture.
+        const sticker = /^\/stickers\/601\.png$/.test(url.pathname);
+        const name = media?.[1] ?? (emoji ? emojiNames[Number(emoji[1]) - 500] : sticker ? emojiNames[1] : undefined);
         if (!name || !/^[a-z]+$/.test(name)) return json({ message: 'Unknown asset', code: 0 }, 404);
+        if (media && holdMedia && !url.search) await new Promise<void>(resume => heldMedia.push(resume));
         const file = Bun.file(`${import.meta.dir}/../assets/${media ? 'media' : 'emoji'}/${name}.png`);
         if (!await file.exists()) return json({ message: 'Unknown asset', code: 0 }, 404);
         headers.set('Content-Type', 'image/png');
@@ -1130,7 +1197,7 @@ if (import.meta.main) {
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--reset-on-identify') { options.resetOnIdentify = true; continue; }
-    if (!['--port', '--seed', '--world', '--clock', '--host'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
+    if (!['--port', '--seed', '--world', '--clock', '--host', '--history-delay'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
     if (args[i + 1] === undefined) throw new Error(`Missing value for ${flag}`);
     // The address it listens on and names itself by (READY's gateway, asset URLs): a phone's, this Mac's LAN address.
     if (flag === '--host') { options.hostname = args[++i]; continue; }
@@ -1139,6 +1206,7 @@ if (import.meta.main) {
       if (world !== 'default' && world !== 'transcript') throw new Error('world must be default or transcript');
       options.world = world; continue;
     }
+    if (flag === '--history-delay') { options.historyDelayMs = integer(args[++i], 0, 60000); continue; }
     if (flag === '--clock') {
       const clock = args[++i];
       if (clock !== 'fixed' && clock !== 'wall') throw new Error('clock must be fixed or wall');

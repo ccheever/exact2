@@ -500,6 +500,48 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertEqual(after["committedQuery"] as? String, "nonanimated-animated")
     }
 
+    /// A search in the bar leaves the route's layout. Its keys are the
+    /// route's safe area, as SwiftUI's keyboard region is, or under
+    /// `resizes-visual` its viewport's inset, which reflows nothing.
+    func testABarSearchsKeysAreTheRoutesSafeArea() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "native search editing needs the hosted app responder lifecycle")
+        }
+        try assertBarSearchKeys(policy: "resizes-content")
+    }
+
+    func testABarSearchsKeysInsetTheVisualViewportWithoutReflow() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "native search editing needs the hosted app responder lifecycle")
+        }
+        try assertBarSearchKeys(policy: "resizes-visual")
+    }
+
+    private func assertBarSearchKeys(policy: String) throws {
+        let (session, _, nav) = try fixture()
+        let p = session.presenter
+        p.apply(wireBatch([["op": "props", "id": Int(try node("app").id), "set": ["interactiveWidget": policy]]]))
+        try tap("home-open-seek", in: nav, depth: 2)
+        let search = try XCTUnwrap(nav.topViewController?.navigationItem.searchController)
+        until("the bar's search field takes the autofocus") { search.searchBar.searchTextField.isFirstResponder }
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let size = route.node.bounds.size, cover = p.navigation.covers[route.node.id]
+        guard case .edges(let edges)? = cover else { return XCTFail("the route is covered by its bars: \(String(describing: cover))") }
+        let keys: CGFloat = 300
+        setKeyboard(p, top: 874 - keys, responder: search.searchBar.searchTextField)
+        _ = Agent(session: session).clock(["settle": true])
+        XCTAssertTrue(p.editsInBar(of: route.view))
+        XCTAssertEqual(route.node.bounds.size, size, "the bar's search does not shorten the route")
+        if policy == "resizes-visual" {
+            XCTAssertEqual(p.navigation.covers[route.node.id], cover, "the keys reflow nothing")
+            XCTAssertEqual(try XCTUnwrap(route.contentViewport).contentInset.bottom, keys, accuracy: 0.5)
+        } else {
+            XCTAssertNil(route.contentViewport)
+            XCTAssertEqual(p.navigation.covers[route.node.id], .edges(.init(top: edges.top, right: edges.right, bottom: keys, left: edges.left)),
+                           "the keys are the route's safe area")
+        }
+    }
+
     func testSearchBlurPreservesNewVisitsAndDismissesReplacedVisits() throws {
         guard hostedWindowScene() != nil else {
             throw missing("scene", "search blur navigation needs the hosted app responder lifecycle")

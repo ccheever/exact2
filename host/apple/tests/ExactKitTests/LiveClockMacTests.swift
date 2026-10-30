@@ -29,13 +29,16 @@ final class LiveClockMacTests: XCTestCase {
         defer { session.destroy() }
         let boot = session.boot(plan: try Self.plan.get(), size: CGSize(width: 390, height: 844))
         XCTAssertNil(boot.error)
-        let due = try XCTUnwrap(boot.timerDueMs)
+        // On the wall clock a task's repeat is Foundation's timer (#1144), whose wake the runtime fires.
+        let row = try XCTUnwrap(boot.nativeTimers?.first, "the task's native timer")
+        let due = row.due
         // No frame yet, and three beats missed: one fire.
-        _ = session.runtime.advance(now: due + 2500)
+        _ = session.runtime.fireNativeTimer(row, now: due + 2500)
         XCTAssertEqual(try ticks(session), 1)
-        // The agent takes the clock: each beat fires at its own time.
-        session.clock = due + 2500
-        _ = session.runtime.advance(now: due + 5500)
+        // The agent takes the clock, through its own `clock` op (agent.mjs `clock`): each beat fires at its own time.
+        let moved = Agent(session: session).clock(["op": "clock", "to": due + 5500])
+        XCTAssertNil(moved["error"], "\(moved)")
+        XCTAssertNotNil(session.clock, "the agent holds the clock")
         XCTAssertEqual(try ticks(session), 4)
     }
 }

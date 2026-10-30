@@ -17,6 +17,9 @@ use contract_syntax::{Expr, Node, Span, TemplatePart};
 use contract_types::{infer, Checked, Ref, Scope, Shapes, Ty};
 use std::collections::BTreeSet;
 
+#[path = "own_list.rs"]
+mod own_list;
+
 /// The roster's list work that walks its receiver.
 const WALKS: &[&str] = &[
     "filter", "map", "includes", "indexOf", "join", "concat", "slice", "sortBy",
@@ -230,7 +233,7 @@ impl Rows<'_> {
 }
 
 /// `lower-row-lookup`'s sites in the expanded root's view, then
-/// `lower-key-position`'s ([`key_position`]).
+/// `lower-row-own-list`'s and `lower-key-position`'s ([`key_position`]).
 pub(super) fn row_lookup(checked: &Checked<'_>) -> Vec<LowerError> {
     let root = &checked.expanded.root;
     let keys = key_position(checked);
@@ -250,6 +253,7 @@ pub(super) fn row_lookup(checked: &Checked<'_>) -> Vec<LowerError> {
     };
     let scope = checked.types.component_scope(root, types);
     rows.nodes(&root.view, &scope, None);
+    rows.out.extend(own_list::own_list(checked));
     rows.out.extend(keys);
     rows.out
 }

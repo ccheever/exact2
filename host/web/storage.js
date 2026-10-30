@@ -133,13 +133,16 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   let documents;
   const documentFiles = () => documents ??= (typeof window === 'undefined'
     ? Promise.reject(error({message:'storage: the documents the person chose live in the page; a worker-placed module cannot reach them (placement main reaches them)', code:'unsupported'}))
-    : import('./documents-glue.js').then(() => globalThis.exact.documents.files(admitted.grantSet)));
+    : import('./documents-glue.js').then(() => globalThis.exact.documents.keeping(admitted.appId, admitted.grantSet)).then(() => globalThis.exact.documents.files(admitted.grantSet)));
   const files = {directories};
   for (const method of ['readFile','writeFile','atomicWriteFile','appendFile','readdir','mkdir','rm','stat','rename','copyFile','realpath']) {
     files[method] = (...args) => {
       // Snapshot input bytes before the caller can mutate its buffers.
       let captured;
       try { captured = structuredClone(args); } catch (e) { return failed(e); }
+      // A document copied into an app file needs both (documents-glue.js `copyFile`).
+      if (method === 'copyFile' && typeof captured[0] === 'string' && captured[0].startsWith('doc:/') && typeof captured[1] === 'string' && captured[1].startsWith('app:/'))
+        return enqueue(async active => { await documentFiles(); const backend = await fileSystem(); active(); return globalThis.exact.documents.copyFile(captured[0], captured[1], admitted.grantSet, backend); }, clone, () => {}, true, method);
       if (captured.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/')))
         return enqueue(async active => { const backend = await documentFiles(); active(); return backend[method](...captured); }, clone, () => {}, false);
       // A refused read answers as an empty store would, in its answer's turn (storage-environment.js `emptyRead`).
@@ -147,6 +150,10 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); }, clone, () => {}, true, method);
     };
   }
+  // What the app keeps across launches (LLP 1069.010.000 D5): the page's
+  // kept handles, which the prelude asks here rather than at the host door.
+  files.recentDocuments = () => enqueue(async active => { await documentFiles(); active(); return globalThis.exact.documents.recent(admitted.grantSet); }, clone, () => {}, false);
+  files.forgetDocument = path => enqueue(async active => { await documentFiles(); active(); return globalThis.exact.documents.forget(String(path), admitted.grantSet); }, clone, () => {}, false);
   // The prelude hands `compressImage` its options as two numbers, the media
   // type and its edit's JSON (LLP 1069.002 A1, A1.11; LLP 1133.019 D15), and
   // `transformImage` its options' JSON (D14); app files only, so never the

@@ -49,6 +49,11 @@ private final class RasterSource: RasterSourceOwner, @unchecked Sendable {
     var fetched: Result<RasterInput, Error>?
     var cancellation = RasterCancellation()
     var failure: String?
+    /// Its download failed in a way asking again may mend: not before this
+    /// (its server's `Retry-After`, or the failure's time) (`RasterRetry`).
+    var transient: DispatchTime?
+    /// A view that fills the screen shows it: its download goes first.
+    var urgent = false
     /// The decodes whose last attempt failed in ImageIO or Core Graphics over
     /// bytes whose size it read (`RasterFailure.decode`): a busy system does
     /// that, so their views ask again before the `error`
@@ -184,6 +189,34 @@ private final class RasterBackend: @unchecked Sendable {
     func declined(_ source: RasterSource, _ key: RasterDecodeKey) -> Bool {
         lock.lock(); defer { lock.unlock() }; return source.declined.contains(key)
     }
+    /// Why `source` failed, if it did, and the earliest it may be asked
+    /// again if asking again may mend it: read together.
+    func retry(_ source: RasterSource) -> (failure: String?, after: DispatchTime?) {
+        lock.lock(); defer { lock.unlock() }; return (source.failure, source.failure == nil ? nil : source.transient)
+    }
+    /// Asks again for `source`, whose download failed in a way asking again
+    /// may mend: a worker downloads it anew. Whether it was still failed
+    /// (another view's retry may have asked already).
+    func reset(_ source: RasterSource) -> Bool {
+        lock.lock()
+        guard source.failure != nil, source.transient != nil, !source.inspecting else { lock.unlock(); return false }
+        // Within the metadata cap, as a first ask is (`acquire`): else it
+        // waits, its attempt not spent (`askAgain`).
+        let pending = sources.values.compactMap(\.value).filter { $0.metadata == nil && $0.failure == nil }.count
+        guard pending < metadataLimit else { lock.unlock(); return false }
+        source.failure = nil; source.transient = nil; source.fetched = nil; source.metadata = nil; source.input = nil
+        // Asked again as its views are now (`urge`), not as they were.
+        source.urgent = false
+        lock.unlock()
+        exact_raster_session_control(id, 5); wake()
+        return true
+    }
+    /// A view that fills the screen shows `source`: its download goes first,
+    /// one under way too.
+    func urge(_ source: RasterSource) {
+        lock.lock(); let was = source.urgent; source.urgent = true; let running = source.inspecting; lock.unlock()
+        if !was, running, let url = RasterInput.remote(source.name) { RasterInput.promote(url) }
+    }
     func inspectOne() -> Bool {
         lock.lock()
         let source = stopped || paused ? nil : sources.values.compactMap(\.value).filter { $0.users > 0 && !$0.inspecting && $0.metadata == nil && $0.failure == nil }.min { $0.id < $1.id }
@@ -197,7 +230,12 @@ private final class RasterBackend: @unchecked Sendable {
         // and stays `inspecting` (so its release cancels it) until its body
         // is here: the workers go on reading headers and decoding meanwhile.
         if fetched == nil, let url = RasterInput.remote(source.name) {
-            RasterInput.fetch(url, cancellation: cancellation) { [weak self] result in self?.downloaded(source, cancellation, result) }
+            // Asked as the download starts, so a view that came to fill the screen meanwhile counts.
+            let urgent = { [weak self, weak source] () -> Bool in
+                guard let self, let source else { return false }
+                self.lock.lock(); defer { self.lock.unlock() }; return source.urgent
+            }
+            RasterInput.fetch(url, urgent: urgent, cancellation: cancellation) { [weak self] result in self?.downloaded(source, cancellation, result) }
             return true
         }
         // A package's picture is asked of its implementation, on the main thread.
@@ -208,17 +246,25 @@ private final class RasterBackend: @unchecked Sendable {
             }
             return true
         }
-        var metadata: RasterMetadata?, input: RasterInput?, failure: String?
+        var metadata: RasterMetadata?, input: RasterInput?, failure: String?, transient: DispatchTime?
         do {
             guard let resolver = source.resolver else { throw RasterFailure.decode }
             input = try fetched?.get() ?? RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
             metadata = try input!.metadata()
-        } catch { failure = error is RasterFailure || error is RasterHTTPStatus ? String(describing: error) : error.localizedDescription }
+        } catch {
+            // (A link the reason quotes loses its query: a CDN's signature.)
+            failure = RasterRetry.redacted(error is RasterFailure || error is RasterHTTPStatus || error is RasterEmptyResponse
+                ? String(describing: error) : error.localizedDescription, source: source.name)
+            // A download's only: a header that fails to read fails again.
+            if RasterInput.remote(source.name) != nil, input == nil, RasterRetry.transient(error) {
+                transient = (error as? RasterHTTPStatus)?.retryAfter ?? .now()
+            }
+        }
         lock.lock()
         if cancellation.isCancelled {
             source.cancellation = RasterCancellation()
         } else {
-            source.metadata = metadata; source.input = input; source.failure = failure
+            source.metadata = metadata; source.input = input; source.failure = failure; source.transient = transient
         }
         source.inspecting = false
         metadataReads += 1
@@ -323,6 +369,8 @@ private final class RasterBackend: @unchecked Sendable {
     }
     func setPaused(_ paused: Bool) {
         lock.lock(); self.paused = paused
+        // Asked again on resume as its views are then (`urge`).
+        if paused { sources.values.compactMap(\.value).forEach { $0.urgent = false } }
         let cancellations = paused ? sources.values.compactMap(\.value).filter(\.inspecting).map(\.cancellation) : []
         lock.unlock(); cancellations.forEach { $0.cancel() }
     }
@@ -457,6 +505,19 @@ final class RasterLoader {
         /// Off screen, its picture let go of or its decode not asked for
         /// (`park`): asked for again once its view is on screen.
         var parked = false
+        /// Its download failed in a way asking again may mend, its `error`
+        /// held while it is asked again on screen (`hold`): the retries this
+        /// showing, the wait's token, and whether it waits off screen.
+        var held = false
+        var retries = 0
+        var retryWaiting: Int?
+        var offscreen = false
+        /// A retry's download is under way: still watched, so leaving the
+        /// screen meanwhile starts the count over.
+        var retrying = false
+        /// A first download whose box could fill the screen, off screen:
+        /// watched, so a scroll that brings it on screen hurries it (`urge`).
+        var watching = false
         /// An SVG under `object-fit: fill`: the box's pixel size its plan
         /// took, a different picture once either axis moves (LLP 1011.001 D1).
         var aspect: [Int] = []
@@ -510,6 +571,8 @@ final class RasterLoader {
     private var pressure: DispatchSourceMemoryPressure?
     #if DEBUG
     private(set) var testReconciliations = 0
+    /// Each `load` (nil) or `error` (its reason) a pass announced, by view.
+    private(set) var testAnnounced: [(view: UInt32, failure: String?)] = []
     /// Stands in for the core's request: a request id, or 0 and its refusal.
     var testRequest: ((ExactRasterDemand) -> (request: UInt64, refusal: UInt64?))?
     /// The next `count` decodes fail as ImageIO's do on a busy system.
@@ -556,7 +619,7 @@ final class RasterLoader {
         }
         refusedPictures[view.id] = nil
         if let session = view.presenter?.session, let refusal = pictures.admit(source, session: session) {
-            view.presenter?.session?.log("image refused: \(source): \(refusal) (LLP 1133.019 D2)")
+            view.presenter?.session?.log("image refused: \(RasterRetry.withoutQuery(source)): \(refusal) (LLP 1133.019 D2)")
             refusedPictures[view.id] = ({ [weak view] in view }, source, resolver)
             refuse(refusal); return false
         }
@@ -569,11 +632,13 @@ final class RasterLoader {
         case .source(let record):
             cancel(view.id)
             interests[view.id] = Interest(view: view, generation: view.loadGeneration, source: record)
+            timings.asked(view.id); timings.admitted(view.id)
         case .busy:
             // The caps free as inspections land and views go; each wakes a
             // pass that admits it (`admitDeferred`), with no prop change.
             cancel(view.id)
             deferred[view.id] = DeferredInterest(view: view, resolver: resolver, source: source)
+            timings.asked(view.id)
             view.presenter?.session?.log("image queued: raster metadata/source admission")
         case .refused:
             view.presenter?.session?.log("image deferred: invalid raster source or stopped loader")
@@ -586,6 +651,7 @@ final class RasterLoader {
         return true
     }
     func cancel(_ view: UInt32) {
+        timings.retired(view)
         deferred.removeValue(forKey: view)
         refusedPictures.removeValue(forKey: view)
         refused.removeValue(forKey: view)
@@ -641,10 +707,25 @@ final class RasterLoader {
             load(view, source: source, resolver: resolver)
         }
     }
+    /// When each image arrived, and which arrived late (LLP 1145 D2).
+    let timings = RasterTimings()
+    /// A presented frame (the frame sampler's): each loading image whose box
+    /// shows starts its blank time.
+    func sampleBlank() {
+        guard HatchDiagnostics.available else { return }
+        let loading = interests.filter { !$0.value.delivered && ($0.value.failure == nil || $0.value.held) }
+        guard !loading.isEmpty || !deferred.isEmpty else { return }
+        // A decode that finished waits here for the main thread to deliver it:
+        // its `decoded` is the first frame that saw it ready.
+        for (key, i) in loading where i.request != 0 && exact_raster_status(id, i.request) == 4 { timings.decoded(key) }
+        timings.showing(loading.compactMap { key, i in i.view.map(Self.mayShow) == true ? key : nil }
+            + deferred.compactMap { key, d in d.view.map(Self.mayShow) == true ? key : nil })
+    }
     /// Images on screen still loading (the agent's `clock` and `screenshot`
     /// wait for them).
     var loadingOnScreen: Int {
-        interests.values.filter { i in !i.delivered && i.failure == nil && i.view.map(Self.mayShow) == true }.count
+        // (One held for a retry is still loading.)
+        interests.values.filter { i in !i.delivered && (i.failure == nil || i.held) && i.view.map(Self.mayShow) == true }.count
             + deferred.values.filter { $0.view.map(Self.mayShow) == true }.count
     }
     /// A loading image's box is on screen. An image sized on one axis
@@ -675,6 +756,13 @@ final class RasterLoader {
     func trimCold() { backend.trim() }
     func resized(_ view: NodeView) {
         guard let interest = interests[view.id] else { return }
+        // Laid out to fill the screen while it loads (a viewer's picture): its download goes first.
+        if !interest.delivered, Self.fillsScreen(view) { backend.urge(interest.source) }
+        // A held picture laid out on or off screen: a pass sees it (`hold`).
+        if interest.held || interest.retrying { backend.wake(); return }
+        // A first download laid out large enough to fill the screen: a pass
+        // watches it off screen, or hurries it on (`watching`).
+        if !interest.delivered, !interest.watching, interest.offeredPixel == 0, Self.fillsScreen(view, anywhere: true) { backend.wake() }
         // Laid out on screen, a parked view asks for its picture.
         if interest.parked { if Self.mayShow(view) { backend.wake() }; return }
         guard interest.offeredPixel > 0 else { return }
@@ -745,7 +833,9 @@ final class RasterLoader {
         guard var item = interests[view] else { return }
         if item.request != 0 { exact_raster_cancel(id, item.request) }
         item.request = 0; item.requestedPixel = 0; item.failure = nil; item.delivered = false
-        item.admissionDeferred = false; item.waiting = nil; interests[view] = item
+        item.admissionDeferred = false; item.waiting = nil
+        if item.held || item.retrying || item.watching { unwatch(view, &item) }
+        interests[view] = item
         reconcile()
     }
     /// Ask again for a decode ImageIO declined, unless the wait was retired
@@ -755,12 +845,89 @@ final class RasterLoader {
         item.waiting = nil; interests[view] = item
         reconcile()
     }
+    /// A picture whose download failed in a way asking again may mend, its
+    /// `error` held (LLP 1011 §4, the same rules as the Linux host's): on
+    /// screen it is asked again after the next of `RasterRetry.steps`, never
+    /// before its server's `Retry-After`; off screen it waits, its count
+    /// from nothing, until it shows. Whether it is still held; false once
+    /// its retries are spent, or its server's wait is past what a picture
+    /// waits: its `error` goes out.
+    private func hold(_ viewID: UInt32, _ item: inout Interest, _ view: NodeView) -> Bool {
+        let (failure, after) = backend.retry(item.source)
+        guard let failure else {
+            // Another view of the URL asked again: this one joins that
+            // download, with no retry of its own counted.
+            item.held = false; item.failure = nil; item.retryWaiting = nil; item.offscreen = false; item.retrying = true
+            interests[viewID] = item; backend.wake()
+            return true
+        }
+        item.failure = failure
+        guard let after else { return false }
+        // Watched, so leaving the screen or coming back is seen (`scrolled`).
+        if !parked.contains(viewID) { watch(viewID, view) }
+        defer { interests[viewID] = item }
+        guard Self.mayShow(view) else {
+            item.retryWaiting = nil; item.retries = 0; item.offscreen = true
+            return true
+        }
+        item.offscreen = false
+        if item.retryWaiting != nil { return true }
+        let now = DispatchTime.now()
+        let wait = after > now ? Double(after.uptimeNanoseconds - now.uptimeNanoseconds) / 1e9 : 0
+        guard item.retries < RasterRetry.steps.count else { return false }
+        // Further off than a picture waits: no more this showing.
+        guard wait <= RasterRetry.most else { return false }
+        let delay = max(RasterRetry.steps[item.retries], wait)
+        nextWait += 1; item.retryWaiting = nextWait
+        let token = nextWait
+        view.presenter?.session?.log("image queued: \(failure); asked again in \(Int(delay * 1000)) ms")
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.askAgain(viewID, token: token) }
+        return true
+    }
+    /// A held picture's wait is out: asked again if it is still on screen
+    /// (the next pass sees it left otherwise), unless the wait was retired.
+    private func askAgain(_ viewID: UInt32, token: Int) {
+        guard var item = interests[viewID], item.held, item.retryWaiting == token, let view = item.view else { return }
+        item.retryWaiting = nil
+        if Self.mayShow(view), backend.reset(item.source) {
+            item.retries += 1; item.held = false; item.failure = nil; item.retrying = true
+        }
+        interests[viewID] = item
+        reconcile()
+    }
+    /// Its retry tracking or its watch for the screen ends: the watch goes,
+    /// unless it is parked for real (`park`).
+    private func unwatch(_ viewID: UInt32, _ item: inout Interest) {
+        item.held = false; item.retryWaiting = nil; item.retrying = false; item.watching = false
+        if !item.parked { unpark(viewID) }
+    }
+    private func watch(_ viewID: UInt32, _ view: NodeView) {
+        #if os(macOS)
+        if parked.isEmpty { watchScrolls() }
+        #else
+        watchScrolls(above: view)
+        #endif
+        parked.insert(viewID)
+    }
+    /// A box on screen that fills it (`RasterRetry.fills`); `anywhere`, one
+    /// that would if it were on screen.
+    private static func fillsScreen(_ view: NodeView, anywhere: Bool = false) -> Bool {
+        #if os(macOS)
+        guard let root = view.window?.contentView else { return false }
+        #else
+        guard let root = view.window else { return false }
+        #endif
+        return (anywhere || mayShow(view)) && RasterRetry.fills(view.convert(view.bounds, to: root), window: root.bounds)
+    }
     private var nextWait = 0
     func reconcile() {
         #if DEBUG
         testReconciliations += 1
         #endif
         guard !destroyed, !paused else { return }
+        // Decoded pictures put on their layers: a late frame's `image` (LLP 1144 D2).
+        let began = HostPhases.shared.begin(.image)
+        defer { HostPhases.shared.end(began) }
         admitDeferred()
         // Every image this turn lands reports its natural size together,
         // after the loop: one layout for them all, not one each.
@@ -771,6 +938,9 @@ final class RasterLoader {
         var progress = false
         defer {
             report(landed); Self.announce(settled)
+            #if DEBUG
+            testAnnounced = Array((testAnnounced + settled.map { ($0.view.id, $0.failure) }).suffix(64))
+            #endif
             // The interests a full queue refused ask again on the next pass.
             // A decode landing wakes one, but the last may already have
             // landed, so a pass that made room wakes one itself.
@@ -778,6 +948,8 @@ final class RasterLoader {
         }
         // Each source's first outcome, its `load` or its `error`.
         func settle(_ item: inout Interest, _ view: NodeView) {
+            // Its `load` or `error`: retry tracking ends.
+            if item.retrying || item.held || item.watching { unwatch(view.id, &item) }
             if !item.announced { item.announced = true; settled.append((view, item.generation, item.failure)) }
         }
         for viewID in Array(interests.keys) {
@@ -787,12 +959,29 @@ final class RasterLoader {
                 guard Self.mayShow(view) else { continue }
                 item.parked = false; interests[viewID] = item; unpark(viewID)
             }
+            if item.held {
+                if hold(viewID, &item, view) { continue }
+                item.held = false; unpark(viewID); settle(&item, view); interests[viewID] = item
+                view.presenter?.session?.log("image deferred: \(item.failure ?? "")"); continue
+            }
+            // A retry under way whose picture left the screen: the count starts over.
+            if item.retrying, !Self.mayShow(view) { item.retries = 0; interests[viewID] = item }
             if item.failure != nil || item.delivered || item.waiting != nil { continue }
+            if Self.fillsScreen(view) { backend.urge(item.source) }
+            // A first download that could fill the screen, off screen: a scroll may bring it on.
+            else if !item.watching, item.request == 0, !Self.mayShow(view), Self.fillsScreen(view, anywhere: true),
+                    RasterInput.remote(item.source.name) != nil, backend.metadata(item.source).0 == nil,
+                    backend.metadata(item.source).1 == nil {
+                item.watching = true; watch(viewID, view); interests[viewID] = item
+            }
             if item.request != 0 {
                 let state = exact_raster_status(id, item.request)
                 if state == 4, let lease = NativeRasterLease(exact_raster_take_ready(id, item.request)) {
                     item.delivered = true; item.declines = 0; progress = true
+                    if item.retrying || item.watching { unwatch(viewID, &item) }
+                    timings.decoded(viewID) // if no frame saw it ready first (`sampleBlank`)
                     if let size = view.acceptRaster(lease, generation: item.generation) { landed.append((view, item.generation, size)); settle(&item, view) }
+                    timings.delivered(viewID)
                     interests[viewID] = item
                 } else if state == 115, item.declines < Self.declineDelays.count,
                           let decode = item.decode, backend.declined(item.source, decode) {
@@ -840,10 +1029,20 @@ final class RasterLoader {
             }
             let (metadata, failure) = backend.metadata(item.source)
             if let failure {
-                item.failure = failure; settle(&item, view); interests[viewID] = item
+                item.failure = failure
+                // Asking again may mend it: its `error` waits (`hold`).
+                if !item.announced, backend.retry(item.source).after != nil {
+                    item.held = true; item.retrying = false
+                    if hold(viewID, &item, view) { continue }
+                    item.held = false
+                }
+                if item.retrying { item.retrying = false }
+                unpark(viewID)
+                settle(&item, view); interests[viewID] = item
                 view.presenter?.session?.log("image deferred: \(failure)"); continue
             }
             guard let metadata else { continue }
+            if item.watching { unwatch(viewID, &item); interests[viewID] = item }
             let offered = requestedPixel(view, metadata)
             var pixel = item.requestedPixel > 0 ? min(offered, item.requestedPixel) : offered
             var available = available()
@@ -880,6 +1079,7 @@ final class RasterLoader {
             #else
             item.request = exact_raster_request(id, demand)
             #endif
+            if item.request != 0 { timings.requested(viewID) }
             item.requestedPixel = pixel; item.offeredPixel = offered
             item.variant = plan.variant
             item.decode = RasterDecodeKey(width: plan.width, height: plan.height, variant: plan.variant)
@@ -971,6 +1171,8 @@ final class RasterLoader {
     /// pass asks for its picture. Only the parked views are looked at.
     private func scrolled() {
         guard !parked.isEmpty else { return }
+        // A held picture may have left the screen or come back (`hold`).
+        if parked.contains(where: { interests[$0].map { $0.held || $0.retrying || $0.watching } == true }) { backend.wake(); return }
         for viewID in parked where interests[viewID]?.view.map(Self.mayShow) == true { backend.wake(); return }
     }
     #if os(macOS)
@@ -1025,6 +1227,7 @@ final class RasterLoader {
             case .source(let source):
                 deferred.removeValue(forKey: viewID)
                 interests[viewID] = Interest(view: view, generation: item.generation, source: source)
+                timings.admitted(viewID)
                 deferredCursor = viewID
             case .busy:
                 continue
@@ -1081,18 +1284,26 @@ final class RasterLoader {
         for key in interests.keys {
             interests[key]?.request = 0; interests[key]?.failure = nil; interests[key]?.delivered = false
             interests[key]?.admissionDeferred = false; interests[key]?.waiting = nil
+            // Paused, a picture is off screen: its count starts over.
+            if var item = interests[key] {
+                if item.held || item.retrying || item.watching { unwatch(key, &item) }
+                item.retries = 0; interests[key] = item
+            }
         }
         if !paused { reconcile() }
     }
     func reset() {
         interests.removeAll(); deferred.removeAll(); refused.removeAll(); refusedPictures.removeAll(); deferredCursor = 0
-        parked.removeAll(); stopWatchingScrolls()
+        parked.removeAll(); stopWatchingScrolls(); timings.reset()
+        #if DEBUG
+        testAnnounced.removeAll()
+        #endif
         backend.reset(stop: false); exact_raster_session_control(id, 0)
     }
     func shutdown() {
         guard !destroyed else { return }; destroyed = true
         pressure?.cancel(); pressure = nil
-        interests.removeAll(); deferred.removeAll(); parked.removeAll(); stopWatchingScrolls()
+        interests.removeAll(); deferred.removeAll(); parked.removeAll(); stopWatchingScrolls(); timings.reset()
         backend.reset(stop: true); exact_raster_session_control(id, 3)
     }
     var diagnostics: [String: Any] {
@@ -1108,11 +1319,14 @@ final class RasterLoader {
             "images": interests.map { view, interest -> [String: Any] in
                 ["view": view, "source": String(interest.source.id), "offeredPixel": interest.offeredPixel,
                  "admittedPixel": interest.requestedPixel, "status": exact_raster_status(id, interest.request),
-                 "failure": interest.failure ?? "", "declines": interest.declines, "parked": interest.parked, "pixels": [interest.view?.raster?.image.image.width ?? 0, interest.view?.raster?.image.image.height ?? 0],
-                 "color": Self.colorFacts(interest)]
+                 "failure": interest.failure ?? "", "declines": interest.declines, "parked": interest.parked,
+                 "held": interest.held, "retries": interest.retries, "retrying": interest.retrying, "pixels": [interest.view?.raster?.image.image.width ?? 0, interest.view?.raster?.image.image.height ?? 0],
+                 "color": Self.colorFacts(interest), "timing": timings.stamps(view) ?? NSNull()]
             },
+            "lateImages": timings.summary,
             "deferred": interests.values.filter { $0.admissionDeferred || $0.failure != nil || ($0.request != 0 && exact_raster_status(id, $0.request) == 2) }.count,
-            "deferredAdmission": deferred.count, "parked": parked.count,
+            "deferredAdmission": deferred.count, "parked": interests.values.filter(\.parked).count,
+            "watched": parked.count,
             "scope": "Exact-owned RGBA storage plus conservative thumbnail/conversion reservation; ImageIO internals excluded"]
     }
     /// What the agent sees of a picture's storage (LLP 1100 D12).
@@ -1126,7 +1340,7 @@ final class RasterLoader {
             facts["bitsPerComponent"] = image.bitsPerComponent
             facts["bytesPerPixel"] = image.bitsPerPixel / 8
             if let raster = interest.view?.raster?.image, raster.isHDR { facts["headroom"] = raster.headroom }
-            if let layer = interest.view?.imageLayer {
+            if let layer = interest.view?.imageContentLayer {
                 var shown = layer.dynamicRangeFacts
                 shown["current"] = (layer.contents as AnyObject?) === image
                 facts["layer"] = shown

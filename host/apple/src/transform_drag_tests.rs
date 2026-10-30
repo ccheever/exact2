@@ -89,44 +89,39 @@ fn quoted(json: &str, field: &str) -> u64 {
 fn boot_source(source: &str) -> (Host<NoData>, Packet, String) {
     boot_plan(&contract::compile(source).unwrap().encode())
 }
-/// `source` compiled, with the handle's constant `testId` rewritten to trap
-/// once `x` passes 1e39: a failure while the tree changes, after an action
-/// wrote `x`. (Since 2026-09-22 a bound value its row refuses, such as a
-/// `translate` past f32, is unset rather than failing the commit.)
+/// `source` compiled, with the `if shown` around the handle rewritten to
+/// trap once `x` passes 1e39: a failure while the tree changes, after an
+/// action wrote `x`. A region's subject, since a prop or style binding that
+/// traps is unset rather than failing the commit (LLP 1017.003 D3), as a
+/// bound value its row refuses is.
 fn boot_trapping(source: &str) -> (Host<NoData>, Packet, String) {
-    use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, SlotsId, StrId};
+    use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, RegionKind, SlotsId};
     let plan = contract::compile(source).unwrap();
-    let x = plan
-        .slots
+    let slot = |name: &str| {
+        let at = plan.slots.iter().position(|s| plan.str(s.name) == name);
+        SlotsId(at.unwrap() as u32)
+    };
+    let (x, shown) = (slot("x"), slot("shown"));
+    let when = plan
+        .regions
         .iter()
-        .position(|s| plan.str(s.name) == "x")
-        .unwrap();
-    let handle = plan
-        .bindings
-        .iter()
-        .position(|b| {
-            let code = plan.code(b.expr);
-            code.len() == 6
-                && code[0] == Opcode::Str as u8
-                && plan.str(StrId(u32::from_le_bytes(code[1..5].try_into().unwrap()))) == "handle"
-        })
-        .expect("the handle's testId");
+        .position(|r| r.kind == RegionKind::When)
+        .expect("the `if shown`");
     let mut b = PlanBuilder::from_plan(plan);
-    let name = b.str("handle");
     let mut guard = Asm::new();
     let fits = guard.label();
     guard
-        .load_slot(SlotsId(x as u32))
+        .load_slot(x)
         .number(1e39)
         .simple(Opcode::Gt)
         .jump_if_false(fits)
         .simple(Opcode::Unit)
         .simple(Opcode::Unwrap)
         .place(fits)
-        .str(name);
+        .load_slot(shown);
     let guard = b.code(guard);
     let mut plan = b.finish().unwrap();
-    plan.bindings.to_mut()[handle].expr = guard;
+    plan.regions[when].subject = guard;
     plan.validate().unwrap();
     boot_plan(&plan.encode())
 }

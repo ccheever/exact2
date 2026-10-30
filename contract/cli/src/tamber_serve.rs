@@ -74,7 +74,7 @@ mod walk;
 use answers::{diagnostic, located, modes_of, no_token, refused, temp_name};
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.17";
+pub const PROTOCOL: &str = "tamber/1.18";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -729,8 +729,12 @@ impl Server {
                     "explain" => self.explain(&request),
                     _ => self.uses(&request),
                 };
+                // A batch's answers are each presented as they are made, once.
+                let batch = m == "resolve" && request.get("tokens").is_some();
                 vec![reply(
-                    answer.map(|v| self.present(v)).map_err(|e| self.present(e)),
+                    answer
+                        .map(|v| if batch { v } else { self.present(v) })
+                        .map_err(|e| self.present(e)),
                 )]
             }
             Some("propose") => vec![reply(self.transaction(&request, false))],
@@ -771,10 +775,11 @@ impl Server {
         let app = self.app_params();
         crate::tamber_packages::packaged(&app, &mut out, paths);
         if paths {
+            // The walk's graph, read this request: no walk of its own.
             let at = self.dir.join("app.contract");
-            let graph = contract::source_graph(&at);
-            out["watch"] = crate::tamber_packages::watched(&at, &graph);
-            crate::tamber_packages::assets(&app, &mut out, &graph);
+            let walk = self.walk();
+            out["watch"] = crate::tamber_packages::watched(&at, &walk.graph);
+            crate::tamber_packages::assets(&app, &mut out, &walk.graph);
         }
         Ok(out)
     }
@@ -817,17 +822,22 @@ impl Server {
     /// name as given (a design token, which may read a param). A short name
     /// two components share is refused, not read as a design token.
     fn lookup(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding, String), Value> {
-        let name = required(request, "token")?;
         let app = self.app_params();
-        let token = match contract_lower::params::resolve(&app.tokens, &app.identities, &name) {
-            Ok(p) => p.token.clone(),
-            Err(e) if e.id == "tamber-param-ambiguous" => {
-                return Err(json!({"message": format!("{}: {}", e.id, e.message), "id": e.id}));
-            }
-            Err(_) => name,
-        };
+        let token = Self::token_of(&app, &required(request, "token")?)?;
         let (snap, folding, _) = self.design_with(request, &app)?;
         Ok((snap, folding, token))
+    }
+
+    /// The name [`Self::lookup`] looks `name` up by: a param's token where
+    /// it names one in full or short, else `name`.
+    fn token_of(app: &contract::tamber_params::AppParams, name: &str) -> Result<String, Value> {
+        match contract_lower::params::resolve(&app.tokens, &app.identities, name) {
+            Ok(p) => Ok(p.token.clone()),
+            Err(e) if e.id == "tamber-param-ambiguous" => {
+                Err(json!({"message": format!("{}: {}", e.id, e.message), "id": e.id}))
+            }
+            Err(_) => Ok(name.to_string()),
+        }
     }
 
     /// [`Self::design`], folded with the app's components' params (D15),
@@ -860,7 +870,7 @@ impl Server {
         if app.tokens.is_empty() {
             return v;
         }
-        let text = contract_lower::params::shown(&v.to_string(), &app.tokens);
+        let text = app.shown(&v.to_string());
         serde_json::from_str(&text).unwrap_or(v)
     }
 
@@ -872,7 +882,9 @@ impl Server {
             .find(|(f, _, _)| *f == file)
             .ok_or_else(|| json!({"message": format!("`{file}` is no file of this design")}))?
             .1;
-        let folding = exact_tamber::check(text, &self.vocab).map_err(|all| refused(&file, all))?;
+        let folding = exact_tamber::parse(text)
+            .and_then(|d| exact_tamber::check_design_cached(d, &self.vocab))
+            .map_err(|all| refused(&file, all))?;
         Ok((snap, folding))
     }
 

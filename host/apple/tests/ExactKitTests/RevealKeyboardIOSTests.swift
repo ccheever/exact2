@@ -187,7 +187,7 @@ final class RevealKeyboardIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": policy]]]))
         view.fit()
         let field = UITextField(frame: CGRect(x: 20, y: 80, width: 180, height: 40))
-        p.viewport.addSubview(field)
+        p.documentHost.addSubview(field)
         addTeardownBlock { window.endEditing(true); window.isHidden = true; session.destroy() }
         return (session, view, window, field)
     }
@@ -524,7 +524,7 @@ final class RevealKeyboardIOSTests: XCTestCase {
         for policy in ["resizes-content", "overlays-content"] {
             p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": policy]]]))
             setKeyboard(p, top: 574)
-            p.navigation.clearOwnerAllocation()
+            p.hostDocument(fixed: false)
             XCTAssertEqual(p.viewport.contentInset.bottom, 0, "\(policy) adds no scroll range when native ownership ends")
             p.navigation.fitOwner()
             XCTAssertEqual(p.viewport.contentInset.bottom, 0, "\(policy) adds no scroll range when ownership returns")
@@ -547,6 +547,47 @@ final class RevealKeyboardIOSTests: XCTestCase {
         XCTAssertEqual(session.presenter.viewport.keyboardDismissMode, .interactive)
     }
 
+
+    func testKeyboardRevealLeavesAnInteractiveDragAlone() throws {
+        guard let scene = hostedWindowScene() else { throw missing("scene", "keyboard reveal needs a mounted native editor") }
+        let (session, window) = session("keyboard-drag-reveal", widget: "resizes-visual", scroller: true)
+        defer { window.endEditing(true); window.isHidden = true; session.destroy() }
+        let p = session.presenter, node = try XCTUnwrap(p.views[3]), owner = try XCTUnwrap(p.views[2])
+        window.isHidden = true
+        window.windowScene = scene
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(p.viewport)
+        let scroll = KeyboardDragScroll(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.contentSize = CGSize(width: 400, height: 2000)
+        scroll.keyboardDismissMode = .interactive
+        p.viewport.addSubview(scroll)
+        scroll.addSubview(node)
+        owner.scroll = scroll
+        let field = UITextField(frame: node.bounds)
+        node.addSubview(field)
+        window.makeKeyAndVisible()
+        XCTAssertTrue(field.becomeFirstResponder())
+        setKeyboard(p, top: 460)
+        for (tracking, dragging) in [(true, false), (false, true)] {
+            scroll.simulatedTracking = tracking
+            scroll.simulatedDragging = dragging
+            scroll.contentOffset = .zero
+            p.revealEditorAsTheKeysMove()
+            p.revealSettledEditor()
+            XCTAssertEqual(scroll.contentOffset, .zero, "tracking \(tracking), dragging \(dragging): the finger owns the offset")
+        }
+        scroll.simulatedTracking = false
+        scroll.simulatedDragging = false
+        p.revealEditorAsTheKeysMove()
+        XCTAssertGreaterThan(scroll.contentOffset.y, 0, "automatic reveal resumes after the drag")
+        scroll.contentOffset = .zero
+        scroll.simulatedTracking = true
+        scroll.keyboardDismissMode = .onDrag
+        p.revealEditorAsTheKeysMove()
+        XCTAssertGreaterThan(scroll.contentOffset.y, 0, "a scroller that dismisses the keyboard on drag does not stop the reveal")
+    }
 
     func testAHostedNativeEditorIsRevealedWhenTheKeyboardMoves() throws {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { throw missing("scene", "UIKit's responder search needs the native editor in an app scene") }
@@ -582,7 +623,8 @@ private final class KeyboardInputFixture: UIView, UIKeyInput {
 }
 
 extension XCTestCase {
-    func setKeyboard(_ presenter: Presenter, top: CGFloat?) {
+    /// `responder`: the editor the keys are for, if not the fixture's own.
+    func setKeyboard(_ presenter: Presenter, top: CGFloat?, responder: UIView? = nil) {
         guard let window = presenter.viewport.window, let parent = presenter.viewport.superview else { return }
         if let view = presenter.session?.view {
             if objc_getAssociatedObject(view, &keyboardFixtureKey) == nil {
@@ -595,6 +637,7 @@ extension XCTestCase {
             }
             let fixture = objc_getAssociatedObject(view, &keyboardFixtureKey) as! KeyboardGuideFixture
             fixture.top = top
+            if let responder { fixture.responder = responder }
             if top != nil { XCTAssertTrue(presenter.hasKeyboardEditor, "the fixture supplies a mounted keyboard responder") }
             presenter.refitKeyboard()
             return
@@ -669,6 +712,13 @@ private final class KeyboardGuideFixture {
         imp_removeBlock(actionReplacement)
         input.removeFromSuperview()
     }
+}
+
+private final class KeyboardDragScroll: ScrollView {
+    var simulatedTracking = false
+    var simulatedDragging = false
+    override var isTracking: Bool { simulatedTracking }
+    override var isDragging: Bool { simulatedDragging }
 }
 
 #endif

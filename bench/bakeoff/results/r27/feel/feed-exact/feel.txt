@@ -1,0 +1,35 @@
+dev.bakeoff.feed.b1a83a9: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 16.98 s of motion
+  ok    hitch ratio (ms/s)                     2.2
+  tell  longest frame (ms)                     37.5
+  ok    main thread p95 (ms/frame)             4.09
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       503
+  ok    momentum hand-off (content/asked)      1.06
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.82
+  ok    rubber band (overscroll/finger)        0.63
+  ok    rubber band settle (s)                 0.57
+  ok    status-bar scroll to top (s)           0.52
+  ok    tap while decelerating: travel (pt)    0
+  bad   blank samples (share)                  0.045
+  bad   scrub: hitch ratio (ms/s)              60.5
+  tell  scrub: longest frame (ms)              44.5
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  ok    carousel: hitch ratio (ms/s)           0
+  ok    carousel: longest frame (ms)           16.7
+  ok    carousel: tracking ratio               1
+  ok    carousel: deceleration τ (ms; .normal 500) 508
+  ok    carousel: momentum hand-off (content/asked) 1.01
+  ok    carousel: edge bounce settle (s)       0.63
+  ok    carousel: a mostly-horizontal drag (carousel/finger, list pt) 0.95, 0
+  ok    carousel: a mostly-vertical drag (list/finger, carousel pt) 0.95, 0
+  24 ok, 2 tell, 2 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 2.2):
+    slow-drag: 1 late frame (0 on a timer's tick), 21 ms late; Exact host 19 ms (in UIKit 5); in the main queue 11 ms, display links and ports 3 ms, events 3 ms
+    fling-partway: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 15 ms (in UIKit 10) · Exact runtime (main waits on exact.owner) 3 ms; in the main queue 8 ms, display links and ports 8 ms, run-loop observers (the commit) 3 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 11 late frames (0 on a timer's tick), 195 ms late; Exact host 298 ms (in UIKit 141) · Exact runtime (main waits on exact.owner) 36 ms · Exact host (main waits on exact.owner) 36 ms (in text & drawing 17); in display links and ports 349 ms, the main queue 22 ms, events 15 ms

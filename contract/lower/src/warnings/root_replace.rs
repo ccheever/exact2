@@ -80,8 +80,14 @@ fn root_replace(checked: &Checked<'_>) -> Vec<LowerError> {
     let [launched] = chain.as_slice() else {
         return Vec::new();
     };
+    let root = &checked.expanded.root;
+    let mut actions = std::collections::HashMap::new();
+    for a in &root.actions {
+        actions.entry(a.name.as_str()).or_insert(a);
+    }
     let app = App {
-        root: &checked.expanded.root,
+        root,
+        actions,
         slot: &decl.slot,
         table,
         launched: &launched.name,
@@ -290,6 +296,8 @@ fn selects<'a>(e: &'a Expr, nav: &str, scope: &mut Bound<'a>, out: &mut Vec<Lowe
 /// What the app's declarations say.
 struct App<'a> {
     root: &'a Component,
+    /// The root's actions by name, the first of each.
+    actions: std::collections::HashMap<&'a str, &'a contract_syntax::Action>,
     /// The router's state, `nav` in `routes nav`.
     slot: &'a str,
     table: &'a Table,
@@ -404,7 +412,7 @@ impl App<'_> {
 
     /// Whether an expression names one of the root's actions.
     fn names_action(&self, e: &Expr) -> bool {
-        mentions(e, &|n| self.root.actions.iter().any(|a| a.name == n))
+        mentions(e, &|n| self.actions.contains_key(n))
     }
 
     /// The `press` handlers of the launched route's buttons, among the
@@ -561,7 +569,7 @@ impl App<'_> {
             Expr::Call(name, args, _) if args.iter().all(literal) => name,
             _ => return None,
         };
-        let action = self.root.actions.iter().find(|a| &a.name == name)?;
+        let action = *self.actions.get(name.as_str())?;
         if self.binds_router(action) {
             return None;
         }

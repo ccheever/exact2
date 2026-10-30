@@ -189,8 +189,10 @@ extension NodeView {
         }
         return nil
     }
-    func inlineActivationTarget(at point: CGPoint) -> InlineText? {
-        var run = inlineTarget(at: point)
+    func inlineActivationTarget(at point: CGPoint) -> InlineText? { activationTarget(from: inlineTarget(at: point)) }
+    /// The run a press on `run` acts on: it, or the nearest run it stands in, with a press or an `href`
+    func activationTarget(from run: InlineText?) -> InlineText? {
+        var run = run
         while let current = run {
             if current.handlers.contains("press") || !(current.props["href"] ?? "").isEmpty { return current }
             run = presenter?.inlineText(current.parent)

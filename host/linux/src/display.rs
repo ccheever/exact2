@@ -374,8 +374,6 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     };
     let mut pointer = (viewport.0 / 2.0, viewport.1 / 2.0);
     p.set_pointer(Some(pointer));
-    let mut last_tick = 0.0f64;
-    let frame_ms = 1000.0 / f64::from(display.refresh().max(1));
     // A development display samples its flips, and writes a trace on
     // SIGUSR1 (LLP 1079 D3, D5); a production binary does neither.
     let measured = !exact_runner::delivery::production(&p.compat);
@@ -443,10 +441,8 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         let mut timeout = work_timeout(
             display.pending(),
             p.needs_animation_frame(),
-            p.timer_due_ms(),
-            last_tick,
+            p.wake_due_ms(),
             now,
-            frame_ms,
         );
         // An activation after this turn's paint left a commit to show: don't sleep.
         if p.dirty() && !display.pending() {
@@ -543,12 +539,14 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             }
         }
 
+        if let Some(e) = p.admit_idle_timer(wall()) {
+            eprintln!("exact: {e}");
+        }
         // The hatches' turn (LLP 1075.003.000.001 §4.1): what they asked of
         // elements runs, and the moments this turn's commits caused.
         p.hatch_turn();
         let now = wall();
-        let due = timer_wake_delay(p.timer_due_ms(), now, last_tick, frame_ms)
-            .is_some_and(|wait| wait <= 0.0);
+        let due = p.wake_due_ms().is_some_and(|due| due <= now);
         if due || p.wants_frames() {
             if let Some(e) = p.follow_local_offset() {
                 eprintln!("exact: {e}");
@@ -557,12 +555,10 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         // A frame task (LLP 1073 D5): each frame the display can take is
         // `frame` (timers, then frame tasks), never caught up.
         if !display.pending() && p.wants_frames() {
-            last_tick = now;
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }
         } else if due {
-            last_tick = now;
             if let Some(e) = p.advance(now) {
                 eprintln!("exact: {e}");
             }
@@ -661,18 +657,11 @@ fn poll(fds: &[i32], display_fd: i32, timeout: i32) -> Result<bool, String> {
         .any(|fd| fd.fd == display_fd && fd.revents & libc::POLLIN != 0))
 }
 
-fn work_timeout(
-    pending: bool,
-    animation: bool,
-    due: Option<f64>,
-    last_tick: f64,
-    now: f64,
-    frame_ms: f64,
-) -> i32 {
+fn work_timeout(pending: bool, animation: bool, due: Option<f64>, now: f64) -> i32 {
     if animation && !pending {
         0
-    } else if let Some(wait) = timer_wake_delay(due, now, last_tick, frame_ms) {
-        wait.ceil().min(f64::from(i32::MAX)) as i32
+    } else if let Some(due) = due {
+        (due - now).max(0.0).ceil().min(f64::from(i32::MAX)) as i32
     } else {
         -1
     }
@@ -699,38 +688,26 @@ fn presented<D: DataSource>(
     }
 }
 
-/// @ref LLP 1043.000 §3 D8 — KMS page flips pace repaints; even with no
-/// repaint or an input storm, advance at most once per display interval.
-/// Distant timers use poll's single deadline (input/executor fds may wake it).
-fn timer_wake_delay(due: Option<f64>, now: f64, last_frame: f64, frame_ms: f64) -> Option<f64> {
-    due.map(|due| {
-        if due - now <= 8.0 * frame_ms {
-            (last_frame + frame_ms - now).max(0.0)
-        } else {
-            due - now
-        }
-    })
-}
-
 #[cfg(test)]
 mod timer_tests {
-    use super::timer_wake_delay;
+    use super::work_timeout;
 
     #[test]
-    fn timer_deadlines_sleep_or_follow_the_display_without_polling() {
-        let frame = 1000.0 / 60.0;
-        assert_eq!(timer_wake_delay(Some(16.0), 0.0, 0.0, frame), Some(frame));
-        assert_eq!(
-            timer_wake_delay(Some(1000.0), 0.0, 0.0, frame),
-            Some(1000.0)
-        );
-        assert_eq!(timer_wake_delay(None, 0.0, 0.0, frame), None);
-        assert_eq!(timer_wake_delay(Some(16.0), 500.0, 0.0, frame), Some(0.0));
-        // Input wakes during the same frame cannot cause a second advance.
-        assert!(timer_wake_delay(Some(16.0), 501.0, 500.0, frame).unwrap() > 15.0);
-        assert_eq!(
-            timer_wake_delay(Some(1000.0), 1000.0, 0.0, frame),
-            Some(0.0)
-        );
+    fn timer_deadlines_do_not_request_intermediate_frame_wakes() {
+        for (due, now, expected) in [
+            (Some(16.0), 0.0, 16),
+            (Some(2.0), 0.0, 2),
+            (Some(1000.0), 0.0, 1000),
+            (None, 0.0, -1),
+            (Some(16.0), 500.0, 0),
+            (Some(1000.0), 1000.0, 0),
+            (Some(501.1), 501.0, 1),
+            (Some(f64::from(u32::MAX)), 0.0, i32::MAX),
+        ] {
+            assert_eq!(work_timeout(false, false, due, now), expected);
+            assert_eq!(work_timeout(true, false, due, now), expected);
+            assert_eq!(work_timeout(true, true, due, now), expected);
+            assert_eq!(work_timeout(false, true, due, now), 0);
+        }
     }
 }

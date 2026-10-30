@@ -4,7 +4,7 @@
 
 use super::{checks, err, infer, routes, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
 use contract_syntax::inline::calls::{shown, MARK};
-use contract_syntax::{one_spelling_edit, Component, Expr, Span, Stmt, TemplatePart};
+use contract_syntax::{one_spelling_edit, Component, Expr, Span, Stmt, TemplatePart, UnOp};
 
 /// The prefix of a lifted action's capture parameters.
 pub(crate) const CAPTURE: &str = "@capture:";
@@ -314,11 +314,19 @@ fn each_call<'b>(
 /// later does not flow back (LLP 1088 §9.2).
 pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
     let shapes = &types.shapes;
+    let names = crate::actions::Names::new(c);
+    // One declarations scope for every caller, its callees' types refreshed
+    // as calls refine them: building it again for each caller is quadratic
+    // in a large root.
+    let mut declarations = types.component_scope(c, ct);
+    let first_action = declarations.frames[0].names.len() - c.actions.len();
     for ai in 0..c.actions.len() {
         if !has_call(&c.actions[ai].body) {
             continue;
         }
-        let mut scope = types.component_scope(c, ct);
+        #[cfg(test)]
+        crate::scope_tests::same_declarations(&declarations, &types.component_scope(c, ct));
+        let mut scope = declarations.clone();
         scope.push(
             c.actions[ai]
                 .params
@@ -336,6 +344,7 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
         scope.enter_action();
         let mut calls = Vec::new();
         each_call(&c.actions[ai].body, &scope, shapes, &mut calls);
+        let mut refined = Vec::new();
         for (stmt, scope) in calls {
             let Stmt::Call {
                 action,
@@ -347,7 +356,7 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
             else {
                 continue;
             };
-            let Some(ci) = c.actions.iter().position(|a| &a.name == action) else {
+            let Some(ci) = names.actions.get(action.as_str()).copied() else {
                 continue;
             };
             // The whole list when it fits (a lifted callee's captures are
@@ -375,12 +384,57 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
                         continue;
                     }
                     if let Some(u) = ct.actions[ci][at].unify(&t) {
-                        ct.actions[ci][at] = u;
+                        if ct.actions[ci][at] != u {
+                            ct.actions[ci][at] = u;
+                            refined.push(ci);
+                        }
                     }
                 }
             }
         }
+        // This caller's scope shares the declarations; let it go first, or
+        // the refresh copies them.
+        drop(scope);
+        refined.sort_unstable();
+        refined.dedup();
+        for ci in refined {
+            declarations.retype(first_action + ci, Ty::Action(ct.actions[ci].clone()));
+        }
     }
+}
+
+/// `-exact-label` unquoted, which reads as a minus and an unknown name: a
+/// platform token is a string. Not when a name in scope ends at a later
+/// hyphen (`-exact-a-exact-b`): that reads as a subtraction missing its
+/// spaces, which the unknown name's own refusal says. The span runs from
+/// the minus through the name.
+pub(super) fn unquoted_token(
+    op: UnOp,
+    inner: &Expr,
+    scope: &Scope,
+    minus: Span,
+) -> Option<TypeError> {
+    let (UnOp::Neg, Expr::Ident(name, at)) = (op, inner) else {
+        return None;
+    };
+    let subtraction = name
+        .match_indices('-')
+        .any(|(i, _)| i > "exact".len() && scope.lookup(&name[..i]).is_some());
+    if !name.starts_with("exact-") || scope.lookup(name).is_some() || subtraction {
+        return None;
+    }
+    let span = match at.line == minus.line {
+        true => Span {
+            end_col: at.end_col,
+            ..minus
+        },
+        false => *at,
+    };
+    Some(TypeError {
+        id: "type-unknown-name",
+        message: format!("unknown name `{name}`: `-{name}` reads as a minus and a name; if it is a platform token, it is a string: write `\"-{name}\"`"),
+        span,
+    })
 }
 
 // Suggestions change only a refusal's text. Global functions have authored

@@ -12,6 +12,22 @@ use super::tamber_serve::Serve;
 use serde_json::json;
 use std::time::{Duration, Instant};
 
+/// This thread's CPU time: what an in-process build's work takes, not the
+/// wall clock, which a loaded machine (the suite's other tests and servers,
+/// another agent's builds) stretches with no work the build did (dtool2's
+/// run at load 72 read 9.3 s of wall clock for a 3.0 s build; the build
+/// runs on its caller's thread).
+fn cpu() -> Duration {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: a valid timespec for the call to fill.
+    let read = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+    assert_eq!(read, 0, "this thread's CPU clock");
+    Duration::new(t.tv_sec as u64, t.tv_nsec as u32)
+}
+
 /// Two levels of `clamp()` over `space.md`, a base name the app leaves
 /// unset: `c1` holds 13 atoms (9 values, within the kernel's `calc()`
 /// limits, so the app builds); a value nesting three more `clamp()`s of it
@@ -183,13 +199,67 @@ fn many_profile_colours_are_taken_in_moments() {
     }
     src += "  p0 = color(--dci-p3 0 0 0)\n";
     std::fs::write(dir.join("app.tamber"), &src).unwrap();
-    let began = Instant::now();
+    let began = cpu();
     let built = contract::compile_path(&dir.join("app.contract"));
-    assert!(
-        began.elapsed() < Duration::from_secs(20),
-        "{:?}",
-        began.elapsed()
-    );
+    let took = cpu() - began;
+    assert!(took < Duration::from_secs(20), "{took:?} of CPU");
     assert!(built.is_ok(), "{:?}", built.err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The build's one-scheme question and its retention walk read each token
+/// once (the checker bound's sweep): 10,000 tokens marked `scheme=fixed`
+/// beside a chain of 400 aliases written backwards, and a chain of 30,000
+/// names a param's value reads, build in moments (15.6 s before, 1.4 s
+/// now).
+#[test]
+fn the_builds_scheme_and_retention_walks_are_linear() {
+    let dir = reading("limits-walks");
+    let mut src = String::from("tamber t\n\ntheme\n  ink = #111111\n");
+    for k in 0..10_000 {
+        src += &format!("  f{k} = #222222  scheme=fixed\n");
+    }
+    for k in (1..400).rev() {
+        src += &format!("  a{k} = a{}\n", k - 1);
+    }
+    src += "  a0 = f0\n";
+    for k in 1..30_000 {
+        src += &format!("  c{k} = c{}\n", k - 1);
+    }
+    src += "  c0 = #333333\n\nparams\n  Map.pin = c29999\n";
+    std::fs::write(dir.join("app.tamber"), &src).unwrap();
+    let began = cpu();
+    let built = contract::compile_path(&dir.join("app.contract"));
+    let took = cpu() - began;
+    // (in CPU time: 9.2 s before the sweep, 0.9 s now at load 180)
+    assert!(took < Duration::from_secs(4), "{took:?} of CPU");
+    assert!(built.is_ok(), "{:?}", built.err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The axes and `when` caps are design limits: the build refuses past them
+/// with the same ids the design server's check does (theme2's 19:26).
+#[test]
+fn the_build_refuses_past_the_axes_and_when_caps() {
+    let dir = reading("limits-caps");
+    let mut src = String::from("tamber t\n\naxes\n");
+    for a in 0..=exact_tamber::MAX_AXES {
+        src += &format!("  a{a} = v\n");
+    }
+    src += "\ntheme\n  ink = #111111\n";
+    std::fs::write(dir.join("app.tamber"), &src).unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(built.id, "tamber-axes", "{built:?}");
+    let mut src = String::from("tamber t\n\naxes\n  a = v0");
+    for v in 1..=exact_tamber::MAX_WHENS {
+        src += &format!(" | v{v}");
+    }
+    src += "\n\ntheme\n  ink = #111111\n";
+    for v in 0..=exact_tamber::MAX_WHENS {
+        src += &format!("    when a=v{v}: #22222{}\n", v % 10);
+    }
+    std::fs::write(dir.join("app.tamber"), &src).unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(built.id, "tamber-whens", "{built:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }

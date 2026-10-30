@@ -176,7 +176,7 @@ extension Presenter {
     /// for there is a stray. `owner` is the nearest node view at or above `v`.
     private func inspectionJudges(_ v: UIView, owner: NodeView?) -> Bool {
         if let n = liveView(v) { return !Self.platformKinds.contains(n.kind) && n.props["hatch"] == nil }
-        if v === viewport || v === root || v === session?.view { return true }
+        if v === viewport || v === documentMount || v === root || v === session?.view { return true }
         if let o = owner {
             let containers: [UIView?] = [o.clipBox, o.scroll, o.overlay, o.materialView?.contentView,
                                          o.glassGroupView?.contentView, o.glassSlot?.contentView]
@@ -191,7 +191,6 @@ extension Presenter {
         if let o = owner {
             let id = o.id
             if sub === o.symbolView { return ("glyph", id) }
-            if sub === o.textRasterTint { return ("text", id) } // its one-colour text, tinted as it composites (TextRasterIOS.swift)
             if sub === o.materialView || sub === o.glassSlot || sub === o.glassGroupView || sub === o.vibrancyView { return ("material", id) }
             if sub === o.clipBox { return ("clip", id) }
             if sub === o.metal || sub === o.overlay { return ("canvas", id) }
@@ -211,8 +210,11 @@ extension Presenter {
         // A grouped list's background past the viewport's edge, beside it (LLP 1116.004 D2).
         if owner == nil, groupedLists?.inspectionOwns(sub) == true { return ("grouped-list", nil) }
         if sub === viewport { return ("viewport", nil) }
+        if sub === documentMount { return ("document mount", nil) }
         if sub === root { return ("document", nil) }
         if session?.view?.inspectionOwned.contains(where: { $0 === sub }) == true { return ("probe", nil) }
+        // The hidden view a mount reads its tint undimmed through (TintDimmingIOS.swift)
+        if sub is TintProbe { return ("tint probe", nil) }
         if surfaces(includingRetiring: true).contains(where: { $0.owned.contains { $0 === sub } }) { return ("modal", nil) }
         // A controller's root view: navigation stacks, tabs, a modal's
         // covered owner. Its interior is UIKit's; nodes in it are matched.

@@ -65,7 +65,12 @@ internal class VideoTracks(private val context: ExtensionContext, private val ne
 
     fun owns(id: String?) = id != null && tracks.containsKey(id)
     private fun say(line: String) = context.log("media-capture: $line")
-    private fun announce() = context.changed("media-capture.mediaStreamTrack")
+    private fun announce() { context.changed("media-capture.mediaStreamTrack"); disclose() }
+
+    /** Under the agent, each track for `state.extensions` (LLP 1133.008 §9, Disclosure). */
+    private fun disclose() = context.state(JSONObject().put("videoTracks", JSONArray(tracks.values.map { t ->
+        shape(t).put("consumers", JSONArray(t.consumers.values.sorted())).put("lease", t.leased).put("waiting", t.waiting ?: JSONObject.NULL)
+    })))
     private fun error(code: String) = JSONObject().put("error", code)
 
     // The names
@@ -208,11 +213,13 @@ internal class VideoTracks(private val context: ExtensionContext, private val ne
                 consumer.muted(t.muteReason ?: "idle")
             }
         }
+        disclose()
         return {
             if (t.consumers.remove(consumer) != null && t.consumers.isEmpty()) {
                 t.waiting = null
                 if (t.leased) { release(t); mute(t, "idle") }
             }
+            disclose()
         }
     }
 

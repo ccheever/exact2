@@ -11,11 +11,16 @@
 
 use crate::code::{self, Scope, Uses};
 use crate::style;
-use exact_kernel::{NodeType, PropId, StyleId};
+use exact_kernel::{NodeType, PropId};
 use exact_plan::{BindingKind, EventKind, NodesId, Plan, RegionKind, Value};
 use exact_web::host::template::Parts;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
+#[path = "answers.rs"]
+mod answers;
+#[path = "list_options.rs"]
+mod list_options;
 #[path = "motion.rs"]
 mod motion;
 #[path = "named_records.rs"]
@@ -26,6 +31,8 @@ mod regions;
 mod rows;
 #[path = "timers.rs"]
 mod timers;
+#[path = "trapped.rs"]
+mod trapped;
 #[path = "type_descriptors.rs"]
 mod type_descriptors;
 use regions::root_slot;
@@ -143,12 +150,17 @@ pub fn value_js(v: &Value) -> String {
 struct Em<'a> {
     plan: &'a Plan,
     sites: &'a Sites,
+    /// What its rows and arms ask of the whole plan, each answered once.
+    answers: answers::Answers<'a>,
     parts: Vec<Option<Parts>>,
     uses: Uses,
     out: String,
     classes: Vec<String>,
     /// Each distinct set of state looks (LLP 1121 D8), `data-exact-looks` index plus one.
     looks: Vec<Vec<(u8, String)>>,
+    /// Where each class and each set of looks is in `classes` and `looks`.
+    class_at: HashMap<String, usize>,
+    looks_at: HashMap<Vec<(u8, String)>, usize>,
 
     paint: bool,
     warnings: Vec<String>,
@@ -224,11 +236,14 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let mut em = Em {
         plan,
         sites: &sites,
+        answers: answers::Answers::new(plan),
         parts,
         uses: Uses::default(),
         out: String::new(),
         classes: Vec::new(),
         looks: Vec::new(),
+        class_at: HashMap::new(),
+        looks_at: HashMap::new(),
         paint,
         warnings,
         row_actions: Default::default(),
@@ -422,12 +437,17 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         } else {
             kept.to_string()
         };
+        // Its last `context` arguments are its `with` context (LLP 1027.005
+        // D6), which identify no upload it asks (uploads.js, LLP 1016.000 D10).
+        let args = match r.context {
+            0 => format!("()=>[{}]", args.join(",")),
+            n => format!("Object.assign(()=>[{}],{{context:{n}}})", args.join(",")),
+        };
         let _ = write!(
             body,
-            "const r_{i}={res}({},{},()=>[{}],{initial},{initial_args},{},{placeholder}{carry});",
+            "const r_{i}={res}({},{},{args},{initial},{initial_args},{},{placeholder}{carry});",
             serde_json::to_string(plan.str(r.name)).unwrap(),
             serde_json::to_string(plan.str(r.source)).unwrap(),
-            args.join(","),
             serde_json::to_string(&type_code(plan, r.ty)).unwrap()
         );
         // The runner's own resource shows its facts, never a write (overlay.js)
@@ -872,10 +892,12 @@ fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
 
 impl Em<'_> {
     fn class(&mut self, css: &str) -> usize {
-        match self.classes.iter().position(|c| c == css) {
-            Some(i) => i,
+        match self.class_at.get(css) {
+            Some(i) => *i,
             None => {
                 self.classes.push(css.to_string());
+                self.class_at
+                    .insert(css.to_string(), self.classes.len() - 1);
                 self.classes.len() - 1
             }
         }
@@ -908,7 +930,7 @@ impl Em<'_> {
                         serde_json::to_string(text.text()).unwrap()
                     )),
                     _ => {
-                        let f = self.f(b.expr, scope)?;
+                        let f = self.bound(i, parent, &b, scope)?;
                         fields.push(format!(
                             "{}:{f}",
                             serde_json::to_string(prop.name()).unwrap()
@@ -982,10 +1004,12 @@ impl Em<'_> {
         }
         // Its state looks, by the rules the sheet carries for their set.
         if !parts.looks.is_empty() {
-            let at = match self.looks.iter().position(|l| *l == parts.looks) {
-                Some(at) => at,
+            let at = match self.looks_at.get(&parts.looks) {
+                Some(at) => *at,
                 None => {
                     self.looks.push(parts.looks.clone());
+                    self.looks_at
+                        .insert(parts.looks.clone(), self.looks.len() - 1);
                     self.looks.len() - 1
                 }
             };
@@ -1175,7 +1199,7 @@ impl Em<'_> {
         self.editor(i, element, &e)?;
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
-            if self.named_record(&b, &e, scope)? {
+            if self.named_record(i, &b, &e, scope)? {
                 continue;
             }
             // tvOS's focus guide has no DOM property, whether literal or bound.
@@ -1199,7 +1223,7 @@ impl Em<'_> {
                 continue;
             }
             let f = self
-                .f(b.expr, scope)
+                .bound(i, &e, &b, scope)
                 .map_err(|x| format!("node {i}: {x}"))?;
             let at = self.out.len();
             let f = self.counted(i, k, f);
@@ -1215,13 +1239,13 @@ impl Em<'_> {
                     // The plan stores editable; HTML exposes the inverse, readonly.
                     // `glassGroup`'s reserved `-1` is `auto` (LLP 1053.000.000.000 D3).
                     let f = if prop == PropId::Editable {
-                        format!("()=>!({f})()")
+                        format!("()=>{{const v=({f})();return v==null?v:!v}}")
                     } else if prop == PropId::GlassGroup {
                         format!("()=>{{const v=({f})();return v===-1?\"auto\":v}}")
-                    } else if prop == PropId::Wakelock {
-                        // The value as computed, which wakelock.js journals
-                        // as the runner does when it is neither word.
-                        format!("()=>{{const v=({f})();{e}.$wake=v;return v}}")
+                    } else if matches!(prop, PropId::Wakelock | PropId::Orientationlock) {
+                        // The value as computed, which wakelock.js and orientationlock.js journal.
+                        let k = ["wake", "orient"][usize::from(prop == PropId::Orientationlock)];
+                        format!("()=>{{const v=({f})();{e}.${k}=v;return v}}")
                     } else {
                         f.clone()
                     };
@@ -1255,6 +1279,18 @@ impl Em<'_> {
         let mut edges = ["0".to_string(), "0".to_string()];
         for h in row.handlers.iter() {
             let h = plan.handler(h);
+            if let Some((name, types)) = crate::events::declared(plan, h) {
+                let (on, ve) = (self.uses.rt("on"), self.uses.rt("viewEvent"));
+                let message = self.uses.rt("onMessage");
+                let name = serde_json::to_string(&name).unwrap_or_default();
+                let types = types.join(",");
+                let a = h.action.0;
+                let _ = write!(
+                    self.out,
+                    "{on}({e},\"message\",{ve}({name},[{types}],a_{a}),{message});"
+                );
+                continue;
+            }
             let mut args = Vec::new();
             for a in h.args.iter() {
                 let f = code::expression(plan, plan.code(plan.arg(a).expr), scope, &mut self.uses)?;
@@ -1415,75 +1451,6 @@ impl Em<'_> {
             self.out.push_str("});");
         }
         Ok(())
-    }
-
-    /// What the runner reads when a virtualized list is created
-    /// (`Collection::create`), evaluated there: its axis, its literal sizes,
-    /// its row estimate, `scrollFollowEnd` (read again at each update),
-    /// `scroll-start`, `scroll-restoration`, its edges' handlers, and its plan site.
-    fn list_options(
-        &mut self,
-        i: u32,
-        scope: &Scope,
-        edges: &[String; 2],
-    ) -> Result<String, String> {
-        let plan = self.plan;
-        let (mut ph, mut pw) = (Vec::new(), Vec::new());
-        let (mut x, mut est, mut follow, mut manual) = (
-            "!1".to_string(),
-            "void 0".to_string(),
-            "0".to_string(),
-            "!1".to_string(),
-        );
-        let mut init = "void 0".to_string();
-        let mut at_end = "!1".to_string();
-        let bindings = plan.node(NodesId(i)).bindings;
-        for b in bindings.iter().map(|b| plan.binding(b)) {
-            let value = match style::literal(plan, plan.code(b.expr)) {
-                Some(v) => value_js(&v),
-                None => code::expression(plan, plan.code(b.expr), scope, &mut self.uses)
-                    .map_err(|x| format!("node {i}: {x}"))?,
-            };
-            match b.kind {
-                BindingKind::Style
-                    if b.id == StyleId::Height as u16 || b.id == StyleId::MaxHeight as u16 =>
-                {
-                    ph.push(value)
-                }
-                BindingKind::Style
-                    if b.id == StyleId::Width as u16 || b.id == StyleId::MaxWidth as u16 =>
-                {
-                    pw.push(value)
-                }
-                BindingKind::Style if b.id == StyleId::Display as u16 => {
-                    x = format!("({value})===\"flex\"")
-                }
-                BindingKind::Prop
-                    if b.id == PropId::EstimatedItemHeight as u16
-                        || b.id == PropId::EstimatedItemWidth as u16 =>
-                {
-                    est = value
-                }
-                BindingKind::Prop if b.id == PropId::ScrollFollowEnd as u16 => {
-                    follow = format!("()=>{value}")
-                }
-                BindingKind::Prop if b.id == PropId::InitialItemCount as u16 => init = value,
-                BindingKind::Prop if b.id == PropId::ScrollStart as u16 => {
-                    at_end = format!("({value})===\"end\"")
-                }
-                BindingKind::Prop if b.id == PropId::ScrollRestoration as u16 => {
-                    manual = format!("({value})===\"manual\"")
-                }
-                _ => {}
-            }
-        }
-        Ok(format!(
-            "{{x:{x},ph:[{}],pw:[{}],est:{est},init:{init},atEnd:{at_end},follow:{follow},manual:{manual},start:{},end:{},site:\"{i}\"}}",
-            ph.join(","),
-            pw.join(","),
-            edges[0],
-            edges[1]
-        ))
     }
 }
 

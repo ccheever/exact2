@@ -334,7 +334,10 @@ pub fn project(
     // with a bound row keeps its text too: the row may make it lay out
     // other than a block, and so does a button whose parent has one (its
     // height may come to be the parent's).
-    let repeated = each_rows(plan, sites);
+    let mut repeated = vec![false; plan.nodes.len()];
+    for i in each_rows(plan, sites) {
+        repeated[i] = true;
+    }
     let bound = |i: usize, only_text: bool| {
         plan.nodes
             .get(i)
@@ -360,7 +363,7 @@ pub fn project(
     let may_fold: Vec<bool> = (0..plan.nodes.len())
         .map(|i| {
             plan.nodes.get(i).unwrap().handlers.len == 0
-                && !repeated.contains(&i)
+                && !repeated[i]
                 && !bound(i, true)
                 && parents[i].is_some_and(|p| {
                     let button = NodeType::from_wire(plan.nodes.get(p).unwrap().node_type)
@@ -469,12 +472,14 @@ pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
 /// while it has a value: written as its binding is, a CSS-wide clear
 /// included; `none` takes it away, as the runner clears the written bit,
 /// and the next node up decides (symbols.js `inked`). A colour only a state
-/// look sets (`:hover`) does not count.
+/// look sets (`:hover`) does not count. `modes`: whether the plan has modes
+/// ([`crate::modes::active`]).
 fn symbol_color(
     plan: &Plan,
     kernel: &Kernel,
     parents: &[Option<usize>],
     i: usize,
+    modes: bool,
 ) -> Option<(Vec<(usize, Ink)>, bool)> {
     let view = |i: usize| -> ViewId { i as u32 + 1 };
     let rows = |i: usize| {
@@ -505,7 +510,6 @@ fn symbol_color(
     // A mode boundary (a pin or a scheme, LLP 1121 D7) writes again a row
     // it does not set when the one around read a token: an implied row, no
     // author's, which `says` stops at (modes.js `apply`, `$xs`).
-    let modes = crate::modes::active(plan);
     let mut writers = Vec::new();
     let mut at = Some(i);
     while let Some(j) = at {
@@ -555,12 +559,13 @@ fn symbol_marks(
     out: &mut [Option<Parts>],
 ) {
     let mut writers = Vec::new();
+    let modes = crate::modes::active(plan);
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts.as_mut().filter(|p| p.tag == "img") else {
             continue;
         };
         parts.props.remove("data-symbol-color");
-        match symbol_color(plan, kernel, parents, i) {
+        match symbol_color(plan, kernel, parents, i, modes) {
             Some((up, true)) if up.is_empty() => {
                 parts
                     .props
@@ -703,11 +708,13 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
 /// `set_plan_style` is (LLP 1095 D3): a value with a `-exact-platform-color()` is
 /// admitted only as one of the plan's own string literals, and writes what
 /// the literal path writes for each of its functions; any other is refused
-/// (an invalid computed declaration: CSS unset, with a diagnostic).
+/// (an invalid computed declaration: CSS unset, with a diagnostic). A site
+/// that says a refusal in its own words passes a function as the second
+/// argument, which the map returns the result of instead (`shape.js`'s faces).
 pub fn color_map(plan: &Plan) -> String {
     let map = platform_map(plan);
     match theme_map(plan) {
-        Some(theme) => format!("((T,M)=>v=>M(T(v)))({theme},{map})"),
+        Some(theme) => format!("((T,M)=>(v,r)=>M(T(v),r))({theme},{map})"),
         None => map,
     }
 }
@@ -794,7 +801,7 @@ fn platform_map(plan: &Plan) -> String {
         return SYSTEM_COLOR_MAP.clone();
     }
     format!(
-        "((P,M)=>v=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?M(P[v]):{refused}:M(v))({{{}}},{m})",
+        "((P,M)=>(v,r)=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?M(P[v]):typeof r===\"function\"?r(v):{refused}:M(v))({{{}}},{m})",
         admitted.join(","),
         m = SYSTEM_COLOR_MAP.as_str(),
         refused = invalid_unset("color")
@@ -1237,6 +1244,18 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
             &SCHEME_MAP,
         )],
         StyleId::TextWrapStyle => one("text-wrap-style", ""),
+        // @ref LLP 1019 D12 — css.rs writes Firefox's Mac spelling too.
+        StyleId::FontSmoothing => vec![
+            Write {
+                name: "-webkit-font-smoothing".into(),
+                unit: String::new(),
+                map: None,
+            },
+            with(
+                "-moz-osx-font-smoothing",
+                "v=>v==null?v:v==\"antialiased\"?\"grayscale\":\"auto\"",
+            ),
+        ],
         // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
         StyleId::TextBoxEdge => vec![with(
             "text-box-edge",
@@ -1383,6 +1402,7 @@ pub(crate) fn css_property(id: StyleId) -> String {
         StyleId::SvgMask => return "mask".into(),
         StyleId::TextStrokeWidth => return "-webkit-text-stroke-width".into(),
         StyleId::TextStrokeColor => return "-webkit-text-stroke-color".into(),
+        StyleId::FontSmoothing => return "-webkit-font-smoothing".into(),
         id => id.name(),
     };
     for (prefix, suffix) in [

@@ -41,10 +41,16 @@ whose design the port serves.
   or cell edit, never the default): each value the draft takes is a `scrub`
   frame previewed on every running copy and written to no file, while the
   tool says "Previewing". Keep is `scrub-release`, one write undone in one
-  step (refused, it names who moved the file); Cancel or Escape is
-  `scrub-cancel`; an end the server makes (another write, idle 30 s, the
+  step (refused, it names who moved the file); Cancel is `scrub-cancel`
+  (Escape is not: it never ends a pending edit, the third pass's #7); an end the server makes (another write, idle 30 s, the
   tool gone) is said. An edit that rebuilds, or a tool with no dev loop,
   offers no scrub, and says why.
+- The edit dock (the third hands-on pass's #7): a grid cell pressed opens
+  its editor, with the edit's proposal, in one dock at the window's bottom
+  (at most half of it); the cell gets an accent ring and `aria-current`, and
+  stays clear of the dock. The press moves the focus into the editor; Close
+  or Escape, only with nothing pending (no typed value, draft or scrub),
+  ends the selection and gives the focus back to the cell.
 - The inspector (T2b, LLP 1122 D5): Inspect turns inspect mode on every
   build that can (the wasm page now). The toggle follows the server's
   `inspect` events, so another client taking a build, or this tool's
@@ -66,13 +72,13 @@ whose design the port serves.
   poll, `POST /__tamber/events`. Its grants name the tool's one origin.
   The design is read again only when the files move (a `changed` event, a
   gap, a new server run), not on a build's status or a scrub's frame: a
-  read is `describe`, a `resolve` per token (four at a time, stopped once
-  a newer read starts) and `hello`, which on a big design takes seconds.
+  read is `describe`, one `resolve` of its tokens (`tokens`, tamber/1.17;
+  one per token from a server before it, four at a time) and `hello`.
   After writes that named their tokens (`reread.ts`), back to the file's
   last whole read, it resolves only those and each token whose `describe`
-  entry moved (a package's token derived from one the app set), and keeps
-  the rest: a peer's edit on the clone went from 267 resolves (4.5 s to
-  the grid) to one (1.4 s; its params' levels are read after it shows).
+  entry moved, and keeps the rest: a peer's edit on the clone went from 267
+  resolves (4.5 s to the grid) to one (1.4 s; its params' levels are read
+  after it shows, in one `resolve` too).
   A hand edit, which names none, a gap, another server run, or a token
   added, removed or of another kind reads whole. A
   proposal is asked again on every poll answer but while a scrub is shown,

@@ -17,7 +17,7 @@ pub(super) struct Settled {
     pending_mut: Vec<bool>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
     store_readers: Vec<bool>,
-    resource_args: Vec<Vec<Value>>,
+    pub(super) resource_args: Vec<Vec<Value>>,
 }
 
 /// Which derives and resources this pass has settled, and which of them
@@ -38,6 +38,14 @@ enum RequestEffect {
         args: Vec<Value>,
         request: Box<Request>,
         forced: bool,
+    },
+    /// Refused by a turn over its budget: held to be asked again
+    /// (`overrun.rs`), as an ask in flight.
+    Wait {
+        args: Vec<Value>,
+        reasks: usize,
+        forced: bool,
+        why: String,
     },
 }
 
@@ -221,6 +229,12 @@ impl<D: DataSource> Runner<D> {
         // pass hands the host, and the pending flags as they will be —
         // published with the rest only when the pass succeeds.
         let mut force = std::mem::take(&mut self.refresh_next);
+        // What this settlement refreshes stays refreshed in every pass, though
+        // the first ask takes it out of `force` (a store reader asked again
+        // after a later resource wrote): a turn over its budget's wait, or a
+        // request, replaces the standing ask and starts a new streak
+        // (`overrun.rs`).
+        let refreshing = force.clone();
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
@@ -248,7 +262,9 @@ impl<D: DataSource> Runner<D> {
                         pending_res[i] = false;
                         awaiting[i] = false;
                     }
-                    RequestEffect::Later { .. } => pending_res[i] = true,
+                    RequestEffect::Later { .. } | RequestEffect::Wait { .. } => {
+                        pending_res[i] = true
+                    }
                 }
             }
             let mut settled_res = vec![false; states.len()];
@@ -306,6 +322,11 @@ impl<D: DataSource> Runner<D> {
                     match result {
                         Ok(o) => {
                             if !self.conforms(&o.value, self.plan.derives[i].ty) {
+                                if o.value.typed(&self.plan, self.plan.derives[i].ty) {
+                                    return Err(RunnerError::NonFiniteValue {
+                                        name: self.plan.str(self.plan.derives[i].name).to_string(),
+                                    });
+                                }
                                 return Err(RunnerError::DeriveType {
                                     derive: self.plan.str(self.plan.derives[i].name).to_string(),
                                 });
@@ -408,20 +429,40 @@ impl<D: DataSource> Runner<D> {
                     // resource is device data just like a direct reader.
                     self.store_readers[i] |= store_dependent;
                     let forced = force.contains(&i);
+                    let refreshed = forced || refreshing.contains(&i);
+                    self.forget_refused(i, &args);
                     // A stand-in a refused activation failed holds for a kept
                     // seed's identifying arguments, whatever its context
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
                     let failed_for =
                         |f: &Vec<Value>| *f == args || (self.stale[i] && f == identity);
-                    if forced || self.failed_args[i].as_ref().is_some_and(|f| !failed_for(f)) {
+                    // @ref LLP 1016.000 D10 — an upload is asked once for its
+                    // arguments: in flight, ended or failed, nothing asks it
+                    // again at them, not a store write it read nor a refresh.
+                    let mark = self.upload_at(i, &args).cloned();
+                    // An upload's failure stands through a refresh.
+                    let upload_failed = matches!(mark, Some(super::UploadEnd::Failed(_)))
+                        && self.failed_args[i].as_ref().is_some_and(failed_for);
+                    if forced && !upload_failed
+                        || self.failed_args[i].as_ref().is_some_and(|f| !failed_for(f))
+                    {
                         self.failed_args[i] = None;
                     }
                     let failed = self.failed_args[i].as_ref().is_some_and(failed_for);
+                    // On its way under a ticket kept for other arguments (the same
+                    // request, LLP 1054.000.000 D3): these arguments' again.
+                    if let Some(super::UploadEnd::Sent(t)) = &mark {
+                        if let Some(p) = self.pending.iter_mut().find(|p| p.ticket == *t) {
+                            p.args.clone_from(&args);
+                        }
+                    }
                     // The value may still answer older arguments while a
                     // request is in flight. Reuse follows the current ask;
                     // the standing value keeps its own provenance.
                     let asked_args = match &effects[i] {
-                        RequestEffect::Later { args, .. } => Some(args),
+                        RequestEffect::Later { args, .. } | RequestEffect::Wait { args, .. } => {
+                            Some(args)
+                        }
                         RequestEffect::Answered => None,
                         RequestEffect::None => self
                             .pending
@@ -464,6 +505,7 @@ impl<D: DataSource> Runner<D> {
                     // write through Store, so this is the one dirtying point.
                     // Host facts always come from this candidate, never a baked
                     // or carried delivery answer (LLP 1030 D7).
+                    let upload = mark.is_some() || self.uploading(i);
                     let reuse = states[i]
                         .as_ref()
                         .filter(|_| !unknown)
@@ -472,9 +514,11 @@ impl<D: DataSource> Runner<D> {
                                 || failed
                                 || (asked_args.unwrap_or(&s.args) == &args
                                 && !exact_plan::runner_owned_source(self.plan.str(row.source))
-                                && !forced
-                                && (!self.store_readers[i]
-                                    || s.store_revision == self.store.revision())
+                                && (upload
+                                    || !forced
+                                        && (!self.store_readers[i]
+                                            || s.store_revision == self.store.revision()
+                                            || self.asks_again_after_reply(i)))
                                 // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
                                 && (!s.placeholder || pending_res[i] || awaiting[i]))
@@ -487,6 +531,21 @@ impl<D: DataSource> Runner<D> {
                             !(s.value.is_compiled() && self.secrets_unseen(i, &row, &resources))
                         })
                         .map(|s| s.value.clone());
+                    // A child its ask would let go, or arguments refused for
+                    // one, keeps what shows, and a refresh is spent (LLP
+                    // 1133.007 D13).
+                    let reuse = match reuse {
+                        Some(v) => Some(v),
+                        None => (states[i].as_ref())
+                            .filter(|_| self.data.ready())
+                            .map(|state| state.value.clone())
+                            .filter(|_| self.keeps_resource(i, &args, forced))
+                            .inspect(|_| force.retain(|f| *f != i)),
+                    };
+                    // A refresh an upload stood through is spent, not carried.
+                    if reuse.is_some() && forced && upload {
+                        force.retain(|f| *f != i);
+                    }
                     let mut value_args = if reuse.is_some() {
                         states[i].as_ref().expect("reused").args.clone()
                     } else {
@@ -494,6 +553,7 @@ impl<D: DataSource> Runner<D> {
                     };
                     // When the standing answer was asked; a fresh one's is now.
                     let mut origin = states[i].as_ref().map_or(0, |s| s.origin);
+                    let mut generation = states[i].as_ref().map_or(0, |s| s.inspection_generation);
                     let mut answered_for = if reuse.is_some() {
                         states[i].as_ref().expect("reused").answered_for.clone()
                     } else {
@@ -538,15 +598,21 @@ impl<D: DataSource> Runner<D> {
                                 && (forced || self.store_readers[i] || !self.is_placeholder_row(i))
                             {
                                 self.stale[i] = true;
+                                self.note_deferred(i, &args);
                             }
-                            awaiting[i] = false;
                             adopted[i] = true;
                             origin = 0;
+                            generation = 0;
                             if let Ok(Value::List(baked)) =
                                 Value::from_bytes(self.plan.bytes(row.initial_args))
                             {
                                 answered_for = (baked[..] != args[..]).then(|| baked.to_vec());
                             }
+                            // Shown for the bake's arguments, not these (state
+                            // a launch restored changed them), it is a stand-in
+                            // like a placeholder: pending until `data_ready`
+                            // asks the source (LLP 1048.003 D6, 2026-10-27).
+                            awaiting[i] = answered_for.is_some() && self.stale[i];
                             Held::compiled(
                                 Value::from_bytes(self.plan.bytes(row.initial))
                                     .map_err(RunnerError::Plan)?,
@@ -563,10 +629,12 @@ impl<D: DataSource> Runner<D> {
                             && self.placeholder(i, &row, &resources).is_some() =>
                         {
                             self.stale[i] = true;
+                            self.note_deferred(i, &args);
                             pending_res[i] = true;
                             awaiting[i] = true;
                             placeholder = true;
                             origin = 0;
+                            generation = 0;
                             Held::new(self.placeholder(i, &row, &resources).expect("checked"))
                         }
                         None => {
@@ -587,7 +655,10 @@ impl<D: DataSource> Runner<D> {
                             self.store.take_topics();
                             let reconciling = self.reconciling.contains(&i);
                             self.reconciling.retain(|r| *r != i);
-                            let asked = match self.query(i, &args) {
+                            self.inspect_request(i);
+                            // An upload's arguments answer as it ended (D10).
+                            let ledger = self.ledger_answer(i, mark.as_ref());
+                            let asked = match ledger.unwrap_or_else(|| self.query(i, &args)) {
                                 // A reconciling answer outside its shape fails
                                 // the resource too.
                                 Ok(Answer::Now(v)) if reconciling => {
@@ -605,15 +676,17 @@ impl<D: DataSource> Runner<D> {
                                 // reconciles after a write ended, which never
                                 // refuses publishing the end. A source's own
                                 // refusal otherwise still refuses the commit.
+                                // (a turn over its budget is asked again below, not failed)
                                 Err(e @ (RunnerError::Data { .. } | RunnerError::Shape { .. }))
-                                    if (reconciling
-                                        || matches!(
-                                            e,
-                                            RunnerError::Data {
-                                                error: DataError::Interface(_),
-                                                ..
-                                            }
-                                        ))
+                                    if !super::overrun::is_overrun(&e)
+                                        && (reconciling
+                                            || matches!(
+                                                e,
+                                                RunnerError::Data {
+                                                    error: DataError::Interface(_),
+                                                    ..
+                                                }
+                                            ))
                                         && !exact_plan::runner_owned_source(
                                             self.plan.str(row.source),
                                         )
@@ -653,6 +726,12 @@ impl<D: DataSource> Runner<D> {
                                             self.watching[i].push(topic);
                                         }
                                     }
+                                    // A failed ask that read the store makes a store
+                                    // reader too, so a reply's write asks it again
+                                    // (LLP 1146 §2.3).
+                                    if self.store.reads() > reads_before {
+                                        self.store_readers[i] = true;
+                                    }
                                     resources[i] = Some(shown);
                                     settled_res[i] = true;
                                     progress = true;
@@ -681,10 +760,12 @@ impl<D: DataSource> Runner<D> {
                                         return Err(self.unanswerable(i));
                                     };
                                     self.stale[i] = true;
+                                    self.note_deferred(i, &args);
                                     pending_res[i] = true;
                                     awaiting[i] = true;
                                     placeholder = true;
                                     origin = 0;
+                                    generation = 0;
                                     Held::new(value)
                                 }
                                 // @ref LLP 1027.000 D3 — a TypeScript answer's
@@ -720,8 +801,55 @@ impl<D: DataSource> Runner<D> {
                                     });
                                     kept
                                 }
+                                // A turn over its budget (`overrun.rs`): the
+                                // resource keeps what it shows and is held to be
+                                // asked again, an ask in flight; its streak
+                                // spent, it fails as any refusal does. The
+                                // asking commit stands (LLP 1027.000 D3).
+                                Err(e)
+                                    if super::overrun::is_overrun(&e)
+                                        && !self.streaming(i)
+                                        && (states[i].is_some()
+                                            || self.placeholder(i, &row, &resources).is_some()) =>
+                                {
+                                    let why = crate::failure::Failure::of(&e);
+                                    let kept = if let Some(state) = &states[i] {
+                                        placeholder = state.placeholder;
+                                        value_args = state.args.clone();
+                                        answered_for = state.answered_for.clone();
+                                        state.value.clone()
+                                    } else {
+                                        placeholder = true;
+                                        Held::new(
+                                            self.placeholder(i, &row, &resources).expect("checked"),
+                                        )
+                                    };
+                                    let reasks =
+                                        self.overrun_reasks(Target::Resource(i), &args, refreshed);
+                                    if super::overrun::reask_after(reasks).is_some() {
+                                        effects[i] = RequestEffect::Wait {
+                                            args: args.clone(),
+                                            reasks,
+                                            forced: refreshed,
+                                            why: why.message,
+                                        };
+                                        pending_res[i] = true;
+                                    } else {
+                                        effects[i] = RequestEffect::Answered;
+                                        pending_res[i] = false;
+                                        self.count_failure(i);
+                                        self.alert(super::lines::failed_now(
+                                            self.plan.str(row.name),
+                                            &why.message,
+                                        ));
+                                        self.failed_args[i] = Some(args.clone());
+                                        self.failed_why[i] = Some(why);
+                                    }
+                                    kept
+                                }
                                 Err(error) => return Err(error),
                                 Ok(Answer::Now(v)) => {
+                                    generation = self.inspected_request(i);
                                     if pending_res[i] || self.streaming(i) {
                                         // Newer arguments answered now: the older
                                         // request's reply is no longer wanted.
@@ -730,6 +858,7 @@ impl<D: DataSource> Runner<D> {
                                     }
                                     self.revalidated(i, states[i].as_ref(), &v);
                                     self.stale[i] = false;
+                                    self.note_answered(i);
                                     self.keep_answer(i, &args, &v);
                                     origin = self.writes.tick();
                                     Held::new(v)
@@ -770,7 +899,7 @@ impl<D: DataSource> Runner<D> {
                                     effects[i] = RequestEffect::Later {
                                         args: args.clone(),
                                         request: Box::new(request),
-                                        forced,
+                                        forced: refreshed,
                                     };
                                     pending_res[i] = true;
                                     kept
@@ -815,6 +944,7 @@ impl<D: DataSource> Runner<D> {
                     );
                     resources[i] = Some(shown);
                     states[i] = Some(ResourceState {
+                        inspection_generation: generation,
                         args: value_args,
                         value,
                         store_revision: self.store.revision(),
@@ -823,6 +953,7 @@ impl<D: DataSource> Runner<D> {
                         origin,
                         answered_for,
                     });
+                    self.inspected_success(i, generation);
                     settled_res[i] = true;
                     progress = true;
                 }
@@ -841,6 +972,7 @@ impl<D: DataSource> Runner<D> {
             // does not refresh itself.
             let stale_store_reader = states.iter().enumerate().any(|(i, state)| {
                 self.store_readers[i]
+                    && !self.asks_again_after_reply(i)
                     && state
                         .as_ref()
                         .is_none_or(|state| state.store_revision != revision)
@@ -871,14 +1003,20 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             for (i, effect) in std::mem::take(effects).into_iter().enumerate() {
-                if let RequestEffect::Later {
-                    args,
-                    request,
-                    forced,
-                } = effect
-                {
-                    let source = self.plan.str(self.plan.resources[i].source).to_string();
-                    self.enqueue(Target::Resource(i), source, args, *request, forced);
+                let source = self.plan.str(self.plan.resources[i].source).to_string();
+                match effect {
+                    RequestEffect::Later {
+                        args,
+                        request,
+                        forced,
+                    } => self.enqueue(Target::Resource(i), source, args, *request, forced),
+                    RequestEffect::Wait {
+                        args,
+                        reasks,
+                        forced,
+                        why,
+                    } => self.hold_reask(i, source, args, reasks, forced, &why),
+                    RequestEffect::None | RequestEffect::Answered => {}
                 }
             }
             // The flags follow the tickets and what awaits its source.

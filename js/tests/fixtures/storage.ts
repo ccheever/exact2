@@ -13,6 +13,7 @@ let shared: Promise<{text:string}>;
 // the last failure a background step reported to the app.
 let saving: Promise<unknown> = Promise.resolve(), lastError = "";
 let compressAndWrite = 0;
+const slept: string[] = [];
 const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.charCodeAt(0)));
 
 // Writes an answer starts and does not await (kanban F22): the answer is
@@ -97,6 +98,7 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
   return work(source, args, store, storage, native);
 }
 
+let busyOnceDone = false;
 async function work(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
   const op = String(args[0]), value = String(args[1]);
   if (op === 'later') {
@@ -105,6 +107,10 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch(error:any) { return {text:'refused: ' + error.message}; }
   }
   if (op === 'native-direct') return {text: String(native!.call({value}).text)}; // no bake branch
+  // A turn over its budget the first time, then at once (a load-caused refusal asked again: overrun.rs).
+  if (op === 'busy-once') { if (!busyOnceDone) { busyOnceDone = true; let acc = 0; for (let i = 0; i < 30000000; i++) acc = (acc + i * 7) % 1000003; return {text: String(acc)}; } return {text: 'answered'}; }
+  // A turn of the module's own work, `value` iterations long (the turn budget's test: turn_budget.rs).
+  if (op === 'busy') { let acc = 0; for (let i = 0, n = Number(value); i < n; i++) acc = (acc + i * 7) % 1000003; return {text: String(acc)}; }
   if (op === 'native' || op === 'native-fetch') {
     if (!native?.available) return {text: 'no native module'};
     try {
@@ -140,6 +146,11 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     try { await storage.fs.forgetDocument(value); } catch (e: any) { again = e.code; }
     const left = (await storage.fs.recentDocuments()).length;
     return {text: [listed.map((d) => `${d.path} ${d.kind} ${d.mode}`).join(","), left, again].join(" | ")};
+  }
+  // LLP 1069.010.000 D4: the app's own atomic save of a kept file.
+  if (op === "kept-save") {
+    await storage.fs.atomicWriteFile(value, new TextEncoder().encode("saved"));
+    return {text: (await storage.fs.recentDocuments()).map((d) => d.path).join(",")};
   }
   // LLP 1069.010.000 D1, D2a: the answer watches a chosen file and its
   // folder, and a write that expects a stale stat is refused.
@@ -182,6 +193,22 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join(" ")};
   }
+  // LLP 1069.010 D1 (2026-10-26): a chosen file copied by the host into an
+  // app file, its size read back, and the copies still refused.
+  if (op === "doc-copy") {
+    const out: string[] = [], folder = value.slice(0, value.lastIndexOf("/"));
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.copyFile(value, "app:/data/copied").then(() => storage.fs.stat("app:/data/copied")).then((s) => "copied " + s.size),
+      () => storage.fs.copyFile(value, "app:/cache/ungranted"),
+      () => storage.fs.copyFile(value, folder + "/copy"),
+      () => storage.fs.copyFile("app:/data/copied", folder + "/copy"),
+      () => storage.fs.rename(value, "app:/data/moved"),
+    ];
+    for (const step of steps) {
+      try { const r = await step(); out.push(typeof r === "string" ? r : "ok"); } catch (e: any) { out.push(e.kind + " " + e.code); }
+    }
+    return {text: out.join(" ")};
+  }
   // Ledger's shape (ledger F12): every answer queued on one chain, a listing
   // that reads, and a save that refuses bad input before touching storage.
   if (op === "count" || op === "invalid") {
@@ -197,6 +224,16 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     tail = run.catch(() => {});
     return run;
   }
+  // A write, then a timer once it lands: refused to a call let go meanwhile,
+  // whose chain still runs (LLP 1027.000 D1: its timer would never run).
+  if (op === "write-then-sleep") {
+    return storage.fs.writeFile(storage.fs.directories.data + "/slept", bytes(value)).then(() => {
+      try { setTimeout(() => {}, 10); slept.push(value + " armed"); }
+      catch (e) { slept.push(value + " refused: " + e.message); }
+      return {text: value};
+    });
+  }
+  if (op === "slept") return {text: slept.join("; ")};
   if (op === "serial") {
     const run = tail.then(async () => {
       const db = await storage.sqlite.open("app:/data/notes.db");
@@ -372,6 +409,56 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     ];
     for (const init of inits) {
       try { await fetch(url, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
+  // `exactBodyTo` (LLP 1108 D6 R2): the host writes a 2xx body to the file.
+  // The status, what was written, the body and the header names, or the
+  // rejection's name, kind and message.
+  if (op === "download" || op === "download-missing") {
+    try {
+      const r = await fetch("https://example.test/" + op, { exactBodyTo: value } as any);
+      return {text: [r.status, JSON.stringify((r as any).exactBodyTo), await r.text(), [...r.headers.keys()].join(",")].join(" ")};
+    } catch (e:any) { return {text: e.name + " " + e.kind + " " + e.message}; }
+  }
+  if (op === "download-refusals") {
+    const url = "https://example.test/download", data = storage.fs.directories.data, out: string[] = [];
+    const inits: any[] = [
+      { exactBodyTo: 42 },
+      { exactBodyTo: "/tmp/photo.jpg" },
+      { exactBodyTo: data + "/../photo.jpg" },
+      { exactBodyTo: data + "/" + "\ud800".repeat(1500) },
+      { method: "HEAD", exactBodyTo: data + "/photo.jpg" },
+      { exactBodyTo: data + "/photo.jpg", exactStream: () => null },
+      { exactBodyTo: data + "/photo.jpg", exactIndependentHttp: { maxResponseBytes: 1073741825 } },
+      { exactIndependentHttp: { maxResponseBytes: 67108865 } },
+    ];
+    for (const init of inits) {
+      try { await fetch(url, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
+  // An upload's progress (LLP 1016.000 D10): each
+  // event as its mapper gets it, a `progress` of the bytes sent, then `load`.
+  // (`upload-patient`: a deadline past the portable transport's own 30 s)
+  if (op === "upload-progress" || op === "upload-patient") {
+    return fetch("https://example.test/upload", { method: "POST", exactBodyFrom: value, exactUploadProgress: true, exactTimeout: op === "upload-patient" ? 60000 : 30000,
+      exactStream: (e: any) => ({text: e.type === "progress" ? `progress ${e.loaded}/${e.total} ${e.lengthComputable}` : e.type === "load" ? `load ${e.status} ${e.data}` : `${e.type} ${e.kind} ${e.message}`}) } as any);
+  }
+  if (op === "upload-progress-refusals") {
+    const url = "https://example.test/upload", exactStream = () => ({text: ""}), out: string[] = [];
+    const inits: [string, any][] = [
+      [url, { method: "POST", exactStream, exactUploadProgress: "yes" }],
+      [url, { method: "POST", exactUploadProgress: true }],
+      [url, { exactStream, exactUploadProgress: true }],
+      ["wss://example.test/upload", { method: "POST", exactStream, exactUploadProgress: true }],
+      [url, { exactStream, exactUploadProgress: true, exactLongPoll: { cursor: "since", from: "seq" } }],
+      [url, { method: "POST", exactStream, exactUploadProgress: true, redirect: "manual" }],
+      [url, { method: "POST", exactStream, exactTimeout: 30000 }],
+      ["exact-native:", { method: "POST", exactStream, exactUploadProgress: true }],
+    ];
+    for (const [to, init] of inits) {
+      try { await fetch(to, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
     }
     return {text: out.join("\n")};
   }

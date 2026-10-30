@@ -7,6 +7,10 @@
 
 use exact_runner::{Dispatch, Outcome, Reply, Response, Runner, Work};
 use serde_json::{json, Value as Json};
+#[cfg(unix)]
+use std::os::unix::fs::symlink as symlink_dir;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_dir;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -33,8 +37,7 @@ impl App {
         let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages");
         std::fs::create_dir_all(path.join("node_modules/@exact")).unwrap();
         let to = packages.join("browser-automation").canonicalize().unwrap();
-        std::os::unix::fs::symlink(to, path.join("node_modules/@exact/browser-automation"))
-            .unwrap();
+        symlink_dir(to, path.join("node_modules/@exact/browser-automation")).unwrap();
         std::fs::write(path.join("app.contract"), APP).unwrap();
         std::fs::write(
             path.join("app.json"),

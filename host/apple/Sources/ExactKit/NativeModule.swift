@@ -65,6 +65,9 @@
 //        nullable: a presence check (LLP 1133.010 D13), Presence.swift
 // 240  image(module, json, len, ctx, done)              size ≥ 248;
 //        nullable: a package picture (LLP 1133.019 D11 item 1), PackagePictures.swift
+// 248  session_view(module, view)                     size ≥ 256;
+//        nullable: the session's root view, borrowed, or nil, each time it
+//        changes (LLP 1133.027 D17 item 3)
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -168,6 +171,9 @@ private final class NativeTable {
     var authenticate: PresenceAuthenticateFn?
     /// A package picture (LLP 1133.019 D11 item 1), in one of 248 or more.
     var image: PackageImageFn?
+    /// The session's root view for packages (LLP 1133.027 D17 item 3), in one of 256 or more.
+    var sessionView: SessionViewFn?
+    typealias SessionViewFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -253,6 +259,7 @@ private final class NativeTable {
         if size >= 232 { loaded.createView = pointer(224).map { unsafeBitCast($0, to: CreateViewFn.self) } }
         if size >= 240 { loaded.authenticate = pointer(232).map { unsafeBitCast($0, to: PresenceAuthenticateFn.self) } }
         if size >= 248 { loaded.image = pointer(240).map { unsafeBitCast($0, to: PackageImageFn.self) } }
+        if size >= 256 { loaded.sessionView = pointer(248).map { unsafeBitCast($0, to: SessionViewFn.self) } }
         return .success(loaded)
     }
 }
@@ -601,6 +608,7 @@ final class NativeViews {
         }
         instance = made
         log("module instance made (agent \(ExactEnv.agentMode)) \(sincePixel)")
+        sessionViewChanged()
         if Self.hatchesOff { log("hatches: off (EXACT_HATCHES=off); no hatch is connected or called") }
         if !Self.hatchesOff, let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
             let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
@@ -619,7 +627,18 @@ final class NativeViews {
         return .success(made)
     }
 
+    /// The module is handed the session's view as it changes (`session_view`).
+    func sessionViewChanged() {
+        guard let instance, case .success(let table)? = NativeProcess.table, let call = table.sessionView else { return }
+        call(instance, session?.view.map { Unmanaged.passUnretained($0).toOpaque() })
+    }
+
     private var pendingHatches: (() -> Void)?
+    /// Whether this session's hatches may still connect with `word` handled (a hatched frame waits, ElementHatches.swift).
+    func hatchesMayConnect(_ word: String) -> Bool {
+        guard hasAppModule, !hatchesConnected, !Self.hatchesOff, instanceFailure == nil, instance == nil || pendingHatches != nil else { return false }
+        switch NativeProcess.table { case .success(let t)?: return t.connect != nil && t.elementHatch != nil && t.hatchWords?.contains(word) != false; case .failure?: return false; case nil: return true }
+    }
     /// Connects the hatches of a module made before first pixel.
     private func activateHatches() {
         guard let pending = pendingHatches else { return }
@@ -659,7 +678,7 @@ final class NativeViews {
         session.runtime.on { exact_set_app_module(rt, nativeLaterCallback, nativeCallCallback, UnsafeMutableRawPointer(bitPattern: UInt(rt))) }
     }
 
-    private var hasAppModule = false
+    var hasAppModule = false
 
     /// After first pixel, before data activates: load the artifact and make
     /// the session's instance, so the first `native.call` pays for neither.
@@ -667,6 +686,7 @@ final class NativeViews {
     /// 100 ms budget (the sample host, 2026-09-27).
     func prepareAppModule() {
         activateHatches()
+        defer { if !hatchesConnected, pendingHatches == nil { session?.presenter.elements.releaseFrames() } } // they never will
         guard hasAppModule, instance == nil, case .success(let table) = self.table() else { return }
         _ = module(table)
         // Its extensions answer their names from now on, outside the agent.
@@ -1287,6 +1307,7 @@ extension NodeView {
         #else
         w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         #endif
+        w.isHidden = cssVisibilityHidden
         addSubview(w)
         web = w
     }

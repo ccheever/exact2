@@ -101,6 +101,7 @@ impl<D: DataSource> Runner<D> {
                 | super::DataError::Unavailable(m)
                 | super::DataError::Interface(m)
                 | super::DataError::DeferredAtBake(m)
+                | super::DataError::Overrun(m)
                 | super::DataError::Failed(_, m, _),
             ) => {
                 // The executor's own failure, not a failed operation (those
@@ -127,6 +128,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The module's journal lines (LLP 1097 D8), into the journal.
     pub(super) fn take_data_logs(&mut self) {
+        self.hear_aborted();
         for line in self.data.take_logs() {
             self.log(line);
         }

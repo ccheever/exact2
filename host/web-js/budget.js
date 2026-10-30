@@ -1,7 +1,7 @@
 // The runner's evaluation bounds on the JS target (LLP 1090; runner/src/vm.rs): an app module imports what it calls from
 // here, beside rt.js, which never does. A metered body counts its own list steps in a local `$s` (code.rs); what is here
 // measures values as the runner's `Extent` does, and checks the strings the roster builds.
-import { Refusal, text, segmentOf } from "./rt.js";
+import { Refusal, text, segmentOf, say } from "./rt.js";
 
 /** `MAX_STRING` and `MAX_VALUE_BYTES`, in UTF-8 bytes; `MAX_VALUE_NODES`. */
 const MAX = 67108864, NODES = 16777216;
@@ -9,6 +9,13 @@ const MAX = 67108864, NODES = 16777216;
 export class Trap extends Refusal { constructor(kind, pc) { super(`Trap(${kind} { pc: ${pc} })`); this.kind = kind; this.pc = pc; } }
 /** Throw a trap, where an expression stands. */
 export function $T(kind, pc) { throw new Trap(kind, pc); }
+/** Prop or style binding `f` of plan node `site` on element `e`, whose trap unsets its row `row` and the commit goes on
+ * (LLP 1017.003 D3; the runner's `instance/trapped.rs`). One journal line when it starts trapping, however many writes
+ * read it: the element keeps which of its rows' bindings trapped last, until one evaluates to a value. */
+export const tg = (e, site, row, f) => () => {
+  try { const v = f(); e.$tg?.delete(row); return v; }
+  catch (x) { if (!(x instanceof Trap)) throw x; const t = (e.$tg ??= new Set); if (!t.has(row)) { t.add(row); say(`site ${site}: ${row} trapped ${x.message}; unset`); } return null; }
+};
 /** A string's UTF-8 bytes, as Rust's `str::len`; a lone surrogate is U+FFFD's 3 (LLP 1088 D2). */
 export function utf8(s, limit = Infinity) {
   let n = s.length;
@@ -222,10 +229,14 @@ function jsonBytes(s) {
   }
   return bytes;
 }
-/** A native module's props (LLP 1024 D1): key/value pairs to one JSON object of strings, a none left out (`stdlib::native_props`). */
+/** A native module's props (LLP 1024 D1): key/value pairs to one JSON object of strings, a none left out (`stdlib::native_props`).
+ * A key that is `[name, schema]` carries its value as JSON by the schema (a package view's record or list prop, LLP 1133.021 §9 item 1). */
 export function NP(p, pc) {
   const o = {};
-  for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]);
+  for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) {
+    if (Array.isArray(p[i])) o[p[i][0]] = JSON.stringify(typed(p[i + 1], JSON.parse(p[i][1])));
+    else o[p[i]] = String(p[i + 1]);
+  }
   let bytes = 2, first = true;
   for (const [key, value] of Object.entries(o)) {
     bytes += (first ? 0 : 1) + jsonBytes(key) + 1 + jsonBytes(value);
@@ -233,6 +244,14 @@ export function NP(p, pc) {
     first = false;
   }
   return JSON.stringify(o);
+}
+/** A value by its schema (`native_props`'s `typed_json`): `0` itself, `o` an option, `l` a list, `r` a record by position, a none field left out. */
+function typed(v, s) {
+  if (v == null) return null;
+  if (s?.o !== undefined) return typed(v, s.o);
+  if (s?.l !== undefined) return v.map(x => typed(x, s.l));
+  if (s?.r) { const out = {}; s.r.forEach(([f, t], i) => { if (v[i] != null) out[f] = typed(v[i], t); }); return out; }
+  return typeof v === "number" && !isFinite(v) ? null : v;
 }
 /** `t(key, name=value…)` (rt.js `text`). */
 export function x_t(name, key, pairs, pc) {

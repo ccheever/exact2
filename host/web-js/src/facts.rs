@@ -78,7 +78,8 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
     } else {
         format!("import{{{}}}from\"./facts.js\";", imports.join(","))
     };
-    Ok(facts + &modules(plan, body))
+    // The tools after the modules, whose origins they stand beside (calls.js).
+    Ok(facts + &modules(plan, body) + &crate::calls::tools(plan, body))
 }
 
 /// The extensions the plan's module names and package views belong to, each

@@ -56,6 +56,12 @@ shape Media
   alt: string
   spoiler: bool
 
+// A sticker a message carries, drawn at 160 points with no frame, as Discord draws one.
+shape Sticker
+  id: string
+  src: string
+  name: string
+
 // A file attached to a message that is not a picture: its name, its size as
 // shown ("3.1 MB") and where it downloads from; a spoiler's waits to be revealed.
 shape FileRef
@@ -65,16 +71,31 @@ shape FileRef
   url: string
   spoiler: bool
 
+// An embed's field: `inline` ones sit up to three abreast, as Discord lays them out.
+shape EmbedField
+  id: string
+  name: string
+  value: Block[]
+  inline: bool
+
+// A link's or a bot's card. `authorIcon` and `footerIcon` are pictures ("" for none); `at` is the
+// embed's own timestamp, shown in the footer (0 for none).
 shape Embed
   id: string
   color: string
   provider: string
   author: string
+  authorIcon: string
+  authorUrl: string
   title: string
   url: string
   description: Block[]
+  fields: EmbedField[]
   image: Media[]
   thumbnail: Media[]
+  footer: string
+  footerIcon: string
+  at: number
 
 shape Reaction
   id: string
@@ -84,9 +105,36 @@ shape Reaction
   count: number
   me: bool
 
+// A poll's answer: `count` is Discord's, `percent` its share of every vote, rounded; `me` says the
+// reader chose it, and `winner` marks the most-voted answers of a poll Discord has closed.
+shape PollAnswer
+  id: string
+  text: string
+  emoji: string
+  src: string
+  count: number
+  percent: number
+  me: bool
+  winner: bool
+
+// A poll. `known` says Discord sent its counts (it leaves them out of some messages); `expiry` is
+// when it closes (0 for never); `closed` says Discord has finalized it; `voted` says the reader has
+// voted; `votes` sums the answers' counts.
+shape Poll
+  question: string
+  multi: bool
+  known: bool
+  expiry: number
+  closed: bool
+  voted: bool
+  votes: number
+  answers: PollAnswer[]
+
 // The message a reply answers. `state` is "present", "deleted" (the store saw it
 // deleted, or Discord sent the reply with a null `referenced_message`) or
-// "unknown" (the store does not hold it, so a jump has to load it).
+// "unknown" (the store does not hold it, so a jump has to load it). An app's
+// answer to a command has one too, "command": `author` used `preview`, the
+// command's name.
 shape ReplyRef
   id: string
   author: string
@@ -128,13 +176,21 @@ shape Message
   source: string
   isNew: bool
   blocks: Block[]
+  // A system message's icon role (`symbol:<role>`), "" for an ordinary message.
+  systemIcon: string
+  // A forward: what shows is the message it forwarded (`message_snapshots`), under a Forwarded label.
+  forwarded: bool
+  // A forward's own words, above its Forwarded label ([] for any other message).
+  note: Block[]
   media: Media[]
   files: FileRef[]
+  stickers: Sticker[]
   embeds: Embed[]
   reactions: Reaction[]
+  poll: Poll[]
   reply: ReplyRef[]
 
-// One contiguous run of a channel's history, at most 200 rows. `hasBefore`
+// One contiguous run of a channel's history, at most 300 rows. `hasBefore`
 // and `hasAfter` say whether older or newer history exists outside it; a
 // window without `hasAfter` ends at the channel's newest message. `pin` is
 // the anchor that answers this same window while no message arrives.
@@ -182,7 +238,23 @@ shape Channel
   firstUnreadAt: number
   lastRead: string
   arrived: number
-  typing: string
+  // Discord's `nsfw`: the channel shows its age gate before it opens (LLP 1133.028 §8.2).
+  ageRestricted: bool
+
+// Who is typing in a channel: "Ada is typing…", "Ada and Grace are typing…", or "".
+shape Typing
+  line: string
+
+fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, private=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, ageRestricted=false) }
+// The gateway holds a session, or is opening one, so the heartbeat runs.
+fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
+
+// Drafts are kept per channel, across launches, as `channel\ttext` entries.
+fn draftOf(drafts: string[], channel: string): string = match first(drafts.filter(d => d.startsWith(`${channel}\t`))) { case some(d) => d.slice(channel.length + 1), case none => "" }
+fn withDraft(drafts: string[], channel: string, text: string): string[] = drafts.filter(d => not d.startsWith(`${channel}\t`)).concat(text == "" ? [] : [`${channel}\t${text}`])
+
+// The `i`th piece of a split string, "" past its end.
+fn piece(parts: string[], i: number): string = match parts.at(i) { case some(v) => v, case none => "" }
 
 // `icon` is the server's picture ("" for none), `acronym` what stands in for it: the
 // first letter of each word of its name, as Discord draws it.
@@ -217,12 +289,19 @@ shape Gateway
   queued: number
   seq: number
   fixture: bool
+  // The lists' versions (`live.ts`): the server list and rail, the direct messages, the servers'
+  // channel lists, and any channel but the one on screen.
   sidebar: number
+  dmList: number
+  channelList: number
+  elsewhere: number
   channel: string
   version: number
   history: number
-  // Moves with the member list of the server on screen (`loadMembers`).
+  // Moves with the member list of the server on screen (`loadMembers`); `memberRows` moves only when its
+  // rows do, not with a presence.
   members: number
+  memberRows: number
   retryIn: number
   attempt: number
 
@@ -239,6 +318,18 @@ shape Session
 shape Ack
   ok: bool
   error: string
+// What the mention light was set to (LLP 1133.037 §12.1).
+shape Lit
+  lit: bool
+  error: string
+
+// An explicit edit lookup names one missing page, or the newest own message.
+shape EditTarget
+  channel: string
+  id: string
+  content: string
+  need: string
+  cursor: string
 
 // A local send's reply: its row's key, which the post that follows names.
 shape Sent
@@ -260,6 +351,12 @@ shape Suggestion
 
 // An emoji the reaction picker offers: a custom one's image (`avatar`) or a
 // Unicode one's `glyph`; `value` is what the reaction names.
+// Pictures pasted into a channel's composer, copied where the upload reads them, and what could not be.
+shape Pasted
+  channel: string
+  files: Picked[]
+  error: string
+
 shape EmojiChoice
   id: string
   label: string
@@ -327,3 +424,44 @@ shape MemberRow
   avatar: string
   color: string
   status: string
+
+// The app's own shapes and helpers.
+
+shape MediaPreferences
+  prefersContrast: string
+fn noAnswers(): string[] = []
+
+// Where a reader left a channel, kept for the session (§3.3).
+shape Place
+  channel: string
+  anchor: string
+  key: string
+  offset: number
+  atEnd: bool
+
+fn placeOf(places: Place[], channel: string): Place = match first(places.filter(p => p.channel == channel)) { case some(p) => p, case none => Place(channel="", anchor="", key="", offset=0, atEnd=true) }
+
+// A row's key for a message id: a send confirmed here keeps its nonce as key.
+fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
+shape Viewport
+  width: number
+  displayMode: string
+  prefersReducedMotion: bool
+  pointer: string
+
+// The page's visibility, for acknowledging what the reader sees (§2: an ack is a
+// write, sent as the official client sends it).
+shape Page
+  visibilityState: string
+  hasFocus: bool
+
+shape Time
+  epochAtZero: number
+  utcOffset: number
+  locale: string
+
+// Someone typing: three dots that rise and fall in turn, as Discord draws them.
+keyframes typingDot
+  from opacity=0.35 translate="0px 0px"
+  50% opacity=1 translate="0px -2px"
+  to opacity=0.35 translate="0px 0px"

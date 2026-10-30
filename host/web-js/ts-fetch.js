@@ -18,13 +18,16 @@ export function fetch(input, options) {
   // Checked before any path, a mutation's captured fetch included (LLP 1016.000 D8).
   if (options?.exactLongPoll !== undefined && options.exactStream === undefined)
     return Promise.reject(new TypeError('exactLongPoll asks again for an answer that keeps coming: give exactStream too'));
+  const upload = options?.exactUploadProgress; // LLP 1016.000 D10
+  if (upload !== undefined && upload !== false && options.exactStream === undefined)
+    return Promise.reject(new TypeError(upload === true ? "exactUploadProgress reports an upload's progress to its stream: give exactStream too" : 'exactUploadProgress is true or false'));
   const held = options?.exactHeld;
   if (held !== undefined && held !== true && held !== false) return Promise.reject(new TypeError('exactHeld is true or false'));
   if (held && options.exactStream !== undefined) return Promise.reject(new TypeError('exactHeld: a stream is never held; it stops counting at its first message'));
   // A stream counts by its own rule (D5), never here.
   if (options?.exactStream !== undefined) return fetchNow(input, options);
-  // An upload is never held: its file is read before it is sent (Request::is_held).
-  return counting(held && options.exactBodyFrom === undefined ? 'held' : 'plain', () => fetchNow(input, options));
+  // An upload or a download to a file is never held (Request::is_held).
+  return counting(held && options.exactBodyFrom === undefined && options.exactBodyTo === undefined ? 'held' : 'plain', () => fetchNow(input, options));
 }
 /** Work an answer awaits that is no held fetch (a fetch, `crypto.subtle`, `native.later`, a kept key): counted on
  * its answer (`call.plain`), so the answer is never held while it is out (LLP 1016.000 D9). */
@@ -48,12 +51,12 @@ function fetchNow(input, options) {
     call.fetched = true;
     // A stream only registers with its answer, which ts-data.js then refuses;
     // a body from a file is read after its source returns, and checks then.
-    if (answering.sockets && options?.exactStream === undefined && options?.exactBodyFrom === undefined) {
+    if (answering.sockets && options?.exactStream === undefined && options?.exactBodyFrom === undefined && options?.exactBodyTo === undefined) {
       let target, init;
       try { target = input instanceof Request ? input : String(input); init = captured(options); } catch (e) { return Promise.reject(e); }
       return Promise.resolve().then(() => {
         if (call.socketConflict) throw new Error(SOCKET_AND_FETCH);
-        return fetchWith(tsGrantSet, target, init);
+        return fetchWith(tsGrantSet, target, init, null, undefined, undefined, call.origin);
       });
     }
     return fetchOf(input, options, call);
@@ -76,8 +79,12 @@ function captured(options) {
   else if (typeof FormData === 'function' && body instanceof FormData) { init.body = new FormData(); for (const [k, v] of body) init.body.append(k, v); }
   return init;
 }
+// The origin a fetch carries (LLP 1133.036 D6): its answer's, or, after the answer's first await, where no call is
+// traced, the least privileged of the answers in flight (LLP 1133.002 D12).
+export const fetchOrigin = () => answering.call?.origin ?? ([...answering.untraced].find(c => !c.settled)?.origin ?? 'app');
 function fetchOf(input, options, call) {
-  if (options?.exactStream === undefined && options?.exactBodyFrom === undefined) return fetchWith(tsGrantSet, input, options);
+  if (options?.exactStream === undefined && options?.exactBodyFrom === undefined && options?.exactBodyTo === undefined) return fetchWith(tsGrantSet, input, options, null, undefined, undefined, fetchOrigin());
+  if (options.exactStream !== undefined && options.exactBodyTo !== undefined) return Promise.reject(new TypeError("exactBodyTo: a stream's body is its messages, not a file"));
   let redirect;
   try { redirect = redirectOf(input, options); } catch (e) { return Promise.reject(e); }
   if (options.exactStream === undefined) {
@@ -86,7 +93,7 @@ function fetchOf(input, options, call) {
       // Keep inherited validation fields inherited, but take their values now.
       const own = ownWithout(options, ['redirect']);
       const inherited = {};
-      for (const key of ['exactBodyFrom', 'method', 'body', 'exactStream', 'signal', 'exactTimeout'])
+      for (const key of ['exactBodyFrom', 'exactBodyTo', 'exactIndependentHttp', 'method', 'body', 'exactStream', 'signal', 'exactTimeout'])
         if (!Object.hasOwn(own, key)) inherited[key] = options[key];
       init = Object.assign(Object.create(inherited), own);
       ms = init.exactTimeout;
@@ -104,12 +111,13 @@ function fetchOf(input, options, call) {
       deadline?.addEventListener('abort', timedOut, { once: true });
       stop = () => { signal?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', timedOut); };
     });
+    const origin = fetchOrigin();
     return Promise.race([import('./ts-body-from.js'), ended]).finally(stop).then(m => {
       if (call?.socketConflict) throw new Error(SOCKET_AND_FETCH);
-      return m.fromFile(input, init, redirect, started);
+      return m.fromFile(input, init, redirect, started, origin);
     });
   }
-  return options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options, redirect);
+  return options.exactTimeout !== undefined && options.exactUploadProgress !== true ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options, redirect);
 }
 
 export const files = { appId: null };
@@ -118,7 +126,7 @@ export const files = { appId: null };
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
-export const answering = { call: null, sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start) }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js
+export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start), page: null }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js; `page`, the runtime's clock, journal and `drive`, set by ts-data.js
 function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no
@@ -136,7 +144,63 @@ function stream(input, init, redirect) {
 // app that reads the clock fails on the web as it would on a device. An
 // explicit date, UTC arithmetic and an explicit timestamp's formatting work.
 const refuse = api => { throw new Error(`${api} is unavailable in data sources; pass time or a random seed as an argument`); };
-const noTimers = api => () => { throw new Error(`${api} is unavailable in data sources: there are no timers; pass time as an argument`); };
+const noTimers = api => () => { throw new Error(`${api} is unavailable in data sources: an answer waits with setTimeout; pass time as an argument`); };
+// An answer's own timers (LLP 1027.000 D1 as amended 2026-10-28), with Hermes's rules (js/src/binary.js `timers`).
+// Each is an entry of the page's clock (the driver's under the agent, whose `clock +N` and `clock settle` fire it)
+// that goes after the tasks due with it and is no commit (rt.js `advance`). It belongs to the answer that armed it:
+// one that has answered, or whose ticket was let go, never runs it. An answer with only timers out counts in no
+// clock's wait (held.js `counted`), as a native host keeps its continuation back until it is due.
+const Armed = new Map();
+let NextTimer = 1;
+function arm(api, run, ms, args) {
+  if (overlaying.on) throw inOverlay(api);
+  const call = answering.call;
+  if (answering.mapper || !call || !answers(call)) throw new Error(`${api} is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go)`);
+  const { clock, journal, drive } = answering.page, id = NextTimer++;
+  // The action answers true, as every clock entry's does (rt.js `advance`: anything else stops the advance).
+  // `live`: its answer has not answered nor been let go (the agent's `clock settle` goes only to those).
+  const live = () => answers(call);
+  const entry = { due: clock.now + ms, once: true, data: true, call, live, action() {
+    disarm(id);
+    if (!live()) { dropTimers(call, true); return true; }
+    // In flight until the page's next task, so the agent's jump lands what it started (its microtasks, the answer's
+    // continuation) before the next timer fires, as a browser runs them between tasks.
+    call.firing = (call.firing ?? 0) + 1; call.recount?.();
+    globalThis.setTimeout(() => { call.firing--; call.recount?.(); });
+    const before = answering.call;
+    answering.call = call;
+    try { run(...args); } catch (e) { journal.push(`t=${clock.now} data: a timer's callback threw: ${e?.message ?? e}`); } finally { answering.call = before; }
+    return true;
+  } };
+  Armed.set(id, { call, entry }); clock.timers.push(entry);
+  call.timers = (call.timers ?? 0) + 1; call.recount?.();
+  if (!clock.agent) drive();
+  return id;
+}
+/** Whether `call` still answers: it has not answered, and its ticket was not let go. */
+function answers(call) { const t = call.ticket; return !call.settled && !(t && (t.owner.ticket !== t || t.owner.gone)); }
+function disarm(id) {
+  const armed = Armed.get(id);
+  if (!armed) return;
+  Armed.delete(id);
+  const timers = answering.page.clock.timers, i = timers.indexOf(armed.entry);
+  if (i >= 0) timers.splice(i, 1);
+  armed.call.timers--; armed.call.recount?.();
+}
+/** Clear `call`'s timers, unrun: it has answered, or (`gone`) its ticket was let go, which ends its bookkeeping. */
+export function dropTimers(call, gone) { for (const [id, armed] of Armed) if (armed.call === call) disarm(id); if (gone) call.abandon?.(); }
+// `AbortSignal.timeout` is an answer's timer too; the page's AbortSignal otherwise.
+const PageAbortSignal = globalThis.AbortSignal;
+const GuardedAbortSignal = PageAbortSignal && new Proxy(PageAbortSignal, { get(target, name, receiver) {
+  if (name !== 'timeout') return Reflect.get(target, name, receiver);
+  return function timeout(ms) {
+    const n = Number(ms);
+    if (!(n >= 0 && n <= Number.MAX_SAFE_INTEGER)) throw new TypeError('AbortSignal.timeout(): the delay is a number of milliseconds from 0');
+    const controller = new AbortController();
+    arm('AbortSignal.timeout()', () => controller.abort(new DOMException('signal timed out', 'TimeoutError')), Math.floor(n), []);
+    return controller.signal;
+  };
+} });
 // The engine's own, read through the prototypes a page's fake clock keeps
 // (Playwright's `clock.install`, sinon: a Date and DateTimeFormat whose
 // prototype is or inherits the real one, with no `format` accessor of its own):
@@ -190,13 +254,17 @@ const guarded = {
   Date: GuardedDate, Math: GuardedMath,
   XMLHttpRequest: noIo('XMLHttpRequest'), WebSocket: noIo('WebSocket'), EventSource: noIo('EventSource'),
   Intl: Object.freeze(Object.create(NativeIntl, { DateTimeFormat: { value: DateTimeFormat } })),
-  setTimeout: noTimers('setTimeout()'), setInterval: noTimers('setInterval()'),
+  setTimeout(callback, delay, ...args) {
+    if (typeof callback !== 'function') throw new TypeError('setTimeout(): the callback must be a function; a string of code is never run');
+    return arm('setTimeout()', callback, Math.max(Number(delay) | 0, 0), args); // `long`, as WebIDL converts it
+  },
+  clearTimeout: disarm, setInterval: noTimers('setInterval()'), AbortSignal: GuardedAbortSignal,
   requestAnimationFrame: noTimers('requestAnimationFrame()'), requestIdleCallback: noTimers('requestIdleCallback()'),
-  clearTimeout() {}, clearInterval() {}, cancelAnimationFrame() {}, cancelIdleCallback() {},
+  clearInterval() {}, cancelAnimationFrame() {}, cancelIdleCallback() {},
   performance: Object.freeze({ now: () => refuse('performance.now()') }),
   scheduler: Object.freeze({
     yield: () => overlaying.on ? Promise.reject(inOverlay('scheduler.yield()')) : pageYield(),
-    postTask() { throw new Error('scheduler.postTask() is unavailable in data sources: there are no timers; split long work with await scheduler.yield()'); },
+    postTask() { throw new Error('scheduler.postTask() is unavailable in data sources; split long work with await scheduler.yield()'); },
   }),
   // The page's own, but no draw while an overlay runs.
   crypto: Object.freeze({ subtle: globalThis.crypto?.subtle && new Proxy(globalThis.crypto.subtle, { get(target, name) {
@@ -208,6 +276,8 @@ const guarded = {
 };
 export const { Date, Math, Intl, setTimeout, setInterval, requestAnimationFrame, requestIdleCallback, clearTimeout, clearInterval,
   cancelAnimationFrame, cancelIdleCallback, performance, scheduler, XMLHttpRequest, WebSocket, EventSource, crypto } = guarded;
+// Not a binding of this module's own: its `fetch` keeps the page's `AbortSignal.timeout` for `exactTimeout`.
+export { GuardedAbortSignal as AbortSignal };
 
 // The usual browser global spellings share this app-local view. Computed
 // access, aliases and destructuring therefore get the same scoped fetch.

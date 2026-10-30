@@ -15,6 +15,9 @@ use crate::package_views::PackageView;
 use contract_syntax::{File, Span};
 use std::path::Path;
 
+mod packages;
+pub use packages::{bound, plan_packages, rust_packages, write_desktop_packages, Bound};
+
 /// The roster in `manifest`, each name checked against the tag grammar.
 pub fn roster(manifest: &Manifest) -> Result<Vec<String>, String> {
     let Some(value) = manifest.json.get("modules") else {
@@ -127,9 +130,8 @@ pub fn rust_hatch_entry(
 /// `exact_hatches()`, the install `canvas_jni!` hands the host (the app's
 /// Rust hatches, `modules/android/*.rs` or `modules/linux/*.rs`, with the
 /// reader's Kotlin ones told beside them; the reader's alone when the app
-/// has no Rust ones; none when it gives `android` no word); and `uses.txt`,
-/// the plan's capabilities by name, one a line, which the APK's build reads
-/// (a plan with a date or time control links Compose Material 3).
+/// has no Rust ones; none when it gives `android` no word); and what
+/// [`android_reach`] writes.
 pub fn android_entry(
     app_root: &Path,
     manifest: &Manifest,
@@ -157,6 +159,19 @@ pub fn android_entry(
         }
     };
     std::fs::write(out_dir.join("hatches.rs"), text).map_err(|e| e.to_string())?;
+    android_reach(app_root, plan, out_dir)
+}
+
+/// What the APK's build reads beside an Android plan, from an app's
+/// Android crate or a game's bake: `uses.txt`, the plan's capabilities by
+/// name, one a line (a plan with a date or time control links Compose
+/// Material 3), and `permissions.txt`, the Android permissions its grant
+/// lines and module names derive beyond the compatibility id's reach.
+pub fn android_reach(
+    app_root: &Path,
+    plan: &exact_plan::Plan,
+    out_dir: &Path,
+) -> Result<(), String> {
     let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
     std::fs::write(out_dir.join("uses.txt"), uses.join("\n")).map_err(|e| e.to_string())?;
     // The grant ceiling of the compatibility id the build script wrote
@@ -167,9 +182,93 @@ pub fn android_entry(
         .and_then(|c| c["inputs"]["grantCeiling"].as_str().map(str::to_owned));
     let text = app_text(app_root);
     let used = |name: &str| names(&text, name);
-    let permissions = android_write_permissions(plan, ceiling.as_deref(), used);
+    let mut permissions: Vec<String> = android_write_permissions(plan, ceiling.as_deref(), used)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    for (line, permission) in derived(plan, &text, "android") {
+        let granted = |g: &str| {
+            (line.strip_prefix("device.")).is_none_or(|n| exact_runner::device::granted(g, n))
+        };
+        if ceiling.as_deref().is_none_or(granted) && !permissions.contains(&permission) {
+            permissions.push(permission);
+        }
+    }
+    permissions.sort_unstable();
     std::fs::write(out_dir.join("permissions.txt"), permissions.join("\n"))
         .map_err(|e| e.to_string())
+}
+
+/// What the app's use of its module names declares to `target`'s platform
+/// beside its grant lines (`derives`, LLP 1133.026 D19 item 4: `ios` usage
+/// keys, `android` permissions), each with the grant line whose purpose a
+/// usage key takes: a name's own list where the app's source names it; per
+/// option, the permission of each value the source writes as a string
+/// literal, or of a flag it names. A computed value of such an option is
+/// refused at bake (`contract-module-literal`), so a Contract caller's
+/// values are in its text; data code's are its own literals.
+pub fn derived(plan: &exact_plan::Plan, text: &str, target: &str) -> Vec<(String, String)> {
+    use serde_json::Value;
+    // A package's specifier (`"@exact/pedometer"`) names no module name.
+    let mut code = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(['"', '\'']) {
+        let quote = &rest[at..at + 1];
+        let close = rest[at + 1..].find(quote).map(|c| at + 1 + c);
+        let spec = rest[at + 1..].starts_with('@');
+        code.push_str(&rest[..at]);
+        match (close, spec) {
+            (Some(close), true) => rest = &rest[close + 1..],
+            _ => {
+                code.push_str(quote);
+                rest = &rest[at + 1..];
+            }
+        }
+    }
+    code.push_str(rest);
+    let text = code.as_str();
+    let quoted = |v: &str| text.contains(&format!("\"{v}\"")) || text.contains(&format!("'{v}'"));
+    let mut out: Vec<(String, String)> = Vec::new();
+    for row in plan.modules.iter() {
+        let sub: Value = serde_json::from_str(plan.str(row.substitute)).unwrap_or_default();
+        let declares = &sub["derives"][target];
+        if declares.is_null() || !names(text, plan.str(row.declared)) {
+            continue;
+        }
+        let lines = match &sub["nameGrants"] {
+            Value::Array(own) => own.clone(),
+            _ => sub["grants"].as_array().cloned().unwrap_or_default(),
+        };
+        let line = (lines.first().and_then(Value::as_str))
+            .unwrap_or_default()
+            .to_owned();
+        let mut keys: Vec<&str> = Vec::new();
+        match declares {
+            Value::Array(list) => keys.extend(list.iter().filter_map(Value::as_str)),
+            Value::Object(by) => {
+                for (option, d) in by {
+                    let flag = option.rsplit('.').next().unwrap_or(option);
+                    match d {
+                        Value::String(k) if names(text, flag) => keys.push(k),
+                        Value::Object(values) => keys.extend(
+                            (values.iter())
+                                .filter(|(v, _)| quoted(v))
+                                .filter_map(|(_, k)| k.as_str()),
+                        ),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        for key in keys {
+            let pair = (line.clone(), key.to_owned());
+            if !out.contains(&pair) {
+                out.push(pair);
+            }
+        }
+    }
+    out
 }
 
 /// The Android permissions the plan's module names derive beside what
@@ -217,7 +316,7 @@ pub fn android_write_permissions(
 /// The app's source that can call a module name: its `.contract` and
 /// TypeScript files, and its data crate's Rust, where the generated binding
 /// names it in snake case.
-fn app_text(app_root: &Path) -> String {
+pub fn app_text(app_root: &Path) -> String {
     fn walk(dir: &Path, out: &mut String) {
         for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
             let path = entry.path();

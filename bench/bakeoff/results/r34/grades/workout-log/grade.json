@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History list, newest first: name, date, exercise count and total volume (e.g. Legs, Sun Oct 25 2026, 4 exercises, 6,767.5 lb). A new workout appears at the top."},
+      {"n": 2, "status": "pass", "note": "Detail shows a summary (date, exercises, sets, total volume), then one section per exercise with numbered sets ('13 reps × 25 lb') and a per-exercise volume footer. Exercise headers link to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Name field with suggestions, then Start. The picker sheet has a system search field, muscle chips and multi-select ('Add (3)'); search and filter combine. Add Set sheet uses a number pad plus steppers and pre-fills the previous set. Tapping a set opens Edit Set with Delete Set; swipe-to-delete works and renumbers. Finish warns about exercises with no sets ('Finish Anyway'), then saves to History. Live timer, set count and volume."},
+      {"n": 4, "status": "pass", "note": "Library tab: inset-grouped list sectioned by muscle, with counts in the headers. No search on this screen, but the spec doesn't ask for one."},
+      {"n": 5, "status": "pass", "note": "Shows muscle and equipment, a large Best Set card (72.5 lb × 14 reps, with workout and date) and 'Workouts (N)' listing every set. Updated correctly after a new workout (137.5 lb from Test Day)."},
+      {"n": 6, "status": "pass", "note": "A workout in progress (name, exercises, sets) survived a relaunch, and the app reopened on the Workout tab. The finished workout survived a relaunch at the top of History."}
+    ],
+    "bugs": [
+      "On the exercise screen reached from a workout, the row for the source workout stays drawn with a grey 'selected' highlight (a stuck selection)."
+    ],
+    "tells": [
+      "On the New Workout screen the Start Workout button is a list row at the bottom, so the keyboard covers it while you type the name. Return starts the workout, but a tap where the button was lands on the keyboard. iOS would put Start in the navigation bar.",
+      "History row separators are inset to the stat text (past the list-bullet icon) rather than the title's leading edge, which looks slightly off.",
+      "The SF Symbols in History rows (list.bullet, scalemass) make the rows busier than a stock iOS list."
+    ],
+    "scroll": "History (61 rows) and Library (120 rows) drag, fling and bounce like native lists with large-title collapse. No blank rows or jumps, and the scroll position is kept after going into a workout and back.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History with month section headers ('October 2026'), newest first: name, date, then 'N exercises · volume'. A new workout appears at the top."},
+      {"n": 2, "status": "pass", "note": "Detail has an inline title, a Date/Exercises/Sets/Volume summary and per-exercise sections with sets ('13 × 25 lb') and a volume footer. Exercise headers link to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "New Workout sheet with a name field, suggestions and a ✓ confirm button. The picker has a Muscle pop-up menu, a bottom search field (iOS 26 style), multi-select checkmarks, 'Add (N)' and sections by muscle; search and filter combine. Set sheet pre-fills the last set and validates input ('Weight is from 0 to 2,000 lb', reps 1–999). Tapping a set edits it and has Delete Set; swipe deletes sets and exercises. Finish saves and opens the saved workout."},
+      {"n": 4, "status": "pass", "note": "Exercises tab: inset-grouped list sectioned by muscle (Chest, Back, Shoulders…, in data order rather than alphabetical). No search on this screen."},
+      {"n": 5, "status": "pass", "note": "Muscle and equipment, Best Set (72.5 lb, 14 reps · Lower, date) and 'Workouts (N)' with set count and top set per workout. Updated correctly after a new workout."},
+      {"n": 6, "status": "pass", "note": "A workout in progress survived a relaunch: the History '+' became 'Resume Workout' and the Workout tab showed the sets. The finished workout survived a relaunch."}
+    ],
+    "bugs": [
+      "Finish silently drops exercises that have no sets, with no warning or confirmation (A asks first)."
+    ],
+    "tells": [
+      "The Add/Edit Set sheet has a hand-drawn header instead of a navigation bar: a plain blue X, a large non-bold 'Set 1' title and a ✓ disc whose size and position differ from the system glass toolbar buttons used on every other sheet in the app.",
+      "The set sheet adds a floating blue ✓ above the number pad, so the sheet has two Save buttons.",
+      "The set sheet has plain text fields with no steppers, so changing a weight means retyping it (minor compared with A)."
+    ],
+    "scroll": "History (61 rows, month sections) and Exercises (120 rows) fling, decelerate and bounce natively with large-title collapse. No blank rows or stutter, and the scroll position is kept when returning from a detail screen.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement, persist correctly and look native in light and dark mode and at the largest text size. A's set entry is a little better: a real navigation bar, steppers with a 2.5 lb step, and a warning before dropping exercises with no sets. B's set sheet has a hand-drawn header and a duplicate ✓, and Finish silently discards empty exercises. B's month sections and input validation are nice, but not enough to outweigh that."
+}

@@ -147,6 +147,59 @@ pub fn icon_of<'a>(
     )
 }
 
+/// @ref LLP 1045.000 D2 — a Markdown node's `atomFaces` with each face's
+/// `color` and `backgroundColor` read as a bound colour row of `plan` reads
+/// one, in the tuple bound (a theme entry's name as the colour it stands
+/// for, LLP 1095 D4; a `-exact-platform-color()` only as one of the plan's
+/// literals, D3), except that a profile the app declares is no colour here
+/// (LLP 1100 D3; a standard space's colour is, D1), and written as the
+/// wire's text, which a host reads with no theme bound. One that is no colour is empty, so its
+/// kind's paint stands, and is added to `refused`. Any other prop as it is.
+/// A node's faces that read a token are read again when it or the tuple
+/// changes (`instance::theme`).
+pub fn atom_face_paint(
+    plan: &exact_plan::Plan,
+    prop: PropId,
+    value: PropValue,
+    refused: &mut Vec<String>,
+) -> PropValue {
+    use exact_kernel::gradient::{color_text, ColorText};
+    let (PropId::AtomFaces, PropValue::Str(json)) = (prop, &value) else {
+        return value;
+    };
+    let Ok(serde_json::Value::Array(mut faces)) = serde_json::from_str(json.as_str()) else {
+        return value;
+    };
+    let _theme =
+        (!plan.theme.is_empty()).then(|| exact_kernel::style::theme::bind(&theme_table(plan)));
+    // None declared, whatever the caller's scope: a host draws a face from
+    // its text alone, which names no ICC file.
+    let _profiles = exact_kernel::style::profiled::declarations(std::iter::empty());
+    for face in faces
+        .iter_mut()
+        .filter_map(serde_json::Value::as_object_mut)
+    {
+        for key in ["color", "backgroundColor"] {
+            let Some(serde_json::Value::String(text)) = face.get_mut(key) else {
+                continue;
+            };
+            let admitted = !text.contains("-exact-platform-color(")
+                || plan.strings.iter().any(|s| s == text.as_str());
+            let mut wire = String::new();
+            match admitted
+                .then(|| crate::decorations::face_color(text))
+                .flatten()
+            {
+                Some(color) => color_text(&mut wire, color, ColorText::Wire),
+                None if !text.trim().is_empty() => refused.push(std::mem::take(text)),
+                None => {}
+            }
+            *text = wire;
+        }
+    }
+    PropValue::Str(serde_json::Value::Array(faces).to_string().into())
+}
+
 /// @ref LLP 1121 D10 — a computed `symbol:` source naming an icon token, by
 /// its name or (`sf/<name>`) by its SF Symbol, written as the source form a
 /// host reads, as the compiler writes a literal one; any other value as it is.
@@ -196,6 +249,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
                 .map_err(|_| mismatch())?
                 .into(),
         )
+    } else if prop == PropId::KeepMounted {
+        // The runner reads the list's value; the row holds its keys.
+        crate::instance::collection::keep_mounted(value).ok_or_else(mismatch)?;
+        let mut json = String::new();
+        crate::agent::untyped_json(value, &mut json);
+        PropValue::Str(json.into())
     } else if prop == PropId::AtomFaces {
         PropValue::Str(
             crate::decorations::atom_faces(value)
@@ -233,6 +292,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
     // row is unset (`none`) and journaled (LLP 1125 D11).
     if prop == PropId::Wakelock
         && !matches!(&out, PropValue::Str(s) if matches!(s.as_str(), "screen" | "none"))
+    {
+        return Err(mismatch());
+    }
+    // And `orientationlock` outside its words (LLP 1133.029 D2).
+    if prop == PropId::Orientationlock
+        && !matches!(&out, PropValue::Str(s) if crate::orientation::WORDS.contains(&s.as_str()))
     {
         return Err(mismatch());
     }

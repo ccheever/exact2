@@ -343,24 +343,28 @@ export function createFileStore(appId) {
   });
 }
 
+/** One mutation of `appId`'s store: after the module's earlier ones, under
+ * Web Locks on `paths` and their ancestors. */
+function mutateIn(appId, paths, operation, timers = ownTimers) {
+  const previous = mutationTails.get(appId) || Promise.resolve();
+  const result = previous.then(async () => {
+    const release = await lockPaths(appId, paths, undefined, timers);
+    try { return await operation(); }
+    finally { await release(); }
+  });
+  const settled = result.then(() => {}, () => {});
+  mutationTails.set(appId, settled);
+  void settled.then(() => {
+    if (mutationTails.get(appId) === settled) mutationTails.delete(appId);
+  });
+  return result;
+}
+
 /** Public capability. Every operation is admitted before opening IndexedDB. */
 export function createFileSystem(appId, grants, timers = ownTimers) {
   const store = createFileStore(appId);
   const fs = { directories: roots, dispose() { store.close(); } };
-  function mutate(paths, operation) {
-    const previous = mutationTails.get(appId) || Promise.resolve();
-    const result = previous.then(async () => {
-      const release = await lockPaths(appId, paths, undefined, timers);
-      try { return await operation(); }
-      finally { await release(); }
-    });
-    const settled = result.then(() => {}, () => {});
-    mutationTails.set(appId, settled);
-    void settled.then(() => {
-      if (mutationTails.get(appId) === settled) mutationTails.delete(appId);
-    });
-    return result;
-  }
+  const mutate = (paths, operation) => mutateIn(appId, paths, operation, timers);
   for (const method of ['readFile', 'readdir', 'stat', 'realpath']) {
     fs[method] = async path => store[method](authorize(grants, 'fs.read', path));
   }
@@ -380,6 +384,15 @@ export function createFileSystem(appId, grants, timers = ownTimers) {
       return mutate(method === 'rename' ? [from, to] : [to], () => store[method](from, to));
     };
   }
+  // `copyFile` from a document the person chose (documents-glue.js
+  // `copyFile`): `to` is admitted before `open` gives the document's File,
+  // which becomes the file's contents, as a picked file's does (LLP 1069.002 D5).
+  fs.copyIn = async (to, open) => {
+    to = authorize(grants, 'fs.write', to);
+    requireBelowRoot(to);
+    const file = await open();
+    return mutate([to], () => store.putBlob(to, file));
+  };
   // `compressImage(from, to, {maxDimension, maxBytes, type, rotate, flip, crop})`
   // (LLP 1069.002 A1, LLP 1133.019 D15): both grants are checked and the
   // options too before anything is read; the codec runs outside the mutation
@@ -447,4 +460,45 @@ export async function requestBody(appId, grants, path) {
     });
     return blob.type ? blob.slice(0, blob.size, '') : blob;
   } finally { store.close(); }
+}
+
+/** `fetch(url, {exactBodyTo})` (LLP 1108 D6 R2, 2026-10-26): the app file a
+ * 2xx reply's body becomes, admitted under `fs.write` with its parent folder
+ * checked before the request is sent. `put` counts the body through a stream
+ * into a Blob the browser holds (never bytes in the module), refused past its
+ * limit, then makes it the file's entry in one IndexedDB transaction under
+ * the module's mutation lock, so the file appears whole or not at all.
+ * Every refusal names the path and why, as the native executor's does.
+ * `close` lets the store go when the reply is never written. Trusted host only. */
+export const MAX_BODY_TO_BYTES = 1024 * 1024 * 1024;
+export async function bodyTarget(appId, grants, path) {
+  const named = (why, code) => Object.assign(new Error(`exactBodyTo ${path}: ${String(why).replace(/^filesystem: /, '')}`), { kind: 'Unavailable', code });
+  let normalized;
+  try { normalized = authorize(grants, 'fs.write', path); requireBelowRoot(normalized); }
+  catch (error) { throw named(error.message, /denied: /.test(error.message) ? 'denied' : 'failed'); }
+  const key = typeof appId === 'string' && appId ? storageKey(appId) : null;
+  if (key == null) throw named(appId ? agentStorageRefusal : 'this host has no app files (no storage here)', 'agent');
+  const store = createFileStore(key);
+  try {
+    const parent = await store.stat(parentOf(normalized)).catch(error => { throw named(error.message, error.code); });
+    if (!parent.isDirectory) throw named(`not a directory: ${parentOf(normalized)}`, 'ENOTDIR');
+    const target = await store.stat(normalized).catch(error => { if (error.code !== 'ENOENT') throw named(error.message, error.code); });
+    if (target?.isDirectory) throw named('write needs a regular file', 'EISDIR');
+  } catch (error) { store.close(); throw error; }
+  return {
+    async put(response, limit) {
+      try {
+        // A browser rejects the read with its own words, so the overflow is kept to say why.
+        let size = 0, over = null;
+        const counted = response.body?.pipeThrough(new TransformStream({ transform(chunk, out) {
+          if ((size += chunk.byteLength) > limit) throw (over = Object.assign(new Error('HTTP response exceeds limit'), { kind: 'Refused' }));
+          out.enqueue(chunk);
+        } }));
+        const blob = counted ? await new Response(counted).blob().catch(error => { throw over ?? error; }) : new Blob([]);
+        await mutateIn(key, [normalized], () => store.putBlob(normalized, blob)).catch(error => { throw named(error.message, error.code); });
+        return size;
+      } finally { store.close(); }
+    },
+    close() { store.close(); },
+  };
 }

@@ -11,10 +11,10 @@
  * 2. Cold outbox: as 1, then persona Grace, the session ended, and a new one
  *    launched with the entry (`--wake`): Ada's message is delivered, the view
  *    still Grace's.
- * 3. A mention: the switch registers `periodicsync catch-up`, refused until
- *    due; after Grace posts `@ada`, the catch-up posts one notification for
- *    #general, which navigates to the room (the built-in `showNotification`:
- *    its click under the agent is `@exact/notifications`', not built); the
+ * 3. A mention: the switch asks for notification permission (granted by
+ *    the drive) and registers `periodicsync catch-up`, refused until due;
+ *    after Grace posts `@ada`, the catch-up posts one notification for
+ *    #general (`@exact/notifications`), which navigates to the room; the
  *    next catch-up posts nothing.
  * 4. An expired catch-up: the backend hangs; past the 30 s budget the wake
  *    expires, nothing is posted and the mark stays, so the next posts it.
@@ -188,9 +188,25 @@ async function inBrowser() {
 try {
   if (engine) await inBrowser();
   else {
-    // 1. Outbox
     await fresh();
     let s = await session();
+    try {
+      await settle(s);
+      await s.prefer({ 'visibility-state': 'hidden' });
+      await settle(s);
+      const before = (await state(s)).slots.sampledAt;
+      await s.clock('+10000');
+      await settle(s);
+      check('0 visibility', 'the hidden page stops its UI clock', (await state(s)).slots.sampledAt === before, (await state(s)).slots.sampledAt);
+      await s.prefer({ 'visibility-state': 'visible' });
+      await s.clock('+1');
+      await settle(s);
+      check('0 visibility', 'returning to the page refreshes its screen data', (await state(s)).slots.sampledAt > before, (await state(s)).slots.sampledAt);
+    } finally { await s.close(); }
+
+    // 1. Outbox
+    await fresh();
+    s = await session();
     try {
       const st = await writeOffline(s, 'Sent from the outbox');
       const e = entry(st, 'sync', 'outbox:ada');
@@ -243,6 +259,7 @@ try {
         check('3 mention', 'the web hides the switch: backgroundSyncStatus().periodic is false', !(await ids()).has('notify-mentions'), (await state(s)).resources?.background);
         await s.prefer({ extension: `background.backgroundSyncStatus=${JSON.stringify({ available: true, periodic: true, sync: true })}` });
         await s.clock('data');
+        await s.prefer({ 'permission.notifications': 'granted' });
         await s.tap('notify-mentions');
         await s.clock('data');
         const st = await state(s), lines = await journal(s);
@@ -255,6 +272,7 @@ try {
         await s.clock('data');
         await s.tap('tab-you');
         await s.clock('data');
+        await s.prefer({ 'permission.notifications': 'granted' });
         await s.tap('notify-mentions');
         await s.clock('data');
         let st = await state(s);

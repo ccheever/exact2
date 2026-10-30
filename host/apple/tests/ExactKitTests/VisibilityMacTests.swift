@@ -130,6 +130,38 @@ final class VisibilityMacTests: XCTestCase {
         XCTAssertGreaterThan(try alpha(), 0.99, "an explicitly authored system colour still paints")
     }
 
+    /// A card on a sheet's unsaid ground (secondary-grouped-background, the under-page grey on the Mac) paints its own
+    /// fill while the ground still stands on the sheet's native material
+    func testACardOnAnUnsaidSheetGroundPaintsTheUnderPageGrey() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let sheet = SheetWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 160), styleMask: [.titled], backing: .buffered, defer: false)
+        sheet.isReleasedWhenClosed = false
+        sheet.appearance = NSAppearance(named: .darkAqua)
+        sheet.contentView = p.viewport
+        window = sheet
+        let ground: [String: Any] = ["sys": "windowBackgroundColor", "c": [[255, 255, 255, 255], [30, 30, 30, 255]]]
+        let card: [String: Any] = ["sys": "underPageBackgroundColor", "c": [[255, 255, 255, 255], [28, 28, 30, 255]]]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": ground]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["background_color": card]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 240, "h": 160], ["op": "frame", "id": 2, "x": 16, "y": 16, "w": 200, "h": 80],
+        ]))
+        let page = try XCTUnwrap(p.views[1]), inside = try XCTUnwrap(p.views[2])
+        page.display(); inside.display()
+        XCTAssertTrue(page.standsOnSheetGround, "the ground is the sheet's own, which AppKit draws")
+        XCTAssertNil(page.layer?.backgroundColor, "and paints none of its own")
+        XCTAssertFalse(inside.standsOnSheetGround)
+        XCTAssertNotNil(inside.layer?.backgroundColor, "the card paints its own")
+        // The card's role is the under-page grey; painted in the sheet, it stands apart from the sheet's own ground
+        XCTAssertEqual(inside.style["background_color"].flatMap { if case .object(let o) = $0 { return o["sys"]?.string } else { return nil } }, "underPageBackgroundColor")
+        let rep = try XCTUnwrap(Capture.picture(of: p.viewport))
+        let (onCard, onGround) = (rgba(rep, 100, 50), rgba(rep, 230, 150))
+        XCTAssertEqual(onCard[3], 1, accuracy: 0.01, "the card paints opaque: \(onCard)")
+        XCTAssertGreaterThan(abs(onCard[0] - onGround[0]), 0.02, "apart from the sheet's ground: \(onCard) on \(onGround)")
+    }
+
     func testHiddenBackdropBlurIsRemovedAndRestored() throws {
         let p = presenter()
         let blur: [String: Any] = ["backdrop_filter": [["blur": 10.0]]]

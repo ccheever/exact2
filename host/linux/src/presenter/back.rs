@@ -49,7 +49,7 @@ impl<D: DataSource> Presenter<D> {
     /// The navigation root that shows: the first node in tree order that
     /// carries `navigationBack` (lowering gives the first root with a
     /// `navigationKey` one, empty where the author named no control).
-    fn navigation_root(&self) -> Option<ViewId> {
+    pub(super) fn navigation_root(&self) -> Option<ViewId> {
         let kernel = self.host.kernel();
         if !kernel.has_prop(PropId::NavigationBack) {
             return None;
@@ -179,17 +179,30 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The agent's `back` (LLP 1116.006 D4): system Back, as a desktop's
-    /// Back key takes it. `None` with nowhere to go back to; `Some(Err)`
-    /// for a route whose Back control refuses it (journaled, as a key's is).
-    pub(crate) fn agent_back(&mut self, now_ms: f64) -> Option<Result<(), String>> {
-        let refused = matches!(self.back()?, Back::Refused);
-        self.system_back(now_ms);
-        Some(match refused {
-            true => {
-                Err("the route's navigationBack control is disabled or has no press handler".into())
-            }
-            false => Ok(()),
-        })
+    /// Back key takes it, answered with what it went to: `dialog` while a
+    /// surface of the top layer is open (the web driver's word), else
+    /// `route`, and why, when the surface stayed open or the route's Back
+    /// control refused it (journaled, as a key's is). `None` with nowhere
+    /// to go back to.
+    pub(crate) fn agent_back(&mut self, now_ms: f64) -> Option<serde_json::Value> {
+        let (what, refused) = if self.top_open() {
+            self.system_back(now_ms);
+            ("dialog", self.top_open().then_some("the surface stayed open: its closedby is \"none\", it is a manual popover, or a `cancel` handler prevented the close"))
+        } else {
+            let refused = matches!(self.back()?, Back::Refused);
+            self.system_back(now_ms);
+            (
+                "route",
+                refused.then_some(
+                    "the route's navigationBack control is disabled or has no press handler",
+                ),
+            )
+        };
+        let mut answer = serde_json::json!({ "back": what, "delivery": "platform" });
+        if let Some(why) = refused {
+            answer["refused"] = why.into();
+        }
+        Some(answer)
     }
 
     /// System Back at `now_ms`: whether the app took it. `false` is the

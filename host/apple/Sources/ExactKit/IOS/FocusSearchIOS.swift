@@ -9,8 +9,8 @@
 // slowly built, parked and took back rows all the time and paid that
 // search for each one — 13% of the main thread on an M1 iPad Pro at
 // 1k pt/s, and one 20-40 ms frame a second once its throttle backed off —
-// and found nothing each time. So the viewport, the one way into a
-// session's views, answers the search with no items unless a view UIKit
+// and found nothing each time. So the viewport and native content mounts
+// answer the search with no items unless a view UIKit
 // can focus may be in the window: anything exact2 did not make itself (a
 // field, a text area, a web view, a segmented control, a menu's button, a
 // swipe's table, a platform view). Then the search is given those views
@@ -18,8 +18,8 @@
 // field, a web view, a map or a player otherwise had UIKit walk every view
 // of the session for each update — 30–40 ms a second of an iPad's main
 // thread in a fast fling of the Extra Heavy feed — to reach the few it can
-// focus. Only document viewports answer: UIKit logs, at every init, each view of
-// a class that answers `focusItems(in:)`.
+// focus. Only viewports and content mounts answer: UIKit logs, at every
+// init, each view of a class that answers `focusItems(in:)`.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -58,27 +58,44 @@ final class Viewport: ScrollView {
     var pageMargins = UIEdgeInsets.zero
     /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
     var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
-    #if os(iOS)
-    // The page's own scroller takes the keyboard down with a drag that
-    // reaches it, as a scroller's unsaid `keyboardDismissMode` does
-    // (`NodeView.keyboardDismissal`, LLP 1115.000 D9.1).
+    /// Its tint undimmed, for the nodes mounted here (`RestsTint`)
+    var restingTint: UIColor { probe.tintColor }
+    private let probe = TintProbe()
     override init(frame: CGRect) {
         super.init(frame: frame)
+        addSubview(probe)
+        #if os(iOS)
+        // The page's own scroller takes the keyboard down with a drag that
+        // reaches it, as a scroller's unsaid `keyboardDismissMode` does
+        // (`NodeView.keyboardDismissal`, LLP 1115.000 D9.1).
         keyboardDismissMode = .interactive
+        #endif
     }
     required init?(coder: NSCoder) { nil }
-    #endif
+    /// A scroll indicator is an accessibility element ("Horizontal scroll
+    /// bar, 1 page"), which a page that does not scroll on that axis has
+    /// none of, as a hand-built view controller's root has none: a route
+    /// that holds a list showed three pairs where UIKit's list shows one.
+    /// Each axis has its indicator while its content reaches past the port.
+    package override func layoutSubviews() {
+        super.layoutSubviews()
+        let inset = adjustedContentInset
+        let x = contentSize.width + inset.left + inset.right > bounds.width + 0.5
+        let y = contentSize.height + inset.top + inset.bottom > bounds.height + 0.5
+        if showsHorizontalScrollIndicator != x { showsHorizontalScrollIndicator = x }
+        if showsVerticalScrollIndicator != y { showsVerticalScrollIndicator = y }
+    }
+    package override var contentSize: CGSize { didSet { if contentSize != oldValue { setNeedsLayout() } } }
     // tvOS focuses exact2's own nodes (RemoteTVOS), so its search sees every view.
     #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif
 }
-/// What a presentation mounts its navigation in (`ModalHost.present`): the
-/// other way into a session's views, which answers the search as the
-/// viewport does (LLP 1123 D2).
-final class PresentationMount: UIView {
+/// Bound focus search to a native route or modal presentation, as the
+/// document viewport does (LLP 1123 D2).
+final class PresentationMount: RestingTintView {
     #if os(iOS)
-    /// What the route's logical ancestors listen for (`MountRelay`).
+    /// Relay a modal presentation's events to its logical ancestors (`MountRelay`).
     var relay: MountRelay?
     #endif
     #if !os(tvOS)

@@ -1,0 +1,18 @@
+# The orientation fixture's data source (LLP 1133.029 §9.1): none; every case is literal.
+[package]
+name = "orientation-fixture-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The orientation fixture's data source: none"
+publish = false
+
+[lib]
+name = "orientation_fixture_data"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

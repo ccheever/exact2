@@ -1,6 +1,4 @@
-//! A scroller's kept rows (`paint/rows.rs`) under a backend that keeps
-//! them: what it is told of a row recorded again. The one such backend is
-//! the Android recorder, which this host does not compile elsewhere.
+//! What a backend is told when a scroller's kept row changes (`paint/rows.rs`).
 use super::*;
 use crate::image::Bitmap;
 use crate::paint::Shape;
@@ -9,6 +7,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::Transform;
+
+mod measurement;
 
 /// What the backend heard: each row begun, with the row it was said to
 /// have been, and each row freed.
@@ -305,5 +305,37 @@ fn inline_frame_retained_rows_keep_initial_and_scrolled_viewport_origins() {
                 "replayed {transform}"
             );
         }
+    }
+}
+
+#[test]
+fn fractional_row_scroll_matches_a_fresh_walk_with_clips_and_hinted_text() {
+    let source = r##"component App
+  view
+    scroll testId="port" width=120 height=80
+      column
+        view width=120 height=70 clip-path="path('M 5 5 Q 115 0 115 65 L 5 65 Z')" background-color="#2488bb"
+          text "Hinted text" font-size=17 color="#ffffff"
+        view width=120 height=200 background-color="#44aa33"
+"##;
+    let (mut p, _) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (140., 100.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Ink,
+    )
+    .unwrap();
+    p.frame();
+    let k = p.host.kernel();
+    let port = k.node_by_key(k.find_by_test_id("port")[0]).unwrap().id;
+    for offset in [0.25, 0.5, 1., 1.25] {
+        p.scroll_to(port, (0., offset)).unwrap();
+        let kept = p.frame();
+        p.brush.forget_rows();
+        p.repaint();
+        let fresh = p.frame();
+        assert!(kept.data() == fresh.data(), "scroll {offset}");
     }
 }

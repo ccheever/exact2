@@ -5,6 +5,7 @@
   "id": "com.exact.recorder",
   "start_url": "/",
   "display": "standalone",
+  "audio_session": "playback",
   "theme_color": "#ffffff",
   "background_color": "#ffffff",
   "background_color_dark": "#000000",

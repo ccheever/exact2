@@ -214,9 +214,9 @@ impl Drop for Lease {
         }
     }
 }
-/// Keep system DNS on the caller's executor. ureq's timeout resolver otherwise
-/// spawns a detached thread per lookup. OS name resolution itself cannot be
-/// interrupted; check cancellation and elapsed time on both sides of it.
+/// System DNS on a bounded helper (`lookup`): OS name resolution itself
+/// cannot be interrupted, so the request waits for the answer, its abort or
+/// its deadline, whichever comes first, and returns at once on the latter two.
 struct Resolver(Context);
 impl std::fmt::Debug for Resolver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -234,21 +234,29 @@ impl ureq::unversioned::resolver::Resolver for Resolver {
         RESOLVER_CALLS.fetch_add(1, Ordering::SeqCst);
         let signal = self.0.lock().unwrap().signal.clone().expect("active lease");
         signal.check().map_err(interrupted)?;
-        let started = Instant::now();
+        let deadline = timeout
+            .not_zero()
+            .map(|duration| Instant::now() + *duration);
         let sync = NextTimeout {
             after: ureq::unversioned::transport::time::Duration::NotHappening,
             reason: timeout.reason,
         };
-        let result =
-            ureq::unversioned::resolver::DefaultResolver::default().resolve(uri, config, sync);
-        signal.check().map_err(interrupted)?;
-        if timeout
-            .not_zero()
-            .is_some_and(|duration| started.elapsed() >= *duration)
-        {
-            return Err(ureq::Error::Timeout(timeout.reason));
+        let (uri, config) = (uri.clone(), config.clone());
+        let found = super::lookup::off_thread(&signal, deadline, move || {
+            ureq::unversioned::resolver::DefaultResolver::default().resolve(&uri, &config, sync)
+        });
+        match found {
+            Ok(result) => result,
+            Err(super::lookup::Unanswered::Aborted) => {
+                Err(interrupted(signal.check().err().unwrap_or_else(|| {
+                    HostError::Failed("AbortError: The operation was aborted".into())
+                })))
+            }
+            Err(super::lookup::Unanswered::TimedOut) => Err(ureq::Error::Timeout(timeout.reason)),
+            Err(super::lookup::Unanswered::Failed(why)) => {
+                Err(ureq::Error::Io(std::io::Error::other(why)))
+            }
         }
-        result
     }
 }
 
@@ -463,6 +471,30 @@ fn failed(error: impl std::fmt::Display) -> HostError {
     HostError::Failed(format!("TypeError: Failed to fetch — {error}"))
 }
 
+/// Run `req` on `agent`, its body a slice or a counted reader.
+fn run<S: ureq::AsSendBody>(
+    agent: &ureq::Agent,
+    req: ureq::http::Request<S>,
+    timeout: Option<Duration>,
+) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+    // Replace all agent defaults: no shorter internal phase limit may win
+    // before the request's own timeout (LLP 0068.000 §4).
+    let req = match timeout {
+        Some(limit) => agent
+            .configure_request(req)
+            .timeout_global(Some(limit))
+            .timeout_connect(Some(limit))
+            .timeout_send_request(Some(limit))
+            .timeout_send_body(Some(limit))
+            .timeout_await_100(Some(limit))
+            .timeout_recv_response(Some(limit))
+            .timeout_recv_body(Some(limit))
+            .build(),
+        None => req,
+    };
+    agent.run(req)
+}
+
 /// A proxy as an error names it: scheme, host, and port, without credentials.
 fn named(proxy: &ureq::Proxy) -> String {
     let scheme = proxy.uri().scheme_str().unwrap_or("http");
@@ -480,6 +512,25 @@ impl BodySource for Source {
             self.lease.take();
         }
         result
+    }
+}
+/// An upload's body as ureq takes it (Exact patch 23): each read is told to
+/// the request's `sent` hook. ureq writes what it read to the socket before
+/// it reads again, so the count leads the wire by at most one output buffer.
+struct Counted<'a> {
+    body: &'a [u8],
+    at: usize,
+    sent: &'a crate::stdlib::fetch::Sent,
+}
+impl Read for Counted<'_> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let n = out.len().min(self.body.len() - self.at);
+        out[..n].copy_from_slice(&self.body[self.at..self.at + n]);
+        self.at += n;
+        if n > 0 {
+            (self.sent.0)(self.at as u64, self.body.len() as u64);
+        }
+        Ok(n)
     }
 }
 // Drop the reader (closing an unfinished response) before returning the lease.
@@ -502,9 +553,13 @@ impl Transport for RustlsHttpTransport {
         for (name, value) in request.headers.entries() {
             builder = builder.header(name, value);
         }
-        let req = builder
-            .body(request.body.as_deref().unwrap_or_default())
-            .map_err(failed)?;
+        let body = request.body.as_deref().unwrap_or_default();
+        let counted = request.sent.as_ref().filter(|_| !body.is_empty());
+        if counted.is_some() {
+            // A body read from a reader is otherwise sent chunked.
+            builder = builder.header("content-length", body.len());
+        }
+        let req = builder.body(()).map_err(failed)?;
         // Plain HTTP agents stay separate so creating or using one does not
         // initialize the process TLS config. An HTTPS request initializes it
         // before constructing the first TLS-capable agent, and so does a plain
@@ -518,24 +573,29 @@ impl Transport for RustlsHttpTransport {
             needs_tls(req.uri().scheme_str() == Some("https"), proxy),
         );
         let agent = &lease.slot.as_ref().unwrap().agent;
-        // Replace all agent defaults: no shorter internal phase limit may win
-        // before the request's own timeout (LLP 0068.000 §4).
-        let req = match request.timeout {
-            Some(limit) => agent
-                .configure_request(req)
-                .timeout_global(Some(limit))
-                .timeout_connect(Some(limit))
-                .timeout_send_request(Some(limit))
-                .timeout_send_body(Some(limit))
-                .timeout_await_100(Some(limit))
-                .timeout_recv_response(Some(limit))
-                .timeout_recv_body(Some(limit))
-                .build(),
-            None => req,
+        let (parts, ()) = req.into_parts();
+        let mut reader = counted.map(|sent| Counted { body, at: 0, sent });
+        let result = match reader.as_mut() {
+            Some(reader) => {
+                let counted = ureq::SendBody::from_reader(reader);
+                run(
+                    agent,
+                    ureq::http::Request::from_parts(parts, counted),
+                    request.timeout,
+                )
+            }
+            None => run(
+                agent,
+                ureq::http::Request::from_parts(parts, body),
+                request.timeout,
+            ),
         };
-        let result = agent.run(req);
         signal.check()?;
         let response = result.map_err(failed)?;
+        // The whole body was sent once the headers came.
+        if let Some(reader) = reader.filter(|r| r.at < body.len()) {
+            (reader.sent.0)(body.len() as u64, body.len() as u64);
+        }
         let status = response.status();
         let mut headers = Headers::new();
         for (name, value) in response.headers() {
@@ -580,6 +640,44 @@ mod tests {
     fn tls_test_lock() -> MutexGuard<'static, ()> {
         static LOCK: Mutex<()> = Mutex::new(());
         LOCK.lock().unwrap()
+    }
+
+    #[test]
+    fn an_abort_while_its_name_is_still_resolving_returns_the_request_at_once() {
+        // As a hung resolver: the lookup is held, and the abort returns the
+        // request without waiting for it (`lookup`).
+        use super::super::lookup::gate::Gate;
+        let transport = RustlsHttpTransport::new();
+        let controller = crate::stdlib::abort::AbortController::new();
+        let signal = controller.signal();
+        let (gated, gate) = mpsc::channel();
+        let (done, opened) = mpsc::channel();
+        std::thread::spawn(move || {
+            gated.send(Gate::hold_here()).unwrap();
+            let result = transport
+                .open(&Request::get("http://resolving.invalid/"), &signal)
+                .map(|_| ());
+            let _ = done.send(result);
+        });
+        let gate = super::super::lookup::gate::Opens(gate.recv().unwrap());
+        let end = Instant::now() + Duration::from_secs(5);
+        while gate.0.waiting() == 0 {
+            assert!(Instant::now() < end, "the lookup never began");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let aborted = Instant::now();
+        controller.abort();
+        let result = opened
+            .recv_timeout(Duration::from_secs(5))
+            .expect("returned at the abort");
+        let error = result.unwrap_err().to_string();
+        assert!(
+            aborted.elapsed() < Duration::from_millis(500),
+            "returned at the abort"
+        );
+        assert!(error.contains("abort"), "{error}");
+        assert_eq!(gate.0.waiting(), 1, "the lookup itself still runs");
+        drop(gate);
     }
 
     #[test]

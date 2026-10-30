@@ -258,6 +258,22 @@ component Child
 }
 
 #[test]
+fn resource_locations_include_the_declared_placeholder_owner() {
+    let app = App::new("resources");
+    let path = app.write("app.contract", "component App\n  resource rows = rows() as shape string else fallback()\n  view\n    text rows\n");
+    let (plan, map) = app.compile();
+    assert_eq!(
+        map["resources"].as_object().unwrap().len(),
+        plan.resources.len()
+    );
+    for name in ["rows", "rows#else"] {
+        assert_eq!(map["resources"][name]["file"], path.to_str().unwrap());
+        assert_eq!(map["resources"][name]["line"], 2);
+        assert_eq!(map["resources"][name]["component"], "App");
+    }
+}
+
+#[test]
 fn source_snapshot_and_final_baked_bytes_determine_the_map() {
     let app = App::new("snapshot");
     let path = app.write("app.contract", "invalid on disk\n");
@@ -1084,4 +1100,141 @@ fn each_source_says_its_home() {
     let sources = map["sources"].as_array().unwrap();
     assert_eq!(sources.len(), 1, "{sources:?}");
     assert_eq!(sources[0]["home"], "app.contract", "{sources:?}");
+}
+
+/// A node's `walk` into the map's `walks` (stage 15 D3): its chain as the page's walk up its own tree takes it, where that differs
+/// from the call-site chain. A slot's host is a step (`slot: true`, named by its own call); a component that
+/// renders only another is none; a node with no fill or element-less component on its way has no `walk`.
+#[test]
+fn steps_follow_the_pages_walk_a_slots_host_one_a_render_only_component_none() {
+    let app = App::new("steps");
+    let source = r#"component App
+  view
+    column testId="root"
+      Post()
+      Panel()
+        text "panel fill" testId="panel-fill"
+      Outer()
+        Card()
+          text "wrapped" testId="wrapped"
+      Plain()
+
+component Frame
+  slot
+  view
+    column testId="frame"
+      children
+
+component Panel
+  slot
+  view
+    Frame()
+      children
+
+component Card
+  slot
+  view
+    column testId="card"
+      children
+
+component Glyph
+  view
+    text "g" testId="glyph"
+
+component Controls
+  view
+    Glyph()
+
+component Outer
+  slot
+  view
+    column testId="outer"
+      children
+
+component Post
+  view
+    column testId="post"
+      Card()
+        text "body" testId="body"
+        Controls()
+
+component Plain
+  view
+    column testId="plain"
+      text "leaf" testId="leaf"
+"#;
+    app.write("app.contract", source);
+    let line = |needle: &str| source.lines().position(|l| l.contains(needle)).unwrap() as u64 + 1;
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let steps = |id: &str| -> Vec<(String, bool, u64)> {
+        let node = at(&runner, &map, id);
+        node.get("walk")
+            .map(|w| &map["walks"][w.as_u64().unwrap() as usize])
+            .and_then(|w| w.as_array())
+            .map(|s| {
+                s.iter()
+                    .map(|i| &map["walk_steps"][i.as_u64().unwrap() as usize])
+                    .map(|e| {
+                        let slot = e["slot"] == true;
+                        assert!(e.get("slot").is_none() || slot, "{e}");
+                        (
+                            e["component"].as_str().unwrap().to_owned(),
+                            slot,
+                            e["line"].as_u64().unwrap(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    // A caller's fill in a host's slot: the host, then on out by the calls.
+    let post = line("component Post");
+    let card_in_post = source
+        .lines()
+        .enumerate()
+        .skip(post as usize)
+        .find(|(_, l)| l.contains("Card()"))
+        .unwrap()
+        .0 as u64
+        + 1;
+    assert_eq!(
+        steps("body"),
+        [
+            ("Card".to_owned(), true, card_in_post),
+            ("App".to_owned(), false, line("      Post()"))
+        ]
+    );
+    // The like row: Controls holds no view of its own, so no step; the host, its caller, the app.
+    assert_eq!(
+        steps("glyph")
+            .iter()
+            .map(|(c, s, _)| (c.as_str(), *s))
+            .collect::<Vec<_>>(),
+        [("Card", true), ("Post", false), ("App", false)]
+    );
+    // Panel renders only Frame: Frame's box is the one step.
+    assert_eq!(
+        steps("panel-fill")
+            .iter()
+            .map(|(c, s, _)| (c.as_str(), *s))
+            .collect::<Vec<_>>(),
+        [("Frame", true)]
+    );
+    // A host wrapped by another: the nearer, then the wrapper.
+    assert_eq!(
+        steps("wrapped")
+            .iter()
+            .map(|(c, s, _)| (c.as_str(), *s))
+            .collect::<Vec<_>>(),
+        [("Card", true), ("Outer", true)]
+    );
+    // No fill and no element-less component on the way: the chain is the walk, and no `walk` is written.
+    for id in ["leaf", "plain", "post", "outer", "root"] {
+        assert!(
+            at(&runner, &map, id).get("walk").is_none(),
+            "{id}: {}",
+            at(&runner, &map, id)
+        );
+    }
 }

@@ -156,10 +156,11 @@ function displayReads(udid, gap = 400) {
 }
 
 /** What a drive passes from its own environment to an app that `simctl launch` (which forwards only `SIMCTL_CHILD_`
- *  names) or `devicectl` (only what it is given) starts: `EXACT_STORE`, so `EXACT_STORE=real` gives an iOS drive the
- *  Keychain a normal launch reads, as a macOS drive, whose app inherits the environment, has it (host/apple/src/store.rs). */
+ *  names) or `devicectl` (only what it is given) starts, as a macOS drive's app inherits it: `EXACT_STORE`, so
+ *  `EXACT_STORE=real` gives an iOS drive the Keychain a normal launch reads (host/apple/src/store.rs), and
+ *  `EXACT_AGENT_PADS`, a drive's game pads (LLP 1133.022 §21). */
 export function forwardedEnv(env = process.env) {
-  return env.EXACT_STORE ? { EXACT_STORE: env.EXACT_STORE } : {};
+  return Object.fromEntries(['EXACT_STORE', 'EXACT_AGENT_PADS'].filter((k) => env[k]).map((k) => [k, env[k]]));
 }
 
 /** A page capture (`path`) whose area holds glass or a blur, its pixels then the display's there too: the app names
@@ -307,6 +308,7 @@ function bootSimulator(dev) {
  *  arguments never reach a Device Hub that is already running, and its main
  *  window shows whichever device was last picked in its list). */
 export function showSimulator(dev, background = false) {
+  if (process.env.EXACT_SHOW_SIMULATOR === '0') return;
   const g = background ? ['-g'] : [], fallback = () => spawnSync('open', [...g, `devices://device/open?id=${dev.udid}`], { stdio: 'ignore' });
   // In the background nothing waits on the window: `open` takes up to a second, a drive's whole launch about two.
   if (background) { spawn('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).on('exit', (code) => { if (code !== 0) fallback(); }).unref(); return; }

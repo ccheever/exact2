@@ -477,6 +477,14 @@ impl Painter {
                 };
             }
         }
+        if node.node_type == NodeType::TextInput {
+            if let Some(field) = self.field_text.get(&node.id) {
+                return ScrollBounds {
+                    axes: effective_overflow(node),
+                    max: field.scroll_max,
+                };
+            }
+        }
         ScrollBounds::capture(node, kernel, collection_max)
     }
     pub(super) fn validate_region_presentation(

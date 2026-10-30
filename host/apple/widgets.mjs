@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { plistFile, wrapFramework, frameworkLayout, frameworkInstallName } from './assets.mjs';
 import { assertCapabilityFrameworks } from './link.mjs';
 import { linkedPlanArgs } from '../../scripts/linked-plan.mjs';
+import { appexArgs, keepMain } from './extensions.mjs';
 import { installedProfiles, decodeProfile, profilesFor, profileMisfit, byExpiry, METHODS, iosProfile } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
 export const accessoryFamilies = ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner'];
@@ -210,7 +211,7 @@ export function widgetReload({ directory, triple, sdk, device, platform = 'ios',
   writeFileSync(stamp, digest);
   return binary;
 }
-export function packageWidgets({ app, bundle, shared, directory, sdk, triple, device, entitlements, sign, runApple, production, profile = null, platform = 'ios', entries = platformWidgetEntries(app, platform) }) {
+export function packageWidgets({ app, bundle, shared, directory, sdk, triple, device, entitlements, sign, runApple, production, profile = null, platform = 'ios', entries = platformWidgetEntries(app, platform), alarm = null }) {
   const mac = platform === 'macos', contents = mac ? resolve(bundle, 'Contents') : bundle;
   const resources = mac ? resolve(contents, 'Resources') : contents;
   const extension = resolve(contents, 'PlugIns/ExactWidgets.appex');
@@ -256,16 +257,55 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
   const activities = platform === 'ios' && activityEntries(app).length > 0;
   if (activities) names.push('ExactActivities');
   const source = resolve(directory, 'WidgetBundle.swift');
-  writeFileSync(source, `import SwiftUI\nimport WidgetKit\n${platform === 'ios' ? 'import UIKit\n' : mac ? 'import AppKit\n' : ''}${generated}\n@main struct ExactWidgets: WidgetBundle { var body: some Widget { ${names.map(n => `${n}()`).join('; ')} } }\n`);
+  // An alarm's countdown beside them, from iOS 26 (LLP 1133.030 D8 item 2).
+  const alarmMember = alarm && platform === 'ios' ? '; if #available(iOS 26.0, *) { ExactAlarmCountdown() }' : '';
+  writeFileSync(source, `import SwiftUI\nimport WidgetKit\n${platform === 'ios' ? 'import UIKit\n' : mac ? 'import AppKit\n' : ''}${generated}\n@main struct ExactWidgets: WidgetBundle { var body: some Widget { ${names.map(n => `${n}()`).join('; ')}${alarmMember} } }\n`);
   const entitlementPath = resolve(directory, 'widget-entitlements.plist');
   writeFileSync(entitlementPath, entitlements);
   writeFileSync(resolve(extensionContents, 'Info.plist'), plistFile({ CFBundleIdentifier: widgetId(app), CFBundleName: 'ExactWidgets', CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWidgets', CFBundlePackageType: 'XPC!', ...versions, ...(!mac ? { UIDeviceFamily: appInfo.UIDeviceFamily } : {}),
     CFBundleSupportedPlatforms: mac ? ['MacOSX'] : appInfo.CFBundleSupportedPlatforms, ...(appInfo.NSAppTransportSecurity ? { NSAppTransportSecurity: appInfo.NSAppTransportSecurity } : {}), ExactAppGroup: appInfo.ExactAppGroup ?? widgetGroup(app), ExactAppIdentifier: appInfo.ExactAppIdentifier ?? app.id, ExactWidgetTypeScript: platform !== 'watchos' && existsSync(resolve(app.dir, 'app.ts')), ...(appInfo.ExactKeychainAccessGroup ? { ExactKeychainAccessGroup: appInfo.ExactKeychainAccessGroup } : {}), ...(mac ? { ExactWidgetSecretsAvailable: !!appInfo.ExactKeychainAccessGroup, ExactWidgetRequiresSecrets: appInfo.ExactWidgetRequiresSecrets ?? [] } : {}), ExactWidgetGeneration: appInfo.ExactWidgetGeneration, ...(typeof app.origin === 'string' ? { ExactLinkBase: app.origin } : {}),
     NSExtension: { NSExtensionPointIdentifier: 'com.apple.widgetkit-extension' } }));
-  runApple('xcrun', ['--sdk', mac ? 'macosx' : platform === 'watchos' ? 'watchsimulator' : device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-O', '-application-extension', ...(!production ? ['-D', 'EXACT_INSPECT'] : []), '-Xlinker', '-e', '-Xlinker', '_NSExtensionMain', '-Xlinker', '-u', '-Xlinker', '_main', '-target', triple, '-sdk', sdk,
+  runApple('xcrun', ['--sdk', mac ? 'macosx' : platform === 'watchos' ? 'watchsimulator' : device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-O', ...appexArgs, ...keepMain, ...(!production ? ['-D', 'EXACT_INSPECT'] : []), '-target', triple, '-sdk', sdk,
     '-module-cache-path', resolve(directory, 'cache'), '-I', resolve(root, 'host/apple/Sources/CExact'), '-I', resolve(shared.framework, 'Modules'), '-F', resolve(shared.framework, '..'), '-framework', 'ExactCore',
     '-Xlinker', '-rpath', '-Xlinker', mac ? '@executable_path/../../../../Frameworks' : '@executable_path/../../Frameworks',
     ...(!device && !mac ? ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', entitlementPath] : []),
+    ...(alarmMember ? alarmArgs(alarm) : []),
     shared.snapshotArchive, resolve(root, 'host/apple/widget/Timeline.swift'), resolve(root, 'host/apple/widget/WidgetTimelineWaiters.swift'), ...(activities ? [resolve(root, 'host/apple/widget/Activity.swift')] : []), source, '-o', extensionBinary]);
+  sign(extension, entitlementPath);
+}
+
+/** What compiles an alarm's countdown into a widget extension (LLP 1133.030 D8 items 1 and 2): the host's two files,
+ * AlarmKit weak-linked (the app's minimum is below iOS 26), and the module named as the package's, which compiles the
+ * same `ExactAlarmMetadata` into the app: ActivityKit names an attributes type by its module and type name, as
+ * `activities.mjs` keeps the envelope's in `ExactSnapshot` on both sides. */
+const alarmArgs = module => ['-module-name', module, '-Xlinker', '-weak_framework', '-Xlinker', 'AlarmKit',
+  resolve(root, 'host/apple/widget/Alarm.swift'), resolve(root, 'host/apple/widget/AlarmAttributes.swift')];
+
+/** The package that asks the host for AlarmKit's countdown (`"apple": {"activity": "alarmkit"}`, LLP 1133.030 D12
+ * item 3), by its Swift module's name; one at most, since the extension's module takes that name. */
+export function alarmActivity(packages) {
+  const asking = packages.filter(p => p.activity === 'alarmkit');
+  if (asking.length > 1) throw new Error(`host/apple: ${asking.map(p => p.extension).join(' and ')} each ask for AlarmKit's countdown; one package may (LLP 1133.030 D12 item 3)`);
+  return asking[0]?.module ?? null;
+}
+
+/** An app with no widgets and no Live Activities whose package asks for AlarmKit's countdown gets an extension that
+ * holds the countdown alone (LLP 1133.030 D8 item 2): no ExactCore, no snapshot archive, no app group and no cohort,
+ * so nothing of the app's state is reachable from it. */
+export function packageAlarmExtension({ app, bundle, directory, sdk, triple, device, entitlements, sign, runApple, profile = null, alarm }) {
+  const extension = resolve(bundle, 'PlugIns/ExactWidgets.appex');
+  mkdirSync(extension, { recursive: true });
+  if (profile) copyFileSync(profile.path, resolve(extension, 'embedded.mobileprovision'));
+  const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(bundle, 'Info.plist')]).stdout);
+  const source = resolve(directory, 'AlarmWidgetBundle.swift');
+  writeFileSync(source, 'import SwiftUI\nimport WidgetKit\n@main struct ExactWidgets: WidgetBundle { var body: some Widget { if #available(iOS 26.0, *) { ExactAlarmCountdown() } } }\n');
+  const entitlementPath = resolve(directory, 'alarm-widget-entitlements.plist');
+  writeFileSync(entitlementPath, entitlements);
+  writeFileSync(resolve(extension, 'Info.plist'), plistFile({ CFBundleIdentifier: widgetId(app), CFBundleName: 'ExactWidgets', CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWidgets', CFBundlePackageType: 'XPC!',
+    CFBundleVersion: appInfo.CFBundleVersion, CFBundleShortVersionString: appInfo.CFBundleShortVersionString, MinimumOSVersion: appInfo.MinimumOSVersion, UIDeviceFamily: appInfo.UIDeviceFamily,
+    CFBundleSupportedPlatforms: appInfo.CFBundleSupportedPlatforms, NSExtension: { NSExtensionPointIdentifier: 'com.apple.widgetkit-extension' } }));
+  runApple('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-O', ...appexArgs, ...keepMain, '-target', triple, '-sdk', sdk,
+    '-module-cache-path', resolve(directory, 'cache'), ...(!device ? ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', entitlementPath] : []),
+    ...alarmArgs(alarm), source, '-o', resolve(extension, 'ExactWidgets')]);
   sign(extension, entitlementPath);
 }

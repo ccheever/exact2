@@ -1,7 +1,7 @@
 # LLP 1142: What a development build tells an agent — late frames, portable traces, failed resources
 
 **Type:** RFC
-**Status:** Draft r3, 2026-10-25, as built (§12). r1 was reviewed blind by GPT-6 Astra (xhigh, NOT READY) and Grok 4.7 (xhigh, READY WITH CHANGES) (`llp/reviews/rfc-2026-10-25-1142-r1.{astra,grok}.md`). Muse was not run: its quota had run out until 2026-10-26. r2 folded both (§R), and the same two families reviewed r2 (`…-r2.{astra,grok}.md`): Astra NOT READY (D3 still blocking; D2, D4, D5, D6 details), Grok READY WITH CHANGES ("build §11 items 1 through 5", D3's probes after an amendment). The build took their r2 points where §12 says. The families answered r1's six questions the same way, and the build follows those answers; §10 lists what still needs Charlie.
+**Status:** Draft r5, panel-reviewed; 2026-10-26. §12 records what r3 built, and D3 as built on 2026-10-27; §13 specifies the next tooling increment after the r4 panel. Implementation is authorized by Charlie’s 2026-10-26 instruction below; completion evidence is recorded separately. The r1 and r2 blind reviews by GPT-6 Astra and Grok are in `llp/reviews/rfc-2026-10-25-1142-r{1,2}.{astra,grok}.md`; §R and §12 record their disposition. §13.8 lists the new decisions requested.
 **Systems:**
 - Apple host:
   - the frame sampler and its trace (`host/apple/Sources/ExactKit/FrameSampler.swift`);
@@ -19,9 +19,11 @@
   - `scripts/agent.mjs` and `scripts/agent-inspect.mjs` (`trace --pid`, `trace --plan`, `trace --out`, the late-frame text);
   - `scripts/async.mjs` (macOS XCTests);
   - `scripts/agent-launch.mjs` (a fixture port per checkout).
+- Proposed in §13: resource freshness inspection; stream mapper execution in `js/` and `host/web-js/`; collection edge events and scroll reports; Excord's existing fixture and chat recipe.
 **Author:** Claude (Opus 5.5) for Charlie Cheever
+**Revision author:** Codex for Charlie Cheever (§13 and r4 metadata), 2026-10-25, at his request to write an RFC from the Excord development findings.
 **Date:** 2026-10-25
-**Implementer:** Claude (Opus 5.5), from 2026-10-25, in the order of §11. Charlie asked for the review and then the build ("have the panel review this then go ahead and implement when you're happy with it").
+**Implementer:** Claude (Opus 5.5), from 2026-10-25, for §11's work, as recorded in §12. Charlie asked for that review and build ("have the panel review this then go ahead and implement when you're happy with it"). Codex implements §13’s tooling increment for Charlie, who instructed on 2026-10-26: “hav the panel review it and then when you're happy with it at a high level, go ahead and implement”. The r4 panel narrowed the implementation as recorded in §13.8.
 **Related:**
 - LLP 1079 (`perf`, the frame sampler, the trace, "juxtaposition, never a cause"). This RFC extends it most.
 - LLP 1075.003.000.001 §3.1 (hatch calls charged by overlap with a late frame's window, the model D1 follows).
@@ -29,11 +31,17 @@
 - LLP 1070 G1–G2 (wheel latching and routing); LLP 1115.000 D8.2 (AppKit scrolls a `scroll` node for a person).
 - LLP 1050.000 (fill policy; responsive scrolling checked only by XCTest).
 - LLP 1141 (porting real apps). Excord is the app whose session this comes from.
+- [LLP 1016.000](1016.000-answers-that-keep-coming.rfc.md) D7 (stream ordering, sends and request lifetime); [LLP 1027.005](1027.005-resource-identity-and-request-context.rfc.md) (persisted answer identity, not a live freshness predicate); [LLP 1113](1113-settled-and-the-two-clocks.rfc.md) D1 (capture and clock semantics).
 - `rules/DEFERRED.md` §Agent API (ten operations; "a new measurement is a form of `perf`"; "a wheel is a `tap`"; never a causal trace, a flame chart, a devtools UI or production telemetry; the source map is "read by the driver and never by a host, never in a bake") and §Tooling (no devtools UI).
 - `rules/RULES.md` §Agents.
 - W3C [Long Animation Frames](https://w3c.github.io/long-animation-frames/). Apple: [`OSSignposter`](https://developer.apple.com/documentation/os/ossignposter), [`Logger`](https://developer.apple.com/documentation/os/logger), [`CGEventField.scrollWheelEventMomentumPhase`](https://developer.apple.com/documentation/coregraphics/cgeventfield/scrollwheeleventmomentumphase).
 
 ## Summary
+
+Revision 5 narrows this RFC with [§13](#13-the-remaining-excord-development-loop-work).
+The implementation closes inspection and fixture-isolation gaps left by §12. Stream scheduling
+and collection semantics require amendments to their governing LLPs and remain unchanged in
+this increment. §12 remains the account of what shipped before it.
 
 An agent working on Excord on macOS (2026-10-24 and 25) lost most of its time to things a
 development build knew but did not say. Its report listed seven gaps. This RFC checks each against
@@ -43,7 +51,7 @@ the code and proposes:
 |---|---|---|
 | D1 | A late frame names no cause | The time each named main-thread host phase spent inside the late frame's interval, charged to the innermost phase, with the rest stated as unattributed |
 | D2 | A trace from another machine reads as bare site numbers | The trace names the build it came from (commit, host, bundle). `trace --plan` names a map, and `trace --out` writes a copy with the map joined in by the driver |
-| D3 | The macOS driver cannot fling or hold a rubber band, and has no live frames | `wheel … fling` and `wheel … hold`, routed to AppKit and paced on the main run loop; `perf frames live` on Apple. Each starts with a probe |
+| D3 | The macOS driver cannot fling or hold a rubber band, and has no live frames | `wheel … fling` and `wheel … hold`, routed to AppKit and paced by a `CVDisplayLink` on the target display; `perf frames live` on Apple. Each starts with a probe |
 | D4 | A failed resource is visible only in the journal | Counts beside `state.failed`; failure lines carried to the host in the batch and written to the unified log and stderr; a line in App Info |
 | D5 | Only a person can save a macOS trace | `SIGUSR1` on macOS and the iOS simulator; `agent.mjs trace --pid` finds the file it asked for |
 | D6 | Nothing flags work at frame rate | Dispatches and commits by handler site in `perf`; a lowering warning for a key that reads the row's position |
@@ -202,7 +210,7 @@ All three are forms of `tap … wheel` and `perf`. None is a new operation.
 
 **Routing.** A `fling` or `hold` gesture sets `ChainingScrollView.appliesAtOnce` false from its `began` until its end, so the latched owner routes it `.appKit` and AppKit runs its scrolling, momentum and band. Plain `wheel` and `wheel … gesture` are unchanged.
 
-**Pacing.** The events are posted with `NSApp.postEvent(_:atStart: false)` from a timer on the main run loop, one per display period. They are not sent from one call, because AppKit applies one event of a gesture handed over whole (`ChainingScrollView.swift:103-105`).
+**Pacing.** The driver posts events with `CGEvent.postToPid`, one per output callback of a `CVDisplayLink` on the display under the target point. They are not sent from one call, because AppKit applies one event of a gesture handed over whole (`ChainingScrollView.swift:103-105`).
 
 - **`tap <s> wheel dx dy fling`** takes `(dx, dy)` as the finger's total travel. The driver sends:
   - began;
@@ -402,3 +410,329 @@ The reader prints the record's hatches too. Linux phases are not built.
 - A 123-event fling with momentum moved nothing.
 
 This matches what `ChainingScrollView`'s comment and the fill-policy entry in `QUEUE.md` record: AppKit's tracking of a trackpad gesture reads the window server's events, not the application's. An agent cannot hold a rubber band or fling this way. What would is an event the window server delivers: `CGEvent.post` to the app's process, which needs the session's Accessibility permission (see the `session-tcc-limits` memory). `QUEUE.md` has the entry. `perf frames live` on Apple was not built, since it would measure a fling the driver cannot make.
+
+**D3, the second probe (2026-10-27): built.** Events posted to the app's process with `CGEvent.postToPid` arrive as the window server's, and AppKit tracks their gesture whole. Three things the first attempt lacked make it work:
+
+- **A window and a point in it.** Without the window number in field 51 and `CGEventSetWindowLocation`, the window server gives a posted scroll event the pointer's position, outside the app's window, and nothing takes it. These are the undocumented calls the agent's own wheel already uses (`AgentMouseMac.swift`).
+- **The driver's process posts.** Posting needs the Accessibility grant of the terminal the driver runs in. An ad hoc signed app has none.
+- **The app's routing knows the gesture.** The helper marks each event in `kCGEventSourceUserData`. `ChainingScrollView` hands a marked event to AppKit under the agent too, and counts it, so the driver can tell a delivered gesture from one that reached nothing.
+
+The window need not be active. A plain `NSScrollView` and Caltrain's page both glide on the posted momentum, band past their end and spring back. A pull held past the end stays stretched across a separate `layout` and `screenshot` until `release`.
+
+As built, `tap <s> wheel dx dy fling`, `… hold` and `tap <s> wheel 0 0 release` are §5's forms. The driver asks the app where to post (`platform: true` on the `tap`, which synthesizes nothing), and `host/apple/wheel.swift` posts one event per `CVDisplayLink` output callback on the display under that point. It is compiled once per source and Xcode into `target/wheel-helper/`. A fling's reply waits up to 4 s for the scroller to rest and gives its `offset`. A drive that ends with a hold open releases it. The other carriers answer `unsupported`. `fling.mjs macos` flings this way unless `--person` asks for a person's flings. The session's clock does not move during AppKit's motion, as §5 has it.
+
+Two limits remain:
+
+- A pull that starts at a scroller's end chains to the scroller around it, and the outermost one has none, so nothing bands. This is `ChainingScrollView`'s routing for a person's gesture too. `QUEUE.md` has the entry.
+- The Mac's scroll probe reports only `b` (past an end) or `-`, because `NSScrollView` exposes no deceleration state. So `fling.mjs`'s motion section counts no gliding frames on the Mac.
+
+`perf frames live` on Apple was built separately, in §14.
+
+## 13. The remaining Excord development-loop work
+
+### 13.1 Problem and evidence
+
+Exact should let an author answer three questions without reading host internals: is the screen
+showing the answer I asked for, what work made this interaction slow, and did my test exercise
+the behavior a person uses? Excord exposed gaps in all three. It also carried scheduling and
+paging machinery that belongs below the app's protocol logic.
+
+The evidence is Excord's October 22–25 development sessions on `100.107.191.6`, the fixes they
+produced, and the reproductions linked below. The session records are in
+`~/.claude/projects/-Users-ccheever-projects-exact2/`, sessions
+`042c91d9-2368-4510-82e6-369d192e97be` and `571cc685-f344-4cbd-99f1-ae47a2aae8b6`.
+They are historical observations, not fresh measurements of this revision. No account data or
+raw service payload is copied here.
+
+| Observed cost | Framework lesson | Durable evidence |
+|---|---|---|
+| A malformed read position failed the DM resource 67 times while old rows stayed visible | Failure and retained-answer identity must be visible together | §1; fix `c7405ae111` |
+| The agent repeatedly waited for Charlie to scroll while a CPU sampler was armed | The driver must exercise native scrolling and measure it on real time | §12 D3 |
+| Each symbol size caused another Mac layout; hover work followed rows under a still pointer | Report repeated work within a frame, not only a late-frame total | Fixes `a6ec5a0f7e`, `4d404187a7` |
+| Opening about 3,000 DMs built every row; member keys included their positions | Show construction counts and identity churn before choosing an app limit or framework fix | Fixes `268396d49f`, `f3af880a77`; §12 D6 |
+| A 3 MB READY took 129 ms against a 100 ms turn budget | A supported stream needs bounded work across turns | [Stream mapper issue](../issues/20261023-a-stream-mapper-cannot-yield.md) |
+| A fling outran the fixed one-screen page lead | An author needs to choose how early to fetch | [Collection edge issue](../issues/20261022-reach-lead-is-fixed-at-one-screen.md) |
+
+The profile reports compare samples of busy time, not elapsed-time benchmarks. They establish
+where to investigate; they do not establish a frame-rate improvement. A frame with no transaction
+range likewise does not prove that app work was absent (§3).
+
+### 13.2 D8: exercise native input and observe its presentation
+
+Observe a session without changing its execution mode. The existing Mac `EXACT_AGENT=live`
+carrier opens the development wire while leaving `agentMode` false: normal timers, collection
+fills, velocity and AppKit wheel handling remain active. No `clock` operation is issued during
+that observation. `--timing platform` alone still has agent substitutions and cannot qualify
+ordinary performance. No new window-server input injection is implemented in this increment;
+D3’s failed probe and LLP 1080.000’s input decisions remain as recorded.
+
+Extend existing `tap`, `layout`, `screenshot` and `perf` forms:
+
+- Input receipts identify the path actually used: platform delivery or synthetic delivery.
+  A platform event posted without observable delivery is not reported as a successful gesture.
+- `perf frames live` on Apple can observe a bounded interval of human input independently of
+  whether the driver can synthesize it. That removes §12's dependency between recording and
+  automatic flinging. The interval records actual frame timestamps, display cadence, input path
+  when known, and whether the session is on real or virtual time.
+- A live capture does not seek, settle or change clock mode. Frames carry timestamps and
+  dropped-capture counts; screenshots alone are not a display-cadence measurement. Keep LLP
+  1113’s final-capture behavior separate. A virtual session remains virtual and cannot qualify
+  ordinary performance. Qualification must preserve normal timers, collection fill scheduling,
+  scroll velocity and native wheel handling, preferably by observing a normally running
+  development session. Report any remaining execution substitutions.
+- `layout` labels target and presented geometry separately. Where the host cannot read the
+  presented value, it says unavailable rather than returning the target under that name.
+- iOS uses the existing whole XCTest gesture. A held contact across driver operations and
+  private input synthesis remain under LLP 1080.000’s separate probe, outside this increment.
+
+**Acceptance:** capture real frame timing independently of input synthesis, and label target and
+presented geometry honestly. A real-time qualification drive must show normal scheduling; a
+virtual session reports its substitutions. Report existing input paths honestly; an unavailable native gesture is unsupported, not a
+passed bounce test. A person’s bounce on a normally running
+development app remains useful evidence, compared with a native scroller on the same OS.
+
+### 13.3 D9: show why a resource's displayed answer is retained
+
+D4's failure counts and logs are built. Extend `state` to join them with a resource's source
+site, current request generation, last successful generation, pending status, and whether the
+displayed value is a fallback, a current answer, or an answer retained from an earlier request.
+For a retained answer, distinguish full live-argument equality from changed arguments using
+the runner’s existing rules. Report placeholder and kept-seed facts separately; boot admission
+by identifying arguments is not full live-argument equality, and unavailable evidence is null. Publish opaque generation identifiers and equality results, not raw
+arguments, tokens, answer bodies, or hashes of secrets. The driver joins source locations.
+
+Give the web JS target the same diagnostic meaning; §12 currently gives it console errors but
+no failure counts. Reuse shared failure reporting where the wasm host already carries alerts; do not add a separate
+inspector for the web target being retired. Keep collection
+bounded and development-only under §2's predicate.
+
+This does not change retention semantics. LLP 1027.005's `with` governs admission of a persisted
+answer at boot; it does not establish that a live value belongs to the latest request. Update
+the existing fetch/loading/error recipe with the server-switch case: an answer names its owner,
+the view checks it before showing rows, and failure shows an actionable state. Account generation
+checks remain app authorization logic, including the A → B → A case.
+
+**Acceptance:** load A, switch to B, then make B return a shape error. One inspection identifies
+the failed field, the resource's declaration, its repeat count, and the retained answer's older
+request. The recipe never labels A's rows as B's. Repeat with a failed refresh of A: A's own rows
+may remain visible with its failure. Test overlapping completions and recovery on both runtimes.
+
+**Deferred decision:** a new author-visible freshness predicate or a change to default retention
+needs a separate semantic decision. Start with accurate inspection and the existing owner-gating
+pattern; do not introduce a second resource identity system here.
+
+### 13.4 D10: count the work inside a slow interaction
+
+Extend the existing measured `perf` data with a fixed set of counts: kernel layout invocations,
+intrinsic-size reports and their resulting layout requests, native control measurements, row
+construction/reuse/destruction, and synchronous owner calls. Record counts at the operation
+itself. Attribute them to a collection or plan site where the caller has one; otherwise name
+the host phase and mark the site unknown. Do not infer attribution from the nearest event.
+
+Use `perf … during` to report differences for one drive. Phase timing keeps D1's exclusive
+accounting; counts are not added to milliseconds, and parent and child timings are not summed.
+Keep bounded aggregates, not a history of every node or a new causal trace. The report states
+when measurement began and what coverage the host provides.
+
+**Acceptance:** bounded 3,000-row regression workloads expose construction and retirement
+counts without realizing the whole list; measured layouts and owner calls have operation-level
+tests. The historical defects in §13.1 are already fixed and are not claimed as new before/after
+measurements. Report each counter’s coverage, scope and start time; host process counters and
+runner session counters are read sequentially, not claimed as an atomic cross-thread snapshot.
+Measure instrumentation overhead where the build supports a controlled enabled/disabled run;
+state missing device evidence. Production builds collect none of these additions. No warning
+threshold or new performance check is introduced.
+
+### 13.5 D11: stream scheduling needs its own amendment
+
+Do not implement promise-returning stream mappers or remove Excord’s digest in this tooling
+increment. The panel identified assumptions that require a dated amendment to LLP 1016.000 D7:
+
+- A yield must return to ordinary host scheduling so outbound heartbeats and other work run;
+  draining a promise to completion is insufficient. Specify whether intermediate snapshots are
+  required before changing the app’s publication path.
+- A suspended mapper retains its active bytes as well as waiting frames. Derive receive limits
+  against sustained post-READY traffic; the synchronous mapper’s 256-frame/1 MiB limit is not
+  evidence that a large READY plus queued traffic fits. Test reconnect pressure at realistic rates.
+- Resume with the captured request context on both runtimes. Normal close follows admitted work;
+  overflow or retirement prevents further sends and publication, while previously accepted sends
+  retain their semantics. Arbitrary module-state mutation is not rolled back.
+
+That amendment must pass the 3, 8 and 32 MB READY cases, fragmentation, highly compressible data,
+traffic during digest, heartbeat deadlines and retirement before deleting the app’s scheduler.
+Native decompression is separate and does not make a synchronous JSON parse preemptible.
+
+### 13.6 D12: collection semantics need a narrow delta
+
+Do not change collection behavior in this tooling increment. Amend LLP 1010 for `reach-margin`
+as the configurable lead of its existing edge-window calculation, defaulting to one viewport.
+Preserve measured-band rearming, start-before-end, refusal retry and the empty-page guard. A
+prepend rearm rule would be a separate explicit change, not an implication of a larger margin.
+
+Likewise, specify visible-key corrections and jump completion against the existing collection
+identity and request lifetime in their governing LLPs. Verify delayed history, a replaced window,
+measurement corrections and channel switches before removing Excord’s row-distance prefetch.
+Keep protocol history gaps and unread rules in the app.
+
+### 13.7 D13: verify the app's scale and the host actually being shipped
+
+Use the existing synthetic fixture for isolation tests; automated drives never use a real
+account. Large READY, image-format and full chat host qualification remain app work, including
+known stream turn overruns. This increment’s acceptance is isolation and grant correctness.
+
+Complete D7's fixture isolation: one port per checkout, explicit overrides winning, and an
+ownership check that refuses another checkout's server. Development loopback-grant relocation
+is limited to the selected loopback or private-network origin and its port, for fetch and socket
+lines; ambiguous grants refuse and production grants remain exact. Report the app, host build,
+plan digest, fixture origin and delivery path in the drive's existing output. Select a compatible
+test archive, and mark an incompatible fixture as not run rather than misdiagnosing a product
+failure or silently counting a skip as a pass.
+
+macOS XCTest baseline repair and async-lane admission remain the separate D7 follow-up. Android
+and Windows qualification belong to the app’s host work; compilation alone is not evidence of
+an installed or driven app. This increment neither repairs unrelated baseline failures nor claims
+those hosts qualified. Keep the blocking checks and their budgets unchanged.
+
+**Acceptance:** two checkouts drive isolated fixture worlds concurrently; an existing server
+whose ownership cannot be established is refused; explicit ports win; development relocation
+accepts the chosen loopback origin while production grants remain exact. Existing archive
+compatibility skips remain visible as not-run results. Tests wait on observable completion,
+following [docs/testing.md](../docs/testing.md).
+
+### 13.8 Panel disposition and implementation sequence
+
+The r4 panel comprised Astra (`gpt-6-astra`, max), Fable (`claude-fable-5-1`, xhigh) and Grok
+(`grok-4.7`, xhigh), mutually blind. Muse failed to start because the named model was unavailable;
+no Muse review is claimed. The individual reviews are under `llp/reviews/rfc-2026-10-26-1142-r4.*.md`.
+
+All three support the inspection direction. Fable and Grok identified semantic changes to streams
+and collection rearming that should be reviewed in their governing LLPs. This revision removes
+those implementations from this increment. Astra’s normal-scheduling finding applies to every
+performance claim. Fable and Grok also separate a successful input probe from live observation,
+and fixture isolation from unrelated native test and platform baseline work.
+
+| Order | Deliverable | Completion evidence |
+|---|---|---|
+| 1 | D9 resource inspection and owner-gated recipe | Retained/current/fallback states, failure, overlap and recovery on both runtimes |
+| 2 | D8 independent live observation and honest geometry/input receipts | Bounded frame capture and explicit clock/scheduling coverage |
+| 3 | D10 operation counts | Measured operation deltas, bounded storage, no collection in production |
+| 4 | D13 fixture isolation | Two isolated fixture worlds and strict production grants |
+
+The implementation changes the governing subsystem LLP and author guide with the code. A
+regression belongs at the lowest level that exhibits it, with an app drive when native behavior
+is the subject. Apply the three-round fix limit and report unsupported qualification cells.
+No resource retention semantics, stream scheduling, collection edge semantics, private input
+synthesis, new blocking check or production inspector is admitted by this increment.
+
+The final r5 panel supports the four-deliverable direction. Its acceptance concerns were checked
+against the code: Mac’s existing live carrier supplies normal execution; platform timing alone
+does not. Historical bugs are evidence, not fixtures claimed to fail now. D13 tests isolation,
+not the deferred READY scheduler. D9 keeps diagnostic metadata outside author-visible state,
+but successful-value metadata must follow rollback so a refused commit cannot appear published.
+The source flags keep boot-seed evidence separate from full live-argument equality. §§13.5–13.6
+are requirements to investigate in later amendments, not runtime rulings. No third panel pass
+is needed; remaining questions are implementation and verification details.
+
+**Deferred question, 2026-10-26:** use D9 evidence to reconsider live retention in LLP 1016.000
+and persisted-identity guidance in LLP 1027.005. No predicate or default change is authorized here.
+
+
+## 14. Implementation and verification (2026-10-26)
+
+The tooling increment implements §13.8 without changing stream mappers, collection edge
+semantics or input injection. Main's independent collection and clock changes are preserved.
+
+- `state.resourceStatus` reports opaque observed request/answer generations, pending state,
+  current/retained/fallback status, full-argument equality and separate placeholder/kept-seed
+  facts. `resourcesMeasuredFrom` bounds the history; unavailable prior history stays unknown.
+  The driver joins each declaration against the digest in that state reply. It exposes no new
+  author predicate or raw request arguments. JS adds failure counts; wasm uses its existing
+  alert batch. The recipe shows account/server ownership gating.
+- Apple `perf frames live` observes bounded display-link callbacks without moving the clock.
+  Capture returns to the application event pump. Replies name clock mode, scheduling and
+  substitutions; even Mac’s normal-scheduling live carrier uses fixture storage and simulated
+  secret presence, so it does not claim whole-production equivalence. `layout` distinguishes
+  model and presentation geometry and reports unavailable evidence explicitly.
+- `perf` counts virtual-row construction, rebinding and retirement by collection site, kernel
+  layout API entries on Apple, and four bounded native host operations. Scope and measurement
+  start are explicit. `during` differences reject changed windows; sequential process/session
+  reads are not an atomic snapshot.
+- Declared fixture backends get stable ports by checkout/app directory. Explicit choices win;
+  development relocation changes only the selected loopback/private-network fetch/socket origin.
+  Production grants remain exact. Reuse and cleanup validate the recorded process, origin,
+  command and checkout; unknown shared Windows processes fail closed because their cwd cannot
+  be established by the available query.
+
+The independent code reviews are `code-2026-10-26-1142-r1.{sol,grok}.md`. Their concrete findings
+required matching the compiler’s `col` field, checking ownership during cleanup as well as
+reuse, asynchronous live-capture completion, presented bounds and scroll origin, and counting
+trial layouts. The initial source audit also read generated `dist.gen` bundles; it now excludes
+that build output alongside `dist`, without changing which source files it audits.
+
+Focused resource, source-map, collection, driver and fixture regressions pass. The final
+Excord Chrome drive at `d6af5f3378` used a fresh named scratch store and the synthetic fixture at
+`http://127.0.0.1:53908`: all 24 resource declarations mapped to source, no request remained
+pending, and no resource failed. Scrolling the transcript increased constructed rows from
+19 to 21. No real service account was used.
+
+Eighteen focused Swift tests passed after integration, including event delivery during
+capture, exactly-once interrupted completion, presented bounds during animation and held
+sampling's wheel-routing policy. macOS, tvOS and web rebuilt at `d6af5f3378`. The native fixture
+drive opened the transcript and mapped all 24 resource declarations; three requests were still
+pending at inspection. Both available Mac displays were locked; the final live-capture request
+correctly reported unavailable. It does not establish a fresh cadence or held-gesture trace.
+The earlier unlocked scratch capture observed 42 callbacks over 500.49 ms, an 8.33 ms target
+cadence and no ring drops; that is callback timing, not compositor presentation or a native
+bounce. The count-hook microbenchmark measured 3.75 ns disabled and 23.83 ns enabled, not
+end-to-end app overhead. iOS touch/keyboard dismissal, Windows and Android app behavior,
+a physical iPhone and production equivalence remain unqualified by these runs.
+
+All six integration checks and the quick Contract semantics differential run pass. The earlier
+Apple async-executor timeout was sensitive to the local build directory: it contained 355,444
+standalone object files. Moving 352,274 objects older than an hour out of that directory,
+while retaining binaries, libraries, metadata and incremental caches, reduced the same nested
+suite from 5.27 s to 0.61 s at its original path. Executor deadlines and assertions were unchanged.
+The full integrated test gate also passes on `100.107.191.6`.
+At `9369bf2a8a`, the unchanged warm gate passed in 63.38 s: build 0.60, tests 48.75,
+clippy 0.66, formatting 4.84, caps 1.70, boot 0.02 and workspace 6.81. The quick differential
+run passed separately in 2.40 s. That machine’s 40,960 standalone object files were moved
+aside before measurement; check flags, coverage and default QoS were unchanged.
+After integrating main's translation and clock changes, all six checks passed at
+`faaf45c373`. The unchanged warm run took 66.61 s (build 1.19, tests 51.19, clippy 0.77,
+formatting 4.86, caps 1.84, boot 0.02, workspace 6.74), 1.61 s over the 65 s budget.
+The quick differential run passed separately in 2.39 s. This last run does not qualify
+the timing budget; the earlier 63.38 s run does not establish that the latest source meets it.
+
+The landing merge preserves main's held sampling, orientation-lock reporting, resource-origin
+checkpoints, type-check bounds and collection tests. Two files exceeded the source cap after
+the merge; their inspection method and embedded template moved into existing modules without
+behavior changes. Three Bun wrappers now allow 30 s around their existing 20 s subprocess
+harness. Both landing reviewers found no issues, including the mechanical cap refactor;
+see `code-2026-10-26-1142-landing.{sol,grok}.md`.
+The incoming clock-until-state browser test needed its fixture server to return HTTP 404
+for absent optional delivery metadata. With that fix, the authored socket test and driver
+suite passed 47 tests without skips, preserving the frozen-clock and timeout assertions.
+
+The second Sol code review found a cleanup leak when same-checkout drives overlapped on
+different explicit ports. A real two-port regression reproduced it. Commit `f74625bf80`
+validates each recorded server at its own origin while preserving process and checkout
+ownership checks; the regression and foreign-server refusal cases pass after integration.
+Sol’s focused follow-up found the issue resolved. The fix changes only fixture cleanup.
+
+Grok’s independent cleanup follow-up found that canonical-origin comparison rejected explicit
+default ports. The final cleanup fix (`0d78cc00bf`) preserves the raw URL for record identity
+and derives its listener port from the parsed URL. Existing backend URLs with paths remain
+accepted; credentials, queries and fragments are refused. Tests compare the validator with
+`appServer`’s accepted `:80`, `:080`, `:443` and path-bearing URLs, alongside the real overlapping
+server regression. All three final integration cases passed; no port-80 listener was exercised.
+
+The full second Grok review confirmed the native observation, presented geometry, layout
+counts and source-map column fixes. Its cleanup finding matches the one resolved above.
+Two smaller findings are also fixed: resource declarations now share the node source-map
+span validator, and the icon-reader audit excludes generated `dist.previous` and `dist.stage-*`
+siblings (including `web-dist` variants). The final driver suite passed 63 tests, including
+malformed resource spans. These follow-ups add no runtime semantics or qualification claims.
+
+The icon-reader audit passed both cases with a temporary generated `dist.stage-*` tree
+present; that tree was removed afterward. Main’s tracked-source enumeration is also preserved.
+Final formatting and staged caps pass.

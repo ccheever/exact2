@@ -1,0 +1,56 @@
+// The conformance fixture (LLP 1133.001 D7): @exact/pedometer's and
+// @exact/altimeter's names read and sent as an app would, each answer shown
+// by testId for the suites.
+use pedometer, pedometerStatus, requestPedometerPermission, Pedometer, PedometerStatus from "@exact/pedometer"
+use altimeter, barometer, altimeterStatus, requestAltimeterPermission, Altimeter, Barometer, AltimeterStatus from "@exact/altimeter"
+
+shape Time
+  epochAtZero: number
+shape Line
+  text: string
+
+component Fixture
+  state start = 0
+  resource time = exactTime() as shape Time
+  resource steps = pedometerStatus() as shape PedometerStatus else empty()
+  resource height = altimeterStatus() as shape AltimeterStatus else empty()
+  resource count = pedometer(start=start) as shape Pedometer else empty()
+  resource climb = altimeter(interval=1000) as shape Altimeter else empty()
+  resource air = barometer(interval=1000, history=16) as shape Barometer else empty()
+  // Data code's reader of the count (app.ts).
+  resource counted = counted() as shape Line
+  mutation askedSteps as shape PedometerStatus
+  mutation askedHeight as shape AltimeterStatus
+  action ask
+    send askedSteps = requestPedometerPermission()
+    send askedHeight = requestAltimeterPermission()
+  action fromNow
+    start = time.epochAtZero + performanceNow()
+  view
+    column gap=8 padding=16
+      text `${steps.available} ${steps.state}` testId="steps-status"
+      text `${height.available} ${height.state}` testId="height-status"
+      text `${count.steps} ${count.since}` font-variant-numeric="tabular-nums" testId="count"
+      text `${count.timestamp}` testId="count-at"
+      match failure(count)
+        case some(f)
+          text f.code testId="count-error"
+        case none
+          text "" testId="count-error"
+      text `${climb.relativeAltitude} ${climb.since} ${climb.interrupted}` font-variant-numeric="tabular-nums" testId="climb"
+      match failure(climb)
+        case some(f)
+          text f.code testId="climb-error"
+        case none
+          text "" testId="climb-error"
+      text `${air.pressure} ${air.samples.length} ${air.interrupted}` font-variant-numeric="tabular-nums" testId="air"
+      text counted.text testId="counted"
+      match askedSteps
+        case some(s)
+          text s.state testId="asked"
+        case none
+          text "" testId="asked"
+      button press=ask testId="ask"
+        text "Ask"
+      button press=fromNow testId="from-now"
+        text "Count from now"

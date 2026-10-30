@@ -35,7 +35,7 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
   <style>#exact-root#exact-root .drawn { background-image: linear-gradient(red, blue); }</style>
   <div id="image" class="drawn" data-view="6" data-exact-on="press" style="width:100px;height:40px">i</div>
   <div id="outer" data-view="7" data-exact-on="press" style="padding:10px"><div id="inner" data-view="8" data-exact-on="press" style="width:100px;height:40px">n</div></div>
-  <div data-listrows><div><div id="in-row" data-view="9" data-exact-on="press" style="width:100px;height:40px">r</div></div></div>
+  <div data-listrows><div><div id="in-row" data-view="9" data-exact-on="press" style="width:100%;height:40px">r</div></div></div>
   <div id="eased" data-view="11" style="${eased}">e</div>
   <div id="eased-js" data-exact-looks="1" style="${eased}"><span id="eased-js-in">j</span></div>
   <div id="focused" data-exact-looks="2" tabindex="0" style="${eased}">f</div>
@@ -161,7 +161,8 @@ check('a hover look composes over the base, under the press paint', async () => 
     const at = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
     const mouse = (type, [x, y], buttons = 0) => call('Input.dispatchMouseEvent', { type, x, y, button: type === 'mouseMoved' ? 'none' : 'left', buttons, clickCount: 1 });
     const settle = () => evaluate(`(document.getAnimations().forEach(a => a.finish()), new Promise(r => requestAnimationFrame(() => r())))`); // and their finish events
-    const now = () => evaluate(`(() => { const s = getComputedStyle(document.getElementById('card')); return [s.backgroundColor, s.borderRightColor, Number(s.opacity).toFixed(2)]; })()`);
+    // A colour as rgb(), whichever form it computes to (the press paint's is its look beneath's).
+    const now = () => evaluate(`(() => { const card = document.getElementById('card'), own = getComputedStyle(card), s = exact.pressShown?.(card) ?? own, n = c => c.replace(/^color\\(srgb ([\\d.]+) ([\\d.]+) ([\\d.]+)( \\/ [\\d.]+)?\\)$/, (_, r, g, b, a) => { const v = [r, g, b].map(x => x * 255); return v.every(Number.isInteger) && !a ? 'rgb(' + v.join(', ') + ')' : _; }); return [n(s.backgroundColor), n(own.borderRightColor), Number(s.opacity).toFixed(2)]; })()`);
     const look = async () => { await settle(); return now(); };
     const card = await at('card'), away = await at('away');
 
@@ -172,12 +173,13 @@ check('a hover look composes over the base, under the press paint', async () => 
     const opacity = Number((await now())[2]);
     expect(opacity).toBeGreaterThanOrEqual(0.6);
     expect(opacity).toBeLessThanOrEqual(0.8);
-    expect(await look()).toEqual(['color(srgb 0 0 1)', 'rgb(0, 0, 0)', '0.60']); // the press paint over the hover
+    expect(await look()).toEqual(['rgb(0, 0, 255)', 'rgb(0, 0, 0)', '0.60']); // the press paint over the hover
     // The base moves while pressed: a row the press doesn't paint shows the new base.
     await evaluate(`Object.assign(document.getElementById('card').style, { backgroundColor: '#eeeeee', borderRightColor: '#123456' })`);
-    expect(await look()).toEqual(['color(srgb 0 0 1)', 'rgb(18, 52, 86)', '0.60']);
+    expect(await look()).toEqual(['rgb(0, 0, 255)', 'rgb(18, 52, 86)', '0.60']);
     // A live edit of the look beneath (its sheet, not the node's style) is what the press eases over now.
-    const beneath = () => evaluate(`document.getElementById('card').getAnimations().map(a => a.effect.getKeyframes()[0]['--exact-press-base-background']).find(Boolean)`);
+    // (The look beneath: the node's own background-color, which the paint, a layer over it, leaves as it is.)
+    const beneath = () => evaluate(`getComputedStyle(document.getElementById('card')).backgroundColor`);
     expect(await beneath()).toBe('rgb(255, 255, 0)');
     await evaluate(`(s => { s.textContent = s.textContent.replace('255,255,0', '0,255,255'); })(document.getElementById('exact-looks'))`);
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
@@ -217,7 +219,7 @@ check('a hover look composes over the base, under the press paint', async () => 
     expect(await now()).toEqual(['rgb(255, 255, 0)', 'rgb(18, 52, 86)', '0.80']);
     await mouse('mousePressed', card, 1);
     expect(await evaluate(`document.getElementById('card').hasAttribute('data-exact-painting')`)).toBe(true);
-    expect((await now())[0]).not.toBe('color(srgb 0 0 1)'); // eased in, not snapped
+    expect((await now())[0]).not.toBe('rgb(0, 0, 255)'); // eased in, not snapped
     await mouse('mouseReleased', card);
     await settle();
     await call('Emulation.setEmulatedMedia', { features: [] });

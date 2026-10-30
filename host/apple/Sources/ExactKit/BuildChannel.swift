@@ -53,7 +53,7 @@ enum BuildChannel {
     static let commands: Set<String> = ["pin", "inspect", "outline", "hold"]
     /// What this build speaks: inspect where it is compiled in.
     #if EXACT_INSPECT && !os(tvOS)
-    static let capabilities = ["pin", "inspect", "hold"]
+    static let capabilities = ["pin", "inspect", "copies", "hold"]
     #else
     static let capabilities = ["pin"]
     #endif

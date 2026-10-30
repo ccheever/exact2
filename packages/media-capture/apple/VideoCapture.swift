@@ -36,6 +36,8 @@ final class VideoTrack {
     var facing = "environment"
     var settings: [String: Any] = [:], capabilities: [String: Any] = [:]
     var consumers: [ObjectIdentifier: (consumer: ExactTrackConsumer, origin: String)] = [:]
+    /// Outputs that are not consumers (LLP 1133.027 D17 item 1): told what consumers are told, holding no lease.
+    var observers: [ObjectIdentifier: ExactTrackConsumer] = [:]
     /// The capture whose lease it holds, if it holds one.
     var capture: VideoCapture?
     /// Leased under the agent, where no capture exists.
@@ -63,7 +65,19 @@ final class VideoTracks: ExactTrackOwner {
 
     func owns(_ id: String?) -> Bool { id.map { tracks[$0] != nil } ?? false }
     private func say(_ line: String) { context.log("media-capture: \(line)") }
-    private func announce() { context.changed("media-capture.mediaStreamTrack") }
+    private func announce() { context.changed("media-capture.mediaStreamTrack"); disclose() }
+    /// Under the agent, each track for `state.extensions` (§9, Disclosure): its device, settings, consumers' origins,
+    /// lease and mute.
+    private func disclose() {
+        context.state(["videoTracks": tracks.values.sorted { $0.id < $1.id }.map { t -> [String: Any] in
+            var out = shape(t)
+            out["consumers"] = t.consumers.values.map(\.origin).sorted()
+            out["observers"] = t.observers.count
+            out["lease"] = t.leased
+            if let w = t.waiting { out["waiting"] = w }
+            return out
+        }])
+    }
 
     // MARK: the names
 
@@ -207,7 +221,13 @@ final class VideoTracks: ExactTrackOwner {
     /// The app went to the background or came back (D6): on iOS the system
     /// interrupts the session and resumes it itself; on macOS nothing changes.
     func foreground(_ shown: Bool) {
-        guard context.agent else { return }
+        guard context.agent else {
+            for t in tracks.values where t.readyState == "live" {
+                guard let capture = t.capture else { continue }
+                say("\(t.id): foreground=\(shown), running=\(capture.session.isRunning), interrupted=\(capture.session.interrupted), muted=\(t.muteReason ?? "none")")
+            }
+            return
+        }
         for t in tracks.values where t.readyState == "live" && t.leased {
             t.platformMute = shown ? overlay : "background"
             settle(t)
@@ -234,16 +254,40 @@ final class VideoTracks: ExactTrackOwner {
             say("\(t.id): a consumer takes no lease (\(origin) origin\(context.foreground ? "" : ", in the background"))")
             consumer.muted(t.muteReason ?? "idle")
         }
+        disclose()
         return ExactSubscription { [weak self, weak t, weak consumer] in
             guard let self, let t, let consumer, t.consumers.removeValue(forKey: ObjectIdentifier(consumer)) != nil else { return }
             if t.consumers.isEmpty {
                 t.waiting = nil
                 if t.leased { self.release(t); self.mute(t, "idle") }
             }
+            self.disclose()
         }
     }
 
-    private func each(_ t: VideoTrack, _ f: (ExactTrackConsumer) -> Void) { for c in Array(t.consumers.values) { f(c.consumer) } }
+    /// `observer` watches `id` (LLP 1133.027 D17 item 1): it hears the capture while a consumer's lease runs it, and never
+    /// starts, holds or reopens one.
+    func observe(_ id: String, _ observer: ExactTrackConsumer) throws -> ExactSubscription {
+        guard let t = tracks[id] else { throw ExactTrackError("NotFoundError") }
+        if t.readyState == "ended" { observer.ended(); return ExactSubscription {} }
+        t.observers[ObjectIdentifier(observer)] = observer
+        say("\(t.id): an observer joins, taking no lease")
+        if t.leased {
+            observer.live(video: t.capture)
+            if t.muted { observer.muted(t.muteReason ?? "idle") }
+        } else {
+            observer.muted(t.muteReason ?? "idle")
+        }
+        return ExactSubscription { [weak self, weak t, weak observer] in
+            guard let t, let observer, t.observers.removeValue(forKey: ObjectIdentifier(observer)) != nil else { return }
+            self?.say("\(t.id): an observer leaves")
+        }
+    }
+
+    private func each(_ t: VideoTrack, _ f: (ExactTrackConsumer) -> Void) {
+        for c in Array(t.consumers.values) { f(c.consumer) }
+        for o in Array(t.observers.values) { f(o) }
+    }
 
     private func mute(_ t: VideoTrack, _ reason: String) {
         guard !(t.muted && t.muteReason == reason) else { return }
@@ -303,6 +347,7 @@ final class VideoTracks: ExactTrackOwner {
 
     /// The capture `t` holds was interrupted (`reason`) or resumed (nil).
     func interrupted(_ t: VideoTrack, _ reason: String?) {
+        say("\(t.id): interruption=\(reason ?? "ended")")
         t.platformMute = reason ?? overlay
         settle(t)
     }
@@ -318,6 +363,7 @@ final class VideoTracks: ExactTrackOwner {
         say("\(t.id): ended (\(why))")
         each(t) { $0.ended() }
         t.consumers.removeAll()
+        t.observers.removeAll()
         announce()
     }
 
@@ -470,6 +516,12 @@ final class VideoCapture: NSObject, ExactVideoSource {
     /// Interruptions as `muteReason` (D3); after any but the background, the session runs again while leased.
     private func listen() {
         let center = NotificationCenter.default
+        for name in [AVCaptureSession.didStartRunningNotification, AVCaptureSession.didStopRunningNotification] {
+            observers.append(center.addObserver(forName: name, object: session, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.log("camera: running=\(self.session.isRunning), interrupted=\(self.session.interrupted)")
+            })
+        }
         let tell = { [weak self] (reason: String?) in
             guard let self else { return }
             for get in self.holders.values { if let t = get() { t.tracks?.interrupted(t, reason) } }
@@ -684,5 +736,16 @@ enum CameraPermission {
         case .notDetermined: AVCaptureDevice.requestAccess(for: .video, completionHandler: done)
         default: done(false)
         }
+    }
+}
+
+extension AVCaptureSession {
+    /// `isInterrupted` for the journal; macOS has no such property and no interruption to report.
+    var interrupted: Bool {
+        #if os(macOS)
+        false
+        #else
+        isInterrupted
+        #endif
     }
 }

@@ -502,6 +502,11 @@ the standard AppKit item ids in LLP 1021 §5.3 and §5.3.1. AppKit suppresses th
 and their menu equivalents; all other hosts ignore this non-CSS presentation
 hint. It changes no layout or window capability.
 
+`menuKeys` (292, string) carries root `-exact-menu-keys`: a literal list of
+`id=chord` pairs whose one id is `close-window` (LLP 1021 §5.3.3), each chord
+one `aria-keyshortcuts` chord with `Meta`, or `none`. AppKit gives File ▸
+Close Window the chord, or none; all other hosts ignore this non-CSS presentation hint.
+
 `menuPlacement` (261, string) is `-exact-menu` on a button (LLP 1021 §5.3,
 Charlie, 2026-10-12; §5.3.1, 2026-10-22): a literal `about`, `app`, `file`,
 `edit`, `view`, `go`, `window`, `help` or `none`. AppKit adds the button to
@@ -871,11 +876,17 @@ needs a field's width sets it
 `start` and `end` resolve against the paragraph's `direction` in
 `Paragraph::from_style`, so hosts see only left, center, right or justify; LLP
 1053). CSS `direction` orders flex rows and places blocks in the kernel, and
-`direction: rtl` is a paragraph's base direction on every host. Declared: under
-the initial `ltr`, the Apple and Linux engines still take a paragraph's base
-direction from its first strong character (as `unicode-bidi: plaintext`), so
-an `ltr` paragraph that opens with Hebrew or Arabic orders mixed text as an
-`rtl` one would. Its alignment is still `start` = left, and the web uses CSS.
+`direction` is a paragraph's base direction on every host, said either way,
+so no first strong character picks it: Apple text, the Markdown editor (LLP
+1045 D11) and Apple's plain text fields (an `input`, a `textarea` of either
+appearance, and a Markdown editor's text once its `markup` goes) as the web's
+fields take it, and a plain field's unsaid `text-align` is `start`, the right
+under `rtl` (`host/web/tests/field-direction.test.mjs`, `FieldDirection*Tests`).
+Declared: under the initial `ltr`, Linux's engine still takes a paragraph's
+base direction from its first strong character (as `unicode-bidi:
+plaintext`), so an `ltr` paragraph there that opens with Hebrew or Arabic
+orders mixed text as an `rtl` one would; its alignment is still `start` =
+left.
 The Linux text-flow walker cannot yet break an RTL run inside an LTR
 paragraph. Font matching stops at the nearest
 real declared face and never synthesizes weight or style, rather than CSS's initial
@@ -1252,6 +1263,18 @@ widths for the issue's sentence: 16 px Arial at 180 px on the Mac
 (`balance_tests.rs`); the web JS target's conformance fixture carries it
 (`styles.contract`). A terminal entry refuses the row.
 
+**Font smoothing** (2026-10-28, [LLP 1019 D12](1019-fonts.rfc.md)).
+`-webkit-font-smoothing` (bit 222, inherited, `auto | antialiased`) is a paint
+row: a change neither measures nor lays out. AppKit draws an `antialiased`
+paragraph with Core Graphics font smoothing off (UIKit sets the same flag,
+expected to change nothing on iOS, as iOS Safari ignores the property); the
+web writes it with Firefox's `-moz-osx-font-smoothing`; Linux, Windows, a
+terminal and the widget and watch drivers admit it and draw as before.
+Declared: Apple reads it once per paragraph, so an inline run's own value
+gives way to its paragraph's, and text a platform view draws (a text field's,
+a native control's title) and a paragraph the content-region reader holds keep
+the platform's smoothing.
+
 **Book typography** (the reader diary, 2026-10-04). `text-align: justify`
 fills every line but a paragraph's last and one before a forced break, on
 every host; a line with no justification opportunity stays at the start, as
@@ -1567,9 +1590,17 @@ authored per-glyph cascade needs a shaping API beyond cosmic-text's one
 
 CSS form and text vocabulary (app diaries kanban F11, ledger F1/F4,
 minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
-limits user UTF-16 edits, leaving authored values intact. Native interactive
-CSS resize handles are not implemented; Contract admits none and diagnoses
-other CSS values. user-select admits auto, none, text (2026-10-12, LLP
+limits user UTF-16 edits, leaving authored values intact. `resize`
+(2026-10-30) admits every CSS keyword. The browser draws its grip; the Mac
+and iOS draw Chrome's two strokes in a textarea's bottom end corner, and a
+drag hands the runner the border box the pointer reached
+(`Runner::resize_box`), which writes `width` and `height` in the box's
+`box-sizing`, as Chrome's inline style does: they replace an authored or
+`field-sizing: content` size until the plan rewrites the row, `min-*` and
+`max-*` still bound them, and nothing else does. `block` and `inline` are
+`vertical` and `horizontal`. Declared deviation: only a textarea has a grip
+on a native host, and tvOS (a read-only textarea), Linux, Windows, Android
+and the terminal draw none. user-select admits auto, none, text (2026-10-12, LLP
 1115.000 D11.6) and all (2026-10-20): the nearest authored value decides, and a control's label is
 not selectable unless text is said on it or inside the control. What is left
 is auto with nothing above it, the platform's: macOS resolves it as AppKit

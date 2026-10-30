@@ -129,7 +129,8 @@ public final class SpeechRecognitionModule: ExactPackage {
     private func availability(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
         let s = status(args), local = args["processLocally"] as? Bool == true
         if context.agent { return reply(["availability": s["available"] as? Bool == true && (s["local"] as? Bool == true || !local) ? "available" : "unavailable"]) }
-        let langs = (args["langs"] as? [String] ?? []).map(Locale.init(identifier:))
+        let requested = (args["langs"] as? [String] ?? []).map(Locale.init(identifier:))
+        let langs = requested.isEmpty ? [Locale.current] : requested
         guard #available(iOS 26, macOS 26, *), Self.engine(args) != "sfSpeechRecognizer" else {
             let sf = langs.map { SFSpeechRecognizer(locale: $0) }
             let ok = !sf.isEmpty && sf.allSatisfy { $0 != nil && (!local || $0!.supportsOnDeviceRecognition) }
@@ -137,7 +138,7 @@ public final class SpeechRecognitionModule: ExactPackage {
         }
         Task { [weak self] in
             var word = "available"
-            for lang in langs.isEmpty ? [Locale.current] : langs {
+            for lang in langs {
                 guard let module = await AnalyzerEngine.module(Self.engine(args), lang, interim: false, alternatives: false) else { word = "unavailable"; break }
                 switch await AssetInventory.status(forModules: [module]) {
                 case .installed:

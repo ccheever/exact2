@@ -22,6 +22,8 @@
 //   `NSMutableDictionary` the module marks `taken`: the due requests of one
 //   package, handed to its implementation.
 // - `exact.wakes.done` `{token, package, success}`: that package is done.
+// - `exact.wakes.expired` `{token}`: the platform expired the wake; each
+//   event raised in it that has not ended expires (ExactPackage.swift).
 // - `exact.wakes.ready`: a session's module was made; a wake held for one
 //   is handed over, and at the first, the transfers that ended unretired
 //   (Transfers.swift).
@@ -106,8 +108,10 @@ public enum WakeStore {
         center.addObserver(forName: Notification.Name("exact.wakes.ready"), object: nil, queue: .main) { _ in
             for a in arrivals where !a.offered { offer(a) }
             if !readied { readied = true; TransferCarrier.ready() }
+            RegionCarrier.ready()
         }
         TransferCarrier.install()
+        RegionCarrier.install()
         #if os(iOS)
         for suffix in ["refresh", "processing.network", "processing.network-power"] where permitted(suffix) {
             let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: "\(bundle).\(suffix)", using: .main) { task in
@@ -156,7 +160,7 @@ public enum WakeStore {
             return boot()
         }
         log("wakes: a \(a.kind) wake was taken by no package: \(packages.keys.sorted().joined(separator: ", "))")
-        for r in a.due where r.kind != "transfer" && requests[r.package + " " + r.key] == nil { requests[r.package + " " + r.key] = r }
+        for r in a.due where r.kind != "transfer" && r.kind != "region" && requests[r.package + " " + r.key] == nil { requests[r.package + " " + r.key] = r }
         keep()
         finish(a, false)
     }
@@ -164,6 +168,14 @@ public enum WakeStore {
     /// Transfers' endings, by package and registration id: a wake of kind `transfer` (D10).
     static func transfer(_ due: [(String, String)], complete: @escaping (Bool) -> Void) {
         let a = Arrival(kind: "transfer", due: due.map { Request(package: $0.0, key: $0.1, kind: "transfer", at: now(), network: false, power: false) },
+                        complete: complete)
+        arrivals.append(a)
+        offer(a)
+    }
+
+    /// Regions' crossings, by package and region name: a wake of kind `region` (LLP 1133.021 D14).
+    static func region(_ due: [(String, String)], complete: @escaping (Bool) -> Void) {
+        let a = Arrival(kind: "region", due: due.map { Request(package: $0.0, key: $0.1, kind: "region", at: now(), network: false, power: false) },
                         complete: complete)
         arrivals.append(a)
         offer(a)
@@ -186,10 +198,19 @@ public enum WakeStore {
         let due = suffix == "refresh" ? take(kind: "refresh", power: nil) : take(kind: "processing", power: suffix.hasSuffix("power"))
         let a = Arrival(kind: suffix == "refresh" ? "refresh" : "processing", due: due) { success in task.setTaskCompleted(success: success) }
         a.task = task
+        // The platform's time is up: each package's events still running
+        // expire (`exact.wakes.expired`, ExactWake), which ends their
+        // invocations and fails their requests, and the packages are done in
+        // a turn or two. The task is completed then, or after a second
+        // regardless, since iOS terminates an app that holds an expired task.
         task.expirationHandler = { [weak a] in
-            guard let a, let i = arrivals.firstIndex(where: { $0 === a }) else { return }
-            arrivals.remove(at: i)
-            task.setTaskCompleted(success: false)
+            DispatchQueue.main.async {
+                guard let a, arrivals.contains(where: { $0 === a }) else { return }
+                WakeStore.log("wakes: \(task.identifier) expired")
+                a.success = false
+                NotificationCenter.default.post(name: Notification.Name("exact.wakes.expired"), object: ["token": a.token] as NSDictionary)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { finish(a, false) }
+            }
         }
         WakeStore.log("wakes: \(task.identifier): \(due.count) due")
         arrivals.append(a)

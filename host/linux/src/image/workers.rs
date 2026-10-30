@@ -11,6 +11,7 @@ use std::io::{Cursor, Read, Seek, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+#[cfg(test)]
 use std::time::Duration;
 
 #[derive(Clone, Copy, Debug)]
@@ -28,6 +29,11 @@ pub(super) struct SourceOwner {
     prepared: Mutex<Prepared>,
     /// A URL's download: the body a worker reads once it is settled.
     remote: Option<Arc<remote::Load>>,
+    /// Its download failed in a way asking again may mend (`Failure::transient`):
+    /// not before this (the server's `Retry-After`, if it gave one).
+    transient: Mutex<Option<std::time::Instant>>,
+    /// Why it failed, its image's `error` (no link's query: `remote::without_queries`).
+    message: Mutex<Option<String>>,
 }
 impl SourceOwner {
     /// The file it reads, when it is one (not an update's bytes): a URL's
@@ -58,12 +64,18 @@ impl SourceOwner {
         let failure = remote::Failure {
             refusal,
             message: message.clone(),
+            transient: false,
+            after: None,
         };
         let Some(body) = self.remote.as_ref().and_then(|load| load.release(failure)) else {
             return;
         };
         downloads.forget(&self.name, &body);
-        eprintln!("exact: image {}: {message}", self.name);
+        eprintln!(
+            "exact: image {}: {message}",
+            remote::without_query(&self.name)
+        );
+        *self.message.lock().unwrap() = Some(message);
     }
 }
 struct State {
@@ -139,11 +151,14 @@ impl Backend {
             .expect("raster generation exhausted");
         generation
     }
+    /// `urgent`: a URL whose picture fills the screen, downloaded first
+    /// (`Downloads::load`).
     pub fn source(
-        &self,
+        self: &Arc<Self>,
         generation: u64,
         name: &str,
         assets: &Arc<Assets>,
+        urgent: bool,
     ) -> Result<Arc<SourceOwner>, Refusal> {
         Workers::process().start();
         let mut state = self.state.lock().unwrap();
@@ -156,6 +171,10 @@ impl Backend {
             .iter()
             .find(|s| s.generation == generation && s.name == name)
         {
+            // Now one that fills the screen: its download, still waiting, goes first.
+            if let Some(load) = source.remote.as_ref().filter(|_| urgent) {
+                self.downloads.promote(load);
+            }
             Ok(source.clone())
         } else if state.sources.len() >= SUBSCRIPTIONS + COLD_ENTRIES + 2
             || owners
@@ -178,7 +197,7 @@ impl Backend {
             let remote = if remote::is_remote(name) {
                 let me = self.me.clone();
                 self.downloads
-                    .load(name, move || {
+                    .load(name, urgent, move || {
                         if let Some(backend) = me.upgrade() {
                             backend.session.wake();
                         }
@@ -195,6 +214,8 @@ impl Backend {
                     assets: Arc::downgrade(assets),
                     prepared: Mutex::new(Prepared::Queued),
                     remote,
+                    transient: Default::default(),
+                    message: Default::default(),
                 });
                 state.next_source = next;
                 state.sources.insert(source.id, Arc::downgrade(&source));
@@ -206,7 +227,7 @@ impl Backend {
         };
         drop(state);
         drop(owners);
-        // A header to read: a worker reads it now, not at its backstop timeout.
+        // Header work is outside the decode gate; announce it after insertion.
         if queued {
             self.session.wake();
         }
@@ -227,6 +248,32 @@ impl Backend {
             .and_then(Weak::upgrade)?;
         let prepared = *source.prepared.lock().unwrap();
         Some(prepared)
+    }
+    /// Whether source `id`'s download failed in a way asking again may mend:
+    /// the earliest it may be asked again, if so.
+    pub fn transient(&self, id: u64) -> Option<std::time::Instant> {
+        let source = (self.state.lock().unwrap().sources.get(&id)).and_then(Weak::upgrade)?;
+        let after = *source.transient.lock().unwrap();
+        after
+    }
+    /// Why source `id` failed, as its image's `error` says it, if it said more
+    /// than its refusal.
+    pub fn message(&self, id: u64) -> Option<String> {
+        let source = (self.state.lock().unwrap().sources.get(&id)).and_then(Weak::upgrade)?;
+        let message = source.message.lock().unwrap().clone();
+        message
+    }
+    /// `source`'s download, if it still waits for a thread, goes first: its
+    /// picture now fills the screen ([`remote::Downloads::promote`]).
+    pub fn promote(&self, source: &SourceOwner) {
+        if let Some(load) = &source.remote {
+            self.downloads.promote(load);
+        }
+    }
+    /// Source `id`, failed, is found no more: the next ask for its name
+    /// downloads it again (a picture still on screen, `image.rs`).
+    pub fn evict(&self, id: u64) {
+        self.state.lock().unwrap().sources.remove(&id);
     }
     pub fn retire(&self, generation: u64) {
         self.session.retire_generation(generation);
@@ -326,10 +373,18 @@ impl Backend {
             return false;
         };
         let result = match source.remote.as_ref().and_then(|load| load.outcome()) {
-            // Linux sends no image events (LLP 1011.001): the reason is the
-            // log's, once for the source.
+            // The reason is the image's `error` and the log's, once for the
+            // source; neither quotes a link's query (a CDN's signature).
             Some(Err(failure)) => {
-                eprintln!("exact: image {}: {}", source.name, failure.message);
+                let message = remote::redacted(&failure.message, &source.name);
+                eprintln!(
+                    "exact: image {}: {message}",
+                    remote::without_query(&source.name)
+                );
+                *source.message.lock().unwrap() = Some(message);
+                *source.transient.lock().unwrap() = failure
+                    .transient
+                    .then(|| failure.after.unwrap_or_else(std::time::Instant::now));
                 Err(failure.refusal)
             }
             _ => open(source)
@@ -344,6 +399,8 @@ impl Backend {
         true
     }
     fn decode(&self, permit: DecodePermit) {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"image decode");
         let key = permit.key();
         let source = self
             .state
@@ -522,8 +579,7 @@ impl Workers {
         })
     }
     /// Start the process's two decoders, once: at the first picture source
-    /// or request, so an app that shows no picture carries no decoder (each
-    /// otherwise woke five times a second on its backstop).
+    /// or request, so an app that shows no picture carries no decoder.
     fn start(self: &Arc<Self>) {
         static STARTED: std::sync::Once = std::sync::Once::new();
         STARTED.call_once(|| {
@@ -565,6 +621,8 @@ impl Workers {
     // A single production scheduling turn. The callback is a deterministic test
     // seam for work arriving after the empty metadata scan and before waiting.
     fn turn(&self, metadata_turn: &mut bool, before_wait: impl FnOnce()) {
+        // Include work announced during either scan in the eventual wait.
+        let observed = self.gate.wake_sequence();
         // One metadata turn between decode turns, even under continuous
         // known-source pressure. A busy metadata queue also cannot starve decode.
         if !*metadata_turn {
@@ -591,12 +649,9 @@ impl Workers {
         }
         drop(backends);
         before_wait();
-        // Requests, cancels, freed budget and sources to read all wake a
-        // worker, which takes the next turn at once (a header to read is no
-        // decode: waiting on for one held every first picture to the
-        // timeout); the timeout is only a backstop, so it is long enough not
-        // to be a poll.
-        if let Some(permit) = self.gate.wait_work(Duration::from_millis(200)) {
+        // Requests, cancellation, freed budget and source metadata all notify
+        // this gate. An idle decoder needs no periodic wake.
+        if let Some(permit) = self.gate.wait_work_since(observed, None) {
             *metadata_turn = true;
             self.complete(permit);
         }
@@ -614,13 +669,15 @@ mod tests {
         let cap = SUBSCRIPTIONS + COLD_ENTRIES + 2;
         let mut owners = Vec::new();
         for n in 0..cap {
-            let owner = backend.source(generation, &n.to_string(), &assets).unwrap();
+            let owner = backend
+                .source(generation, &n.to_string(), &assets, false)
+                .unwrap();
             *owner.prepared.lock().unwrap() = Prepared::Failed(Refusal::DecodeFailed);
             owners.push(owner);
         }
         let next = backend.state.lock().unwrap().next_source;
         assert!(matches!(
-            backend.source(generation, "overflow", &assets),
+            backend.source(generation, "overflow", &assets, false),
             Err(Refusal::QueueFull)
         ));
         assert_eq!(backend.sources(), cap);
@@ -635,7 +692,9 @@ mod tests {
             );
             std::thread::yield_now();
         }
-        let replacement = backend.source(generation, "replacement", &assets).unwrap();
+        let replacement = backend
+            .source(generation, "replacement", &assets, false)
+            .unwrap();
         assert_eq!(replacement.id, next);
         assert_eq!(backend.sources(), cap);
     }

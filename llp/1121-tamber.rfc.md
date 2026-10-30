@@ -519,6 +519,15 @@ theme
   chain of names past 512 deep (`tamber-reference-depth`) are refused in the build and the
   design server's check alike, before anything reads the value; the importers and a reimport
   refuse such a source value with the same id.
+  *(Amended 2026-10-26, stage 14's sweep, theme2's approval:)* a design declares at most 32
+  axes (`tamber-axes`) and a token or param at most 64 `when` lines (`tamber-whens`). Both are
+  design-format limits, refused in the preflight before anything walks the design, so the build,
+  `check` and the design server refuse alike and in the same words; an importer that would pass
+  either refuses with the same id (Pencil past its own 16 themes, too). The 64 tuples remain the
+  cap on what the axes make; the 32 bounds the axes themselves, since an axis of one value adds no
+  tuple. No real design comes near either (the corpus's most is 7 axes and 4 `when` lines). The
+  wire's own limits (`tamber-ops-size`, 1024 operations a client's request; the 1 MiB body, 16 MiB
+  for the local token's `import`) are `docs/tamber-protocol.md`'s, under `tamber/1.17`.
 - **`setMode("dark-style", "dim")`** sets the window's app slice: a runner command beside
   `setScheme`, which stays the host's appearance command. The new slice applies in the
   action's own commit, refreshed by D7's per-use domains: repainted, and laid out only where
@@ -5916,3 +5925,114 @@ multicolour package SVGs on the web; the Android slot-marker flake.
 
 **Stage 13 is closed** with C, D and E met and A and B carried as named. The `tamber/1.16` window is closed; the next
 wire change, a carried part's included, takes `tamber/1.17`.
+
+### Stage 14: as built, and closed (2026-10-26; brief `~/x2theme/stage14-brief.md`)
+
+Stage 14 was one stage of five parts, each gated on its own, like stage 13, so the parts that waited on Charlie held no others. Each part was built and reviewed under this RFC's process and signed off by theme2 (the design tool's code by review2). The rulings are in `~/x2theme/SIGNOFFS.md`. Every gate's run file shows the full contract suite green on its gate commit (the lead's 2026-10-23 rule, adopted after stage 13 C's gate missed a red test).
+
+Its wire is the one `tamber/1.17` bullet. It was opened by the `pen` importer (`3b79eea272`), and it carries:
+- the design tool's GET long poll by an opaque cursor, with `open=`, `asked`, a 204 heartbeat and 90 s presence;
+- `edit-held`, with `editedBy`;
+- the stale accept (`replacedBy`, `by`);
+- `select` walking the page's own tree by the plan's `copies`, which a page registers and receives once per plan;
+- the batched `resolve`;
+- the held proposal's `choice`, `choiceBy` and `choiceAt`, with `choose`;
+- the checker's limits (`tamber-value-size`, `-value-depth`, `-length-size`, `-reference-depth`, `-axes` 32, `-whens` 64, `-ops-size` 1024), with the local token's 16 MiB body for `import`.
+
+- **A, the carried parts** (rt1):
+  - the `pen` importer (`..3b79eea272`), meeting stage 13 B's `.pen` gate line;
+  - LLP 1016.000 D8, long-poll streams (`491a366ca6..6f44d0e4e7`), on D9's held definition, with RUST_ABI 4 and TYPESCRIPT_RUNTIME 3 (every Rust-data and native TS-data app gets a new compatibility id once);
+  - R4's deploy scripts and deployed-mode gate (`..3feed2923a`).
+  - **R4 itself and the real-Figma run are carried** (below).
+- **B, the popover's top layer** (iosfix):
+  - a kernel-implied viewport block for every top-layer box (`d128446876..1d262df941`), a popover in a content region keeping its in-region layout (QUEUE);
+  - then the web's default position-area and flips for unauthored painted popovers (`dc604c5725..b64c9876a6`);
+  - sizing in the chosen option's region, by a pure kernel trial layout with a host measure cache (`1e00319304..14111ca060`);
+  - the Mac split-pane popover fix.
+  - **QUEUE:** the subtree-scoped trial (taken only if an app passes 16 ms an open), flip-start's margins, a toolbar popover's margin while open, an unflipped non-node anchor.
+- **C, package icons finished** (x2-perf4, with iosfix on the Apple half), as built:
+
+    **C, as built (x2-perf4, with iosfix on C2's Apple half).** A template icon now draws as its path on every host, at its node's exact frame. Even-odd templates work end to end. Every nonzero and even-odd path icon in @exact/cards and @exact/actions is a package icon token.
+
+    **Landed, in order:**
+    - **C1, Apple draws a template path as its path** (5b2bd17345..dfa3431b66). On macOS, a template-path icon (a symbolPath, no SF name) is CAShapeLayers in the node's SymbolClip: placed by IconPath at the real fractional frame, clipped to the placed em square, each path opaque in one group, with the tint's alpha applied once as the leaf's opacity. SF Symbols, bitmaps, control faces, accessibility, the tint source and intrinsic size are unchanged. iOS was already exact, so it is unchanged.
+    - **The 15 nonzero path icons as package icon tokens** (ccb559261a..0dfdab3030). They are coloured by `color=`, since Apple symbols ignore `-exact-tint-color` (130e009940). library-gate's sample-ar-saved became ar-saved.
+    - **C2, even-odd icon templates** (81c0f578c7..e30590f56f). One push of 18 commits: the field (x2-perf4, 9 commits), the Apple half (iosfix, 7 commits), review records, and a split-only caps commit. Every commit builds alone.
+      - An icon template may use `fill-rule="evenodd"`, one rule per icon. The rule rides in the existing `icons.path` string and a literal source's `<path>` as a leading `evenodd:` marker. `exact_kernel::Icon` (`parse` / `of_row`) is the one reader.
+      - The web mask honours the rule. Linux needed only tests. Apple sends `symbolFillRule` beside `symbolPath`, honoured in IconShapeView, IconPath, FaceSymbol's token and the widget snapshot.
+      - The compat id gains `iconFillRules` only when a shipped plan holds an even-odd icon: main, entry plans, literal sources and baked data values are all checked.
+    - **The last moves** (f351441c15..0e796f5bc8): ToolGlyph's gallery, camera and GIF, the Attie mark, and the verified and verifier badges as stacked ink/mark templates labelled on the container. The verified ground's circle became an arc. BarItem and HeaderButton keep the caller's d.
+
+    **Gates:** each is under theme2's edge rule. Every differing pixel lies on the old render's AA fringe (interior 0, outside 0), and each icon has centroid < 0.25 px, spread < 0.25 px and coverage < 5%. Each gate runs on web, macOS and iOS, light and dark, and the full contract suite passed on every gate commit.
+    - **C1:**
+      - The probe test drives a real node at six origins, 1x and 2x, against an independent CG fill: identical, except 3 fringe pixels at 2x (.25,.25). The old NSImageView draw failed at every fractional 1x origin (centroid 0.39–0.79 px).
+      - Release identity: no release app's Mac pixels changed.
+      - The 15-icon fixture went from a worst centroid of 0.827 px and 82.8–96.6% ink to 0.019 px and 97.4–100.6% ink. All 48 light and dark instances pass.
+    - **The 15 path icons:** 48 instances per host pass; worst centroid 0.037 px (iOS). The shift, scale and wrong-d mutations are caught.
+    - **C2:**
+      - 50 plans byte-identical, digests unchanged.
+      - Bake time: the extra compile was removed, so the cost is noise.
+      - Per-commit `cargo check --workspace` green at all 18 commits.
+      - Mac 276 classes and iOS 2166 tests, 0 failed.
+    - **The last moves:**
+      - 27 icons per host; worst centroid 0.042 px, spread 0.025, coverage 0.47%.
+      - The gate re-ran over main's host changes with identical counts.
+      - library-gate's compat id is unchanged.
+
+    **Stated limits and QUEUE lines:**
+    - **Mixed fill rules:** an icon whose paths mix rules is refused in v1.
+    - **The template lint closes hard:** no `style` attribute, no `<style>`, no namespaces, DOCTYPE or CDATA; `fill` and `fill-rule` must be exact values.
+    - **The reader guard's Rust side** is enforced by type (`IconPathId`, escaped once in `icon_of`). Its threat model is accidental readers; deliberate laundering is left to review.
+    - **The JS scan is a tripwire** with a stated limit (QUEUE): only files that name a symbol source are scanned.
+    - **Multicolour icon files:** a package's multicolour SVG still isn't staged on the web (QUEUE). Apple still needs an `sf` for a multicolour icon (QUEUE).
+    - **Linux non-template files:** Linux draws an icon token only as a template; a QUEUE line asks for its SVG scene renderer to draw non-template files.
+
+    **Decided on the way:**
+    - **No digest move:** a new column would have moved FORMAT_DIGEST and given every app a new binary. The marker rides in an existing string instead.
+    - **`iconFillRules` is absent, not null,** unless used, so every existing compat id is unchanged.
+    - **The edge rule gained locators:** centroid, spread and coverage were added after a 1 px shift passed the fringe-only rule on thin strokes.
+    - **AppKit's placement:** NSImageView resamples template images at fractional origins, so path icons bypass it rather than modelling its resample in a check.
+    - **Rule-insensitive icons are written nonzero:** all eight even-odd candidates turned out rule-insensitive, so writing them nonzero keeps package users' compat ids. The wrong-rule check runs on a synthetic same-wound ring instead.
+    - **Moved icons use `color=`, not `-exact-tint-color`:** a branch still using the old idiom had drawn opaque on Apple.
+
+- **D, the design tool's long poll** (dtool2): its changes poll moved onto `exactLongPoll` by the GET form (`644a7151e5..8782d84245`), the ECONNRESET flake fixed with a shown cause, and then the third hands-on pass's fixes:
+  - #1, a silent full build announced;
+  - #2, the stale Apply and accept;
+  - #3, a commit re-baselined after a hand commit;
+  - #4, select by the page's tree with slot hosts as levels;
+  - #5, a peer's change reaching the grid in about 1.3 s, with the batched resolve;
+  - #6, a re-held import keeping its overrides;
+  - #7, the token editor's dock (`..81d9a9e4ea`);
+  - #8, the native first-build status;
+  - #9, `tamber tool --via` waiting while the loop starts.
+  - Also: `edit-held`, held requests' `clock held` (stage 13's follow-on), the build-swap generations, the GPU cache race under a kernel `flock`, and the design-tool test time halved.
+- **E, the write check's next gap** (reload1): computed rows under `for` and `match` and through `let`, in lowering's own scope (`1b1bc1f420..5e2de39ccf`).
+  - **Stated limit:** when an untyped row is the build's first refusal, the check's first refusal is the build's next one; every refusal said is still the build's, in its words and place.
+- **Beside the parts:**
+  - the design checker's own limits (`dd0de0b3e4..a50256a77d`) and the sweep (the caps above), so the build and the server refuse a hostile value or count alike, and importers refuse with the same id;
+  - the symbol-tint lint and the web following "a symbol draws in its colour on every host";
+  - the iOS dev-joined blank rows: a generation reload's presenter reset called the new runtime before its committed
+    batch applied; closed at one choke point (`Runtime.on`, `ResetGate.swift`'s replayed and dropped lists), signed
+    off and landed after the close (iosfix, `024efaa22c..097aedfd17`);
+  - Excord's relaunch reds: a launch reopens the channel it left, once, with its draft, yielding to any user action
+    (`9265bf2c0b`; the full contract suite 2469/0 on its tip).
+  - **Known reds at close:** two more Excord app tests failed on clean main on every run at load 20–36 ("scrolling up
+    from the end acknowledges what was on screen" and "Mark As Read away from the end"). They aren't stage 14 work;
+    x2-perf4 owns them as main-red fixes, being fixed now, not QUEUE'd.
+    *(Follow-up, 2026-10-26:)* both are fixed on main, with "Escape from history", the same race
+    (`995a737454`): each test waited for the list's asynchronous scroll report (`clock settle`) before reading;
+    the Excord file 73/0, no known reds.
+
+| Part | Gate | Result |
+|---|---|---|
+| A | `pen`'s gate line; D8's lane and compat tests; R4 on a deployed relay; the Figma line | **Met** for `pen` and D8. **Carried:** R4 and Figma |
+| B | The repro, the hosted Pins case against Chrome, the split case, the full suites | **Met** |
+| C | The edge rule (centroid, spread and coverage) on web, macOS and iOS, light and dark | **Met** |
+| D | The four design-tool files 18/18 under load, with times; the 1.17 lines signed | **Met** |
+| E | Same-words tests red under mutation; plans byte-identical; the clone's check in range | **Met** |
+
+**Carried to the next stage, by name:** R4 (the deployed relay's gate: Charlie's VPS, the domain, account issuance, the PSL PR) and the real-Figma run (Charlie's session).
+
+**Stage 14 is closed.** The `tamber/1.17` window is closed, and the next wire change takes `tamber/1.18`.
+
+**A note on commit hashes (2026-10-26):** exact2's history was rewritten at about 20:00Z that day. Hashes written in this RFC before 2026-10-26 20:00Z refer to the pre-rewrite history; the team keeps an old-to-new map.

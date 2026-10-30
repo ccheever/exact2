@@ -1,7 +1,5 @@
 // A mutation's `then`: armed by the commit its answer landed in, it runs
-// as its own commit at the next clock advance, or first when the next event
-// arrives (as every host's `dispatch_at` does), never inside the commit that
-// sent it.
+// as its own commit when the input lands, never inside the sending commit.
 shape Ack
   ok: bool
 
@@ -21,9 +19,10 @@ component App
       text `${sent}/${after}` testId="count"
       button "poke" press=poke testId="poke"
 
-test "then waits for the clock"
-  tap "poke"
+test "an input lands its then"
   expect state after == 0
+  tap "poke"
+  expect state after == 1
   clock +0
   expect state after == 1
   expect state stamp == 0
@@ -34,12 +33,12 @@ test "armed again by each answer"
   clock +40
   tap "poke"
   tap "poke"
-  expect state after == 1
-  expect state stamp == 40
+  expect state after == 2
+  expect state stamp == 41
   clock +5
   expect state after == 2
-  expect state stamp == 40
+  expect state stamp == 41
   tap "poke"
   clock +1
   expect state after == 3
-  expect state stamp == 45
+  expect state stamp == 47

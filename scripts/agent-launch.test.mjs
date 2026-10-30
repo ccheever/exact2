@@ -4,9 +4,17 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil } from './agent-launch.mjs';
+import { Cdp, agentPage, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
 import { placeReporter } from '../host/web/navigation.js';
+
+// Every browser carrier opens the page with the same query (LLP 1146 D4): the drive's auth fixture among it.
+test('a web drive opens its page with the facts, its auth fixture, storage and hatches', () => {
+  const page = agentPage(new URL('http://127.0.0.1:9/'), { facts: { epoch: '0' }, storage: 'drive', env: { EXACT_AUTH_FIXTURE: 'http://127.0.0.1:4400', EXACT_HATCHES: 'off' } });
+  expect(Object.fromEntries(page.searchParams)).toEqual({ agent: '1', epoch: '0', authFixture: 'http://127.0.0.1:4400', storage: 'drive', hatches: 'off' });
+  const plain = agentPage(new URL('http://127.0.0.1:9/'), { facts: {}, storage: undefined, env: { EXACT_HATCHES: 'on' } });
+  expect(Object.fromEntries(plain.searchParams)).toEqual({ agent: '1' });
+});
 
 test('simulator drives reject --phone and preserve explicit --sim selection', () => {
   for (const host of ['ios', 'host-ios']) {
@@ -166,6 +174,18 @@ test('a web drive takes its port from --port, else EXACT_PORT, and refuses anyth
   expect(parseFlags(['web', '--storage', 'proof', '--reset-storage', 'tree']).flags.resetStorage).toBe(true);
   expect(() => parseFlags(['web', '--keep-storage'])).toThrow('need --storage');
   expect(() => parseFlags(['web', '--storage', 'proof', '--keep-storage', '--reset-storage'])).toThrow('mutually exclusive');
+});
+
+// LLP 1133.007 §7: only the drive's own flags let a program run.
+test('an inherited EXACT_AGENT_PROCESS opens no process gate', () => {
+  process.env.EXACT_AGENT_PROCESS = 'path:sh=real';
+  process.env.EXACT_AGENT_HOME = '/tmp/inherited';
+  parseFlags(['macos', 'tree']);
+  expect(process.env.EXACT_AGENT_PROCESS).toBeUndefined();
+  expect(process.env.EXACT_AGENT_HOME).toBeUndefined();
+  parseFlags(['macos', '--process', 'path:sh=real', 'tree']);
+  expect(process.env.EXACT_AGENT_PROCESS).toBe('path:sh=real');
+  delete process.env.EXACT_AGENT_PROCESS;
 });
 
 // App farm 082: Chrome's fatal line came before a native stack the tail kept instead.
@@ -446,11 +466,21 @@ test('automatic web listeners stay in PORT_LO/PORT_HI and refuse exhaustion', as
 
 test('backend fetch prefixes follow the built origin and refuse ambiguous grants', async () => {
   const {backendFetchPrefixes} = await import('./agent-test.mjs');
-  const tests = () => [{steps: [{op: 'fail-fetch', prefix: 'backend', line: 1}, {op: 'pass-fetch', prefix: 'backend', line: 2}, {op: 'fail-fetch', prefix: 'https://other.example', line: 3}]}];
+  const tests = () => [{steps: [{op: 'fail-fetch', prefix: 'backend', line: 1}, {op: 'pass-fetch', prefix: 'backend', line: 2}, {op: 'fail-fetch', prefix: 'https://other.example', line: 3}, {op: 'fail-fetch', prefix: '/api/items?limit=5', line: 4}]}];
   expect(backendFetchPrefixes(tests(), ['http://127.0.0.1:30125/'])[0].steps.map(s => s.prefix))
-    .toEqual(['http://127.0.0.1:30125', 'http://127.0.0.1:30125', 'https://other.example']);
+    .toEqual(['http://127.0.0.1:30125', 'http://127.0.0.1:30125', 'https://other.example', 'http://127.0.0.1:30125/api/items?limit=5']);
   expect(() => backendFetchPrefixes(tests(), [])).toThrow(/exactly one net.fetch origin/);
   expect(() => backendFetchPrefixes(tests(), ['https://one.example', 'https://two.example'])).toThrow(/literal URL/);
+});
+
+// A `request` path goes where a `/` fault prefix does whenever the selected backend is this machine's.
+test('a selected backend on this machine is a loopback origin or one of its private-network addresses', async () => {
+  const {onThisMachine} = await import('./verify.mjs');
+  const {networkInterfaces} = await import('node:os');
+  const lan = Object.values(networkInterfaces()).flat().find(n => n?.family === 'IPv4' && !n.internal && /^(10|192\.168)\./.test(n.address));
+  expect([onThisMachine('http://127.0.0.1:5138'), onThisMachine('http://localhost:5138'), onThisMachine('http://[::1]:5138')]).toEqual([true, true, true]);
+  expect([onThisMachine('https://discord.com'), onThisMachine('http://10.255.255.254:5138')]).toEqual([false, false]);
+  if (lan) expect(onThisMachine(`http://${lan.address}:5138`)).toBe(true);
 });
 
 test('backend selection changes captured origin and grants while preserving unrelated literals', async () => {
@@ -475,6 +505,45 @@ const other = 'http://127.0.0.1:4400';`;
   for (const value of ['file:///tmp/a', 'https://user:pw@backend.example', 'http://backend.example/path', ''])
     expect(() => backendOrigin('.', {EXACT_BACKEND_ORIGIN: value})).toThrow(/EXACT_BACKEND_ORIGIN/);
   expect(backendOrigin('.', {EXACT_BACKEND_ORIGIN: 'https://backend.example/'})).toBe('https://backend.example');
+});
+
+test('a grant line beginning with development is kept without the word in a development build and left out of a production one', async () => {
+  const {developmentGrants, injectBackendOrigin, staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const plain = "const origin = 'http://127.0.0.1:4400';\nexport const grants = `net.fetch ${origin}\\ndevice.microphone purpose.microphone\\n  development device.calls purpose.calls \\r\\ndevelopment net.fetch ${origin}/media`;\nexport const seen = () => grants;";
+  const joined = "export const grants = ['net.fetch https://a.example', 'development\tdevice.hid'].join('\\n');";
+  const keyed = "export const origin = 'http://127.0.0.1:4790';\nexport const grants = { 'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'development device.hid'], 'https://b.example': 'development net.fetch https://b.example' } as const;";
+  const aliased = "const permissions = 'fs.read app:/data\\ndevelopment device.hid';\nexport { permissions as grants };";
+  // As configure runs them: the backend's selection, then the marker.
+  const lines = (code, env, origin = null) => staticFacts(developmentGrants(injectBackendOrigin(code, origin, parseSync, env), parseSync, env), parseSync).grants.split('\n');
+  for (const env of [{}, {EXACT_UPDATE_TRUST: 'development'}]) {
+    expect(lines(plain, env)).toEqual(['net.fetch http://127.0.0.1:4400', 'device.microphone purpose.microphone', '  device.calls purpose.calls \r', 'net.fetch http://127.0.0.1:4400/media']);
+    expect(lines(joined, env)).toEqual(['net.fetch https://a.example', 'device.hid']);
+    expect(lines(keyed, env)).toEqual(['net.fetch http://127.0.0.1:4790', 'device.hid']);
+    expect(lines(aliased, env)).toEqual(['fs.read app:/data', 'device.hid']);
+    // A kept line's origin moves with the backend's selection as any other's, and so does its neighbours'.
+    const selected = "const origin = 'http://127.0.0.1:4400';\nexport const grants = `net.fetch ${origin}/api\\ndevelopment net.fetch ${origin}\\ndevelopment device.hid`;";
+    expect(lines(selected, env, 'https://backend.example')).toEqual(['net.fetch https://backend.example/api', 'net.fetch https://backend.example', 'device.hid']);
+    expect(lines("const origin = 'http://127.0.0.1:4400';\nexport const grants = 'development net.fetch http://127.0.0.1:4400\\nfs.read app:/data';", env, 'https://backend.example')).toEqual(['net.fetch https://backend.example', 'fs.read app:/data']);
+  }
+  const production = {EXACT_UPDATE_TRUST: 'production'};
+  const selectedProduction = () => "const origin = 'http://127.0.0.1:4400';\nexport const grants = `net.fetch ${origin}/api\\ndevelopment net.fetch ${origin}\\ndevelopment device.hid`;";
+  expect(lines(plain, production)).toEqual(['net.fetch http://127.0.0.1:4400', 'device.microphone purpose.microphone']);
+  expect(lines(joined, production)).toEqual(['net.fetch https://a.example']);
+  expect(lines(keyed, production)).toEqual(['net.fetch http://127.0.0.1:4790']);
+  expect(lines(keyed, production, 'https://b.example')).toEqual(['']);
+  expect(lines(selectedProduction(), production, 'https://backend.example')).toEqual(['net.fetch https://backend.example/api']);
+  // Keyed grants are checked as written before the marker is read: a duplicate key is still refused.
+  expect(() => lines("export const origin = 'http://127.0.0.1:4790';\nexport const grants = { 'http://127.0.0.1:4790': 'development device.hid', 'http://127.0.0.1:4790': 'fs.read app:/data' };", production)).toThrow(/duplicate key/);
+  expect(lines(aliased, production)).toEqual(['fs.read app:/data']);
+  // Only the grants binding's value changes, so the module still reads its own, the build's.
+  const rewritten = developmentGrants(plain, parseSync, production);
+  expect(rewritten.slice(0, rewritten.indexOf('export const grants = '))).toBe(plain.slice(0, plain.indexOf('export const grants = ')));
+  expect(rewritten.endsWith(';\nexport const seen = () => grants;')).toBe(true);
+  expect(parseSync('app.ts', rewritten).errors).toEqual([]);
+  // A grant whose own argument is the word, the bake's trailing local-network modifier, and the word inside a line are not the marker.
+  const unmarked = "export const grants = 'secret.keep development\\ndevice.hid\\nnet.fetch local-network development\\nfs.read app:/development';";
+  expect(developmentGrants(unmarked, parseSync, production)).toBe(unmarked);
 });
 
 test('backend selection moves the socket at the origin\'s host in plain grants', async () => {
@@ -521,19 +590,19 @@ test('keyed grants select an exact origin and become the string native evaluatio
 });
 
 // A phone reaches the fixture on this Mac's LAN address: a development build takes the loopback entry of the same
-// server for it, and a production build refuses it as any origin without an entry.
+// server for it, including a checkout's selected fixture port; production still needs an exact entry.
 test('a development build takes the loopback entry for the same server at a private-network address', async () => {
   const {injectBackendOrigin, staticFacts, privateNetwork} = await import('../js/bake/src/typescript.mjs');
   const {parseSync} = await import('rolldown/utils');
   const paths = backendGrants.replace("'net.fetch http://127.0.0.1:4790', ", "'net.fetch http://127.0.0.1:4790/api/', 'net.fetch http://127.0.0.1:47900', ");
   for (const env of [{}, {EXACT_UPDATE_TRUST: 'development'}]) {
-    for (const lan of ['http://10.0.0.73:4790', 'http://172.20.1.2:4790', 'http://192.168.1.5:4790', 'http://169.254.3.4:4790', 'http://[fd12::1]:4790', 'http://[fe80::1]:4790']) {
+    for (const lan of ['http://10.0.0.73:4790', 'http://10.0.0.73:4791', 'http://127.0.0.1:5789', 'http://localhost:5001', 'http://[::1]:5001', 'http://172.20.1.2:4790', 'http://192.168.1.5:4790', 'http://169.254.3.4:4790', 'http://[fd12::1]:4790', 'http://[fe80::1]:4790']) {
       const host = new URL(lan).host;
       expect(staticFacts(injectBackendOrigin(paths, lan, parseSync, env), parseSync).grants.split('\n'))
         .toEqual([`net.fetch http://${host}/api/`, 'net.fetch http://127.0.0.1:47900', `net.websocket ws://${host}`, 'secret.keep fixture-token']);
     }
-    // Not the same server (another port or scheme), or not a private address: refused as before.
-    for (const other of ['http://10.0.0.73:4791', 'https://10.0.0.73:4790', 'http://8.8.8.8:4790', 'http://172.32.0.1:4790', 'http://[2001:db8::1]:4790', 'http://lan.example:4790'])
+    // Another scheme or a public address needs its own entry.
+    for (const other of ['https://10.0.0.73:4790', 'http://8.8.8.8:4790', 'http://172.32.0.1:4790', 'http://[2001:db8::1]:4790', 'http://lan.example:4790'])
       expect(() => injectBackendOrigin(backendGrants, other, parseSync, env)).toThrow(`no entry for origin "${new URL(other).origin}"`);
   }
   for (const env of [{EXACT_UPDATE_TRUST: 'production'}, {EXACT_UPDATE_TRUST: 'other'}])
@@ -541,6 +610,8 @@ test('a development build takes the loopback entry for the same server at a priv
       .toThrow('app.ts:2:23: grants: no entry for origin "http://10.0.0.73:4790"; keys: "http://127.0.0.1:4790", "https://discord.com", "https://offline.example"');
   const both = backendGrants.replace("  'https://offline.example'", "  'http://localhost:4790': 'secret.keep other',\n  'https://offline.example'");
   expect(() => injectBackendOrigin(both, 'http://10.0.0.73:4790', parseSync, {})).toThrow('is the server of more than one loopback key');
+  expect(() => injectBackendOrigin(both, 'http://127.0.0.1:5001', parseSync, {})).toThrow('is the server of more than one loopback key');
+  expect(() => injectBackendOrigin(backendGrants, 'http://127.0.0.1:5001', parseSync, {EXACT_UPDATE_TRUST:'production'})).toThrow('no entry for origin');
   expect([privateNetwork('http://10.255.0.1'), privateNetwork('http://172.15.0.1'), privateNetwork('http://[fc00::1]'), privateNetwork('http://[::1]')]).toEqual([true, false, true, false]);
 });
 

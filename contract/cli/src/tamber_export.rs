@@ -212,7 +212,9 @@ fn kept_files(dir: &Path) -> Vec<(PathBuf, std::time::SystemTime)> {
 
 #[cfg(test)]
 mod kept_tests {
-    use super::{baselines, kept, KEPT};
+    use super::baselines;
+    #[cfg(unix)]
+    use super::{kept, KEPT};
 
     /// The import's read of the kept baselines: the newest [`KEPT`], none
     /// through a linked directory (stage 10b E2+E3 round 9's leftover).

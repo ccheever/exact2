@@ -174,6 +174,16 @@ extension CALayer {
 }
 
 extension NodeView {
+    /// UIKit puts fitted bitmaps inside a clipping layer; flights and AppKit
+    /// use the image layer itself.
+    var imageContentLayer: CALayer? {
+        #if os(iOS) || os(tvOS)
+        return imageLayer?.contents != nil ? imageLayer : imageLayer?.sublayers?.first
+        #else
+        return imageLayer
+        #endif
+    }
+
     /// A changed `dynamic-range-limit` re-asks this node's layers and re-plans
     /// its HDR picture if the decode no longer matches.
     func syncDynamicRange(from old: NodeStyle) {
@@ -182,7 +192,7 @@ extension NodeView {
         guard kind == "image" else { return }
         presenter?.session?.rasters.rangeChanged(self)
         if let bitmap = raster?.image {
-            imageLayer?.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
+            imageContentLayer?.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
         }
     }
 

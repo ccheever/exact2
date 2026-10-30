@@ -8,6 +8,12 @@
     "app"
   ],
   "properties": {
+    "frame_health": {
+      "type": "object",
+      "description": "Frame callback timing: core enables bounded counters on existing app clocks; production defaults to off. Presentation remains unobserved.",
+      "additionalProperties": false,
+      "properties": { "mode": { "enum": ["off", "core"] } }
+    },
     "modules": {
       "type": "array",
       "description": "The native-module roster (LLP 1024 D1): the custom-element tags the app's module artifact serves (modules/apple/*.swift beside libexact_modules.dylib on Apple, modules/web/index.js on the web). A hyphenated tag in the Contract that this list lacks is bake-unknown-module.",
@@ -51,6 +57,23 @@
         "type": "object",
         "propertyNames": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] },
         "additionalProperties": { "type": "string" }
+      }
+    },
+    "packages": {
+      "description": "Each package's configuration by target (LLP 1133.021 §9 item 7), as its interface's `config` declares it, read at bake and written into the bundle: {\"@exact/maps\": {\"web\": {\"tiles\": \"https://tile.openstreetmap.org/{z}/{x}/{y}.png\"}, \"android\": {\"apiKey\": {\"env\": \"EXACT_GOOGLE_MAPS_API_KEY\"}}}}. A secret is named by the environment variable that holds it, never written here.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              { "type": ["string", "number", "boolean"] },
+              { "type": "object", "properties": { "env": { "type": "string" } }, "required": ["env"], "additionalProperties": false }
+            ]
+          }
+        }
       }
     },
     "gpu": {
@@ -151,6 +174,11 @@
       "description": "What the app does, in a sentence: the web manifest's `description`, which an install prompt or a store listing can show.",
       "type": "string"
     },
+    "privacy_policy": {
+      "description": "The app's privacy policy, an https: URL: the one its App Store and Google Play listings name (LLP 1133.026 D4). HealthKit requires one, and Health Connect's permission screen links to it, so an app granting device.health-read without it is refused for Android (grant-privacy-policy) and warned for iOS.",
+      "type": "string",
+      "pattern": "^https://"
+    },
     "id": {
       "description": "The web app's identity (the web manifest's `id`); usually the same as `app.id`.",
       "type": "string"
@@ -198,9 +226,7 @@
         "portrait-secondary"
       ]
     },
-    "theme_color": {
-      "type": "string"
-    },
+    "theme_color": { "type": "string" },
     "background_color_dark": {
       "type": "string",
       "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
@@ -218,7 +244,7 @@
     },
     "link": {
       "type": "array",
-      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals", "dates"] },
+      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals", "dates"] },
       "uniqueItems": true,
       "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses (and `auth_session` what its grants name) and nothing else, and a bundle that needs more is a new binary. Development links every capability but `media_picker` and `auth_session`, which it links as production would (LLP 1047.001.000 F). Names are the runner's (`exact_runner::Capability::name`)."
     },
@@ -231,18 +257,10 @@
           "src"
         ],
         "properties": {
-          "src": {
-            "type": "string"
-          },
-          "sizes": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "purpose": {
-            "type": "string"
-          }
+          "src": { "type": "string" },
+          "sizes": { "type": "string" },
+          "type": { "type": "string" },
+          "purpose": { "type": "string" }
         },
         "additionalProperties": false
       }
@@ -283,9 +301,7 @@
             "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
             "description": "Literal platform label; no control characters."
           },
-          "preview": {
-            "type": "object"
-          },
+          "preview": { "type": "object" },
           "push": {
             "type": "boolean",
             "default": false
@@ -392,9 +408,7 @@
             },
             "description": "Optional watchOS families; defaults to the accessory families in families."
           },
-          "preview": {
-            "type": "object"
-          }
+          "preview": { "type": "object" }
         }
       }
     },
@@ -424,6 +438,97 @@
         }
       }
     },
+    "shortcuts": {
+      "type": "array",
+      "description": "The Web App Manifest's shortcuts: the app icon's menu, fixed per binary (LLP 1133.023 D3). Each opens its url at the navigation root, which the app must have. iOS shows them as Home Screen quick actions, Android as static app shortcuts, Windows as jump list tasks, Linux as the desktop entry's actions, the Mac in the Dock menu, and a browser where it supports them. The app's own list, set by setAppShortcuts, follows these.",
+      "items": {
+        "type": "object",
+        "required": ["name", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "short_name": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "url": { "type": "string", "pattern": "^/(?!/)" },
+          "icons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["src"],
+              "additionalProperties": false,
+              "properties": { "src": { "type": "string", "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*://)" }, "sizes": { "type": "string" }, "type": { "type": "string" } }
+            }
+          },
+          "apple": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": { "symbol": { "type": "string", "minLength": 1, "description": "An SF Symbol name for the Home Screen quick action's icon." } }
+          },
+          "android": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "rank": { "type": "number", "minimum": 0 },
+              "disabledMessage": { "type": "string", "minLength": 1, "description": "What a pinned copy says once the app's list no longer has it." }
+            }
+          }
+        }
+      }
+    },
+    "intents": {
+      "type": "object",
+      "description": "Faces: the app's tools offered to the system's callers, compiled into each native binary (LLP 1133.023 D8). A tool with no face is offered to none of them. A face's tool must exist; its parameters are strings, numbers or bools, and a destroys tool's face names only the apple door (D10).",
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "type": "object",
+          "description": "Each content-index kind a parameter may name, with its type's name as the system shows it (D9).",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["title"],
+            "additionalProperties": false,
+            "properties": { "title": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "tools": {
+          "type": "object",
+          "description": "Each faced tool, by its `tool` line's name.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["title"],
+            "additionalProperties": false,
+            "properties": {
+              "title": { "type": "string", "minLength": 1, "description": "The action's constant title, as Shortcuts lists it." },
+              "parameters": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "title": { "type": "string", "minLength": 1 },
+                    "entity": { "type": "string", "minLength": 1, "description": "A kind of intents.entities: the system offers that kind's entries, and passes the entry's id." },
+                    "type": { "enum": ["integer"], "description": "A number parameter the system asks for as a whole number." }
+                  }
+                }
+              },
+              "apple": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "phrases": { "type": "array", "items": { "type": "string", "pattern": "\\$\\{applicationName\\}" }, "description": "App Shortcuts phrases; each names ${applicationName}." },
+                  "authentication": { "enum": ["required", "local", "always"], "description": "Who may run it on a locked device (D10). Defaults to required." }
+                }
+              },
+              "doors": {
+                "type": "array",
+                "items": { "enum": ["apple", "android", "web"] },
+                "description": "The doors that offer it. Defaults to every door, or apple alone for a destroys tool."
+              }
+            }
+          }
+        }
+      }
+    },
     "file_handlers": {
       "type": "array",
       "description": "The W3C Web App Manifest's file handling declaration: what this app opens. The Apple bake derives `CFBundleDocumentTypes` from it (LLP 1033 D1), and a browser reads the same key.",
@@ -434,24 +539,70 @@
           "accept"
         ],
         "properties": {
-          "action": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
+          "action": { "type": "string" },
+          "name": { "type": "string" },
           "accept": {
             "type": "object",
             "additionalProperties": {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             }
           }
         },
         "additionalProperties": false
       }
+    },
+    "share_target": {
+      "type": "object",
+      "description": "The Web App Manifest's share target: this app in other apps' share sheets (LLP 1133.024 D1). A share arrives as one location, `action` with the shared members under the names `params` gives them; files by a token that `sharedFiles(entry, name)` reads. The Apple bake derives a share extension, Android intent filters; the published web member is always GET with the text members only.",
+      "required": ["action", "params"],
+      "properties": {
+        "action": { "type": "string", "pattern": "^/", "description": "A path one of the app's routes matches." },
+        "method": { "enum": ["GET", "POST"] },
+        "enctype": { "enum": ["application/x-www-form-urlencoded", "multipart/form-data"] },
+        "params": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string", "minLength": 1 },
+            "text": { "type": "string", "minLength": 1 },
+            "url": { "type": "string", "minLength": 1 },
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["name", "accept"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "accept": { "oneOf": [{ "type": "string" }, { "type": "array", "minItems": 1, "items": { "type": "string" } }] }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "apple": {
+          "type": "object",
+          "description": "Apple's words (D6): `NSExtensionActivationRule` beats the derived rule; `postTitle` is a strings key for the compose sheet's post button.",
+          "properties": {
+            "NSExtensionActivationRule": { "oneOf": [{ "type": "string" }, { "type": "object" }] },
+            "postTitle": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "android": {
+          "type": "object",
+          "properties": { "mimeTypes": { "type": "array", "items": { "type": "string", "pattern": "^[a-z*]+/[a-z0-9.+*-]+$" } } },
+          "additionalProperties": false
+        },
+        "windows": {
+          "type": "object",
+          "properties": { "dataFormats": { "type": "array", "items": { "enum": ["Text", "Uri", "StorageItems", "Bitmap", "Html", "Rtf"] } } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "launch_handler": {
       "type": "object",
@@ -477,7 +628,8 @@
         "id": {
           "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>-<six hex digits>, unique to the app; change it before distributing.",
           "type": "string",
-          "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
+          "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$",
+          "x-hint": "every dot-separated part starts with a letter, since this one id is also the Android package and the Linux app id, which require that (Apple alone allows a leading digit). Put a letter before a part that starts with a digit, as in com.example.x2048, and use that id everywhere; nothing else needs changing."
         },
         "name": {
           "description": "The name a native host shows: the menu bar, the app switcher, Finder.",
@@ -535,9 +687,7 @@
         "link": {
           "type": "array",
           "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
-          "items": {
-            "type": "string"
-          }
+          "items": { "type": "string" }
         },
             "deviceFamily": {
               "type": "array",
@@ -556,12 +706,16 @@
               ]
             },
             "appTransportSecurity": {
-              "description": "App Transport Security keys the build writes into the iOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host. `localNetworking` adds `NSAllowsLocalNetworking` beside these.",
+              "description": "App Transport Security keys the build writes into the iOS Info.plist's `NSAppTransportSecurity`, and into tvOS's, which has no WebKit and takes only `allowsArbitraryLoads`. Absent: no key, and ATS refuses cleartext `http://` to a named host. `localNetworking` adds `NSAllowsLocalNetworking` beside these, unless `allowsArbitraryLoads` is set.",
               "type": "object",
               "properties": {
                 "allowsArbitraryLoadsInWebContent": {
                   "type": "boolean",
-                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Store review requires a justification."
+                },
+                "allowsArbitraryLoads": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoads`: ATS is off for every connection the app makes. Its own `fetch` reaches `http://` at any host its grants admit (`net.fetch http:`, for a server the person names), and an `iframe` loads as with `allowsArbitraryLoadsInWebContent`. Written alone, since ATS ignores it beside `NSAllowsArbitraryLoadsInWebContent` or `NSAllowsLocalNetworking`, which it covers. Every build carries it, store builds too, and App Store review requires a justification."
                 }
               },
               "additionalProperties": false
@@ -600,9 +754,7 @@
             "urlSchemes": {
               "type": "array",
               "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             },
             "queriesSchemes": {
               "description": "Other apps' URL schemes a native module may ask `canOpenURL` about, to see whether the app is installed (Info.plist's LSApplicationQueriesSchemes): iOS answers false for any scheme not listed, and honours at most 50. A scheme as RFC 3986 writes it, without `:`.",
@@ -613,9 +765,28 @@
                 "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$"
               }
             },
-            "team": {
-              "type": "string"
-            }
+            "nfc": {
+              "description": "The NFC tag reader session's lists (LLP 1133.035 D11), written to Info.plist: `iso7816Identifiers`, the ISO 7816 application identifiers (hex) a tag session selects, and `felicaSystemCodes`, the FeliCa system codes it polls for (never the wildcard FF). Core NFC reports no ISO 7816 or FeliCa tag the app does not list.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "iso7816Identifiers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^([0-9A-Fa-f]{2}){5,16}$"
+                  }
+                },
+                "felicaSystemCodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(?![Ff]{4}$)[0-9A-Fa-f]{4}$"
+                  }
+                }
+              }
+            },
+            "team": { "type": "string" }
           },
           "additionalProperties": false
         },
@@ -623,6 +794,10 @@
           "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
+            "presenter": {
+              "enum": ["native", "painted"],
+              "description": "Absent: native. Painted builds the app’s <macos-crate>-painted binary as a benchmark carrier; distribution is refused until LLP 1149’s accessibility gate."
+            },
             "icon": {
               "type": "string",
               "minLength": 1,
@@ -643,6 +818,10 @@
               "description": "The oldest macOS the app runs on, as \"14.0\"; never below 14.0.",
               "type": "string"
             },
+            "activationPolicy": {
+              "enum": ["regular", "accessory"],
+              "description": "\"accessory\": a menu-bar app (LLP 1133.025 D6), written as LSUIElement: no Dock tile and no menu bar of its own, and every launch opens no window; a `-exact-menu=\"status\"` button is how the person reaches it, and `focus()` shows its window. Absent: regular."
+            },
             "optimize": {
               "enum": ["speed", "size"],
               "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
@@ -658,9 +837,7 @@
         "link": {
           "type": "array",
           "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
-          "items": {
-            "type": "string"
-          }
+          "items": { "type": "string" }
         },
             "appTransportSecurity": {
               "description": "App Transport Security keys the build writes into the macOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host.",
@@ -668,20 +845,20 @@
               "properties": {
                 "allowsArbitraryLoadsInWebContent": {
                   "type": "boolean",
-                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Store review requires a justification."
+                },
+                "allowsArbitraryLoads": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoads`: ATS is off for every connection the app makes. Its own `fetch` reaches `http://` at any host its grants admit (`net.fetch http:`, for a server the person names), and an `iframe` loads as with `allowsArbitraryLoadsInWebContent`. Written alone, since ATS ignores it beside `NSAllowsArbitraryLoadsInWebContent` or the `NSAllowsLocalNetworking` a `local-network` grant derives, which it covers. Every build carries it, store builds too, and App Store review requires a justification."
                 }
               },
               "additionalProperties": false
             },
-            "team": {
-              "type": "string"
-            },
+            "team": { "type": "string" },
             "urlSchemes": {
               "type": "array",
               "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             },
             "window": {
               "type": "object",
@@ -717,9 +894,13 @@
           "additionalProperties": false
         },
         "android": {
-          "description": "Android: `minimumOS` (default 12), and `certificates` for the origin's `assetlinks.json`.",
+          "description": "Android: the painter, `minimumOS` (default 12), and `certificates` for the origin's `assetlinks.json`.",
           "type": "object",
           "properties": {
+            "painter": {
+              "enum": ["ink"],
+              "description": "Opt into ink (LLP 1149 D12); absent: the current painter, with `EXACT_PAINTER` overriding the choice, and ink refused until its Vulkan presenter is implemented."
+            },
             "minimumOS": {
               "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
               "enum": ["10", "11", "12", "13", "14", "15", "16"]
@@ -733,14 +914,24 @@
           "additionalProperties": false
         },
         "linux": {
-          "description": "The Linux host has no settings yet; an empty object.",
+          "description": "Linux: the painter.",
           "type": "object",
+          "properties": {
+            "painter": {
+              "enum": ["ink"],
+              "description": "Opt into ink (LLP 1149 D12); absent: the GPU painter when available, otherwise the CPU, with `EXACT_PAINTER` overriding the choice."
+            }
+          },
           "additionalProperties": false
         },
         "windows": {
-          "description": "Windows: the `window` it opens in.",
+          "description": "Windows: the painter and the `window` it opens in.",
           "type": "object",
           "properties": {
+            "painter": {
+              "enum": ["ink"],
+              "description": "Opt into ink's DirectX 11 composition swap chain (LLP 1149 D12); absent: the CPU painter, with `EXACT_PAINTER` overriding the choice."
+            },
             "window": {
               "description": "In logical pixels (effective pixels, as WinUI's). Absent: 1280 by 720, with no minimum. `EXACT_SIZE` overrides the size.",
               "type": "object",
@@ -748,7 +939,8 @@
                 "width": { "type": "number", "minimum": 1, "maximum": 16384 },
                 "height": { "type": "number", "minimum": 1, "maximum": 16384 },
                 "minWidth": { "type": "number", "minimum": 1, "maximum": 16384 },
-                "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 }
+                "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "keepRunning": { "type": "boolean", "description": "Closing the window hides it while a `-exact-menu=\"status\"` button is placed in the notification area, as a tray app's does (LLP 1133.025 D4); with none placed, closing ends the app. Absent: false." }
               },
               "additionalProperties": false
             }
@@ -767,17 +959,11 @@
       "description": "How the app is delivered and updated (LLP 1030.000): policy, never identity. `exact new` writes only `store`.",
       "type": "object",
       "properties": {
-        "origin": {
-          "$ref": "#/$defs/cadence"
-        },
-        "bundles": {
-          "$ref": "#/$defs/cadence"
-        },
+        "origin": { "$ref": "#/$defs/cadence" },
+        "bundles": { "$ref": "#/$defs/cadence" },
         "binaries": {
           "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/cadenceOrOff"
-          }
+          "additionalProperties": { "$ref": "#/$defs/cadenceOrOff" }
         },
         "release": {
           "type": "object",
@@ -792,9 +978,7 @@
         },
         "phased": {
           "type": "object",
-          "additionalProperties": {
-            "type": "boolean"
-          }
+          "additionalProperties": { "type": "boolean" }
         },
         "store": {
           "description": "Per platform (web, macos, ios, linux), whether an installed app has an update store: \"0\" links none, so every change ships as a new binary; \"A\" links the store, so signed plans and assets update over the air (LLP 1030 D4). `exact new` writes \"0\" everywhere: signed TypeScript and Rust module delivery isn't implemented.",
@@ -816,12 +1000,8 @@
               "compatibilityId"
             ],
             "properties": {
-              "channel": {
-                "type": "string"
-              },
-              "compatibilityId": {
-                "type": "string"
-              }
+              "channel": { "type": "string" },
+              "compatibilityId": { "type": "string" }
             },
             "additionalProperties": false
           }
@@ -829,9 +1009,7 @@
         "channels": {
           "description": "Each channel's update origin: a directory or URL, or \"appdrop\" for AppDrop's origin named after deploy.signing.key (https://appdrop.app/u/<key id>), which needs no account or server.",
           "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+          "additionalProperties": { "type": "string" }
         },
         "activate": {
           "type": "string",
@@ -849,9 +1027,7 @@
               "exclusiveMinimum": 0,
               "description": "Seconds between foreground update checks; defaults to 900 under every activation policy."
             },
-            "background": {
-              "type": "boolean"
-            }
+            "background": { "type": "boolean" }
           },
           "additionalProperties": false
         },
@@ -863,19 +1039,13 @@
               "message"
             ],
             "properties": {
-              "message": {
-                "type": "string"
-              },
-              "store": {
-                "type": "string"
-              }
+              "message": { "type": "string" },
+              "store": { "type": "string" }
             },
             "additionalProperties": false
           }
         },
-        "brownfield": {
-          "type": "boolean"
-        },
+        "brownfield": { "type": "boolean" },
         "appdrop": {
           "description": "Publish iOS binary changes to AppDrop, after the streams (`scripts/deploy-appdrop.mjs`). `{}` makes the first such deploy create the link and write its `url` here, to commit. The update key stays out of app.json: $APPDROP_MANAGE_KEY, or the one the appdrop CLI saved. The install page offers the link for iOS when install.ios names no methods.",
           "type": "object",
@@ -893,9 +1063,7 @@
             },
             "keys": {
               "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              },
+              "additionalProperties": { "type": "string" },
               "description": "Verification keys by id, each an Ed25519 public key as base64 of its 32 raw bytes; baked into the binary and part of the compatibility id (LLP 1026 D11; 1030 D3a)."
             }
           },
@@ -912,37 +1080,23 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "web": {
-          "$ref": "#/$defs/installPlatform"
-        },
-        "ios": {
-          "$ref": "#/$defs/installPlatform"
-        },
-        "macos": {
-          "$ref": "#/$defs/installPlatform"
-        }
+        "web": { "$ref": "#/$defs/installPlatform" },
+        "ios": { "$ref": "#/$defs/installPlatform" },
+        "macos": { "$ref": "#/$defs/installPlatform" }
       }
     },
     "brand": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "logo": {
-          "type": "string"
-        },
+        "logo": { "type": "string" },
         "wordmark": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": {
-              "type": "string"
-            },
-            "text": {
-              "type": "string"
-            },
-            "font": {
-              "type": "string"
-            },
+            "image": { "type": "string" },
+            "text": { "type": "string" },
+            "font": { "type": "string" },
             "weight": {
               "type": "number",
               "minimum": 100,
@@ -968,12 +1122,8 @@
         {
           "type": "object",
           "properties": {
-            "mode": {
-              "$ref": "#/$defs/rustMode"
-            },
-            "dev": {
-              "$ref": "#/$defs/rustChoice"
-            },
+            "mode": { "$ref": "#/$defs/rustMode" },
+            "dev": { "$ref": "#/$defs/rustChoice" },
             "prod": {
               "$ref": "#/$defs/rustChoice"
             },
@@ -1048,6 +1198,14 @@
     "tamber": {
       "type": "string",
       "description": "The app's design (LLP 1121 D2): a `.tamber` file, relative to app.json. Without it, `app.tamber` beside app.contract is the design when there is one."
+    },
+    "purchases": {
+      "type": "object",
+      "description": "In-app purchases (LLP 1133.015 §9). `catalog`: a JSON file of the Digital Goods API's `ItemDetails`, relative to app.json, which the synthetic store sells under the agent; its ids are the products configured in App Store Connect and Play Console.",
+      "properties": {
+        "catalog": { "type": "string" }
+      },
+      "additionalProperties": false
     },
     "strings": {
       "type": "object",
@@ -1167,9 +1325,7 @@
             "schedule"
           ],
           "properties": {
-            "schedule": {
-              "type": "string"
-            }
+            "schedule": { "type": "string" }
           },
           "additionalProperties": false
         }
@@ -1191,9 +1347,7 @@
             "schedule"
           ],
           "properties": {
-            "schedule": {
-              "type": "string"
-            }
+            "schedule": { "type": "string" }
           },
           "additionalProperties": false
         }
@@ -1206,9 +1360,7 @@
         "methods"
       ],
       "properties": {
-        "recommended": {
-          "type": "string"
-        },
+        "recommended": { "type": "string" },
         "methods": {
           "type": "array",
           "items": {
@@ -1230,9 +1382,7 @@
                 "type": "string",
                 "minLength": 1
               },
-              "url": {
-                "type": "string"
-              }
+              "url": { "type": "string" }
             }
           }
         }

@@ -1,0 +1,76 @@
+{
+  "kind": "interface",
+  "name": "@exact/text-detection",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "TextDetectorAvailability": {
+      "availability": "enum<unavailable|downloadable|downloading|available>",
+      "reason": "option<enum<device-not-eligible|not-enabled|model-not-ready|unsupported-options|os|policy|disk|not-supported>>",
+      "languages": "string[]",
+      "apple": "option<AppleTextDetector>",
+      "android": "option<AndroidTextDetector>"
+    },
+    "Rect": {
+      "x": "number",
+      "y": "number",
+      "width": "number",
+      "height": "number"
+    },
+    "Point": {
+      "x": "number",
+      "y": "number"
+    },
+    "DetectedText": {
+      "rawValue": "string",
+      "boundingBox": "Rect",
+      "cornerPoints": "Point[]",
+      "apple": "option<AppleDetectedText>",
+      "android": "option<AndroidDetectedText>"
+    },
+    "DetectedTextList": {
+      "texts": "DetectedText[]",
+      "width": "number",
+      "height": "number"
+    }
+  },
+  "names": [
+    {
+      "source": "textDetectorAvailability",
+      "live": true,
+      "options": {
+        "languages": "option<string[]>"
+      },
+      "answers": "TextDetectorAvailability",
+      "sync": {
+        "name": "textDetectorAvailabilitySync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "availability": "unavailable",
+          "reason": "not-supported",
+          "languages": []
+        }
+      }
+    },
+    {
+      "send": "detectText",
+      "options": {
+        "image": {
+          "type": "path",
+          "access": "read"
+        },
+        "languages": "option<string[]>"
+      },
+      "answers": "DetectedTextList",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows"
+        ]
+      }
+    }
+  ]
+}

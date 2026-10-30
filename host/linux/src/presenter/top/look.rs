@@ -1,4 +1,5 @@
-//! Material 3's basic dialog and its menu, measured and painted (LLP
+//! Platform dialogs and menus, measured and painted. Windows uses WinUI
+//! metrics; Android uses Material 3 (LLP
 //! 1115.001 D10, D1.3): the two surfaces the top layer shows on Android.
 //! Painted, not built of framework widgets: the window is the platform's
 //! (`Dialog`, `PopupWindow`), and what is in it is drawn here from the
@@ -14,9 +15,12 @@ use super::shape::{Plan, Row};
 use crate::paint::{rgba, Backend, Ink, Rect4, Shape, SvgPaint};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use exact_kernel::style::roles;
-use exact_kernel::{ColorValue, StyleProps, TextAlign, ViewId, WhiteSpace};
+use exact_kernel::{ColorValue, StyleProps, SymbolSet, TextAlign, ViewId, WhiteSpace};
 use std::rc::Rc;
 use tiny_skia::Transform;
+
+mod menu;
+mod windows;
 
 /// A Material colour role, read through the role of Exact's that LLP
 /// 1115.001 D4's table gives it (`presenter/palette.rs`): the device's
@@ -93,6 +97,8 @@ pub(in crate::presenter) const STATE_LAYER: f32 = 0.10;
 pub struct Inputs {
     /// The scheme is dark.
     pub dark: bool,
+    /// The system contrast theme, independent of light or dark appearance.
+    pub contrast: Option<crate::presenter::ContrastPalette>,
     /// The person's font scale.
     pub font_scale: f32,
     /// The window it is shown over, points.
@@ -104,6 +110,13 @@ enum Item {
     Text(Rc<Paragraph>, (f32, f32), [u8; 4], ViewId),
     Rule(Rect4, [u8; 4]),
     Symbol(String, Rect4, [u8; 4]),
+}
+
+#[derive(Clone, Copy, Default)]
+pub(in crate::presenter) struct Feedback {
+    pub pressed: Option<usize>,
+    pub focused: Option<usize>,
+    pub hovered: Option<usize>,
 }
 
 /// A row as it can be touched: its box, the authored node it stands for,
@@ -129,9 +142,15 @@ pub struct Layout {
     /// See `radius`.
     pub elevation: f32,
     container: [u8; 4],
+    border: Option<[u8; 4]>,
+    contrast: Option<crate::presenter::ContrastPalette>,
     items: Vec<Item>,
     /// The rows, in the plan's order.
     pub targets: Vec<Target>,
+    windows: Option<windows::Content>,
+    menu: Option<menu::Scroll>,
+    /// Whose shapes its symbols take: WinUI's on the desktop, else Material's.
+    symbols: SymbolSet,
 }
 
 pub(in crate::presenter) fn paragraph(
@@ -166,11 +185,13 @@ impl Layout {
     /// Each text it draws, by the node it stands for, with its box in the
     /// surface, points: what an accessibility service reads there.
     pub fn texts(&self) -> Vec<(ViewId, Rect4)> {
-        (self.items.iter())
+        self.items
+            .iter()
             .filter_map(|item| match item {
                 Item::Text(p, at, _, source) => Some((*source, (at.0, at.1, p.width, p.height))),
                 _ => None,
             })
+            .chain(self.windows.iter().flat_map(|content| content.texts()))
             .collect()
     }
 
@@ -189,55 +210,158 @@ impl Layout {
                 pop,
                 inputs,
             ),
-            Plan::Menu(entries) => menu(engine, entries, inputs),
+            Plan::Menu(entries) => menu(engine, entries, inputs, false),
+        }
+    }
+
+    /// Windows' ContentDialog and MenuFlyout presentation.
+    pub fn desktop(engine: &mut TextEngine, plan: &Plan, pop: ViewId, inputs: &Inputs) -> Layout {
+        match plan {
+            Plan::Menu(entries) => menu(engine, entries, inputs, true),
+            Plan::Alert {
+                title,
+                message,
+                rows,
+                ..
+            } => windows::alert(
+                engine,
+                (title.as_deref(), message.as_deref()),
+                rows,
+                pop,
+                inputs,
+            ),
         }
     }
 
     /// The row at a point of the surface.
     pub fn target_at(&self, x: f32, y: f32) -> Option<usize> {
+        if self.menu_clip().is_some_and(|r| !menu::contains(r, x, y)) {
+            return None;
+        }
         self.targets.iter().position(|t| {
             x >= t.rect.0 && y >= t.rect.1 && x < t.rect.0 + t.rect.2 && y < t.rect.1 + t.rect.3
         })
     }
 
     /// Paint the surface into `backend`, its top left at the origin:
-    /// the container, the state layer of each row in `lit` (the one
-    /// pressed, the one a keyboard focused), then what it says.
-    pub fn paint(&self, backend: &mut dyn Backend, engine: &mut TextEngine, lit: &[usize]) {
+    /// the container, each control's feedback, then its text.
+    pub fn paint(&self, backend: &mut dyn Backend, engine: &mut TextEngine, feedback: Feedback) {
         let ts = Transform::identity();
         let container = Shape::new((0.0, 0.0, self.size.0, self.size.1), [self.radius; 4]);
         backend.fill(&container, self.container, ts);
-        for target in lit.iter().filter_map(|i| self.targets.get(*i)) {
+        if let Some(content) = &self.windows {
+            content.paint(backend, engine, &container);
+        }
+        if let Some(border) = self.border {
+            for part in crate::paint::border::border_fills(
+                &container,
+                [if self.contrast.is_some() { 2. } else { 1. }; 4],
+                [border; 4],
+            ) {
+                backend.fill_border(&part, ts);
+            }
+        }
+        if let Some(content) = &self.windows {
+            content.paint_buttons(backend, &self.targets, feedback);
+        }
+        if let Some(clip) = self.menu_clip() {
+            backend.push_clip(&container, ts);
+            backend.push_clip(&Shape::rect(clip), ts);
+        }
+        let lit = feedback.focused.into_iter().chain(
+            feedback
+                .pressed
+                .filter(|i| self.windows.is_none() && Some(*i) != feedback.focused),
+        );
+        for target in lit.filter_map(|i| self.targets.get(i)) {
             let (shape, mut tint) = target.layer;
-            tint[3] = (f32::from(tint[3]) * STATE_LAYER).round() as u8;
+            if self.windows.is_some() {
+                let (x, y, w, h) = target.rect;
+                let ring = Shape::new((x - 3., y - 3., w + 6., h + 6.), [7.; 4]);
+                for part in crate::paint::border::border_fills(&ring, [2.; 4], [tint; 4]) {
+                    backend.fill_border(&part, ts);
+                }
+                continue;
+            }
+            if let Some(palette) = self.contrast {
+                tint = palette.highlight;
+            } else {
+                tint[3] = (f32::from(tint[3]) * STATE_LAYER).round() as u8;
+            }
             backend.fill(&shape, tint, ts);
         }
         for item in &self.items {
             match item {
                 Item::Text(paragraph, at, color, source) => {
+                    let color = self
+                        .windows
+                        .as_ref()
+                        .and_then(|content| {
+                            feedback
+                                .pressed
+                                .or(feedback.hovered.filter(|_| self.contrast.is_some()))
+                                .and_then(|i| self.targets.get(i))
+                                .filter(|target| target.node == *source && target.enabled)
+                                .map(|_| content.pressed_ink())
+                        })
+                        .or_else(|| {
+                            self.contrast
+                                .filter(|_| {
+                                    self.windows.is_none()
+                                        && self.targets.iter().enumerate().any(|(i, t)| {
+                                            t.node == *source
+                                                && t.enabled
+                                                && (feedback.focused == Some(i)
+                                                    || feedback.pressed == Some(i))
+                                        })
+                                })
+                                .map(|p| p.highlighted_text)
+                        })
+                        .unwrap_or(*color);
                     let paint = [RunPaint {
-                        color: *color,
+                        color,
                         source: *source,
                     }];
                     backend.text(engine, paragraph, &paint, *at, ts);
                 }
                 Item::Rule(rect, color) => backend.fill(&Shape::rect(*rect), *color, ts),
-                Item::Symbol(role, rect, color) => symbol(backend, role, *rect, *color),
+                Item::Symbol(role, rect, color) => {
+                    let color = self
+                        .contrast
+                        .filter(|_| {
+                            self.windows.is_none()
+                                && self.targets.iter().enumerate().any(|(i, t)| {
+                                    t.enabled
+                                        && rect.1 >= t.rect.1
+                                        && rect.1 < t.rect.1 + t.rect.3
+                                        && (feedback.focused == Some(i)
+                                            || feedback.pressed == Some(i))
+                                })
+                        })
+                        .map_or(*color, |p| p.highlighted_text);
+                    symbol(backend, role, *rect, color, self.symbols);
+                }
             }
+        }
+        if self.menu.is_some() {
+            backend.pop_clip();
+            backend.pop_clip();
+            self.paint_menu_scrollbar(backend);
         }
     }
 }
 
-/// A symbol role's path in `rect`, as the page draws one at a regular
-/// weight (`paint/svg.rs`): stroked, or filled for a `-fill` role.
+/// A symbol role's path in `rect`, in `set`'s shape, as the page draws one
+/// at a regular weight (`paint/svg.rs`): stroked, or filled.
 pub(in crate::presenter) fn symbol(
     backend: &mut dyn Backend,
     role: &str,
     rect: Rect4,
     color: [u8; 4],
+    set: SymbolSet,
 ) {
     // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
-    let Some(path) = exact_kernel::symbol_path(role) else {
+    let Some(path) = exact_kernel::symbol_path_in(role, set) else {
         return;
     };
     // A translucent colour once over all an icon's paths.
@@ -264,17 +388,6 @@ pub(in crate::presenter) fn symbol(
     if group {
         backend.pop_opacity();
     }
-}
-
-/// A 24-unit path in `rect`: stroked as a symbol role's is, or filled.
-pub(in crate::presenter) fn glyph(
-    backend: &mut dyn Backend,
-    d: &str,
-    filled: bool,
-    rect: Rect4,
-    color: [u8; 4],
-) {
-    glyph_in(backend, d, filled, true, "0 0 24 24", rect, color);
 }
 
 /// A path in `rect` under its viewBox, stroked in a role's 24 units, or filled.
@@ -391,75 +504,148 @@ fn alert(
         radius: 28.0,
         elevation: 0.0,
         container: Role::SurfaceContainerHigh.color(dark),
+        border: None,
+        contrast: None,
         items,
         targets: targets.into_iter().flatten().collect(),
+        windows: None,
+        menu: None,
+        symbols: SymbolSet::Material,
     }
 }
 
 /// Material's menu: 48 dp rows, each a label with a leading symbol where
 /// its button has one (a check where it is `aria-checked`), a destructive
 /// row in the error role, and a line where the author wrote a separator.
-fn menu(engine: &mut TextEngine, entries: &[Option<Row>], inputs: &Inputs) -> Layout {
+fn menu(
+    engine: &mut TextEngine,
+    entries: &[Option<Row>],
+    inputs: &Inputs,
+    desktop: bool,
+) -> Layout {
     let (dark, scale) = (inputs.dark, inputs.font_scale);
-    let widest = MENU_WIDTH.1.min(inputs.window.0);
+    // WinUI's MenuFlyout_themeresources.xaml: narrow input padding, 16 px
+    // icons, 28 px placeholder, and a 4,2,4,2 item margin.
+    // https://github.com/microsoft/microsoft-ui-xaml/blob/winui3/main/controls/dev/CommonStyles/MenuFlyout_themeresources.xaml
+    let inset = if desktop { 16. } else { MENU_INSET };
+    let padding = if desktop { 2. } else { MENU_PADDING };
+    let symbol = if desktop { 16. } else { MENU_SYMBOL };
+    let margin = if desktop { 2. } else { 0. };
+    let rule = if desktop { (1., 3.) } else { MENU_RULE };
+    let range = if desktop { (120., 328.) } else { MENU_WIDTH };
+    let widest = range.1.min(inputs.window.0);
     let lead = |row: &Row| match (&row.symbol, row.checked) {
         (Some(symbol), _) => Some(symbol.clone()),
         (None, true) => Some("checkmark".to_string()),
         (None, false) => None,
     };
-    let indent = |row: &Row| match lead(row) {
-        Some(_) => MENU_SYMBOL + MENU_INSET,
-        None => 0.0,
+    let has_symbols = entries.iter().flatten().any(|r| lead(r).is_some());
+    let indent = |row: &Row| {
+        if desktop {
+            if has_symbols {
+                28.
+            } else {
+                0.
+            }
+        } else {
+            match lead(row) {
+                Some(_) => MENU_SYMBOL + MENU_INSET,
+                None => 0.0,
+            }
+        }
     };
     let labels: Vec<Option<Rc<Paragraph>>> = (entries.iter())
         .map(|entry| {
             let row = entry.as_ref()?;
-            let room = widest - 2.0 * MENU_INSET - indent(row);
-            Some(label(engine, &row.title, scale, room.max(1.0)))
+            let room = widest - 2.0 * inset - indent(row);
+            Some(if desktop {
+                let p = paragraph(engine, &row.title, Type(14., 20., 400, 0.), scale, None);
+                p.ellipsized(room.max(1.)).unwrap_or(p)
+            } else {
+                label(engine, &row.title, scale, room.max(1.0))
+            })
         })
         .collect();
     let content = (entries.iter().zip(&labels))
         .filter_map(|(entry, p)| Some(indent(entry.as_ref()?) + p.as_ref()?.width))
         .fold(0.0, f32::max);
-    let width = (content + 2.0 * MENU_INSET).clamp(MENU_WIDTH.0.min(widest), widest);
+    let width = (content + 2.0 * inset).clamp(range.0.min(widest), widest);
     let (mut items, mut targets) = (Vec::new(), Vec::new());
-    let mut y = MENU_PADDING;
+    let mut y = padding;
     for (entry, p) in entries.iter().zip(labels) {
         let (Some(row), Some(p)) = (entry, p) else {
-            let line = (0.0, y + MENU_RULE.1, width, MENU_RULE.0);
+            let line = (0.0, y + rule.1, width, rule.0);
             items.push(Item::Rule(line, Role::OutlineVariant.color(dark)));
-            y += MENU_RULE.0 + 2.0 * MENU_RULE.1;
+            y += rule.0 + 2.0 * rule.1;
             continue;
         };
-        let tall = (p.height + 16.0).max(MENU_ROW);
+        y += margin;
+        let tall = if desktop {
+            (p.height + 9.).max(28.)
+        } else {
+            (p.height + 16.0).max(MENU_ROW)
+        };
         let (ink, tint) = match (row.enabled, row.destructive) {
             (false, _) => (Role::Disabled, Role::Disabled),
             (true, true) => (Role::Error, Role::Error),
             (true, false) => (Role::OnSurface, Role::OnSurfaceVariant),
         };
+        let ink = inputs.contrast.filter(|_| desktop).map_or_else(
+            || ink.color(dark),
+            |p| if row.enabled { p.text } else { p.disabled },
+        );
+        let tint = inputs.contrast.filter(|_| desktop).map_or_else(
+            || tint.color(dark),
+            |p| if row.enabled { p.text } else { p.disabled },
+        );
         if let Some(role) = lead(row) {
-            let at = (MENU_INSET, y + (tall - MENU_SYMBOL) / 2.0);
-            let rect = (at.0, at.1, MENU_SYMBOL, MENU_SYMBOL);
-            items.push(Item::Symbol(role, rect, tint.color(dark)));
+            let at = (inset, y + (tall - symbol) / 2.0);
+            let rect = (at.0, at.1, symbol, symbol);
+            items.push(Item::Symbol(role, rect, tint));
         }
-        let at = (MENU_INSET + indent(row), y + (tall - p.height) / 2.0);
-        items.push(Item::Text(p, at, ink.color(dark), row.node));
-        let rect = (0.0, y, width, tall);
+        let at = (inset + indent(row), y + (tall - p.height) / 2.0);
+        items.push(Item::Text(p, at, ink, row.node));
+        let rect = if desktop {
+            (4., y, width - 8., tall)
+        } else {
+            (0., y, width, tall)
+        };
         targets.push(Target {
             rect,
             node: row.node,
             enabled: row.enabled,
-            layer: (Shape::rect(rect), Role::OnSurface.color(dark)),
+            layer: (
+                Shape::new(rect, [if desktop { 4. } else { 0. }; 4]),
+                Role::OnSurface.color(dark),
+            ),
         });
-        y += tall;
+        y += tall + margin;
     }
+    let height = if desktop {
+        (y + padding).min((inputs.window.1 - 8.).max(4.))
+    } else {
+        y + padding
+    };
     Layout {
-        size: (width, y + MENU_PADDING),
-        radius: 4.0,
+        size: (width, height),
+        radius: if desktop { 8. } else { 4. },
         elevation: 3.0,
-        container: Role::SurfaceContainer.color(dark),
+        container: if desktop {
+            Role::Surface.color(dark)
+        } else {
+            Role::SurfaceContainer.color(dark)
+        },
+        border: desktop.then(|| Role::OutlineVariant.color(dark)),
+        contrast: inputs.contrast.filter(|_| desktop),
         items,
         targets,
+        windows: None,
+        menu: (height < y + padding).then(|| menu::Scroll::new(y + padding - height, dark)),
+        symbols: if desktop {
+            SymbolSet::Fluent
+        } else {
+            SymbolSet::Material
+        },
     }
 }
 

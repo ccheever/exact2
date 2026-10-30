@@ -427,7 +427,7 @@ impl Gate {
     /// arrives as [`RasterSession::wake`], looks for it at once rather than at
     /// the timeout.
     pub fn wait_work(&self, timeout: Duration) -> Option<DecodePermit> {
-        self.wait_work_since(self.wake_sequence(), timeout)
+        self.wait_work_since(self.wake_sequence(), Some(timeout))
     }
     /// The wakes so far, for [`Gate::wait_work_since`].
     pub fn wake_sequence(&self) -> u64 {
@@ -436,8 +436,13 @@ impl Gate {
     /// [`Gate::wait_work`] counting wakes from `observed`, a
     /// [`Gate::wake_sequence`] read before the worker looked for work the
     /// gate does not hold (a source's header): one that came while it looked
-    /// returns at once instead of at the timeout.
-    pub fn wait_work_since(&self, observed: u64, timeout: Duration) -> Option<DecodePermit> {
+    /// returns at once instead of sleeping through it. `None` waits without
+    /// a timeout; work outside the gate must call [`RasterSession::wake`].
+    pub fn wait_work_since(
+        &self,
+        observed: u64,
+        timeout: Option<Duration>,
+    ) -> Option<DecodePermit> {
         if let Some(permit) = self.next_decode() {
             return Some(permit);
         }
@@ -451,7 +456,10 @@ impl Gate {
         let wake = &self.inner.wake;
         wake.waiters
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (sequence, _) = wake.changed.wait_timeout(sequence, timeout).unwrap();
+        let sequence = match timeout {
+            Some(timeout) => wake.changed.wait_timeout(sequence, timeout).unwrap().0,
+            None => wake.changed.wait(sequence).unwrap(),
+        };
         wake.waiters
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         drop(sequence);

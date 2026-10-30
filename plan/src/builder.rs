@@ -675,6 +675,34 @@ impl PlanBuilder {
         self.plan.module_events.push(row);
     }
 
+    /// A `tool` line (LLP 1111 D2): `[additive, idempotent, closed]`, and
+    /// the derives of `[returns, fails, available]`. Its face is the
+    /// app pass's (`Plan::set_tool_face`).
+    pub fn tool(
+        &mut self,
+        name: &str,
+        consequence: &str,
+        [additive, idempotent, closed]: [bool; 3],
+        description: &str,
+        action: ActionsId,
+        [returns, fails, available]: [Option<DerivesId>; 3],
+    ) {
+        let row = ToolsRow {
+            name: self.str(name),
+            consequence: self.str(consequence),
+            additive,
+            idempotent,
+            closed,
+            description: self.str(description),
+            action,
+            returns,
+            fails,
+            available,
+            face: self.str(""),
+        };
+        self.plan.tools.push(row);
+    }
+
     /// A run of argument expressions.
     pub fn args(&mut self, exprs: &[Code]) -> ArgsRange {
         let start = self.plan.args.len() as u32;
@@ -743,6 +771,9 @@ impl PlanBuilder {
         let name = self.str("");
         self.plan.timers.push(TimersRow {
             interval_ms,
+            wait: 0,
+            max_ms: 0,
+            tolerance_ms: 0,
             action,
             once,
             frame,
@@ -753,6 +784,18 @@ impl PlanBuilder {
             key: always,
         });
         TimersId(self.plan.timers.len() as u32 - 1)
+    }
+
+    /// Set the admission kind and optional waiting bound (LLP 1147).
+    pub fn set_timer_wait(&mut self, timer: TimersId, wait: u8, max_ms: u32) {
+        let row = &mut self.plan.timers[timer.0 as usize];
+        row.wait = wait;
+        row.max_ms = max_ms;
+    }
+
+    /// Allow the host to coalesce the wake within this many milliseconds.
+    pub fn set_timer_tolerance(&mut self, timer: TimersId, tolerance_ms: u32) {
+        self.plan.timers[timer.0 as usize].tolerance_ms = tolerance_ms;
     }
 
     /// A task's name, for the agent (LLP 1092 D10).

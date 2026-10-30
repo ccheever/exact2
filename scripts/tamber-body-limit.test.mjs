@@ -15,6 +15,9 @@ import { forward, tamberServer } from './tamber-server.mjs';
 
 const OVER = (1 << 20) + 1;
 const REFUSED = { status: 413, body: JSON.stringify({ error: { message: 'a request is at most 1 MiB' } }), connection: 'close', closed: true };
+// The local token's limit (a CLI import's sources, tamber/1.17).
+const LOCAL_OVER = (16 << 20) + 1;
+const LOCAL_REFUSED = { ...REFUSED, body: JSON.stringify({ error: { message: 'a request is at most 16 MiB' } }) };
 
 /** A POST of `size` bytes: by content-length, or chunked (`chunked`); its status, body and `connection` header,
  * and whether its socket then closed (within 6 s), or `{cut}` when the connection ended with no answer. */
@@ -40,13 +43,13 @@ const send = (url, size, { headers = {}, chunked = false } = {}) => new Promise(
 });
 
 /** Headers announcing a body over the limit, and not a byte of it: what comes back, and when the socket closed. */
-const announce = (port, extra = '') => new Promise(done => {
+const announce = (port, extra = '', length = OVER) => new Promise(done => {
   const sock = connect(port, '127.0.0.1');
   let got = '';
   const began = performance.now();
   sock.on('data', d => { got += d; });
   sock.on('close', () => done({ got, ms: performance.now() - began }));
-  sock.write(`POST /__tamber HTTP/1.1\r\nhost: 127.0.0.1:${port}\r\ncontent-type: application/json\r\n${extra}content-length: ${OVER}\r\n\r\n`);
+  sock.write(`POST /__tamber HTTP/1.1\r\nhost: 127.0.0.1:${port}\r\ncontent-type: application/json\r\n${extra}content-length: ${length}\r\n\r\n`);
 });
 
 let dir, server, tamber, origin, token;
@@ -69,18 +72,29 @@ afterAll(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
-test("the design server answers a body over 1 MiB 413, announced or chunked, and still answers the next request", async () => {
+test("the design server answers the local token's body over 16 MiB 413, announced or chunked, and still answers the next request", async () => {
   const headers = { 'x-exact-tamber-token': token };
   for (const chunked of [false, true]) {
-    const r = await send(`${origin}/__tamber`, OVER, { headers, chunked });
-    expect({ chunked, ...r }).toEqual({ chunked, ...REFUSED });
+    const r = await send(`${origin}/__tamber`, LOCAL_OVER, { headers, chunked });
+    expect({ chunked, ...r }).toEqual({ chunked, ...LOCAL_REFUSED });
   }
   const hello = await fetch(`${origin}/__tamber`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: '{"method":"hello"}' });
   expect(hello.status).toBe(200);
 }, 60_000);
 
-test('a client that announces a body over 1 MiB and sends none of it is answered 413 and let go', async () => {
-  const { got, ms } = await announce(Number(new URL(origin).port), `x-exact-tamber-token: ${token}\r\n`);
+test("a client's transaction past 1024 operations is refused with tamber-ops-size before any is read; 1024 are not refused for their count", async () => {
+  const headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
+  const op = { op: 'set-token', name: 'accent', value: '#123456' };
+  for (const method of ['transaction', 'propose']) {
+    const over = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: JSON.stringify({ method, client: 'limit', ops: Array(1025).fill(op) }) });
+    expect({ method, status: over.status, body: await over.json() }).toEqual({ method, status: 400, body: { error: { id: 'tamber-ops-size', message: 'a transaction is at most 1024 operations; this one has 1025' } } });
+    const at = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: JSON.stringify({ method, client: 'limit', ops: Array(1024).fill(op) }) });
+    expect(JSON.stringify(await at.json())).not.toContain('tamber-ops-size');
+  }
+}, 120_000);
+
+test("a local client that announces a body over its 16 MiB and sends none of it is answered 413 and let go", async () => {
+  const { got, ms } = await announce(Number(new URL(origin).port), `x-exact-tamber-token: ${token}\r\n`, LOCAL_OVER);
   expect(got).toStartWith('HTTP/1.1 413');
   expect(got.toLowerCase()).toContain('connection: close');
   expect(ms).toBeLessThan(7000); // at once here (Bun closes it), refuseBody's 5 s at most

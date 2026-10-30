@@ -234,6 +234,11 @@ pub enum PlanError {
     ArmOwner {
         arm: u32,
     },
+    /// A timer carries invalid wait or tolerance options (LLP 1147).
+    TimerWait {
+        /// The invalid timer row.
+        timer: u32,
+    },
     /// A timer with a zero interval would never make progress.
     ZeroInterval {
         timer: u32,
@@ -542,6 +547,13 @@ impl Plan {
             }
         }
         for (i, t) in self.timers.iter().enumerate() {
+            if (t.tolerance_ms != 0 && (t.wait != 0 || t.frame))
+                || t.wait > 4
+                || (t.wait != 0 && t.frame)
+                || (t.max_ms != 0 && t.wait < 3)
+            {
+                return Err(PlanError::TimerWait { timer: i as u32 });
+            }
             if t.frame && (t.interval_ms != 0 || t.once) {
                 return Err(PlanError::FrameTimer { timer: i as u32 });
             }
@@ -980,6 +992,21 @@ impl Plan {
             binds: self.intern(&binds.join(" ")),
         };
         self.views.push(row);
+    }
+
+    /// Replace module row `i`'s declared substitute, after lowering: the
+    /// bake adds what `app.json` says the platform would show (LLP 1133.023
+    /// §10).
+    pub fn set_module_substitute(&mut self, i: usize, json: &str) {
+        let id = self.intern(json);
+        self.modules[i].substitute = id;
+    }
+
+    /// Set tool row `i`'s face, the manifest's `intents` face for it as a
+    /// JSON object (LLP 1133.023 D8), after lowering.
+    pub fn set_tool_face(&mut self, i: usize, json: &str) {
+        let id = self.intern(json);
+        self.tools[i].face = id;
     }
 
     /// The package view row of `tag`, if a package serves it.

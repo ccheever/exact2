@@ -114,6 +114,20 @@ impl RegionInst {
                         region: self.region,
                     });
                 };
+                // A virtualized list's rows are the collection's, never here:
+                // every row of this `for` is built (LLP 1144 D4).
+                if items.len() >= crate::perf::LONG_LIST
+                    && !u.ids.work.sites.is_empty()
+                    && u.ids.work.long_lists.insert(self.region.0)
+                {
+                    let site = row
+                        .parent
+                        .map_or_else(|| "an arm's root".into(), |p| format!("site {}", p.0));
+                    u.notes.push(format!(
+                        "long-list: a `for` under {site} repeats {} rows and builds every one; `list virtualized=true` builds the rows that show (`perf` names the site's source)",
+                        items.len()
+                    ));
+                }
                 let arm = row.arms.iter().next();
                 let mut slots_needed = None;
                 // An index key gives each position its identity, regardless
@@ -294,8 +308,9 @@ impl RegionInst {
         body: &Reads,
     ) -> Result<bool, InstanceError> {
         // Items may distinguish signed zero even though keys do not. A moved
-        // row also reads a new position (LLP 1062 D8), which dirties all fields.
-        let dirty = if r.frame.index != frame.index {
+        // row whose body reads its position (LLP 1062 D8) has all fields
+        // dirty; one that reads none only its item's changed fields.
+        let dirty = if r.frame.index != frame.index && body.reads_position() {
             !0
         } else {
             crate::compare::changed_fields(&r.frame.item, &frame.item)
@@ -419,9 +434,7 @@ pub(super) fn init_owned(
         if s.owner == Some(arm) {
             let v = u.eval(s.init, frames)?;
             if !v.conforms(plan, s.ty) {
-                return Err(InstanceError::SlotType {
-                    slot: plan.str(s.name).to_string(),
-                });
+                return Err(InstanceError::slot_type(plan, &v, s.ty, plan.str(s.name)));
             }
             slots.borrow_mut().insert(i as u32, v);
         }

@@ -1,6 +1,9 @@
 // @ref LLP 1100 D12 — the agent's `sample`: the pixels under view points,
 // from a float render of the view's layers, in extended linear sRGB, so
 // what an 8-bit sRGB screenshot would clip reads outside 0–1.
+// This is CALayer.render(in:), not the display compositor: on iOS 27 it
+// clips native extended-range gradients and omits layer shadows. Compare
+// those with native layers and the displayed screen (Color Gallery).
 import CoreGraphics
 import QuartzCore
 #if os(iOS) || os(tvOS)
@@ -20,7 +23,7 @@ extension Agent {
         guard !points.isEmpty else { return ["malformed": true, "error": "sample needs points: sample <x> <y> [<x> <y>…], in view points"] }
         #if os(iOS) || os(tvOS)
         let view = presenter.viewport
-        let layer = view.layer
+        let layer = presenter.documentHost.layer // in the viewport's place (`DocumentMountIOS.swift`)
         #else
         let view = presenter.navigation.split.agentRoot
         guard let layer = view.layer else { return ["error": "the session's view has no layer"] }

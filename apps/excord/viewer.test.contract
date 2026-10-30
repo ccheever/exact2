@@ -1,0 +1,142 @@
+// Excord's picture viewer (viewer.contract): a route over its channel, `/c/:channel/photo/:photo`, on the fixture
+// server as app.test.contract runs it (--world transcript --reset-on-identify, so each launch's IDENTIFY starts from the
+// same world). Each launch runs `clock settle` (IDENTIFY's task), waits for the gateway's READY with the clock
+// frozen (`clock until state`), then `clock settle` again for what READY armed (the channel list).
+epoch "2026-10-22T18:00:00Z"
+time-zone "America/Los_Angeles"
+
+test "an image opens full screen, zooms on a double tap and closes"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  expect tree has "viewer"
+  expect state viewingAlt == "cafe.png"
+  tap "viewer-handle" dblclick
+  clock settle
+  expect state viewZoom == 2
+  tap "viewer-close"
+  clock settle
+  expect tree missing "viewer"
+  expect state reading == true
+
+test "a picture opens as a screen over its channel, and Back closes it alone"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  expect state viewingKey == "1562887009075210000-1562887009075399990"
+  expect state screen == "channel"
+  expect state reading == false
+  back
+  clock settle
+  expect tree missing "viewer"
+  expect state viewing == ""
+  expect state reading == true
+  expect tree has "composer"
+
+test "a channel opened from over a picture replaces the picture's"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  type "viewer-close" key "Meta+k"
+  clock settle
+  type "switcher-search" "hel"
+  clock data
+  type "switcher-search" key "Enter"
+  clock data
+  clock settle
+  expect state chan.name == "help"
+  expect state viewing == ""
+  expect state reading == true
+  reload
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  clock data
+  clock settle
+  expect state chan.name == "help"
+  expect state screen == "channel"
+
+test "a reload over a picture shows its channel"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  reload
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  clock data
+  clock settle
+  expect state viewing == ""
+  expect state screen == "channel"
+  expect state chan.name == "general"
+  expect state nav.tabs.0 .stack.1 .url == "/c/1191168914235588608"
+
+test "a drag down at fit closes the picture"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  tap "viewer-handle" drag 0 300
+  clock settle
+  expect tree missing "viewer"
+  expect state reading == true
+
+test "the viewer draws the transcript's own picture under the full one, so it is never black while that loads"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  // One the transcript shows at full size already: nothing under it, the same picture twice.
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  expect tree has "viewer-image"
+  expect tree missing "viewer-thumb"
+  expect state viewingThumb == ""
+  tap "viewer-close"
+  clock settle
+  // A tall picture the transcript shows resized (the proxy, asked at its box's pixels): drawn under the full
+  // one, which is held.
+  tap "transcript" drag 0 900 over 400
+  clock settle
+  request POST "/control/hold-media" {"on": true}
+  tap "open-1562867046130132736-1562867046130322582"
+  clock settle
+  clock +1000 real
+  expect tree has "viewer-thumb"
+  expect tree has "viewer-image"
+  expect state viewingLoaded == false
+  // Once the full picture loads the thumbnail goes, so a translucent picture never shows its thumbnail through.
+  request POST "/control/hold-media" {"on": false}
+  clock +3000 real
+  expect state viewingLoaded == true
+  expect tree missing "viewer-thumb"
+  expect tree has "viewer-image"
+  tap "viewer-close"
+  clock settle
+  expect tree missing "viewer-thumb"

@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Sorted by last name (last name in bold), sticky letter sections, a section index with a star for Favorites. Jumping to M or A puts that header right under the bar."},
+      {"n": 2, "status": "pass", "note": "Filters by name, company, phone (formatted or digits only) and email as you type, with a results count and the index trimmed to matching letters. A clear empty state; Clear or Close restores all 320."},
+      {"n": 3, "status": "pass", "note": "Avatar, name, company and a Favorite pill. Phone and email are tinted, with call and mail icons, and the birthday shows when known."},
+      {"n": 4, "status": "pass", "note": "The pill toggles the favorite. The Favorites section and its count update right away."},
+      {"n": 5, "status": "pass", "note": "A sheet with an inset-grouped form. Save stays disabled until there is a first or last name (whitespace-only is not enough). Edit uses the same form, and Cancel on a changed form asks before discarding. After adding, it opens the new contact."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete in the list and Delete Contact on the details screen, both with a confirmation alert."},
+      {"n": 7, "status": "pass", "note": "Adds, deletes and favorite changes all survived a relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size the details screen breaks the phone number inside its digits ('(405) 528-129' / '1')."
+    ],
+    "tells": [
+      "A custom green brand tint throughout, with tinted off-white and green-black backgrounds instead of the system grouped colours.",
+      "The swipe Delete action is a green rounded pill, not the system red destructive action.",
+      "A decorative 'YOUR PEOPLE / 320 contacts · N favorites' header block above the list is not a stock iOS pattern.",
+      "The title launches inline, with the search field under it, but shows as a large title when you pull down: the large-title behaviour is inconsistent.",
+      "The Favorite pill on the details screen just reads 'Favorite' when on, so it reads more like a label than a toggle.",
+      "The search screen shows both '0 contacts found' and a 'No contacts found' empty state."
+    ],
+    "scroll": "Smooth: no blank rows or pop-in during slow drags or flings. Section headers pin with a blurred bar, and flinging back to the top and pulling past it behaves like a native list.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Sorted by last name in letter sections with a blue section index. Jump to M left M mid-screen with the L rows still visible above it, though a later jump to A landed correctly."},
+      {"n": 2, "status": "pass", "note": "A bottom search field (iOS 26 style) filters by name, company, phone (formatted or digits) and email. It has a No Results state with a Clear Search button, and clearing restores the full list."},
+      {"n": 3, "status": "pass", "note": "An inset-grouped card with avatar, name and company. Phone and email are in blue tint, and the birthday shows when known."},
+      {"n": 4, "status": "pass", "note": "An 'Add to / Remove from Favorites' row with a star. The Favorites section at the top updates."},
+      {"n": 5, "status": "pass", "note": "A sheet form. Done stays disabled until there is a non-blank first or last name, and Edit uses the same form. Cancel discards edits silently, with no confirmation."},
+      {"n": 6, "status": "pass", "note": "Swipe shows a red Delete with a trash icon and deletes at once. The details screen's Delete Contact has a confirmation alert."},
+      {"n": 7, "status": "pass", "note": "Adds, edits, deletes and favorite changes survived a relaunch."}
+    ],
+    "bugs": [
+      "The large 'Contacts' title never collapses: it stays fixed while the list scrolls underneath, so rows are clipped behind it and partially visible behind the pinned section header.",
+      "The section index did not reliably bring the tapped letter to the top: Jump to M left M mid-screen with L rows above it."
+    ],
+    "tells": [
+      "The large title does not shrink into an inline title on scroll, which is the most visible non-native behaviour.",
+      "List rows show only the name: no company subtitle and no bold last name, so search results by company give no hint why they matched.",
+      "At the largest text size rows lose their vertical padding, so text crowds the separators.",
+      "The search Close button's accessibility label is lowercase 'close'.",
+      "The swiped row turns into a grey rounded capsule rather than a plain cell sliding left."
+    ],
+    "scroll": "Flings are smooth with no blank rows. But the list scrolls under a fixed large title that never collapses, so content is cut off oddly beneath it and ghosts behind pinned headers, which does not feel like a native list.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and persist changes. A is more refined: richer rows with company and bold last names, confirmations on discard and delete, a precise section index and correct collapsing navigation. Its custom green theme and green delete action are deliberate departures from iOS rather than broken behaviour. B looks more stock at first glance, but its large title never collapses and content clips beneath it, its index jumps are imprecise and its rows are sparse, which outweighs A's one text-wrapping flaw at the largest size."
+}

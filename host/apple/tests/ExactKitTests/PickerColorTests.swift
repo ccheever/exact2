@@ -47,6 +47,13 @@ final class PickerColorTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
+        // The app's storage in this test's own directory: every boot empties app:/tmp/picked/, and the suite's
+        // other xctest processes boot the same app at once (xctest.mjs), so the shared one lost the copy.
+        let appID = try XCTUnwrap(((try JSONSerialization.jsonObject(with: Runtime.bakedCompat()) as? [String: Any])?["inputs"] as? [String: Any])?["app"] as? String)
+        let variables = ["EXACT_APP_GROUP_ROOT": directory.path, "EXACT_APP_GROUP_APP": appID]
+        let saved = variables.keys.map { key in (key, getenv(key).map { String(cString: $0) }) }
+        for (key, value) in variables { setenv(key, value, 1) }
+        defer { for (key, value) in saved { if let value { setenv(key, value, 1) } else { unsetenv(key) } } }
         let source = """
         component App
           state picked = "none"
@@ -76,6 +83,7 @@ final class PickerColorTests: XCTestCase {
         let path = try XCTUnwrap(slots["picked"] as? String)
         XCTAssertTrue(path.hasPrefix("app:/tmp/picked/") && path.hasSuffix(".xyz"), path)
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(AppFiles.url(path))), Data("any bytes".utf8))
+        XCTAssertTrue(try XCTUnwrap(AppFiles.url(path)).resolvingSymlinksInPath().path.hasPrefix(directory.resolvingSymlinksInPath().path + "/"), "the copy is in this test's own storage")
     }
     #endif
 

@@ -254,6 +254,30 @@ pub struct Request {
     /// The platform transport's own request timeout. A caller that needs the
     /// whole exchange bounded also aborts its signal (LLP 0068.000 §4).
     pub timeout: Option<std::time::Duration>,
+    /// Told the body's bytes as they are sent (Exact patch 23).
+    pub sent: Option<Sent>,
+}
+
+/// An upload's progress, XMLHttpRequest's `upload` events: the body's bytes
+/// sent so far and its length, `(loaded, total)`. A transport calls it on
+/// the thread that opened the request, as the platform reports bytes
+/// written, and with `(total, total)` by the time the response's headers
+/// have arrived. A redirect that sends the body again counts from zero.
+/// The second hook, if any, is the upload's start: told once, by the hop
+/// loop, when the first hop's grant and gate have admitted it and its
+/// transport is about to open, so a request they refuse never started. It
+/// answers whether the upload may go out: `false`, an embedder that has let
+/// it go, stops it as an abort does.
+#[derive(Clone)]
+pub struct Sent(
+    pub std::sync::Arc<dyn Fn(u64, u64) + Send + Sync>,
+    pub Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
+);
+
+impl std::fmt::Debug for Sent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Sent")
+    }
 }
 
 impl Request {
@@ -267,6 +291,7 @@ impl Request {
             redirect: RedirectMode::Follow,
             max_body: None,
             timeout: None,
+            sent: None,
         }
     }
 
@@ -396,19 +421,46 @@ pub fn fetch_stream(
     request: Request,
     signal: &AbortSignal,
 ) -> Result<StreamingResponse, HostError> {
+    fetch_stream_gated(transport, grants, None, request, signal)
+}
+
+/// [`fetch_stream`], with the host's `gate` checked beside the grant at
+/// every hop (Exact patch, LLP 1133.036 D6).
+pub fn fetch_stream_gated(
+    transport: &dyn Transport,
+    grants: &GrantSet,
+    gate: Option<&dyn crate::boundary::HopGate>,
+    request: Request,
+    signal: &AbortSignal,
+) -> Result<StreamingResponse, HostError> {
     let mut current = prepare_body(request)?;
     let mut redirects = 0;
     let mut redirected = false;
 
     loop {
         signal.check()?;
-        admit_hop(grants, &current.url, redirected)?;
+        admit_hop(grants, gate, &current.url, redirected)?;
+        // An upload goes out now, its grant and gate passed (Exact patch 23),
+        // unless its embedder has let it go meanwhile, or its signal says so.
+        if let (false, Some(Sent(_, Some(start)))) = (redirected, &current.sent) {
+            if !start() {
+                return Err(HostError::Failed(
+                    "AbortError: The operation was aborted".into(),
+                ));
+            }
+            signal.check()?;
+        }
 
         // The request guard applies here, where a header list becomes a
-        // request — not in Headers::set, where the guard is "none".
+        // request — not in Headers::set, where the guard is "none". The
+        // body moves to the hop's request and back, never copied: an
+        // upload's may be 64 MiB (Exact patch 23).
+        let body = current.body.take();
         let mut guarded = current.clone();
+        guarded.body = body;
         guarded.headers = current.headers.for_request();
         let result = transport.open(&guarded, signal);
+        current.body = guarded.body.take();
         signal.check()?;
         let mut response = result?;
         response.redirected = redirected;
@@ -427,8 +479,19 @@ pub fn fetch_stream(
     }
 }
 
-/// The grant check for one hop to `url`, the first or one a redirect led to.
-pub(crate) fn admit_hop(grants: &GrantSet, url: &str, redirected: bool) -> Result<(), HostError> {
+/// The grant check for one hop to `url`, the first or one a redirect led to,
+/// then `gate`'s.
+pub(crate) fn admit_hop(
+    grants: &GrantSet,
+    gate: Option<&dyn crate::boundary::HopGate>,
+    url: &str,
+    redirected: bool,
+) -> Result<(), HostError> {
+    admit_hop_grant(grants, url, redirected)?;
+    crate::boundary::gated(gate, url)
+}
+
+fn admit_hop_grant(grants: &GrantSet, url: &str, redirected: bool) -> Result<(), HostError> {
     let origin = origin_of(url)?;
     // Through boundary::admit, not an inline permits() check: the
     // capability name and the shape of a denial belong in one place, or
@@ -668,6 +731,39 @@ mod tests {
         .to_string()
         .starts_with("AbortError"));
         assert!(transport.seen().is_empty());
+    }
+
+    /// An upload whose start the embedder refuses, having let it go, or whose
+    /// signal aborts as its start is told, never opens (Exact patch 23): an
+    /// embedder that read it as unstarted after aborting it is right.
+    #[test]
+    fn an_upload_let_go_as_it_starts_never_reaches_transport() {
+        for refuses in [true, false] {
+            let transport = StubTransport::new(vec![response(201, None)]);
+            let controller = crate::stdlib::abort::AbortController::new();
+            let starts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let mut request = Request::get("https://example.com/upload");
+            request.method = "POST".into();
+            request.body = Some(b"photo".to_vec());
+            request.sent = Some(Sent(
+                std::sync::Arc::new(|_, _| {}),
+                Some(std::sync::Arc::new({
+                    let (starts, controller) = (starts.clone(), controller.clone());
+                    move || {
+                        starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if !refuses {
+                            controller.abort();
+                        }
+                        !refuses
+                    }
+                })),
+            ));
+            let signal = controller.signal();
+            let stopped = fetch_stream(&transport, &granted("example.com"), request, &signal);
+            assert!(stopped.unwrap_err().to_string().starts_with("AbortError"));
+            assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert!(transport.seen().is_empty(), "refuses {refuses}");
+        }
     }
 
     #[test]

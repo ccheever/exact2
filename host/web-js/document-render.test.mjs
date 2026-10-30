@@ -1,10 +1,15 @@
-import { test, expect } from 'bun:test';
+import { beforeAll, test, expect } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
 import { createDocument } from './dom.js';
 import { open } from '../../scripts/agent.mjs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+
+// A `--render rust` build is made once here, outside every test's own time: cold, build.mjs compiling Caltrain's
+// data module and its renderer (caltrain-render) outlasted a test's 60 or 180 s, and more so behind another build's
+// cargo lock. The warm-up is a build as the tests make one, so it builds exactly what they will reuse.
+beforeAll(() => renderedPages('routes nav\n  home "/" render=build\n\ncomponent Warm\n  view\n    text "warm"\n', () => {}, {}, {}, 'rust'), 1_800_000);
 
 async function renderedPages(source, check, files = {}, manifest = {}, renderer = 'js') {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');

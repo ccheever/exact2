@@ -59,6 +59,65 @@ fn settle<D: DataSource>(p: &mut Presenter<D>) {
     }
 }
 #[test]
+fn settled_collection_frames_do_not_schedule_another_frame() {
+    let mut p = boot("text `row ${x}` height=24");
+    settle(&mut p);
+    for tick in 1..=10 {
+        let now = tick as f64 * 16.;
+        assert!(p.pump(now).is_none());
+        assert!(p.animation_frame(now).is_none());
+        p.tick(now);
+        p.frame();
+        assert!(!p.collection.pending());
+        assert!(
+            !p.executor.take_wake(),
+            "an unchanged list rearmed its own frame"
+        );
+    }
+}
+
+#[test]
+fn synchronous_scroll_only_wakes_for_unfinished_collection_work() {
+    let mut p = boot("text `row ${x}` height=24");
+    settle(&mut p);
+    let list = p.host.collections()[0].view;
+    p.executor.begin_pump();
+    p.wheel(list, 0., 1.).unwrap();
+    assert_eq!(p.scroll_of(list).1, 1.);
+    assert!(!p.collection.pending());
+    assert!(!p.executor.take_wake(), "this scroll finished its feedback");
+
+    p.wheel(list, 0., 120_000.).unwrap();
+    assert!(
+        p.collection.pending(),
+        "large jumps exhaust the pass budget"
+    );
+    assert!(p.executor.take_wake(), "remaining rows must wake the host");
+    settle(&mut p);
+    assert!(p.host.collections()[0].rows.iter().all(|r| r.index > 1000));
+
+    p.executor.begin_pump();
+    p.collection.hold = true;
+    p.wheel(list, 0., 1.).unwrap();
+    assert!(p.collection.pending());
+    assert!(
+        p.executor.take_wake(),
+        "held feedback still needs a later turn"
+    );
+    p.collection.hold = false;
+    settle(&mut p);
+
+    p.executor.begin_pump();
+    p.set_deferred_collections(true);
+    let before = p.scroll_of(list);
+    p.wheel_at(40., 70., 0., 1.);
+    assert!(p.scroll_of(list).1 > before.1);
+    assert!(!p.executor.take_wake(), "the host runs deferred feedback");
+    assert!(p.run_deferred_collections());
+    assert!(!p.collection.pending());
+    assert!(!p.executor.take_wake());
+}
+#[test]
 fn collection_boot_measures_wrappers_in_nested_port_and_scroll_rewindows() {
     let mut p = boot("text `row ${x}` height=24");
     settle(&mut p);

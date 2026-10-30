@@ -1,0 +1,38 @@
+// The conformance fixture (LLP 1133.028 §8.3): the status, the screen an app
+// may show before the system's alert (one "Continue", no way to close it,
+// LLP 1133.002 D11), the request, and the advertising identifier, which data code reads
+// and compares with zeros (app.ts).
+use requestTrackingAuthorization, trackingAuthorizationStatus, TrackingStatus from "@exact/tracking-consent"
+
+shape Line
+  text: string
+
+component Fixture
+  resource tracking = trackingAuthorizationStatus() as shape TrackingStatus
+  // Read again whenever the status changes.
+  resource idfa = identifier(tracking.status) as shape Line
+  mutation asked as shape TrackingStatus
+  state explaining = false
+  action explain
+    explaining = true
+  action proceed
+    explaining = false
+    send asked = requestTrackingAuthorization()
+  view
+    column padding=24 gap=12
+      text `Status: ${tracking.status} (${tracking.state})` testId="status"
+      text `Identifier: ${idfa.text}` testId="idfa"
+      match asked
+        case some(a)
+          text `Answered: ${a.status}` testId="asked"
+        case none
+          text ""
+      if explaining
+        column gap=12 testId="pre-alert"
+          text "Personalized ads" font="-exact-title3" role="heading" aria-level=2
+          text "Next, you'll be asked whether this app may use your activity across other companies' apps and websites to show you ads that are more relevant. Either answer is fine."
+          button press=proceed buttonStyle="filled" testId="continue"
+            text "Continue"
+      else if tracking.available
+        button press=explain testId="ask"
+          text "Ask About Tracking"

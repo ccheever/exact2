@@ -31,6 +31,7 @@ struct Line {
     end: u32,
     top: f32,
     height: f32,
+    baseline: f32,
     empty_x: f32,
     /// The strut font's content area, for a line with no text.
     text: (f32, f32),
@@ -163,6 +164,7 @@ impl Geometry {
                 end,
                 top: run.line_top,
                 height: run.line_height,
+                baseline: run.line_y,
                 empty_x: if lines.is_empty() { first_x } else { empty_x },
                 text: area(run.line_y, (ascent, descent)),
                 spans,
@@ -181,6 +183,7 @@ impl Geometry {
                 end: units,
                 top,
                 height,
+                baseline: top + data.strut.0,
                 empty_x,
                 text: area(top + data.strut.0, (ascent, descent)),
                 spans: Vec::new(),
@@ -246,6 +249,29 @@ impl Geometry {
             .position(|l| y < l.top + l.height)
             .unwrap_or(self.lines.len() - 1);
         self.on_line(index, x)
+    }
+
+    /// The character under the pointer, rather than the nearest insertion edge.
+    pub(crate) fn hit_character(&self, x: f32, y: f32) -> u32 {
+        let Some(line) = self
+            .lines
+            .iter()
+            .find(|l| y < l.top + l.height)
+            .or_else(|| self.lines.last())
+        else {
+            return 0;
+        };
+        line.spans
+            .iter()
+            .min_by(|a, b| {
+                let distance = |s: &Span| {
+                    let left = s.left.min(s.right);
+                    let right = s.left.max(s.right);
+                    (left - x).max(0.).max(x - right)
+                };
+                distance(a).total_cmp(&distance(b))
+            })
+            .map_or(line.start, |span| span.start)
     }
 
     pub(crate) fn vertical(&self, cursor: Cursor, x: f32, down: bool) -> Cursor {
@@ -332,8 +358,17 @@ impl Geometry {
     }
 
     pub(crate) fn highlight(&self, start: u32, end: u32) -> Vec<Rect> {
+        self.marks(start, end, |line| (line.top, line.height))
+    }
+
+    pub(crate) fn underlines(&self, start: u32, end: u32, thickness: f32) -> Vec<Rect> {
+        self.marks(start, end, |line| (line.baseline + thickness, thickness))
+    }
+
+    fn marks(&self, start: u32, end: u32, vertical: impl Fn(&Line) -> (f32, f32)) -> Vec<Rect> {
         let mut rects: Vec<Rect> = Vec::new();
         for (index, line) in self.lines.iter().enumerate() {
+            let (top, height) = vertical(line);
             let mut pieces: Vec<_> = line
                 .spans
                 .iter()
@@ -355,11 +390,11 @@ impl Geometry {
             for (left, right) in pieces {
                 if let Some(last) = rects
                     .last_mut()
-                    .filter(|r| r.1 == line.top && left <= r.0 + r.2 + 0.01)
+                    .filter(|r| r.1 == top && left <= r.0 + r.2 + 0.01)
                 {
                     last.2 = right.max(last.0 + last.2) - last.0;
                 } else {
-                    rects.push((left, line.top, right - left, line.height));
+                    rects.push((left, top, right - left, height));
                 }
             }
         }

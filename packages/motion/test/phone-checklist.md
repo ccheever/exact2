@@ -23,8 +23,10 @@ fixture's files, this package by `file:`), then build it for each target:
    `0 0 9.8` (m/s²). Stood upright in portrait: about `0 9.8 0`. If Safari
    reads `0 0 -9.8`, the web implementation's WebKit negation is wrong for
    this version: say which.
-2. **Screen frame.** In landscape, tap **Screen frame**: tilting the
-   screen's right edge down makes x positive.
+2. **Screen frame.** In landscape, tap **Screen frame**. With the screen
+   facing up, lower its right edge and raise its left edge: x becomes
+   negative, as in portrait. Gravity uses the upward acceleration and
+   the screen's x-axis points right ([Accelerometer §6.3–6.4](https://www.w3.org/TR/accelerometer/#gravity-sensor)).
 3. **Gyroscope.** Spin the phone flat, counter-clockwise seen from above:
    `spin`'s z is positive, in rad/s (about 3 for half a turn a second).
 4. **Batch.** `batch` reads about six samples an answer and `dropped` 0;
@@ -62,11 +64,9 @@ tilt from there. Within 2° of it the stick reads zero (D6's dead zone);
    the player right, tilting the top edge away walks it forward, and
    holding the level angle stands it still. If either direction is
    reversed, the sign of D6's map against the platform's gravity is wrong:
-   say which and on which phone. Expect the roll reversed: the platforms
-   and the W3C read a positive x when the left edge is down, D6's map
-   walks right on a positive x, and so walks left when the right edge
-   goes down, while its pitch is negated and walks forward as the top
-   edge goes away. If the player does not move at all on
+   say which and on which phone. Screen-frame gravity reads negative x
+   when the right edge is down; D6 negates that roll to walk right.
+   If the player does not move at all on
    Android, look for the `motion: input` line: without it the start was
    refused; with it, the samples did not reach the world.
 10. **Pause and tilt off.** Tap **Pause**: the player stops where it is
@@ -79,6 +79,17 @@ tilt from there. Within 2° of it the stick reads zero (D6's dead zone);
     it. Rotate the phone to landscape and back, where the app allows it:
     tilting the screen's right edge down still walks right.
 12. **Smoothness.** The dot moves smoothly between readings, not in steps.
+13. **The screen keeps its orientation while tilt is on** (LLP 1133.029
+    §9.1 drive 9). With tilt on and the game running, steer hard to one
+    side and lay the phone nearly flat: the screen does not turn, however
+    far the phone is tilted. Turn tilt off: note whether the screen turns
+    to the way the phone is held within a second or only when the phone is
+    next turned (the iOS 27 simulator does the second). Turn tilt on while holding the phone
+    in landscape, then stand it upright: it stays landscape. On an iPad on
+    iPadOS 26 or later, the same in full screen; in Slide Over or a
+    resized window the system lifts the lock and the screen turns, which
+    is iPadOS's own behaviour. On an Android tablet (600 dp or wider) the
+    lock holds as on the phone.
 
 Beacons on the web has no tilt yet: the web's wasm host, which games run
 on, has no extension modules (QUEUE.md).

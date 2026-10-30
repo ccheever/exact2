@@ -1,0 +1,12 @@
+{
+  "name": "@exact/compose",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The system's mail and message composers, prefilled for the person to send (LLP 1133.024 Part III).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

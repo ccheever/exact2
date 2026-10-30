@@ -1,0 +1,106 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "3-column grid of rounded HSL tiles with emoji symbols, newest first, 600 tiles; inset with gutters but fills the width. An editorial header ('A world of colour.') sits above the grid."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Native pull-down menu with All boards plus 10 boards and a checkmark; count updates (49 for Harbor). Liked screen has its own filter."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Large view in a horizontally paging collection shows the tile, board, serif title, date and hex palette. Swiping left/right moves between neighbours ('2 of 49' → '3 of 49'); there are also prev/next chevrons."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Heart in the nav bar plus a full-width Like button toggle Like/Liked. The Liked tab shows the same grid with heart badges (63 tiles)."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Select → circles on tiles, ring + check when selected, a bottom bar with 'N selected' plus like and trash buttons, an ellipsis menu with Select all/Deselect all. Delete asks for confirmation (popover); bulk like works."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "After relaunch, 597 tiles remain (3 deleted) and the bulk-liked tiles are still liked. The board filter resets to All."
+      }
+    ],
+    "bugs": [
+      "At default text size the large view's Like button is half hidden behind the custom 'Swipe to explore' footer until you scroll the detail page.",
+      "Delete confirmation popover points at a tile in the grid instead of the trash button that opened it."
+    ],
+    "tells": [
+      "Custom editorial header ('A world of colour.' serif + subtitle) under a small inline title instead of a system large title.",
+      "Top-left glass button with a four-colour logo does nothing when tapped and has no accessibility label.",
+      "Custom brown/terracotta accent and serif typography give a branded web-magazine look rather than system styling.",
+      "A custom 'Swipe to explore' footer with chevrons sits above the tab bar in the detail view.",
+      "At the largest text size the header takes most of the first screen; 'NEWEST FIRST' and the filter's icon/chevron don't scale with Dynamic Type.",
+      "'October 26, 2026' wraps onto two lines next to a calendar icon at the largest size (acceptable, but crowded)."
+    ],
+    "scroll": "Smooth native scrolling on slow drags, flings and return to top; no blank tiles or pop-in, and the nav bar blurs content underneath correctly.",
+    "scores": {
+      "features": 9,
+      "platform": 7,
+      "polish": 7,
+      "overall": 8
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Edge-to-edge 3-column grid of square HSL tiles with centred emoji and hairline gutters, newest first, 600 tiles, with a system large title."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Native menu (All + 10 boards, checkmark); the count updates (49 for Harbor). Liked screen has its own filter."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Large view shows a full-width square, title, board, date, a Like button, prev/next chevrons and '5 of 49'. Swiping left/right moves between neighbours within the filtered set."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Nav-bar heart plus Like button toggle Like/Liked. The Liked tab uses the same grid with heart badges."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Select → circles on tiles, an inline header with 'N selected', Select All, Like and Delete; delete shows a system alert ('Delete 3 tiles?') and then leaves select mode."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "After relaunch, 597 tiles remain and the bulk-liked tiles are still liked."
+      }
+    ],
+    "bugs": [
+      "At the largest text size the large-view emoji is visibly pixelated/blurry (scaled bitmap), and the Like button is pushed under the tab bar."
+    ],
+    "tells": [
+      "Select-mode actions (Like/Delete/Select All) are a block inside the scrolling content rather than a bottom toolbar; at the largest text size this block takes up most of the screen.",
+      "Filter control shows 'All' far from its up/down chevron with a wide gap; the count wraps to two lines at the largest text size.",
+      "The large-view Like control is a grey full-width capsule duplicating the nav-bar heart."
+    ],
+    "scroll": "Smooth, native-feeling scrolling on drags and flings, with the large title collapsing correctly; no blank rows or pop-in observed.",
+    "scores": {
+      "features": 9,
+      "platform": 8,
+      "polish": 7,
+      "overall": 8
+    }
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and persist correctly. B looks more like a stock iOS app: a system large title, an edge-to-edge Photos-style grid and a standard alert for deletes. A is prettier but more custom-branded, with a dead logo button, a misanchored delete popover and a Like button hidden behind its footer. B's weak points (inline selection bar, blurry emoji at the largest text size) cost it less."
+}

@@ -27,6 +27,7 @@ pub fn measure_work_later() {
 pub fn measure_at_boot<D: DataSource>(runner: &mut exact_runner::Runner<D>, compat: Option<&str>) {
     if WORK_FROM_BOOT.load(Ordering::Relaxed) {
         runner.measure_unless_production(compat, true);
+        runner.measure_kernel_layouts();
     } else {
         runner.measure_later(compat);
     }
@@ -47,6 +48,7 @@ impl<D: DataSource> Bridge<D> {
         WORK_FROM_BOOT.store(true, Ordering::Relaxed);
         if let Some(host) = self.host.as_mut() {
             host.runner_mut().measure_from_now(self.compat, true);
+            host.runner_mut().measure_kernel_layouts();
         }
         0
     }
@@ -172,6 +174,9 @@ impl<D: DataSource> Bridge<D> {
             host.set_canvas_text(f, hooks.ctx);
         }
         host.set_canvas_deferred(self.canvas_deferred);
+        host.runner_mut().use_native_timers(self.native_timers);
+        host.runner_mut()
+            .hold_waits(exact_runner::WaitKinds::from_bits(self.wait_kinds));
         host.runner_mut()
             .set_live_clock(self.live_clock.map(super::preferences::sampler));
     }
@@ -600,6 +605,16 @@ impl<D: DataSource> Bridge<D> {
         let line = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         if let Some(h) = self.host.as_mut() {
             h.log(&line);
+        }
+        0
+    }
+
+    /// What the presenter applied of the orientation lock (`exact_orientation_applied`).
+    pub fn orientation_applied(&mut self, len: usize, conflict: bool) -> u32 {
+        let applied =
+            String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().set_orientation_applied(applied, conflict);
         }
         0
     }

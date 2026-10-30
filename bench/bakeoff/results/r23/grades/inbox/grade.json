@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, with sender, subject, a preview capped at two lines and a date or time. Unread rows get a small blue dot plus a bold subject. The dot is tiny and sits at the very screen edge, so it is easy to miss."},
+      {"n": 2, "status": "pass", "note": "A full left swipe archives. A partial left swipe shows Flag and Archive. A right swipe shows Unread/Read and toggles correctly; the count updates. The Archive tab lists archived mail and its swipe offers Inbox to move mail back."},
+      {"n": 3, "status": "pass", "note": "Flag/unflag works from the swipe and from the reader's toolbar. The All mail / Unread / Flagged chips filter correctly."},
+      {"n": 4, "status": "pass", "note": "Tapping a row pushes a reader with subject, sender, full date and body. Opening marks it read (the unread count drops and it leaves the Unread filter). Edge-swipe back works."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh adds exactly two new unread messages at the top, stamped with the current time."},
+      {"n": 6, "status": "pass", "note": "'109 unread' in the header and a red badge on the Inbox tab."},
+      {"n": 7, "status": "pass", "note": "After relaunch, read, flagged, archived and refreshed messages are all kept."}
+    ],
+    "bugs": [
+      "Tapping the status bar does not scroll the list back to the top."
+    ],
+    "tells": [
+      "Swipe actions are hand-drawn round buttons with captions below, not the system's full-height swipe actions. The row turns a pale blue while swiping right, and the action buttons are invisible to accessibility.",
+      "The filter is a row of custom capsule chips with a dark navy selected state, a web-like segmented look rather than a system Picker or menu.",
+      "Custom navy text colour throughout instead of label colours. The pastel initial avatars and the thick grey separators look more web than iOS.",
+      "At the largest text size the 'Inbox' large title comes out smaller than the body text. Avatars and chip icons do not scale, and the chip row is clipped.",
+      "The flag icon jumps between two places: next to the sender name on read rows, next to the date on unread rows.",
+      "The unread dot is very small and crammed against the left screen edge.",
+      "The search field pins under the collapsed bar and clips the first row's text directly beneath it."
+    ],
+    "scroll": "Slow drags and flings are smooth, with no blank rows or pop-in; mixed row heights render cleanly and the inline title collapses as on iOS. Flings travel normally, but tapping the status bar does not return to the top.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, in the iOS Mail layout: sender, date at the right, subject, a grey two-line preview, and a blue dot plus bold sender for unread. At the largest text size the preview is not limited to two lines and grows to 5+."},
+      {"n": 2, "status": "pass", "note": "A full left swipe archives. A partial swipe shows Flag and Archive. A right swipe shows Mark Unread/Read and works. The Archive screen (pushed from the toolbar button) lists archived mail, with Unflag and Inbox to move mail back."},
+      {"n": 3, "status": "pass", "note": "Flag/unflag from the swipe and the reader toolbar. A native filter menu (All Messages / Unread Only / Flagged Only, with a checkmark) filters correctly, and the subtitle names the active filter."},
+      {"n": 4, "status": "pass", "note": "The reader shows subject, sender, To, date and body. Opening marks it read and the count drops. Edge-swipe back works."},
+      {"n": 5, "status": "partial", "note": "Pull to refresh and the Refresh button normally add two messages. Once, a single pull added 24 at once. The made-up messages cycle through the same four, so the inbox fills with duplicates. Refresh is also offered on the Archive screen."},
+      {"n": 6, "status": "pass", "note": "'109 unread · All Messages' subtitle under the large title."},
+      {"n": 7, "status": "pass", "note": "After relaunch, read, flagged, archived and refreshed messages are kept."}
+    ],
+    "bugs": [
+      "A single pull to refresh once added 24 messages (unread went from 111 to 135) instead of 2. I could not reproduce it later, when each pull added exactly 2.",
+      "Refreshed messages repeat the same four (The Reading Room, Maya Chen, Garden Club, Alex Rivera), so the inbox fills with duplicates.",
+      "With a row's swipe actions open, tapping another row opens that message instead of just closing the actions. In Archive, the open actions blocked the edge-swipe back."
+    ],
+    "tells": [
+      "Swipe actions are hand-drawn round buttons with captions (purple Archive), not the system's full-height swipe actions. They are visible to accessibility, though.",
+      "When the title collapses, the inline 'Inbox' and its subtitle sit left-aligned over list text that shows through the bar and overlaps the title.",
+      "The reader's 'Message' title is left-aligned beside the back button instead of centred.",
+      "At the largest text size the 'unread · All Messages' subtitle truncates, and previews ignore the two-line limit."
+    ],
+    "scroll": "Smooth slow drags and flings with no blank rows or jumps; it feels like a native list. Content shows through the collapsed title area while scrolling.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "B looks and behaves much like iOS Mail: a native filter menu, standard unread dots, system colours and a large title with a status subtitle. A has a more web-styled look, with navy chips, pastel avatars and custom colours, and its large title shrinks at large text. A's features were slightly more solid, while B's refresh once added 24 messages and repeats the same made-up mail, but B is the one I would rather use and ship."
+}

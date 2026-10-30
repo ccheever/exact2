@@ -125,7 +125,7 @@ impl<D: DataSource> Runner<D> {
     /// A reader of a sampled source asks: its grid starts at its group's
     /// first ask, and its cursor goes to the implementation as `after`.
     pub(in crate::runner) fn sampled_ask(&mut self, row: &ModulesRow, args: &Json) {
-        if self.samples_of(row).is_none() {
+        if !self.substitute_polls(row) {
             return;
         }
         let at = (self.key(row), group(args));
@@ -347,6 +347,10 @@ impl<D: DataSource> Runner<D> {
             interrupted = self.paused_within(point(after), self.now_ms);
         }
         if let Some(map) = answer.as_object_mut() {
+            // When the group's zero was taken (`since`, LLP 1133.026 D13).
+            if let Some(field) = decl["since"].as_str() {
+                map.insert(field.into(), json!(self.time.epoch_at_zero + start));
+            }
             map.insert(
                 decl["cursor"].as_str().unwrap_or("sequence").into(),
                 json!(latest),
@@ -358,6 +362,49 @@ impl<D: DataSource> Runner<D> {
         answer
     }
 
+    /// Whether the substitute polls `row` itself: a sampled source, or a
+    /// count (`counts`).
+    pub(in crate::runner) fn substitute_polls(&self, row: &ModulesRow) -> bool {
+        self.samples_of(row).is_some()
+            || self.substitute(row)["counts"].is_object()
+            || matches!(
+                self.substitute(row)["device"]["role"].as_str(),
+                Some("stream" | "reports")
+            )
+    }
+
+    /// The substitute's answer to a reader of a count (`counts`, LLP
+    /// 1133.026 §11): the track's reading now, which holds while the page is
+    /// hidden too, counted from `since`: where the step names none, the
+    /// later of the reader's `start` and the group's first ask less `reach`
+    /// (Core Motion's seven days), on the epoch.
+    pub(in crate::runner) fn counted(&self, row: &ModulesRow, sub: &Json, args: &Json) -> Json {
+        let counts = &sub["counts"];
+        let epoch = self.time.epoch_at_zero;
+        let first = epoch
+            + (self
+                .extensions
+                .samples
+                .grids
+                .get(&(self.key(row), group(args))))
+            .copied()
+            .unwrap_or(self.now_ms);
+        let start = (counts["start"].as_str())
+            .and_then(|o| args[o].as_f64())
+            .unwrap_or(first);
+        let reach = counts["reach"].as_f64().unwrap_or(f64::INFINITY);
+        let mut reading = self.reading_at(row, self.now_ms);
+        if let Some(map) = reading.as_object_mut() {
+            if let Some(field) = counts["since"].as_str() {
+                map.entry(field).or_insert(json!(start.max(first - reach)));
+            }
+            if let Some(field) = counts["stamp"].as_str() {
+                map.insert(field.into(), json!(epoch + self.now_ms));
+            }
+        }
+        reading
+    }
+
     /// Whether a value preferred for a sampled source is a reading, or a
     /// list of steps each a reading with its `at`.
     pub(in crate::runner) fn track_checked(
@@ -366,6 +413,7 @@ impl<D: DataSource> Runner<D> {
         value: &Json,
     ) -> Result<(), String> {
         let decl = self.samples_of(row).unwrap_or_default();
+        let counts = self.substitute(row)["counts"].clone();
         let stamp = decl["stamp"].as_str().unwrap_or("timestamp");
         let key = self.key(row);
         let one = |reading: &Json| -> Result<(), String> {
@@ -374,14 +422,27 @@ impl<D: DataSource> Runner<D> {
                 return Err(format!("{key}: a reading is an object"));
             };
             map.remove("at");
-            map.insert(stamp.into(), json!(0));
-            map.insert(
-                decl["cursor"].as_str().unwrap_or("sequence").into(),
-                json!(0),
-            );
-            map.insert("samples".into(), json!([]));
-            map.insert("dropped".into(), json!(0));
-            map.insert("interrupted".into(), json!(false));
+            // What the runner adds to a count's step, or a batch's.
+            let added: Vec<(&str, Json)> = match counts.is_object() {
+                true => ["since", "stamp"]
+                    .iter()
+                    .filter_map(|f| Some((counts[*f].as_str()?, json!(0))))
+                    .filter(|(f, _)| !map.contains_key(*f))
+                    .collect(),
+                false => vec![
+                    (stamp, json!(0)),
+                    (decl["cursor"].as_str().unwrap_or("sequence"), json!(0)),
+                    ("samples", json!([])),
+                    ("dropped", json!(0)),
+                    ("interrupted", json!(false)),
+                ]
+                .into_iter()
+                .chain(decl["since"].as_str().map(|f| (f, json!(0))))
+                .collect(),
+            };
+            for (field, value) in added {
+                map.insert(field.into(), value);
+            }
             let ty = self.plan.sources[row.source.0 as usize].ty;
             self.answer_json(ty, &key, &full)
                 .map(|_| ())
@@ -447,7 +508,8 @@ impl<D: DataSource> Runner<D> {
     /// the substitute too, so its period is polled and a tool's join can
     /// find the app's consumers.
     pub(in crate::runner) fn sampled_reader(&mut self, row: &ModulesRow, args: &Json) {
-        if self.samples_of(row).is_none() || self.route(row) != Route::Substitute {
+        let joinable = self.substitute(row)["join"] == true;
+        if !(self.substitute_polls(row) || joinable) || self.route(row) != Route::Substitute {
             return;
         }
         if let Some((Reader::Resource(i), _)) = self.extensions.samples.asking.clone() {
@@ -461,7 +523,7 @@ impl<D: DataSource> Runner<D> {
     /// their grids and cursors (a released source's acquisition stops).
     pub(in crate::runner) fn release_sampled(&mut self) {
         let keys: Vec<String> = (self.plan.modules.iter())
-            .filter(|m| self.samples_of(m).is_some() && self.route(m) == Route::Substitute)
+            .filter(|m| self.substitute_polls(m) && self.route(m) == Route::Substitute)
             .map(|m| self.key(m))
             .collect();
         let mut held = std::collections::BTreeSet::new();
@@ -477,9 +539,13 @@ impl<D: DataSource> Runner<D> {
             samples.grids.retain(|(k, g), _| {
                 *k != key || groups.contains(g) || data.contains_key(&format!("{k} {g}"))
             });
+            // A device's stream or reports are data code's, with no Contract
+            // reader: polled while a connection reads (`devices.rs`).
             if readers.is_empty() {
                 self.extensions.readers.remove(&key);
-                self.extensions.polls.remove(&key);
+                if !self.device_polled(&key) {
+                    self.extensions.polls.remove(&key);
+                }
             }
         }
         // A reader's cursor goes with it; another source's readers keep theirs.
@@ -667,7 +733,7 @@ impl<D: DataSource> Runner<D> {
     /// way (local authentication's `NOT_AVAILABLE`).
     pub(in crate::runner) fn unavailable(&self, row: &ModulesRow) -> bool {
         let sub = self.substitute(row);
-        if sub["samples"].is_null() && sub["feeds"].is_null() {
+        if sub["samples"].is_null() && sub["feeds"].is_null() && sub["counts"].is_null() {
             return false;
         }
         let status = sub["permission"]["status"].as_str();

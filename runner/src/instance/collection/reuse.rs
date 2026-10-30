@@ -229,6 +229,7 @@ impl Collection {
             if (!needed.is_empty() || hold.is_some()) && self.spare(&mounted) {
                 spares.push(mounted);
             } else {
+                self.retire_row(u, &mounted);
                 gone.push(mounted.wrapper);
             }
         }
@@ -260,7 +261,10 @@ impl Collection {
             let text = super::super::ident(&mounted.row.key, mounted.row.dup).expect("validated");
             self.settle_mounted(u, mounted, &text)?;
         }
-        gone.extend(spares.into_iter().map(|m| m.wrapper));
+        gone.extend(spares.into_iter().map(|m| {
+            self.retire_row(u, &m);
+            m.wrapper
+        }));
         for id in gone {
             u.ops.push(Op::DestroyView { id });
         }
@@ -305,9 +309,12 @@ impl Collection {
             if s.owner.is_some() && s.owner == arm {
                 let value = u.eval(s.init, &inner)?;
                 if !value.conforms(plan, s.ty) {
-                    return Err(InstanceError::SlotType {
-                        slot: plan.str(s.name).to_string(),
-                    });
+                    return Err(InstanceError::slot_type(
+                        plan,
+                        &value,
+                        s.ty,
+                        plan.str(s.name),
+                    ));
                 }
                 slots.borrow_mut().insert(i as u32, value);
             }
@@ -344,6 +351,7 @@ impl Collection {
         self.adopt_nested(u, &mut mounted.row, text, frames)?;
         self.mounted_shown(u, &mut mounted);
         u.work.rows_rebound += 1;
+        self.count_row(u, |w| w.row_rebound += 1);
         Ok(mounted)
     }
 }

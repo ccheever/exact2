@@ -2,13 +2,12 @@
 //!
 //! @ref LLP 1008 §1
 //!
-//! After every commit the host walks the receipt (destroy, create, props,
-//! style, children — the web host's rule: the view tree mirrors the kernel
-//! tree), feeds the motion engine the commit (LLP 1003 §4), and seeks it to
-//! the app's clock before laying out the roots under the viewport. Layout
-//! projects the explicitly registered Height, then emits changed frames and
-//! scroll content sizes; other presentation values follow. The kernel is the single source of
-//! truth; the mirror is a memo of what the presenter has been told.
+//! After every commit the host walks the receipt (destroy, create, props, style, children — the
+//! web host's rule: the view tree mirrors the kernel tree), feeds the motion engine the commit
+//! (LLP 1003 §4), and seeks it to the app's clock before laying out the roots under the viewport.
+//! Layout projects the explicitly registered Height, then emits changed frames and scroll content
+//! sizes; other presentation values follow. The kernel is the single source of truth; the mirror
+//! is a memo of what the presenter has been told.
 
 use crate::{batch::Batch, style};
 use exact_kernel::motion::{motion_node, node_key, targets, MotionSync};
@@ -79,6 +78,7 @@ mod tamber;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
+pub use covers::Restyle;
 use exact_plan::EventKind;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
@@ -98,6 +98,8 @@ use layout::{content_size, published_content_box};
 mod resize;
 #[path = "scale.rs"]
 mod scale;
+#[path = "share_in.rs"]
+mod share_in;
 #[path = "snapshot.rs"]
 pub(crate) mod snapshot;
 pub(crate) use scale::LaunchLayout;
@@ -164,6 +166,7 @@ pub(crate) struct Mirror {
 /// One runner, one presenter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    admitting_frame: bool,
     font_hook: Option<(crate::measure::FontsFn, *mut std::ffi::c_void, usize)>,
     /// Whether the plan declares a `head`, and the title the presenter was
     /// last told (LLP 1048.003 D1): the window or scene title.
@@ -257,8 +260,8 @@ pub struct Host<D: DataSource> {
     colors_seen: Option<u64>,
     /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
     facts_told: Option<(f64, Vec<(String, String)>)>,
-    /// Whether the wake lock was held as a batch last said it (`Host::wakelock_moved`).
-    wakelock_told: Option<bool>,
+    /// The wake lock and the orientation lock as a batch last said them (`Host::wakelock_moved`, `Host::orientation_moved`).
+    holds_told: (Option<bool>, Option<String>),
     /// The top-layer boxes covered while closed (`closed.rs`).
     closed: layout::closed::Closed,
 }
@@ -507,6 +510,7 @@ impl<D: DataSource> Host<D> {
             language: None,
             hatches: paragraph::HatchWords::of(runner.plan()),
             runner,
+            admitting_frame: false,
             font_hook,
             mirror: IdMap::default(),
             style_texts: paragraph::StyleTexts::default(),
@@ -577,7 +581,7 @@ impl<D: DataSource> Host<D> {
             delivery,
             colors_seen: None,
             facts_told: None,
-            wakelock_told: None,
+            holds_told: (None, None),
             closed: Default::default(),
         };
         let mut batch = Batch::new();
@@ -642,8 +646,7 @@ impl<D: DataSource> Host<D> {
         host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
         let (mut batch, _) = host.resize_rounds(batch, None);
-        batch.spatial = host.engine.spatial();
-        batch.frames = host.runner.wants_frames();
+        host.state_onto(&mut batch);
         let batch = host.write(batch, None);
         Ok((host, batch))
     }
@@ -774,6 +777,8 @@ impl<D: DataSource> Host<D> {
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
         self.runner.set_retry_reader(io.retry_reader());
+        self.runner.set_listen_reader(io.listen_reader());
+        self.runner.set_work_clock(io.work_clock());
     }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {
@@ -995,26 +1000,11 @@ impl<D: DataSource> Host<D> {
         self.advance_in_layout_steps(now_ms)
     }
 
-    /// The `then`s an agent's input settled, the clock unmoved
-    /// ([`exact_runner::Runner::land_then`]).
-    pub fn land_then(&mut self) -> String {
-        let a = self.runner.land_then();
-        self.advanced(a)
-    }
-
     /// Whether this host's display drives frame tasks (LLP 1073 D4): off when
     /// the agent's clock takes over, so its advances fire virtual frames.
+    /// Set whether the display drives frame tasks.
     pub fn present_frames(&mut self, on: bool) {
         self.runner.present_frames(on);
-    }
-
-    /// A presented frame (LLP 1073 D2): the timers due by `now_ms`, then
-    /// every frame task once at it, in one batch as [`Host::advance`]'s.
-    pub fn frame(&mut self, now_ms: f64) -> String {
-        // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
-        self.runner.present_frames(true);
-        let a = self.runner.frame(now_ms);
-        self.advanced(a)
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {

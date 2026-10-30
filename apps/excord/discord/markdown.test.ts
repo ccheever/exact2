@@ -351,20 +351,30 @@ describe('jumbo emoji', () => {
   });
 });
 
+// This thread's CPU time in milliseconds (user and system), not the wall clock: a parse that waits for a core
+// on a loaded machine is not slower, and one that does more work is (tamber_rows_check's budget, fd3825af71).
+// The thread's, not the process's: the collector's own threads are not the parse.
+function cpuMs(): number {
+  const { user, system } = process.threadCpuUsage?.() ?? process.cpuUsage();
+  return (user + system) / 1000;
+}
+
 describe('adversarial content', () => {
   function underFive(source: string, expected: Block[] | ((blocks: Block[]) => void), name: string): void {
     const blocks = parse(source);
     if (typeof expected === 'function') expected(blocks);
     else expect(blocks).toEqual(expected);
     for (let i = 0; i < 10; i++) parse(source);
-    const batches = Array.from({ length: 7 }, () => {
-      const start = performance.now();
-      for (let i = 0; i < 5; i++) parse(source);
-      return (performance.now() - start) / 5;
-    }).sort((a, b) => a - b);
-    const median = batches[3];
-    console.info(`Markdown ${name}: ${median.toFixed(3)} ms/parse (median of 7 batches of 5)`);
-    expect(median).toBeLessThan(5);
+    // The fastest of 15 single parses, in CPU time: what a stray collection, a preempted parse or a loaded
+    // core adds is not the parser's, and a slow parser (repeated suffix scans, quadratic runs) is slow in
+    // every parse.
+    const best = Math.min(...Array.from({ length: 15 }, () => {
+      const start = cpuMs();
+      parse(source);
+      return cpuMs() - start;
+    }));
+    console.info(`Markdown ${name}: ${best.toFixed(3)} ms of CPU (fastest of 15 parses)`);
+    expect(best).toBeLessThan(5);
   }
   test.each([
     [7998, 'leaf'], [8000, 'z'],
@@ -502,11 +512,14 @@ describe('adversarial content', () => {
     expect(source.length).toBe(2000);
     for (let i = 0; i < 100; i++) parse(source);
     let blockCount = 0;
-    const start = performance.now();
-    for (let i = 0; i < 1000; i++) blockCount += parse(source).length;
-    const average = (performance.now() - start) / 1000;
+    // The same 1,000 runs as 20 batches of 50, each's average in CPU time, the fastest judged (as `underFive`).
+    const average = Math.min(...Array.from({ length: 20 }, () => {
+      const start = cpuMs();
+      for (let i = 0; i < 50; i++) blockCount += parse(source).length;
+      return (cpuMs() - start) / 50;
+    }));
     expect(blockCount).toBeGreaterThan(0);
-    console.info(`Markdown: ${average.toFixed(3)} ms/parse (2,000 characters, 1,000 runs)`);
+    console.info(`Markdown: ${average.toFixed(3)} ms/parse of CPU (2,000 characters, fastest of 20 batches of 50)`);
     expect(average).toBeLessThan(1);
   });
 });

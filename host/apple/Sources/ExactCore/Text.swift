@@ -207,6 +207,9 @@ package struct Spec: Hashable {
     package var textBoxUnder = 0
     /// CSS `text-wrap-style: balance` (TextBreaks.swift, `balance`).
     package var balance = false
+    /// `-webkit-font-smoothing: antialiased` (LLP 1019 D12): the glyphs
+    /// paint with Core Graphics font smoothing off. Paint only.
+    package var antialiased = false
     package init(runs: [Run], align: Int, lineClamp: Int, color: [Double], overflowWrap: Int = 0, direction: Int = 0, whiteSpace: Int = 0, strut: Run? = nil, ellipsis: Bool = false, source: SourceMap = SourceMap(), textIndent: CGFloat = 0, hyphens: Int = 0, language: String = "", shadow: [Double]? = nil, textBoxTrim: Int = 0, textBoxOver: Int = 0, textBoxUnder: Int = 0, balance: Bool = false) {
         self.runs = runs
         self.align = align
@@ -1073,9 +1076,13 @@ package final class TextEngine {
             plan.next(typesetter, source: shape.attributed, text: text, start: start, room: room, offerWidth: width,
                       breakWord: spec.overflowWrap != 0, length: length)
         }
+        // What a line's trailing spaces add to its width that the box's measure leaves out, in its `room`
+        func removed(_ line: CTLine, _ room: CGFloat) -> CGFloat {
+            TextEngine.uncountedTrailingWidth(line, whiteSpace: spec.whiteSpace, source: shape.attributed, room: room)
+        }
         // CSS `text-wrap-style: balance` (TextBreaks.swift): a narrower room until the first forced break.
         let balanced = spec.balance && spec.lineClamp == 0 && !plan.boundaries.isEmpty && width > 0
-            ? plan.balance(limit, length: length, inset: { Double(insets.at($0).width) }, next: next, typesetter: typesetter, source: shape.attributed) : nil
+            ? plan.balance(limit, length: length, inset: { Double(insets.at($0).width) }, removed: removed, next: next, typesetter: typesetter, source: shape.attributed) : nil
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
             var count: Int
@@ -1122,7 +1129,7 @@ package final class TextEngine {
             // fills the box, never sizes it.
             let indent = insets.at(start).width
             let drawn = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-            let w = max(0, (natural ?? drawn) + indent)
+            let w = max(0, (natural ?? (drawn - removed(line, CGFloat(limit) - indent))) + indent)
             if spec.align == 3, !clamps, width.isFinite {
                 line = TextEngine.justified(line, source: shape.attributed, range: range, width: limit - Double(indent))
             }
@@ -1414,7 +1421,7 @@ package final class TextEngine {
         // same way the presenter paints it (LLP 1045 D3).
         if request.markup != 0, let source = runs.first {
             let utf8 = { (p: UnsafePointer<UInt8>?, n: Int) in p.map { String(decoding: UnsafeBufferPointer(start: $0, count: n), as: UTF8.self) } ?? "" }
-            if let expanded = presentation?.markdown(self, source: source, atoms: utf8(request.atoms, request.atoms_len), faces: utf8(request.faces, request.faces_len)) { runs = expanded }
+            if let expanded = presentation?.markdown(self, source: source, atoms: utf8(request.atoms, request.atoms_len), faces: utf8(request.faces, request.faces_len), rtl: request.direction == 1) { runs = expanded }
             else if requiresMarkdownExpansion { refusedMarkdown = request.view; runs = [] }
         }
         // Metric-only keys match the geometry used by the colored presenter.

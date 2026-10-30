@@ -4,10 +4,10 @@
 //! Every statement of an action reads the state the action started with,
 //! and its assignments land together when it ends (LLP 1089 D2): after
 //! `now = performanceNow()`, `if now >= endsAt` tests the last tick's time.
-//! It is on the page, unlike a read behind a call (`calls.rs`, refused),
-//! yet five builds in the bake-off's rounds 4 and 5 wrote it expecting the
-//! new value. It is a warning, not a refusal: a swap, `a = b` then `b = a`,
-//! means it.
+//! It is on the page, unlike a read behind a call (`calls.rs`, the same
+//! rule's other frame since LLP 1035.005.002 C2), yet five builds in the
+//! bake-off's rounds 4 and 5 wrote it expecting the new value. It is a
+//! warning, not a refusal: a swap, `a = b` then `b = a`, means it.
 //!
 //! The walk is the action's own frame, path-sensitive as `calls.rs`'s: an
 //! arm starts from what the paths into it wrote and the branch leaves their
@@ -20,7 +20,7 @@
 //! then `if phase == 2 …` steps once an action). A field the assignment
 //! copied unchanged (`s = S(s, f=…)`, then `s.g`) is the same value.
 
-use super::calls::slot_reads;
+use super::calls::{copied, slot_reads};
 use super::sends::{exclusive, facts, Guard};
 use super::{AnalyzeError, Related};
 use contract_syntax::inline::calls::shown;
@@ -169,26 +169,6 @@ impl<'a> Walk<'a> {
             }
         }
     }
-}
-
-/// The fields `target = S(target, f=…, g=…)` replaces; `None` for any other
-/// value.
-fn copied<'a>(target: &str, expr: &'a Expr) -> Option<BTreeSet<&'a str>> {
-    let Expr::Call(_, args, _) = expr else {
-        return None;
-    };
-    let (Some(Expr::Ident(from, _)), rest) = (args.first(), args.get(1..)?) else {
-        return None;
-    };
-    if from != target {
-        return None;
-    }
-    rest.iter()
-        .map(|a| match a {
-            Expr::NamedArg(field, _, _) => Some(field.as_str()),
-            _ => None,
-        })
-        .collect()
 }
 
 /// The union of two arms' writes; one made before the branch is in both.

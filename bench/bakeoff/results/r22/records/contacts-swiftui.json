@@ -1,0 +1,26 @@
+{
+  "spec": "contacts",
+  "arm": "swiftui",
+  "model": "gpt",
+  "appId": "dev.bakeoff.contacts.b5a1e29",
+  "assignedId": "dev.bakeoff.contacts.b5a1e29",
+  "appName": "Contacts",
+  "sim": "EF198926-1958-489D-A7A4-9196E454DD3A",
+  "pin": "37b662fc24",
+  "minutes": 18.42,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 3569020,
+    "fresh": 99541,
+    "input": 3533397,
+    "cached": 3433856,
+    "output": 35623,
+    "cost": null,
+    "calls": 9,
+    "toolCalls": 46
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r22/built/contacts-swiftui.app",
+  "notes": true,
+  "finished": "2026-10-26T17:27:45.431Z"
+}

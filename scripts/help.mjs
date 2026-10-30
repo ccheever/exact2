@@ -33,11 +33,11 @@ const DRIVE = [
   ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
   ['--timing platform · --bind <extension>', 'Apple: UIKit\'s transitions keep their own timing (default: frozen) · Apple, Android: a module answered by its implementation, not the substitute'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
-  ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
+  ['--epoch <ISO|ms|now> · --login [hidden]', 'the date at the clock\'s zero (default 2026-01-01) · a launch the login item made, hidden: with no window'],
   ['--locale <tag> · --format-locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, the locale (the Region\'s format, exactTime().formatLocale), UTC, 1'],
-  ['--fail-fetch <prefix> · --permission <name>=<state> · --notification <entry> · --wake <entry>', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted) · a relaunch handed a listed entry, as state.notifications printed it · a cold wake for a registration, as state.backgroundSync printed it'],
-  ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
-  ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.64.1 install firefox webkit)'],
+  ['--fail-fetch <prefix> · --permission <name>=<state> · --notification <entry> · --wake <entry> · --call \'<tool> <json>\'', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted) · a relaunch handed a listed entry, as state.notifications printed it · a cold wake for a registration, as state.backgroundSync printed it · a cold call of a tool, as a system\'s call that started the app'],
+  ['--process <target>=<file>|script:<file.json>|real · --login-env NAME=value · --home <dir>', 'macOS, Linux: what a child process is (none runs unnamed; `all=real` runs every one), the login shell\'s variables, home:/ for the data code (LLP 1133.007 §7)'],
+  ['--url <url> · --browser chrome|firefox|webkit', 'web: drive a page already served (the dev loop\'s) instead of building · web (default chrome; bunx playwright@1.64.1 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
@@ -53,7 +53,7 @@ const DRIVE_INTERNAL = ['--app <name>', '--session <label>', '--pid <pid>', '--o
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
-const APPLE = ['--watchos', '--watch-sim <udid>', '--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
+const APPLE = ['--painted-benchmark', '--watchos', '--watch-sim <udid>', '--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
   '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>', '--widget-gallery'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
@@ -137,7 +137,7 @@ Server   runs server.ts on DB=.exact/test/db.sqlite; refuses a live server or an
 Runs     to completion, exit 1 when a test fails; nothing is left running.
 Backend  test web never starts a Snapback backend: start snapback4 dev on app.ts’s selected origin’s port
          first; checked before launch. The app's own server.ts is managed as above. EXACT_PORT is the page’s.
-Lines    tap, type, expect text|tree|state|disabled|refusal, clock data|settle|+<ms>, reload, back, fail|pass
+Lines    tap, type, expect text|tree|state|disabled|refusal, clock data|settle|+<ms>|until state …, reload, back, fail|pass
          fetch, request <METHOD> "/path" [json] [as <persona>] [expect <status>]: docs/recipes/tests.md;
          all: docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
@@ -163,32 +163,31 @@ Ops      a target is a testId, else a view's exact text or label
   clock data|settle|held|+<ms> [real]    replies · transitions · push
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
   screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>`,
-    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. A game's world: post [<surface>] <text> is a message its next tick reads (type <surface> message <text>). No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's. A deep link is typed on the navigate= root: "type <root> euxy://p/1" (macOS, iOS: through protocol_handlers, no alert). Held contact: "tap <t> down" "screenshot <png>" "tap up". clock held [<target>…] [<n>s] waits for a held reply with the clock frozen, then runs clock data (default bound: 20 s).
+    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. A game's world: post [<surface>] <text> is a message its next tick reads (type <surface> message <text>). No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's. A deep link is typed on the navigate= root: "type <root> euxy://p/1" (macOS, iOS: through protocol_handlers, no alert). Held contact: "tap <t> down" "screenshot <png>" "tap up". clock held [<target>…] [<n>s] waits for a held reply with the clock frozen, then runs clock data (default bound: 20 s). clock until state <path> == <JSON literal> within <ms> waits, the clock frozen, until state reads it (a stream's state after its first message); a miss names the last value.
 Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
     line: 'build if stale, run *.test.contract, check each screen it reaches light and dark, relaunch once',
-    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--json]',
+    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]',
     common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--shots <dir>', 'also copy every screenshot it captured there, named as in .exact/verify/ (a test\'s own `screenshot` steps too)'],
-      ['--json', 'the report as one JSON object'],
+      ['--rescroll', 'ios: measure scrolling again though nothing it depends on changed'],
+      ['--json', 'the report as one JSON object (ios: `scrolling`, each finding\'s metric, value, UIKit\'s and remedy)'],
     ],
     internal: ['--app <name>'],
-    body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars
-(an edit to only app.contract or app.ts runs its new plan, no native rebuild), each on a
-fresh scratch store, and runs check light and dark on the screen it opens to. The tests are
-app.test.contract's, then each other *.test.contract's beside it, as test runs them. Each test's
-last screen is checked the same way in the test's own session (web: at both widths; ios
-runs the tests with UIKit's bars). Then the app relaunches once, on real time, on the store
-a passing test left, and says whether its first screen shows what that test stored. One
-short report: the build if it built, the compiler's warnings (as contract build says them,
-built or not), the tests, check's findings (each once, naming the screens it was on), the
-relaunch, then "verify: clean" or "verify: N problems". A clean verify is done. One
-screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme,
-each test's named by the test, the relaunch's): look at them when the features work.
+    body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars (an edit to only
+app.contract or app.ts runs its new plan, no native rebuild), each on a fresh scratch store, and runs check
+light and dark on the screen it opens to. The tests are app.test.contract's, then each other *.test.contract's
+beside it, as test runs them. Each test's last screen is checked the same way in the test's own session (web: at
+both widths; ios runs the tests with UIKit's bars). Then the app relaunches once, on real time, on the store a
+passing test left, and says whether its first screen shows what that test stored. One short report: the build if
+it built, the compiler's warnings (as contract build says them, built or not), the tests, check's findings (each
+once, naming the screens it was on), the relaunch, then "verify: clean" or "verify: N problems". A clean verify
+is done. One screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme, each
+test's named by the test, the relaunch's): look at them when the features work.
 Large    each of those screens again at the largest text size (ios: the simulator's, put back
          after; web: a 53 px root, iOS's body there, at 390x844, and the tests run again there
          to read up to 12 screens they pass through): what spills (past the edge, squeezed,
@@ -196,8 +195,10 @@ Large    each of those screens again at the largest text size (ios: the simulato
          smaller or fixed font is the tell, and so is a line-clamp in a list's row or hyphens="auto"
          on a text of several words (a UILabel hyphenates only a word longer than its line; a
          grouped list's rows hyphenate as cells do). Counted ("3 at the largest text size"), never failing.
+Scroll   ios: ~15 s of real touches on a long first-screen list, once per build (host/apple/feel): "like UIKit", or
+         a counted finding per metric the app can fix; Exact's own one uncounted line; load > cores: physics only.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
-         findings (check's, the relaunch's, the largest text size's) and the compiler's
+         findings (check's, the relaunch's, the largest text size's, scrolling's) and the compiler's
          warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.
          Its first line says about how long it takes (its last run's time): wait that once.
 Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls
@@ -242,6 +243,7 @@ Ports    none. Runs to completion (--run too); --prebuild returns at once, the b
       PREBUILD,
       RELEASE,
       ['--bundle', 'assemble the .app bundle (the macOS default)'],
+      ['--painted-benchmark', 'build the app’s <macos-crate>-painted bin with ink; benchmark carrier only (LLP 1149 S1.1)'],
       ['--url <url>', 'connect the app to that dev server (web\'s URL) for live reload'],
       OPTIMIZE,
     ],
@@ -349,7 +351,7 @@ Ports    none. Runs to completion.`,
       ['--pair-ttl <duration>', 'serve: a paired client\'s token lifetime (90m, 12h, 2d; default 12h)'],
       ['--scope <s>', 'pair: the code\'s scope, read, propose or write'],
       ['--name <name>', 'pair: the name the paired client is listed by'],
-      ['--via <url>', 'tool: the app\'s dev loop, which holds its design; the tool reaches it through its own port'],
+      ['--via <url>', 'tool: the app\'s dev loop, which holds its design; the tool reaches it through its own port, waiting (up to 20 min) while the loop starts'],
       ['--no-open', 'tool: print the URL; open no browser'],
     ],
     body: `The design is the file app.json's "tamber" names, else app.tamber beside app.contract

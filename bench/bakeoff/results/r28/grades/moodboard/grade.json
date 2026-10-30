@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Grid of all 600 tiles, three per row edge to edge with hairline gaps, HSL squares with centred emoji, newest first; header reads '600 tiles · Newest first'."},
+      {"n": 2, "status": "pass", "note": "Filter button in the nav bar opens a native menu with All Boards plus the ten boards and a checkmark on the current one; the grid and count update (Coast: 64 tiles). Liked has its own filter."},
+      {"n": 3, "status": "pass", "note": "Push to a full-width large tile with the title in the nav bar, plus title, board and 'Added <date>'. Horizontal swipes move to the next or previous tile within the current filter ('2 of 64'). Prev/next buttons are also provided."},
+      {"n": 4, "status": "pass", "note": "Like/Liked toggle button in the large view. The Liked tab shows the same grid with heart badges and updates immediately when a tile is unliked from it."},
+      {"n": 5, "status": "pass", "note": "Select turns the title into 'N Selected' with Select All and Cancel, check circles on tiles, and a Like/Delete bar. Bulk like works. Bulk delete asks for confirmation in a system alert and removes the tiles (600→598)."},
+      {"n": 6, "status": "pass", "note": "After relaunch the likes (Liked count 66) and deletions (598) were kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The nav title is a small inline 'Moodboard' with no large title, and it is left-aligned on Library but centred on Liked, so the two tabs disagree.",
+      "In the large view the Like button's heart and text are plain black/white rather than tinted, and the filled 'Liked' heart is black instead of red or the accent colour.",
+      "At the largest text size the emoji in the large view grows with Dynamic Type until it nearly fills the tile and looks soft and upscaled.",
+      "At the largest text size the select-mode Like/Delete bar takes up nearly half the screen, leaving about two rows of grid visible.",
+      "The select-mode action bar is a custom button strip floating above the tab bar, not a system bottom toolbar."
+    ],
+    "scroll": "Slow drags, hard flings to the end and back, and the overscroll bounce all feel native, with no blank or popping tiles; scroll position is kept after visiting a tile and coming back.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Grid of all 600 tiles, three per row with 6pt margins and rounded corners, newest first, under a 'Find your next inspiration.' hero header."},
+      {"n": 2, "status": "pass", "note": "An 'All boards' pill button opens a native menu with All boards plus the ten boards and a checkmark; the grid and count update (Coast: 64 tiles)."},
+      {"n": 3, "status": "pass", "note": "Pushes a large rounded tile in a horizontally paging collection with prev/next arrows, 'n of N', serif title, board chip and 'Added <date>'. Swipes move to neighbouring tiles."},
+      {"n": 4, "status": "pass", "note": "A large accent Like/Liked button pinned at the bottom. The Liked tab shows the same grid with heart badges and drops a tile when it is unliked there."},
+      {"n": 5, "status": "pass", "note": "Select shows 'N selected' with Select all and Done, check circles plus a selection outline, and a Like/Delete bar. Bulk like works, and bulk delete confirms then removes the tiles (600→598)."},
+      {"n": 6, "status": "pass", "note": "After relaunch the likes (Liked 65) and deletions (598) were kept."}
+    ],
+    "bugs": [
+      "The delete confirmation popover is anchored near the top of the screen with its arrow pointing at the 'All boards' filter, not at the Delete button that was tapped."
+    ],
+    "tells": [
+      "A marketing-style hero ('Find your next inspiration.' / 'Keep what moves you.' in a large serif, with a tagline) above the grid looks like a web landing page, not an iOS list screen.",
+      "The glass circle at the left of the nav bar holds a decorative grid or heart image that looks like a button but does nothing.",
+      "The large view's nav title is the generic 'A closer look' instead of the tile's name, and the view adds filler copy ('Something to spark an idea.').",
+      "At the largest text size the filter pill's leading icon and chevron and the detail view's arrow buttons stay tiny next to huge text, and the hero header disappears.",
+      "The tile count is split into two right-aligned lines ('600 tiles' / 'Newest first') in an unusual header layout.",
+      "The select-mode action bar is a custom floating Like/Delete pair rather than a system bottom toolbar."
+    ],
+    "scroll": "Slow drags, flings to the end and back, and the overscroll bounce all feel native, with no blank or popping tiles; scroll position is kept after visiting a tile and coming back, and there is a footer line at the end.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements, including persistence, and both scroll smoothly. A looks like a Photos-style native app with a standard confirmation alert. B is more decorated, with a web-like serif hero, a decorative nav button that does nothing, a generic detail title and a delete popover anchored to the wrong control. A's flaws are smaller: an untinted like heart, no large title, and an oversized emoji at the largest text size."
+}

@@ -17,6 +17,18 @@ final class TextPaintTests: XCTestCase {
             letterSpacing: 0, background: background)
     }
 
+    /// A stroke in a colour of its own space (its width, then nine numbers: a wide colour, or a dimmed
+    /// face's grey past white) is painted in that colour, as a four-channel one is
+    func testAStrokeInItsOwnSpaceIsPainted() throws {
+        var wide = run("Wide")
+        wide.stroke = [2, 255, 255, 255, 255, 0, 1.2, 1.2, 1.2, 1]
+        let attributed = engine.attributed(Spec(runs: [wide], align: 0, lineClamp: 0, color: [0, 0, 0, 255]))
+        XCTAssertEqual(try XCTUnwrap(attributed.attribute(.strokeWidth, at: 0, effectiveRange: nil) as? Double), -2 / 16 * 100, accuracy: 1e-9)
+        let colour = try XCTUnwrap(attributed.attribute(.strokeColor, at: 0, effectiveRange: nil) as? PlatformColor)
+        let extended = try XCTUnwrap(colour.cgColor.converted(to: CGColorSpace(name: CGColorSpace.extendedSRGB)!, intent: .defaultIntent, options: nil)?.components)
+        XCTAssertEqual(Double(extended[0]), 1.2, accuracy: 0.001, "in extended sRGB, past white")
+    }
+
     /// Premultiplied RGBA, rows top-down, at scale 1, painted y-down as a view does.
     private func paint(_ p: Paragraph, _ spec: Spec, size: CGSize) -> (bytes: [UInt8], width: Int, height: Int) {
         let width = Int(size.width), height = Int(size.height)
@@ -389,6 +401,49 @@ final class TextPaintTests: XCTestCase {
         XCTAssertEqual(capped.maxX, 100 + 32 + TextRasterJob.maxShadowReach, accuracy: 0.01, "under the cap")
     }
 
+    /// A band a worker paints for a port that travels has three quarters of
+    /// its room ahead of the port, so it is ready before the port leaves the
+    /// band shown; one painted now is centred on the port.
+    func testABandLeadsThePortItTravelsWith() {
+        let spec = Spec(runs: [run("Ab", weight: 400)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let port = CGRect(x: 0, y: 4000, width: 100, height: 800)
+        let budget: CGFloat = 48 * 1024 * 1024
+        let down = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget, down: true)
+        let up = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget, down: false)
+        let centred = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget)
+        XCTAssertEqual(down.height, 1600, "two ports, under the budget")
+        XCTAssertEqual(down.maxY - port.maxY, 600, "travelling down, the room is ahead")
+        XCTAssertEqual(port.minY - down.minY, 200)
+        XCTAssertEqual(port.minY - up.minY, 600, "travelling up, ahead is above")
+        XCTAssertEqual(port.minY - centred.minY, 400)
+    }
+
+    /// A band is kept while the port rests in it or moves on its way, until
+    /// the port is within half a port of its edge ahead. The way is the
+    /// port's own: a band leading down lies mostly below the port, which
+    /// does not turn it up, and nor does a move back of less than a quarter
+    /// port. A port that turns back gets a band ahead of it.
+    func testABandIsKeptUntilThePortNearsItsEdgeAhead() {
+        let spec = Spec(runs: [run("Ab", weight: 400)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let budget: CGFloat = 48 * 1024 * 1024, height: CGFloat = 100_000
+        var travel = PortTravel(), port = CGRect(x: 0, y: 4000, width: 100, height: 800)
+        let keeps = { (band: CGRect) in TextRasterJob.keeps(band, port: port, down: travel.follow(port), height: height) }
+        let down = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget, down: travel.follow(port))
+        for _ in 0..<3 { XCTAssertTrue(keeps(down), "the port at rest") }
+        port.origin.y += 10
+        XCTAssertTrue(keeps(down), "a small move on")
+        port.origin.y += 200
+        XCTAssertFalse(keeps(down), "within half a port of the edge ahead")
+        port.origin.y -= 10
+        XCTAssertTrue(keeps(down), "a finger's jitter back keeps its way")
+        XCTAssertTrue(travel.down)
+        port.origin.y = 4000
+        XCTAssertFalse(keeps(down), "turned back, with a quarter port above")
+        let up = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget, down: travel.down)
+        XCTAssertFalse(travel.down)
+        XCTAssertTrue(keeps(up), "the new band, at rest")
+    }
+
     /// A `line-clamp` paragraph rasters from its published geometry (LLP
     /// 1072 §8.1): a worker shapes the lines, the last one again from the
     /// range it broke at, ending in "…". The same pixels as layout's lines.
@@ -503,6 +558,65 @@ final class TextPaintTests: XCTestCase {
         return Data(bytes: r.surface.baseAddress, count: r.surface.allocationSize)
         #endif
     }
+
+    #if os(macOS)
+    /// `-webkit-font-smoothing: antialiased` (LLP 1019 D12): AppKit's raster,
+    /// both its paths, draws with font smoothing off, as Chrome does on the
+    /// Mac: thinner stems, so less ink. The raster's key tells the two apart.
+    func testAntialiasedTextRastersWithoutFontSmoothing() throws {
+        func ink(_ antialiased: Bool, glyphs: Bool) throws -> Int {
+            var spec = Spec(runs: [run("Settings General", weight: 500)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.antialiased = antialiased
+            let p = engine.paragraph(spec, width: 300)
+            let box = CGRect(x: 0, y: 0, width: 300, height: 30)
+            let job = TextRasterJob(source: engine.attributed(spec), ranges: p.lines.map { CTLineGetStringRange($0) },
+                                    baselines: p.baselines, flush: 0, box: box, size: box.size, scale: 2, antialiased: antialiased,
+                                    measuredGlyphs: glyphs ? try XCTUnwrap(MeasuredGlyphs(p, spec: spec, width: 300)) : nil,
+                                    measuredColor: glyphs ? CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1) : nil)
+            let bytes = rasterBytes(try XCTUnwrap(job.render()))
+            return stride(from: 3, to: bytes.count, by: 4).reduce(0) { $0 + Int(bytes[$1]) }
+        }
+        for glyphs in [false, true] {
+            let smoothed = try ink(false, glyphs: glyphs), antialiased = try ink(true, glyphs: glyphs)
+            XCTAssertLessThan(Double(antialiased), Double(smoothed) * 0.97, "glyphs \(glyphs): \(antialiased) against \(smoothed)")
+        }
+        var spec = Spec(runs: [run("Settings")], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let box = CGRect(x: 0, y: 0, width: 100, height: 20)
+        let smoothed = TextRasterKey(spec: spec, size: box.size, box: box, scale: 2)
+        spec.antialiased = true
+        XCTAssertNotEqual(TextRasterKey(spec: spec, size: box.size, box: box, scale: 2), smoothed)
+    }
+
+    /// The direct draw (`TextEngine.draw`, a view's own context) turns
+    /// smoothing off for the paragraph alone and leaves the context's as it was.
+    func testAntialiasedTextDrawsDirectlyWithoutFontSmoothing() {
+        let width = 900, height = 60
+        func ink(_ specs: [Spec]) -> [Int] {
+            var bytes = [UInt8](repeating: 0, count: width * height * 4)
+            bytes.withUnsafeMutableBytes { raw in
+                let ctx = CGContext(data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                    bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: 2, y: -2)
+                ctx.setShouldSmoothFonts(true)
+                for (i, spec) in specs.enumerated() {
+                    TextEngine.draw(engine.paragraph(spec, width: 140), spec: spec,
+                                    in: CGRect(x: CGFloat(i) * 150, y: 5, width: 140, height: 20), context: ctx)
+                }
+            }
+            return (0..<specs.count).map { i in
+                (0..<height).reduce(0) { sum, y in
+                    (i * 300..<(i + 1) * 300).reduce(sum) { $0 + Int(bytes[(y * width + $1) * 4 + 3]) }
+                }
+            }
+        }
+        let smoothed = Spec(runs: [run("Settings General", weight: 500)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        var antialiased = smoothed; antialiased.antialiased = true
+        let drawn = ink([smoothed, antialiased, smoothed])
+        XCTAssertLessThan(Double(drawn[1]), Double(drawn[0]) * 0.97, "\(drawn)")
+        XCTAssertEqual(drawn[2], drawn[0], "the context smooths again after the antialiased paragraph")
+    }
+    #endif
 
     /// LLP 1100 D2: a paragraph whose colour is wide rasterizes into Display
     /// P3, so its ink is not clipped to sRGB; any other stays sRGB.

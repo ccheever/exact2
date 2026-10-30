@@ -50,21 +50,16 @@ final class ElementScrollTests: XCTestCase {
         #if os(macOS)
         sv.contentView.scroll(to: .zero)
         window.orderFront(nil)
-        var ended = 0, intermediate = false
-        p.onScrollend = { _ in ended += 1 }
-        p.scrollElementIntoView(["target", "start", "nearest", "smooth"])
+        var ended = 0
+        let motion = observeMotion(clip: sv.contentView, target: 368, marked: { p.views[1]?.scrollEnd?.elementAnimation != nil }) { completed in
+            p.onScrollend = { _ in ended += 1; completed() }
+            p.scrollElementIntoView(["target", "start", "nearest", "smooth"])
+        }
         if ExactEnv.agentFreezes {
-            XCTAssertEqual(offset(), 368, accuracy: 0.5, "the frozen agent lands authored motion immediately")
+            XCTAssertEqual(motion.first, 368, accuracy: 0.5, "the frozen agent lands authored motion immediately")
         } else {
-            XCTAssertLessThan(offset(), 368, "a smooth element jump must not land synchronously")
-        }
-        let limit = Date().addingTimeInterval(10)
-        while ended == 0 && Date() < limit {
-            if offset() > 1 && offset() < 367 { intermediate = true }
-            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-        if !ExactEnv.agentFreezes {
-            XCTAssertTrue(intermediate, "the real-time scroll has intermediate frames")
+            XCTAssertLessThan(motion.first, 368, "a smooth element jump must not land synchronously")
+            XCTAssertTrue(motion.intermediate, "the real-time scroll has intermediate frames")
         }
         XCTAssertEqual(offset(), 368, accuracy: 0.5)
         XCTAssertEqual(ended, 1)
@@ -135,7 +130,7 @@ final class ElementScrollTests: XCTestCase {
         referenceWindow.contentView = reference
         referenceWindow.orderFront(nil)
         defer { withExtendedLifetime(referenceWindow) {} }
-        let appKit = observeAnimation(offset: { reference.contentView.bounds.minY }, target: target.y) { completed in
+        let appKit = observeMotion(clip: reference.contentView, target: target.y) { completed in
             NSAnimationContext.runAnimationGroup({ _ in
                 reference.contentView.animator().setBoundsOrigin(target)
             }, completionHandler: completed)
@@ -261,28 +256,60 @@ final class ElementScrollTests: XCTestCase {
         defer { DisplayPreferences.agent = prior }
         var ends = 0
         let target: CGFloat = (arguments.first as? String) == "home" ? 0 : 368
-        let observed = observeAnimation(offset: { scroll.contentView.bounds.minY }, target: target) { completed in
+        let observed = observeMotion(clip: scroll.contentView, target: target, marked: { p.views[1]?.scrollEnd?.elementAnimation != nil }) { completed in
             p.onScrollend = { _ in ends += 1; completed() }
             p.scrollElementIntoView(arguments)
         }
         return (observed.first, observed.intermediate, observed.last, ends)
     }
 
-    private func observeAnimation(offset: () -> CGFloat, target: CGFloat,
-                                  start: (@escaping () -> Void) -> Void) -> (first: CGFloat, intermediate: Bool, last: CGFloat) {
+    /// AppKit's default animation length (`NSAnimationContext`'s 0.25 s),
+    /// which an element reveal and the hand-built reference both take.
+    private static let motionDuration: TimeInterval = 0.25
+
+    /// A scroll motion `start` begins on `clip` toward `target`, observed by
+    /// the clip's own bounds changes (each frame AppKit draws), not by a poll
+    /// of the test's turns, which a stalled run loop slept through (this
+    /// class's flake: a 10 ms poll saw no in-between frame in a run starved
+    /// to 5.4 s); its end waited for by EventWaits. `marked`: whether the
+    /// motion marked itself an animation (an element reveal's
+    /// `elementAnimation`), checked at once and, after the end, gone. A
+    /// motion that a stall longer than itself collapsed to one drawn frame
+    /// counts as having intermediate frames only when it also marked itself
+    /// animated, and is kept as a LATE-PASS (theme2's ruling: one frame, the
+    /// stall and the mark, all three); else no frame between still fails.
+    private func observeMotion(clip: NSClipView, target: CGFloat, marked: (() -> Bool)? = nil,
+                               start: (@escaping () -> Void) -> Void) -> (first: CGFloat, intermediate: Bool, last: CGFloat) {
+        var positions: [CGFloat] = []
+        clip.postsBoundsChangedNotifications = true
+        let watch = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: nil) { _ in
+            positions.append(clip.bounds.minY)
+        }
+        defer { NotificationCenter.default.removeObserver(watch) }
         var completed = false
         start { completed = true }
-        let first = offset()
-        var intermediate = false
-        let limit = Date().addingTimeInterval(10)
-        while !completed && Date() < limit {
-            let position = offset()
-            let low = min(first, target), high = max(first, target)
-            if position > low + 1 && position < high - 1 { intermediate = true }
-            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        let first = clip.bounds.minY
+        let animated = marked?() ?? false
+        if marked != nil, !ExactEnv.agentFreezes, !completed {
+            XCTAssertTrue(animated, "an animated reveal marks its element animation")
         }
-        XCTAssertTrue(completed, "the scroll completes")
-        return (first, intermediate, offset())
+        var slowest = 0.0, turn = Date()
+        waitFor("the scroll completes", late: 1, giveUp: {
+            slowest = max(slowest, Date().timeIntervalSince(turn)); turn = Date()
+            return false
+        }, facts: {
+            // (and the turn that completed it, which ends the loop before its give-up runs: Astra's round 1)
+            slowest = max(slowest, Date().timeIntervalSince(turn))
+            return "\(positions.count) frames drawn, the slowest turn \(String(format: "%.3f", slowest)) s"
+        }) { completed }
+        if let marked { XCTAssertFalse(marked(), "the element animation's mark is gone after its end") }
+        let low = min(first, target), high = max(first, target)
+        var intermediate = positions.contains { $0 > low + 1 && $0 < high - 1 }
+        if !intermediate, positions.count == 1, slowest > Self.motionDuration, animated {
+            latePass("the motion collapsed to one frame", "slowest turn \(String(format: "%.3f", slowest)) s against a \(Self.motionDuration) s motion, marked animated")
+            intermediate = true
+        }
+        return (first, intermediate, clip.bounds.minY)
     }
     #else
     /// A scroller with `scrollend`, `target` at 368 and `home` at 0, in a

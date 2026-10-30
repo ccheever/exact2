@@ -295,6 +295,7 @@ pub(crate) fn check_component(
         &c.view,
         &scope,
         c,
+        &crate::actions::Names::new(c),
         &mut ct,
         shapes,
         &mut miscounted,
@@ -320,6 +321,7 @@ pub(crate) fn check_component(
         let mut scratch = Sink::default();
         let report = if round == 0 { &mut scratch } else { &mut *sink };
         let mut scope = types.component_scope(c, &ct);
+        let names = crate::actions::Names::new(c);
         for (ai, a) in c.actions.iter().enumerate() {
             scope.push(
                 a.params
@@ -337,9 +339,11 @@ pub(crate) fn check_component(
             scope.enter_action();
             // A lifted child action is `name#N` (LLP 1017 P4c).
             let lifted = a.name.contains('#');
-            crate::actions::check_body(&a.body, &scope, lifted, c, &mut ct, shapes, report);
+            let written = crate::actions::check_body(
+                &a.body, &scope, lifted, &names, &mut ct, shapes, report,
+            );
             scope.pop();
-            scope.retype_slots(c, &ct);
+            scope.retype_written(c, &ct, &written);
         }
     }
     // The seam's signatures (LLP 1027 D2): every resource's arguments against
@@ -483,9 +487,12 @@ pub(crate) fn check_component(
 
 impl Scope {
     fn push_name(&mut self, name: (String, Ref, Ty)) {
-        Arc::make_mut(self.frames.last_mut().expect("initializer scope frame"))
-            .names
-            .push(name);
+        let last = self
+            .frames
+            .len()
+            .checked_sub(1)
+            .expect("initializer scope frame");
+        self.push_name_at(last, name);
     }
 
     /// Change the type of the bottom frame's `index`th name in place.
@@ -493,15 +500,19 @@ impl Scope {
         Arc::make_mut(&mut self.frames[0]).names[index].2 = ty;
     }
 
-    // Only slots can change while checking a body. Refresh between bodies,
-    // where a fresh component scope would have observed the preceding writes.
-    fn retype_slots(&mut self, c: &Component, ct: &ComponentTypes) {
+    // Only slots can change while checking a body, and only the ones it
+    // assigns (`written`). Refresh those between bodies, where a fresh
+    // component scope would have observed the preceding writes; every other
+    // slot's type is still the one this scope holds.
+    fn retype_written(&mut self, c: &Component, ct: &ComponentTypes, written: &[usize]) {
         let first = c.props.len() + c.injects.len();
-        for (i, ty) in ct.slots.iter().enumerate() {
-            if &self.frames[0].names[first + i].2 != ty {
-                self.retype(first + i, ty.clone());
+        for &i in written {
+            if self.frames[0].names[first + i].2 != ct.slots[i] {
+                self.retype(first + i, ct.slots[i].clone());
             }
         }
+        #[cfg(test)]
+        crate::scope_tests::all_slots_retyped(self, c, ct);
     }
 }
 
@@ -723,6 +734,7 @@ fn probe_writes(c: &Component, ct: &mut ComponentTypes, types: &Types) -> bool {
     let mut probe = ct.clone();
     let mut scratch = Sink::default();
     let mut scope = types.component_scope(c, &probe);
+    let names = crate::actions::Names::new(c);
     for (ai, a) in c.actions.iter().enumerate() {
         scope.push(
             a.params
@@ -739,17 +751,17 @@ fn probe_writes(c: &Component, ct: &mut ComponentTypes, types: &Types) -> bool {
         );
         scope.enter_action();
         let lifted = a.name.contains('#');
-        crate::actions::check_body(
+        let written = crate::actions::check_body(
             &a.body,
             &scope,
             lifted,
-            c,
+            &names,
             &mut probe,
             &types.shapes,
             &mut scratch,
         );
         scope.pop();
-        scope.retype_slots(c, &probe);
+        scope.retype_written(c, &probe, &written);
     }
     let changed = probe.slots != ct.slots;
     ct.slots = probe.slots;
@@ -760,6 +772,7 @@ fn refine_params_from_view(
     nodes: &[Node],
     scope: &Scope,
     c: &Component,
+    names: &crate::actions::Names<'_>,
     ct: &mut ComponentTypes,
     shapes: &Shapes,
     miscounted: &mut Vec<(usize, TypeError)>,
@@ -803,7 +816,7 @@ fn refine_params_from_view(
                             Expr::Call(n, args, _) => (n, args),
                             _ => continue,
                         };
-                        if let Some(ai) = c.actions.iter().position(|x| x.name == name) {
+                        if let Some(ai) = names.actions.get(name).copied() {
                             for (i, arg) in args.iter().enumerate() {
                                 if i < ct.actions[ai].len() {
                                     let t = infer(arg, scope, shapes)?;
@@ -980,10 +993,10 @@ fn refine_params_from_view(
                         }
                     }
                 }
-                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
+                refine_params_from_view(children, scope, c, names, ct, shapes, miscounted)?;
             }
             Node::Use { args, children, .. } => {
-                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
+                refine_params_from_view(children, scope, c, names, ct, shapes, miscounted)?;
                 for a in args {
                     let _ = a;
                 }
@@ -991,8 +1004,8 @@ fn refine_params_from_view(
             Node::When {
                 then, otherwise, ..
             } => {
-                refine_params_from_view(then, scope, c, ct, shapes, miscounted)?;
-                refine_params_from_view(otherwise, scope, c, ct, shapes, miscounted)?;
+                refine_params_from_view(then, scope, c, names, ct, shapes, miscounted)?;
+                refine_params_from_view(otherwise, scope, c, names, ct, shapes, miscounted)?;
             }
             Node::Each {
                 var,
@@ -1004,7 +1017,7 @@ fn refine_params_from_view(
                 if let Ok(Ty::List(item)) = infer(list, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_each(var, index.as_deref(), *item);
-                    refine_params_from_view(body, &inner, c, ct, shapes, miscounted)?;
+                    refine_params_from_view(body, &inner, c, names, ct, shapes, miscounted)?;
                 }
             }
             Node::Match {
@@ -1016,11 +1029,11 @@ fn refine_params_from_view(
                 if let Ok(Ty::Option(item)) = infer(subject, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                    refine_params_from_view(&some.1, &inner, c, ct, shapes, miscounted)?;
+                    refine_params_from_view(&some.1, &inner, c, names, ct, shapes, miscounted)?;
                 }
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                refine_params_from_view(none, &none_scope, c, ct, shapes, miscounted)?;
+                refine_params_from_view(none, &none_scope, c, names, ct, shapes, miscounted)?;
             }
         }
     }

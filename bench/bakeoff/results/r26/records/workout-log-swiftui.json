@@ -1,0 +1,26 @@
+{
+  "spec": "workout-log",
+  "arm": "swiftui",
+  "model": "claude",
+  "appId": "dev.bakeoff.workoutlog.b647c9e",
+  "assignedId": "dev.bakeoff.workoutlog.b647c9e",
+  "appName": "Workout Log",
+  "sim": "CEDFB9C9-FF04-4617-B156-94C56B83CA86",
+  "pin": "9d23a92da4",
+  "minutes": 9.33,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 1237281,
+    "fresh": 77165,
+    "input": 1205595,
+    "cached": 1128430,
+    "output": 31686,
+    "cost": 1.4765180000000004,
+    "calls": 66,
+    "toolCalls": 42
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r26/built/workout-log-swiftui.app",
+  "notes": true,
+  "finished": "2026-10-27T09:09:15.469Z"
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "implementation",
+  "implements": "@fixture/tally@^1.0",
+  "platform": "linux",
+  "targets": ["linux"],
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["lib.rs"] },
+  "artifacts": [],
+  "class": "Tally"
+}

@@ -978,7 +978,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
 
 #[test]
 fn menu_bar_attributes_explain_the_fixed_removal_ids() {
-    for name in ["-exact-menu", "-exact-menu-remove"] {
+    for name in ["-exact-menu", "-exact-menu-remove", "-exact-menu-keys"] {
         let out = stdout(&vocab(&[name]));
         for part in [
             "menubar (a concept)",
@@ -1071,6 +1071,24 @@ fn wakelock_says_its_two_words_and_where_it_holds() {
         "expect wakelock held",
         "expect wakelock released",
         "not whether the OS or browser granted it",
+    ] {
+        assert!(text.contains(want), "{want}: {text}");
+    }
+}
+
+#[test]
+fn orientationlock_says_its_words_and_which_lock_holds() {
+    let out = vocab(&["orientationlock"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    for want in [
+        "prop",
+        "\"landscape-secondary\"",
+        "\"current\"",
+        "\"none\"",
+        "topmost sheet",
+        "manifest's `orientation`",
+        "state.orientationlock",
     ] {
         assert!(text.contains(want), "{want}: {text}");
     }

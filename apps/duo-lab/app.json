@@ -14,6 +14,7 @@
   "hatches": { "keyboard-field": ["ios"], "keyboard-route": ["ios"] },
   "host": {
     "ios": {
+      "icon": "art/DuoLab.icon",
       "minimumOS": "17.0",
       "deviceFamily": [
         "iphone",
@@ -21,6 +22,7 @@
       ]
     },
     "macos": {
+      "icon": "art/DuoLab.icon",
       "minimumOS": "14.0",
       "window": {
         "width": 951,

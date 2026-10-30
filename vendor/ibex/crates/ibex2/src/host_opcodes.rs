@@ -155,6 +155,15 @@ pub(crate) mod async_ops {
     pub(crate) const FS_REALPATH: u32 = 119;
     pub(crate) const FS_ATOMIC_WRITE_FILE: u32 = 120;
     pub(crate) const FS_COMPRESS_IMAGE: u32 = 121;
+    // Exact patch 24 (exact2 LLP 1133.007 D6a).
+    pub(crate) const FS_LSTAT: u32 = 122;
+    pub(crate) const FS_READLINK: u32 = 123;
+    pub(crate) const FS_ACCESS: u32 = 124;
+    pub(crate) const FS_CHMOD: u32 = 125;
+    pub(crate) const FS_SYMLINK: u32 = 126;
+    pub(crate) const FS_DIGEST: u32 = 127;
+    pub(crate) const FS_FLOCK: u32 = 128;
+    pub(crate) const FS_UNLOCK: u32 = 129;
 }
 
 pub(crate) mod sqlite_async {
@@ -319,6 +328,14 @@ pub(crate) const ALL: &[Assignment] = &[
     assignment!("fs.realpath", async_ops::FS_REALPATH, Async),
     assignment!("fs.atomicWriteFile", async_ops::FS_ATOMIC_WRITE_FILE, Async),
     assignment!("fs.compressImage", async_ops::FS_COMPRESS_IMAGE, Async),
+    assignment!("fs.lstat", async_ops::FS_LSTAT, Async),
+    assignment!("fs.readlink", async_ops::FS_READLINK, Async),
+    assignment!("fs.access", async_ops::FS_ACCESS, Async),
+    assignment!("fs.chmod", async_ops::FS_CHMOD, Async),
+    assignment!("fs.symlink", async_ops::FS_SYMLINK, Async),
+    assignment!("fs.digest", async_ops::FS_DIGEST, Async),
+    assignment!("fs.flock", async_ops::FS_FLOCK, Async),
+    assignment!("fs.unlock", async_ops::FS_UNLOCK, Async),
     assignment!("intl.datetime.create", intl_datetime::CREATE, IntlDateTime),
     assignment!("intl.datetime.format", intl_datetime::FORMAT, IntlDateTime),
     assignment!(

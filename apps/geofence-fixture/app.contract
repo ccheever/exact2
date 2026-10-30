@@ -1,0 +1,49 @@
+// The geofencing fixture (LLP 1133.021 §13, drives 10 to 16): Caltrain's
+// "Next trains when I arrive" waits on its own app work (§15 question 5),
+// so its drives run here, where an arrival posts a notification
+// (`@exact/notifications`) as its visible effect. A switch watches Palo Alto
+// station; Add a fence, pressed twenty-one times, meets the quota.
+
+use addGeofence, removeGeofence, geofences, geofencingStatus, geofenceenter, geofenceleave, Geofence, GeofenceEvent, GeofencingStatus from "@exact/geofencing"
+use showNotification from "@exact/notifications"
+
+component GeofenceFixture
+  resource fencing = geofencingStatus() as shape GeofencingStatus else empty()
+  resource fences = geofences() as shape Geofence[] else empty()
+  mutation watched as shape Geofence
+  state heard = "nothing yet"
+  state arrivals = 0
+  state added = 0
+  derive on = fences.filter(f => f.name == "station:pa").length > 0
+  action toggle
+    if on
+      removeGeofence(name="station:pa")
+    else
+      send watched = addGeofence(name="station:pa", latitude=37.4434, longitude=-122.1649, radius=200)
+  action addOne
+    added = added + 1
+    send watched = addGeofence(name=`fence:${added.toString()}`, latitude=37.0 + added / 100, longitude=-122.0, radius=150)
+  action arrived(e: GeofenceEvent)
+    heard = `entered ${e.geofence.name} at ${e.timestamp.toString()}`
+    arrivals = arrivals + 1
+    showNotification(title="Arrived", body=`You are near ${e.geofence.name}`)
+  action left(e: GeofenceEvent)
+    heard = `left ${e.geofence.name}`
+  view
+    main testId="fixture" geofenceenter=arrived geofenceleave=left padding=16 gap=12 display="flex" flex-direction="column" font-family="system-ui"
+      text "Geofences" font-size=20 font-weight=600
+      if fencing.available
+        row gap=12 align-items="center"
+          text "Next trains when I arrive" flex=1
+          button press=toggle testId="arrive-switch" role="switch" aria-checked=on
+            text (on ? "On" : "Off")
+        if fencing.state == "denied"
+          text "Allow location all the time in Settings to use this" testId="explain"
+        button press=addOne testId="add-one"
+          text "Add a fence"
+      else
+        text "Geofencing is not available here" testId="absent"
+      text `status: ${fencing.available.toString()} ${fencing.state}` testId="status"
+      text `fences: ${fences.length.toString()}` testId="count"
+      text heard testId="heard"
+      text `arrivals: ${arrivals.toString()}` testId="arrivals"

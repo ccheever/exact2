@@ -16,7 +16,8 @@ extension Presenter {
     /// (`laid`) standing in where it can't measure; the chosen region is told
     /// as its block (`told` keeps what was).
     func placePainted(_ pop: NodeView, laid: CGSize, anchor: CGRect, scroll: CGPoint, pageScroll: CGPoint, overflow: PositionArea.Overflow,
-                      history: inout PositionArea.History, told: inout HostBlock?, in bounds: CGRect) -> PositionArea.Placement {
+                      history: inout PositionArea.History, told: inout HostBlock?, in layer: PlatformView, bounds: CGRect) -> PositionArea.Placement {
+        if let at = placeAtInset(pop, laid: laid, told: &told, in: layer, bounds: bounds) { return at }
         let rtl = documentDirection == "rtl", id = pop.id
         let placed = PositionArea.painted(pop, rtl: rtl), margins = PositionArea.margins(of: pop)
         // An authored `none` is no area: the viewport its top layer implies,
@@ -37,6 +38,18 @@ extension Presenter {
         }
         tellRegion(id, .region(at.region.size), told: &told)
         return at
+    }
+
+    /// Where painted popover `pop` goes when its author wrote `left` or `top`
+    /// (LLP 1021 D2): at that point of the viewport, in `layer`, the other
+    /// way from it where it does not fit (`PositionArea.at`), sized in the
+    /// viewport its top layer implies, as CSS sizes a box with no area. Nil
+    /// when it wrote neither.
+    func placeAtInset(_ pop: NodeView, laid: CGSize, told: inout HostBlock?, in layer: PlatformView, bounds: CGRect) -> PositionArea.Placement? {
+        guard let inset = PositionArea.inset(of: pop, viewport: clientSize) else { return nil }
+        tellRegion(pop.id, nil, told: &told)
+        let origin = PositionArea.at(point(fromClient: inset, in: layer), size: laid, in: bounds)
+        return PositionArea.Placement(origin: origin, size: laid, region: bounds)
     }
 
     /// How far the scrollers between `anchor` and `layer` are scrolled,

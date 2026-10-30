@@ -31,6 +31,8 @@ enum Post {
     Elsewhere,
     /// A real fetch from a server on this machine.
     Local(u16),
+    /// A turn over its budget refuses it: the runner holds it to ask again.
+    Overrun,
 }
 
 #[derive(Clone, Default)]
@@ -78,6 +80,11 @@ impl DataSource for Blog {
                 Answer::Now(Value::list(private.into_iter().collect()))
             }
             ("post", Post::Soon | Post::Never) => Answer::Later(Request::continuation(1)),
+            ("post", Post::Overrun) => {
+                return Err(DataError::Overrun(
+                    "took 180.0 ms, over the 100 ms budget for one turn".into(),
+                ))
+            }
             ("post", Post::Storage) => Answer::Later(Request::storage(b"get".to_vec())),
             ("post", Post::Elsewhere) => {
                 Answer::Later(Request::get("https://elsewhere.invalid/post"))
@@ -217,6 +224,22 @@ fn at_the_deadline_the_placeholder_stays_and_the_checkpoint_lists_it() {
     assert_eq!(r.settled, Settled::Deadline);
     // A deadline is a 503, but an unknown URL stays a 404 (LLP 1048.000 D11).
     assert_eq!((r.status(false), r.status(true)), (503, 404));
+    assert!(r.document.root.contains(">loading<"), "{}", r.document.root);
+    assert!(
+        r.checkpoint.contains("\"pending\":[\"post\"]"),
+        "{}",
+        r.checkpoint
+    );
+}
+
+/// A resource a turn over its budget refused waits in the runner to be asked
+/// again (exact-runner's `overrun.rs`): no timer fires in a render, so it
+/// completes with the placeholder, and its checkpoint lists the resource for
+/// the client to ask, rather than waiting out its deadline for nothing.
+#[test]
+fn a_resource_held_to_be_asked_again_completes_the_render() {
+    let r = at(Post::Overrun, Duration::from_secs(3));
+    assert_eq!(r.settled, Settled::Complete);
     assert!(r.document.root.contains(">loading<"), "{}", r.document.root);
     assert!(
         r.checkpoint.contains("\"pending\":[\"post\"]"),

@@ -5,11 +5,21 @@
 import Foundation
 import QuartzCore
 
+/// The media clock, seconds. watchOS has no `CACurrentMediaTime`; `systemUptime`
+/// reads the same `mach_absolute_time`.
+package func hostMediaTime() -> Double {
+    #if os(watchOS)
+    ProcessInfo.processInfo.systemUptime
+    #else
+    CACurrentMediaTime()
+    #endif
+}
+
 package final class HostPhases: @unchecked Sendable {
     package static let shared = HostPhases()
     package init() {}
     /// The media clock, seconds; a test gives its own.
-    package var clock: () -> Double = CACurrentMediaTime
+    package var clock: () -> Double = hostMediaTime
 
     /// The fixed phases: what the host does on the main thread to put a frame
     /// up. Each is charged only the time no phase inside it took.
@@ -28,6 +38,33 @@ package final class HostPhases: @unchecked Sendable {
         case scroll
         /// A region reader drawing.
         case draw
+        /// Decoded pictures put on their layers, and animated images' frames
+        /// (LLP 1144 D2). Core Animation's upload of new contents happens at
+        /// its commit, outside every phase: in `unattributed`.
+        case image
+    }
+
+
+    /// Operation counts are process-wide: the owner and host phases are shared
+    /// by sessions. Node ids are session-local, so these counters claim no site.
+    package enum Operation: String, CaseIterable {
+        case ownerSync, intrinsicReports, intrinsicLayoutRequests, nativeControlMeasurements
+    }
+    private var counts: [Operation: Int] = [:]
+    private var countSince: Double?
+    package func count(_ operation: Operation, by amount: Int = 1) {
+        guard on, Thread.isMainThread else { return }
+        if countSince == nil { countSince = clock() }
+        counts[operation, default: 0] += amount
+    }
+    package func work() -> [String: Any] {
+        ["scope": "process", "site": "unknown", "measured": on,
+         "since": countSince.map { $0 * 1000 } ?? NSNull(), "timebase": "media-clock-ms",
+         "counts": Dictionary(uniqueKeysWithValues: Operation.allCases.map { ($0.rawValue, counts[$0, default: 0]) }),
+         "coverage": ["ownerSync": "main-thread calls submitted to the runtime owner",
+                      "intrinsicReports": "sizes submitted through Runtime.intrinsics",
+                      "intrinsicLayoutRequests": "Runtime.intrinsics calls, including unchanged sizes",
+                      "nativeControlMeasurements": "button, field chrome and mounted value-control measurement calls"]]
     }
 
     private struct Segment { let phase: Phase; let start: Double; let end: Double }
@@ -37,7 +74,7 @@ package final class HostPhases: @unchecked Sendable {
     /// Whether anything records: the host turns it on where its frame sampler
     /// may run (not a production bake). Main thread only, as every phase is.
     package var on = false {
-        didSet { if on && !oldValue { since = clock() } }
+        didSet { if on && !oldValue { since = clock(); if countSince == nil { countSince = since } } }
     }
     private var ring: [Segment] = []
     private var next = 0

@@ -1,0 +1,33 @@
+// A route whose header's controls are bar items (NavigationBarIOSTests): a
+// press of `share-home` runs `share(…)`, which the runner asks the session
+// for; a press of `more-home` adds a control; and `bare-toggle`, in the page,
+// leaves the bar only a status readout and gives the controls back, so the
+// bar's items change on a route that shows.
+component BarShare
+  state more = false
+  state bare = false
+  action shareIt
+    share(title="Fixture", text="A")
+  action addMore
+    more = true
+  action toggleBare
+    bare = not bare
+  view
+    main navigationKey="home" width="100%" height="100%"
+      column navigationKey="home" position="absolute" inset=0 display="flex" flex-direction="column"
+        header display="flex" align-items="center" padding=12 flex-shrink=0
+          text "Fixture" role="heading" aria-level=1 flex=1
+          if bare
+            row role="status" aria-label="Idle" testId="status-home"
+              text "Idle"
+          if not bare
+            button press=shareIt aria-label="Share" testId="share-home" padding=6
+              image "symbol:share" width=20 height=20
+            button press=addMore aria-label="More" testId="more-home" padding=6
+              image "symbol:add" width=20 height=20
+            if more
+              button press=addMore aria-label="Star" testId="star-home" padding=6
+                image "symbol:star" width=20 height=20
+        column flex=1
+          button press=toggleBare testId="bare-toggle"
+            text "Toggle"

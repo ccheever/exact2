@@ -2,12 +2,12 @@
 // diff and its allowlist, and that every line says WAITS-ON before its parts.
 import { expect, test } from 'bun:test';
 import { encodePng } from './png.mjs';
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
-import { apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, same } from './s13c-restyle.mjs';
+import { ADOPTED, APP_PLACED, KEYBOARD_UP, keyboardInset, keyboardRedrive, BEFORE_USES, RENDERED, RETIRED, STAGES, appPlaced, declares, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
+import { READS, apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, readsOf, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -16,6 +16,14 @@ test('the command line', () => {
   expect(parse(['--host', 'terminal']).hosts).toEqual(['terminal']);
   expect(parse(['--only', 'nope'])).toMatch(/^--only nope/);
   expect(parse(['--bogus', 'x'])).toBe('unknown argument --bogus');
+  // `--screen`: some of the stage's screens, only with --only (never a full record).
+  expect(parse(['--stage', 's15b', '--screen', 'composer'])).toMatch(/^--screen reshoots some screens/);
+  // Never a baseline (it ignores --only and would write a partial baseline.json), and never an empty name.
+  expect(parse(['baseline', '--copy', '/c', '--out', '/o', '--stage', 's15b', '--only', 'consumer-pixels', '--screen', 'composer'])).toMatch(/never a baseline/);
+  expect(parse(['--stage', 's15b', '--only', 'consumer-pixels', '--screen', ''])).toMatch(/^--screen : one of /);
+  expect(parse(['--stage', 's15b', '--only', 'consumer-pixels', '--screen', 'nope'])).toMatch(/^--screen nope: one of .*thread-bo/);
+  expect(parse(['--stage', 's15b', '--only', 'consumer-pixels', '--screen', 'composer', '--screen', 'thread-bo']).screens).toEqual(['composer', 'thread-bo']);
+  expect(parse(['--stage', 's12', '--only', 'consumer-pixels', '--screen', 'thread-bo'])).toMatch(/^--screen thread-bo/);
   const b = parse(['baseline', '--copy', '/c', '--out', '/o', '--host', 'web']);
   expect([b.mode, b.copy, b.out, b.hosts]).toEqual(['baseline', '/c', '/o', ['web']]);
 });
@@ -37,6 +45,26 @@ test('a stage\'s profile: stage 12 the default, s13c its own tag, adoption, scre
   } finally {
     useStage('s12');
   }
+  try {
+    // Stage 15 B batch 1: stage 13 C's adoption kept, the two exports added; they were placed inside PostCard before,
+    // so they're allowed before and the retired duplicates prove the adoption.
+    useStage('s15b');
+    expect(BASELINE_TAG).toBe('s15b-baseline');
+    expect(parse(['--stage', 's15b']).out).toMatch(/s15b-gate-run\.txt$/);
+    expect(ADOPTED.map(i => i.split('#')[1]).slice(-2)).toEqual(['Avatar', 'VerifiedBadge']);
+    expect(BEFORE_USES).toEqual(ADOPTED);
+    expect(RETIRED).toContain('component Avatar');
+    expect(RETIRED).toContain('style ChatHeaderButton');
+    expect(APP_PLACED.map(i => i.split('#')[1])).toEqual(['Avatar', 'VerifiedBadge']);
+    expect(SCREENS.map(([n]) => n).slice(-3)).toEqual(['chat', 'notifications', 'thread-bo']);
+    // The Bo thread: his reply (fx4, Bo verified) is the anchor, whose header is the copy's own.
+    expect(SCREENS.find(([n]) => n === 'thread-bo')[1]).toEqual(['tap post-1:at://did:plc:fixture1/app.bsky.feed.post/fx4']);
+    expect(SCREENS.find(([n]) => n === 'chat')[1]).toContain('tap bottomBarMessagesBtn');
+  } finally {
+    useStage('s12');
+  }
+  expect(RETIRED).toEqual([]);
+  expect(APP_PLACED).toEqual([]);
   // Stage 12's run is the defaults, unchanged.
   expect(BASELINE_TAG).toBe('s12e-baseline');
   expect(ADOPTED.length).toBe(4);
@@ -293,6 +321,17 @@ test('stage 13 C\'s case values: pairwise apart in each case, past the read\'s t
   for (const c of exactCases()) for (const s of c.set.filter(x => x.kind === 'length')) expect(Number.parseFloat(s.value)).toBeGreaterThanOrEqual(301);
 });
 
+// Stage 15 B's exports' batch (Grok r2): a read there must name its
+// instances, as one token is drawn by two components; `*` has no owner.
+test('a read in the exports\' batch names its instances, or it is refused', () => {
+  const was = READS['cards.badge'];
+  try {
+    READS['cards.badge'] = ['0/0 text_color *'];
+    expect(() => readsOf('cards.badge')).toThrow(/names no instance/);
+  } finally { READS['cards.badge'] = was; }
+  expect(readsOf('cards.badge').map(r => r.component)).toEqual(['VerifiedBadge']);
+});
+
 test('a read\'s node by path, and a value matched, kept and apart', () => {
   const tree = { nodes: [
     { id: 1, parent: null, children: [2, 5, 6], props: {} },
@@ -406,4 +445,109 @@ test('the components a shot shows, by each shown node\'s source map', () => {
     node('/c/settings.contract', 'NavRow'),
   ] });
   expect(renderedComponents(`noise\n${out}\n`).sort()).toEqual(['@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow']);
+});
+
+// A run of some lines never writes the profile's gate record (the s13c record lost to `--only restyle`
+// runs, 2026-10-26): it goes to a scratch file, unless --out names one; a full run and --out write theirs.
+test('only a full run writes the gate record; --only goes to a scratch file unless --out names one', () => {
+  for (const stage of Object.keys(STAGES)) {
+    const record = join(homedir(), 'x2theme', STAGES[stage].out);
+    const full = parse(['--stage', stage]);
+    expect(full.out).toBe(record);
+    const partial = parse(['--stage', stage, '--only', 'restyle']);
+    expect(partial.out).not.toBe(record);
+    expect(partial.out.startsWith(tmpdir())).toBe(true);
+    expect(partial.out).toContain(`stage12-gate-${stage}-restyle-${process.pid}`);
+    const two = parse(['--stage', stage, '--only', 'restyle', '--only', 'anatomy']);
+    expect(two.out).toContain(`-restyle+anatomy-`);
+    expect(parse(['--stage', stage, '--only', 'restyle', '--out', '/x/named.txt']).out).toBe('/x/named.txt');
+    expect(parse(['--stage', stage, '--out', '/x/full.txt']).out).toBe('/x/full.txt');
+    // A repeated line names its file once; an empty or unknown line is refused before any name is built.
+    expect(parse(['--stage', stage, ...Array(40).fill(['--only', 'restyle']).flat()]).out).toBe(partial.out);
+    expect(parse(['--stage', stage, '--only', '', '--only', '/../../../tmp/escape'])).toMatch(/^--only : one of/);
+    expect(parse(['--stage', stage, '--only', '../escape'])).toMatch(/^--only \.\.\/escape: one of/);
+  }
+});
+
+// End to end, under a HOME of its own (cargo's homes kept), so no real record can be touched even if this
+// rule breaks: a run of one cheap line (`no-forks`) writes its scratch file and leaves the record alone.
+test('an --only run leaves the gate record untouched', () => {
+  const home = mkdtempSync(join(tmpdir(), 'stage12-gate-home-'));
+  const record = join(home, 'x2theme', STAGES.s12.out);
+  mkdirSync(join(home, 'x2theme'), { recursive: true });
+  writeFileSync(record, 'a gate record\n');
+  const env = { ...process.env, HOME: home, CARGO_HOME: process.env.CARGO_HOME ?? join(homedir(), '.cargo'), RUSTUP_HOME: process.env.RUSTUP_HOME ?? join(homedir(), '.rustup') };
+  const r = spawnSync(process.execPath, [join(import.meta.dir, 'stage12-gate.mjs'), '--only', 'no-forks'], { encoding: 'utf8', env, timeout: 900_000 });
+  const said = /^written to (.+?)(?: \(a run of some lines: no gate record\))?$/m.exec(r.stdout)?.[1];
+  expect([said === undefined, r.stderr.slice(-300)]).toEqual([false, r.stderr.slice(-300)]);
+  expect(said).not.toBe(record);
+  expect(readFileSync(said, 'utf8')).toContain('no-forks');
+  expect(readFileSync(record, 'utf8')).toBe('a gate record\n');
+  rmSync(said, { force: true });
+  rmSync(home, { recursive: true, force: true });
+}, 900_000);
+
+test('stage 15 B\'s adoption proof: the copy\'s own files place an export, and its own declarations go', () => {
+  // A node the copy's own file instantiates counts; one a package's component places inside itself doesn't.
+  const map = {
+    sources: [{ file: '/c/post.contract', home: 'post.contract' }, { file: '/p/post-card.contract', home: '@exact/cards/post-card.contract' }],
+    nodes: [
+      { library: '@exact/cards/common.contract#Avatar', chain: [{ file: '/p/post-card.contract' }, { file: '/c/post.contract' }] },
+      { library: '@exact/cards/common.contract#VerifiedBadge', chain: [{ file: '/c/post.contract' }] },
+      { component: 'Row', chain: [{ file: '/c/post.contract' }] },
+    ],
+  };
+  expect(appPlaced(map)).toEqual(['@exact/cards/common.contract#VerifiedBadge']);
+  expect(appPlaced({ sources: [], nodes: [{ library: '@exact/cards/common.contract#Avatar', chain: [] }] })).toEqual([]);
+  // Shown: only a node whose innermost call site is the copy's own file counts for an app placement.
+  const layout = JSON.stringify({ viewport: { w: 100, h: 100 }, nodes: [
+    { x: 0, y: 0, w: 10, h: 10, sourceMap: { status: 'compatible', file: '/x/node_modules/@exact/cards/common.contract', component: 'Avatar', chain: [{ file: '/x/node_modules/@exact/cards/post-card.contract' }] } },
+    { x: 0, y: 20, w: 10, h: 10, sourceMap: { status: 'compatible', file: '/x/node_modules/@exact/cards/common.contract', component: 'VerifiedBadge', chain: [{ file: '/x/post.contract' }] } },
+  ] });
+  expect(renderedComponents(layout).sort()).toEqual(['@exact/cards/common.contract#Avatar', '@exact/cards/common.contract#VerifiedBadge']);
+  expect(renderedComponents(layout, true)).toEqual(['@exact/cards/common.contract#VerifiedBadge']);
+  // A declaration's start: a trailing comment still declares it; a longer name doesn't; git's own failure is an error.
+  const dir = mkdtempSync(join(tmpdir(), 'retired-'));
+  try {
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('init', '-q');
+    writeFileSync(join(dir, 'a.contract'), 'component Avatar // the old one\n  props\ncomponent AvatarRow\nstyle  HeaderSlot\ncomponent Badge-old\n');
+    git('add', 'a.contract');
+    expect(declares(dir, 'component Avatar')).toEqual({ hit: true });
+    expect(declares(dir, 'style HeaderSlot')).toEqual({ hit: true });
+    expect(declares(dir, 'component AvatarRo')).toEqual({ hit: false });
+    expect(declares(dir, 'component NavRow')).toEqual({ hit: false });
+    // Two blanks still declare; a hyphenated longer name is another component.
+    expect(declares(dir, 'component Badge')).toEqual({ hit: false });
+    expect(declares(join(dir, 'missing'), 'component Avatar').error).toMatch(/git grep/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// theme2's s15b ruling (b): the composer's shot needs iOS's keyboard up on both sides, read from its field's reply.
+test("the composer's keyboard: read from its field's reply, driven again while down or failed, at most twice", () => {
+  expect(KEYBOARD_UP).toEqual(['composer', 'new-chat']);
+  const out = kb => `noise\n{"x":1,"testId":"compose-text","env":${JSON.stringify(kb == null ? {} : { 'keyboard-inset-height': kb })}}\n`;
+  expect(keyboardInset('compose-text', out(336))).toBe(336);
+  expect(keyboardInset('compose-text', out(0))).toBe(0);
+  expect(keyboardInset('compose-text', out(null))).toBe(0);
+  expect(keyboardInset('compose-text', 'no reply\n')).toBe(null);
+  const up = { ok: true, out: out(336) }, down = { ok: true, out: out(0) }, failed = { ok: false, out: 'boom' };
+  const redrive = (first, ...rest) => { let n = 0; const r = keyboardRedrive('compose-text', 'FIXTURE-REFUSED', first, () => rest[n++]); return { ...r, n }; };
+  // Up at once: driven once.
+  expect(redrive(up)).toEqual({ r: up, down: false, keyboard: '', n: 0 });
+  // Down, then up: the kept drive is the second.
+  expect(redrive(down, up)).toMatchObject({ r: up, down: false, n: 1, keyboard: 'driven 2 times (keyboard down before), kept: keyboard up' });
+  // A failed re-drive is driven again too, and the cap is two re-drives.
+  expect(redrive(down, failed, up)).toMatchObject({ r: up, down: false, n: 2, keyboard: 'driven 3 times (keyboard down, drive failed before), kept: keyboard up' });
+  expect(redrive(down, down, down, up)).toMatchObject({ r: down, down: true, n: 2, keyboard: 'driven 3 times (keyboard down, keyboard down before), kept: keyboard down' });
+  expect(redrive(down, failed, failed)).toMatchObject({ r: failed, down: false, n: 2, keyboard: 'driven 3 times (keyboard down, drive failed before), kept: drive failed' });
+  // A fixture refusal is never driven again; nor is a drive with no field reply (its own failure, no layout).
+  const refused = { ok: true, out: `FIXTURE-REFUSED app.bsky.x\n${out(0)}` };
+  expect(redrive(refused, up)).toMatchObject({ r: refused, down: false, n: 0 });
+  expect(redrive({ ok: true, out: 'no reply' }, up)).toMatchObject({ down: false, n: 0 });
+  // The kept drive's state is what it is: a refusal or a missing reply after a re-drive is said so, never 'keyboard up'.
+  expect(redrive(down, refused)).toMatchObject({ r: refused, down: false, n: 1, keyboard: 'driven 2 times (keyboard down before), kept: fixture refused' });
+  expect(redrive(down, { ok: true, out: 'no reply' })).toMatchObject({ down: false, n: 1, keyboard: 'driven 2 times (keyboard down before), kept: no field reply' });
 });

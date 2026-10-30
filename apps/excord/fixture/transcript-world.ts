@@ -50,7 +50,7 @@ export function createTranscriptWorld(assetOrigin: string): World {
   const roleIds = new Map([['201', roles[1].id], ['202', roles[2].id]]);
   const guildChannels: Channel[] = channelSpecs.map((spec, i) => ({
     id: snowflakeFromMs(DIRECTORY_EPOCH + 2, i), guild_id: guildId, name: spec.name,
-    type: spec.id === 'announcements' ? 5 : 0, position: i, parent_id: null, topic: spec.topic,
+    type: spec.id === 'announcements' ? 5 : 0, position: i, parent_id: null, topic: spec.topic, ...(spec.nsfw ? { nsfw: true } : {}),
     // #random is a private channel: @everyone may not see it, Cyclists may.
     last_message_id: null, permission_overwrites: spec.id !== 'random' ? [] : [
       { id: guildId, type: 0, allow: '0', deny: '1024' }, { id: roles[2].id, type: 0, allow: '1024', deny: '0' }],
@@ -92,6 +92,18 @@ export function createTranscriptWorld(assetOrigin: string): World {
           content_type: 'image/png', ...(width === undefined ? {} : { width }), ...(height === undefined ? {} : { height }) };
       });
       converted.embeds = message.embeds.map(embed => transcriptEmbed(embed, assetOrigin));
+      if (message.sticker_items) (converted as Record<string, unknown>).sticker_items = message.sticker_items;
+      if (message.poll) (converted as Record<string, unknown>).poll = structuredClone(message.poll);
+      if (message.command) (converted as Record<string, unknown>).interaction_metadata = { id: snowflakeFromMs(message.timestamp - 1000),
+        type: 2, user: users[members.findIndex(user => user.id === message.command!.by)],
+        authorizing_integration_owners: { 0: guildId } };
+      if (message.command) (converted as Record<string, unknown>).interaction = { id: snowflakeFromMs(message.timestamp - 1000),
+        type: 2, name: message.command.name, user: users[members.findIndex(user => user.id === message.command!.by)] };
+      // A forward is Discord's: no words of its own, the forwarded message in `message_snapshots`.
+      if (message.forwarded) Object.assign(converted, { content: '', attachments: [], embeds: [],
+        message_reference: { type: 1, message_id: snowflakeFromMs(message.timestamp - 86400000), channel_id: channel.id, guild_id: guildId },
+        message_snapshots: [{ message: { content: message.forwarded, attachments: [], embeds: [], type: 0,
+          timestamp: new Date(message.timestamp - 86400000).toISOString(), edited_timestamp: null, flags: 0, mentions: [], mention_roles: [] } }] });
       converted.reactions = message.reactions.map(reaction => ({ ...reaction, emoji: { ...reaction.emoji },
         count_details: { burst: 0, normal: reaction.count }, burst_count: 0, me_burst: false, burst_colors: [] }));
       if (message.message_reference) converted.message_reference = {
@@ -101,7 +113,8 @@ export function createTranscriptWorld(assetOrigin: string): World {
       return converted;
     });
     const byId = new Map(history.map(message => [message.id, message]));
-    for (const message of history) if (message.message_reference) {
+    // A reply names the message it answers; a forward's reference (type 1) does not.
+    for (const message of history) if (message.message_reference && (message.message_reference as { type?: number }).type !== 1) {
       const target = byId.get(message.message_reference.message_id);
       message.referenced_message = target ? replySnapshot(target) : null;
     }

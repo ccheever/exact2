@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 
 final class TextUpdateIOSTests: XCTestCase {
-    func testTintedCoverageKeepsItsPixelsAndReplacesThemWithoutAUIImageView() throws {
+    func testTintedCoverageReplacesItsPixelsInPlaceAndSwitchesFormat() throws {
         let p = Presenter()
         p.apply(wireBatch([["op": "create", "id": 1, "kind": "text", "props": ["text": "Ink"]],
             ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 20, "h": 20]]))
@@ -26,10 +26,8 @@ final class TextUpdateIOSTests: XCTestCase {
         print("D3 tinted updates=1600 ms=\((CACurrentMediaTime() - start) * 1000)")
         let ink = try XCTUnwrap(node.textRasterLayer)
         XCTAssertNil(ink.sublayers, "one-colour ink is one layer, as a label is")
-        XCTAssertFalse((node.textRasterTint as UIView?) is UIImageView)
-        let tintView = try XCTUnwrap(node.textRasterTint)
-        XCTAssertEqual(tintView.isUserInteractionEnabled, UIImageView().isUserInteractionEnabled, "ink inherits the platform image view's input policy")
-        XCTAssertNil(tintView.hitTest(CGPoint(x: 10, y: 10), with: nil), "ink lets the paragraph and inline links receive input")
+        XCTAssertNil(ink.delegate, "standalone raster ink has no UIKit backing view")
+        XCTAssertTrue(node.subviews.isEmpty, "ink is a layer: no subview to take input or keep a row from parking")
         context.clear(node.bounds)
         ink.render(in: context)
         let bytes = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
@@ -50,6 +48,25 @@ final class TextUpdateIOSTests: XCTestCase {
         XCTAssertEqual(Array(UnsafeBufferPointer(start: bytes, count: 4)), [0, 0, 255, 255], "replacement coverage and colour reach the existing layer")
         XCTAssertTrue(ink.animationKeys()?.isEmpty ?? true)
         XCTAssertTrue(ink.mask?.animationKeys()?.isEmpty ?? true)
+        replacement.tint = nil
+        node.textRasterReady = false
+        node.showTextRaster(replacement, for: key)
+        let untinted = try XCTUnwrap(node.textRasterLayer)
+        XCTAssertFalse(untinted === ink)
+        XCTAssertNil(ink.superlayer, "switching raster formats removes the previous ink")
+        XCTAssertNil(untinted.mask)
+        context.clear(node.bounds)
+        untinted.render(in: context)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: bytes, count: 4)), [0, 0, 0, 255])
+        replacement.tint = UIColor.red.cgColor
+        node.textRasterReady = false
+        node.showTextRaster(replacement, for: key)
+        let retinted = try XCTUnwrap(node.textRasterLayer)
+        XCTAssertNil(untinted.superlayer)
+        XCTAssertNotNil(retinted.mask)
+        context.clear(node.bounds)
+        retinted.render(in: context)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: bytes, count: 4)), [255, 0, 0, 255])
     }
 
     func testWordsReuseTheParagraphsBoxLayer() throws {

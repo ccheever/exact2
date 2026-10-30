@@ -61,16 +61,24 @@ extension TextArea {
         owner.pressAtom(kind: atom.kind, source: source, href: atom.href, range: range, held: held)
     }
 
-    /// The atoms changed (a restyle, a new width, markup turned off): what
-    /// is read and pointed at follows. An element whose atom keeps its
-    /// range, label and role is kept, so VoiceOver's focus on it stays.
+    /// The atoms changed (a restyle, a new width, a new face, markup turned
+    /// off): what is read and pointed at follows. An element whose atom
+    /// keeps its range and role is kept, so VoiceOver's focus on it stays
+    /// while its face's name or title changes, as an upload's percentage
+    /// does; it is read anew, and on macOS a title change is posted for it.
     package func atomsChanged() {
         let frames = atomFrames()
         let old = atomElements
+        #if os(macOS)
+        var renamed: [AtomElement] = []
+        #endif
         atomElements = frames.map { range, atom, _ in
-            guard let kept = old.first(where: { $0.range == range && $0.atom.label == atom.label && $0.atom.role == atom.role }) else {
+            guard let kept = old.first(where: { $0.range == range && $0.atom.role == atom.role }) else {
                 return AtomElement(field: self, range: range, atom: atom)
             }
+            #if os(macOS)
+            if kept.atom.spokenName != atom.spokenName || kept.atom.title != atom.title { renamed.append(kept) }
+            #endif
             kept.atom = atom
             return kept
         }
@@ -82,6 +90,7 @@ extension TextArea {
         window?.invalidateCursorRects(for: self)
         observeAtomLook(!frames.isEmpty)
         if changed { NSAccessibility.post(element: self, notification: .layoutChanged) }
+        for element in renamed { NSAccessibility.post(element: element, notification: .titleChanged) }
         #else
         installAtomTap(!frames.isEmpty)
         watchAtomLook(!frames.isEmpty)
@@ -148,23 +157,28 @@ final class AtomCatcher: NSView {
     required init?(coder: NSCoder) { fatalError("not coded") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { _ = field?.pressAtom(with: event) }
+    // A press on a pill is the text area's node's `pointerdown` and `pointerup` too.
+    override func mouseDown(with event: NSEvent) { field?.owner?.pointerPressed(event); _ = field?.pressAtom(with: event) }
+    override func mouseUp(with event: NSEvent) { field?.owner?.pointerReleased(event) }
     override func isAccessibilityElement() -> Bool { false }
 }
 
 /// An atom as assistive technology sees it: a button (or link, as
-/// declared) named by its label, described by its title, at its pill.
-package final class AtomElement: NSAccessibilityElement {
+/// declared) named by its face's `ariaLabel` or else its label, described
+/// by its title, at its pill. The agent joins it to the field's node, as
+/// iOS's container does.
+package final class AtomElement: NSAccessibilityElement, AgentOwned {
     weak var field: TextArea?
     let range: NSRange
     var atom: MarkupAtom
+    var agentViewId: UInt32? { field?.owner?.id }
     init(field: TextArea, range: NSRange, atom: MarkupAtom) {
         (self.field, self.range, self.atom) = (field, range, atom)
         super.init()
     }
     package override func accessibilityParent() -> Any? { field }
     package override func accessibilityRole() -> NSAccessibility.Role? { atom.role == "link" ? .link : .button }
-    package override func accessibilityLabel() -> String? { atom.label }
+    package override func accessibilityLabel() -> String? { atom.spokenName }
     package override func accessibilityHelp() -> String? { atom.title.isEmpty ? nil : atom.title }
     package override func isAccessibilityElement() -> Bool { true }
     package override func accessibilityFrame() -> NSRect {
@@ -220,16 +234,16 @@ extension TextArea {
 }
 
 /// An atom as assistive technology sees it, beside the text view in its
-/// node: a button (or link, as declared) named by its label, described by
-/// its title, at its pill.
+/// node: a button (or link, as declared) named by its face's `ariaLabel` or
+/// else its label, described by its title, at its pill.
 package final class AtomElement: UIAccessibilityElement {
     weak var field: TextArea?
     let range: NSRange
-    var atom: MarkupAtom { didSet { accessibilityHint = atom.title.isEmpty ? nil : atom.title } }
+    var atom: MarkupAtom { didSet { accessibilityLabel = atom.spokenName; accessibilityHint = atom.title.isEmpty ? nil : atom.title } }
     init(field: TextArea, range: NSRange, atom: MarkupAtom) {
         (self.field, self.range, self.atom) = (field, range, atom)
         super.init(accessibilityContainer: field.owner ?? field)
-        accessibilityLabel = atom.label
+        accessibilityLabel = atom.spokenName
         accessibilityHint = atom.title.isEmpty ? nil : atom.title
         accessibilityTraits = atom.role == "link" ? .link : .button
     }
@@ -256,11 +270,14 @@ extension NodeView {
         session.atomPress(node: id, payload: "\(range.location),\(NSMaxRange(range)),\(mods)\n\(kind)\n\(href)\n\(source)")
     }
 
+    /// The scheme of the `href` a reader atom's run carries (`MarkupRuns.atomScheme`)
+    static let readerAtomScheme = "exact-atom:"
+
     /// A reader atom's run detail, `[kind, source, href, start, end, …]`,
-    /// from the `href` its run carries (`MarkupRuns.atomScheme`); nil for
-    /// any other run.
+    /// from the `href` its run carries (`readerAtomScheme`); nil for any
+    /// other run.
     static func readerAtom(_ url: String) -> (detail: [Any], range: NSRange)? {
-        guard url.hasPrefix("exact-atom:"), let json = String(url.dropFirst("exact-atom:".count)).removingPercentEncoding,
+        guard url.hasPrefix(readerAtomScheme), let json = String(url.dropFirst(readerAtomScheme.count)).removingPercentEncoding,
               let detail = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Any], detail.count >= 5,
               let start = detail[3] as? Int, let end = detail[4] as? Int, end >= start else { return nil }
         return (detail, NSRange(location: start, length: end - start))
@@ -294,9 +311,9 @@ extension NodeView {
         return frame.isNull ? nil : frame
     }
 
-    /// A reader atom's press: the `href` its run carries (`MarkupRuns.atomScheme`).
+    /// A reader atom's press: the `href` its run carries (`readerAtomScheme`).
     func pressReaderAtom(_ url: String) -> Bool {
-        guard url.hasPrefix("exact-atom:") else { return false }
+        guard url.hasPrefix(Self.readerAtomScheme) else { return false }
         guard let (detail, range) = Self.readerAtom(url) else { return true }
         #if os(macOS)
         let flags = NSApp.currentEvent?.modifierFlags ?? []

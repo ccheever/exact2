@@ -192,6 +192,7 @@ extension Agent {
             guard let hit = win.hitTest(p, with: nil), hit !== v, !hit.isDescendant(of: v), !v.isDescendant(of: hit) else { return nil }
             var owner: UIView? = hit, bar: UIView? = nil, barBox: CGRect? = nil
             while let cur = owner, !(cur is NodeView) {
+                if cur.accessibilityIdentifier?.hasPrefix("exact.host.frame-health") == true { return nil }
                 if Agent.isBar(cur), let box = Agent.barBox(cur, holding: p) { bar = cur; barBox = box }
                 owner = cur.superview
             }
@@ -477,6 +478,14 @@ extension Agent {
                 if let row = GroupedListsLink.part?(cur)?["row"] as? Int { item["of"] = row; break }
                 if let n = cur as? NodeView { item["of"] = Int(n.id); break }
                 up = cur.superview
+            }
+            // A list's section header, which a plain list pins over its rows as they scroll under it, on UIKit's
+            // own edge effect: a row meeting it is not running into it (contacts at the largest text size, bake-off r28).
+            var list: UIView? = label.superview
+            while let l = list, !(l is UICollectionView) { list = l.superview }
+            if let list = list as? UICollectionView,
+               list.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader).contains(where: { label.isDescendant(of: $0) }) {
+                item["pinned"] = true
             }
             items.append(item)
         }

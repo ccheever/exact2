@@ -41,7 +41,7 @@ component App
   writes them, [porting-and-release](porting-and-release.md)); `app.ts`'s `appId` matches.
 - **`host.ios.launchImage`** `{ "src": "assets/splash.png", "width": 276 }`: the launch
   screen's PNG, `width` points wide, on `background_color`.
-- **`host.ios.icon`** `"assets/App.icon"`: an Icon Composer `.icon` instead of `icons`.
+- **`host.ios.icon`** `"art/App.icon"`: an Icon Composer `.icon`; the web keeps `icons`.
 - **`protocol_handlers`**: `euxy://p/abc` is `/p/euxy%3A%2F%2Fp%2Fabc` (whole at `%s`).
   A cold launch opens it in its route's tab: declare it (`p "/p/:d"`). Running, `go` can
   push it on the selected tab; `open` uses its route's (`vocab navigate`).

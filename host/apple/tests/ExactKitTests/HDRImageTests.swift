@@ -190,6 +190,61 @@ final class HDRImageTests: XCTestCase {
         XCTAssertEqual(layer.dynamicRangeFacts["dynamicRange"] as? String, "standard", "SDR content is never marked")
     }
 
+    #if os(iOS) || os(tvOS)
+    func testMountedAndFlyingImagesUseTheBitmapLayersRange() throws {
+        guard #available(iOS 26, tvOS 26, *) else { throw XCTSkip("layer range needs 26") }
+        DisplayRange.pinned = 4
+        let presenter = Presenter(), loader = RasterLoader()
+        presenter.viewport.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        let resolver = AssetResolver(root: Self.dir)
+        defer { loader.shutdown(); withExtendedLifetime(resolver) {} }
+        let node = NodeView(id: 1, kind: "image", presenter: presenter)
+        node.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        presenter.root.addSubview(node); presenter.views[1] = node
+        node.applyStyle(["object_fit": "contain", "dynamic_range_limit": "no-limit"])
+        node.loadGeneration += 1
+        loader.load(node, source: "pq.heic", resolver: resolver)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while node.raster == nil && Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        let bitmap = try XCTUnwrap(node.raster?.image)
+        XCTAssertTrue(bitmap.isHDR)
+        node.applyImageLayer()
+        let clip = try XCTUnwrap(node.imageLayer)
+        let content = try XCTUnwrap(clip.sublayers?.first)
+        XCTAssertTrue((content.contents as AnyObject?) === bitmap.image)
+        let images = try XCTUnwrap(loader.diagnostics["images"] as? [[String: Any]])
+        let color = try XCTUnwrap(images.first?["color"] as? [String: Any])
+        let shown = try XCTUnwrap(color["layer"] as? [String: Any])
+        XCTAssertEqual(shown["current"] as? Bool, true)
+        XCTAssertEqual(shown["dynamicRange"] as? String, "high")
+        XCTAssertEqual(shown["contentsHeadroom"] as? CGFloat, CGFloat(bitmap.headroom))
+
+        for (limit, range) in [("standard", CALayer.DynamicRange.standard), ("no-limit", .high), ("constrained", .constrainedHigh)] {
+            let old = node.style
+            node.style["dynamic_range_limit"] = .string(limit)
+            node.syncDynamicRange(from: old)
+            XCTAssertEqual(content.preferredDynamicRange, range)
+        }
+
+        node.imageLayer?.removeFromSuperlayer(); node.imageLayer = nil
+        node.flightLook = FlightLook(image: node.bounds)
+        node.applyImageLayer()
+        let flying = try XCTUnwrap(node.imageLayer)
+        XCTAssertTrue((flying.contents as AnyObject?) === bitmap.image)
+        XCTAssertEqual(flying.preferredDynamicRange, .constrainedHigh)
+        XCTAssertEqual(flying.contentsHeadroom, CGFloat(bitmap.headroom))
+
+        node.flightLook = nil
+        node.applyImageLayer()
+        XCTAssertNil(flying.contents)
+        XCTAssertEqual(flying.preferredDynamicRange, .standard)
+        XCTAssertEqual(flying.contentsHeadroom, 0)
+        XCTAssertEqual(flying.sublayers?.first?.preferredDynamicRange, .constrainedHigh)
+    }
+    #endif
+
     /// The budget's ladder: an HDR plan costs 8 bytes a pixel; the 4096²
     /// fixture can't have one at full size, and its SDR rendition is 4.
     func testAnHDRPlanCostsEightBytesAPixel() throws {

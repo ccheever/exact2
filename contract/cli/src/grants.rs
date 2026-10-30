@@ -1,8 +1,8 @@
 //! `grant-device-missing`: a device the view reaches through the runner
 //! answers only under the app's grant (LLP 1069.008 D3; `runner/src/device.rs`):
-//! `exactMIDI()` reads `denied` and `showNotification` is refused, on every
-//! host, at run time. The grants are the data module's (`export const grants`
-//! in `app.ts`, `fn grants()` in a Rust data crate) and may be computed, so
+//! `exactMIDI()` reads `denied` on every host, at run time. The grants are the
+//! data module's (`export const grants` in `app.ts`, `fn grants()` in a Rust
+//! data crate) and may be computed, so
 //! this reads the string literals of the app's source ([`literals`]) and
 //! says something only when it is certain: a `device.midi <key>` whose key
 //! the strings table has is the grant; a grant built otherwise, or a file
@@ -35,22 +35,13 @@ struct Device {
     purpose: &'static str,
 }
 
-const DEVICES: &[Device] = &[
-    Device {
-        name: "midi",
-        without: "reads `denied` on every host",
-        sources: &["exactMIDI"],
-        commands: &["requestMIDIAccess", "sendMIDI"],
-        purpose: "Plays the pattern on your instruments.",
-    },
-    Device {
-        name: "notifications",
-        without: "is refused on every host (`showNotification: refused`)",
-        sources: &[],
-        commands: &["showNotification"],
-        purpose: "Reminds you when a timer ends.",
-    },
-];
+const DEVICES: &[Device] = &[Device {
+    name: "midi",
+    without: "reads `denied` on every host",
+    sources: &["exactMIDI"],
+    commands: &["requestMIDIAccess", "sendMIDI"],
+    purpose: "Plays the pattern on your instruments.",
+}];
 
 /// Directories that hold no source of the app's data module.
 const SKIP: &[&str] = &["node_modules", "target", "dist", "assets", "strings"];
@@ -162,12 +153,19 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         .filter_map(|d| Some((d, first_use(file, d)?)))
         .collect();
     let modules = module_uses(file);
-    if uses.is_empty() && modules.is_empty() {
+    // Data code imports @exact/child-process only in an app that depends on
+    // it: one small read decides whether to look (LLP 1133.007 D12).
+    let processes = depends_on(root, "@exact/child-process");
+    if uses.is_empty() && modules.is_empty() && !processes {
         return Vec::new();
     }
     let mut files = Vec::new();
     sources(root, 0, &mut files);
     files.sort();
+    let children = processes.then(|| child_process_use(&files)).flatten();
+    if uses.is_empty() && modules.is_empty() && children.is_none() {
+        return Vec::new();
+    }
     // Every file's string literals, or none when one cannot be read with
     // certainty: then a grant may be in it, and nothing is said.
     let Some(lits) = files.iter().try_fold(Vec::new(), |mut all, path| {
@@ -191,6 +189,21 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         related: Box::new([]),
     };
     let mut out = Vec::new();
+    // A program data code starts (LLP 1133.007 D7, D12): a `process.spawn`
+    // line names each, and with none every call is refused.
+    if let Some((path, line, call)) = children {
+        if !lits.iter().any(|l| l.text.contains("process.spawn ")) {
+            let grant = "process.spawn path:<name>";
+            out.push(CompileError {
+                id: "grant-missing".into(),
+                file: Some(path.into_boxed_path()),
+                ..warn(
+                    Span { line, col: 0, end_col: 0, source_id: 0 },
+                    format!("`{call}` from @exact/child-process starts only a program a `process.spawn` line names, and no file of the app's data module has one: add a line for each program, such as `{grant}` or `process.spawn /usr/bin/tar`, to the app's grants"),
+                )
+            });
+        }
+    }
     for (device, (span, call)) in uses {
         let line = format!("device.{}", device.name);
         let has = |key: &str| strings.is_some_and(|s| s.base_table().contains_key(key));
@@ -255,7 +268,9 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
             Some(device) if !named(device) => format!("`{last}` to the app's grants"),
             Some(device) => format!("`{last} purpose.{device}` to the app's grants, with its purpose in strings/{base}.json"),
             // A line that names no target (LLP 1020.002 D9).
-            None if last == "browser.automation" => format!("`{last}` to the app's grants"),
+            None if matches!(last.as_str(), "browser.automation" | "payment.google-pay") => {
+                format!("`{last}` to the app's grants")
+            }
             None => format!("`{last} <its target>` to the app's grants"),
         };
         out.push(CompileError {
@@ -267,6 +282,41 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
         });
     }
     out
+}
+
+/// Whether the app at `root` lists `package` among its `package.json`'s
+/// dependencies, as an app does every `@exact/` package it uses.
+fn depends_on(root: &Path, package: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(root.join("package.json")) else {
+        return false;
+    };
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+    ["dependencies", "devDependencies"]
+        .iter()
+        .any(|key| json[key].get(package).is_some())
+}
+
+/// The first data-module file that imports a name of `@exact/child-process`
+/// that starts a program (`spawn`, `execFile`, `execPath`): its path, the
+/// line, and the name.
+fn child_process_use(
+    files: &[std::path::PathBuf],
+) -> Option<(std::path::PathBuf, u32, &'static str)> {
+    files
+        .iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "ts"))
+        .find_map(|path| {
+            let text = std::fs::read_to_string(path).ok()?;
+            let at = text.find("@exact/child-process")?;
+            let statement = &text[text[..at].rfind("import").unwrap_or(0)..at];
+            let call = ["spawn", "execFile", "execPath"].into_iter().find(|name| {
+                statement
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .any(|w| w == *name)
+            })?;
+            let line = text[..at].matches('\n').count() as u32 + 1;
+            Some((path.clone(), line, call))
+        })
 }
 
 /// Each set of grant lines a native module's names the app reads or sends
@@ -291,6 +341,8 @@ fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
         fn sends(stmts: &[Stmt], name: &str) -> Option<Span> {
             stmts.iter().find_map(|s| match s {
                 Stmt::Send { source, span, .. } if source == name => Some(*span),
+                // A send that answers nothing is a statement (LLP 1133.004 D5).
+                Stmt::Command { name: n, span, .. } if n == name => Some(*span),
                 Stmt::If {
                     then, otherwise, ..
                 } => sends(then, name).or_else(|| sends(otherwise, name)),

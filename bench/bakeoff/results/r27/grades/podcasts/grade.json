@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of 420 episodes, newest first. Each row shows show, title, date · length and a Played/Unplayed line."},
+      {"n": 2, "status": "pass", "note": "A real UISwitch 'Unplayed only' filters the list (295 → 294 after a change, and played rows drop out live). The show screen has the same switch."},
+      {"n": 3, "status": "pass", "note": "Shows tab lists 12 shows with 'N episodes · M unplayed' and a chevron. Tapping one pushes that show's episodes."},
+      {"n": 4, "status": "pass", "note": "Detail shows show, title, date, length, summary and Play. Play marks the episode played, turns into Stop and shows a 'Playing' waveform label. There are also mark-played and Up Next rows."},
+      {"n": 5, "status": "pass", "note": "Each row has a circle/checkmark toggle button that flips played state in place. There are no swipe actions on the episode list."},
+      {"n": 6, "status": "pass", "note": "A '+' on each row (it becomes a grey disabled check once queued) and a detail row add to Up Next. Edit mode reorders with Up/Down buttons and removes with Remove buttons. Swipe-to-delete also works outside Edit."},
+      {"n": 7, "status": "pass", "note": "After relaunch, played state, queue order and removals were all kept."}
+    ],
+    "bugs": [
+      "No functional bugs found. All spec features worked in testing."
+    ],
+    "tells": [
+      "Every episode row has a 188pt-wide column for two stacked icon buttons (circle toggle, '+'). The text is squeezed into ~138pt, so short titles like 'A history of beekeeping' wrap at default size and the right side of each row is mostly empty.",
+      "At the largest text size the narrow text column breaks words and numbers mid-way: 'be / e- / kee / p- / ing', 'The / Long / Field', and the date split across lines as '26 / 202…'.",
+      "Up Next reordering uses 'Up' / 'Down' text buttons in each row instead of the system drag-reorder handles in an editing table.",
+      "No swipe actions on episode rows for played/unplayed or queueing; it relies on always-visible buttons.",
+      "The Up Next tab icon is a plain hamburger (line.3.horizontal), which reads as 'menu' rather than a queue.",
+      "On the detail screen the title of a played episode turns grey, so the main title looks disabled.",
+      "Plain system-default look: no artwork anywhere. It is correct but bare, like a settings form rather than a podcast app."
+    ],
+    "scroll": "The 420-row list scrolls smoothly with momentum and rubber-banding, and the inline title fades in under a blurred bar. No blank rows or jumps, and scroll position was kept after pushing a detail and coming back. Rows are tall (126pt), so the list is long.",
+    "scores": {"features": 9, "platform": 6, "polish": 5, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first list of 420 episodes with show artwork, an uppercase show name, title, 'date · length', and a played/unplayed dot or check with label. A sticky 'LATEST EPISODES 420' header stays pinned while scrolling."},
+      {"n": 2, "status": "pass", "note": "A segmented control 'All episodes / Unplayed' filters the list, and the count updates (420 → 295). At the largest text size it becomes a pull-down menu. The show screen has the same control."},
+      {"n": 3, "status": "pass", "note": "Shows tab lists 12 shows with artwork, tagline and 'N episodes · M unplayed'. Tapping one pushes a show page with artwork, a filter and its episodes. The show page header shows only the episode count, not the unplayed count."},
+      {"n": 4, "status": "pass", "note": "Detail has large artwork, show, title, full date, a clock with length, played status, summary and a prominent Play button. Play marks the episode played, becomes Pause and shows 'Playing'."},
+      {"n": 5, "status": "pass", "note": "From the list: trailing swipe 'Mark played' (full-swipe works), leading swipe 'Add to Up Next' / 'Remove from Up Next', and a '…' menu with Mark as played/unplayed and the queue action."},
+      {"n": 6, "status": "partial", "note": "Adding works from swipe, the menu and detail, and an 'Up Next' badge appears on queued rows. Edit mode has real drag handles and drag-reorder worked. In Edit mode, though, the red '−' button reveals 'Mark played' instead of Delete, so you cannot remove from there. Removing works through a leading swipe or the '…' menu."},
+      {"n": 7, "status": "pass", "note": "After relaunch, played state, the reordered queue and removals were all kept."}
+    ],
+    "bugs": [
+      "Up Next Edit mode: the hint says 'Tap − to remove', but tapping the red minus reveals a 'Mark played' action rather than Delete, so the system remove gesture in Edit mode does not remove the item.",
+      "On Up Next a trailing (right-to-left) swipe marks the episode played instead of removing it. Removal is only on the leading swipe, so a full trailing swipe there accidentally marks episodes played."
+    ],
+    "tells": [
+      "Custom marketing-style hero cards ('STAY CURIOUS / Your next great listen.', 'A good listen, lined up.') above the lists look more like a web landing page than a stock iOS list.",
+      "There are two ways into search on the main screen: a circular toolbar search button and a search field that appears when you pull down.",
+      "Rows have both a disclosure chevron and a '…' button side by side, which is redundant.",
+      "Inside Up Next every row still carries an 'Up Next' badge, which adds nothing there.",
+      "The Up Next Edit 'Done' button is drawn as a filled green checkmark circle rather than a 'Done' text button."
+    ],
+    "scroll": "The long list scrolls smoothly with momentum, rubber-banding and a pinned section header under the blurred large-title bar. No blank or popping rows, and the position was kept after returning from a detail.",
+    "scores": {"features": 8, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps cover every requirement and persist state. B looks and behaves like a real iPhone podcast app: artwork, a segmented filter, swipe actions, context menus, drag-to-reorder, and text that adapts cleanly at the largest size. A works but has an awkward squeezed row layout, Up/Down buttons instead of drag reorder, no swipe actions, and words and dates broken mid-way at large text. B's Edit-mode minus not deleting is a real flaw, but a smaller one overall."
+}

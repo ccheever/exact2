@@ -42,6 +42,7 @@ macro_rules! host {
         $crate::corner_exports!();
         $crate::gradient_exports!();
         $crate::calc_exports!();
+        $crate::local_network_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -49,6 +50,7 @@ macro_rules! host {
         /// the linker sees nothing else (LLP 1047.001 D3).
         const EXACT_LINKS: $crate::link::Links<$data> = $crate::link::Links::of($linked);
         $crate::pan_velocity_exports!();
+        $crate::frame_health_exports!();
 
         /// Create a runtime; returns its handle (never 0). Its callbacks are
         /// set with `exact_set_measure`, `exact_set_wake`, and
@@ -293,6 +295,18 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_host_go(rt: u32, len: usize, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_go(len, now_ms), |n| n)
+        }
+
+        /// A received share, a batch. @ref LLP 1133.024 D2–D4
+        #[no_mangle]
+        pub extern "C" fn exact_share(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share(len, now_ms), |n| n)
+        }
+
+        /// The files of a share claimed before the boot, landed: a batch.
+        #[no_mangle]
+        pub extern "C" fn exact_share_land(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share_land(), |n| n)
         }
 
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
@@ -645,14 +659,38 @@ macro_rules! host {
         }
 
         /// Move the clock; `mode` as `Bridge::advance` (0 the wall clock, 1
-        /// the agent's jump, 2 an input's `then`s). Returns the batch's length.
+        /// the agent's jump, 2 an input's `then`s, 3 those `then`s only when
+        /// one is the earliest work due). Returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_timer_waits(rt: u32, kinds: u32, cutoff: f64, mode: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.timer_waits(kinds as u8, cutoff, mode), |n| n)
+        }
+
+        /// Delegate ordinary live timers to independent native callbacks.
+        #[no_mangle]
+        pub extern "C" fn exact_native_timers(rt: u32, enabled: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.native_timers(enabled != 0); 0 }, |n| n)
+        }
+
+        /// Deliver one native timer instance without draining other native timers.
+        #[no_mangle]
+        pub extern "C" fn exact_fire_native_timer(rt: u32, index: u32, generation: u64, now: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.fire_native_timer(index, generation, now), |n| n)
+        }
+
+        /// Move the clock through ordinary deadlines.
         #[no_mangle]
         pub extern "C" fn exact_advance(rt: u32, now_ms: f64, mode: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, mode), |n| n)
         }
 
-        /// A presented display frame at `now_ms` (LLP 1073 D5): timers due
-        /// by then, then every frame task once. Returns the batch's length.
+        /// Frame tasks after timer admission, with the display target and wall clock.
+        #[no_mangle]
+        pub extern "C" fn exact_admitted_frame(rt: u32, target_ms: f64, wall_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.admitted_frame(target_ms, wall_ms), |n| n)
+        }
+
+        /// A presented display frame, including ordinary timer work.
         #[no_mangle]
         pub extern "C" fn exact_frame(rt: u32, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.frame(now_ms), |n| n)
@@ -1014,6 +1052,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.into_view(view, len), |n| n)
         }
 
+        /// What UIKit covers of list `view`'s port at its start and end, in
+        /// points: a row the runner aligns lands clear of it.
+        #[no_mangle]
+        pub extern "C" fn exact_list_covered(rt: u32, view: u32, start: f64, end: f64) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_covered(view, start, end), |_| ())
+        }
+
         /// Canvas draws in a turn of their own (`deferred` nonzero), or in every
         /// turn (LLP 1072 §8.5): the batch says `canvasOwed` and
         /// `exact_canvas_draw` runs them, off the turns main waits on.
@@ -1067,6 +1112,20 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_log(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.log(len), |_| 0)
+        }
+
+        /// What the presenter applied of the orientation lock (LLP 1133.029
+        /// §8): JSON in the input buffer's first `len` bytes, and whether
+        /// its resolution found a conflict. Returns 0.
+        #[no_mangle]
+        pub extern "C" fn exact_orientation_applied(rt: u32, len: usize, conflict: u8) -> u32 {
+            $crate::abi::with_runtime(
+                &EXACT_RUNTIMES,
+                rt,
+                true,
+                |b, _| b.orientation_applied(len, conflict != 0),
+                |_| 0,
+            )
         }
 
         /// An auth session's word (LLP 1069.006): `hold` under the agent, or

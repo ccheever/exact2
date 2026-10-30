@@ -36,6 +36,7 @@ struct Witness {
 struct Seen {
     key: NodeKey,
     parent: Option<ViewId>,
+    scroll_parent: Option<ViewId>,
     scroll: Option<ScrollBounds>,
 }
 #[cfg(any(target_os = "linux", target_os = "android", test))]
@@ -124,6 +125,19 @@ impl State {
         }
         true
     }
+    /// The node the acknowledged picture painted at `id`, if it painted one.
+    pub(super) fn painted_key(&self, id: ViewId) -> Option<NodeKey> {
+        self.witness().and_then(|a| a.nodes.get(&id)).map(|s| s.key)
+    }
+    /// Whether the acknowledged picture holds scroller `id`'s travel (always, with no display): a scroller
+    /// it doesn't (hidden, or not yet painted where it shows) has none to clamp to there.
+    pub(super) fn witnessed(&self, kernel: &Kernel, id: ViewId) -> bool {
+        !self.active
+            || self
+                .witness()
+                .filter(|_| self.allows(kernel, id))
+                .is_some_and(|a| a.nodes.get(&id).is_some_and(|s| s.scroll.is_some()))
+    }
     pub(super) fn bounds(&self, kernel: &Kernel, id: ViewId) -> Option<ScrollBounds> {
         if !self.active {
             return None;
@@ -145,6 +159,12 @@ impl State {
         self.witness()
             .filter(|_| self.allows(kernel, id))
             .and_then(|a| a.nodes.get(&id).and_then(|s| s.parent))
+            .filter(|parent| self.allows(kernel, *parent))
+    }
+    pub(super) fn scroll_parent(&self, kernel: &Kernel, id: ViewId) -> Option<ViewId> {
+        self.witness()
+            .filter(|_| self.allows(kernel, id))
+            .and_then(|a| a.nodes.get(&id).and_then(|s| s.scroll_parent))
             .filter(|parent| self.allows(kernel, *parent))
     }
     pub(super) fn document(&self) -> Option<(f32, f32)> {
@@ -220,6 +240,7 @@ impl<D: DataSource> Presenter<D> {
                         Seen {
                             key: n.key,
                             parent: n.parent,
+                            scroll_parent: self.geometry_parent(n.id),
                             scroll,
                         },
                     );
@@ -327,6 +348,7 @@ impl<D: DataSource> Presenter<D> {
             self.collection.data_ready();
             self.queue_collections();
         }
+        self.land_cold_share();
         if let Some(u) = self.updates.as_mut() {
             u.boot_succeeded();
         }
@@ -347,6 +369,7 @@ fn witness_svg(kernel: &Kernel, node: &exact_kernel::NodeRef<'_>, witness: &mut 
             let seen = witness.nodes.entry(id).or_insert(Seen {
                 key: child.key,
                 parent: child.parent,
+                scroll_parent: child.parent,
                 scroll: None,
             });
             seen.key = child.key;

@@ -274,7 +274,10 @@ impl Server {
         };
         let varies = |text: &str| -> Vec<(String, u32, u32)> {
             let folded = exact_tamber::parse(text).and_then(|d| {
-                exact_tamber::check_design(exact_tamber::params::laid(&d, &joined), &self.vocab)
+                exact_tamber::check_design_cached(
+                    exact_tamber::params::laid(&d, &joined),
+                    &self.vocab,
+                )
             });
             folded.map_or(Vec::new(), |f| {
                 f.tokens

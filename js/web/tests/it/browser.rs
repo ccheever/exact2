@@ -157,7 +157,9 @@ fn grant_sets() -> String {
         "fs.read app:/data/move\nfs.write app:/data/move",
         "fs.read app:/data",
         "sqlite.open app:/data/notes.db",
-        "sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision",
+        // apps/fieldnotes/app.ts's, as it declares them (its walk's motion since c6d72a0349, the shared file's read
+        // since 170f2c104a).
+        "sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nfs.read app:/tmp/shared\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose",
     ];
     let sets = specs
         .into_iter()
@@ -1101,14 +1103,22 @@ import { chromium } from './scripts/agent-launch.mjs';
 const { executable: browserExecutable, unavailable: browserMissing } = chromium();
 if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { webHostFiles } from './scripts/app.mjs';
-import { spawn, execFileSync } from 'node:child_process';
+import { moduleBinding, moduleInterfaces } from './js/bake/src/typescript.mjs';
+import { rolldown } from 'rolldown';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const routes=Object.fromEntries(Object.entries(webHostFiles()).map(([name,source])=>['/'+name,source]));
-const app=execFileSync(process.execPath,['./node_modules/.bin/rolldown','apps/fieldnotes/app.ts','--format','iife','--name','fieldnotes'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})+'\nglobalThis.exact={...fieldnotes,abi:1};';
+// Fieldnotes' `@exact/*` imports reach the bindings the bake generates from each interface's exact.json.
+const interfaces=new Map(moduleInterfaces(resolve('apps/fieldnotes')).map(i=>[i.name,i]));
+const bindings={name:'exact-modules',resolveId:id=>interfaces.has(id)?'\0exact-module:'+id:null,
+  load(id){const i=id.startsWith('\0exact-module:')&&interfaces.get(id.slice(14));return i?{code:moduleBinding(i.name,i.declaration,i.implementations.map(m=>m.json)),moduleType:'ts'}:null;}};
+const bundled=await rolldown({input:'apps/fieldnotes/app.ts',platform:'browser',plugins:[bindings]});
+const app=(await bundled.generate({format:'iife',name:'fieldnotes'})).output[0].code+'\nglobalThis.exact={...fieldnotes,abi:1};';
+await bundled.close();
 const server=createServer((req,res)=>{
   res.setHeader('content-type',req.url.endsWith('.wasm')?'application/wasm':routes[req.url]?'text/javascript':'text/html');
   res.end(routes[req.url]?readFileSync(routes[req.url]):'<main id="exact-root"></main>');
@@ -1132,7 +1142,7 @@ try {
     const {createStorageRequests}=await import('/storage-request.js');
     const {createGrantSet,scopedGrantSet}=await import('/grant-admission.js');
     const encoder=new TextEncoder(),decoder=new TextDecoder();
-    const identity={appId:'com.exact.fieldnotes',grants:'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision'};
+    const identity={appId:'com.exact.fieldnotes',grants:'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nfs.read app:/tmp/shared\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose'};
     identity.grantSet=createGrantSet(grantSets[identity.grants]);
     const script=encoder.encode(app);
     const sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',script)),b=>b.toString(16).padStart(2,'0')).join('');

@@ -41,9 +41,21 @@ off: on return the strip is gone and the denied line shows.
    showed goes blank.
 3. Open a photo held only in iCloud (Settings > Photos > Optimize iPhone
    Storage on, an old photo): it downloads and opens in the editor.
+   Age and Optimize Storage do not prove that an original is cloud-only.
+   If uncertain, request its original through PhotoKit with network access
+   disabled: no image data and `PHImageResultIsInCloudKey` true establish
+   the prerequisite. Record unavailable coverage when every selected original
+   is local; do not count opening a cached photo as an iCloud download.
 4. Open an HDR photo, rotate it, and Save to Photos: the system asks to add
    once (if only adding was asked before). In Photos the saved photo shows
    as HDR, with the original's date and place.
+   For a repeatable codec check, import the repository's
+   `host/apple/tests/ExactKitTests/ColorFixtures/gainmap-iso.jpg`, whose HDR
+   headroom is 4. Reopen the saved edit and inspect its original bytes with
+   ImageIO using `kCGImageSourceDecodeToHDR`: `CGImageGetContentHeadroom`
+   must remain 4 after a quarter-turn. A gain-map attachment alone is not
+   enough; an SDR image can retain one. Use a fixture with known EXIF dates
+   and GPS coordinates to check those fields as well.
 5. Turn photo access off in Settings > Photo Editor: on return the strip is
    gone and the editor says it can't see your photos, with Open Settings.
 
@@ -53,9 +65,12 @@ off: on return the strip is gone and the denied line shows.
 has no Android port). `bun packages/photos/test/android.mjs` builds its APK
 and checks the manifest, the roster and the agent's photos in it, here, with
 no device; `--emulator` adds the agent's drives (the door's six pictures, a
-copy byte for byte, an add, limited access and a revocation) on adb's one
-arm64 device. Neither the drives nor the steps below have run: the emulator
-does not boot on the Mac stage 3 was built on.
+copy byte for byte, an add, limited access and a revocation), the codec's
+conformance (step 9's checks among it) and MediaStore for real, bound,
+granted by `pm grant` (the list, a copy with its location, an add no longer
+pending) on an arm64 emulator (`ANDROID_SERIAL`) whose adb runs as root. It
+passed on API 29, 33 and 34 emulators on 2026-10-28. The steps below are what
+it cannot do: the platform's dialogs and what a person chooses in them.
 
 Install it outside the agent with `bun scripts/agent-android.mjs build
 photos-fixture --apk`, then `adb install -r
@@ -102,11 +117,10 @@ orientation 6).
    draws and copies with no prompt (the `owned` path, D6), with its location
    kept. Another app's id fails `NotFoundError`.
 
-### The codec (D16), orientation 6, on API 29, 33 and 34
+### The codec (D16): what the drive leaves
 
-9. `compressImage` and `transformImage` of agent-3's copy, from a data
-   module: with no edit, the output is 360×480 (upright; it is stored
-   480×360) and not squashed; with a crop of its top half, the upright
-   photo's top half, 360×240; with the crop and a size of 24 wide, 24×16
-   from unresized pixels. Each output's EXIF orientation is 1. On API 34 an Ultra HDR JPEG turned by a
-   quarter keeps its gain map (`hdr` true); turned by 10°, `hdr` is false.
+9. The orientation-6 checks (agent-3 upright at 360×480, its top half at
+   360×240 and at 24×16) are the drive's. Left: an Ultra HDR JPEG from a
+   phone's camera, turned by a quarter on an API 34 phone, keeps its gain map
+   (`hdr` true); the drive's ISO 21496-1 fixture decodes with none there, so
+   it says `hdr` false whatever the turn.

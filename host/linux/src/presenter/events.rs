@@ -6,6 +6,45 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// A carrier's memory-pressure notification releases idle painter targets.
+    pub fn memory_warning(&mut self) {
+        self.brush.trim();
+    }
+
+    /// A desktop window's activation preserves the focused allocation for
+    /// its return. Explicit focus changes while inactive take precedence.
+    pub fn set_window_active(&mut self, active: bool) {
+        if self.window_active == active {
+            return;
+        }
+        self.window_active = active;
+        if !active {
+            self.brush.trim();
+            self.window_focus = self
+                .focus
+                .and_then(|id| self.host.kernel().node(id).map(|n| n.key));
+            self.held = 0;
+            self.shortcut_keys.clear();
+            self.blur();
+            return;
+        }
+        let Some(key) = self.window_focus.take().filter(|_| self.focus.is_none()) else {
+            return;
+        };
+        let Some(id) = self
+            .host
+            .kernel()
+            .node_by_key(key)
+            .map(|n| n.id)
+            .filter(|&id| self.focusable(id) && self.focus_refusal(id).is_none())
+        else {
+            return;
+        };
+        if let Some(error) = self.set_focus(Some(id), self.host.now()) {
+            self.host.log(error);
+        }
+    }
+
     /// A native module may only answer for the node allocation its painted view represents.
     #[cfg(any(target_os = "android", test))]
     pub(crate) fn reader_module_event(
@@ -83,7 +122,17 @@ impl<D: DataSource> Presenter<D> {
             }
             id.filter(|&id| kernel.node(id).is_some_and(|n| n.node_type == node_type))
         });
+        let previous = self.focus;
         self.focus = target.filter(|&id| self.focusable(id) && !self.host.route_visibility(id).1);
+        // The restored focus keeps the ring the one it stands for had, as
+        // `set_focus` carries it; the old tree's ids name nothing now.
+        let ringless = self.brush.ringless;
+        self.brush.ringless = if self.brush.keyless || (ringless.is_some() && ringless == previous)
+        {
+            self.focus.and_then(|id| self.unringed(id))
+        } else {
+            None
+        };
         self.focus_out = self
             .focus
             .map(|id| self.host.runner().focus_bubble(id, None, false))
@@ -181,7 +230,7 @@ impl<D: DataSource> Presenter<D> {
             return Some("page under surface is inert");
         }
         if !self.alert_allows(id) {
-            return Some("page under alert is inert");
+            return Some("page under the open surface is inert");
         }
         let kernel = self.host.kernel();
         let shown = self.alert_root();
@@ -231,6 +280,13 @@ impl<D: DataSource> Presenter<D> {
     /// `focus(id)` selects a surface row or a live, eligible page node.
     /// A refusal goes to the journal, as it does on the web host.
     pub(crate) fn focus_command(&mut self, args: &[exact_plan::Value]) -> Option<ViewId> {
+        // Bare `focus()` is the window's (LLP 1133.025 §8): this host brings
+        // none forward yet (LLP 1133.005 D10).
+        if args.is_empty() {
+            self.host
+                .log("focus window: unsupported: this host brings no window forward");
+            return None;
+        }
         let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
             eprintln!("exact: focus requires an element id");
             return None;
@@ -265,15 +321,35 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    /// `id` as the focus no ring marks, unless it is a text field, which
+    /// matches `:focus-visible` however it was focused.
+    pub(crate) fn unringed(&self, id: ViewId) -> Option<ViewId> {
+        let field =
+            (self.host.kernel().node(id)).is_some_and(|n| n.node_type == NodeType::TextInput);
+        (!field).then_some(id)
+    }
+
     /// Move the focus in DOM order, with both bubbling paths fixed before an
     /// action on either path can change the tree.
     pub(crate) fn set_focus(&mut self, next: Option<ViewId>, now_ms: f64) -> Option<String> {
         if next.is_some_and(|id| !self.alert_allows(id)) {
-            return Some("focus refused: page under alert is inert".into());
+            return Some("focus refused: page under the open surface is inert".into());
         }
         let previous = self.focus;
         if previous == next {
             return None;
+        }
+        // A focus the app or a route moves shows a ring only where the one it
+        // leaves did, as Chrome's `:focus-visible` has it for `focus()`: after
+        // a press, none. A press or a key says so itself, before or after.
+        // On Windows, none before the first key (`keyless`).
+        let ringless = self.brush.ringless;
+        if self.brush.keyless
+            || (ringless.is_some() && (ringless == previous || previous.is_none()))
+        {
+            if let Some(next) = next {
+                self.brush.ringless = self.unringed(next);
+            }
         }
         let out = previous
             .map(|id| self.host.runner().focus_bubble(id, next, false))
@@ -282,6 +358,7 @@ impl<D: DataSource> Presenter<D> {
             .map(|id| self.host.runner().focus_bubble(id, previous, true))
             .unwrap_or_default();
         self.focus = next;
+        self.field_reveal = true;
         if next.is_some() {
             self.pads_follow_focus();
         }
@@ -367,7 +444,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// A modifier key went down or up, by its code (`ShiftLeft`…): what
     /// the next key's event says is held.
-    pub(crate) fn hold_modifier(&mut self, code: &str, down: bool) {
+    pub fn hold_modifier(&mut self, code: &str, down: bool) {
         let bit = match code {
             "ShiftLeft" => 1,
             "ShiftRight" => 2,
@@ -414,7 +491,10 @@ impl<D: DataSource> Presenter<D> {
         repeat: bool,
         now_ms: f64,
     ) -> (Option<String>, bool) {
-        let target = self.focus.or_else(|| self.host.roots().first().copied());
+        let target = self
+            .focus
+            .or_else(|| self.alert_root())
+            .or_else(|| self.host.roots().first().copied());
         let mut path = Vec::new();
         let mut at = target.and_then(|id| self.handler_target(id, kind));
         while let Some(id) = at {

@@ -113,6 +113,20 @@ extension PixelGrid {
         return CGPoint(x: snap(point.x, low: -i.left, high: scroll.contentSize.width + i.right - scroll.bounds.width),
                        y: snap(point.y, low: -i.top, high: scroll.contentSize.height + i.bottom - scroll.bounds.height))
     }
+    /// How far, in device pixels, an offset UIKit hands back may sit from the
+    /// value it was given and still be that value: it returns one a ULP or so
+    /// off (5/3 at scale 3 came back 1.6666666666666665). An exact compare
+    /// took that for the port moving: a smooth correction restarted every
+    /// frame and never advanced (SmoothCollectionIOSTests). A real move (a
+    /// clamp, a drag, a reader's scroll) is a pixel or more.
+    package static let readBackSlop: CGFloat = 0.01
+    /// `a` and `b` the same offset of `scroll`'s, within `readBackSlop` of its pixels.
+    package static func same(_ a: CGFloat, _ b: CGFloat, in scroll: UIScrollView) -> Bool {
+        abs(a - b) <= readBackSlop / max(1, scroll.traitCollection.displayScale)
+    }
+    package static func same(_ a: CGPoint, _ b: CGPoint, in scroll: UIScrollView) -> Bool {
+        same(a.x, b.x, in: scroll) && same(a.y, b.y, in: scroll)
+    }
 }
 
 extension Presenter {
@@ -125,18 +139,27 @@ extension Presenter {
     func gridScale(under parent: GridOrigin) -> CGFloat { parent.scale > 0 ? CGFloat(parent.scale) : gridScale }
 
     /// The absolute origin `view` is placed from: that of the node whose
-    /// children it is among, else a container on the grid (a cell, the window).
+    /// children it is among (for a row a grouped list carried into its cell,
+    /// the node it was carried from), else a container on the grid (a cell,
+    /// the window).
     func gridOrigin(above view: UIView) -> GridOrigin {
+        func origin(_ holder: UIView) -> GridOrigin? {
+            var ancestor: UIView? = holder
+            while let a = ancestor, !(a is NodeView) { ancestor = a.superview }
+            guard let node = ancestor as? NodeView, node.container === holder else { return nil }
+            return node.grid?.origin ?? .zero
+        }
         guard let holder = view.superview else { return .zero }
-        var ancestor: UIView? = holder
-        while let a = ancestor, !(a is NodeView) { ancestor = a.superview }
-        guard let node = ancestor as? NodeView, node.container === holder else { return .zero }
-        return node.grid?.origin ?? .zero
+        if let found = origin(holder) { return found }
+        guard groupedLists?.carriesRows == true, let home = groupedLists?.logicalParent(of: view) else { return .zero }
+        return origin(home) ?? .zero
     }
 
     /// A frame layout sent for `v`, drawn on the grid; a box whose origin
-    /// moves moves its children's edges with it.
-    func applyFrame(_ v: NodeView, _ rect: CGRect) {
+    /// moves moves its children's edges with it. Inside an animation UIKit
+    /// has open, it moves only if the last frame showed it (`moveOrPlace`).
+    func applyFrame(_ v: NodeView, _ rect: CGRect) { moveOrPlace(v) { frame(v, rect) } }
+    private func frame(_ v: NodeView, _ rect: CGRect) {
         let origin = gridOrigin(above: v)
         let place = PixelGrid.place(rect, in: origin, scale: gridScale(under: origin))
         let moved = place.origin != v.grid?.origin
@@ -144,7 +167,7 @@ extension Presenter {
         // A frame is set untransformed (UIKit's `frame` is undefined
         // under a transform); the presentation goes back on after.
         v.transform = .identity
-        v.frame = place.drawn
+        v.frame = groupedLists?.carriesRows == true ? groupedLists?.cellFrame(of: v, at: place) ?? place.drawn : place.drawn
         v.textRasterGeometryChanged()
         v.scroll?.frame = v.scrollFrame
         if v.fieldWaits, rect.width > 0 || rect.height > 0 { v.makeWaitingField() } // its box laid out (MenuHost.waitingFields)
@@ -155,6 +178,7 @@ extension Presenter {
         v.web?.frame = v.bounds
         v.fitScroll()
         v.applyTransform()
+        if v.surface != nil { v.applySurface() } // its size is the laid-out one plus `layoutResize`
         menus.framed(v)
         stickies.regridded(v.id)
         if moved { if applying { gridMoved.append(v) } else { regridChildren(of: v) } }
@@ -164,10 +188,24 @@ extension Presenter {
     /// frame changes, and theirs in turn.
     func regridChildren(of parent: NodeView) {
         let origin = parent.grid?.origin ?? .zero
-        for case let child as NodeView in parent.container.subviews {
-            guard let old = child.grid, PixelGrid.place(old.layout, in: origin, scale: gridScale(under: origin)) != old else { continue }
+        func regrid(_ child: NodeView) {
+            guard let old = child.grid else { return }
+            let place = PixelGrid.place(old.layout, in: origin, scale: gridScale(under: origin))
+            guard place != old else { return }
+            // Drawn where it was in its parent, which moved by whole pixels (a row below one inserted above it):
+            // only the absolute origin its own children are placed from changes, and its box keeps its frame.
+            if place.drawn == old.drawn {
+                child.grid = place
+                moveOrPlace(child) { child.placeTextRaster() } // its text's box is placed from its absolute origin
+                menus.framed(child); stickies.regridded(child.id)
+                regridChildren(of: child)
+                return
+            }
             applyFrame(child, old.layout)
         }
+        for case let child as NodeView in parent.container.subviews { regrid(child) }
+        // A grouped list's carried rows are its children too, in their cells.
+        if groupedLists?.carriesRows == true { groupedLists?.carried(from: parent.container).forEach(regrid) }
         flats.regrid(parent: parent)
     }
 

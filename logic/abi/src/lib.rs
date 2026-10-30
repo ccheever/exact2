@@ -227,6 +227,7 @@ fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
                 // Additive, as tags 5–8 were; a Rust module never asks for a
                 // deadline across this seam (below), so it never sees one.
                 FailureKind::Timeout => 9,
+                FailureKind::NotFound => 10,
             });
             w.string(message);
         }
@@ -267,6 +268,7 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
         3 => FailureKind::Unsupported,
         4 => FailureKind::Aborted,
         9 => FailureKind::Timeout,
+        10 => FailureKind::NotFound,
         _ => return Err("invalid outcome tag".into()),
     };
     Ok(Outcome::Failed {
@@ -316,11 +318,25 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 "a held request cannot cross the Rust module seam yet".into(),
             )),
         ),
+        // Nor an upload's progress: refused, never sent as a plain stream.
+        Ok(Answer::Later(r)) if r.upload_progress => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "an upload's progress cannot cross the Rust module seam yet".into(),
+            )),
+        ),
         // Nor has it a file body (LLP 1108 D6 R2): refused, never sent empty.
         Ok(Answer::Later(r)) if r.body_from.is_some() => encode_result(
             w,
             Err(DataError::Unavailable(
                 "exactBodyFrom cannot cross the Rust module seam".into(),
+            )),
+        ),
+        // Nor a body written to a file: refused, never read into memory instead.
+        Ok(Answer::Later(r)) if r.body_to.is_some() => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "exactBodyTo cannot cross the Rust module seam".into(),
             )),
         ),
         Ok(Answer::Now(v)) => {
@@ -418,9 +434,11 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 DataError::BadArguments(s) => (3, s),
                 // A coded failure's class is the TypeScript seam's and the
                 // runner's (LLP 1109 D3): a Rust source's own is `error`.
+                // (an overrun is exact-js's; a Rust module's seam never makes one)
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
                 | DataError::DeferredAtBake(s)
+                | DataError::Overrun(s)
                 | DataError::Failed(_, s, _) => (4, s),
             };
             w.u8(tag);
@@ -479,11 +497,19 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
         stream: tag >= 9,
         socket: false,
         bytes: false,
+        upload_progress: false,
         long_poll: None,
         timeout_ms: None,
         body_from: None,
+        body_to: None,
         redirect: Redirect::Follow,
         held: false,
+        reach: Default::default(),
+        listen: None,
+        due_ms: None,
+        wake_ms: None,
+        // A Rust source names no module fetch (the TypeScript prelude does).
+        fetch: None,
         http: if tag != 1 {
             let limit = r.u32().map_err(error)?;
             if limit == 0 || limit > 64 << 20 {

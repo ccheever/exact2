@@ -52,6 +52,7 @@
       ],
       "origin": "app",
       "foreground": true,
+      "inCall": true,
       "options": {
         "stream": "handle<stream>",
         "mimeType": "option<string>",

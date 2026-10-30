@@ -25,8 +25,14 @@ const INFLATED_LIMIT = 16 * 1024 * 1024;
 // fed to it PUSH_BYTES at a time until a turn has inflated INFLATE_OUT (the mapper's, INLINE_TEXT):
 // DEFLATE's limit of about 1,032 to 1 (zlib.net/zlib_tech.html) inflates one push to at most a
 // megabyte, whatever the text. Pushes of 1 KB cost about a fifth more than one push of the whole.
-const INLINE_TEXT = 512 * 1024;
+// The mapper's turn has no continuation: one the host refuses for its budget fails the stream (a
+// megabyte READY took 868 ms there on a busy M5). So it inflates and parses only a small frame
+// itself, and a larger one waits for `digest`, whose turns keep their progress if refused.
+const INLINE_TEXT = 64 * 1024;
 const PUSH_BYTES = 1024;
+// The mapper's pushes: DEFLATE's limit inflates 64 bytes to at most about 66 KB, so its turn stops near
+// INLINE_TEXT however compressible the packet is.
+const INLINE_PUSH = 64;
 const INFLATE_OUT = 1024 * 1024;
 // A frame's text longer than this is scanned (`discord/ready.ts`) rather than parsed whole. On an
 // M1 Max JSON.parse took about 7.5 ms a megabyte, the scan 23, and applying guilds 8: a turn scans
@@ -60,8 +66,13 @@ export interface Live {
   // A version per channel that moves only when its messages change, which the window takes: a read
   // state's change re-asks the channel's record, not its history.
   history: Map<string, number>;
-  // Moves with any change outside the channel on screen: the lists' version.
+  // The lists' versions: the server list and rail (`Changed.sidebar`), the direct messages' list and
+  // the servers' channel lists (each also moves with a message or a read in a channel it lists), and
+  // any change outside the channel on screen.
   sidebar: number;
+  dmList: number;
+  channelList: number;
+  elsewhere: number;
   // The channel on screen ("" on the lists) and its guild, which op 37 subscribes.
   viewing: { channel: string; guild: string };
   // The guild and channel the session's last op 37 named; a fresh READY forgets it.
@@ -113,7 +124,7 @@ type Queued = { type: 'bytes'; data: ArrayBuffer } | { type: 'packet'; data: Uin
 export function createLive(origins: Origins): Live {
   return { origins, store: S.createStore(), gw: null, socket: null, identity: null, token: '',
     limiter: rest.limiterInit(), nonces: { lastMs: null, sequence: 0 }, applied: new Set(), arrived: new Map(),
-    history: new Map(), sidebar: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: [], held: null, recorded: '', typedAt: new Map(),
+    history: new Map(), sidebar: 0, dmList: 0, channelList: 0, elsewhere: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: [], held: null, recorded: '', typedAt: new Map(),
     ackToken: null, paging: new Set(), missed: new Set(), sends: new Map(), attempt: 0, ready: false,
     queue: [], drainer: 0, outbox: [], closing: null, account: 0, snapshots: 0, signedOut: false };
 }
@@ -152,7 +163,7 @@ export function dispatch(live: Live, t: string, s: number, d: any): S.Changed {
   return applyEvent(live, t, d);
 }
 
-const HISTORY = /^MESSAGE_(CREATE|UPDATE|DELETE|DELETE_BULK|REACTION_)/;
+const HISTORY = /^MESSAGE_(CREATE|UPDATE|DELETE|DELETE_BULK|REACTION_|POLL_VOTE_)/;
 
 /** Apply an event the app learned of (a dispatch, or a REST reply standing for one). */
 export function applyEvent(live: Live, t: string, d: any): S.Changed {
@@ -164,6 +175,8 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
     const known = !!h?.messages.has(d.id) || (nonce !== '' && !!h?.pending.has(nonce));
     if (!known) live.arrived.set(d.channel_id, (live.arrived.get(d.channel_id) ?? 0) + 1);
   }
+  const person = d?.user?.id ? S.user(store, String(d.user.id)) : null;
+  const identities = store.identityRevision;
   const changed = S.applyDispatch(store, t, d, clock.now);
   const channels = new Set(changed.channels);
   // A deleted message the store never held changes nothing it keeps, but a held reply to it now
@@ -171,11 +184,21 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
   if ((t === 'MESSAGE_DELETE' || t === 'MESSAGE_DELETE_BULK') && d?.channel_id && !channels.has(d.channel_id)
     && S.repliesTo(store, d.channel_id, t === 'MESSAGE_DELETE' ? [d.id] : d.ids ?? [])) channels.add(d.channel_id);
   if (t === 'READY' || HISTORY.test(t)) for (const id of channels) touched(live, id);
-  // A role's colour is drawn in the names of the open channel's rows (`render.ts`).
-  if (/^GUILD_ROLE_/.test(t) && live.viewing.channel && S.channel(store, live.viewing.channel)?.guild_id === d?.guild_id) {
+  // A role's colour is drawn in the names of the open channel's rows, and a server's name in a boost's line
+  // (`render.ts`).
+  if (/^GUILD_(ROLE_|UPDATE)/.test(t) && live.viewing.channel && S.channel(store, live.viewing.channel)?.guild_id === (d?.guild_id ?? d?.id)) {
     touched(live, live.viewing.channel);
   }
-  if (changed.sidebar || [...channels].some(id => id !== live.viewing.channel)) live.sidebar++;
+  // A person's new name or picture redraws the open channel, where a row may name them.
+  if (t === 'GUILD_MEMBER_UPDATE' && person && live.viewing.channel && S.user(store, person.id) !== person) touched(live, live.viewing.channel);
+  // A busy account changes channels elsewhere several times a second, so each list moves only for what
+  // it shows: a typing indicator shows only on screen.
+  const elsewhere = [...channels].filter(id => id !== live.viewing.channel);
+  const listed = t === 'TYPING_START' ? [] : elsewhere.map(id => S.isDirect(store, id));
+  if (changed.sidebar) live.sidebar++;
+  if (changed.sidebar || listed.includes(true) || store.identityRevision !== identities) live.dmList++;
+  if (changed.sidebar || listed.includes(false)) live.channelList++;
+  if (changed.sidebar || elsewhere.length > 0) live.elsewhere++;
   return { channels: [...channels], sidebar: changed.sidebar };
 }
 
@@ -188,7 +211,8 @@ export interface Upload { path: string; name: string; type: string; size: number
 
 export interface Snapshot {
   state: string; detail: string; me: string; meName: string; fixture: boolean; queued: number; seq: number; sidebar: number;
-  channel: string; version: number; history: number; members: number; retryIn: number; attempt: number;
+  dmList: number; channelList: number; elsewhere: number;
+  channel: string; version: number; history: number; members: number; memberRows: number; retryIn: number; attempt: number;
 }
 
 /** The gateway resource's answer, the same size whatever the account: the connection, the lists'
@@ -199,9 +223,11 @@ export function snapshot(live: Live, state?: string, detail = ''): Snapshot {
   const phase = !live.token && live.ready ? 'signed-out' : live.held ? 'recording' : gw?.phase ?? 'idle';
   return { state: state ?? phase, detail: detail || (gw?.stoppedReason ?? ''), me: store.meId ?? '',
     meName: store.meId ? S.user(store, store.meId)?.global_name || S.user(store, store.meId)?.username || '' : '',
-    fixture: live.origins.fixture, queued: live.queue.length, seq: ++live.snapshots, sidebar: live.sidebar, channel,
+    fixture: live.origins.fixture, queued: live.queue.length, seq: ++live.snapshots, sidebar: live.sidebar,
+    dmList: live.dmList, channelList: live.channelList, elsewhere: live.elsewhere, channel,
     version: channel ? S.channelVersion(store, channel) : 0, history: channel ? live.history.get(channel) ?? 0 : 0,
     members: live.viewing.guild ? store.memberLists.get(live.viewing.guild)?.revision ?? 0 : 0,
+    memberRows: live.viewing.guild ? store.memberLists.get(live.viewing.guild)?.rows ?? 0 : 0,
     retryIn: retry === null ? 0 : Math.max(1, Math.ceil(retry - clock.now)), attempt: live.attempt };
 }
 
@@ -255,6 +281,9 @@ function retire(live: Live): void {
   live.queue = [];
   live.outbox = [];
   live.closing = null;
+  // An IDENTIFY held for the retired connection is not that of the next, whose HELLO holds its own.
+  live.held = null;
+  live.recorded = '';
 }
 
 /** The session resource's answer: the kept token and identify record, read into module state. It is
@@ -281,13 +310,17 @@ export async function loadSession(live: Live, secrets: Secrets, storage: Storage
 /** Write the identify record, the held IDENTIFY's included, to app storage, and await it. */
 export async function recordIdentify(live: Live, storage: Storage): Promise<void> {
   if (!live.held || !live.gw) return;
+  // A write that lands after its connection was retired speaks for that connection's IDENTIFY, not the next's.
+  const attempt = live.attempt, held = live.held, identifies = [...live.gw.identifies];
+  let recorded: string;
   try {
-    await storage.fs.atomicWriteFile(identifiesPath(live.origins), new TextEncoder().encode(JSON.stringify(live.gw.identifies)));
-    live.kept = [...live.gw.identifies];
-    live.recorded = 'ok';
+    await storage.fs.atomicWriteFile(identifiesPath(live.origins), new TextEncoder().encode(JSON.stringify(identifies)));
+    live.kept = identifies;
+    recorded = 'ok';
   } catch (error) {
-    live.recorded = `the identify record could not be kept (${error instanceof Error ? error.message : String(error)})`;
+    recorded = `the identify record could not be kept (${error instanceof Error ? error.message : String(error)})`;
   }
+  if (live.attempt === attempt && live.held === held) live.recorded = recorded;
 }
 
 /** Send the held IDENTIFY once its record is kept; else stop, saying why, and close the socket. */
@@ -343,6 +376,9 @@ function forget(live: Live, secrets: Secrets | null): void {
   live.subscribed = '';
   S.forgetAccount(live.store);
   live.sidebar++;
+  live.dmList++;
+  live.channelList++;
+  live.elsewhere++;
 }
 
 /** The gateway resource's answer: a socket whose mapper inflates each frame, steps the session and
@@ -388,7 +424,7 @@ export function connect(live: Live, secrets: Secrets, native: NativeModule | nul
             const packet = gather(gw, event.data);
             if (!packet) return snapshot(live);
             const item = { type: 'packet' as const, data: packet, at: 0 };
-            if (!inflateSome(gw, item, INLINE_TEXT)) return later(item);
+            if (!inflateSome(gw, item, INLINE_TEXT, INLINE_PUSH)) return later(item);
             text = inflated(gw);
           } catch { /* a packet that does not inflate is an invalid payload */ }
           if (text !== null && text.length > INLINE_TEXT) return later({ type: 'text', data: text });
@@ -425,8 +461,8 @@ export async function digest(live: Live, secrets: Secrets, nowMs: number): Promi
 }
 
 /** Inflate more of a packet, until `out` bytes have been inflated or it ends: true when it has. */
-function inflateSome(gw: GatewayState, item: { data: Uint8Array; at: number }, out: number): boolean {
-  for (let made = 0; item.at < item.data.length && made < out;) made += inflate(gw, item.data.subarray(item.at, item.at += PUSH_BYTES));
+function inflateSome(gw: GatewayState, item: { data: Uint8Array; at: number }, out: number, push = PUSH_BYTES): boolean {
+  for (let made = 0; item.at < item.data.length && made < out;) made += inflate(gw, item.data.subarray(item.at, item.at += push));
   return item.at >= item.data.length;
 }
 
@@ -555,7 +591,14 @@ export async function call(live: Live, request: rest.RestRequest): Promise<any> 
     rest.onResponse(limiter, request, 0, () => null, null, clock.now);
     throw error;
   }
-  const text = await response.text();
+  // The body can fail after the headers (a dropped connection): the route's slot is given back, with what the
+  // headers said of its limits.
+  let text: string;
+  try { text = await response.text(); }
+  catch (error) {
+    rest.onResponse(limiter, request, response.status, name => response.headers.get(name), null, clock.now);
+    throw error;
+  }
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = null; }
   rest.onResponse(limiter, request, response.status, name => response.headers.get(name), body, clock.now);
@@ -572,8 +615,14 @@ export async function page(live: Live, channelId: string, query: S.HistoryQuery)
   try {
     const messages = await call(live, rest.history(context(live), channelId, query));
     if (Array.isArray(messages)) {
+      const sidebar = S.sidebarVersion(live.store), identities = live.store.identityRevision;
       S.applyHistoryPage(live.store, channelId, query, messages, { since });
       touched(live, channelId);
+      // A page can clear an unread the store counted, or carry a DM recipient's new name.
+      const moved = S.sidebarVersion(live.store) !== sidebar;
+      if (moved) { live.sidebar++; live.channelList++; }
+      if (moved || live.store.identityRevision !== identities) live.dmList++;
+      if (moved || channelId !== live.viewing.channel) live.elsewhere++;
     }
   } finally {
     live.paging.delete(channelId);

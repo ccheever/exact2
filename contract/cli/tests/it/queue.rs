@@ -59,8 +59,8 @@ component App
     column
       text log testId="log"
       text pending(wrote) ? "busy" : "idle" testId="busy"
-      for a in big key=a.op
-        text a.op + a.op
+      for a in big key=a.op + a.op
+        text a.op
 "#;
 
 /// A desk that answers `save` now or later, counting every ask with its
@@ -91,8 +91,8 @@ impl DataSource for Desk {
                 Ok(Value::Number(self.checks as f64))
             }
             "big" if args[0].as_number() == Some(0.0) => Ok(Value::list(vec![])),
-            // Doubled by the view, past the runner's longest string: a trap
-            // while the tree changes poisons the runner.
+            // Doubled by a row key, past the runner's longest string: a trap
+            // in a key poisons the runner (LLP 1017.003 D3).
             "big" => Ok(Value::list(vec![ack(
                 &"x".repeat((exact_runner::vm::MAX_STRING / 2) + 1),
                 0,

@@ -166,6 +166,44 @@ fn a_press_hears_the_modifiers_held() {
     assert_eq!(Event::press(""), Some(Event::Press));
 }
 
+/// LLP 1021 D2: a press's `MouseEvent` says where the pointer was, from the
+/// viewport, so a popover can open there; a keyboard's or assistive press is
+/// at 0, 0, as Chrome's synthetic `click` is.
+#[test]
+fn a_press_hears_where_the_pointer_was() {
+    let src = r#"component App
+  state log = ""
+  action pick(e: MouseEvent)
+    log = `${log}${e.clientX},${e.clientY}${e.shiftKey ? "+shift" : ""};`
+  view
+    button press=pick testId="a"
+      text log
+"#;
+    let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let a = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("a")[0])
+        .unwrap()
+        .id;
+    r.dispatch(a, Event::press("30.5,8").unwrap()).unwrap();
+    r.dispatch(a, Event::press("120,40,Shift+").unwrap())
+        .unwrap();
+    r.dispatch(a, Event::Press).unwrap();
+    assert_eq!(r.slot("log"), Some(&Value::str("30.5,8;120,40+shift;0,0;")));
+    assert_eq!(Event::press("0,0,"), Some(Event::Press));
+    for bad in ["1", "1,", "1,2,3", "NaN,1", "1,2,Hyper"] {
+        assert!(Event::press(bad).is_none(), "{bad}");
+    }
+}
+
 /// A board's input as a canvas editor hears it (studio diary R3, R17, R19,
 /// R22): a `contextmenu` at its point, a `wheel` (⌘-scroll and a pinch,
 /// a Control-held wheel) that it claims with `preventDefault()`, files

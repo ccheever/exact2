@@ -158,6 +158,7 @@ pub enum Mode {
 
 /// One runner, one grid.
 pub struct Host<D: DataSource> {
+    idle_timer_retry: bool,
     pub(crate) runner: Runner<D>,
     input_clock: Option<std::time::Instant>,
     pub(crate) cols: usize,
@@ -169,6 +170,9 @@ pub struct Host<D: DataSource> {
     pub(crate) caret: usize,
     pub(crate) scroll: HashMap<ViewId, f32>,
     pub(crate) collections: crate::collection::Collections,
+    /// The cell a mouse press is at while it is sent, from the painting's
+    /// top-left: its `MouseEvent`'s `clientX`/`clientY` (LLP 1021 D2).
+    pub(crate) press_point: Option<(i32, i32)>,
     /// Open dialogs and popovers, bottom to top, with the focus each took
     /// and whether it was opened modally (`show-modal`) or as a popover.
     pub(crate) layers: Vec<(ViewId, Option<ViewId>, bool)>,
@@ -270,8 +274,12 @@ impl<D: DataSource> Host<D> {
         for note in notes {
             runner.log(note);
         }
+        // The declarations' per-target words are the terminal's: a name a
+        // module marks `unsupported` here is refused (LLP 1133.004 §8).
+        runner.set_module_target("terminal");
         let mut host = Host {
             runner,
+            idle_timer_retry: false,
             input_clock: None,
             cols,
             rows,
@@ -281,6 +289,7 @@ impl<D: DataSource> Host<D> {
             caret: 0,
             scroll: HashMap::new(),
             collections: crate::collection::Collections::default(),
+            press_point: None,
             layers: Vec::new(),
             dark: true,
             painted: None,
@@ -431,14 +440,6 @@ impl<D: DataSource> Host<D> {
                 }
                 ("preventDefault", _) => self.prevented = true,
                 ("openURL", Some(url)) => self.open_url(&url),
-                ("showNotification", _) => {
-                    exact_runner::notify::arm(
-                        &mut self.runner,
-                        exact_runner::notify::Notice::from_args(&command.args),
-                        false,
-                        false,
-                    );
-                }
                 _ => {}
             }
         }
@@ -658,6 +659,7 @@ impl<D: DataSource> Host<D> {
     /// observes the clock.
     pub fn live_from(&mut self, start: std::time::Instant) {
         self.input_clock = Some(start);
+        self.runner.hold_waits(exact_runner::WaitKinds::ALL);
         let sample = move || start.elapsed().as_secs_f64() * 1000.0;
         self.runner.set_live_clock(Some(Box::new(sample)));
     }
@@ -673,14 +675,48 @@ impl<D: DataSource> Host<D> {
 
     /// Advance the app's clock: timers fire.
     pub fn tick(&mut self, now_ms: f64) {
-        if !self.runner.advance_timed(now_ms).receipts.is_empty() {
-            self.after_commit();
+        let kinds = exact_runner::WaitKinds::FRAME
+            .union(exact_runner::WaitKinds::UPDATE)
+            .union(exact_runner::WaitKinds::SCROLLEND);
+        loop {
+            let batch = self.runner.release_waits(kinds, now_ms);
+            if !batch.advanced.receipts.is_empty() {
+                self.after_commit();
+            }
+            if !batch.continuing {
+                break;
+            }
+        }
+    }
+
+    /// Admit one idle firing after pending terminal input has been drained.
+    pub fn idle_timer(&mut self, now_ms: f64) {
+        self.idle_timer_retry = false;
+        let waits = self.runner.waits();
+        if waits.idle.held
+            && self
+                .runner
+                .timer_due_ms()
+                .is_none_or(|at| at > now_ms + 1000.0 / 60.0)
+        {
+            let batch = self
+                .runner
+                .release_waits(exact_runner::WaitKinds::IDLE, now_ms);
+            if !batch.advanced.receipts.is_empty() {
+                self.after_commit();
+                self.idle_timer_retry = self.runner.waits().idle.held;
+            }
         }
     }
 
     /// When the next timer is due, in the app's clock.
     pub fn timer_due_ms(&self) -> Option<f64> {
-        self.runner.timer_due_ms()
+        self.runner
+            .timer_wake_ms()
+            .into_iter()
+            .chain(self.runner.waits().next_check())
+            .chain(self.idle_timer_retry.then_some(self.runner.now_ms()))
+            .reduce(f64::min)
     }
 
     /// Dispatch, then lay out. Whether a handler prevented the default is
@@ -1038,7 +1074,13 @@ impl<D: DataSource> Host<D> {
             } else if take && self.layers.is_empty() {
                 self.focus(None);
             }
-            self.dispatch(target, Event::Press);
+            let (x, y) = self.press_point.unwrap_or_default();
+            let mouse = exact_runner::MouseEvent {
+                client_x: x.into(),
+                client_y: y.into(),
+                ..Default::default()
+            };
+            self.dispatch(target, Event::pressed(mouse));
         }
         if let Some(key) = key {
             self.invoke(key);
@@ -1243,7 +1285,7 @@ impl<D: DataSource> Host<D> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod notify_tests {
     use super::*;
     use exact_plan::Value;
@@ -1259,15 +1301,31 @@ mod notify_tests {
         }
     }
 
+    /// `@exact/notifications` has no terminal implementation: a post is
+    /// refused, journaled, never substituted (LLP 1133.004 §8).
     #[test]
     fn a_notification_refused_by_the_terminal_is_journaled() {
-        let source = "component App\n  action remind\n    showNotification(title=\"Hello\", navigate=\"/inbox\")\n  view\n    button press=remind\n      text \"Remind\"";
-        let plan = contract::compile_terminal(source).unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("exact-terminal-notify-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("node_modules/@exact")).unwrap();
+        let package =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/notifications");
+        std::os::unix::fs::symlink(
+            package.canonicalize().unwrap(),
+            dir.join("node_modules/@exact/notifications"),
+        )
+        .unwrap();
+        let source = "use showNotification from \"@exact/notifications\"\n\ncomponent App\n  action remind\n    showNotification(title=\"Hello\", navigate=\"/inbox\")\n  view\n    button press=remind\n      text \"Remind\"\n";
+        std::fs::write(dir.join("app.contract"), source).unwrap();
+        let plan = contract::compile_path_terminal(&dir.join("app.contract"))
+            .unwrap_or_else(|e| panic!("{e:?}"));
         let mut host = Host::boot(plan, Granted, Mode::Inline, 40, 10).unwrap();
         host.act("remind");
         let logs = exact_runner::agent::logs(&host.runner, 0);
+        let _ = std::fs::remove_dir_all(&dir);
         assert!(
-            logs.contains("showNotification: refused: unavailable"),
+            logs.contains("showNotification: refused: NotSupportedError"),
             "{logs}"
         );
     }

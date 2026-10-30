@@ -38,11 +38,38 @@ package final class SwipeActionsHost {
     deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
     var assistive: Bool { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
 
-    // Ordinary batches always see the original hierarchy and local frames.
-    func prepare() { for row in rows.values where row.projected || row.grouped { row.restore() } }
+    /// Grouped rows that `prepare` left in their cells' state, for `sync` to keep.
+    private var kept = Set<UInt32>()
+    /// Before a batch, rows go back to the authored hierarchy (`batch` nil: every one). A grouped row stays as its cell
+    /// has it when the batch changes nothing in it but boxes and sets no `inert` (which its actions read from above
+    /// it): a row inserted at the top of a long list moves every row below, and each row's restore and mount set
+    /// `isHidden` on its actions twice.
+    func prepare(_ batch: Batch? = nil) {
+        kept = []
+        var touched: Set<UInt32>?
+        if let batch, !batch.ops.contains(where: { [.roots, .flight, .land, .exit].contains($0.op) || ($0.op == .props && ($0.props["inert"] != nil || $0.clear.contains("inert"))) }) {
+            var owners = Set<UInt32>()
+            // A node created inside a row is under a `children` op on its parent there.
+            for op in batch.ops where ![.frame, .content, .fieldContent].contains(op.op) {
+                var at: UIView? = presenter.views[op.id]
+                while let view = at {
+                    if let node = view as? NodeView, rows[node.id]?.owner === node { owners.insert(node.id); break }
+                    at = view.superview
+                }
+            }
+            touched = owners
+        }
+        for row in rows.values where row.projected || row.grouped {
+            if row.grouped, row.mounted, let touched, !touched.contains(row.owner.id) { kept.insert(row.owner.id); continue }
+            row.restore()
+        }
+    }
     /// A touch is landing on `owner`: project its row now, and release it
     /// again if the touch never reaches the table.
     func touch(_ owner: NodeView) {
+        #if os(iOS)
+        if painted.touch(owner) { return }
+        #endif
         guard let row = rows[owner.id], row.owner === owner, !row.projected, !row.grouped else { return }
         row.mount()
         DispatchQueue.main.async { [weak row] in row?.settle() }
@@ -80,13 +107,13 @@ package final class SwipeActionsHost {
     #endif
 
     /// Whether `owner` is a grouped list's row: its section's group's child
-    /// (LLP 1084 D3), drawn in UIKit's list cell. Read while the batch's
-    /// hierarchy is the authored one (the list gives its rows back first).
+    /// (LLP 1084 D3), drawn in UIKit's list cell. Read from the authored
+    /// hierarchy: a row the list carries is its parent's child from its cell.
     private func groupedRow(_ owner: NodeView) -> Bool {
         #if os(iOS)
-        guard presenter.groupedLists != nil else { return false }
+        guard let lists = presenter.groupedLists else { return false }
         func parent(_ view: UIView?) -> NodeView? {
-            var at = view?.superview
+            var at = view.flatMap(lists.logicalParent) ?? view?.superview
             while let v = at { if let node = v as? NodeView { return node }; at = v.superview }
             return nil
         }
@@ -99,19 +126,51 @@ package final class SwipeActionsHost {
 
     /// `changed`: the views the batch touched and their ancestors. An owner
     /// with a row, outside it and none of whose names changed carriers,
-    /// keeps its row as it was; nil revisits every owner.
-    func sync(changed: Set<UInt32>? = nil) {
+    /// keeps its row as it was; nil revisits every owner. `reshaped`: those
+    /// of them an op other than a frame touched. An owner the batch only
+    /// moved (two rows inserted above it) keeps its row while its content
+    /// still fills it: its names resolve to the same nodes.
+    func sync(changed: Set<UInt32>? = nil, reshaped: Set<UInt32>? = nil) {
         let renamed = presenter.takeChangedNames()
+        // The views whose name is read from an element renamed now, found once, not once a row.
+        let relabelled = renamed.isEmpty ? [] : Set(presenter.carrying("accessibilityLabelledBy").filter {
+            $0.props["accessibilityLabelledBy"]?.split(separator: " ").contains { renamed.contains(String($0)) } == true
+        }.map(\.id))
         var wanted = Set<UInt32>(), paintedOwners = Set<UInt32>()
         var claimed = Set<UInt32>()
+        #if os(iOS)
+        painted.dropStale()
+        #endif
         for owner in presenter.carrying("swipeContent") {
             guard let content = owner.props["swipeContent"] else { continue }
+            #if os(iOS)
+            // A painted row the batch did not reach keeps what it was adopted
+            // with: a list scrolling builds a few rows a report, not every
+            // row again. Its names resolve inside it, so a name the batch
+            // gave a row it built (every row's `id`s are the same) changes
+            // nothing here; one given inside it put it in `reshaped`.
+            if let changed, let row = painted.held(owner),
+               relabelled.isEmpty || !row.controls.contains(where: { relabelled.contains($0.id) }),
+               !changed.contains(owner.id) || (reshaped?.contains(owner.id) == false && fills(row.body, owner)),
+               claimed.insert(row.body.id).inserted {
+                paintedOwners.insert(owner.id)
+                continue
+            }
+            #endif
             // A refused owner is retried every batch, as the names its
             // controls read from their subtrees can arrive a batch later.
             // An owner outside `changed` has the props its row was built
             // from, so the row's names are still the owner's.
-            if let changed, !changed.contains(owner.id), !renamed.contains(content),
-               let row = rows[owner.id], row.owner === owner, !row.names.contains(where: renamed.contains) {
+            // A kept row's subtree is as it was, so its names resolve to the same nodes whatever was renamed
+            // elsewhere (a new row's `id`s are every row's); only an action labelled by an id can read another name.
+            if let row = rows[owner.id], row.owner === owner, kept.contains(owner.id),
+               relabelled.isEmpty || !(row.leading + row.trailing).contains(where: { relabelled.contains($0.id) }) {
+                claimed.insert(row.body.id)
+                wanted.insert(owner.id)
+                continue
+            }
+            if let changed, !renamed.contains(content), let row = rows[owner.id], row.owner === owner, !row.names.contains(where: renamed.contains),
+               !changed.contains(owner.id) || (reshaped?.contains(owner.id) == false && (row.grouped || fills(row.body, owner))) {
                 claimed.insert(row.body.id)
                 if row.projected || row.grouped || assistive { row.mount() }
                 wanted.insert(owner.id)
@@ -153,7 +212,7 @@ package final class SwipeActionsHost {
                     if control === body || control.isDescendant(of: body) { return "\"\(name)\" is inside swipeContent \"\(content)\"" }
                     if label(control).isEmpty { return "\"\(name)\" has no accessible name (aria-label or text)" }
                 }
-                if !grouped, abs(body.layoutBounds.width - owner.layoutBounds.width) >= 0.5 || abs(body.layoutBounds.height - owner.layoutBounds.height) >= 0.5 {
+                if !grouped, !fills(body, owner) {
                     return "swipeContent \"\(content)\" is \(size(body)), not the row's \(size(owner)) border box (a border or padding on the row shrinks it)"
                 }
                 if claimed.contains(body.id) { return "swipeContent \"\(content)\" is another row's too" }
@@ -194,12 +253,20 @@ package final class SwipeActionsHost {
         painted.retain(paintedOwners)
         #endif
         refusals = refusals.filter { presenter.views[$0.key] != nil }
+        kept = []
+    }
+
+    /// The row's content is its owner's border box, as a row's must be.
+    private func fills(_ body: NodeView, _ owner: NodeView) -> Bool {
+        abs(body.layoutBounds.width - owner.layoutBounds.width) < 0.5 && abs(body.layoutBounds.height - owner.layoutBounds.height) < 0.5
     }
 
     /// An action's name; a native button's is its label, else its title
-    /// (LLP 1069.011.000 D6).
+    /// (LLP 1069.011.000 D6). Read from the node, not its view's
+    /// `accessibilityLabel`: with assistive technology's runtime loaded,
+    /// UIKit answers that getter, and each row a scroll builds read it.
     private func label(_ node: NodeView) -> String {
-        node.accessibilityLabel ?? node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? node.accessibleName
+        node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? node.accessibleName
     }
     /// LLP 1080.001 D3: a projected row's table, the views it hides, and
     /// the content it carries into its cell.
@@ -353,10 +420,16 @@ package final class SwipeActionsHost {
         // completes. That temporary state is not an authored input restriction.
         private var actionAncestors: [UInt32: [Ancestor]] = [:]
         private var scrollWasHidden = false
-        /// A grouped row's: its owner's inertness, read in the authored
+        /// A grouped row's: its owner's authored inertness, read in the authored
         /// hierarchy, and whether its scroll was stilled for the cell's swipe.
+        /// Not a presentation's: a row inserted under a sheet (a contact its
+        /// form saves) is mounted while the sheet makes it inert and mounted
+        /// again only by a batch that changes it, so its cell would offer no
+        /// actions once the sheet closed.
         private var ownerInert = false
         private var stilled = false
+        /// A grouped row's actions are hidden and its scroll stilled for its cell (`mountGrouped`), until `restore`.
+        private(set) var mounted = false
         private var logicalFrame = CGRect.zero
         private var priorSize = CGSize.zero
         /// The projection, only while a swipe can start or is shown.
@@ -389,6 +462,12 @@ package final class SwipeActionsHost {
         }
         private func project() -> (UITableView, Cell) {
             if let table, let cell { return (table, cell) }
+            // Made with no animation inside one UIKit has open: a new view takes its place and its look at once
+            var made: (UITableView, Cell)!
+            owner.moveOrPlace(new: true) { made = makeTable() }
+            return made
+        }
+        private func makeTable() -> (UITableView, Cell) {
             let table = SwipeTable(frame: owner.bounds, style: .plain)
             let cell = Cell(style: .default, reuseIdentifier: nil)
             table.dataSource = self; table.delegate = self
@@ -419,14 +498,17 @@ package final class SwipeActionsHost {
             return (table, cell)
         }
         func restore() {
-            if let parent = logicalParent, let carrier {
-                parent.addSubview(carrier); carrier.frame = logicalFrame
+            // Home is where the owner keeps its content now: a scroll view
+            // released while the row was projected left its children to the owner.
+            if let carrier, let parent = logicalParent ?? (carrier.superview === cell?.contentView ? owner.scroll ?? owner : nil) {
+                parent.addSubview(carrier); owner.moveOrPlace(new: true) { carrier.frame = logicalFrame }
                 if let node = carrier as? NodeView { owner.presenter?.regrid(node) } // placed from the cell while projected
             }
             for (control, hidden) in hiddenControls { control.isHidden = hidden }
             hiddenControls.removeAll()
             if stilled { owner.scroll?.isScrollEnabled = true; stilled = false }
             owner.scroll?.isHidden = scrollWasHidden
+            mounted = false
         }
         /// The row is gone: its claim with it.
         func discard() {
@@ -467,7 +549,7 @@ package final class SwipeActionsHost {
                 while let view = current { ancestors.append(Ancestor(view)); if view === owner { break }; current = view.superview }
                 actionAncestors[control.id] = ancestors
             }
-            ownerInert = owner.inert
+            ownerInert = owner.authoredInert
             #if os(iOS)
             if claim == nil { let made = makeClaim(); owner.addGestureRecognizer(made); claim = made }
             #endif
@@ -478,15 +560,21 @@ package final class SwipeActionsHost {
                 if scroll.contentOffset.x != start { scroll.contentOffset = PixelGrid.offset(CGPoint(x: start, y: scroll.contentOffset.y), in: scroll, clamped: false) }
                 if scroll.isScrollEnabled { scroll.isScrollEnabled = false; stilled = true }
             }
+            mounted = true
         }
         func mount() {
             if grouped { mountGrouped(); return }
             // A waiting scroll's children are the owner's own (`scrollDormant`).
             guard owner.scroll != nil || owner.scrollDormant else { return }
+            // Mounted again while projected (VoiceOver starting, a batch with
+            // no `prepare`): its content comes home first. Walking up from the
+            // body in the cell would find the table, and the cell would take
+            // its own table (CALayerInvalid, a layer tree cycle: r28's tasks).
+            if carrier != nil, carrier?.superview === cell?.contentView { restore() }
             let scroll: UIView = owner.scroll ?? owner
             var content: UIView = body
             while let parent = content.superview, parent !== scroll { content = parent }
-            guard content.superview === scroll else { return }
+            guard content.superview === scroll, !(table?.isDescendant(of: content) ?? false) else { return }
             actionAncestors.removeAll()
             for control in leading + trailing {
                 var ancestors: [Ancestor] = [], current: UIView? = control
@@ -497,7 +585,9 @@ package final class SwipeActionsHost {
             carrier = content; logicalParent = scroll; logicalFrame = content.frame
             let origin = body.convert(CGPoint.zero, to: content)
             let (table, cell) = project()
-            if table.superview !== owner { owner.addSubview(table) }
+            // Made or put under the row since the last frame, the table and the content in its cell take their place at once
+            let tableNew = table.superview !== owner, contentNew = content.superview !== cell.contentView
+            if tableNew { owner.addSubview(table) }
             owner.scroll?.isHidden = true
             // What the hidden scroll would hide: the content's siblings.
             if owner.scroll == nil {
@@ -507,13 +597,13 @@ package final class SwipeActionsHost {
                 table.setEditing(false, animated: false)
             }
             priorSize = owner.bounds.size
-            table.frame = owner.bounds
+            owner.moveOrPlace(new: tableNew) { table.frame = owner.bounds }
             // The cell follows the row: UIKit keeps a row's height until it reloads.
             if table.rowHeight != body.bounds.height { table.rowHeight = body.bounds.height; table.reloadData() }
             if content.superview !== cell.contentView { cell.contentView.addSubview(content) }
             // Keep the original ancestors between content and the row. Their
             // opacity, clips, inherited semantics and input restrictions apply.
-            content.frame = CGRect(origin: CGPoint(x: -origin.x, y: -origin.y), size: logicalFrame.size)
+            owner.moveOrPlace(new: contentNew) { content.frame = CGRect(origin: CGPoint(x: -origin.x, y: -origin.y), size: logicalFrame.size) }
             for control in leading + trailing { hide(control) }
             // UIKit derives its cell label from native text controls; an
             // authored button paints its own text. Preserve that button's
@@ -624,8 +714,23 @@ package final class SwipeActionsHost {
                     } else { action.title = host.label(target) }
                     return action
                 }
-                // Its authored background, else UIKit's for its style.
-                if let fill = target.cgColor("background_color") { action.backgroundColor = UIColor(cgColor: fill) }
+                // `delete=`'s Delete (LLP 1116.020 D1) is a hand-built list's: UIKit's
+                // red, the trash symbol over its title (its web paint is the page's).
+                if destructive, target.props["id"] == "exact-swipe-delete", let image = UIImage(systemName: "trash") {
+                    image.accessibilityLabel = host.label(target)
+                    images[target.id] = image; action.image = image
+                    action.title = target.face?.title ?? host.label(target)
+                    return action
+                }
+                // Its authored background, else the accent its author wrote
+                // on it, as a native action's (Mail's Flag is orange), else
+                // UIKit's for its style.
+                if let fill = target.undimmedCGColor("background_color") {
+                    action.backgroundColor = UIColor(cgColor: fill)
+                } else if !destructive, target.wrote("accent_color"),
+                          let accent = target.channels("accent_color").map({ TextEngine.color($0) }) {
+                    action.backgroundColor = accent
+                }
                 // A custom action's symbol is a system image, as a native one's
                 // is (LLP 1069.011.000 D1); anything else is its snapshot.
                 if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = FaceSymbol.image(symbol) {

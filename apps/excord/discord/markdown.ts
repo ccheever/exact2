@@ -357,7 +357,21 @@ function inlineSource(value: string, lines: Line[], frame: Frame): { source: Sou
 const fenceRule = /^```(?:([\w+.#-]+)[ \t]*\n)?([\s\S]*?)```/;
 
 /** Parse message content without performing I/O or resolving Discord identifiers. */
-export function parse(content: string): Block[] {
+/** `headings: false` reads `# x` as text, as Discord does in an embed's field values. */
+// A plain line parses to one paragraph of one text run, the commonest message by far (74% of the fixture's), so it is
+// answered without the parser (x2-perf4's loadWindow plan; theme2, 2026-10-30). Admitted: one line, not blank, with
+// none of Markdown's characters (emphasis, code, spoilers, quotes, headings, links, mentions, emoji and timestamps,
+// shortcodes, escapes) and no line-start syntax (a list marker `-`, `+` or `1.`/`1)`, which also covers `-#`
+// subtext). `parseMarkdown` is the parser itself; markdown-plain.test.ts holds the two equal on every admitted string.
+const PLAIN = /^(?![ \t]*(?:[-+]|\d+[.)]))[^*_~`|>#[\]<:@\\\n\r]*$/;
+export const isPlain = (content: string): boolean => PLAIN.test(content) && content.trim() !== '';
+
+export function parse(content: string, options: { headings?: boolean } = {}): Block[] {
+  if (isPlain(content)) return [{ kind: 'paragraph', inlines: [{ kind: 'text', text: content, marks: [] }] }];
+  return parseMarkdown(content, options);
+}
+
+export function parseMarkdown(content: string, { headings = true } = {}): Block[] {
   const blocks: Block[] = [];
   if (!content.trim()) return blocks;
   const value = content.replace(/\r\n?/g, '\n');
@@ -445,7 +459,7 @@ export function parse(content: string): Block[] {
         continue;
       }
       const tail = value.slice(line.at, line.end);
-      const heading = /^(#{1,3})[ \t]+([^\n]*)/.exec(tail);
+      const heading = headings ? /^(#{1,3})[ \t]+([^\n]*)/.exec(tail) : null;
       const subtext = /^-#[ \t]+([^\n]*)/.exec(tail);
       if (heading || subtext) {
         flush(frame);

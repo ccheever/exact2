@@ -10,7 +10,7 @@ mod decorations;
 mod fonts;
 mod selection;
 pub mod text_style;
-pub use decorations::decoration_styles;
+pub use decorations::{atom_faces, decoration_styles};
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
 use exact_kernel::style::ColorValue;
@@ -312,6 +312,21 @@ fn css_text_in(
             }
             (StyleId::TextBoxEdge, RowValue::Enum(edge)) => {
                 crate::text_box_css::push_edge(edge, &mut out)
+            }
+            // @ref LLP 1019 D12 — Firefox's Mac spelling beside WebKit's, as
+            // Tailwind's `antialiased` writes both.
+            (StyleId::FontSmoothing, RowValue::Enum(v)) => {
+                let firefox = if *v == "antialiased" {
+                    "grayscale"
+                } else {
+                    "auto"
+                };
+                push_text!(
+                    &mut out,
+                    "-webkit-font-smoothing:{};-moz-osx-font-smoothing:{};",
+                    *v,
+                    firefox
+                )
             }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
@@ -685,6 +700,8 @@ fn spell_property(out: &mut String, id: StyleId) {
         // @ref LLP 1077 D7 — the Compat Standard's prefixed names.
         StyleId::TextStrokeWidth => return out.push_str("-webkit-text-stroke-width"),
         StyleId::TextStrokeColor => return out.push_str("-webkit-text-stroke-color"),
+        // @ref LLP 1019 D12 — WebKit's and Chromium's name.
+        StyleId::FontSmoothing => return out.push_str("-webkit-font-smoothing"),
         id => id.name(),
     };
     for (prefix, suffix) in [

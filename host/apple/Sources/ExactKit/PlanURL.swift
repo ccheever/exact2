@@ -325,7 +325,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     static let envelopeLimit = 64 * 1024
     static let planLimit = 64 * 1024 * 1024
     static let assetLimit = 64 * 1024 * 1024
-    static let eventLimit = 64 * 1024
+    /// One event frame: 1 MiB, the design server's own line limit, since a large plan's copies (tamber/1.17 `inspect`)
+    /// pass 64 KiB (a generated 20,000-copy map: 85 KB).
+    static let eventLimit = 1024 * 1024
     static let generationLimit = 256 * 1024 * 1024
 
     struct Generation {

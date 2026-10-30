@@ -8,7 +8,7 @@
 **Systems:** Runner (`runner/src/vm.rs`, `stdlib.rs`, `instance/collection/mod.rs`), Contract checker (`contract/types`), JS target (`host/web-js`: `src/code.rs`, `src/emit.rs`, `src/regions.rs`, `rt.js`, a new `budget.js`), conformance (`host/web-js/conform.mjs`, `host/web-js/conformance/`), Lean semantics and difftest (`semantics/`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2, r3)
+**Revised:** 2026-10-04 (r2, r3); 2026-10-30 (D6, D7, D8: a prop or style binding that traps unsets its row, LLP 1017.003 D3)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stages 1 and 2 on 2026-10-05, stage 3 on 2026-10-06 (§5)
 **Built:** stages 1 and 2, 2026-10-04 (`fix/impl1090`; §5, "As built"). Stage 3 is not.
 **Amends:** LLP 1017.003 D3 (what a value's extent counts) and D7 ("no second evaluator": since LLP 1071 there is one); LLP 1006 §2 (two type refusals); LLP 1088 §9.1 (this LLP meets its precondition)
@@ -321,11 +321,14 @@ after three rounds and reports. Parity is not traded for speed.
   | Where | Runner outcome | Reason text |
   |---|---|---|
   | Action body, derive, resource argument, handler or edge argument, root initializer | Commit (or boot) refused, rolled back | `Trap(IterationLimit { pc: 17 })` |
-  | Binding, surface argument, subject, key or row initializer while the tree updates | Runner poisoned; writes kept, store restored (`commit.rs:64`) | `Instance(Trap(IterationLimit { pc: 17 }))` (`lists.rs:94–98`, `runner.rs:203–208`) |
+  | Prop or style binding while the tree updates | Its row unset, one journal line when it starts trapping, the update goes on (LLP 1017.003 D3) | `Trap(IterationLimit { pc: 17 })` in `view 3 (site 1): text trapped …; unset` (the JS target: `site 1: text trapped …; unset`) |
+  | Subject, key, row initializer, surface argument or a virtualized list's own options (LLP 1017.003 D3's five) while the tree updates | Runner poisoned; writes kept, store restored (`commit.rs:64`) | `Instance(Trap(IterationLimit { pc: 17 }))` (`lists.rs:94–98`, `runner.rs:203–208`) |
   | A string action argument or slot write past `MAX_STRING` | Commit refused | `StringTooLong { name: "text" }` |
 
   - The JS `flush` catch already poisons. It now journals the `Instance(…)`
-    form.
+    form. A prop or style binding whose body can trap (it names something
+    of budget.js's) is wrapped in budget.js `tg`, which journals the trap
+    and gives the row no value, so it never reaches that catch.
   - The commit's write loop (`rt.js:149`) refuses a top-level string over
     `MAX_STRING` after the body, with the slot's name. `sig` takes the name
     for string-typed slots only.
@@ -405,6 +408,11 @@ after three rounds and reports. Parity is not traded for speed.
       upper bound. `Seven(…)` (70 MB) traps `ValueTooLarge`.
   19. After every refusal, the next step's state is identical on all three
       targets (LLP 1005 §6).
+  20. A text binding over `cards(65537)` traps `IterationLimit`: its row is
+      unset with the same reason journaled on every target, and the next
+      step runs (c 47; LLP 1017.003 D3). A painted `z-index` row past the
+      bound is journaled once (c 48), and not again on a step that
+      evaluates it again and it still traps (c 49).
 - **State size.** The harness compares state, so cases 9 and 10 hold a
   64 MiB slot for one step. The step after them resets it.
 
@@ -417,7 +425,9 @@ after three rounds and reports. Parity is not traded for speed.
   refusal adds no derivation, so `TypeCheck`'s soundness proof stands.
 - **difftest.** A runner refusal of `IterationLimit`, `StringTooLong` (the
   trap or `RunnerError::StringTooLong { name }`), `ValueTooLarge` or
-  `ValueTooDeep` is `OUTSIDE`. The generator already stays under the bounds
+  `ValueTooDeep` is `OUTSIDE`, as is a step after the runner unset a
+  binding for one of them (LLP 1017.003 D3; `observe.rs` notes the
+  binding's journal line). The generator already stays under the bounds
   (`gen/action.rs`, `GROWTH_CAP`).
 - **The claim:** where no evaluation passes a bound, both executors agree
   with the semantics; where one does, both refuse the same step with the

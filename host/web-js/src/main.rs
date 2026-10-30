@@ -14,6 +14,7 @@ mod base_scale;
 mod base_scale_tests;
 #[cfg(test)]
 mod budget_tests;
+mod calls;
 mod code;
 mod emit;
 #[cfg(test)]
@@ -222,7 +223,12 @@ fn main() -> ExitCode {
         if cmd == "normalize-grants" {
             return match std::fs::read_to_string(file) {
                 Ok(spec) => {
-                    println!("{}", exact_runner::grants::normalized_json(&spec));
+                    // The native bake's refusal too (js/bake/src/lib.rs), so
+                    // the web build fails where a native one would.
+                    match exact_runner::auth::session_grant_refusal(&spec) {
+                        Some(refusal) => println!("{}", serde_json::json!({ "error": refusal })),
+                        None => println!("{}", exact_runner::grants::normalized_json(&spec)),
+                    }
                     ExitCode::SUCCESS
                 }
                 Err(error) => {
@@ -513,11 +519,6 @@ fn main() -> ExitCode {
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
                 }
-                // `showNotification`/`closeNotification` (notify.js).
-                let _ = std::fs::remove_file(dir.join("notify.flag"));
-                if u.has(Capability::Notifications) {
-                    let _ = std::fs::write(dir.join("notify.flag"), "");
-                }
                 // A declared sound or a sound command (sounds.js, LLP 1096
                 // D5): the flag holds the table, `[src, frames, rate]` each.
                 let _ = std::fs::remove_file(dir.join("sounds.flag"));
@@ -548,6 +549,11 @@ fn main() -> ExitCode {
             let _ = std::fs::remove_file(dir.join("wakelock.flag"));
             if exact_runner::wakelock::bound(&plan) {
                 let _ = std::fs::write(dir.join("wakelock.flag"), "");
+            }
+            // `orientationlock` (orientationlock.js, LLP 1133.029 D7).
+            let _ = std::fs::remove_file(dir.join("orientationlock.flag"));
+            if exact_runner::wakelock::bound_prop(&plan, exact_kernel::PropId::Orientationlock) {
+                let _ = std::fs::write(dir.join("orientationlock.flag"), "");
             }
             // Every portable symbol role, which symbols.js loads when a bound
             // source names one the plan's strings don't (ledger diary F10).

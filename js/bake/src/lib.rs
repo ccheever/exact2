@@ -14,7 +14,7 @@ pub use resident::Producer;
 
 use contract::DataSource;
 use exact_js::Module;
-use linked::{names_its_plan, take_baked, LINKED_BYTECODE, NAMED};
+use linked::{names_its_plan, take_baked, EMBEDDED, LINKED_BYTECODE, NAMED};
 #[cfg(test)]
 use linked::{COMPILED, LINKED};
 use package_tool::package_tool;
@@ -81,17 +81,6 @@ pub const APP_BYTECODE: &[u8] = {
     static BYTES: &Aligned<[u8]> = &Aligned(*include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc")));
     &BYTES.0
 };
-"#;
-
-/// The entry's plan and compatibility document, embedded from OUT_DIR.
-const EMBEDDED: &str = r#"#[allow(dead_code)]
-fn exact_plan() -> &'static [u8] {
-    include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"))
-}
-#[allow(dead_code)]
-fn exact_compat() -> &'static str {
-    include_str!(concat!(env!("OUT_DIR"), "/compat.json"))
-}
 "#;
 
 /// Bake a mixed app using each source's own identity and grants. Metadata reads
@@ -492,6 +481,7 @@ fn build_sources(
         ));
     }
     replace_changed(&out.join("module.rs"), metadata.as_bytes())?;
+    contract::native::write_desktop_packages(platform, app, &baked.plan, &target, &out)?;
     {
         let mode = compat.inputs["rustMode"]
             .as_str()
@@ -564,6 +554,7 @@ fn build_sources(
         println!("cargo:rerun-if-changed={}", file.display());
     }
     println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
+    println!("cargo:rerun-if-env-changed=PORT");
     // An absent file Cargo watches is a missing input, which reran this bake
     // on every build. The builder says whether the selection exists
     // (EXACT_BACKEND_SELECTION, as EXACT_ASSET_ROOTS names the asset roots
@@ -1087,6 +1078,7 @@ fn bake_in(
         "__exact_backend_source.json",
         "__exact_tsconfig.json",
         "__exact_config.mjs",
+        "__exact_binding.mjs",
         "__exact_paths.json",
         "__exact_declarations.json",
         "__exact_packages.json",
@@ -1187,7 +1179,15 @@ fn bake_in(
     if development {
         write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
     }
-    let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
+    // A development build's `local-network` lines admit loopback too (LLP 1133.036 D5), as
+    // `developmentLocalNetwork` in typescript.mjs writes them for the web.
+    let trust = std::env::var("EXACT_UPDATE_TRUST");
+    let grants = if trust.as_deref().is_ok_and(|t| t != "development") {
+        "app.grants"
+    } else {
+        r"app.grants.replace(/^([ \t]*net\.(?:fetch|websocket)[ \t]+local-network)[ \t]*$/gm, '$1 development')"
+    };
+    let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = {grants};\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
     // An overlay shows writes over what they change; `tools`, the handlers a package calls (LLP 1133.016 D9).
     if exports(&app_ts, "overlay") {
         entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");
@@ -1199,13 +1199,11 @@ fn bake_in(
         entry.push_str(CANVAS_ENTRY);
     }
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
-    write_changed(
-        &stage.join("__exact_config.mjs"),
-        resident::CONFIG.as_bytes(),
-    )?;
+    resident::write_config(stage)?;
+    let target = resident::binding_target();
     write_changed(
         &stage.join("__exact_paths.json"),
-        serde_json::json!({"app": app, "mounts": mounts(&app)?})
+        serde_json::json!({"app": app, "mounts": mounts(&app)?, "target": target})
             .to_string()
             .as_bytes(),
     )?;
@@ -1235,6 +1233,8 @@ fn bake_in(
     module.set_budget_ms(f64::INFINITY);
     let app_id = module.app_id().to_owned();
     let grants = module.grants().to_owned();
+    exact_runner::auth::session_grant_refusal(&grants)
+        .map_or(Ok(()), |refusal| Err(format!("app.ts: {refusal}")))?;
     let surfaces: serde_json::Map<String, serde_json::Value> = module
         .canvas_roster()
         .iter()
@@ -1277,6 +1277,8 @@ fn bake_in(
     let packages = package_code(stage)?.packages;
     let mut receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": if draws { 2 } else { 1 },
+        // The prelude runtime it needs, which a push to an older binary checks (LLP 1016.000 D10).
+        "typescriptRuntime": exact_bake::compat::typescript_runtime_of(&script),
         "surfaces": surfaces,
         "rustSources": rust_sources,
         "bytecodeVersion": exact_js::BYTECODE_VERSION,
@@ -1404,10 +1406,7 @@ catch (error) { process.stderr.write(String(error?.message ?? error)); process.e
 "#;
 
 fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
-    write_changed(
-        &stage.join("__exact_config.mjs"),
-        resident::CONFIG.as_bytes(),
-    )?;
+    resident::write_config(stage)?;
     // Configure, then check as the resident and web producers check: the
     // compiler's resolved graph, package declarations included, stays inside
     // the capture and the configured libraries (`typescript.mjs` `check`).

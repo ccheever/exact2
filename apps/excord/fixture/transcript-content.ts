@@ -5,6 +5,7 @@ export interface Attachment { id: string; url: string; filename: string; width?:
 export interface Embed {
   type: string; title?: string; description?: string; url?: string; color?: number;
   provider?: { name: string }; author?: { name: string };
+  fields?: { name: string; value: string; inline?: boolean }[]; footer?: { text: string }; timestamp?: string;
   image?: { url: string; width?: number; height?: number };
   thumbnail?: { url: string; width?: number; height?: number };
 }
@@ -13,6 +14,11 @@ export interface Message {
   edited_timestamp: number | null; attachments: Attachment[]; embeds: Embed[];
   reactions: { emoji: { id: string | null; name: string }; count: number; me: boolean }[];
   message_reference?: { message_id: string }; nonce?: string; type: number;
+  sticker_items?: { id: string; name: string; format_type: number }[];
+  forwarded?: string;
+  poll?: Record<string, unknown>;
+  // An app's answer to a slash command, and who used it.
+  command?: { name: string; by: string };
   state: 'sent' | 'pending' | 'failed'; revision: number;
 }
 
@@ -32,6 +38,8 @@ export const channelSpecs = [
   { id: 'random', name: 'random', topic: 'Bikes, lunch, and the view from outside.', count: 300, unread: 0, days: 90, seed: 917 },
   // Never read: its read state names no message.
   { id: 'announcements', name: 'announcements', topic: 'Releases and community notes.', count: 60, unread: 60, days: 360, seed: 1015 },
+  // Age-restricted (Discord's `nsfw`): it opens behind Excord's age gate.
+  { id: 'after-hours', name: 'after-hours', topic: 'Late-night talk, for adults.', count: 40, unread: 0, days: 30, seed: 1113, nsfw: true },
 ];
 
 export const emojiNames = ['exact', 'ferris', 'party', 'shipit', 'coffee', 'bike', 'spark', 'heart', 'check'];
@@ -193,6 +201,38 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
     if (i % 29 === 0) msg.reactions.push({ emoji: { id: '501', name: 'ferris' }, count: 1 + i % 12, me: false });
     if (i % 863 === 1) { msg.type = 7; msg.content = ''; msg.message_reference = undefined; }
     messages.push(msg);
+  }
+  // #random ends with a sticker (Discord draws a PNG one as a picture) after one that is a Lottie animation.
+  if (channel === 'random' && messages.length > 1) {
+    messages[messages.length - 2].sticker_items = [{ id: '602', name: 'Party Parrot', format_type: 3 }];
+    // And, before those, a forward of a message from elsewhere: the latest with no reply, picture or link of its own.
+    const plainOne = messages.slice(0, -2).findLast(m => !m.message_reference && !m.attachments.length && !m.embeds.length && m.type === 0);
+    if (plainOne) plainOne.forwarded = 'Shipping the new **anchor** fix tonight; ping me if anything regresses.';
+    // And before it a poll, open for two more days, that the reader has not voted in.
+    const asked = messages.slice(0, -2).findLast(m => m !== plainOne && !m.message_reference && !m.attachments.length
+      && !m.embeds.length && m.type === 0 && m.author.id !== 'me');
+    if (asked) Object.assign(asked, { content: '', poll: {
+      question: { text: 'Where should the team offsite be?' },
+      answers: [
+        { answer_id: 1, poll_media: { text: 'Mountains', emoji: { id: null, name: '🏔️' } } },
+        { answer_id: 2, poll_media: { text: 'The beach', emoji: { id: null, name: '🏖️' } } },
+        { answer_id: 3, poll_media: { text: 'Stay in the city' } },
+      ],
+      expiry: new Date(WORLD_NOW + 2 * 86400000).toISOString(), allow_multiselect: false, layout_type: 1,
+      results: { is_finalized: false, answer_counts: [{ id: 1, count: 5, me_voted: false }, { id: 2, count: 3, me_voted: false }] },
+    } });
+    // And before that, an app's answer to a member's command, and a thread started.
+    const plain = (m: Message) => m !== plainOne && m !== asked && !m.message_reference && !m.attachments.length
+      && !m.embeds.length && m.type === 0 && m.author.id !== 'me';
+    const answered = messages.slice(0, -2).findLast(plain);
+    if (answered) Object.assign(answered, { author: members[13], type: 20, content: 'Deployed **main** to staging.',
+      command: { name: 'deploy', by: '101' }, embeds: [{ type: 'rich', title: 'Deploy #482', color: 0x2f9e78,
+        fields: [{ name: 'Branch', value: '`main`', inline: true }, { name: 'Duration', value: '2m 14s', inline: true },
+          { name: 'Status', value: 'Passed', inline: true }, { name: 'Changes', value: '- Keep the visible row anchored\n- A faster first paint' }],
+        footer: { text: 'Buildkite' }, timestamp: new Date(answered.timestamp).toISOString() }] });
+    const thread = messages.slice(0, -2).findLast(m => plain(m) && m !== answered);
+    if (thread) Object.assign(thread, { type: 18, content: 'Weekend ride plans' });
+    messages[messages.length - 1].sticker_items = [{ id: '601', name: 'Wave', format_type: 1 }];
   }
   return { messages, lastRead: messages[spec.count - spec.unread - 1]?.id ?? '', deleted };
 }

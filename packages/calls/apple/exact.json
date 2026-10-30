@@ -1,0 +1,24 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/calls@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [
+    "providerConfiguration",
+    "callUpdate"
+  ],
+  "sources": {
+    "swift": [
+      "Calls.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "CallsModule"
+}

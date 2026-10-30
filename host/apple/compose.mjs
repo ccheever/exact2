@@ -5,13 +5,16 @@
 export const moduleSeam = (resolve, root) => ['ExactNativeModule.swift', 'ExactNativeViews.swift', 'ExactTamber.swift', 'ExactExtensions.swift']
   .map(f => resolve(root, 'host/apple/modules', f));
 
-/** The linker flags that weak-link each system framework a package needs from an OS version above the app's
- * `minimum` for `os` (`"frameworks": {"FoundationModels": {"ios": "26.0"}}`, LLP 1133.016 D15): the app launches
- * below it, and the package checks `#available` before it touches the framework. */
-export function weakFrameworks(packages, os, minimum) {
+/** Link declared system frameworks even when only an Objective-C category uses them. Frameworks introduced
+ * above the app's minimum OS are weak-linked; the package checks `#available` before using them (LLP 1133.016 D15). */
+export function systemFrameworks(packages, os, minimum) {
   const above = (version) => { const [a, b] = [version, minimum ?? '0'].map(v => String(v).split('.').map(Number)); for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); return false; };
-  const names = new Set(packages.flatMap(p => Object.entries(p.frameworks ?? {}).filter(([, at]) => at?.[os] && above(at[os])).map(([name]) => name)));
-  return [...names].sort().flatMap(name => ['-Xlinker', '-weak_framework', '-Xlinker', name]);
+  const names = new Map();
+  for (const p of packages) for (const [name, at] of Object.entries(p.frameworks ?? {})) {
+    if (at?.[os]) names.set(name, names.get(name) || above(at[os]));
+  }
+  return [...names].sort(([a], [b]) => a.localeCompare(b)).flatMap(([name, weak]) => weak
+    ? ['-Xlinker', '-weak_framework', '-Xlinker', name] : ['-framework', name]);
 }
 
 /** The app's module composed with its packages' implementations: an adapter over each package's class (its shape,
@@ -69,6 +72,7 @@ export function composedModule(packages, ownModule) {
     '    override func destroy() { made.destroy() }',
     '}');
   lines.push(`let exactAuthenticator: String? = ${authenticator ? JSON.stringify(authenticator.extension) : 'nil'}`);
+  lines.push(`let exactStartAtLoad: [String] = [${packages.filter(p => p.start).map(p => JSON.stringify(p.extension)).join(', ')}]`);
   lines.push(`let exactExtensions: [String: (ExactModule, String) -> ExactExtensionAdapter] = [${packages.map(p => `${JSON.stringify(p.extension)}: { ExactAdapter_${p.module}($0, session: $1) }`).join(', ') || ':'}]`);
   const views = packages.flatMap(p => (p.views ?? []).map(tag => `${JSON.stringify(tag)}: ExactNativeFactory(package: { try ExactExtensions.view($0, ${JSON.stringify(p.extension)}, ${JSON.stringify(tag)}, id: $1, props: $2, events: $3) })`));
   lines.push(`let exactPackageViews: [String: ExactNativeFactory] = [${views.join(', ') || ':'}]`);

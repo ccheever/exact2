@@ -186,9 +186,10 @@ impl<D: DataSource> Presenter<D> {
             let Some(node) = kernel.node(id) else {
                 continue;
             };
+            let placed = self.pane_frame(id).expect("live hatch");
             let frame = Rect {
-                x: node.frame.x,
-                y: node.frame.y,
+                x: placed.x,
+                y: placed.y,
                 width: node.frame.width,
                 height: node.frame.height,
             };
@@ -550,16 +551,31 @@ impl<D: DataSource> Presenter<D> {
 
     /// The loop's next deadline: a runner timer, hatch or scroll completion.
     pub fn timer_due_ms(&self) -> Option<f64> {
+        let nominal = self.host.runner().waits().next_check();
         let after = self.hatches.shared().and_then(|shared| shared.after_due());
         self.timer_or_scroll_due_ms()
             .into_iter()
             .chain(after)
+            .chain(nominal)
+            .chain(self.idle_timer_retry.then_some(self.host.now()))
+            .reduce(f64::min)
+    }
+
+    /// [`Self::timer_due_ms`], or a pad's effect starting or ending
+    /// (`pads.rs`): when a loop wakes. An agent's jump steps only to the
+    /// runner's, and the pads' land at the turn after it.
+    pub fn wake_due_ms(&self) -> Option<f64> {
+        let now = self.host.now();
+        self.timer_due_ms()
+            .into_iter()
+            .chain(crate::pads::due())
+            .chain(self.image_turn_due_in_ms().map(|ms| now + ms))
             .reduce(f64::min)
     }
 
     /// Whether every display frame is wanted: a frame task's, or a ticket's.
     pub fn wants_frames(&self) -> bool {
-        self.host.wants_frames() || self.hatch_ticking()
+        self.host.wants_frames() || self.host.runner().waits().frame.held || self.hatch_ticking()
     }
 
     /// A frame ticket is live.

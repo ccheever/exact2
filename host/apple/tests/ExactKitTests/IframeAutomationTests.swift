@@ -136,18 +136,19 @@ final class IframeAutomationTests: XCTestCase {
         json(configuration, arm.configure, handle)
         let web = Unmanaged<AnyObject>.fromOpaque(arm.view(handle)!).takeUnretainedValue() as! WKWebView
         show(web)
-        Array("http://127.0.0.1:16640\(path)".utf8).withUnsafeBufferPointer { arm.setSrc(handle, $0.baseAddress, UInt32($0.count), 1) }
+        Array("\(baseURL)\(path)".utf8).withUnsafeBufferPointer { arm.setSrc(handle, $0.baseAddress, UInt32($0.count), 1) }
         if partition != nil { spin { seen.records.contains { $0.event == "navigatesuccess" } } } else { pause(1) }
         pause(0.2)
         return (handle, web)
     }
 
     nonisolated(unsafe) private static var server: AutomationPages?
+    private var baseURL: String { "http://127.0.0.1:\(Self.server!.port)" }
     override func setUpWithError() throws {
         #if os(macOS)
         _ = NSApplication.shared
         #endif
-        if Self.server == nil { Self.server = try AutomationPages(port: 16640) }
+        if Self.server == nil { Self.server = try AutomationPages() }
     }
 
     private func controller(_ seen: Seen) -> String? { seen.records.last { $0.event == "currententrychange" }?.record["controller"] as? String }
@@ -403,19 +404,9 @@ final class IframeAutomationTests: XCTestCase {
 final class AutomationPages {
     private let listener: NWListener
 
-    init(port: UInt16) throws {
-        let parameters = NWParameters.tcp
-        parameters.allowLocalEndpointReuse = true
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
-        listener = try NWListener(using: parameters)
-        listener.newConnectionHandler = { connection in AutomationPages.serve(connection) }
-        var state: NWListener.State = .setup
-        listener.stateUpdateHandler = { state = $0 }
-        listener.start(queue: .main)
-        let deadline = Date(timeIntervalSinceNow: 5)
-        while Date() < deadline { if case .ready = state { return }; RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
-        throw NSError(domain: "IframeAutomationTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "port \(port) did not listen: \(state)"])
-    }
+    var port: UInt16 { listener.port!.rawValue }
+
+    init() throws { listener = try loopbackListener(Self.serve) }
 
     static let input = """
     <!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Input</title>

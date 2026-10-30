@@ -14,6 +14,9 @@ impl<D: DataSource> Host<D> {
         // What `app:/` names for the picker and an image's source (LLP
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
+        // What the app keeps resolves again before any answer reads it
+        // (LLP 1069.010.000 D4); the host's one session is owner 0.
+        crate::kept::activate(0, &self.runner);
         self.runner.data().configure_storage(data, cache, temporary)
     }
 
@@ -32,6 +35,8 @@ impl<D: DataSource> Host<D> {
             self.preload_wake.ask(self.runner.data_ref());
             return Ok(false);
         }
+        #[cfg(windows)]
+        crate::app::boot_phase("data-activation-entered");
         if let Err(error) = self
             .configure_storage()
             .and_then(|()| self.runner.data().activate())
@@ -39,7 +44,9 @@ impl<D: DataSource> Host<D> {
             return Err(format!("activate data: {error:?}"));
         }
         self.data_activated = true;
-        match self.runner.data_ready() {
+        #[cfg(windows)]
+        crate::app::boot_phase("data-source-ready");
+        let result = match self.runner.data_ready() {
             Ok(Some(receipt)) => match self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
@@ -52,7 +59,10 @@ impl<D: DataSource> Host<D> {
             },
             Ok(None) => Ok(false),
             Err(error) => Err(format!("data ready: {error:?}")),
-        }
+        };
+        #[cfg(windows)]
+        crate::app::boot_phase("data-activation-ready");
+        result
     }
 
     /// Deferred image preparation needs another turn after first pixel.

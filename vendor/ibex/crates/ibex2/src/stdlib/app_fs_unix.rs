@@ -53,6 +53,42 @@ fn open_at_raw(dir: &File, path: &CStr, flags: i32, mode: u32) -> io::Result<Fil
 fn directory(dir: &File, path: &str) -> io::Result<File> {
     open_at(dir, path, libc::O_RDONLY | libc::O_DIRECTORY)
 }
+/// The directory `path` names, its links followed.
+pub(crate) fn open_directory(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    (std::fs::OpenOptions::new().read(true))
+        .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+        .open(path)
+}
+/// The directory `name` in `dir`, refusing a link.
+pub(crate) fn directory_at(dir: &File, name: &std::ffi::OsStr) -> io::Result<File> {
+    use std::os::unix::ffi::OsStrExt;
+    let name = CString::new(name.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))?;
+    directory_raw(dir, &name)
+}
+/// What the link `name` in `dir` points to.
+pub(crate) fn link_at(dir: &File, name: &std::ffi::OsStr) -> io::Result<std::ffi::OsString> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let name = CString::new(name.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))?;
+    let mut buf = vec![0u8; libc::PATH_MAX as usize + 1];
+    // SAFETY: the descriptor, the terminated name and the buffer are live
+    // throughout readlinkat, which writes at most `buf.len()` bytes.
+    let n = unsafe {
+        libc::readlinkat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+        )
+    };
+    if n < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    buf.truncate(n as usize);
+    Ok(std::ffi::OsString::from_vec(buf))
+}
 fn directory_raw(dir: &File, path: &CStr) -> io::Result<File> {
     open_at_raw(dir, path, libc::O_RDONLY | libc::O_DIRECTORY, 0o600)
 }
@@ -240,6 +276,25 @@ fn atomic(dir: &File, target: &str, data: &[u8]) -> io::Result<()> {
     result
 }
 
+/// Copy `source`'s bytes over the regular file `leaf` in `parent`, made if absent.
+fn copy(mut source: File, parent: &File, leaf: &str) -> Result<FsResult, HostError> {
+    let mut target = open_at(
+        parent,
+        leaf,
+        libc::O_WRONLY | libc::O_CREAT | libc::O_NONBLOCK,
+    )
+    .map_err(error)?;
+    use std::os::unix::fs::MetadataExt;
+    let a = source.metadata().map_err(error)?;
+    let b = target.metadata().map_err(error)?;
+    if !a.is_file() || !b.is_file() || (a.dev(), a.ino()) == (b.dev(), b.ino()) {
+        return Err(error("copy requires distinct regular files"));
+    }
+    target.set_len(0).map_err(error)?;
+    io::copy(&mut source, &mut target).map_err(error)?;
+    Ok(FsResult::Done)
+}
+
 impl AppDirectories {
     pub fn new(
         data: impl AsRef<Path>,
@@ -280,6 +335,14 @@ impl AppDirectories {
             roots: Arc::new(roots),
             paths: Arc::new(physical),
         })
+    }
+    /// Each of its directories' device and inode.
+    pub(crate) fn identities(&self) -> Vec<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt;
+        (self.roots.iter().flatten())
+            .filter_map(|root| root.metadata().ok())
+            .map(|meta| (meta.dev(), meta.ino()))
+            .collect()
     }
     fn root(&self, index: usize) -> Result<File, HostError> {
         self.roots[index]
@@ -390,6 +453,27 @@ impl AppDirectories {
         crate::stdlib::fs::read_bounded_file(self.open_file(grants, path)?, cap, canceled)
             .map_err(error)
     }
+    /// `copyFile` into the app file `destination` from a file `source` opens
+    /// outside the app's directories, a chosen document's: `destination` is
+    /// admitted under `fs.write` before `source` runs, and `source`'s guard
+    /// lives until the copy is done.
+    pub(crate) fn copy_in<G>(
+        &self,
+        grants: &GrantSet,
+        destination: &str,
+        source: impl FnOnce() -> Result<(File, G), HostError>,
+    ) -> Result<FsResult, HostError> {
+        self.parse(destination)?;
+        crate::boundary::admit(
+            grants,
+            &Operation::FsWrite {
+                path: destination.into(),
+            },
+        )?;
+        let (parent, leaf) = self.open_parent(destination)?;
+        let (file, _guard) = source()?;
+        copy(file, &parent, &leaf)
+    }
     pub(crate) fn run(
         &self,
         grants: &GrantSet,
@@ -423,104 +507,256 @@ impl AppDirectories {
         } else if write {
             check(true, path)?;
         }
-        let data = data.unwrap_or(&[]);
-        match op {
-            FsOp::ReadFile => {
-                let file = self.open(path)?;
-                if !file.metadata().map_err(error)?.is_file() {
-                    return Err(error("read needs a regular file"));
-                }
-                Ok(FsResult::Bytes(
-                    crate::stdlib::fs::read_result(file).map_err(error)?,
-                ))
+        if op == FsOp::Realpath {
+            self.open(path)?;
+            let (i, parts) = self.parse(path)?;
+            let root = ["data", "cache", "tmp"][i];
+            return Ok(FsResult::Text(if parts.is_empty() {
+                format!("app:/{root}")
+            } else {
+                format!("app:/{root}/{}", parts.join("/"))
+            }));
+        }
+        let below = |p: &str| -> Result<Below, HostError> {
+            let (index, parts) = self.parse(p)?;
+            Ok(Below {
+                root: self.root(index)?,
+                parts: parts.into_iter().map(str::to_owned).collect(),
+                name: "app",
+            })
+        };
+        let destination = match destination {
+            Some(to) => Some(below(to)?),
+            None => None,
+        };
+        run_below(op, below(path)?, destination, data.unwrap_or(&[]))
+    }
+}
+
+/// A path below a retained directory: an `app:/` path's root, or a `home:`
+/// or `bundle:` one's (exact2 LLP 1133.007 D6, Exact patch 24). Each
+/// component is opened `O_NOFOLLOW` from the root, so a link anywhere below
+/// it, planted or not, is refused rather than followed.
+pub(crate) struct Below {
+    pub(crate) root: File,
+    pub(crate) parts: Vec<String>,
+    /// The root's name in errors: `app`, `home` or `bundle`.
+    pub(crate) name: &'static str,
+}
+
+impl Below {
+    /// Its parent directory, open, and its last component.
+    fn parent(&self) -> Result<(File, String), HostError> {
+        let (leaf, parents) = self.parts.split_last().ok_or_else(|| {
+            error(format!(
+                "operation needs a path below the {} root",
+                self.name
+            ))
+        })?;
+        let mut dir = self.root.try_clone().map_err(error)?;
+        for part in parents {
+            dir = directory(&dir, part).map_err(error)?;
+        }
+        Ok((dir, leaf.clone()))
+    }
+    /// It, open for reading: the root itself when it names no component.
+    pub(crate) fn open(&self) -> Result<File, HostError> {
+        if self.parts.is_empty() {
+            return self.root.try_clone().map_err(error);
+        }
+        let (parent, leaf) = self.parent()?;
+        open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK).map_err(error)
+    }
+}
+
+/// Run `op`, admitted above, on `path` (and `destination`) below their roots.
+pub(crate) fn run_below(
+    op: FsOp,
+    path: Below,
+    destination: Option<Below>,
+    data: &[u8],
+) -> Result<FsResult, HostError> {
+    match op {
+        FsOp::ReadFile => {
+            let file = path.open()?;
+            if !file.metadata().map_err(error)?.is_file() {
+                return Err(error("read needs a regular file"));
             }
-            FsOp::ReadDir => Ok(FsResult::Names(names(&self.open(path)?).map_err(error)?)),
-            FsOp::Stat => {
-                let m = self.open(path)?.metadata().map_err(error)?;
-                Ok(FsResult::Stat(Stat {
-                    size: m.len(),
-                    is_file: m.is_file(),
-                    is_directory: m.is_dir(),
-                    modified_ms: m
-                        .modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0),
-                }))
+            Ok(FsResult::Bytes(
+                crate::stdlib::fs::read_result(file).map_err(error)?,
+            ))
+        }
+        FsOp::ReadDir => Ok(FsResult::Names(names(&path.open()?).map_err(error)?)),
+        FsOp::Stat => {
+            let m = path.open()?.metadata().map_err(error)?;
+            Ok(FsResult::Stat(Stat {
+                mode: std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o7777,
+                is_symlink: false,
+                size: m.len(),
+                is_file: m.is_file(),
+                is_directory: m.is_dir(),
+                modified_ms: m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0),
+            }))
+        }
+        FsOp::Mkdir => {
+            let mut dir = path.root.try_clone().map_err(error)?;
+            for part in &path.parts {
+                mkdir(&dir, part).map_err(error)?;
+                dir = directory(&dir, part).map_err(error)?;
             }
-            FsOp::Realpath => {
-                self.open(path)?;
-                let (i, parts) = self.parse(path)?;
-                let root = ["data", "cache", "tmp"][i];
-                Ok(FsResult::Text(if parts.is_empty() {
-                    format!("app:/{root}")
-                } else {
-                    format!("app:/{root}/{}", parts.join("/"))
-                }))
-            }
-            FsOp::Mkdir => {
-                let (i, parts) = self.parse(path)?;
-                let mut dir = self.root(i)?;
-                for part in parts {
-                    mkdir(&dir, part).map_err(error)?;
-                    dir = directory(&dir, part).map_err(error)?;
-                }
-                Ok(FsResult::Done)
-            }
-            FsOp::CopyFile => {
-                let mut source = self.open(path)?;
-                let (parent, leaf) = self.open_parent(destination.unwrap())?;
-                let mut target = open_at(
-                    &parent,
-                    &leaf,
-                    libc::O_WRONLY | libc::O_CREAT | libc::O_NONBLOCK,
-                )
-                .map_err(error)?;
-                use std::os::unix::fs::MetadataExt;
-                let a = source.metadata().map_err(error)?;
-                let b = target.metadata().map_err(error)?;
-                if !a.is_file() || !b.is_file() || (a.dev(), a.ino()) == (b.dev(), b.ino()) {
-                    return Err(error("copy requires distinct regular files"));
-                }
-                target.set_len(0).map_err(error)?;
-                io::copy(&mut source, &mut target).map_err(error)?;
-                Ok(FsResult::Done)
-            }
-            _ => {
-                let (parent, leaf) = self.open_parent(path)?;
-                match op {
-                    FsOp::WriteFile | FsOp::AppendFile => {
-                        let flags = libc::O_WRONLY
-                            | libc::O_CREAT
-                            | libc::O_NONBLOCK
-                            | if op == FsOp::AppendFile {
-                                libc::O_APPEND
-                            } else {
-                                0
-                            };
-                        let mut file = open_at(&parent, &leaf, flags).map_err(error)?;
-                        if !file.metadata().map_err(error)?.is_file() {
-                            return Err(error("write needs a regular file"));
-                        }
-                        if op == FsOp::WriteFile {
-                            file.set_len(0).map_err(error)?;
-                        }
-                        file.write_all(data).map_err(error)?;
+            Ok(FsResult::Done)
+        }
+        FsOp::Digest => {
+            let file = path.open()?;
+            let algorithm = String::from_utf8_lossy(data).trim().to_string();
+            crate::stdlib::fs_more::digest(file, &algorithm)
+                .map(FsResult::Text)
+                .map_err(error)
+        }
+        FsOp::Lstat | FsOp::Readlink | FsOp::Access | FsOp::Chmod | FsOp::Symlink | FsOp::Flock => {
+            let (parent, leaf) = path.parent()?;
+            at_parent(op, &parent, &leaf, data)
+        }
+        FsOp::CopyFile => {
+            let to = destination.ok_or_else(|| error("operation needs destination"))?;
+            let (parent, leaf) = to.parent()?;
+            copy(path.open()?, &parent, &leaf)
+        }
+        FsOp::Realpath | FsOp::Unlock => Err(error("not an operation on a path below a root")),
+        _ => {
+            let (parent, leaf) = path.parent()?;
+            match op {
+                FsOp::WriteFile | FsOp::AppendFile => {
+                    let flags = libc::O_WRONLY
+                        | libc::O_CREAT
+                        | libc::O_NONBLOCK
+                        | if op == FsOp::AppendFile {
+                            libc::O_APPEND
+                        } else {
+                            0
+                        };
+                    let mut file = open_at(&parent, &leaf, flags).map_err(error)?;
+                    if !file.metadata().map_err(error)?.is_file() {
+                        return Err(error("write needs a regular file"));
                     }
-                    FsOp::AtomicWriteFile => atomic(&parent, &leaf, data).map_err(error)?,
-                    FsOp::Remove => remove(&parent, &leaf).map_err(error)?,
-                    FsOp::Rename => {
-                        let (to, target) = self.open_parent(destination.unwrap())?;
-                        rename(&parent, &leaf, &to, &target).map_err(error)?;
+                    if op == FsOp::WriteFile {
+                        file.set_len(0).map_err(error)?;
                     }
-                    _ => unreachable!(),
+                    file.write_all(data).map_err(error)?;
                 }
-                Ok(FsResult::Done)
+                FsOp::AtomicWriteFile => atomic(&parent, &leaf, data).map_err(error)?,
+                FsOp::Remove => remove(&parent, &leaf).map_err(error)?,
+                FsOp::Rename => {
+                    let to = destination.ok_or_else(|| error("operation needs destination"))?;
+                    let (to, target) = to.parent()?;
+                    rename(&parent, &leaf, &to, &target).map_err(error)?;
+                }
+                _ => unreachable!(),
             }
+            Ok(FsResult::Done)
         }
     }
 }
+/// LLP 1133.007 D6a's operations on an app path's leaf, through its retained
+/// parent directory, as every other app operation goes.
+fn at_parent(op: FsOp, parent: &File, leaf: &str, data: &[u8]) -> Result<FsResult, HostError> {
+    use std::os::fd::AsRawFd;
+    let c = CString::new(leaf).map_err(|_| error("a NUL in a path"))?;
+    let fd = parent.as_raw_fd();
+    let argument = || String::from_utf8_lossy(data).trim().to_string();
+    let last = |r: libc::c_int| {
+        if r == 0 {
+            Ok(())
+        } else {
+            Err(error(io::Error::last_os_error()))
+        }
+    };
+    // SAFETY: `fd` is a directory this call holds; `c` is NUL-terminated.
+    unsafe {
+        match op {
+            FsOp::Lstat => {
+                let mut st: libc::stat = std::mem::zeroed();
+                last(libc::fstatat(
+                    fd,
+                    c.as_ptr(),
+                    &mut st,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                ))?;
+                let kind = st.st_mode & libc::S_IFMT;
+                Ok(FsResult::Stat(Stat {
+                    size: u64::try_from(st.st_size).unwrap_or(0),
+                    is_file: kind == libc::S_IFREG,
+                    is_directory: kind == libc::S_IFDIR,
+                    modified_ms: u64::try_from(st.st_mtime).unwrap_or(0).saturating_mul(1000),
+                    mode: mode_bits(st.st_mode),
+                    is_symlink: kind == libc::S_IFLNK,
+                }))
+            }
+            FsOp::Readlink => {
+                let mut buf = vec![0u8; 4096];
+                let n = libc::readlinkat(fd, c.as_ptr(), buf.as_mut_ptr().cast(), buf.len());
+                if n < 0 {
+                    return Err(error(io::Error::last_os_error()));
+                }
+                buf.truncate(n as usize);
+                Ok(FsResult::Text(String::from_utf8_lossy(&buf).into_owned()))
+            }
+            FsOp::Access => {
+                let mode = argument()
+                    .parse::<i32>()
+                    .map_err(|_| error("access needs a mode"))?;
+                // A link's target is not this path's to answer for.
+                let mut st: libc::stat = std::mem::zeroed();
+                last(libc::fstatat(
+                    fd,
+                    c.as_ptr(),
+                    &mut st,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                ))?;
+                if st.st_mode & libc::S_IFMT == libc::S_IFLNK {
+                    return Err(error(io::Error::from_raw_os_error(libc::ELOOP)));
+                }
+                // `AT_SYMLINK_NOFOLLOW`: a link swapped in after the fstatat is
+                // checked as itself, never what it names.
+                let flags = libc::AT_EACCESS | libc::AT_SYMLINK_NOFOLLOW;
+                last(libc::faccessat(fd, c.as_ptr(), mode, flags)).map(|()| FsResult::Done)
+            }
+            FsOp::Chmod => {
+                let mode = argument()
+                    .parse::<u32>()
+                    .map_err(|_| error("chmod needs a mode"))?;
+                // The leaf, opened `O_NOFOLLOW`, never what a link names.
+                let file =
+                    open_at(parent, leaf, libc::O_RDONLY | libc::O_NONBLOCK).map_err(error)?;
+                last(libc::fchmod(
+                    file.as_raw_fd(),
+                    (mode & 0o7777) as libc::mode_t,
+                ))
+                .map(|()| FsResult::Done)
+            }
+            FsOp::Symlink => {
+                let target =
+                    CString::new(argument()).map_err(|_| error("a NUL in a link target"))?;
+                last(libc::symlinkat(target.as_ptr(), fd, c.as_ptr())).map(|()| FsResult::Done)
+            }
+            FsOp::Flock => {
+                let file = open_at_mode(parent, leaf, libc::O_RDWR | libc::O_CREAT, 0o644)
+                    .map_err(error)?;
+                let timeout = argument().parse::<u64>().unwrap_or(0).min(600_000);
+                crate::stdlib::fs_more::lock(file, std::time::Duration::from_millis(timeout))
+                    .map(|handle| FsResult::Text(handle.to_string()))
+                    .map_err(error)
+            }
+            _ => Err(error("not an operation on a leaf")),
+        }
+    }
+}
+
 /// Native recursive removal shares the bounded raw-name iterator used by app roots.
 pub(crate) fn remove_native(path: &Path) -> Result<FsResult, HostError> {
     let parent_path = path
@@ -584,12 +820,7 @@ fn document_metadata(parent: &File, leaf: Option<&str>) -> io::Result<libc::stat
     Ok(info)
 }
 
-pub(crate) fn document(
-    root: &File,
-    path: &str,
-    op: FsOp,
-    data: Option<&[u8]>,
-) -> io::Result<FsResult> {
+fn document_parts(path: &str) -> io::Result<Vec<&str>> {
     let parts: Vec<_> = if path.is_empty() {
         Vec::new()
     } else {
@@ -601,41 +832,64 @@ pub(crate) fn document(
     {
         return Err(io::Error::other("invalid document path"));
     }
-    let mut parents = vec![root.try_clone()?];
-    if op == FsOp::Mkdir {
-        for part in parts {
-            mkdir_mode(parents.last().unwrap(), part, 0o777)?;
-            parents.push(directory(parents.last().unwrap(), part)?);
-        }
-        return Ok(FsResult::Done);
-    }
+    Ok(parts)
+}
+/// The directory holding the last of `parts`, and that last name.
+fn document_parent<'a>(root: &File, parts: &[&'a str]) -> io::Result<(File, Option<&'a str>)> {
     let (leaf, ancestors) = parts
         .split_last()
         .map_or((None, &[][..]), |(leaf, parents)| (Some(*leaf), parents));
+    let mut parent = root.try_clone()?;
     for part in ancestors {
-        parents.push(directory(parents.last().unwrap(), part)?);
+        parent = directory(&parent, part)?;
     }
-    let parent = parents.last().unwrap();
-    let open = || match leaf {
-        Some(leaf) => open_at(parent, leaf, libc::O_RDONLY | libc::O_NONBLOCK),
-        None => parent.try_clone(),
+    Ok((parent, leaf))
+}
+fn regular(file: &File) -> io::Result<()> {
+    let meta = file.metadata()?;
+    if meta.is_dir() {
+        return Err(io::Error::from_raw_os_error(libc::EISDIR));
+    }
+    if !meta.is_file() {
+        return Err(io::Error::other("document must be a regular file"));
+    }
+    Ok(())
+}
+/// A chosen document's regular file at `path` beneath `root`, opened for
+/// reading as `readFile` opens it.
+pub(crate) fn document_file(root: &File, path: &str) -> io::Result<File> {
+    let parts = document_parts(path)?;
+    let (parent, leaf) = document_parent(root, &parts)?;
+    let file = match leaf {
+        Some(leaf) => open_at(&parent, leaf, libc::O_RDONLY | libc::O_NONBLOCK)?,
+        None => parent,
     };
-    let regular = |file: &File| -> io::Result<()> {
-        let meta = file.metadata()?;
-        if meta.is_dir() {
-            return Err(io::Error::from_raw_os_error(libc::EISDIR));
+    regular(&file)?;
+    Ok(file)
+}
+
+pub(crate) fn document(
+    root: &File,
+    path: &str,
+    op: FsOp,
+    data: Option<&[u8]>,
+) -> io::Result<FsResult> {
+    if op == FsOp::ReadFile {
+        let file = document_file(root, path)?;
+        return Ok(FsResult::Bytes(crate::stdlib::fs::read_result(file)?));
+    }
+    let parts = document_parts(path)?;
+    if op == FsOp::Mkdir {
+        let mut parent = root.try_clone()?;
+        for part in parts {
+            mkdir_mode(&parent, part, 0o777)?;
+            parent = directory(&parent, part)?;
         }
-        if !meta.is_file() {
-            return Err(io::Error::other("document must be a regular file"));
-        }
-        Ok(())
-    };
+        return Ok(FsResult::Done);
+    }
+    let (parent, leaf) = document_parent(root, &parts)?;
+    let parent = &parent;
     match op {
-        FsOp::ReadFile => {
-            let file = open()?;
-            regular(&file)?;
-            Ok(FsResult::Bytes(crate::stdlib::fs::read_result(file)?))
-        }
         FsOp::ReadDir => {
             let dir = match leaf {
                 Some(leaf) => directory(parent, leaf)?,
@@ -646,6 +900,8 @@ pub(crate) fn document(
         FsOp::Stat => {
             let meta = document_metadata(parent, leaf)?;
             Ok(FsResult::Stat(Stat {
+                mode: mode_bits(meta.st_mode),
+                is_symlink: false,
                 size: u64::try_from(meta.st_size).unwrap_or(0),
                 is_file: meta.st_mode & libc::S_IFMT == libc::S_IFREG,
                 is_directory: meta.st_mode & libc::S_IFMT == libc::S_IFDIR,
@@ -725,6 +981,78 @@ pub fn resolve_sqlite(
             },
         )?;
         Ok(real)
+    }
+}
+
+/// An app file written in pieces beside its target and put in its place
+/// whole (Exact local patch 19): the staging file is removed unless
+/// [`Staged::publish`] renames it over the target.
+pub struct Staged {
+    parent: File,
+    leaf: String,
+    /// The staging file's name; empty once published.
+    temp: String,
+    file: Option<File>,
+}
+impl AppDirectories {
+    /// Admit `fs.write` on `path` and create its staging file in the pinned
+    /// parent, `.exact-<32 hex>.partial`. A missing parent, or a target that
+    /// is not a regular file, is refused before anything is written.
+    pub fn stage(&self, grants: &GrantSet, path: &str) -> Result<Staged, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
+        let (parent, leaf) = self.open_parent(path)?;
+        match open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK) {
+            Ok(file) if !file.metadata().map_err(error)?.is_file() => {
+                return Err(error("write needs a regular file"))
+            }
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(error(e)),
+            _ => {}
+        }
+        let mut bytes = [0; 16];
+        getrandom::getrandom(&mut bytes).map_err(error)?;
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let temp = format!(".exact-{hex}.partial");
+        let file = open_at(
+            &parent,
+            &temp,
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+        )
+        .map_err(error)?;
+        Ok(Staged {
+            parent,
+            leaf,
+            temp,
+            file: Some(file),
+        })
+    }
+}
+impl Staged {
+    pub fn write_all(&mut self, bytes: &[u8]) -> Result<(), HostError> {
+        match self.file.as_mut() {
+            Some(file) => file.write_all(bytes).map_err(error),
+            None => Err(error("staged file already published")),
+        }
+    }
+    /// Sync the staging file and rename it over the target.
+    pub fn publish(mut self) -> Result<(), HostError> {
+        let file = self
+            .file
+            .take()
+            .ok_or_else(|| error("staged file already published"))?;
+        file.sync_all().map_err(error)?;
+        drop(file);
+        rename(&self.parent, &self.temp, &self.parent, &self.leaf).map_err(error)?;
+        self.temp.clear();
+        Ok(())
+    }
+}
+impl Drop for Staged {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        if !self.temp.is_empty() {
+            let _ = unlink(&self.parent, &self.temp, false);
+        }
     }
 }
 
@@ -1003,6 +1331,32 @@ mod tests {
         assert_eq!(std::fs::read(f.path.join("data/a")).unwrap(), b"keep");
     }
     #[test]
+    fn a_staged_file_replaces_its_target_whole_or_leaves_it() {
+        let f = Fixture::new();
+        let grants = GrantSet::parse("fs.write app:/cache").unwrap();
+        std::fs::write(f.path.join("cache/a"), b"old").unwrap();
+        let names = || std::fs::read_dir(f.path.join("cache")).unwrap().count();
+        let mut staged = f.dirs.stage(&grants, "app:/cache/a").unwrap();
+        staged.write_all(b"ne").unwrap();
+        staged.write_all(b"w").unwrap();
+        assert_eq!(std::fs::read(f.path.join("cache/a")).unwrap(), b"old");
+        assert_eq!(names(), 2);
+        staged.publish().unwrap();
+        assert_eq!(std::fs::read(f.path.join("cache/a")).unwrap(), b"new");
+        assert_eq!(names(), 1);
+        let mut dropped = f.dirs.stage(&grants, "app:/cache/a").unwrap();
+        dropped.write_all(b"partial").unwrap();
+        drop(dropped);
+        assert_eq!(std::fs::read(f.path.join("cache/a")).unwrap(), b"new");
+        assert_eq!(names(), 1);
+        // Refused before anything is made: no grant, no parent, a folder.
+        assert!(f.dirs.stage(&grants, "app:/data/a").is_err());
+        assert!(f.dirs.stage(&grants, "app:/cache/none/a").is_err());
+        std::fs::create_dir(f.path.join("cache/d")).unwrap();
+        assert!(f.dirs.stage(&grants, "app:/cache/d").is_err());
+        assert_eq!(names(), 2);
+    }
+    #[test]
     fn atomic_replace_is_complete_under_concurrency_and_cleans_up_failure() {
         let f = Fixture::new();
         f.call(
@@ -1074,4 +1428,11 @@ mod tests {
         assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/cache/db").is_err());
         assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/data/../cache/db").is_err());
     }
+}
+
+/// A `stat`'s permission bits: `st_mode` is a `u16` on Apple platforms and
+/// a `u32` on Linux.
+#[allow(clippy::useless_conversion)]
+fn mode_bits(mode: libc::mode_t) -> u32 {
+    u32::from(mode) & 0o7777
 }

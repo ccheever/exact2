@@ -189,6 +189,25 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "", rootKey: "compose", sourceKey: "compose", modalActive: true))
     }
 
+    /// UIKit's finished pop decides: the app follows it when its top is among the routes UIKit took
+    /// away, however the source's node or the root's key fared during the swipe.
+    func testTheAppFollowsAPopUIKitFinished() {
+        // A swipe from Updates back to Settings: the app still names Updates
+        XCTAssertTrue(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "settings", shownKeys: ["settings", "updates"], rootKey: "updates"))
+        // UIKit's long-press Back menu took two routes away
+        XCTAssertTrue(NavigationRules.appIsBehind(poppedKeys: ["updates", "log"], uikitTop: "settings", shownKeys: ["settings", "updates", "log"], rootKey: "log"))
+        // The app selected Updates again during a pop from Log to Settings: the pop took it
+        XCTAssertTrue(NavigationRules.appIsBehind(poppedKeys: ["updates", "log"], uikitTop: "settings", shownKeys: ["settings", "updates"], rootKey: "updates"))
+        // Nothing popped is the app's top: nothing popped, or the app already went back
+        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: [], uikitTop: "updates", shownKeys: ["settings", "updates"], rootKey: "updates"))
+        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "settings", shownKeys: ["settings"], rootKey: "settings"))
+        // A route the app pushed during the pop was never on UIKit's stack
+        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["thread"], uikitTop: "inbox", shownKeys: ["inbox", "thread", "compose"], rootKey: "compose"))
+        // UIKit's top is above the app's top in the app's stack, or not in it
+        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "log", shownKeys: ["settings", "updates", "log"], rootKey: "updates"))
+        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "specs", shownKeys: ["settings", "updates"], rootKey: "updates"))
+    }
+
     /// D2's exception: the app replaced the swiped screen in place while the
     /// finger was down (capture giving way to what it wrote). The gesture
     /// applies to the replacement, so it is not pushed back in.
@@ -906,7 +925,8 @@ final class MacShortcutTests: XCTestCase {
 
     /// LLP 1115.000 D7.8: a release build has no Develop menu, and so takes
     /// none of its chords (Reload ⌘R, Open Project… ⌘O, App Info… ⌘D, Save
-    /// Trace ⌥⌘T); a development build's bar is as it was.
+    /// Trace ⌥⌘T); a development build's bar is as it was, with the
+    /// frame-health commands, which take none.
     func testOnlyADevelopmentBuildsBarHasDevelopAndItsChords() {
         let presenter = Presenter()
         let window = window(presenter)
@@ -924,9 +944,10 @@ final class MacShortcutTests: XCTestCase {
         let development = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: true)
         XCTAssertEqual(titles(development), ["File", "Edit", "View", "Go", "Window", "Develop", "Help"])
         let develop = development.items.first { $0.submenu?.title == "Develop" }!.submenu!
-        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Save Trace"])
-        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "t"])
-        XCTAssertEqual(develop.items.map(\.keyEquivalentModifierMask), [.command, .command, .command, [.command, .option]])
+        // The frame-health commands (#1141) take no chord.
+        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Show Frame Health", "Frame Health Details…", "Share Frame Health…", "Save Trace"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "", "", "", "t"])
+        XCTAssertEqual(develop.items.filter { !$0.keyEquivalent.isEmpty }.map(\.keyEquivalentModifierMask), [.command, .command, .command, [.command, .option]])
         // Which build is which: production trust, or `build.mjs`'s stamp of a
         // production or distributed build (`exact release`); an unstamped
         // host, as this test's, is a development one. The environment

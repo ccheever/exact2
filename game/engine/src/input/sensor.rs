@@ -106,8 +106,8 @@ fn degrees(component: f32, length: f32) -> f32 {
 }
 
 /// A tilt stick's reading for gravity `g` against neutral `n` (LLP 1133.013
-/// D6): the roll and pitch from the neutral in degrees, `(asin(g.x/|g|) −
-/// asin(n.x/|n|), −(asin(g.y/|g|) − asin(n.y/|n|))) / max_degrees`, then the
+/// D6): the roll and pitch from the neutral in degrees, `(−(asin(g.x/|g|) −
+/// asin(n.x/|n|)), −(asin(g.y/|g|) − asin(n.y/|n|))) / max_degrees`, then the
 /// radial dead zone of `dead_zone / max_degrees` and the rescaling a pad's
 /// stick takes, so the edge of the zone reads zero and `max_degrees` reads
 /// one, clamped to the unit circle. Zero for a zero or non-finite vector.
@@ -117,7 +117,7 @@ pub fn tilt_stick(g: Vec3, n: Vec3, tilt: Tilt) -> Vec2 {
         return Vec2::ZERO;
     }
     let raw = Vec2::new(
-        degrees(g.x, lg) - degrees(n.x, ln),
+        -(degrees(g.x, lg) - degrees(n.x, ln)),
         -(degrees(g.y, lg) - degrees(n.y, ln)),
     ) / tilt.max_degrees;
     pad::shape(

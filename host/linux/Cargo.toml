@@ -20,6 +20,7 @@ name = "exact_linux"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-ink = { path = "../ink" }
 exact-grants = { path = "../../grants" }
 exact-canvas = { path = "../../canvas" }
 exact-data = { path = "../../data" }
@@ -50,6 +51,9 @@ exact-runner = { path = "../../runner" }
 # conformance's network runs this host over (src/executor.rs).
 ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket", "portable-http"] }
 sha2 = "0.10"
+# The freedesktop recent-files store a kept document is noted in (src/kept.rs);
+# fontconfig-parser already links it.
+roxmltree = "0.20"
 # A remote image's redirects resolve and lose their credentials here (src/image/remote.rs).
 url = "2.5"
 serde = { version = "1.0", features = ["derive"] }
@@ -92,7 +96,12 @@ fontconfig-parser = "0.5"
 drm = "0.15"
 evdev = "0.13"
 
+[target.'cfg(unix)'.dependencies]
+# The local listener (LLP 1133.005), linked here as the SVG rasterizer is.
+exact-listen = { path = "../listen" }
+
 [target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Graphics_Imaging", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_UI_Controls_RichEdit", "Win32_UI_WindowsAndMessaging", "UI_ViewManagement"] }
 chrono = "0.4"
 chrono-tz = "0.10"
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_Com"] }
@@ -103,6 +112,8 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 test-wait = []
 
 [dev-dependencies]
+exact-js = { path = "../../js" }
+messages-stress-data = { path = "../../apps/messages-stress/data" }
 exact-update = { path = "../../update" }
 exact-linux = { path = ".", features = ["test-wait"] }
 cc = "1"

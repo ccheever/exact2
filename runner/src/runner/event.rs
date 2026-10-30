@@ -9,6 +9,7 @@ use std::rc::Rc;
 mod focus;
 pub(super) mod frame_navigation;
 mod keyboard;
+mod view_event;
 pub use keyboard::KeyboardEvent;
 
 const BINDING_ARGS: usize = 8;
@@ -185,12 +186,14 @@ pub enum Event {
         /// Exact insertion-before key; None denotes the actual logical end.
         before: Option<String>,
     },
-    /// A press on the view, no modifier key held.
+    /// A press on the view with no point and no modifier key held: a
+    /// keyboard's or an assistive technology's.
     Press,
-    /// A press with modifier keys held (gallery F20: shift-click, ⌘-click),
-    /// the `MouseEvent` flags a `press` action may take; dispatched as
-    /// `Press`. [`Event::press`] makes whichever the modifiers call for.
-    PressWith(KeyModifiers),
+    /// A press with a pointer's point or modifier keys held (gallery F20:
+    /// shift-click, ⌘-click; LLP 1021 D2: a menu at the press), the
+    /// `MouseEvent` a `press` action may take; dispatched as `Press`.
+    /// [`Event::press`] makes whichever the press calls for.
+    PressWith(super::MouseEvent),
     /// A control's value moved (HTML's `input`): a text field's every
     /// keystroke, a checkbox's toggle (LLP 1069.001 D4).
     Input(ControlValue),
@@ -478,17 +481,6 @@ impl KeyModifiers {
         Some(held)
     }
 
-    /// The `MouseEvent` record `press` offers, its fields in the compiler's
-    /// order (`contract/types/src/selection.rs`).
-    pub fn mouse(&self) -> Value {
-        Value::record(vec![
-            Value::Bool(self.shift),
-            Value::Bool(self.ctrl),
-            Value::Bool(self.alt),
-            Value::Bool(self.meta),
-        ])
-    }
-
     /// A key as a host writes it, split: the modifiers named before it with
     /// any of `Shift+`, `Control+`, `Alt+` and `Meta+`, and the key's name —
     /// the chord syntax of `aria-keyshortcuts` and Playwright
@@ -535,15 +527,20 @@ impl Event {
         })
     }
 
-    /// A press with the modifiers a host held ([`KeyModifiers::held`]):
-    /// `Press` when none is; `None` for a word DOM does not name.
-    pub fn press(held: &str) -> Option<Self> {
-        let held = KeyModifiers::held(held)?;
-        Some(if held == KeyModifiers::default() {
+    /// A press as a host writes it ([`super::MouseEvent::parse`]): the
+    /// modifiers held, after the pointer's point where there was one;
+    /// `Press` for neither; `None` for a malformed line.
+    pub fn press(payload: &str) -> Option<Self> {
+        Some(Self::pressed(super::MouseEvent::parse(payload)?))
+    }
+
+    /// A press with `mouse`'s point and modifiers: `Press` for neither.
+    pub fn pressed(mouse: super::MouseEvent) -> Self {
+        if mouse == super::MouseEvent::default() {
             Self::Press
         } else {
-            Self::PressWith(held)
-        })
+            Self::PressWith(mouse)
+        }
     }
 
     /// A key from its chord ([`KeyModifiers::split`]), with no code.
@@ -615,8 +612,8 @@ impl Event {
                 Value::Number(*end),
                 Value::list(rects.iter().map(|r| r.value()).collect()),
             ])),
-            Event::Press => Some(KeyModifiers::default().mouse()),
-            Event::PressWith(held) => Some(held.mouse()),
+            Event::Press => Some(super::MouseEvent::default().value()),
+            Event::PressWith(mouse) => Some(mouse.value()),
             Event::Media(kind, payload) => super::media_session::record(*kind, payload),
             Event::Focusin {
                 target,
@@ -1083,6 +1080,13 @@ impl<D: DataSource> Runner<D> {
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
+        // A world's message runs as the origin its mark carries (`world_origin.rs`).
+        if let Event::Message(text) = &event {
+            if let Some((origin, text)) = super::world_origin::unmark(text) {
+                let event = Event::Message(text.to_owned());
+                return self.as_origin(origin, |r| r.arrived(|r| r.dispatch_event(view, event)));
+            }
+        }
         self.arrived(|r| r.dispatch_event(view, event))
     }
 
@@ -1340,6 +1344,12 @@ impl<D: DataSource> Runner<D> {
                 (EventKind::Navigate, Some(Value::str(location)), "navigate")
             }
         };
+        // A package view's declared event (`view_event.rs`).
+        if let Event::Message(text) = &event {
+            if let Some(done) = self.view_event(node, text, &frames, what) {
+                return done;
+            }
+        }
         let row = self.plan.node(node);
         let handler = row
             .handlers
@@ -1351,7 +1361,20 @@ impl<D: DataSource> Runner<D> {
         let mut args = Vec::new();
         for a in handler.args.iter() {
             let code = self.plan.arg(a).expr;
-            args.push(self.eval(code, &[], &frames)?);
+            let value = match self.eval(code, &[], &frames) {
+                Ok(value) => value,
+                Err(error) => {
+                    let name = self.plan.action(handler.action).name;
+                    let error = RunnerError::HandlerArguments {
+                        action: self.plan.str(name).to_string(),
+                        error: Box::new(error),
+                    };
+                    let result = Err(error);
+                    self.record_ran("handler", name, self.poisoned, &result);
+                    return result;
+                }
+            };
+            args.push(value);
         }
         if let Some(p) = payload {
             // A navigate action may deliberately ignore its location (D8).
@@ -1432,7 +1455,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         super::lines::ran(what, self.plan.str(self.plan.action(handler.action).name));
-        self.run_action(handler.action, args, &frames)
+        self.traced_action("handler", handler.action, args, &frames)
     }
 }
 

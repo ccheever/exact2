@@ -265,6 +265,7 @@ fn expand_with_sites(
         actions: source.actions.clone(),
         tasks: source.tasks.clone(),
         sequences: source.sequences.clone(),
+        tools: source.tools.clone(),
         view: Vec::new(),
         params: source.params.clone(),
         anatomy: source.anatomy.clone(),

@@ -175,10 +175,10 @@ final class PadBarIOSTests: XCTestCase {
                 && list.adjustedContentInset.bottom >= bar.bounds.height
                 && [from, swap].allSatisfy { box($0).maxY <= self.keys + 0.5 && box($0).minY >= box(nav.navigationBar).maxY - 0.5 }
         }
-        XCTAssertEqual(box(p.viewport), window.bounds, "the native container remains full-size under the accessory")
+        XCTAssertEqual(box(p.documentHost), window.bounds, "the native container remains full-size under the accessory")
         XCTAssertEqual(box(list).maxY, keys + bar.bounds.height, accuracy: 0.5, "the edge scroller draws under the glass keys")
         XCTAssertGreaterThanOrEqual(list.adjustedContentInset.bottom, bar.bounds.height, "its content clears the accessory")
-        XCTAssertEqual(route.contentViewport?.frame, route.view.bounds, "the native scroll view fills its controller")
+        XCTAssertNil(route.contentViewport, "the screen uses its authored scroller directly")
         var ancestor = list.superview
         while let view = ancestor {
             if view.clipsToBounds {

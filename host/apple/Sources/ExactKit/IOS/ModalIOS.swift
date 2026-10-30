@@ -115,6 +115,12 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     // LLP 1105 D6: UIKit asks a presented controller that covers the screen;
     // it answers the presenter's one resolved style, as the root does.
     override var preferredStatusBarStyle: UIStatusBarStyle { host?.presenter.statusBar.style ?? .default }
+    // LLP 1133.029 D5: and the session's orientation lock, as the root does.
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        host?.presenter.orientationLock.supported ?? super.supportedInterfaceOrientations
+    }
+    @available(iOS 26, *)
+    override var prefersInterfaceOrientationLocked: Bool { host?.presenter.orientationLock.locked ?? false }
     #endif
     private var backdropTap: UITapGestureRecognizer?
     /// Each appearance, the first and one after a cancelled interactive dismissal.

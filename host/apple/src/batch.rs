@@ -27,18 +27,29 @@ pub struct Batch {
     /// The views this batch creates: each starts at its presentation's
     /// identity (`Host::present`).
     created: std::collections::HashSet<u32>,
+    /// The properties this batch presents of a view it creates: one
+    /// presented away from identity is no longer at it.
+    presented_new: std::collections::HashMap<u32, Vec<&'static str>>,
     /// What moves changes place or size (`Engine::spatial`): the display
     /// link asks for the panel's full rate (LLP 1061 D4).
     pub spatial: bool,
     /// A frame task wants each display frame (LLP 1073 D5): the display
     /// link runs and each tick is `exact_frame`.
     pub frames: bool,
+    /// Pending timer observation deadlines and held kinds (LLP 1147).
+    pub waits: Option<exact_runner::Waits>,
+    /// Independent platform timer instances, including an empty cancellation list.
+    pub native_timers: Option<Vec<exact_runner::NativeTimer>>,
     /// The kernel transactions this batch carries, `"seq":[first,last]`,
     /// when the runner measures (LLP 1079 D3): the frame sampler's join.
     pub seq: Option<(u64, u64)>,
     /// Failure lines for the platform's log, `"alerts":[…]`, each carried
     /// once (LLP 1142 D4: [`exact_runner::Runner::take_alerts`]).
     pub alerts: Vec<String>,
+    /// The journal's other lines, `"journal":[…]`, for the platform's log at
+    /// a lower level (LLP 1143 open question 1:
+    /// [`exact_runner::Runner::take_journal`]).
+    pub journal: Vec<String>,
     /// A 2D canvas asked for another frame (LLP 1056 D5).
     canvas: bool,
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
@@ -54,9 +65,15 @@ pub struct Batch {
     images: Vec<String>,
     /// The root font size or the window's modes moved (`Host::facts_moved`).
     pub facts: bool,
+    /// A timer's continuation an advance released is still out
+    /// (`Runner::data_timer_landing`): the agent's jump waits for its reply.
+    pub landing: bool,
     /// Whether a displayed element holds the wake lock, when that changed
     /// (`Host::wakelock_moved`, LLP 1125 D11).
     pub wakelock: Option<bool>,
+    /// The session's orientation lock, JSON, when it changed
+    /// (`Host::orientation_moved`, LLP 1133.029 D3).
+    pub orientationlock: Option<String>,
 }
 
 pub use exact_runner::agent::quote;
@@ -345,6 +362,28 @@ impl Batch {
         self.created.contains(&id)
     }
 
+    /// Whether the presenter shows `id`'s `property` at its identity
+    /// unless this batch presents it: the batch creates the view and has
+    /// presented none of that property yet. A batch can present twice (a
+    /// commit, then a `resize` round's), and a view the first presented
+    /// away from identity stays there until a `present` says otherwise.
+    pub fn at_identity(&self, id: u32, property: &str) -> bool {
+        self.created.contains(&id)
+            && !self
+                .presented_new
+                .get(&id)
+                .is_some_and(|p| p.contains(&property))
+    }
+
+    fn note_present(&mut self, id: u32, property: &'static str) {
+        if self.created.contains(&id) {
+            let p = self.presented_new.entry(id).or_default();
+            if !p.contains(&property) {
+                p.push(property);
+            }
+        }
+    }
+
     /// `{"op":"props","id":…,"set":{…},"clear":[…]}`.
     pub fn props(&mut self, id: u32, set: &[(&str, String)], clear: &[&str]) {
         let mut s = String::new();
@@ -443,6 +482,15 @@ impl Batch {
         quote(&session.url, &mut s);
         s.push_str(",\"callback\":");
         quote(&session.callback, &mut s);
+        // A loopback callback's receiver checks `state` itself (LLP 1133.005 D9).
+        if let Some((host, port, path)) = exact_runner::auth::loopback_callback(&session.callback) {
+            s.push_str(&format!(
+                ",\"loopback\":{{\"host\":\"{host}\",\"port\":{port},\"path\":"
+            ));
+            quote(&path, &mut s);
+            s.push_str("},\"state\":");
+            quote(&session.state, &mut s);
+        }
         s.push_str(&format!(",\"ephemeral\":{}}}", session.ephemeral));
         self.ops.push(s);
     }
@@ -785,16 +833,18 @@ impl Batch {
 
     /// `{"op":"present","id":…,"property":…,"x":…,"y":…}` — a motion
     /// property's presentation value this frame (`y` only for `translate`).
-    pub fn present(&mut self, id: u32, property: &str, x: f64, y: f64) {
+    pub fn present(&mut self, id: u32, property: &'static str, x: f64, y: f64) {
+        self.note_present(id, property);
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y}}}"
         ));
     }
 
     /// `{"op":"present","id":…,"property":"layout","x":…,"y":…,"w":…,"h":…}`
-    /// — a layout transition's offset and scale of the laid-out box (LLP
-    /// 1063).
-    pub fn present4(&mut self, id: u32, property: &str, [x, y, w, h]: [f64; 4]) {
+    /// — a layout transition's offset from the laid-out box and its size's
+    /// difference from it (LLP 1063).
+    pub fn present4(&mut self, id: u32, property: &'static str, [x, y, w, h]: [f64; 4]) {
+        self.note_present(id, property);
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
         ));
@@ -825,7 +875,11 @@ impl Batch {
         clock_ms: f64,
         error: Option<&str>,
     ) -> String {
-        let timers = timer_due_ms.is_some();
+        let timers = timer_due_ms.is_some()
+            || self
+                .native_timers
+                .as_ref()
+                .is_some_and(|timers| !timers.is_empty());
         // One allocation for the ops, which a list row's mount makes by the
         // hundred: growing the string as it went copied it a dozen times.
         let ops: usize = self.ops.iter().map(|op| op.len() + 1).sum();
@@ -842,6 +896,35 @@ impl Batch {
         s.push(']');
         if let Some(due) = timer_due_ms {
             let _ = write!(s, ",\"timer_due_ms\":{due}");
+        }
+        if let Some(timers) = self.native_timers {
+            s.push_str(",\"nativeTimers\":[");
+            for (i, timer) in timers.iter().enumerate() {
+                if i != 0 {
+                    s.push(',');
+                }
+                let _ = write!(s, "{{\"index\":{},\"generation\":\"{}\",\"due\":{},\"interval\":{},\"tolerance\":{},\"once\":{}}}",
+                    timer.index, timer.generation, timer.due_ms, timer.interval_ms, timer.tolerance_ms, timer.once);
+            }
+            s.push(']');
+        }
+        if let Some(waits) = self.waits {
+            s.push_str(",\"waits\":[");
+            for (i, wait) in [waits.frame, waits.update, waits.scrollend, waits.idle]
+                .iter()
+                .enumerate()
+            {
+                if i != 0 {
+                    s.push(',');
+                }
+                let value = if wait.held {
+                    -2.0
+                } else {
+                    wait.due_ms.unwrap_or(-1.0)
+                };
+                let _ = write!(s, "{value}");
+            }
+            s.push(']');
         }
         if self.spatial {
             s.push_str(",\"spatial\":true");
@@ -861,8 +944,14 @@ impl Batch {
         if self.facts {
             s.push_str(",\"facts\":true");
         }
+        if self.landing {
+            s.push_str(",\"landing\":true");
+        }
         if let Some(held) = self.wakelock {
             let _ = write!(s, ",\"wakelock\":{held}");
+        }
+        if let Some(lock) = &self.orientationlock {
+            let _ = write!(s, ",\"orientationlock\":{lock}");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");
@@ -883,9 +972,12 @@ impl Batch {
         if let Some((first, last)) = self.seq {
             let _ = write!(s, ",\"seq\":[{first},{last}]");
         }
-        if !self.alerts.is_empty() {
-            s.push_str(",\"alerts\":[");
-            for (i, line) in self.alerts.iter().enumerate() {
+        for (key, lines) in [("alerts", &self.alerts), ("journal", &self.journal)] {
+            if lines.is_empty() {
+                continue;
+            }
+            let _ = write!(s, ",\"{key}\":[");
+            for (i, line) in lines.iter().enumerate() {
                 if i > 0 {
                     s.push(',');
                 }

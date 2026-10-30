@@ -48,15 +48,29 @@ pub struct AtomKind {
 }
 
 /// What the app draws for an atom (LLP 1045.000 D2). Empty fields take the
-/// defaults: the default label, no icon, no tooltip.
+/// defaults: the default label, no icon, no tooltip, the kind's paint, the
+/// line's direction, the label as the accessible name.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AtomFace {
-    /// The text drawn in the pill and read by assistive technology.
+    /// The text drawn in the pill, and read by assistive technology unless
+    /// [`AtomFace::aria_label`] says otherwise.
     pub label: String,
     /// An image source for the icon before the label.
     pub icon: String,
     /// The tooltip and accessible description.
     pub title: String,
+    /// The label's colour over the kind's `color`, as text the host reads
+    /// as a colour.
+    pub color: String,
+    /// The pill's fill over the kind's `background-color`, as text the host
+    /// reads as a colour.
+    pub background_color: String,
+    /// The pill's own direction, `ltr` or `rtl`, which lays out its icon and
+    /// label (D4); empty to follow its line's.
+    pub direction: String,
+    /// The accessible name in place of the label (D8, the app's
+    /// `ariaLabel`); empty for the label.
+    pub aria_label: String,
 }
 
 /// A field's declared kinds and the app's faces, by source text.
@@ -87,7 +101,8 @@ pub struct Atom {
 impl Atoms {
     /// The kinds the compiler wrote (`atoms`, `[{"name", "link" | "prefix",
     /// "role"}, …]`) and the faces the app bound (`atomFaces`, `[{"source",
-    /// "label", "icon", "title"}, …]`). Malformed input reads as none.
+    /// "label", "icon", "title", "color", "backgroundColor", "direction",
+    /// "ariaLabel"}, …]`). Malformed input reads as none.
     pub fn parse(kinds: &str, faces: &str) -> Self {
         let mut out = Atoms::default();
         if let Some(Json::Array(rows)) = Json::parse(kinds) {
@@ -130,6 +145,14 @@ impl Atoms {
                         label: field("label").to_string(),
                         icon: field("icon").to_string(),
                         title: field("title").to_string(),
+                        color: field("color").to_string(),
+                        background_color: field("backgroundColor").to_string(),
+                        // Any other word follows the line, as an empty one does.
+                        direction: match field("direction") {
+                            d @ ("ltr" | "rtl") => d.to_string(),
+                            _ => String::new(),
+                        },
+                        aria_label: field("ariaLabel").to_string(),
                     },
                 );
             }
@@ -145,6 +168,19 @@ impl Atoms {
     /// The face for `source`, if the app supplied one.
     pub fn face(&self, source: &str) -> Option<&AtomFace> {
         self.faces.get(source)
+    }
+
+    /// These atoms as assistive technology reads them: each face's label is
+    /// its accessible name, its `ariaLabel` where it has one, so the plain
+    /// text of a reader made with them is what a screen reader says (D8).
+    pub fn spoken(&self) -> Atoms {
+        let mut out = self.clone();
+        for face in out.faces.values_mut() {
+            if !face.aria_label.is_empty() {
+                face.label = face.aria_label.clone();
+            }
+        }
+        out
     }
 }
 

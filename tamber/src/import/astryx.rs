@@ -129,6 +129,8 @@ pub fn import(
     design: &Design,
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
+    // Its work charged to one import's budget, as DTCG's and Pencil's is.
+    let _work = crate::budget::Work::begin(crate::budget::IMPORT);
     super::bounded(import_unbounded(json, prefix, design, vocab))
 }
 
@@ -357,16 +359,20 @@ fn other_kinds(
     let part = |o: &Other| o.var.rsplit_once('-').map_or("", |(_, p)| p).to_string();
     let start = tokens.len();
     let mut carried: Vec<(&'static str, Vec<&Other>)> = Vec::new();
-    let mut seen: Vec<&str> = Vec::new();
+    // Each token's variables, in order, grouped once (linear: the checker
+    // bound's sweep).
+    let mut by_token: std::collections::HashMap<&str, Vec<&Other>> = Default::default();
+    for x in others {
+        by_token.entry(x.token.as_str()).or_default().push(x);
+    }
     for o in others {
-        if seen.contains(&o.token.as_str()) {
+        let Some(all) = by_token.remove(o.token.as_str()) else {
             continue;
-        }
-        seen.push(&o.token);
+        };
         // The variables one token carries: a text style's size, weight and
         // leading, the first of each; any other to its name is reported.
         let mut group: Vec<&Other> = Vec::new();
-        for x in others.iter().filter(|x| x.token == o.token) {
+        for x in all {
             // A text style's parts share its variables' stem
             // (`--text-body-`): another style whose name becomes this
             // token's is a collision.

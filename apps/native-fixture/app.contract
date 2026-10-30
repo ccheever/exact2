@@ -120,6 +120,12 @@ component NativeFixture
   // hatch replaces a field's value with `input`; the `presser` hatch clicks
   // its own button once when armed, and on every change while looping, which
   // never settles until it is stopped.
+  // A hatched frame, shown on a press: the Apple module's `frame` hatch
+  // names the app in its user agent before the web view is made (LLP
+  // 1020.002 §9).
+  state framed = false
+  action frame
+    framed = not framed
   state fed = ""
   state feedWith = ""
   state armed = false
@@ -382,10 +388,10 @@ component NativeFixture
         for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             for e in t.stack key=e.id
-              // Second names no scroller: its `scroll` right after the header
-              // is the bar's with nothing written (LLP 1115.000 D11.1), and
-              // its large title collapses with it. The others name theirs.
-              column navigationKey=`${e.id}` navigationBar=(e.name == "photo" ? "none" : "auto") navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+              // Home and Second leave the bar's scroller unnamed: the first vertical
+              // scroller below each header drives its large title (LLP 1115.000
+              // D11.1). The other routes name theirs.
+              column navigationKey=`${e.id}` navigationBar=(e.name == "photo" ? "none" : "auto") navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" or e.name == "home" ? "" : (e.name == "plain" ? "plain-form" : (e.name == "chat" ? "list-chat" : "list-detail"))) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
                 // Photo is a full-bleed viewer that draws its own Close: it
                 // says it has no bar (`navigationBar="none"`, LLP 1115.000
                 // D5.2). Menu, a sheet's first route, has nothing to go back to.
@@ -468,183 +474,188 @@ component NativeFixture
                     button appearance="none" press=refreshProviders popovertarget="open-in-sheet" popovertargetaction="show" role="menuitem" testId="bar-menu-open-in" height=44 text-align="start"
                       text "Open in…"
                 if e.name == "home"
-                  column testId="fixture" gap=8 padding=12
-                    row gap=6 flex-wrap="wrap"
-                      button press=detail testId="detail" padding=6 background-color="#e5e7eb"
-                        text "Detail"
-                      button press=toggleChoosing testId="toggle-choosing" padding=6 background-color="#e5e7eb"
-                        text "Choose"
-                      button press=showRows testId="rows" padding=6 background-color="#e5e7eb"
-                        text "Rows"
-                      button press=customTransition testId="transition" padding=6 background-color="#e5e7eb"
-                        text "Transition"
-                      button press=openSheet testId="sheet" padding=6 background-color="#e5e7eb"
-                        text "Sheet"
-                      button press=askMenu testId="ask-sheets" padding=6 background-color="#e5e7eb"
-                        text "Sheets once asked"
-                      button press=openMenu testId="menu" padding=6 background-color="#e5e7eb"
-                        text "Menu"
-                      button press=toggleMenuLarge testId="menu-large" padding=6 background-color="#e5e7eb"
-                        text (menuLarge ? "Menu: fit-content large" : "Menu: fit-content")
-                      button "Tabs at top" press=toggleTabsAtTop testId="tabs-at-top"
-                      button "Authored tabs" press=toggleTabsAuthored testId="tabs-authored"
-                      button press=openChat testId="chat" padding=6 background-color="#e5e7eb"
-                        text "Chat"
-                      button press=openPlain testId="open-plain" padding=6 background-color="#e5e7eb"
-                        text "Plain"
-                      button press=openFocusedPlain testId="open-focused-plain" height=44
-                        text "Focus fields"
-                      button press=openNote testId="open-note" padding=6 background-color="#e5e7eb"
-                        text "Note"
-                      button press=openFocusedNote tabindex=0 testId="open-focused-note" padding=6 background-color="#e5e7eb"
-                        text "Compose"
-                      column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
-                        head description="Badge"
-                    row gap=4 align-items="center"
-                      text ("composed " + composed.toString()) testId="composed"
-                      time datetime=(surfaceClock.epochAtZero - 120000) format="relative" testId="live-time" font-size=14
-                        text "Two minutes ago"
-                      time datetime=surfaceClock.epochAtZero format="timer" testId="live-timer" font-size=14
-                      progress start=surfaceClock.epochAtZero end=(surfaceClock.epochAtZero + 120000) aria-label="Timed progress" testId="live-progress" width=24
-                    row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
-                      button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
-                        image "symbol:compose" width=20 height=20
-                    row gap=6 flex-wrap="wrap"
-                      button "Popover form" testId="open-native-popover" popovertarget="native-popover"
-                      button press=bump testId="bump" padding=6 background-color="#e5e7eb"
-                        text "Bump"
-                      button press=fire testId="fire" padding=6 background-color="#e5e7eb"
-                        text "Fire"
-                      button press=toggle testId="toggle" padding=6 background-color="#e5e7eb"
-                        text (shown ? "Unmount" : "Mount")
-                      button press=reject testId="reject" padding=6 background-color="#e5e7eb"
-                        text "Reject"
-                      button press=mode testId="mode" padding=6 background-color="#e5e7eb"
-                        text "Mode"
-                      button press=failSave testId="fail-save" padding=6 background-color="#e5e7eb"
-                        text "Save"
-                    // An "Open in…" chooser (LLP 1021): the invoker refreshes
-                    // what is installed as it opens; a menu on every host,
-                    // titled by its aria-label, each row its provider's icon,
-                    // the remembered one checked; the same rows as a sheet
-                    // when the popover asks for one (role="alertdialog").
-                    button press=showOverlay testId="show-overlay" padding=6 background-color="#e5e7eb"
-                      text "Overlay"
-                    button press=say testId="say" padding=6 background-color="#e5e7eb"
-                      text "Toast"
-                    row gap=6 flex-wrap="wrap"
-                      button press=refreshProviders popovertarget="open-in" testId="open-in" padding=6 background-color="#e5e7eb"
-                        text "Open in Maps"
-                      button press=refreshProviders popovertarget="open-in-sheet" testId="open-in-sheet" padding=6 background-color="#e5e7eb"
-                        text "Open in (sheet)"
-                      // A custom invoker whose children cover it: a touch
-                      // on any of them opens the menu, as on a UIButton.
-                      button appearance="none" press=refreshProviders popovertarget="open-in" testId="open-in-row" display="flex" flex-direction="row" align-items="center" gap=6
-                        column width=14 height=14 border-radius=4 background-color="#dbeafe" position="relative"
-                          column position="absolute" top=4 left=4 width=6 height=6 border-radius=3 background-color="#2563eb"
-                        text "Maps" testId="open-in-row-title"
-                        svg width=12 height=12 viewBox="0 0 24 24"
-                          path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width=3
-                      // One holding a field and a button of its own: each
-                      // keeps its touches; the rest of it opens the menu.
-                      button appearance="none" press=refreshProviders popovertarget="open-in" testId="open-in-mixed" display="flex" flex-direction="row" align-items="center" gap=6 padding=4
-                        text "Pick" testId="open-in-mixed-title"
-                        input value=query input=setQuery testId="open-in-mixed-field" aria-label="Filter" placeholder="Filter" width=70
-                        button press=bump testId="open-in-mixed-bump" padding=4 background-color="#e5e7eb"
+                  scroll testId="fixture-scroll" flex=1 min-height=0
+                    column testId="fixture" gap=8 padding=12
+                      row gap=6 flex-wrap="wrap"
+                        button press=detail testId="detail" padding=6 background-color="#e5e7eb"
+                          text "Detail"
+                        button press=toggleChoosing testId="toggle-choosing" padding=6 background-color="#e5e7eb"
+                          text "Choose"
+                        button press=showRows testId="rows" padding=6 background-color="#e5e7eb"
+                          text "Rows"
+                        button press=customTransition testId="transition" padding=6 background-color="#e5e7eb"
+                          text "Transition"
+                        button press=openSheet testId="sheet" padding=6 background-color="#e5e7eb"
+                          text "Sheet"
+                        button press=askMenu testId="ask-sheets" padding=6 background-color="#e5e7eb"
+                          text "Sheets once asked"
+                        button press=openMenu testId="menu" padding=6 background-color="#e5e7eb"
+                          text "Menu"
+                        button press=toggleMenuLarge testId="menu-large" padding=6 background-color="#e5e7eb"
+                          text (menuLarge ? "Menu: fit-content large" : "Menu: fit-content")
+                        button "Tabs at top" press=toggleTabsAtTop testId="tabs-at-top"
+                        button "Authored tabs" press=toggleTabsAuthored testId="tabs-authored"
+                        button press=openChat testId="chat" padding=6 background-color="#e5e7eb"
+                          text "Chat"
+                        button press=openPlain testId="open-plain" padding=6 background-color="#e5e7eb"
+                          text "Plain"
+                        button press=openFocusedPlain testId="open-focused-plain" height=44
+                          text "Focus fields"
+                        button press=openNote testId="open-note" padding=6 background-color="#e5e7eb"
+                          text "Note"
+                        button press=openFocusedNote tabindex=0 testId="open-focused-note" padding=6 background-color="#e5e7eb"
+                          text "Compose"
+                        column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
+                          head description="Badge"
+                      row gap=4 align-items="center"
+                        text ("composed " + composed.toString()) testId="composed"
+                        time datetime=(surfaceClock.epochAtZero - 120000) format="relative" testId="live-time" font-size=14
+                          text "Two minutes ago"
+                        time datetime=surfaceClock.epochAtZero format="timer" testId="live-timer" font-size=14
+                        progress start=surfaceClock.epochAtZero end=(surfaceClock.epochAtZero + 120000) aria-label="Timed progress" testId="live-progress" width=24
+                      row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
+                        button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
+                          image "symbol:compose" width=20 height=20
+                      row gap=6 flex-wrap="wrap"
+                        button "Popover form" testId="open-native-popover" popovertarget="native-popover"
+                        button press=bump testId="bump" padding=6 background-color="#e5e7eb"
                           text "Bump"
-                      text ("opened " + opened) testId="opened"
-                    column id="open-in" popover="auto" position="absolute" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
-                      for p in providerItems key=p.id
-                        button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in" popovertargetaction="hide" role="menuitemradio" testId=`open-in-${p.id}` height=44 display="flex" flex-direction="row" align-items="center" gap=8
-                          image p.icon width=24 height=24
-                          text p.name
-                      // HTML's separator: a section break in the native menu;
-                      // a flex item, so its auto side margins are zeroed.
-                      hr testId="open-in-rule" margin-left=0 margin-right=0
-                      button popovertarget="open-in" popovertargetaction="hide" testId="open-in-cancel" height=44
-                        text "Cancel"
-                    column id="open-in-sheet" popover="auto" position="absolute" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
-                      for p in providerItems key=p.id
-                        button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in-sheet" popovertargetaction="hide" testId=`open-in-sheet-${p.id}` height=44
-                          text p.name
-                      button popovertarget="open-in-sheet" popovertargetaction="hide" testId="open-in-sheet-cancel" height=44
-                        text "Cancel"
-                    // A context menu (LLP 1021 §5.1): a long press on iOS lifts
-                    // the row into UIKit's menu with the preview above it; the
-                    // preview's press is the commit, popping into Detail.
-                    button press=detail contextmenu=peeked contextPopover="peek" testId="peek" aria-label="Detail, long press to peek" display="flex" flex-direction="row" align-items="center" gap=8 padding=10 border-radius=12 background-color="#eef2ff"
-                      text "Peek at Detail" flex=1
-                      text ("peeks " + peeks.toString()) testId="peeks" font-size=12 color="#6b7280"
-                    column id="peek" popover="auto" position="absolute" role="menu" width=300 padding=8 gap=4 background-color="#ffffff"
-                      button contextPreview=true press=detail popovertarget="peek" popovertargetaction="hide" testId="peek-preview" aria-label="Open Detail" display="flex" flex-direction="column" gap=6 width="100%" height=180 padding=16 box-sizing="border-box" border-radius=12 background-color="#e0e7ff"
-                        text "Detail" font-weight=700 font-size=20
-                        text "A preview of the Detail screen, laid out by the kernel and shown by UIKit." font-size=14 color="#374151"
-                      button press=bump popovertarget="peek" popovertargetaction="hide" testId="peek-bump" height=44
-                        image "symbol:sf/plus.circle" width=20 height=20 object-fit="contain"
-                        text "Bump"
-                      hr margin-left=0 margin-right=0
-                      button press=askClear destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
-                        text "Clear"
-                    // The platform's alert (LLP 1115 D6): a title (its
-                    // aria-label), a message (its text), a destructive action
-                    // and Cancel, centred on iOS; opened by its button or by
-                    // `showModal` from an action (the context menu's Clear).
-                    button commandfor="clear-confirm" command="show-modal" testId="ask-clear" padding=6 background-color="#e5e7eb"
-                      text "Clear count…"
-                    dialog id="clear-confirm" role="alertdialog" aria-label="Clear the count?" padding=16
-                      text "The count goes back to zero."
-                      button press=unbump destructive=true commandfor="clear-confirm" command="close" testId="clear-confirm-clear"
-                        text "Clear"
-                      button commandfor="clear-confirm" command="close" testId="clear-confirm-cancel"
-                        text "Cancel"
-                    row gap=6
-                      button appearance="none" press=grow testId="grow" padding=6
-                        text "Grow content"
-                      button appearance="none" press=sizing testId="sizing" padding=6
-                        text "Toggle intrinsic size"
-                    dialog id="save-failed" role="alertdialog" aria-label="Couldn’t Save" padding=16
-                      text failure testId="save-failed-message"
-                      button commandfor="save-failed" command="close" testId="save-failed-ok"
-                        text "OK"
-                    text ("count " + count.toString() + " · loads " + loads.toString()) testId="counts"
-                    if shown
-                      exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
-                    exact-plain id="plain" testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
-                    exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
-                    row gap=4 flex-wrap="wrap"
-                      button testId="focus-input" press=focusInput
-                        text "Focus input"
-                      button testId="blur-input" press=blurInput
-                        text "Blur input"
-                      button testId="blur-plain" press=blurPlain
-                        text "Blur plain"
-                      button testId="block-input" press=blockInput
-                        text "Disable input"
-                      button testId="hide-input" press=hideInput
-                        text "Hide input"
-                      button testId="inert-input" press=inertInput
-                        text "Inert input"
-                      button testId="disable-on-blur" press=armDisabled blur=restrictInput
-                        text "Disable on blur"
-                      button testId="inert-on-blur" press=armInert blur=restrictInput
-                        text "Inert on blur"
-                      button testId="blur-wrapper" press=blurWrapper retainFocus=true
-                        text "Blur wrapper"
-                    if shown
-                      column inert=inputInert display=(inputHidden ? "none" : "block")
-                        button "Before input" testId="before-input"
-                        exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
-                        button "Input command" testId="input-command" press=inputCommand aria-keyshortcuts="Meta+Shift+Enter Meta+Plus c"
-                    button "Open native dialog" testId="open-native-dialog" commandfor="native-dialog" command="show-modal"
-                    dialog id="native-dialog" width=320 padding=16 closedby="any"
-                      column gap=8
-                        exact-plain id="dialog-input" testId="dialog-input" customInput=true natural=false width=280 height=48 change=dialogChange
-                        button "Dialog command" testId="dialog-command" press=dialogCommand aria-keyshortcuts="Meta+Shift+Enter"
-                        button "Close" testId="dialog-close" commandfor="native-dialog" command="close"
-                    column id="native-popover" testId="native-popover" popover="auto" position="absolute" width=320 padding=16 gap=8 background-color="#ffffff" border-width=1 border-style="solid" border-color="#9ca3af"
-                      input testId="popover-search" placeholder="Search" value=popoverSearch input=searchChange autofocus=true width=280 height=32
-                      exact-plain id="popover-input" testId="popover-input" customInput=true natural=false width=280 height=48 change=popoverChange
-                      button "Close popover" testId="popover-close" popovertarget="native-popover" popovertargetaction="hide"
+                        button press=fire testId="fire" padding=6 background-color="#e5e7eb"
+                          text "Fire"
+                        button press=toggle testId="toggle" padding=6 background-color="#e5e7eb"
+                          text (shown ? "Unmount" : "Mount")
+                        button press=reject testId="reject" padding=6 background-color="#e5e7eb"
+                          text "Reject"
+                        button press=mode testId="mode" padding=6 background-color="#e5e7eb"
+                          text "Mode"
+                        button press=failSave testId="fail-save" padding=6 background-color="#e5e7eb"
+                          text "Save"
+                        button press=frame testId="show-frame" padding=6 background-color="#e5e7eb"
+                          text (framed ? "Unframe" : "Frame")
+                        if framed
+                          iframe hatch="frame" src="about:blank" testId="hatched-frame" width=40 height=24
+                      // An "Open in…" chooser (LLP 1021): the invoker refreshes
+                      // what is installed as it opens; a menu on every host,
+                      // titled by its aria-label, each row its provider's icon,
+                      // the remembered one checked; the same rows as a sheet
+                      // when the popover asks for one (role="alertdialog").
+                      button press=showOverlay testId="show-overlay" padding=6 background-color="#e5e7eb"
+                        text "Overlay"
+                      button press=say testId="say" padding=6 background-color="#e5e7eb"
+                        text "Toast"
+                      row gap=6 flex-wrap="wrap"
+                        button press=refreshProviders popovertarget="open-in" testId="open-in" padding=6 background-color="#e5e7eb"
+                          text "Open in Maps"
+                        button press=refreshProviders popovertarget="open-in-sheet" testId="open-in-sheet" padding=6 background-color="#e5e7eb"
+                          text "Open in (sheet)"
+                        // A custom invoker whose children cover it: a touch
+                        // on any of them opens the menu, as on a UIButton.
+                        button appearance="none" press=refreshProviders popovertarget="open-in" testId="open-in-row" display="flex" flex-direction="row" align-items="center" gap=6
+                          column width=14 height=14 border-radius=4 background-color="#dbeafe" position="relative"
+                            column position="absolute" top=4 left=4 width=6 height=6 border-radius=3 background-color="#2563eb"
+                          text "Maps" testId="open-in-row-title"
+                          svg width=12 height=12 viewBox="0 0 24 24"
+                            path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width=3
+                        // One holding a field and a button of its own: each
+                        // keeps its touches; the rest of it opens the menu.
+                        button appearance="none" press=refreshProviders popovertarget="open-in" testId="open-in-mixed" display="flex" flex-direction="row" align-items="center" gap=6 padding=4
+                          text "Pick" testId="open-in-mixed-title"
+                          input value=query input=setQuery testId="open-in-mixed-field" aria-label="Filter" placeholder="Filter" width=70
+                          button press=bump testId="open-in-mixed-bump" padding=4 background-color="#e5e7eb"
+                            text "Bump"
+                        text ("opened " + opened) testId="opened"
+                      column id="open-in" popover="auto" position="absolute" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                        for p in providerItems key=p.id
+                          button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in" popovertargetaction="hide" role="menuitemradio" testId=`open-in-${p.id}` height=44 display="flex" flex-direction="row" align-items="center" gap=8
+                            image p.icon width=24 height=24
+                            text p.name
+                        // HTML's separator: a section break in the native menu;
+                        // a flex item, so its auto side margins are zeroed.
+                        hr testId="open-in-rule" margin-left=0 margin-right=0
+                        button popovertarget="open-in" popovertargetaction="hide" testId="open-in-cancel" height=44
+                          text "Cancel"
+                      column id="open-in-sheet" popover="auto" position="absolute" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                        for p in providerItems key=p.id
+                          button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in-sheet" popovertargetaction="hide" testId=`open-in-sheet-${p.id}` height=44
+                            text p.name
+                        button popovertarget="open-in-sheet" popovertargetaction="hide" testId="open-in-sheet-cancel" height=44
+                          text "Cancel"
+                      // A context menu (LLP 1021 §5.1): a long press on iOS lifts
+                      // the row into UIKit's menu with the preview above it; the
+                      // preview's press is the commit, popping into Detail.
+                      button press=detail contextmenu=peeked contextPopover="peek" testId="peek" aria-label="Detail, long press to peek" display="flex" flex-direction="row" align-items="center" gap=8 padding=10 border-radius=12 background-color="#eef2ff"
+                        text "Peek at Detail" flex=1
+                        text ("peeks " + peeks.toString()) testId="peeks" font-size=12 color="#6b7280"
+                      column id="peek" popover="auto" position="absolute" role="menu" width=300 padding=8 gap=4 background-color="#ffffff"
+                        button contextPreview=true press=detail popovertarget="peek" popovertargetaction="hide" testId="peek-preview" aria-label="Open Detail" display="flex" flex-direction="column" gap=6 width="100%" height=180 padding=16 box-sizing="border-box" border-radius=12 background-color="#e0e7ff"
+                          text "Detail" font-weight=700 font-size=20
+                          text "A preview of the Detail screen, laid out by the kernel and shown by UIKit." font-size=14 color="#374151"
+                        button press=bump popovertarget="peek" popovertargetaction="hide" testId="peek-bump" height=44
+                          image "symbol:sf/plus.circle" width=20 height=20 object-fit="contain"
+                          text "Bump"
+                        hr margin-left=0 margin-right=0
+                        button press=askClear destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
+                          text "Clear"
+                      // The platform's alert (LLP 1115 D6): a title (its
+                      // aria-label), a message (its text), a destructive action
+                      // and Cancel, centred on iOS; opened by its button or by
+                      // `showModal` from an action (the context menu's Clear).
+                      button commandfor="clear-confirm" command="show-modal" testId="ask-clear" padding=6 background-color="#e5e7eb"
+                        text "Clear count…"
+                      dialog id="clear-confirm" role="alertdialog" aria-label="Clear the count?" padding=16
+                        text "The count goes back to zero."
+                        button press=unbump destructive=true commandfor="clear-confirm" command="close" testId="clear-confirm-clear"
+                          text "Clear"
+                        button commandfor="clear-confirm" command="close" testId="clear-confirm-cancel"
+                          text "Cancel"
+                      row gap=6
+                        button appearance="none" press=grow testId="grow" padding=6
+                          text "Grow content"
+                        button appearance="none" press=sizing testId="sizing" padding=6
+                          text "Toggle intrinsic size"
+                      dialog id="save-failed" role="alertdialog" aria-label="Couldn’t Save" padding=16
+                        text failure testId="save-failed-message"
+                        button commandfor="save-failed" command="close" testId="save-failed-ok"
+                          text "OK"
+                      text ("count " + count.toString() + " · loads " + loads.toString()) testId="counts"
+                      if shown
+                        exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
+                      exact-plain id="plain" testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
+                      exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
+                      row gap=4 flex-wrap="wrap"
+                        button testId="focus-input" press=focusInput
+                          text "Focus input"
+                        button testId="blur-input" press=blurInput
+                          text "Blur input"
+                        button testId="blur-plain" press=blurPlain
+                          text "Blur plain"
+                        button testId="block-input" press=blockInput
+                          text "Disable input"
+                        button testId="hide-input" press=hideInput
+                          text "Hide input"
+                        button testId="inert-input" press=inertInput
+                          text "Inert input"
+                        button testId="disable-on-blur" press=armDisabled blur=restrictInput
+                          text "Disable on blur"
+                        button testId="inert-on-blur" press=armInert blur=restrictInput
+                          text "Inert on blur"
+                        button testId="blur-wrapper" press=blurWrapper retainFocus=true
+                          text "Blur wrapper"
+                      if shown
+                        column inert=inputInert display=(inputHidden ? "none" : "block")
+                          button "Before input" testId="before-input"
+                          exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
+                          button "Input command" testId="input-command" press=inputCommand aria-keyshortcuts="Meta+Shift+Enter Meta+Plus c"
+                      button "Open native dialog" testId="open-native-dialog" commandfor="native-dialog" command="show-modal"
+                      dialog id="native-dialog" width=320 padding=16 closedby="any"
+                        column gap=8
+                          exact-plain id="dialog-input" testId="dialog-input" customInput=true natural=false width=280 height=48 change=dialogChange
+                          button "Dialog command" testId="dialog-command" press=dialogCommand aria-keyshortcuts="Meta+Shift+Enter"
+                          button "Close" testId="dialog-close" commandfor="native-dialog" command="close"
+                      column id="native-popover" testId="native-popover" popover="auto" position="absolute" width=320 padding=16 gap=8 background-color="#ffffff" border-width=1 border-style="solid" border-color="#9ca3af"
+                        input testId="popover-search" placeholder="Search" value=popoverSearch input=searchChange autofocus=true width=280 height=32
+                        exact-plain id="popover-input" testId="popover-input" customInput=true natural=false width=280 height=48 change=popoverChange
+                        button "Close popover" testId="popover-close" popovertarget="native-popover" popovertargetaction="hide"
                 if e.name == "rows"
                   HatchedRows(items=rowItems)
                 if e.name == "detail"
@@ -767,10 +778,12 @@ component NativeFixture
                     button press=detail testId="sheet-detail" height=44
                       text "Detail in the sheet"
                 if e.name == "plain" and focusPlain
-                  input testId="plain-first" aria-label="First field" autofocus=true margin=12 height=32
-                  input testId="plain-second" aria-label="Second field" autofocus=true margin=12 height=32
-                  button press=openAnotherEditor testId="plain-push" height=44
-                    text "Push another editor"
+                  scroll id="plain-form" testId="plain-form" flex=1 min-height=0
+                    column
+                      input testId="plain-first" aria-label="First field" autofocus=true margin=12 height=32
+                      input testId="plain-second" aria-label="Second field" autofocus=true margin=12 height=32
+                      button press=openAnotherEditor testId="plain-push" height=44
+                        text "Push another editor"
                 if e.name == "note" and focusNote
                   textarea testId="note-text" aria-label="Note" autofocus=true margin=12 height=120
                 if e.name == "photo"

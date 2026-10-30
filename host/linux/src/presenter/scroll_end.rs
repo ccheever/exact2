@@ -42,13 +42,25 @@ impl State {
 }
 
 impl<D: DataSource> Presenter<D> {
+    pub(super) fn scroll_activity(&self) -> bool {
+        self.contact.is_some()
+            || self.pointer_held.is_some()
+            || self.control_contact.is_some()
+            || !self.scroll_end.pending.is_empty()
+            || !self.scroll_end.model.is_empty()
+            || self
+                .timer_observations
+                .is_some_and(|(scrolling, _, _)| scrolling)
+    }
+
     pub(crate) fn tracks_scroll_end(&self, view: ViewId) -> bool {
-        !cfg!(windows)
-            && self
-                .host
-                .runner()
-                .handlers_of(view)
-                .contains(&EventKind::Scrollend)
+        self.host.runner().plan().timers.iter().any(|t| t.wait >= 2)
+            || (!cfg!(windows)
+                && self
+                    .host
+                    .runner()
+                    .handlers_of(view)
+                    .contains(&EventKind::Scrollend))
     }
 
     fn scroll_end_live(&self, view: ViewId, key: NodeKey) -> bool {
@@ -161,6 +173,21 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// A pending position's bookkeeping changed (`advance_pending_base`): the copy kept to
+    /// recognize its acknowledgement follows it, so its `scrollend` still comes.
+    pub(super) fn scroll_end_model_moved(
+        &mut self,
+        view: ViewId,
+        was: collection::ModelScroll,
+        now: collection::ModelScroll,
+    ) {
+        if let Some((model, _)) = self.scroll_end.model.get_mut(&view) {
+            if model.same_target(&was) {
+                *model = now;
+            }
+        }
+    }
+
     // Layout may clamp an unacknowledged request without starting another scroll.
     pub(super) fn scroll_end_retargeted(
         &mut self,
@@ -172,12 +199,12 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         if let Some((model, _)) = self.scroll_end.model.get_mut(&view) {
-            if Some(*model) == before
+            if before.is_some_and(|b| model.same_target(&b))
                 && (model.key, model.sequence) == (current.key, current.sequence)
             {
                 *model = current;
             }
-            if *model != current {
+            if !model.same_target(&current) {
                 self.scroll_end.model.remove(&view);
             }
         }
@@ -186,7 +213,10 @@ impl<D: DataSource> Presenter<D> {
     fn retire_model_scroll_ends(&mut self) {
         // Cursor advances and sequence changes can invalidate an unpainted request.
         let mut models = std::mem::take(&mut self.scroll_end.model);
-        models.retain(|view, (model, _)| self.pending_model_scroll(*view) == Some(*model));
+        models.retain(|view, (model, _)| {
+            self.pending_model_scroll(*view)
+                .is_some_and(|p| p.same_target(model))
+        });
         self.scroll_end.model = models;
     }
 
@@ -202,7 +232,7 @@ impl<D: DataSource> Presenter<D> {
             .model
             .get(&view)
             .copied()
-            .filter(|(model, _)| *model == accepted)
+            .filter(|(model, _)| model.same_target(&accepted))
         {
             self.scroll_end.model.remove(&view);
             if moved {
@@ -381,7 +411,14 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
             self.scroll_end.delivering.pop_front();
-            if !self.scroll_end_live(view, key) {
+            if !self.scroll_end_live(view, key)
+                || cfg!(windows)
+                || !self
+                    .host
+                    .runner()
+                    .handlers_of(view)
+                    .contains(&EventKind::Scrollend)
+            {
                 continue;
             }
             let sent = self
@@ -442,9 +479,9 @@ impl<D: DataSource + Default> Presenter<D> {
     }
 }
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
 #[test]
-fn windows_keeps_scroll_completion_disabled() {
+fn timer_observations_preserve_the_platforms_scroll_completion_support() {
     struct NoData;
     impl DataSource for NoData {
         fn query(
@@ -455,36 +492,47 @@ fn windows_keeps_scroll_completion_disabled() {
             Err(exact_runner::DataError::UnknownSource(name.into()))
         }
     }
-    let plan = contract::compile(
-        r#"component App
+    for waiting in [false, true] {
+        let source = r#"component App
   state ends = 0
   action ended
     ends = ends + 1
   view
     scroll testId="port" width=200 height=100 scrollend=ended
       box height=1000
-"#,
-    )
-    .unwrap()
-    .encode();
-    let (mut p, error) = Presenter::boot_with(
-        &plan,
-        NoData,
-        (400., 500.),
-        1.,
-        PathBuf::new(),
-        PainterChoice::Cpu,
-    )
-    .unwrap();
-    assert_eq!(error, None);
-    let key = p.host.kernel().find_by_test_id("port")[0];
-    let view = p.host.kernel().node_by_key(key).unwrap().id;
-    assert!(!p.tracks_scroll_end(view));
-    p.wheel(view, 0., 20.).unwrap();
-    p.advance(200.);
-    assert_eq!(p.scroll_end_due(), None);
-    assert_eq!(
-        p.host.runner().slot("ends"),
-        Some(&exact_runner::Value::Number(0.))
-    );
+"#;
+        let source = if waiting {
+            source.replace(
+                "  view",
+                "  task refresh mount\n    after(1000, ended, wait=scrollend)\n  view",
+            )
+        } else {
+            source.to_owned()
+        };
+        let plan = contract::compile(&source).unwrap().encode();
+        let (mut p, error) = Presenter::boot_with(
+            &plan,
+            NoData,
+            (400., 500.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert_eq!(error, None);
+        let key = p.host.kernel().find_by_test_id("port")[0];
+        let view = p.host.kernel().node_by_key(key).unwrap().id;
+        assert_eq!(p.tracks_scroll_end(view), waiting || !cfg!(windows));
+        p.wheel(view, 0., 20.).unwrap();
+        p.advance(200.);
+        assert_eq!(p.scroll_end_due(), None);
+        assert_eq!(
+            p.host.runner().slot("ends"),
+            Some(&exact_runner::Value::Number(if cfg!(windows) {
+                0.
+            } else {
+                1.
+            }))
+        );
+    }
 }

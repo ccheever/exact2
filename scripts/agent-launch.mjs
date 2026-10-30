@@ -443,6 +443,8 @@ export function parseFlags(argv) {
   argv = selection.argv;
   const flags = { json: false, ...(selection.widget ? { widget: selection.widget } : {}), ...(selection.activity ? { activity: selection.activity } : {}) };
   const rest = [];
+  // Only this drive's flags say what a child is (LLP 1133.007 §7), never an inherited environment.
+  for (const key of ['EXACT_AGENT_PROCESS', 'EXACT_AGENT_LOGIN_ENV', 'EXACT_AGENT_HOME']) delete process.env[key];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
     else if (argv[i] === '--world') flags.world = resolve(argv[++i]);
@@ -491,8 +493,26 @@ export function parseFlags(argv) {
     else if (argv[i] === '--notification') (flags.launchEntries ??= []).push({ launch: 'notification', entry: argv[++i] });
     // A cold wake (LLP 1133.017 §10): `--wake '<entry>'`, a registration as `state` printed it, raised before the first op.
     else if (argv[i] === '--wake') (flags.launchEntries ??= []).push({ launch: 'wake', entry: argv[++i] });
+    // A cold tool call (LLP 1133.023 §10): `--call '<tool> <json>'`, delivered once the data module is ready, as a system's call that started the app.
+    else if (argv[i] === '--call') (flags.launchEntries ??= []).push({ launch: 'call', entry: argv[++i] });
+    // A launch the login item made (LLP 1133.025 D2, D6): `--login`, or `--login hidden` for one registered to open with
+    // no window. The runner answers `launchedAtLogin`; the macOS host leaves the window unshown for a hidden one.
+    else if (argv[i] === '--login') {
+      flags.login = argv[i + 1] === 'hidden' ? (i++, 'hidden') : 'shown';
+      (flags.launchEntries ??= []).push({ launch: 'login', entry: flags.login });
+    }
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
     else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
+    // What a child process is under the agent (LLP 1133.007 §7), said to a native host in the variables its executor reads:
+    // `--process <target>=<file>|script:<file.json>|real` (`all=real` every target), `--login-env NAME=value`, `--home <dir>`.
+    else if (argv[i] === '--process' || argv[i] === '--login-env') {
+      const value = argv[++i] ?? '', [name, spec] = [value.slice(0, value.indexOf('=')), value.slice(value.indexOf('=') + 1)];
+      if (!value.includes('=') || !name || !spec) throw new Error(`${argv[i - 1]} ${value}: expected ${argv[i - 1] === '--process' ? '<target>=<file>|script:<file.json>|real' : 'NAME=value'}`);
+      const key = argv[i - 1] === '--process' ? 'EXACT_AGENT_PROCESS' : 'EXACT_AGENT_LOGIN_ENV', file = spec.replace(/^script:/, '');
+      const line = argv[i - 1] === '--process' && spec !== 'real' ? `${name}=${spec.startsWith('script:') ? 'script:' : ''}${resolve(file)}` : `${name}=${spec}`;
+      process.env[key] = [process.env[key], line].filter(Boolean).join('\n');
+    }
+    else if (argv[i] === '--home') process.env.EXACT_AGENT_HOME = resolve(argv[++i] ?? '.');
     else rest.push(argv[i]);
   }
   if ((flags.widget || flags.activity) && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
@@ -561,6 +581,18 @@ export function faultSpec(spec) {
     if (counts[0] === '0') throw new Error('fail fetch: `times` is a positive integer');
   }
   return lines.join('\n');
+}
+
+/** `address` as every browser carrier opens it: under the agent, with the launch facts, the drive's auth fixture,
+ * whose sign-in URLs a held request shows whole (LLP 1146 D4), its storage, and hatches off when the drive turns them
+ * off (LLP 1075.003.000.001 §2.6). */
+export function agentPage(address, { facts, storage, env }) {
+  address.searchParams.set('agent', '1');
+  for (const [key, value] of Object.entries(facts)) address.searchParams.set(key, value);
+  if (env?.EXACT_AUTH_FIXTURE) address.searchParams.set('authFixture', env.EXACT_AUTH_FIXTURE);
+  if (storage !== undefined) address.searchParams.set('storage', storage);
+  if ((env?.EXACT_HATCHES ?? process.env.EXACT_HATCHES) === 'off') address.searchParams.set('hatches', 'off');
+  return address;
 }
 
 /** The page address with the fault table a reload carries (LLP 1103 D3); `undefined` leaves the launch's. */
@@ -956,7 +988,7 @@ const contentDigest = path => { try { return createHash('sha1').update(readFileS
 /** Content digests of every input of a web build, recorded in its marker. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null};
+  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null, PORT: process.env.PORT ?? null};
 }
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
@@ -972,8 +1004,9 @@ export function webChanges(dist, app) {
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', since);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
   // A file the build read that is gone since (a source deleted) is a change too: absence is an input.
-  for (const path of Object.keys(built.inputs ?? {})) if (path !== 'EXACT_BACKEND_ORIGIN' && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
+  for (const path of Object.keys(built.inputs ?? {})) if (!['EXACT_BACKEND_ORIGIN', 'PORT'].includes(path) && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
   if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
+  if ((built.inputs?.PORT ?? null) !== (process.env.PORT ?? null)) appChanges.push('PORT');
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
@@ -1206,5 +1239,16 @@ export async function launchEntries(s, flags) {
   for (const entry of flags.launchEntries ?? []) {
     const r = await s.op({ op: 'launchEntry', ...entry });
     if (r?.error) throw new Error(r.error);
+  }
+}
+
+if (import.meta.main) {
+  const helperArgs = process.argv.slice(2);
+  if (helperArgs.includes('--fixture-port')) {
+    const at = helperArgs.indexOf('--app');
+    const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
+    const selected = backendOriginSelection(resolveApp(at < 0 ? undefined : helperArgs[at + 1]).dir);
+    if (!selected) throw new Error('this app has no selected fixture origin; pass --app <name>');
+    console.log(new URL(selected.origin).port || (selected.origin.startsWith('https:') ? '443' : '80'));
   }
 }

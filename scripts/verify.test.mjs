@@ -5,12 +5,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, toNamespacedPath } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
+import { findings } from '../host/apple/feel/analyze.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
+import { ago, appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, recordedServerAddress, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, reusable, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -485,7 +486,7 @@ test('server command arguments reach the child in order, with DB and PORT for a 
     assert.equal(existsSync(resolve(dir, '.exact/test')), false);
     assert.deepEqual([taken, given], [1, 1]);
   `);
-});
+}, 30_000);
 
 test('database: false omits inherited DB, preserves database files, and keeps refusal and cleanup behavior', () => {
   stubServerRun(`
@@ -518,7 +519,7 @@ test('database: false omits inherited DB, preserves database files, and keeps re
     assert.equal(await withAppServer(dir, () => assert.fail('a database server without DB must be refused'), { optional: true }), 1);
     assert.equal(children.length, 2);
   `);
-});
+}, 30_000);
 
 test('agent --test starts and stops the app server on web, ios and macos, and reuses its parent server', () => {
   stubServerRun(`
@@ -553,7 +554,7 @@ test('agent --test starts and stops the app server on web, ios and macos, and re
     assert.equal(await main(['web', ...args], { runTests: async () => ({ results: [], passed: 0, failed: 1 }) }), 1);
     assert.equal(children.length, 4, 'an app with no server still runs its tests');
   `);
-});
+}, 30_000);
 
 test('an agent drive passes server arguments without DB or a scratch database', () => {
   stubServerRun(`
@@ -578,11 +579,135 @@ test('Excord declares its transcript fixture without a database', async () => {
   assert.notEqual(validate({ database: 'false' }, schema.properties.server, 'server', schema).length, 0);
   const dir = resolve(import.meta.dir, '../apps/excord');
   assert.deepEqual(readManifest(dir, 'excord').server, { database: false });
-  assert.deepEqual(appServer(dir), {
+  const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
+  const selected = backendOriginSelection(dir, {});
+  assert.deepEqual(backendOriginSelection(toNamespacedPath(dir), {}), selected);
+  assert.deepEqual(appServer(toNamespacedPath(dir), {}), appServer(dir, {}));
+  assert.deepEqual(appServer(dir, {}), {
     entry: 'fixture/server.ts', args: ['--world', 'transcript', '--reset-on-identify'], database: false,
-    url: 'http://127.0.0.1:4790', port: 4790, why: null, refusal: null,
+    url: selected.origin, port: Number(new URL(selected.origin).port), why: null, refusal: null, fixture: true,
   });
+  assert.equal(selected.source, 'checkout fixture port');
+  assert.ok(appServer(dir, {}).port >= 4790 && appServer(dir, {}).port <= 5789);
+  assert.equal(appServer(dir, {PORT:'5123'}).port, 5123);
+  assert.equal(appServer(dir, {PORT:'5123', EXACT_BACKEND_ORIGIN:'http://127.0.0.1:5124'}).port, 5124);
+  assert.equal(appServer(dir, {EXACT_BACKEND_ORIGIN:'https://discord.com'}).url, null);
+  assert.throws(() => appServer(dir, {PORT:'0'}), /fixture port must be an integer/);
 });
+
+test('recorded server addresses preserve accepted default ports and paths, refusing credentials and queries', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-address-'));
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ server: { database: false } }));
+    writeFileSync(resolve(dir, 'server.ts'), 'Bun.serve({});\n');
+    for (const [url, port] of [
+      ['http://127.0.0.1:80', 80], ['http://127.0.0.1:080', 80], ['https://localhost:443', 443],
+      ['https://[::1]:0443/api', 443], ['http://localhost:80/health', 80], ['http://127.0.0.1:8080/api/v1/', 8080],
+    ]) {
+      writeFileSync(resolve(dir, 'app.ts'), `export const API = ${JSON.stringify(url)};\n`);
+      const accepted = appServer(dir, {});
+      assert.equal(accepted.url, url.replace(/\/$/, ''));
+      assert.equal(accepted.port, port);
+      assert.deepEqual(recordedServerAddress(accepted.url), { url: accepted.url, port });
+    }
+    for (const url of [null, {}, 'file:///tmp/server', 'ftp://localhost:80', 'http://user:pw@localhost:80',
+      'http://@localhost:80', 'http://localhost:80/?', 'http://localhost:80/?q=x', 'http://localhost:80/#',
+      'http://localhost:80/#x', 'http://:80', 'http://localhost:65536']) assert.equal(recordedServerAddress(url), null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('fixture drives isolate checkouts, refuse foreign servers and clean overlapping ports', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-fixture-checkouts-')), running = [], fixturePids = new Map();
+  const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
+  const env = { ...process.env }; delete env.PORT; delete env.EXACT_BACKEND_ORIGIN;
+  const script = `import { driveServer, appServer } from ${JSON.stringify(resolve(import.meta.dir, 'verify.mjs'))};
+let running;
+try {
+  running = await driveServer(process.argv[1], 'fixture', () => {});
+  console.log(JSON.stringify({ origin: appServer(process.argv[1]).url }));
+  for await (const line of console) break;
+} catch (e) { console.log(JSON.stringify({ error: e.message })); }
+finally { await running?.stop(); }
+process.exit(0);`;
+  const drive = async (dir, extra = {}) => {
+    const child = Bun.spawn([process.execPath, '-e', script, dir], { env: { ...env, ...extra }, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+    running.push(child);
+    const reader = child.stdout.values()[Symbol.asyncIterator](), first = await reader.next();
+    const result = JSON.parse(new TextDecoder().decode(first.value));
+    if (result.origin) for (const file of readdirSync(resolve(dir, '.exact/agent-server')).filter(f => /^server-\d+$/.test(f))) {
+      fixturePids.set(Number(file.slice(7)), realpathSync(dir));
+    }
+    return { ...result, child, stop: async () => { child.stdin.write('\n'); await child.stdin.flush(); await child.exited; } };
+  };
+  const fixtures = [], ports = new Set();
+  try {
+    for (let i = 0; fixtures.length < 2 && i < 100; i++) {
+      const dir = resolve(parent, `checkout-${i}`);
+      mkdirSync(resolve(dir, 'fixture'), { recursive: true });
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ commands: { server: ['bun', 'fixture/server.ts'] }, server: { database: false } }));
+      writeFileSync(resolve(dir, 'app.ts'), 'export const origin = "http://127.0.0.1:4790";\n');
+      const selected = backendOriginSelection(dir, {}), port = Number(new URL(selected.origin).port);
+      assert.equal(backendOriginSelection(dir, {}).origin, selected.origin);
+      if (ports.has(port)) continue;
+      let probe; try { probe = Bun.serve({ hostname: '127.0.0.1', port, fetch: () => new Response('') }); } catch { continue; }
+      probe.stop(true); ports.add(port);
+      writeFileSync(resolve(dir, 'fixture/server.ts'), `Bun.serve({hostname:'127.0.0.1', port:Number(process.env.PORT), fetch:()=>Response.json({world:${JSON.stringify(dir)}})});\n`);
+      fixtures.push(dir);
+    }
+    assert.equal(fixtures.length, 2, 'two unused checkout ports');
+    const [a, b] = await Promise.all(fixtures.map(dir => drive(dir)));
+    assert.notEqual(a.origin, b.origin);
+    assert.deepEqual(await Promise.all([a, b].map(x => fetch(x.origin).then(r => r.json()))), fixtures.map(world => ({ world })));
+    const conflict = await drive(fixtures[1], { EXACT_BACKEND_ORIGIN: a.origin });
+    assert.match(conflict.error, /fixture does not belong.*--backend.*PORT=/);
+    await conflict.child.exited;
+    // A matching command and cwd are insufficient without the launch record.
+    const lease = resolve(fixtures[0], '.exact/agent-server');
+    const record = readdirSync(lease).find(f => /^server-\d+$/.test(f)), path = resolve(lease, record), held = readFileSync(path, 'utf8');
+    await b.stop();
+    const foreignLease = resolve(fixtures[1], '.exact/agent-server');
+    mkdirSync(foreignLease, { recursive: true });
+    const copied = resolve(foreignLease, record);
+    for (const text of [held, JSON.stringify({ ...JSON.parse(held), directory: realpathSync(fixtures[1]), origin: a.origin }), 'null']) {
+      writeFileSync(copied, text);
+      try {
+        const refused = await drive(fixtures[1], { EXACT_BACKEND_ORIGIN: a.origin });
+        assert.match(refused.error, /fixture does not belong/);
+        await refused.child.exited;
+        assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0], 'refusal cleanup leaves the foreign server running');
+        assert.equal(readFileSync(copied, 'utf8'), text, 'an unowned live process record is left alone');
+      } finally { rmSync(copied, { force: true }); }
+    }
+    rmSync(path);
+    try {
+      const unknown = await drive(fixtures[0]);
+      assert.match(unknown.error, /fixture does not belong/);
+      await unknown.child.exited;
+      assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0]);
+    } finally { writeFileSync(path, held); }
+    const parallel = await drive(fixtures[0], { EXACT_BACKEND_ORIGIN: b.origin });
+    assert.equal(parallel.origin, b.origin);
+    assert.equal((await fetch(parallel.origin).then(r => r.json())).world, fixtures[0]);
+    const shared = await drive(fixtures[0]);
+    assert.equal(shared.origin, a.origin);
+    await a.stop();
+    assert.equal((await fetch(shared.origin).then(r => r.json())).world, fixtures[0]);
+    await shared.stop();
+    assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0], 'the other port keeps this checkout leased');
+    await parallel.stop();
+    for (const origin of [a.origin, parallel.origin]) {
+      assert.equal(await fetch(origin, { signal: AbortSignal.timeout(1000) }).then(() => true, () => false), false, 'the last drive stops every owned port');
+    }
+    assert.equal(existsSync(lease), false, 'both server records are removed');
+  } finally {
+    for (const child of running) { if (child.exitCode == null) child.kill('SIGTERM'); await child.exited; }
+    for (const [pid, dir] of fixturePids) {
+      const cwd = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout?.match(/^n(.+)$/m)?.[1];
+      if (cwd === dir) try { process.kill(pid, 'SIGTERM'); } catch {}
+    }
+    rmSync(parent, { recursive: true, force: true });
+  }
+}, 30000);
 
 // The rest pattern, verified as a builder would with a data.db of their own: verify runs its server on an empty
 // database and leaves theirs as it was; with their dev server up it refuses in one line and leaves that one running.
@@ -796,7 +921,11 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
       const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, ...args], { cwd: dir, encoding: 'utf8', timeout: 180_000 });
       return { ...r, lines: r.stdout.trim().split('\n') };
     };
-    const verify = (...args) => exact('verify', ...args);
+    // `contract verify`'s report follows verify's own, which ends at its verdict (LLP 1151 D8).
+    const verify = (...args) => {
+      const r = exact('verify', ...args), end = r.lines.findLastIndex((l) => l.startsWith('verify: ')) + 1;
+      return end && !args.includes('--json') ? { ...r, lines: r.lines.slice(0, end), semantics: r.lines.slice(end).join('\n') } : r;
+    };
     const warned = (text) => text.split('\n').filter((l) => / warning \[/.test(l));
     // The build `test web` runs first says its count, and here names nothing; its drive's stdout is the tests'.
     const quiet = exact('test', 'web');
@@ -814,6 +943,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.match(clean.stdout, /^relaunch on "the header's button likes it"'s store \(\d+\.\d s of real time\): the first screen is a fresh launch's; that test wrote no storage$/m);
     assert.match(clean.lines.at(-1), /^verify: clean in \d+\.\d s$/);
     assert.equal(clean.lines.at(-2), 'open it: bun exact.mjs web (serves what verify checked)'); // how a person opens it, with no dev server of the builder's own
+    assert.match(clean.semantics, /^verify receipt — reproduce: contract verify .*app\.contract /m, clean.stdout);
     for (const [w, h] of SIZES) for (const scheme of ['light', 'dark']) assert.ok(existsSync(resolve(dir, `.exact/verify/web-${w}x${h}-${scheme}.png`)), `${w}x${h} ${scheme}`);
     for (const f of ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png', 'web-relaunch.png']) assert.ok(existsSync(resolve(dir, '.exact/verify', f)), f);
     // `--shots out/shots` made the directory and copied every one, under the names verify keeps (LLP 1116.008 D2).
@@ -1096,4 +1226,110 @@ test('many findings: the closing line names their kinds, and a check kind that d
   const r = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => lines), shots: [], ms: 4000 });
   assert.equal(r.lines.at(-1), 'verify: 12 problems (12 findings: 11 tap-target, 1 contrast; the tests passed) in 4.0 s');
   assert.equal(r.lines.at(-2), 'most findings are tap-target (11): fix them, or, where the design means them, app.json\'s verify.accept takes each by its kind and testId (docs/recipes/tests.md)');
+});
+
+test('scrolling: like UIKit in one line; each tell or bad the app can fix a counted finding with UIKit\'s value; Exact\'s own one uncounted line; unchecked blanks a note; on a busy machine physics only; no list, nothing', () => {
+  const ok = { ratio: 'ok', lag: 'ok', glide: 'ok' };
+  const feel = (over = {}) => ({ app: 'a', verdict: 'probed', list: { cls: 'ExactGroupedLists.GroupedCollectionView' },
+    smooth: { hitchRatio: 0, longestFrameMs: 16.7, mainP95Ms: 4.1, hitchAt: [], verdict: { hitch: 'ok', stall: 'ok', main: 'ok' } },
+    tracking: { ratio: 1, lagFrames: 0, glidePt: 0, verdict: ok },
+    momentum: { tauMs: 502, handoff: 1.02, jumps: 0, lifts: 2, liftDrops: 0, liftMainMs: 9, verdict: { lift: 'ok', tau: 'ok', handoff: 'ok', jumps: 'ok' } },
+    edgeBounce: { verdict: { settle: 'n/a' } }, rubberBand: { ratio: 0.48, settleS: 0.55, verdict: { ratio: 'ok', settle: 'ok' } },
+    scrollToTop: { reached: true, startS: 0.02, durationS: 0.92, verdict: { reached: 'ok' } }, tapToStop: { travelPt: 0, verdict: { stop: 'ok' } },
+    blank: { share: 0, samples: 40, blankSamples: 0, maxPt: 0, verdict: { blank: 'ok' } }, ...over });
+  const run = (scrolled) => report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], shots: [], ms: 9000, cwd: '/app', scrolled });
+  const out = '/app/.exact/verify/ios-feel';
+  const clean = run({ ms: 21000, out, result: feel() });
+  assert.equal(clean.lines[1], 'scrolling: like UIKit (hitches 0 ms/s, longest frame 16.7 ms, main thread p95 4.1 ms, τ 502 ms, 0/2 lifts dropped a frame; 21.0 s of real touches on the first screen\'s list, GroupedCollectionView)');
+  assert.equal(clean.problems, 0);
+
+  const bad = feel({ momentum: { ...feel().momentum, liftDrops: 1, verdict: { ...feel().momentum.verdict, lift: 'bad' } },
+    blank: { share: 0.5, samples: 40, blankSamples: 20, maxPt: 100, verdict: { blank: 'bad' } } });
+  // A lift that drops a frame is the host's work at a fling's release: Exact's, said once and not counted.
+  const found = run({ ms: 21000, out, result: bad });
+  assert.equal(found.problems, 0);
+  assert.match(found.lines[1], /^scrolling: nothing for the app to fix \(hitches 0 ms\/s/);
+  assert.equal(found.lines[2], '  Exact\'s own (not yours to fix; nothing in your app changes them): flings that drop a frame at the lift 1/2 (bad; UIKit 0); report with .exact/verify/ios-feel/feel.json');
+  assert.match(found.lines[3], /^ {2}note, not counted .*scrolling blank samples 0\.5 \(bad; UIKit 0\)/);
+  assert.deepEqual(findings(bad).map((f) => [f.metric, f.owner]), [['flings that drop a frame at the lift', 'exact'], ['blank samples', 'either']]);
+
+  // With the blank check behind it a blank band is a counted finding; a hitch says whose time it was.
+  const live = feel({ smooth: { ...feel().smooth, hitchRatio: 40, verdict: { ...feel().smooth.verdict, hitch: 'bad' },
+    hitchAt: [{ gesture: 'fling-6000', ms: 66.7, mainMs: 60, late: 50, cause: 'tick', via: { timers: 50 },
+      where: { 'app JS (main waits on exact.owner)': 48, 'Exact host · UIKit': 6 } }] },
+  blank: { share: 0.2, samples: 40, blankSamples: 8, maxPt: 120, verified: true, verdict: { blank: 'bad' } } });
+  const said = run({ ms: 21000, out, result: live });
+  assert.equal(said.problems, 2);
+  assert.match(said.lines[2], /^ {2}scrolling hitch ratio 40 ms\/s \(bad; UIKit 0 ms\/s\): of the late frames' main thread, app JS \(main waits on exact\.owner\) took 48 ms and Exact host took 6 ms \(1 of 1 on a timer's tick\): the app's data module runs on the frame's critical path/);
+  assert.match(said.lines[3], /^ {2}scrolling blank samples 0\.2 \(bad; UIKit 0\): .*rows drawn late/);
+  assert.equal(said.lines[4], '  the numbers: .exact/verify/ios-feel/feel.txt');
+  assert.deepEqual(findings(live).map((f) => f.owner), ['app', 'either']);
+
+  // A hitch whose time the sampler puts in Exact's host is Exact's; on a busy machine it is not judged at all.
+  const host = feel({ smooth: { ...feel().smooth, hitchRatio: 30, verdict: { ...feel().smooth.verdict, hitch: 'bad' },
+    hitchAt: [{ gesture: 'fling-6000', ms: 50, mainMs: 40, late: 33, cause: 'scroll', via: {}, where: { 'Exact host · UIKit': 30, 'app JS (main waits on exact.owner)': 4 } }] },
+  momentum: { ...feel().momentum, tauMs: 600, verdict: { ...feel().momentum.verdict, tau: 'tell' } } });
+  const hosted = run({ ms: 21000, out, result: host, load: { avg: 4, cores: 18 } });
+  assert.equal(hosted.problems, 0);
+  assert.match(hosted.lines[2], /^ {2}Exact's own .*: hitch ratio 30 ms\/s \(bad; UIKit 0 ms\/s\); deceleration τ 600 ms \(tell; UIKit 502 ms\); report with/);
+  const busy = run({ ms: 21000, out, result: live, load: { avg: 40.2, cores: 18 } });
+  assert.equal(busy.problems, 1);
+  assert.match(busy.lines[1], /^scrolling: 1 finding against UIKit/);
+  assert.equal(busy.lines[2], '  the machine is busy (load 40.2 on 18 cores): timing not judged; physics only');
+  assert.match(busy.lines[3], /^ {2}scrolling blank samples 0\.2/);
+  assert.deepEqual(findings(live, null, { timing: false }).map((f) => f.metric), ['blank samples']);
+
+  assert.deepEqual(run({ ms: 9000, out, result: { app: 'a', verdict: 'no-scrollable-list' } }).lines.filter((l) => l.startsWith('scrolling')), []);
+  const failed = run({ ms: 3000, error: 'the recorder wrote nothing in 20 s\nstack' });
+  assert.equal(failed.lines[1], 'scrolling: could not measure: the recorder wrote nothing in 20 s');
+  assert.equal(failed.problems, 0);
+});
+
+test('scrolling: measured once per build; a measurement is reused while its key holds, said with when, unless it could not judge timing and the machine now can', () => {
+  const idle = { avg: 4, cores: 18 }, busy = { avg: 40, cores: 18 };
+  assert.equal(reusable({ key: 'k', load: idle }, 'k', busy), true);
+  assert.equal(reusable({ key: 'k', load: busy }, 'k', busy), true);
+  assert.equal(reusable({ key: 'k', load: busy }, 'k', idle), false);
+  assert.equal(reusable({ key: 'k', load: idle }, 'other', idle), false);
+  assert.equal(reusable({ key: 'k', load: idle }, null, idle), false); // no key: the build cannot be told
+  assert.equal(reusable(undefined, 'k', idle), false);
+  const now = Date.UTC(2026, 9, 27, 12);
+  assert.deepEqual([20_000, 4 * 60_000, 3 * 3600_000].map((ms) => ago(now - ms, now)), ['under a minute ago', '4 min ago', '3 h ago']);
+  const result = { app: 'a', verdict: 'probed', list: { cls: 'ExactKit.ScrollView' },
+    smooth: { hitchRatio: 0, longestFrameMs: 16.7, mainP95Ms: 4.1, hitchAt: [], verdict: { hitch: 'ok', stall: 'ok', main: 'ok' } },
+    tracking: { ratio: 1, lagFrames: 0, glidePt: 0, verdict: { ratio: 'ok', lag: 'ok', glide: 'ok' } },
+    momentum: { tauMs: 502, handoff: 1.02, jumps: 0, lifts: 2, liftDrops: 0, liftMainMs: 9, verdict: { lift: 'ok', tau: 'ok', handoff: 'ok', jumps: 'ok' } },
+    edgeBounce: { verdict: { settle: 'n/a' } }, rubberBand: { ratio: 0.48, settleS: 0.55, verdict: { ratio: 'ok', settle: 'ok' } },
+    scrollToTop: { reached: true, startS: 0.02, durationS: 0.92, verdict: { reached: 'ok' } }, blank: { share: 0, samples: 40, blankSamples: 0, maxPt: 0, verdict: { blank: 'ok' } } };
+  const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], shots: [], ms: 9000, cwd: '/app',
+    scrolled: { ms: 18000, out: '/app/.exact/verify/ios-feel', result, reused: Date.now() - 4 * 60_000 } });
+  assert.match(r.lines[1], /^scrolling: like UIKit \(.*; 18\.0 s of real touches on the first screen's list, ScrollView, measured 4 min ago on this build \(--rescroll measures again\)\)$/);
+});
+
+test('scrolling: the scrub and a carousel join the summary; their hitches and the carousel\'s drags each say whose they are', () => {
+  const ok = { ratio: 'ok', lag: 'ok', glide: 'ok' };
+  const smooth = (hitchRatio = 0, hitchAt = []) => ({ hitchRatio, longestFrameMs: hitchAt.length ? 50 : 16.7, mainP95Ms: 4.1, hitchAt,
+    verdict: { hitch: hitchRatio >= 10 ? 'bad' : 'ok', stall: hitchAt.length ? 'tell' : 'ok', main: 'ok' } });
+  const drag = (verdict = 'ok') => ({ ratio: 0.95, carouselPt: verdict === 'ok' ? 0 : 40, listPt: 0, verdict });
+  const feel = ({ scrub = smooth(), along = 'ok' } = {}) => ({ app: 'a', verdict: 'probed', list: { cls: 'ExactKit.ScrollView' }, smooth: smooth(),
+    tracking: { ratio: 1, lagFrames: 0, glidePt: 0, verdict: ok },
+    momentum: { tauMs: 502, handoff: 1.02, jumps: 0, lifts: 2, liftDrops: 0, liftMainMs: 9, verdict: { lift: 'ok', tau: 'ok', handoff: 'ok', jumps: 'ok' } },
+    edgeBounce: { verdict: { settle: 'n/a' } }, blank: { share: 0, samples: 40, blankSamples: 0, maxPt: 0, verdict: { blank: 'ok' } },
+    scrub: { took: true, crossed: 0.9, smooth: scrub, verdict: { hitch: scrub.verdict.hitch, stall: scrub.verdict.stall, blank: 'n/a' } },
+    horizontal: { smooth: smooth(), tracking: null, momentum: { tauMs: 500, handoff: 1, verdict: { tau: 'ok', handoff: 'ok' } },
+      edgeBounce: { settleS: 0.6, verdict: { settle: 'ok' } }, across: drag(), along: drag(along), verdict: { across: 'ok', along } } });
+  const run = (result) => report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], shots: [], ms: 9000, cwd: '/app',
+    scrolled: { ms: 30000, out: '/app/.exact/verify/ios-feel', result } });
+  assert.match(run(feel()).lines[1], /^scrolling: like UIKit \(hitches 0 ms\/s, .*, 0\/2 lifts dropped a frame, scrubbing 0 ms\/s, a carousel 0 ms\/s;/);
+  // Rows built as the indicator crosses the list are Exact's host's time: Exact's own, not counted.
+  const host = run(feel({ scrub: smooth(80, [{ gesture: 'scrub', ms: 50, mainMs: 45, late: 33, cause: 'scroll', via: {}, where: { 'Exact host · UIKit': 40 } }]) }));
+  assert.equal(host.problems, 0);
+  assert.match(host.lines[2], /^ {2}Exact's own .*: scrub: hitch ratio 80 ms\/s \(bad; UIKit 0 ms\/s\); scrub: longest frame 50 ms \(tell; UIKit 16\.7 ms\); report with/);
+  // The app's own JS on the scrub's frames is the app's finding.
+  const js = run(feel({ scrub: smooth(40, [{ gesture: 'scrub', ms: 50, mainMs: 45, late: 33, cause: 'scroll', via: {}, where: { 'app JS (main waits on exact.owner)': 40 } }]) }));
+  assert.equal(js.problems, 2);
+  assert.match(js.lines[2], /^ {2}scrolling scrub: hitch ratio 40 ms\/s \(bad; UIKit 0 ms\/s\): of the late frames' main thread, app JS/);
+  // A drag down the list that moved the carousel is UIKit's arbitration, which Exact owns.
+  const along = findings(feel({ along: 'bad' }));
+  assert.deepEqual(along.map((f) => [f.metric, f.value, f.owner]), [['carousel: a mostly-vertical drag', '0.95, 40', 'exact']]);
 });

@@ -1,0 +1,35 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/calls@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [
+    "attributes",
+    "control",
+    "notification"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "androidx.core:core-telecom:1.0.1",
+    "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1"
+  ],
+  "manifest": {
+    "receivers": [
+      {
+        "name": "exact.calls.CallActionReceiver"
+      }
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.calls.CallsModule"
+}

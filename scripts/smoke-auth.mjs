@@ -3,8 +3,9 @@
 // on the web, macOS and iOS under the agent. Nothing opens: the request is
 // held; the smoke asks the fixture's authorize endpoint for the callback URL
 // a person's approval would produce and answers the hold with it (`type
-// @t`). A cancel, a callback for another sign-in, and the pending entry's
-// disclosure rules are checked too. `smoke.mjs` runs this for `--app
+// @t`). A cancel, a callback for another sign-in, the pending entry's
+// disclosure rules and two loopback callbacks at once (LLP 1133.005 D9) are
+// checked too. `smoke.mjs` runs this for `--app
 // auth-fixture`; it starts the fixture server when none answers.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -85,6 +86,39 @@ export async function authSmoke({ host, open, check: record }) {
       && !lines.some((l) => l.includes('code-') || l.includes('at-')), 'the journal records the hold and the answer, never a code or token');
     st = await s.state();
     check(!JSON.stringify(st).includes('code-') && !JSON.stringify(st).includes('"at-'), 'state holds no code or token');
+
+    // A loopback callback (LLP 1133.005 D9): held on macOS as any other, its
+    // port shown, and two at once on two ports; the web answers 501 before
+    // anything opens. (iOS is `later`, §8.)
+    if (host === 'macos' || host === 'web') {
+      await s.tap('sign-out'); await s.clock('settle');
+      await s.tap('prepare-loopback'); await s.clock('settle');
+      await s.tap('sign-in'); await s.clock('settle');
+      hold = held(await s.state());
+      if (host === 'macos') {
+        // A second sign-in waits beside the first, on its own port.
+        await s.tap('prepare-second'); await s.clock('settle');
+        await s.tap('sign-in-second'); await s.clock('settle');
+        const holds = ((await s.state()).pending ?? []).filter((p) => p.device?.capability === 'auth');
+        const on = (port) => holds.find((p) => p.device.args.callback === `http://127.0.0.1:${port}/oauth/loopback`);
+        const [first, second] = [on(4332), on(4333)];
+        check(holds.length === 2 && first && second, `two loopback sign-ins are held at once, each with its port: ${JSON.stringify(holds.map((p) => p.device.args.callback))}`);
+        const approved = async (p) => (await fetch(`${ISSUER}/oauth/authorize?client_id=${encodeURIComponent(p?.device?.args?.client_id)}&request_uri=${encodeURIComponent(p?.device?.args?.request_uri)}`,
+          { headers: { accept: 'application/json' } }).then((r) => r.json())).location;
+        const [backFirst, backSecond] = [await approved(first), await approved(second)];
+        // The right state with no code: refused, and the sign-in keeps waiting.
+        const stray = backFirst.replace(/code=[^&]+&?/, '');
+        const strayed = await s.type(`@${first?.ticket}`, stray).catch((e) => ({ error: String(e.message ?? e) }));
+        check(/exactly one code or error/.test(strayed?.error ?? '') && ((await s.state()).pending ?? []).some((p) => p.ticket === first?.ticket),
+          `a callback without a code is refused and the sign-in waits: ${JSON.stringify(strayed)}`);
+        await s.type(`@${second?.ticket}`, backSecond); await s.clock('settle');
+        check((await text(s, 'signed-second')) === 'Signed in as fixture.test', `the second signs in first: ${await text(s, 'signed-second')}`);
+        await s.type(`@${first?.ticket}`, backFirst); await s.clock('settle');
+        check((await text(s, 'signed')) === 'Signed in as fixture.test', `then the first, through its own callback: ${await text(s, 'signed')}`);
+      } else {
+        check(!hold && (await text(s, 'signed')) === 'Sign-in failed (501)', `a page cannot listen: ${await text(s, 'signed')}`);
+      }
+    }
   } finally {
     await s.close?.();
     server?.kill();

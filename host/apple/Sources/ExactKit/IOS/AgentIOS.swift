@@ -385,13 +385,8 @@ extension Agent {
             space["window"] = rect(inWindow)
             space["screen"] = rect(w.convert(inWindow, to: w.screen.coordinateSpace))
         }
-        // While the node's own layer animates, the frame on screen is the
-        // presentation layer's, reported beside the model's (LLP 1035.002
-        // D4) and never fabricated: absent when nothing is in flight.
-        if let shown = host.layer.presentation()?.frame, shown != host.layer.frame {
-            let d = CGPoint(x: shown.minX - host.layer.frame.minX, y: shown.minY - host.layer.frame.minY)
-            space["presented"] = rect(CGRect(x: b.minX + d.x, y: b.minY + d.y, width: shown.width, height: shown.height))
-        }
+        node["geometry"] = geometry(host, region: local)
+        if let scroll = host.scroll { node["scrollGeometry"] = Self.scrollGeometry(scroll) }
         node["space"] = space
         // Who hides or inerts it is named: a reader must not guess which
         // ancestor did.
@@ -430,7 +425,7 @@ extension Agent {
         }
         // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
         let popoverLayer = PopoverLayer.containing(host)
-        let inViewport = popoverLayer.map { $0.isDescendant(of: vp) } ?? (presenter.port(of: host) === vp)
+        let inViewport = popoverLayer.map { presenter.inDocument($0) } ?? (presenter.port(of: host) === vp)
         var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)].merging(Agent.range(of: vp)) { a, _ in a }
                                                   : ["presentation": true, "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]]
         scroll.append(contentsOf: chain.reversed())
@@ -496,14 +491,15 @@ extension Agent {
 
     /// `tap {back:true}` (LLP 1116.006 D4): the platform's Back as a person
     /// takes it — a real share sheet's close (`--touch platform`, Share.swift),
-    /// an open confirmation's cancel (a keyboard's Escape, a tap
-    /// outside), else a pushed route's Back button, else the top sheet's
-    /// swipe down. The system's button is no node, so no tap reaches it.
+    /// an open confirmation's or dialog sheet's cancel (a keyboard's Escape,
+    /// a tap outside), else a pushed route's Back button, else the top
+    /// sheet's swipe down. The system's button is no node, so no tap reaches it.
     func back() -> [String: Any] {
         #if os(iOS)
         if ShareSheet.agentBack(in: session) || session.picker.agentBackDocument() { return backReply(("sheet", "")) }
         #endif
         if let cancelled = presenter.menus.agentCancel() { return backReply(("dialog", cancelled ? "" : "the alert is still moving: `clock settle` first")) }
+        if let refused = presenter.menus.sheets.agentCancel() { return backReply(("dialog", refused)) }
         if let refused = presenter.navigation.agentBack() { return backReply(("route", refused)) }
         return backReply(presenter.modals.agentDismiss().map { ("sheet", $0) })
     }
@@ -1242,7 +1238,8 @@ extension Agent {
         // A film's frames keep one size.
         let presented = req["film"] as? Bool == true ? nil : presentedOverApp()
         let wholeWindow = req["window"] as? Bool == true || presented != nil
-        let captureView: UIView = wholeWindow ? (vp.window ?? vp) : vp
+        let page = presenter.documentHost
+        let captureView: UIView = wholeWindow ? (vp.window ?? page) : page
         // The page's picture is its area, whose top-left is a box's (0, 0), not the bands it is drawn past (LLP 1130).
         let margins = wholeWindow ? .zero : presenter.pageMargins
         let size = captureView.bounds.inset(by: margins).size

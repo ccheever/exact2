@@ -23,6 +23,8 @@ use std::path::Component;
 use std::path::{Path, PathBuf};
 
 use crate::boundary::HostError;
+#[cfg(unix)]
+use crate::grant::{Grant, PathPrefix};
 use crate::grant::{GrantSet, Operation};
 
 // @ref LLP 0068.001#4-bounded-access-and-image-work — the storage envelope is capped at 16 MiB. A readFile
@@ -153,6 +155,18 @@ pub enum FsOp {
     Rename,
     CopyFile,
     Realpath,
+    /// Exact patch 24 (exact2 LLP 1133.007 D6a): `stat` without following a
+    /// link, a link's target, whether this user may read, write or execute a
+    /// path, its permission bits, a symbolic link, a file's digest, and an
+    /// advisory lock and its release.
+    Lstat,
+    Readlink,
+    Access,
+    Chmod,
+    Symlink,
+    Digest,
+    Flock,
+    Unlock,
 }
 
 impl FsOp {
@@ -163,7 +177,18 @@ impl FsOp {
     /// write on the source because it removes that directory entry.
     pub fn required(self) -> (bool, bool) {
         match self {
-            FsOp::ReadFile | FsOp::ReadDir | FsOp::Stat | FsOp::Realpath => (true, false),
+            FsOp::ReadFile
+            | FsOp::ReadDir
+            | FsOp::Stat
+            | FsOp::Realpath
+            | FsOp::Lstat
+            | FsOp::Readlink
+            | FsOp::Access
+            | FsOp::Digest => (true, false),
+            // A lock takes its file, made if absent; a link is written where it lives.
+            FsOp::Chmod | FsOp::Symlink | FsOp::Flock => (false, true),
+            // A lock's release names its handle, which its taking admitted.
+            FsOp::Unlock => (false, false),
             FsOp::WriteFile
             | FsOp::AppendFile
             | FsOp::AtomicWriteFile
@@ -330,6 +355,10 @@ pub struct Stat {
     pub is_file: bool,
     pub is_directory: bool,
     pub modified_ms: u64,
+    /// Its permission bits (`0o7777`); on Windows `0o444` or `0o666`.
+    pub mode: u32,
+    /// An `lstat` of a symbolic link.
+    pub is_symlink: bool,
 }
 
 /// Run an operation whose paths have already been normalized and admitted.
@@ -396,20 +425,17 @@ pub fn perform(
                 Err(e) => Err(failed(e)),
             }
         }
-        FsOp::Stat => {
-            let meta = std::fs::metadata(path).map_err(failed)?;
-            let modified_ms = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            Ok(FsResult::Stat(Stat {
-                size: meta.len(),
-                is_file: meta.is_file(),
-                is_directory: meta.is_dir(),
-                modified_ms,
-            }))
+        FsOp::Stat => std::fs::metadata(path)
+            .map(|m| FsResult::Stat(stat_of(&m)))
+            .map_err(failed),
+        FsOp::Lstat => std::fs::symlink_metadata(path)
+            .map(|m| FsResult::Stat(stat_of(&m)))
+            .map_err(failed),
+        FsOp::Readlink => std::fs::read_link(path)
+            .map(|p| FsResult::Text(p.to_string_lossy().into_owned()))
+            .map_err(failed),
+        FsOp::Access | FsOp::Chmod | FsOp::Symlink | FsOp::Digest | FsOp::Flock | FsOp::Unlock => {
+            super::fs_more::perform(op, path, data)
         }
         FsOp::Rename => std::fs::rename(
             path,
@@ -431,6 +457,32 @@ pub fn perform(
     }
 }
 
+/// A `Stat` from a file's metadata.
+pub(crate) fn stat_of(meta: &std::fs::Metadata) -> Stat {
+    let modified_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    #[cfg(unix)]
+    let mode = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o7777;
+    #[cfg(not(unix))]
+    let mode = if meta.permissions().readonly() {
+        0o444
+    } else {
+        0o666
+    };
+    Stat {
+        size: meta.len(),
+        is_file: meta.is_file(),
+        is_directory: meta.is_dir(),
+        modified_ms,
+        mode,
+        is_symlink: meta.file_type().is_symlink(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FsResult {
     Done,
@@ -438,6 +490,442 @@ pub enum FsResult {
     Text(String),
     Names(Vec<String>),
     Stat(Stat),
+}
+
+/// The host's directories behind `home:/` and `bundle:/` (Exact patch 24:
+/// exact2 LLP 1133.007 D6): the person's home directory and the app's
+/// installed bundle, read only. A host that has neither leaves them unset,
+/// and those paths refuse as unsupported.
+#[derive(Debug, Clone, Default)]
+pub struct Roots {
+    pub home: Option<PathBuf>,
+    pub bundle: Option<PathBuf>,
+}
+
+static ROOTS: std::sync::RwLock<Roots> = std::sync::RwLock::new(Roots {
+    home: None,
+    bundle: None,
+});
+
+/// Name the host's `home:/` and `bundle:/` directories, once a process.
+pub fn set_roots(roots: Roots) {
+    *ROOTS.write().unwrap_or_else(|e| e.into_inner()) = roots;
+}
+
+/// A namespace's name, its root as the host named it, and a path's
+/// components below that root.
+#[cfg(unix)]
+type Namespaced = (&'static str, PathBuf, Vec<String>);
+
+/// A `home:` or `bundle:` path's root and its components below it; `None`
+/// for any other path. A `.` or `..` component is refused.
+#[cfg(unix)]
+fn namespaced(path: &str) -> Option<Result<Namespaced, HostError>> {
+    let (namespace, rest) = match path.strip_prefix("home:/") {
+        Some(rest) => ("home", rest),
+        None => ("bundle", path.strip_prefix("bundle:/")?),
+    };
+    let roots = ROOTS.read().unwrap_or_else(|e| e.into_inner());
+    let root = match namespace {
+        "home" => roots.home.clone(),
+        _ => roots.bundle.clone(),
+    };
+    Some((|| {
+        let root = root.ok_or_else(|| {
+            HostError::Failed(format!("unsupported: no {namespace}: directory here"))
+        })?;
+        let parts: Vec<String> = (rest.split('/').filter(|part| !part.is_empty()))
+            .map(str::to_owned)
+            .collect();
+        if parts
+            .iter()
+            .any(|part| part == ".." || part == "." || part.contains('\0'))
+        {
+            return Err(HostError::Failed(format!(
+                "TypeError: path has a . or .. part: {path}"
+            )));
+        }
+        Ok((namespace, root, parts))
+    })())
+}
+
+/// `path` below its root's retained descriptor, each component to be opened
+/// `O_NOFOLLOW` (`app_fs::run_below`).
+#[cfg(unix)]
+fn below(path: &str) -> Result<(super::app_fs::Below, PathBuf), HostError> {
+    let (name, root, parts) = namespaced(path).ok_or_else(|| {
+        HostError::Failed(format!("unsupported: not a home: or bundle: path: {path}"))
+    })??;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC);
+    }
+    let failed = |e: std::io::Error| HostError::Failed(format!("{path}: {e}"));
+    // The root is the host's (the account's home, the app's bundle), opened
+    // as named; nothing below it is followed.
+    let opened = options.open(&root).map_err(failed)?;
+    let native = std::fs::canonicalize(&root)
+        .map_err(failed)?
+        .join(parts.join("/"));
+    Ok((
+        super::app_fs::Below {
+            root: opened,
+            parts,
+            name,
+        },
+        native,
+    ))
+}
+
+/// A `home:` or `bundle:` operation (exact2 LLP 1133.007 D6, Exact patch 24):
+/// admitted as spelt, a `bundle:` path read only, then run below its root's
+/// retained descriptor with every component opened `O_NOFOLLOW`, as an
+/// `app:/` path is. A link anywhere below the root, one a grant's holder
+/// planted included, is refused rather than followed, so the spelt path is
+/// the one the operation reaches and admission needs no realized pass.
+fn run_namespaced(
+    grants: &GrantSet,
+    op: FsOp,
+    path: &str,
+    destination: Option<&str>,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    let namespace = |p: &str| p.starts_with("home:") || p.starts_with("bundle:");
+    if !namespace(path) || destination.is_some_and(|d| !namespace(d)) {
+        return Err(HostError::Failed(
+            "unsupported: a home: or bundle: path pairs only with another".into(),
+        ));
+    }
+    // A `.` or `..` part is refused before any grant is read.
+    #[cfg(unix)]
+    for p in [Some(path), destination].into_iter().flatten() {
+        if let Some(Err(e)) = namespaced(p) {
+            return Err(e);
+        }
+    }
+    let (needs_read, needs_write) = op.required();
+    // What is written: a one-path operation's path, a two-path one's
+    // destination, and a rename's source, which it removes.
+    let written = match destination {
+        Some(to) => [Some(to), (op == FsOp::Rename).then_some(path)],
+        None => [(needs_write && !needs_read).then_some(path), None],
+    };
+    if let Some(spelled) = written
+        .into_iter()
+        .flatten()
+        .find(|p| p.starts_with("bundle:"))
+    {
+        return Err(HostError::Failed(format!(
+            "denied: bundle: is read only: {spelled}"
+        )));
+    }
+    admit_as(grants, op, Path::new(path), destination.map(Path::new))?;
+    #[cfg(unix)]
+    {
+        let (source, native) = below(path)?;
+        if op == FsOp::Realpath {
+            source.open()?;
+            return Ok(FsResult::Text(native.display().to_string()));
+        }
+        let target = destination.map(below).transpose()?.map(|(b, _)| b);
+        super::app_fs::run_below(op, source, target, data.unwrap_or(&[]))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = data;
+        Err(HostError::Failed(format!("unsupported: no {path} here")))
+    }
+}
+
+/// Open `path` to read it, admitted under `fs.read` as `storage.fs` admits
+/// it: an `app:/` path through the app's directories, a `home:` or `bundle:`
+/// one below its root and a native one below its granted directory,
+/// `O_NOFOLLOW` all the way. What a child's stdin reads from (exact2 LLP
+/// 1133.007 D2's `exactStdinFrom`).
+pub fn open_read(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    path: &str,
+) -> Result<std::fs::File, HostError> {
+    let regular = |file: std::fs::File| -> Result<std::fs::File, HostError> {
+        match file.metadata() {
+            Ok(m) if m.is_file() => Ok(file),
+            _ => Err(HostError::Failed(format!("{path}: not a regular file"))),
+        }
+    };
+    if path.starts_with("app:") {
+        let directories = directories
+            .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
+        return directories.open_file(grants, path);
+    }
+    if path.starts_with("home:") || path.starts_with("bundle:") {
+        admit_as(grants, FsOp::ReadFile, Path::new(path), None)?;
+        #[cfg(unix)]
+        return regular(below(path)?.0.open()?);
+        #[cfg(not(unix))]
+        return Err(HostError::Failed(format!("unsupported: no {path} here")));
+    }
+    let native = normalize(path)?;
+    #[cfg(unix)]
+    {
+        admit_as(grants, FsOp::ReadFile, &native, None)?;
+        regular(
+            native_below(grants, directories, &native, false)?
+                .0
+                .open()?,
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        admit(grants, FsOp::ReadFile, &native, None)?;
+        regular(open_native(&native).map_err(|e| HostError::Failed(format!("{path}: {e}")))?)
+    }
+}
+
+/// A native operation (exact2 LLP 1133.007 D6a, Exact patch 24), admitted as
+/// spelt, then run below the directory a walk to each path starts from
+/// (`native_below`), every component below it opened `O_NOFOLLOW`
+/// (`app_fs::run_below`), as a `home:` path is. A link below that directory,
+/// or on the way to it one this user can have made (`reach`), is refused
+/// rather than followed, so the operation reaches the file it was admitted
+/// for, never makes a dangling link's target, and needs no check of a
+/// realized path.
+#[cfg(unix)]
+fn run_native(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    op: FsOp,
+    path: &Path,
+    destination: Option<&Path>,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    let (needs_read, needs_write) = op.required();
+    // A path is walked from the line its use needs: what is written from an
+    // `fs.write` line, a rename's source too, which it removes.
+    let written = needs_write && (destination.is_none() || op == FsOp::Rename);
+    let (source, native) = native_below(grants, directories, path, written || !needs_read)?;
+    if op == FsOp::Realpath {
+        source.open()?;
+        return Ok(FsResult::Text(native.display().to_string()));
+    }
+    let target = destination
+        .map(|to| native_below(grants, directories, to, true))
+        .transpose()?
+        .map(|(below, _)| below);
+    super::app_fs::run_below(op, source, target, data.unwrap_or(&[]))
+}
+
+/// `path` below the directory a walk to it starts from, and its native path.
+/// The deepest native `fs.write` (`write`) or `fs.read` line that admits
+/// `path` as spelt is reached (`reach`) without following a link this user
+/// can have made or one below a directory the app may write; the walk
+/// starts where that stopped, and goes through the rest of the line's names
+/// and then `path`'s.
+#[cfg(unix)]
+fn native_below(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    path: &Path,
+    write: bool,
+) -> Result<(super::app_fs::Below, PathBuf), HostError> {
+    let capability = if write { "fs.write" } else { "fs.read" };
+    let denied = HostError::Denied { capability };
+    let target = PathPrefix::new(&path.to_string_lossy()).ok_or(denied.clone())?;
+    let line = (grants.iter())
+        .filter_map(|grant| match (grant, write) {
+            (Grant::FsWrite(line), true) | (Grant::FsRead(line), false) => Some(line),
+            _ => None,
+        })
+        .filter(|line| line.components().first().is_some_and(String::is_empty))
+        .filter(|line| target.components().starts_with(line.components()))
+        .max_by_key(|line| line.components().len())
+        .ok_or(denied.clone())?;
+    let failed = |e: std::io::Error| HostError::Failed(format!("{}: {e}", path.display()));
+    let line_path = line_native(line).ok_or(denied)?;
+    let (root, at, mut parts) = reach(&line_path, &written(grants, directories)).map_err(failed)?;
+    parts.extend(
+        target.components()[line.components().len()..]
+            .iter()
+            .cloned(),
+    );
+    let native = parts.iter().fold(at, |at, part| at.join(part));
+    Ok((
+        super::app_fs::Below {
+            root,
+            parts,
+            name: "granted",
+        },
+        native,
+    ))
+}
+
+/// A grant line's directory as a native path: a native line as spelt, a
+/// `home:` one below the host's home as named; `None` for any other.
+#[cfg(unix)]
+fn line_native(line: &PathPrefix) -> Option<PathBuf> {
+    let (namespace, parts) = line.components().split_first()?;
+    let root = match namespace.as_str() {
+        "" => PathBuf::from("/"),
+        "home:" => (ROOTS.read().unwrap_or_else(|e| e.into_inner()).home.clone())?,
+        _ => return None,
+    };
+    Some(parts.iter().fold(root, |at, part| at.join(part)))
+}
+
+/// The directories the app may write natively, by identity (device and
+/// inode): each native and `home:` `fs.write` line's, as named now, and the
+/// app's own directories. A line below another that the app replaced with a
+/// link adds the link's target, which only stops more walks.
+#[cfg(unix)]
+fn written(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+) -> Vec<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let lines = grants.iter().filter_map(|grant| match grant {
+        Grant::FsWrite(line) => line_native(line),
+        _ => None,
+    });
+    (lines.filter_map(|dir| std::fs::metadata(dir).ok()))
+        .map(|meta| (meta.dev(), meta.ino()))
+        .chain(directories.map(|d| d.identities()).unwrap_or_default())
+        .collect()
+}
+
+/// Open the directory `line` names from `/`, following its links only until
+/// one of `stops` is reached, compared by identity, so a spelling that
+/// differs (a link, case, Unicode normalization) still stops there. Returns
+/// that directory, its path, and the names below it to walk `O_NOFOLLOW`
+/// (none when no stop is on the way). A link on the way is followed only
+/// when this user can neither have made nor replace it
+/// (`made_by_this_user`), as a system link such as macOS's `/var`; any other
+/// is refused, naming it. So no grants the app held before, in this launch,
+/// an earlier one or another session, can have put a link on the way, and
+/// a line spelt through the person's own link (`~/Dropbox`) is refused.
+#[cfg(unix)]
+fn reach(
+    line: &Path,
+    stops: &[(u64, u64)],
+) -> std::io::Result<(std::fs::File, PathBuf, Vec<String>)> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    let named = |path: &Path| -> std::collections::VecDeque<std::ffi::OsString> {
+        (path.components())
+            .filter_map(|part| match part {
+                Component::Normal(name) => Some(name.to_os_string()),
+                Component::ParentDir => Some("..".into()),
+                _ => None,
+            })
+            .collect()
+    };
+    let root = || super::app_fs::open_directory(Path::new("/"));
+    let (mut dir, mut at, mut todo, mut links) = (root()?, PathBuf::from("/"), named(line), 0);
+    loop {
+        let meta = dir.metadata()?;
+        if stops.contains(&(meta.dev(), meta.ino())) {
+            let mut below: Vec<String> = Vec::new();
+            for part in todo {
+                let part = part.into_string().map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "not UTF-8")
+                })?;
+                if part != ".." {
+                    below.push(part);
+                } else if below.pop().is_none() {
+                    // A link's `..` above the stop: what it names is not below it.
+                    return Err(std::io::Error::from_raw_os_error(libc::ELOOP));
+                }
+            }
+            return Ok((dir, at, below));
+        }
+        let Some(part) = todo.pop_front() else {
+            return Ok((dir, at, Vec::new()));
+        };
+        if part == ".." {
+            dir = super::app_fs::directory_at(&dir, &part)?;
+            at.pop();
+            continue;
+        }
+        let error = match super::app_fs::directory_at(&dir, &part) {
+            Ok(next) => {
+                (dir, at) = (next, at.join(&part));
+                continue;
+            }
+            Err(error) => error,
+        };
+        // A link: go on from where it points, as the kernel would, unless
+        // this user can have made it.
+        let target = super::app_fs::link_at(&dir, &part).map_err(|_| error)?;
+        if made_by_this_user(&dir, &part)? {
+            let link = at.join(&part);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "{} is a link this user could have made, not followed to a grant line; \
+                     grant the directory it points to",
+                    link.display()
+                ),
+            ));
+        }
+        links += 1;
+        if links > 40 {
+            return Err(std::io::Error::from_raw_os_error(libc::ELOOP));
+        }
+        if target.as_bytes().first() == Some(&b'/') {
+            (dir, at) = (root()?, PathBuf::from("/"));
+        }
+        for part in named(Path::new(&target)).into_iter().rev() {
+            todo.push_front(part);
+        }
+    }
+}
+
+/// Whether the link `name` in `dir` is one this process's user can have made
+/// or replaced: the user owns the link or the directory (an owner may make
+/// it writable), or may write the directory (`faccessat` with `AT_EACCESS`
+/// counts groups and ACLs). Root may write nearly everything, so it follows
+/// almost no link. Checked after `link_at`: a directory this user cannot
+/// write keeps the link that was read.
+#[cfg(unix)]
+fn made_by_this_user(dir: &std::fs::File, name: &std::ffi::OsStr) -> std::io::Result<bool> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: geteuid has no preconditions.
+    let user = unsafe { libc::geteuid() };
+    if dir.metadata()?.uid() == user {
+        return Ok(true);
+    }
+    // SAFETY: the descriptor and the terminated name are live for the call.
+    let writable =
+        unsafe { libc::faccessat(dir.as_raw_fd(), c".".as_ptr(), libc::W_OK, libc::AT_EACCESS) };
+    if writable == 0 {
+        return Ok(true);
+    }
+    // Only a refusal says the directory is closed to this user.
+    let refused = std::io::Error::last_os_error().raw_os_error();
+    if !matches!(refused, Some(libc::EACCES | libc::EROFS)) {
+        return Ok(true);
+    }
+    let name = std::ffi::CString::new(name.as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "NUL in path"))?;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: the descriptor, the terminated name and the buffer are live
+    // throughout fstatat, which fills `stat` when it returns 0.
+    let got = unsafe {
+        libc::fstatat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if got != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: fstatat returned 0, so it filled `stat`.
+    Ok(unsafe { stat.assume_init() }.st_uid == user)
 }
 
 /// Execute a filesystem operation with authority checked in its original namespace.
@@ -457,6 +945,13 @@ pub fn run(
     if path.starts_with("doc:") || destination.is_some_and(|p| p.starts_with("doc:")) {
         return Err(HostError::Failed("unsupported: no document service".into()));
     }
+    if op == FsOp::Unlock {
+        return super::fs_more::perform(op, Path::new(path), data);
+    }
+    let namespace = |p: &str| p.starts_with("home:") || p.starts_with("bundle:");
+    if namespace(path) || destination.is_some_and(namespace) {
+        return run_namespaced(grants, op, path, destination, data);
+    }
     #[cfg(windows)]
     {
         super::windows_fs::run_native(grants, op, path, destination, data)
@@ -465,8 +960,18 @@ pub fn run(
     {
         let path = normalize(path)?;
         let destination = destination.map(normalize).transpose()?;
-        admit(grants, op, &path, destination.as_deref())?;
-        perform(op, &path, destination.as_deref(), data)
+        // Unix walks from the granted directory, refusing every link below
+        // it, so the spelt path is the one reached (`run_native`).
+        #[cfg(unix)]
+        {
+            admit_as(grants, op, &path, destination.as_deref())?;
+            run_native(grants, directories, op, &path, destination.as_deref(), data)
+        }
+        #[cfg(not(unix))]
+        {
+            admit(grants, op, &path, destination.as_deref())?;
+            perform(op, &path, destination.as_deref(), data)
+        }
     }
 }
 
@@ -591,11 +1096,12 @@ mod tests {
 
 // @ref LLP 0068.001#3-chosen-document-provider — one provider contract for both doors.
 pub use super::documents::{
-    run_document, DocumentAccess, DocumentError, DocumentErrorKind, DocumentLease, Documents,
-    DOCUMENT_PREFIX,
+    copy_document, run_document, DocumentAccess, DocumentError, DocumentErrorKind, DocumentLease,
+    Documents, DOCUMENT_PREFIX,
 };
 
-/// Dispatch with an optional chosen-document service. Mixed namespaces refuse.
+/// Dispatch with an optional chosen-document service. Mixed namespaces
+/// refuse, except `copyFile` from a document into an app file.
 #[allow(clippy::too_many_arguments)]
 pub fn run_with_documents(
     grants: &GrantSet,
@@ -607,6 +1113,11 @@ pub fn run_with_documents(
     data: Option<&[u8]>,
 ) -> Result<FsResult, HostError> {
     if path.starts_with("doc:") || destination.is_some_and(|p| p.starts_with("doc:")) {
+        if let (FsOp::CopyFile, true, Some(to)) = (op, path.starts_with("doc:"), destination) {
+            if to.starts_with("app:") {
+                return copy_document(grants, directories, documents, path, to);
+            }
+        }
         if destination.is_some() {
             return Err(HostError::Failed(
                 "unsupported: two-path document operation".into(),
@@ -642,7 +1153,7 @@ pub fn run_with_limits(
                 .and_then(|n| n.checked_add(13)),
             FsResult::Text(text) => serde_json::to_string(text).ok().map(|s| s.len()),
             FsResult::Names(names) => serde_json::to_vec(names).ok().map(|s| s.len()),
-            FsResult::Stat(stat) => serde_json::to_vec(&serde_json::json!({"size":stat.size,"isFile":stat.is_file,"isDirectory":stat.is_directory,"modifiedMs":stat.modified_ms})).ok().map(|s| s.len()),
+            FsResult::Stat(stat) => serde_json::to_vec(&serde_json::json!({"size":stat.size,"isFile":stat.is_file,"isDirectory":stat.is_directory,"modifiedMs":stat.modified_ms,"mode":stat.mode,"isSymbolicLink":stat.is_symlink})).ok().map(|s| s.len()),
             FsResult::Done => Some(4),
         };
         if size.is_none_or(|n| n > limits.bytes) {
@@ -651,6 +1162,14 @@ pub fn run_with_limits(
         Ok(result)
     })
 }
+
+#[cfg(all(test, unix))]
+#[path = "fs_namespaces_tests.rs"]
+mod namespaces_tests;
+
+#[cfg(all(test, unix))]
+#[path = "fs_native_tests.rs"]
+mod native_tests;
 
 #[cfg(all(test, unix))]
 mod bounded_tests {

@@ -3,6 +3,57 @@ import { readFileSync } from 'node:fs';
 import { open } from '../../scripts/agent.mjs';
 import { checkOp, ratio } from '../../scripts/agent-check.mjs';
 
+test('Recorder can stop and save when the microphone becomes unavailable', async () => {
+  const session = await open({ host: 'web', app: 'recorder', storage: `mic-reset-${Date.now()}`,
+    env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } });
+  try {
+    await session.prefer({ 'permission.microphone': 'granted' });
+    await session.tap('toggle');
+    await session.clock('+3000');
+    await session.prefer({ extension: 'media-capture.microphoneStatus={"available":false}' });
+    await session.clock('settle');
+    expect((await session.state()).resources.mic.available).toBe(false);
+    await session.tap('toggle');
+    await session.clock('settle');
+    const state = await session.state();
+    expect(state.slots.recorderId).toBe('');
+    expect(state.resources.library.takes.length).toBe(1);
+  } finally {
+    await session.close();
+  }
+});
+
+test('Recorder offers a missing local language and waits for installation before transcribing', async () => {
+  const session = await open({ host: 'web', app: 'recorder', size: [420, 720], storage: `language-${Date.now()}`,
+    env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } });
+  const ids = async () => new Set((await session.tree()).nodes.map(node => node.props?.testId));
+  const availability = async value => {
+    await session.prefer({ extension: `speech-recognition.speechRecognitionAvailability=${JSON.stringify({ availability: value })}` });
+    await session.clock('settle');
+  };
+  try {
+    await session.prefer({ 'permission.microphone': 'granted', 'permission.speech-recognition': 'granted' });
+    await availability('downloadable');
+    expect((await session.state()).resources.speech.local).toBe(true);
+    expect((await ids()).has('speech-install')).toBe(true);
+    await session.tap('toggle');
+    await session.clock('settle');
+    expect((await session.state()).slots.recognitionId).toBe('');
+    await session.clock('+3000');
+    await session.tap('toggle');
+    await session.clock('settle');
+    expect((await ids()).has('transcribe-take-1')).toBe(false);
+    await availability('downloading');
+    expect((await ids()).has('speech-downloading')).toBe(true);
+    expect((await ids()).has('speech-install')).toBe(false);
+    await availability('available');
+    expect((await ids()).has('speech-local')).toBe(false);
+    expect((await ids()).has('transcribe-take-1')).toBe(true);
+  } finally {
+    await session.close();
+  }
+}, 30000);
+
 // Build first with `bun host/web/build.mjs recorder`.
 test('Recorder follows the scheme with readable recording and saved states', async () => {
   const manifest = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8'));

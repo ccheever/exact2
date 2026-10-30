@@ -1,0 +1,34 @@
+dev.bakeoff.feed.be6fbdb: SwiftUI.HostingScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 17.2 s of motion
+  ok    hitch ratio (ms/s)                     1
+  ok    longest frame (ms)                     33.3
+  ok    main thread p95 (ms/frame)             2.66
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       504
+  ok    momentum hand-off (content/asked)      1.01
+  tell  flings that drop a frame at the lift   1/4
+  tell  offset jumps while decelerating        2
+  ok    edge bounce settle (s)                 0.83
+  ok    rubber band (overscroll/finger)        0.64
+  ok    rubber band settle (s)                 0.6
+  ok    status-bar scroll to top (s)           0.92
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              174
+  bad   scrub: longest frame (ms)              71.9
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  ok    carousel: hitch ratio (ms/s)           0
+  ok    carousel: longest frame (ms)           16.7
+  ok    carousel: tracking ratio               1
+  ok    carousel: deceleration τ (ms; .normal 500) 506
+  ok    carousel: momentum hand-off (content/asked) 0.86
+  ok    carousel: edge bounce settle (s)       0.73
+  ok    carousel: a mostly-horizontal drag (carousel/finger, list pt) 0.94, 0
+  ok    carousel: a mostly-vertical drag (list/finger, carousel pt) 0.94, 0
+  24 ok, 2 tell, 2 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 1):
+    fling-6000: 1 late frame (0 on a timer's tick), 17 ms late; app code 12 ms (in UIKit 7) · SwiftUI 5 ms; in display links and ports 12 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 25 late frames (0 on a timer's tick), 702 ms late; app code 699 ms (in SwiftUI 331) · SwiftUI 127 ms · text & drawing 23 ms; in display links and ports 400 ms, events 264 ms, the main queue 20 ms, run-loop observers (the commit) 2 ms

@@ -10,6 +10,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     private var inScroll = false
     private var travel: [UInt32: Travel] = [:]
     private var costs: [UInt32: FillCost] = [:]
+    /// Seconds a glimpse took per row it built, per list.
+    private var glimpseCosts: [UInt32: TimeInterval] = [:]
     private var textPending = false
     private var refreshInterval = 1.0 / 60
     private var lastScroll = -Double.infinity
@@ -49,7 +51,10 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
 
     /// `step`: the speed of a step taken for a jump, which the next step
     /// confirms as travel when it repeats it.
-    private struct Travel { var top: CGFloat, time: TimeInterval, velocity = 0.0, step = 0.0 }
+    /// `crossed`: the last sampled step's length, a jump's too.
+    /// `layout`: the port, the extent and the insets along the axis that
+    /// the sample was taken under.
+    private struct Travel { var top: CGFloat, time: TimeInterval, velocity = 0.0, step = 0.0, crossed: CGFloat = 0, layout: [CGFloat] = [] }
     private struct FillCost {
         var perRow: TimeInterval?
         var lastRows = 1
@@ -78,33 +83,87 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// time they could show. Such a list posts none: the rescue in its
     /// scroll callback, what shows and nothing more, is its fill, and the
     /// fill it is owed waits until it slows.
+    /// A list held still (a scroll indicator's drag paused) outruns nothing
+    /// once a frame and a half has passed without a move: what its glimpses
+    /// left is built at once.
     func outruns(_ id: UInt32) -> Bool {
-        guard let node = presenter?.views[id], let scroll = node.scrollView else { return false }
+        guard let node = presenter?.views[id], let scroll = node.scrollView,
+              let t = travel[id], CACurrentMediaTime() - t.time < refreshInterval * 1.5 else { return false }
         let horizontal = presenter?.collections.entries[id]?.snapshot.horizontal == true
         let port = Double(horizontal ? scroll.bounds.width : scroll.bounds.height)
         return port > 0 && abs(velocity(id)) * refreshInterval >= port * Self.outrun
+    }
+    /// Whether `id`'s last step, within the last frame and a half, crossed a
+    /// port: a scroll indicator dragged, whose steps vary too much from frame
+    /// to frame to read as travel, or a long animated scroll. `step`, this
+    /// frame's still unsampled, must cross one too.
+    func crossing(_ id: UInt32, step: CGFloat? = nil) -> Bool {
+        guard let node = presenter?.views[id], let scroll = node.scrollView, let t = travel[id],
+              CACurrentMediaTime() - t.time < refreshInterval * 1.5 else { return false }
+        let port = presenter?.collections.entries[id]?.snapshot.horizontal == true ? scroll.bounds.width : scroll.bounds.height
+        return port > 0 && t.crossed >= port && (step ?? port) >= port
+    }
+    /// The rows a rescue of `id` may build (`CollectionHost.glimpse`): while
+    /// its steps cross a port each frame (this one's too), or a finger moves
+    /// it a port in one (only the scroll indicator's drag can), or while a
+    /// glimpse left what shows unbuilt, as many as its measured cost fits in
+    /// three fifths of a frame (at least one, the middle's); nil otherwise,
+    /// when a rescue builds all that shows. A lone jump builds all of it,
+    /// which is one frame's rows.
+    func glimpse(_ id: UInt32) -> UInt32? {
+        guard let p = presenter, let node = p.views[id], let scroll = node.scrollView else { return nil }
+        if !p.collections.glimpses.contains(id) {
+            let horizontal = p.collections.entries[id]?.snapshot.horizontal == true
+            let at = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y, port = horizontal ? scroll.bounds.width : scroll.bounds.height
+            let step = travel[id].map { abs(at - $0.top) } ?? 0
+            guard crossing(id, step: step) || (scroll.isTracking && port > 0 && step >= port) else { return nil }
+        }
+        return glimpseRows(id)
+    }
+    private func glimpseRows(_ id: UInt32) -> UInt32 {
+        guard let perRow = glimpseCosts[id] else { return 2 }
+        return UInt32(max(1, min(64, (refreshInterval * 0.6 / perRow).rounded(.down))))
+    }
+    /// What a glimpse of `id` cost: `seconds` for `rows` built.
+    func glimpsed(_ id: UInt32, seconds: TimeInterval, rows: Int) {
+        guard rows > 0 else { return }
+        let sample = max(0.000001, seconds / Double(rows))
+        glimpseCosts[id] = glimpseCosts[id].map { $0 * 0.5 + sample * 0.5 } ?? sample
     }
     private func sample(_ node: NodeView, now: TimeInterval) {
         guard let scroll = node.scrollView else { return }
         // Along the list's own axis (LLP 1070 H3): a row list travels on x.
         let horizontal = presenter?.collections.entries[node.id]?.snapshot.horizontal == true
         let top = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y
-        var t = travel[node.id] ?? Travel(top: top, time: now)
+        let inset = scroll.adjustedContentInset
+        let layout = horizontal ? [scroll.bounds.width, scroll.contentSize.width, inset.left, inset.right]
+                                : [scroll.bounds.height, scroll.contentSize.height, inset.top, inset.bottom]
+        var t = travel[node.id] ?? Travel(top: top, time: now, layout: layout)
+        // An offset that moved with the port, the extent or the insets is
+        // layout's, which keeps it in range, unless a finger or a fling
+        // moves the list: no travel. A list opening at its end moved 350
+        // points as the bars' insets reached it (r25's photos), which the
+        // runner took for the reader leaving the end (`leave_end_if_moved`),
+        // and the tab bar's inset then left its last row under the bar.
+        if t.layout != layout, !scroll.isTracking, !scroll.isDecelerating {
+            travel[node.id] = Travel(top: top, time: now, layout: layout)
+            return
+        }
         let delta = top - t.top, elapsed = now - t.time
         // A step longer than the port that the travel so far doesn't predict
         // is a jump, not travel: nothing to lead. A fast fling moves more
         // than a small port each frame (an inner strip at 96k pt/s): the
         // step after a jump that repeats it is travel, which the fill leads.
-        let port = horizontal ? scroll.bounds.width : scroll.bounds.height
+        let port = layout[0]
         let predicted = CGFloat((t.velocity != 0 ? t.velocity : t.step) * max(elapsed, 0))
         if abs(delta) > port && abs(delta - predicted) > port {
-            travel[node.id] = Travel(top: top, time: now, step: elapsed > 0 ? Double(delta) / max(elapsed, refreshInterval / 2) : 0)
+            travel[node.id] = Travel(top: top, time: now, step: elapsed > 0 ? Double(delta) / max(elapsed, refreshInterval / 2) : 0, crossed: abs(delta), layout: layout)
             return
         }
         if delta != 0, elapsed > 0 {
             let speed = Double(delta) / max(elapsed, refreshInterval / 2)
             t.velocity = elapsed > 0.15 || speed * t.velocity <= 0 ? speed : t.velocity * 0.5 + speed * 0.5
-            t.top = top; t.time = now
+            t.top = top; t.time = now; t.crossed = abs(delta); t.layout = layout
         }
         travel[node.id] = t
     }
@@ -119,6 +178,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         inScroll = true
         defer { inScroll = false }
         lastScroll = CACurrentMediaTime()
+        // The frame sampler measures a scroll's frames, UIKit's deceleration's included
+        p.session?.sampler?.activity()
         armRest(after: Self.restDelay)
         // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
         // Nor is a smooth correction's frame (`OffsetDriver`).
@@ -136,15 +197,24 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
-        if let p = presenter, p.navigation.pinsPrimaryViewport {
-            // Apply frame-guide movement before sampling placements and popover anchors
+        FrameSampler.scrolled(scrollView, in: presenter?.session, person: false)
+        presenter?.session?.frameHealth.trackScrolled(scrollView)
+        if let p = presenter, p.documentFixed {
+            // Only a script scrolls a fixed document: its mount takes the
+            // offset, and the native container keeps its place on screen.
+            p.placeDocumentMount()
             if !p.applying { p.navigation.fitOwner() }
             p.owners.publish()
         }
         presenter?.stickies.scrolled(nil); scrolled(nil)
     }
     // The page's element reveals (`IntoView.swift`).
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { presenter?.elementScrolls.userScrolled(scrollView) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        presenter?.elementScrolls.userScrolled(scrollView)
+        if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
+    }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) } }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { presenter?.session?.frameHealth.endScroll(scrollView) }
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { presenter?.elementScrolls.revealEnded(scrollView) }
 
     func batchApplied() {
@@ -173,8 +243,16 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         var rows = 0
         let spent = !fillDeferred && CACurrentMediaTime() - turnStarted > refreshInterval * 0.5
         fillDeferred = false
-        for id in p.collections.fillPending.sorted() where !p.collections.ancestorMoving(id) && !outruns(id) {
+        for id in p.collections.fillPending.sorted() where !p.collections.ancestorMoving(id) && !outruns(id) && !crossing(id) {
             let started = CACurrentMediaTime()
+            // What a glimpse left of what shows: a glimpse's rows a frame,
+            // the middle's first, until what shows is built.
+            if p.collections.glimpses.contains(id), !p.collections.covers(id) {
+                let created = p.collections.fillSlice(id, limit: glimpseRows(id), glimpse: true)
+                glimpsed(id, seconds: CACurrentMediaTime() - started, rows: created)
+                rows += created
+                continue
+            }
             let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
             // A slice built off main lands a measured latency later: lead by it.
             let latency = p.collections.fillLatency[id] ?? 0
@@ -207,7 +285,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             if still < Self.restDelay { armRest(after: Self.restDelay - still); return }
             // Cold shaped text is held to the screens a scroll passes.
             if let p = presenter, let text = p.session?.text {
-                let visible = p.textViews.values.lazy.filter { p.textIsVisible($0) }.count
+                var visible = 0
+                p.textIndex.visit(p.textViews, reach: 0, viewport: p.viewport) { if p.textIsVisible($0) { visible += 1 }; return true }
                 text.fitShaped(visibleParagraphs: visible)
                 if let m = text.measurer { Owner.shared.post { m.fitShaped(visibleParagraphs: visible) } }
             }
@@ -272,12 +351,12 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     func reset() {
         stop(); epoch += 1; queued = false
         restTimer?.invalidate(); restTimer = nil
-        travel.removeAll(); costs.removeAll()
+        travel.removeAll(); costs.removeAll(); glimpseCosts.removeAll()
         textPending = false
         lastScroll = -.infinity; lastSlice = -.infinity
     }
     func forget(_ id: UInt32) {
-        travel[id] = nil; costs[id] = nil
+        travel[id] = nil; costs[id] = nil; glimpseCosts[id] = nil
     }
     /// A smooth correction ended: no travel sample outlives it.
     func forgetTravel(_ id: UInt32) { travel[id] = nil }

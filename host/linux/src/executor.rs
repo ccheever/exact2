@@ -30,6 +30,8 @@ fn portable_host() -> ibex2::host::Host {
 impl Executor {
     /// Start native transport owners from the app's grants.
     pub fn start(grants: &str) -> Self {
+        #[cfg(unix)]
+        core::stream::listen::install(listen_module());
         let (wake, signal) = UnixStream::pair().expect("executor socketpair");
         wake.set_nonblocking(true).expect("nonblocking wake");
         signal.set_nonblocking(true).expect("nonblocking signal");
@@ -73,6 +75,11 @@ impl Executor {
                 std::sync::Arc::new(ibex2::host::Host::new)
             },
         );
+        // Linux starts programs for data code, and so does this host where it
+        // runs on a Mac; Android and Windows do not yet (LLP 1133.007 §8).
+        if cfg!(any(target_os = "linux", target_os = "macos")) {
+            core.allow_processes();
+        }
         Self { core, wake, note }
     }
     /// Where the app's files are, for a request whose body is one of them
@@ -104,6 +111,15 @@ impl Executor {
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
     }
+    /// The uploads let go that had begun to go out, for
+    /// `Runner::uploads_started` (LLP 1016.000 D10).
+    pub fn let_go_started(&self, held: impl Fn(u64) -> bool) -> Vec<u64> {
+        self.core.let_go_started(held)
+    }
+    /// Cancel the requests the app aborted, whatever their method.
+    pub fn cancel(&self, tickets: &[u64]) {
+        self.core.cancel(tickets);
+    }
     /// Settle a re-ask (`Dispatch::Again`) in its ordered place, with no
     /// work (LLP 1041 §8.4, amended 2026-10-09); kept pending while the
     /// window is full. An error is terminal, for the host to record.
@@ -123,6 +139,10 @@ impl Executor {
             }
         }
         self.core.begin_pump();
+    }
+    #[cfg(test)]
+    pub(crate) fn take_wake(&self) -> bool {
+        (&self.wake).read(&mut [0; 1]).is_ok_and(|n| n > 0)
     }
     /// One completion per turn, rearming the FD if more remain.
     pub fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
@@ -148,5 +168,40 @@ impl Executor {
     /// Each long poll's backoff wait, by its stream ticket, live (D8).
     pub fn retry_reader(&self) -> exact_runner::RetryReader {
         self.core.retry_reader()
+    }
+    /// Each listener's address and connections, by its stream ticket, live.
+    pub fn listen_reader(&self) -> exact_runner::listen::ListenReader {
+        self.core.listen_reader()
+    }
+    /// The clock its process work keeps under the agent (LLP 1133.007 §7).
+    pub fn work_clock(&self) -> Option<std::sync::Arc<dyn exact_runner::WorkClock>> {
+        self.core.work_clock()
+    }
+}
+
+/// The listener this host links (LLP 1133.005 D13: a plain dependency here,
+/// as the SVG island rasterizer is).
+#[cfg(unix)]
+fn listen_module() -> core::stream::listen::Module {
+    use exact_listen::abi::*;
+    core::stream::listen::Module {
+        open: exact_listen_open,
+        send: exact_listen_send,
+        buffered: exact_listen_buffered,
+        view: exact_listen_view,
+        close: exact_listen_close,
+    }
+}
+
+#[cfg(test)]
+mod wire_tests {
+    /// The Linux host's own transport (rustls): an app's abort closes a held
+    /// write's connection, and the server sees it end (shared with Apple's
+    /// platform transport, `executor_tests.rs`).
+    #[test]
+    fn an_app_aborted_held_write_closes_its_connection_on_rustls() {
+        super::core::tests::abort::an_aborted_held_write_closes_its_connection(
+            super::portable_host,
+        );
     }
 }

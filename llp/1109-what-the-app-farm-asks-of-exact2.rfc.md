@@ -86,6 +86,9 @@ whose error carries `reason: "SLOT_FULL"` exposes that code directly on every ho
 `failed(x)` and `failure(x)` also accept mutations. One latest failure per mutation,
 not a history: cleared on new send, assignment or successful answer. A failed admitted
 request keeps the previous result, runs no `then`, and is never automatically retried.
+(A resource refused only by its turn budget is not failed until its third overrun (LLP
+1027); until then `failure(x)` is empty and `pending(x)` is true, as for any ask in
+flight; once failed, its code is `error`.)
 Superseded tickets cannot overwrite the current status. Status participates in view
 and derive invalidation and commit rollback. A synchronous action refusal still rolls
 back the action rather than committing a partial send. New validated mutation opcodes

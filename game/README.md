@@ -525,6 +525,14 @@ acknowledgement, and a delivered message is not part of a later save. Use live
 arguments for settings, messages for things that happen once. A paused world holds
 a message for its first tick after the pause.
 
+A message carries who posted it (LLP 1133.022 D6). One from a tool's commit, or
+a wake's, arrives marked with that origin; the world keeps the least privileged
+origin it has heard until a fresh start (and saves it), and marks each string it
+`emit`s with it, so the `message=` handler runs as that origin and a tool cannot
+start a device through the world. A person's or the app's own post leaves no mark;
+`state` shows `origin` only for a marked world. The runner and the engine carry the
+mark; a game never sees it.
+
 The driver posts the same message with `post [<surface>] <text>`, short for
 `type <surface> message <text>`: `post spawn-gulper` to the page's one world,
 `post world "spawn gulper"` to a named surface (a canvas's testId works too). It is

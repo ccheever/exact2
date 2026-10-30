@@ -36,6 +36,23 @@ theme
   cards.pill = -exact-secondary-background
   cards.alert = -exact-secondary-label
   cards.alert-ground = -exact-secondary-background
+  // The empty state's icon, title, message and button: Bluesky's (the icon
+  // contrast_low, the message contrast_high; the button the brand primary, a
+  // literal, not the platform accent: white on Apple's default accent falls
+  // under 4.5:1, theme2's 23:51 ruling).
+  // Per tone: medium's message contrast_medium; label's message and icon the
+  // text colour (the chats'). The secondary button is Bluesky's secondary,
+  // contrast_50 and contrast_700, as FollowButton's following.
+  cards.empty-icon = -exact-tertiary-label
+  cards.empty-icon-label = -exact-label
+  cards.empty-title = -exact-label
+  cards.empty-message = -exact-label
+  cards.empty-message-medium = -exact-secondary-label
+  cards.empty-message-label = -exact-label
+  cards.empty-button = light-dark(#006aff, #0f73ff)
+  cards.empty-button-ink = #ffffff  scheme=fixed
+  cards.empty-button-secondary = light-dark(#eff2f6, #222e3f)
+  cards.empty-button-secondary-ink = light-dark(#405168, #abb8c9)
   // The post card's spacing, on the base scale.
   cards.pad-start: length = space.sm
   cards.pad-start-thread: length = space.sm
@@ -135,14 +152,69 @@ theme
   cards.alert-pad-block: length = space.xs
   cards.alert-pad-inline: length = 6px
   cards.alert-icon: length = 14px
+  // The empty state's (EmptyState), Bluesky's: its icon, title and message,
+  // and its button, the primary small one.
+  cards.empty-top: length = 40px
+  cards.empty-pad: length = space.lg
+  cards.empty-gap: length = space.xs
+  cards.empty-icon-box: length = 64px
+  cards.empty-icon-small: length = 32px
+  cards.empty-icon-medium: length = 48px
+  cards.empty-icon-large: length = 64px
+  cards.empty-title-size: length = 1.23125rem
+  cards.empty-message-size: length = 0.9375rem
+  cards.empty-message-line: length = 1.25rem
+  cards.empty-button-top: length = 12px
+  cards.empty-button-gap: length = 5px
+  cards.empty-button-pad-block: length = 8px
+  cards.empty-button-pad: length = 14px
+  cards.empty-button-corner: length = radius.full
+  cards.empty-button-icon: length = 16px
+  cards.empty-button-icon-box: length = 17px
+  cards.empty-button-icon-pull: length = -2px
+  cards.empty-button-size: length = 0.81875rem
+  cards.empty-button-line: length = 1.0625rem
+  cards.empty-button-press: number = 0.97
   // The divider, the link's frame and split, and the avatar's ring.
   cards.hairline: length = -exact-hairline
+  // A person in a list (PersonRow, Bluesky's ProfileCard in
+  // ProfileCardWithFollowBtn): the row's py_md px_xl and gap_xs, the
+  // header's gap_sm and 40 avatar; the name text_md semi-bold and the handle
+  // text_sm on leading_snug (20 and 17), the badge md (14) after pl_xs; the
+  // "Follows you" pill (text_xs leading_tight, 3 by 6, corner 4) and the
+  // description (text_sm leading_snug), each pt_xs; a disabled row at half.
+  cards.person-pad-block: length = 12px
+  cards.person-pad-inline: length = 20px
+  cards.person-gap: length = 4px
+  cards.person-header-gap: length = 8px
+  cards.person-avatar: length = 40px
+  cards.person-name-size: length = 0.9375rem
+  cards.person-name-line: length = 1.25rem
+  cards.person-badge: length = 14px
+  cards.person-badge-gap: length = 4px
+  cards.person-handle-size: length = 0.81875rem
+  cards.person-handle-line: length = 1.0625rem
+  cards.person-pill-top: length = 4px
+  cards.person-pill-size: length = 0.70625rem
+  cards.person-pill-line: length = 0.8125rem
+  cards.person-pill-pad-block: length = 3px
+  cards.person-pill-pad-inline: length = 6px
+  cards.person-pill-corner: length = 4px
+  cards.person-description-top: length = 4px
+  cards.person-description-size: length = 0.81875rem
+  cards.person-description-line: length = 1.0625rem
+  cards.person-dim: number = 0.5
 
 // The cards' one-colour icons, as templates every host draws from the same
 // path (theme2's path-icons ruling): no `sf`, so Apple draws the path, not
-// an SF Symbol. Each SVG's `d` is the path function's it replaced, byte for
-// byte. The Attie mark and the verified badges stay paths (even-odd; two
-// colours): see docs/contract-for-agents.md and QUEUE.md.
+// an SF Symbol. Each SVG's `d` is the path function's or inline path's it
+// replaced, byte for byte, except the verified ground, whose circle is drawn
+// as two arcs. The Attie mark and the badges' paths were drawn even-odd, but
+// each one's holes wind against its outline, so nonzero fills it the same and
+// they are written nonzero (theme2's stage 14 C ruling: no marker, so no new
+// compat id). Each badge is two one-colour templates stacked, its ground in
+// `ink` and its check in `mark` (theme2's Q5), so both colours stay tokens
+// and params.
 icons
   // The post card's context line (pinned, reposted) and reply line.
   cards.repost = icon(svg "repost.svg")
@@ -153,3 +225,10 @@ icons
   cards.eye-slash = icon(svg "eye-slash.svg")
   cards.warning = icon(svg "warning.svg")
   cards.circle-info = icon(svg "circle-info.svg")
+  // AtCard's visit button.
+  cards.attie = icon(svg "attie.svg")
+  // VerifiedBadge: each badge's ground and its check.
+  cards.verified = icon(svg "verified.svg")
+  cards.verified-check = icon(svg "verified-check.svg")
+  cards.verifier = icon(svg "verifier.svg")
+  cards.verifier-check = icon(svg "verifier-check.svg")

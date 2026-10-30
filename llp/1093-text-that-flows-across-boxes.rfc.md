@@ -269,6 +269,9 @@ Not taken:
 **Out:**
 
 - Paged media: `@page`, `page`, page margins and printing. exact2 does not print.
+  **Amended (Charlie, 2026-10-26; LLP 1133.024 D18):** printing one element
+  comes in: a print layout, this cut over its pages, and `page` and
+  `avoid-page` as admitted values with no effect on screen. `@page` stays out.
 - Regions. They shipped nowhere, and boxes of different widths would make a paragraph's lines depend on where it is cut (1043.000's harder problem).
 - `box-decoration-break: clone`, `::column` and scroll markers, and `balance-all`.
 

@@ -318,6 +318,15 @@ impl<D: DataSource> Presenter<D> {
             self.send_pad(view, index, connected.then_some((buttons, axes)), at);
         }
     }
+    /// Whether any mounted canvas accepts device input. A polling host can
+    /// stop reading controllers when there is no consumer; focus changes
+    /// within an app that has one still use the latest controller readings.
+    pub fn has_gamepad_input(&self) -> bool {
+        self.surfaces
+            .canvases
+            .keys()
+            .any(|view| self.surfaces.wants_input(*view))
+    }
     fn pad_target(&self) -> Option<u32> {
         match self.focus {
             Some(id) => self.input_surface(id),
@@ -373,6 +382,9 @@ impl<D: DataSource> Presenter<D> {
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();
         self.hold_modifier(code, down);
+        if down {
+            self.key_shows_ring(key);
+        }
         // A hardware release returns before `type_key`, which is what forgets
         // a shortcut's code. Left set, an agent key of that code after the
         // button is gone delivers the down and swallows the up.
@@ -388,6 +400,12 @@ impl<D: DataSource> Presenter<D> {
         if down && self.held & 0b1100_1100 != 0 {
             let name = if code == "NumpadEnter" { "Enter" } else { key };
             self.key_down_with(name, code, repeat, self.host.now());
+            return;
+        }
+        // Winit forwards Alt+Space before Windows opens the system menu. It
+        // must not activate a focused button. Keep releases for held controls.
+        #[cfg(target_os = "windows")]
+        if down && code == "Space" && matches!(key, "Space" | " ") && self.modifiers().alt {
             return;
         }
         let contact = if code == "Space" {
@@ -459,6 +477,7 @@ impl<D: DataSource> Presenter<D> {
             self.key_down_with(key, code, repeat, self.host.now());
             return;
         }
+        let surface_was_open = self.surface_takes_keys();
         if let Some(id) = self.focus.or_else(|| {
             self.surfaces.canvases.keys().copied().find(|view| {
                 self.surfaces.wants_input(*view)
@@ -483,7 +502,9 @@ impl<D: DataSource> Presenter<D> {
             };
             self.key_down_with(name, code, repeat, self.host.now());
         }
+        // Dismissal already restores the surface's invoker; keep that focus.
         if code == "Escape"
+            && !surface_was_open
             && self.focus.is_some_and(|id| {
                 self.host
                     .kernel()
@@ -605,6 +626,9 @@ impl<D: DataSource> Presenter<D> {
         );
         let mut at = Some(id);
         while let Some(n) = at {
+            if key && !self.alert_allows(n) {
+                return None;
+            }
             let node = kernel.node(n)?;
             let disabled = if key {
                 disabled_control(&node)
@@ -659,6 +683,7 @@ impl<D: DataSource> Presenter<D> {
     /// included (LLP 1088 D7.3), as the Apple hosts take the first
     /// responder. What tap, `autofocus` and `focus()` may focus; Tab takes
     /// only the `tabbable` ones.
+    /// Windows also focuses overflowing scroll containers for keyboard navigation.
     ///
     /// `disabled` keeps only a form control out (a button, an input, a
     /// control), where HTML defines it; on a box it means nothing to focus,
@@ -673,6 +698,7 @@ impl<D: DataSource> Presenter<D> {
                 == exact_kernel::Visibility::Visible
                 && !disabled_control(&n)
                 && (n.props.get(PropId::TabIndex).is_some()
+                    || self.desktop_scroll_focus(id)
                     || self.alert_message_overflows(id)
                     || self.focus == Some(id) && self.alert_message(id)
                     || n.props.str(PropId::Action).is_some()
@@ -719,6 +745,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Pointer activation returns HUD button focus to its input canvas after press.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
+        self.touched();
         self.press_at_after_down(x, y, now_ms, None, false)
     }
 
@@ -754,6 +781,7 @@ impl<D: DataSource> Presenter<D> {
         focus_before_down: Option<Option<ViewId>>,
         mouse_click: bool,
     ) -> Option<ViewId> {
+        self.press_point = Some((x, y));
         self.note_press_from(hit, false, focus_before_down.unwrap_or(self.focus));
         let focus = focus_before_down.is_none() && !self.pointerdown_prevents_focus(hit);
         let click = mouse_click.then(|| self.mouse_press_target(hit)).flatten();
@@ -763,7 +791,7 @@ impl<D: DataSource> Presenter<D> {
         // A popover's invoker, or a dialog's button: the top layer's, where
         // a shell presents one (`presenter/top.rs`); else refused.
         if let Some(invoker) = self.top_invoker(hit) {
-            if self.has_windows() && focus {
+            if (self.has_windows() || self.neutral_alerts()) && focus {
                 self.focus_for_press(hit, (x, y), now_ms, self.direct());
             }
             if mouse_click {
@@ -832,10 +860,14 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// A press moves focus to the nearest focusable node at or above `hit`,
-    /// except that a canvas press leaves an editor focused. A finger's press
-    /// gives the focus without its ring (LLP 1115.001 D7.6: no focus ring in
-    /// touch mode, as the web's `:focus-visible`); a mouse's shows it, as it
-    /// did, and so does a focus a key or the app moves there after.
+    /// except that a canvas press leaves an editor focused. The focus a press
+    /// gives shows no ring, as the web's `:focus-visible` has it (LLP 1115.004
+    /// D9.2: Fluent's focus visual follows keyboard input only); a focus a key
+    /// moves there after shows it, and one the app moves shows it only where
+    /// the focus it leaves did (`set_focus`). A mouse pressing the focus it
+    /// does not move leaves its ring as it was, as Chrome's does; a finger
+    /// takes it away (LLP 1115.001 D7.6: no focus ring in touch mode). A text
+    /// field keeps its ring and `:focus-visible` look, as in Chrome.
     pub(crate) fn focus_for_press(
         &mut self,
         hit: ViewId,
@@ -850,15 +882,18 @@ impl<D: DataSource> Presenter<D> {
             }
             focus = self.host.kernel().node(id).and_then(|n| n.parent);
         }
-        let ringless = focus.filter(|_| direct);
-        self.dirty |= self.brush.ringless != ringless;
-        self.brush.ringless = ringless;
         let editing = self.surfaces.wants_input(hit)
             && self
                 .focus
                 .and_then(|id| self.host.kernel().node(id))
                 .is_some_and(|node| node.node_type == NodeType::TextInput);
-        if self.focus != focus && !editing {
+        let moves = self.focus != focus && !editing;
+        if direct || moves {
+            let ringless = focus.and_then(|id| self.unringed(id));
+            self.dirty |= self.brush.ringless != ringless;
+            self.brush.ringless = ringless;
+        }
+        if moves {
             if let Some(e) = self.set_focus(focus, now_ms) {
                 eprintln!("exact: {e}");
             }
@@ -897,7 +932,21 @@ impl<D: DataSource> Presenter<D> {
             .is_some_and(|view| self.canvas_pointer(view, "down", 1, x, y, at))
     }
 
+    /// A press's event: the modifiers held, and the point the pointer path
+    /// that sent it left (`press_point`), taken so no later press reads it.
+    /// A key's press has none, as a browser's synthetic click is at 0, 0.
+    pub(crate) fn press_event(&mut self, pointer: bool) -> Event {
+        let point = self.press_point.take();
+        let (client_x, client_y) = point.filter(|_| pointer).unwrap_or_default();
+        Event::pressed(exact_runner::MouseEvent {
+            client_x: client_x.into(),
+            client_y: client_y.into(),
+            held: self.modifiers(),
+        })
+    }
+
     pub(crate) fn dispatch_press(&mut self, target: ViewId, now_ms: f64, pointer: bool) {
+        let row = self.capture_split_row(target);
         // Capture ancestry before the handler can remove its button. Pointer
         // activation yields focus to commit autofocus; keyboard activation keeps
         // a surviving button focused. Never clear an editor or explicit focus.
@@ -914,15 +963,11 @@ impl<D: DataSource> Presenter<D> {
             }
         });
         // With the modifiers held (gallery F20: shift-click), as a click has them.
-        let held = self.modifiers();
-        let press = if held == Default::default() {
-            Event::Press
-        } else {
-            Event::PressWith(held)
-        };
+        let press = self.press_event(pointer);
         if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }
+        self.associate_split_row(row);
         let prior_autofocus = self.autofocus_from;
         if pointer && fallback.is_some() {
             self.autofocus_from = Some(target);

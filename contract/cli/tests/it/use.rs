@@ -3,6 +3,10 @@
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Runner};
+#[cfg(unix)]
+use std::os::unix::fs::symlink as symlink_file;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_file;
 use std::path::{Path, PathBuf};
 
 #[derive(Default)]
@@ -442,7 +446,7 @@ fn a_root_that_names_no_file_has_its_lines_written() {
     let shared_dir = temp_dir("unnamed-shared");
     let shared = "component Shared\n  view\n    Row(p=Pattern(name=\"s\"))\n";
     std::fs::write(shared_dir.join("x.contract"), shared).unwrap();
-    std::os::unix::fs::symlink(shared_dir.join("x.contract"), dir.join("shared.contract")).unwrap();
+    symlink_file(shared_dir.join("x.contract"), dir.join("shared.contract")).unwrap();
     write("app.test.contract", "test \"a\"\n  clock settle\n");
     write(
         "app.contract",

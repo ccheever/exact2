@@ -38,7 +38,7 @@ test('authored tests use the configured compiler target and preserve compiler an
   const compiler = `#!${process.execPath}\nimport {readFileSync,writeFileSync} from 'node:fs';
 writeFileSync(process.env.COMPILER_TRACE, JSON.stringify(process.argv.slice(2)));
 if (readFileSync(process.argv[3], 'utf8') === 'refuse') { console.error('fixture.contract:7:3: invalid test step'); process.exit(2); }
-console.log('[]');\n`;
+console.log('{"tests":[],"properties":[]}');\n`;
   writeFileSync(join(tools, 'cargo'), `#!${process.execPath}\nimport {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve,dirname} from 'node:path'; import {spawnSync} from 'node:child_process';
 const bin=resolve(process.env.CARGO_TARGET_DIR,'debug/contract'), args=process.argv.slice(2);
@@ -56,7 +56,7 @@ catch(e) { console.error(e.message); process.exitCode=1; }
       writeFileSync(file, 'accept');
       const good = spawnSync(process.execPath, [runner], {cwd: dir, env, encoding:'utf8'});
       expect(good.status).toBe(0);
-      expect(JSON.parse(good.stdout)).toEqual({passed:0,failed:0,results:[]});
+      expect(JSON.parse(good.stdout)).toEqual({passed:0,failed:0,skipped:0,results:[]});
       expect(JSON.parse(readFileSync(trace, 'utf8'))).toEqual(['test', file]);
       writeFileSync(file, 'refuse');
       const bad = spawnSync(process.execPath, [runner], {cwd: dir, env, encoding:'utf8'});
@@ -440,10 +440,33 @@ test('a jump that stops at its target still fires the other timers due there', a
     f.events.push(`advance ${to}${untilRequest ? ' until a request' : ''} → ${clock}`);
     return JSON.stringify({ ops: [], clock, timers: true, timer_due_ms: due[0] ?? null });
   };
-  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; return { timers: true, batch }; };
+  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; f.flowLanding = !!batch.landing; return { timers: true, batch }; };
   expect(await f.exact.agent({ op: 'clock', to: 300 })).toEqual({ clock: 300, epoch: 2, incarnation: 1 });
   expect(counted).toBe(1);
   expect(f.events).toEqual(['advance 300 until a request → 300', 'advance 300 until a request → 300', 'advance 300 → 300']);
+});
+test("a jump lands a data module's released timer before it goes on, so chained sleeps are due one after another", async () => {
+  const f = fixture();
+  // An answer sleeping 100, 200 and 400 ms in turn: each timer is armed when the last one's continuation lands,
+  // due from the clock then. A released continuation is `landing` until it does, with no timer due meanwhile.
+  const gaps = [200, 400];
+  let now = 0, due = 100, landing = false;
+  f.flowDue = 100;
+  f.wasm.exact_advance = (to, untilRequest) => {
+    let clock = to;
+    if (due !== null && due <= to) {
+      clock = due; due = null; landing = true;
+      const p = new Promise(r => setTimeout(r, 5)).then(() => { landing = false; const gap = gaps.shift(); if (gap !== undefined) due = now + gap; });
+      f.inflight.add(p); p.finally(() => f.inflight.delete(p));
+      if (!untilRequest) clock = to;
+    }
+    now = clock;
+    f.events.push(`advance ${to}${untilRequest ? ' until a request' : ''} → ${clock}`);
+    return JSON.stringify({ ops: [], clock, timers: due !== null, timer_due_ms: due, ...(landing ? { landing: true } : {}) });
+  };
+  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; f.flowLanding = !!batch.landing; return { timers: true, batch }; };
+  expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1 });
+  expect(f.events.filter(e => / → (100|300|700)$/.test(e))).toEqual(['advance 1000 until a request → 100', 'advance 1000 until a request → 300', 'advance 1000 until a request → 700']);
 });
 test('a timer whose request never lands cannot hold the clock: past the deadline the rest is one advance', async () => {
   const f = fixture();
@@ -676,7 +699,7 @@ for (const name of ['prompt-glue', 'alert-message']) {
   if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
   inputSource = stripped;
 }
-const inputCode = inputSource.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+const inputCode = inputSource.replace(/^export (async function|function|const) /gm, '$1 ');
 const inputScript = new vm.Script(inputCode + '\n' + declaration('attach'), { filename: 'input-glue.js' });
 
 function inputFixture() {
@@ -828,7 +851,7 @@ test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal g
 // a link, as a click, after the key's handlers and unless one prevented it.
 test('a pressable that is no button activates by Enter or Space', () => {
   const h = inputFixture(); h.load(); let clicks = 0;
-  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, closest: () => null /* no disabled ancestor (LLP 1121 D8) */, click() { clicks++; }, toggleAttribute() {}, style: { getPropertyValue: () => '' }, addEventListener() {}, removeEventListener() {} }); // Space also shows the press (tests/press.test.mjs)
+  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, closest: () => null /* no disabled ancestor (LLP 1121 D8) */, click() { clicks++; }, toggleAttribute() {}, hasAttribute: () => false, style: { getPropertyValue: () => '' }, addEventListener() {}, removeEventListener() {} }); // Space also shows the press (tests/press.test.mjs)
   const key = (target, extra) => { const e = { key: 'Enter', target, preventDefault() { this.prevented = true; }, ...extra }; h.f.keyActivate(e); return e; };
   expect(key(pressable('div')).prevented).toBe(true);
   expect(key(pressable('div'), { key: ' ' }).prevented).toBe(true);

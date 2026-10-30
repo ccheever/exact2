@@ -436,6 +436,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // lowerer's `bind_atoms` and `bind_atom_faces` read them first).
         "atoms" => AttrTarget::Prop(PropId::Atoms),
         "atomFaces" => AttrTarget::Prop(PropId::AtomFaces),
+        // LLP 1045 D11: a Markdown editor's base direction per line.
+        "paragraphDirs" => AttrTarget::Prop(PropId::ParagraphDirs),
         "alertPart" => AttrTarget::Prop(PropId::AlertPart),
         "defaultSurface" => AttrTarget::Prop(PropId::DefaultSurface),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
@@ -594,6 +596,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
         // @ref LLP 1125 D11 — the Screen Wake Lock API's one type, on any element.
         "wakelock" => AttrTarget::Prop(p("wakelock")),
+        // @ref LLP 1133.029 D1 — the Screen Orientation API's lock types, on any element.
+        "orientationlock" => AttrTarget::Prop(p("orientationlock")),
         // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
         // `none` for a full-bleed screen.
         "navigationBar" => AttrTarget::Prop(p("navigationBar")),
@@ -626,6 +630,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
         "-exact-menu" => AttrTarget::Prop(p("menuPlacement")),
         "-exact-menu-remove" => AttrTarget::Prop(p("menuRemove")),
+        "-exact-menu-keys" => AttrTarget::Prop(p("menuKeys")),
         "aria-keyshortcuts" => AttrTarget::Prop(p("accessibilityKeyShortcuts")),
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),
@@ -671,6 +676,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // Where a virtualized list opens: at its start, or at its end (a
         // transcript), CSS Scroll Snap 2's container-level `scroll-start`.
         "scroll-start" => AttrTarget::Prop(p("scrollStart")),
+        // @ref LLP 1145 D4 — how far ahead a virtualized list's edges fire.
+        "reach-margin" => AttrTarget::Prop(p("reachMargin")),
+        // @ref LLP 1010 §6.11 — the rows a virtualized list keeps mounted.
+        "keep-mounted" => AttrTarget::Prop(p("keepMounted")),
         // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
@@ -914,6 +923,13 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "keepScreenOn" | "keep-screen-on" | "idleTimerDisabled" | "keepAwake" | "wakeLock" => {
             "wakelock"
         }
+        // The web's call, Android's activity attribute, UIKit's (LLP 1133.029 D1).
+        "screenOrientation"
+        | "screen-orientation"
+        | "lockOrientation"
+        | "orientation"
+        | "requestedOrientation"
+        | "supportedInterfaceOrientations" => "orientationlock",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",

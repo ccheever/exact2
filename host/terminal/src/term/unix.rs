@@ -409,6 +409,16 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
                 host.publish(&r);
             }
         }
+        // Admit idle work only after checking for input already queued
+        let idle_stdin = rustix::stdio::stdin();
+        let mut input = [PollFd::new(&idle_stdin, PollFlags::IN)];
+        let zero = Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        if poll(&mut input, Some(&zero)).is_ok_and(|ready| ready == 0) {
+            host.idle_timer(now());
+        }
         // Sleep until input, a wake, the next timer, or a size check.
         let wait = host
             .timer_due_ms()

@@ -336,9 +336,10 @@ pub(super) fn declare(shapes: &mut Shapes) {
         "ReorderEvent".into(),
         vec![("from".into(), Ty::String), ("to".into(), Ty::String)],
     );
-    // DOM's `MouseEvent`, the modifiers held, what a `press` action may take
-    // (gallery F20: shift-click range select, ⌘-click), in the order
-    // `exact_runner::KeyModifiers::mouse` writes it.
+    // DOM's `MouseEvent`, what a `press` action may take: the modifiers held
+    // (gallery F20: shift-click range select, ⌘-click) and the point from the
+    // viewport, 0, 0 from a keyboard or assistive press (LLP 1021 D2: a menu
+    // at the press), in the order `exact_runner::MouseEvent` writes it.
     shapes.map.insert(
         "MouseEvent".into(),
         vec![
@@ -346,6 +347,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("ctrlKey".into(), Ty::Bool),
             ("altKey".into(), Ty::Bool),
             ("metaKey".into(), Ty::Bool),
+            ("clientX".into(), Ty::Number),
+            ("clientY".into(), Ty::Number),
         ],
     );
     // DOM's `WheelEvent` (studio diary R3), in the order

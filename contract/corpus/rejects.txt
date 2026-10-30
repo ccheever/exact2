@@ -1068,21 +1068,6 @@ component Child
     button press=go
       text "a"
 ---
-== analyze-call-stale-read
-# A callee reads the state the action started with: a slot its caller
-# assigned first is stale behind the call (LLP 1089 D3).
-component A
-  state sel = 0
-  state seen = 0
-  action follow
-    seen = sel
-  action go
-    sel = 2
-    follow()
-  view
-    button press=go
-      text "a"
----
 == type-share-argument
 # `share` takes the Web Share API's names, named (LLP 1069.003 D1).
 component A
@@ -1164,47 +1149,20 @@ component A
     button press=go
       text "a"
 ---
-== type-notification-argument
-# `showNotification` takes the Notification API's names, named.
-component A
-  action go
-    showNotification("Stretch")
-  view
-    button press=go
-      text "a"
----
-== type-notification-argument
-# It needs a title.
-component A
-  action go
-    showNotification(body="Five minutes")
-  view
-    button press=go
-      text "a"
----
-== type-notification-argument
-# `showTrigger` is a time in epoch milliseconds, not text.
-component A
-  action go
-    showNotification(title="Stretch", showTrigger="7:30")
-  view
-    button press=go
-      text "a"
----
-== type-notification-argument
-# `closeNotification` takes the tag.
-component A
-  action go
-    closeNotification()
-  view
-    button press=go
-      text "a"
----
 == type-file-picker-argument
 # `showSaveFilePicker` takes (id, suggestedName) (LLP 1069.010 D2).
 component A
   action go
     showSaveFilePicker("out")
+  view
+    button press=go
+      text "a"
+---
+== type-permission-argument
+# `requestPermission` takes (id, path, mode), mode "read" or "readwrite" (LLP 1069.010.000 D7).
+component A
+  action go
+    requestPermission("asked", "doc:/1/notes.md", "write")
   view
     button press=go
       text "a"
@@ -1976,3 +1934,193 @@ component A
   view
     iframe "https://example.com" partition="work" apple.inactiveSchedulingPolicy="sometimes"
 ---
+
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=bogus)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=frame + 1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=0)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=-1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=1.5)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=4294967296)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=count)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=frame, wait=idle)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=1, max=2)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, max=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=frame, max=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=update, max=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=-1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=1.5)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=4294967296)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=count)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=1, tolerance=2)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=1, wait=frame)
+  view
+    text "timer"

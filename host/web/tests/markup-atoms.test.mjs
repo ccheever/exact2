@@ -17,7 +17,18 @@ const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) 
 
 const KINDS = JSON.stringify([{ name: 'citation', link: 'cite:' }, { name: 'mention', prefix: '@' }]);
 const CITE = '[Quote](cite:1)';
-const faces = list => JSON.stringify(list.map(([source, label, title = '']) => ({ source, label, icon: '', title })));
+const faces = list => JSON.stringify(list.map(([source, label, title = '', color = '', backgroundColor = '', direction = '', icon = '', ariaLabel = '']) => ({ source, label, icon, title, color, backgroundColor, direction, ariaLabel })));
+// An icon the web draws: a black square.
+const ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>');
+// Whether a pill's icon is on its right: its middle past the pill's, on its
+// label's line, where the page's `img { display: block }` would put it above.
+const iconOnTheRight = box => box.evaluate(b => {
+  const i = b.querySelector('img').getBoundingClientRect(), r = b.getBoundingClientRect(), label = document.createRange();
+  label.selectNodeContents(b.lastChild);
+  const t = label.getBoundingClientRect();
+  if (i.bottom <= t.top + 1) throw new Error(`the icon is above its label: ${JSON.stringify([i, t])}`);
+  return i.left + i.width / 2 > r.left + r.width / 2;
+});
 const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 async function editor(engine, source, drive, { width = 500, faceList = [], styles = '{}' } = {}) {
@@ -25,7 +36,7 @@ async function editor(engine, source, drive, { width = 500, faceList = [], style
     const path = new URL(request.url).pathname;
     if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
-    return new Response(`<!doctype html><meta charset="utf-8"><style>body{font:16px/1.4 system-ui}</style>
+    return new Response(`<!doctype html><meta charset="utf-8"><style>body{font:16px/1.4 system-ui} img, video, svg { display: block; }</style>
       <textarea id="editor" markup="markdown" data-atoms="${attr(KINDS)}" data-atom-faces="${attr(faces(faceList))}" data-atom-styles="${attr(styles)}" style="width:${width}px;height:200px"></textarea>
       <script type="module">
         globalThis.exact = {};
@@ -93,6 +104,22 @@ for (const engine of engines) {
     }, { faceList: [[CITE, 'A quote', 'The quote']] });
   }, 60000);
 
+  // D2, D8: a face's `ariaLabel` is the pill's accessible name, and the pill
+  // still draws its label, which `state.atoms` reports; a new name alone
+  // renames it.
+  engineTest[engine](`${engine}: a face's ariaLabel names its pill, which draws its label`, async () => {
+    await editor(engine, `a ${CITE} b`, async (page, field) => {
+      const box = island(field);
+      expect(await box.getAttribute('aria-label')).toBe('Image attachment, quote');
+      expect(await box.textContent()).toBe('A quote 40%');
+      const [atom] = await page.evaluate(() => exact.atoms.state(() => 'editor'));
+      expect(atom.label).toBe('A quote 40%');
+      await field.evaluate((el, f) => { el.setAttribute('data-atom-faces', f); el.exactMarkup.sync(); }, faces([[CITE, 'A quote 40%', '', '', '', '', '', 'Image attachment, quote, 2 MB']]));
+      await settle(page);
+      expect(await island(field).getAttribute('aria-label')).toBe('Image attachment, quote, 2 MB');
+    }, { faceList: [[CITE, 'A quote 40%', '', '', '', '', '', 'Image attachment, quote']] });
+  }, 60000);
+
   engineTest[engine](`${engine}: Backspace and Delete remove an atom whole, undo brings it back, typing lands outside`, async () => {
     const source = `a ${CITE} b`, start = 2, end = 2 + CITE.length;
     await editor(engine, source, async (page, field) => {
@@ -141,11 +168,30 @@ for (const engine of engines) {
       expect(await island(field).textContent()).toBe('main.rs');
       await field.evaluate(el => { el.setAttribute('data-atom-faces', JSON.stringify([{ source: '@src/main.rs', label: 'lib/main.rs', icon: '', title: '' }])); el.exactMarkup.sync(); });
       expect(await island(field).textContent()).toBe('lib/main.rs');
+      // A face whose paint alone changes draws its pill again.
+      await field.evaluate(el => { el.setAttribute('data-atom-faces', JSON.stringify([{ source: '@src/main.rs', label: 'lib/main.rs', icon: '', title: '', color: 'rgb(7, 8, 9)', backgroundColor: '' }])); el.exactMarkup.sync(); });
+      expect(await island(field).evaluate(b => getComputedStyle(b).color)).toBe('rgb(7, 8, 9)');
       expect(await field.evaluate(el => el.value)).toBe(source);
       // rangeFrame over the atom is its pill.
       const [frame, pill] = await field.evaluate(el => [el.exactMarkup.rangeFrame(3, 15), el.querySelector('.exact-atom').getBoundingClientRect()].map(r => [r.x, r.y, r.width, r.height].map(Math.round)));
       expect(frame).toEqual(pill);
     });
+  }, 60000);
+
+  engineTest[engine](`${engine}: a face's paint is its pill's, over its kind's; one the browser does not take leaves the kind's`, async () => {
+    const styles = JSON.stringify({ mention: 'color:rgb(1, 2, 3);background-color:rgb(4, 5, 6)' });
+    const faceList = [['@x', 'X', '', 'light-dark(#d52c36, #ff6762)'], ['@y', 'Y', '', '', '#1a85d433'], ['@z', 'Z', '', 'no colour', 'red;display:none']];
+    await editor(engine, 'a @x @y @z b', async (page, field) => {
+      const paint = () => field.evaluate(el => [...el.querySelectorAll('.exact-atom')].map(b => [getComputedStyle(b).color, getComputedStyle(b).backgroundColor, getComputedStyle(b).display]));
+      expect(await paint()).toEqual([
+        ['rgb(213, 44, 54)', 'rgb(4, 5, 6)', 'inline-block'],
+        ['rgb(1, 2, 3)', 'rgba(26, 133, 212, 0.2)', 'inline-block'],
+        ['rgb(1, 2, 3)', 'rgb(4, 5, 6)', 'inline-block'],
+      ]);
+      // `light-dark()` takes the page's scheme, as the kind's does.
+      await page.evaluate(() => { document.documentElement.style.colorScheme = 'dark'; });
+      expect((await paint())[0][0]).toBe('rgb(255, 103, 98)');
+    }, { faceList, styles });
   }, 60000);
 
   engineTest[engine](`${engine}: an island an edit removed without beforeinput removes its atom's source`, async () => {
@@ -185,6 +231,46 @@ for (const engine of engines) {
     });
   }, 60000);
 
+  // LLP 1045.000 D4: the reader's pill too follows its line's direction, its
+  // icon first, unless its face pins one; a collapsed `rangeFrame` at a
+  // pill's start is the edge its line's direction puts first, pinned or not (D7).
+  engineTest[engine](`${engine}: in a right-to-left reader a pill's icon is on the right, unless its face pins left to right`, async () => {
+    const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
+      const path = new URL(request.url).pathname;
+      if (path.endsWith('.js')) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+      // The host page's reset (index.html) makes an image a block.
+      return new Response(`<!doctype html><meta charset="utf-8"><style>img, video, svg { display: block; }</style><p id="text" markup="markdown" data-exact-text style="direction:rtl"></p><script type="module">
+        globalThis.exact = {};
+        const { renderMarkup } = await import('./navigation.js');
+        await import('./atoms.js');
+        const icon = ${JSON.stringify(ICON)};
+        renderMarkup(document.getElementById('text'), JSON.stringify([['שלום ', 1, 0, 0, ''], ['Quote', 1, 0, 72, '', 0, ['citation', 'button', icon, '', 'cite:1', '${CITE}', 5, 20, '', '', '']],
+          [' ו ', 1, 0, 0, ''], ['Pinned', 1, 0, 72, '', 0, ['citation', 'button', icon, '', 'cite:2', '[P](cite:2)', 23, 34, '', '', 'ltr']]]));
+        window.ready = true;
+      </script>`, { headers: { 'content-type': 'text/html' } });
+    } });
+    const context = await (await browser(engine)).newContext();
+    try {
+      const page = await context.newPage();
+      await page.goto(`http://127.0.0.1:${server.port}/`);
+      await page.waitForFunction(() => window.ready && document.querySelector('.exact-atom img')?.complete);
+      const [follows, pinned] = [page.locator('.exact-atom').first(), page.locator('.exact-atom').nth(1)];
+      expect(await follows.evaluate(b => getComputedStyle(b).direction)).toBe('rtl');
+      expect(await iconOnTheRight(follows)).toBe(true);
+      expect(await pinned.evaluate(b => getComputedStyle(b).direction)).toBe('ltr');
+      expect(await iconOnTheRight(pinned)).toBe(false);
+      // Each pill's start is its right edge and its end its left, as the line runs.
+      const edges = (box, s, e) => box.evaluate((b, [s, e]) => {
+        const text = document.getElementById('text'), r = b.getBoundingClientRect();
+        return [exact.atoms.rangeFrame(text, s, s).left, exact.atoms.rangeFrame(text, e, e).left, r.left, r.right].map(Math.round);
+      }, [s, e]);
+      for (const [box, s, e] of [[follows, 5, 20], [pinned, 23, 34]]) {
+        const [start, end, left, right] = await edges(box, s, e);
+        expect([start, end]).toEqual([right, left]);
+      }
+    } finally { await context.close(); server.stop(true); }
+  }, 60000);
+
   engineTest[engine](`${engine}: the reader's atom is a button a press, Return or Space reports, and rangeFrame is its pill`, async () => {
     const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
       const path = new URL(request.url).pathname;
@@ -193,7 +279,7 @@ for (const engine of engines) {
         globalThis.exact = {};
         const { renderMarkup } = await import('./navigation.js');
         const text = document.getElementById('text');
-        const json = JSON.stringify([['see ', 1, 0, 0, ''], ['A quote', 1, 700, 72, '', 0, ['citation', 'button', '', 'The quote', 'cite:1', '${CITE}', 4, 19]], [' and ', 1, 0, 0, ''], ['L', 1, 0, 72, '', 0, ['ref', 'link', '', '', 'cite:2', '[L](cite:2)', 24, 35]]]);
+        const json = JSON.stringify([['see ', 1, 0, 0, ''], ['A quote', 1, 700, 72, '', 0, ['citation', 'button', '', 'The quote', 'cite:1', '${CITE}', 4, 19, '', '']], [' and ', 1, 0, 0, ''], ['L', 1, 0, 72, '', 0, ['ref', 'link', '', '', 'cite:2', '[L](cite:2)', 24, 35, '#1a85d4', '', '', 'Reference L']]]);
         renderMarkup(text, json);
         window.before = text.querySelectorAll('.exact-atom').length; // until atoms.js is here: the labels alone
         await import('./atoms.js'); renderMarkup(text, json);
@@ -216,7 +302,9 @@ for (const engine of engines) {
       expect(await box.getAttribute('role')).toBe('button');
       expect(await box.getAttribute('tabindex')).toBe('0');
       expect(await box.getAttribute('aria-description')).toBe('The quote');
+      expect([await box.getAttribute('aria-label'), await link.getAttribute('aria-label')]).toEqual(['A quote', 'Reference L']); // its face's ariaLabel, else its label
       expect(await box.evaluate(b => [getComputedStyle(b).fontWeight, getComputedStyle(b).color])).toEqual(['700', 'rgb(1, 2, 3)']);
+      expect(await link.evaluate(b => getComputedStyle(b).color)).toBe('rgb(26, 133, 212)'); // its face's paint
       await box.click();
       await box.focus(); await page.keyboard.press('Enter'); await page.keyboard.down(' ');
       const detail = ['citation', CITE, 'cite:1', 4, 19, false, false, false, false];
@@ -270,6 +358,59 @@ for (const engine of engines) {
       expect(end[0]).toBe(pill[0]);
     });
   }, 60000);
+
+  // LLP 1045.000 D4: in a right-to-left line a pill lays out from the right,
+  // its icon first, as the line does; a face's `direction` pins its own.
+  engineTest[engine](`${engine}: in a right-to-left line a pill's icon is on the right, unless its face pins left to right`, async () => {
+    for (const [direction, right] of [['', true], ['ltr', false], ['rtl', true]]) {
+      await editor(engine, `שלום ${CITE} עולם`, async (page, field) => {
+        await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'rtl'); el.exactMarkup.sync(); });
+        await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => setTimeout(ok))));
+        const box = island(field);
+        expect(await box.evaluate(b => getComputedStyle(b).direction)).toBe(direction || 'rtl');
+        expect(await iconOnTheRight(box)).toBe(right);
+      }, { faceList: [[CITE, 'Quote', '', '', '', direction, ICON]] });
+    }
+  }, 60000);
+
+  // @ref LLP 1045 D11 — a line `paragraphDirs` makes right to left is one for an atom's edges.
+  engineTest[engine](`${engine}: in a line paragraphDirs makes right to left, an atom's start is its right edge`, async () => {
+    await editor(engine, `שלום ${CITE} עולם`, async (page, field) => {
+      await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'rtl'); el.exactMarkup.sync(); });
+      await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => setTimeout(ok))));
+      const [line, start, right] = await field.evaluate((el, a) => {
+        const island = el.querySelector('.exact-atom');
+        return [getComputedStyle(el.firstChild).direction, Math.round(el.exactMarkup.rangeFrame(a, a).left), Math.round(island.getBoundingClientRect().right)];
+      }, 5);
+      expect(line).toBe('rtl');
+      expect(start).toBe(right);
+    });
+  }, 60000);
+
+  // @ref LLP 1045 D11 — `auto` reads the letters a line draws as text, as Apple's MarkupEditor does.
+  engineTest[engine](`${engine}: auto takes a line's first strong letter outside its syntax and atoms`, async () => {
+    await editor(engine, '@src/a.ts اشرح هذا \n@x اكتب\n[1](https://example.test) مرحبا\n42', async (page, field) => {
+      await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'auto'); el.exactMarkup.sync(); });
+      await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => setTimeout(ok))));
+      // The atom and the link's destination are left out; `@x` has no face, so it is text; 42 has no strong letter.
+      expect(await field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')))).toEqual(['rtl', 'ltr', 'rtl', null]);
+    }, { faceList: [['@src/a.ts', 'a.ts']] });
+  }, 60000);
+
+  engineTest[engine](`${engine}: auto reads a footnote mark's label as text, wherever the caret is`, async () => {
+    await editor(engine, '[^n] مرحبا\n\n[^note]: ملاحظة', async (page, field) => {
+      await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'auto'); el.exactMarkup.sync(); });
+      await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => setTimeout(ok))));
+      const dirs = () => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+      expect(await dirs()).toEqual(['ltr', null, 'ltr']);
+      // A caret on a footnote's line reveals its syntax; the answer stays.
+      await field.focus();
+      for (const at of [2, 20]) {
+        await field.evaluate((el, at) => el.setSelectionRange(at, at), at); await settle(page);
+        expect(await dirs()).toEqual(['ltr', null, 'ltr']);
+      }
+    });
+  }, 60000);
 }
 
 for (const engine of engines) {
@@ -307,6 +448,34 @@ for (const engine of engines) {
       expect(width).toBeLessThanOrEqual(line + 0.5);
       expect(lines).toBeLessThanOrEqual(1);
     }, { width: 400, faceList: [[long, long]] });
+  }, 60000);
+
+  // LLP 1045.000 D2: on the JS target a face's colour is what this browser
+  // takes (`shape.js`), as a bound colour row's is. A cascade keyword or a
+  // substitution anywhere is none, but for a role in its web form, which is
+  // the role (here a stand-in map's); so is a standard space's (LLP 1100 D1).
+  engineTest[engine](`${engine}: a face's colour on the JS target is what the browser takes`, async () => {
+    const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
+      if (new URL(request.url).pathname === '/shape.js') return new Response(Bun.file(resolve(WEB, '../web-js/shape.js')), { headers: { 'content-type': 'text/javascript' } });
+      return new Response(`<!doctype html><meta charset="utf-8"><script type="module">
+        const journal = []; globalThis.exact = { journal, now: () => 0 };
+        const { atomFacesRecord } = await import('./shape.js');
+        const colours = ['color(display-p3 1 0 0)', 'oklch(70% 0.1 200)', 'var(--exact-separator)', 'var(--x)', 'env(safe-area-inset-top)', 'if(media(print): red)', 'color(--dci-p3 1 0 0)', 'notacolour', 'light-dark(currentcolor, #000)', 'inh\\\\65rit'];
+        const roles = [['separator', '', false, false, '-exact-separator']], cm = c => c === '-exact-separator' ? 'var(--exact-separator, #c6c6c8ff)' : c;
+        const out = JSON.parse(atomFacesRecord(colours.map(c => ['@a', '', '', '', c, '']), cm, () => 9, roles));
+        window.result = { kept: out.map(f => f.color), journal };
+      </script>`, { headers: { 'content-type': 'text/html' } });
+    } });
+    const context = await (await browser(engine)).newContext();
+    try {
+      const page = await context.newPage();
+      await page.goto(`http://127.0.0.1:${server.port}/`);
+      await page.waitForFunction(() => window.result);
+      const { kept, journal } = await page.evaluate(() => window.result);
+      expect(kept).toEqual(['color(display-p3 1 0 0)', 'oklch(70% 0.1 200)', 'var(--exact-separator, #c6c6c8ff)', '', '', '', '', '', '', '']);
+      expect(journal).toEqual(['var(--x)', 'env(safe-area-inset-top)', 'if(media(print): red)', 'color(--dci-p3 1 0 0)', 'notacolour', 'light-dark(currentcolor, #000)', 'inh\\65rit']
+        .map(c => `t=0 view 9: invalid atomFaces colour ${JSON.stringify(c)}; its kind's paint stands`));
+    } finally { await context.close(); server.stop(true); }
   }, 60000);
 }
 

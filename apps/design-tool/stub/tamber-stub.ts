@@ -20,6 +20,9 @@ let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 let refuseCommit = '';
 // A session with nothing to commit (`/__stub/refuse-commit` `{nothing: true}`).
 let nothingToCommit = false;
+// Dry commits asked, and events read for no one (`design-tool:`, before the name), since a test last asked (stage 15
+// D1.6): `/__stub/asked` answers whether each happened as the test says (409 if not), and counts again.
+let dryAsks = 0, namelessAsks = 0;
 // The dev loop's page hello names, as a test sets it (`/__stub/page`): none
 // by default, as `tamber tool` alone.
 let PAGE: string | null = null;
@@ -58,6 +61,9 @@ const classOf = (ops: { name?: string; op?: string }[]) => ops.some(o => o.op ==
 // (`/__stub/reverse-axes`): describe says so from then on. `describe`
 // refused (an event's `refuseDescribe`), so a test sees whether the tool
 // reads the design again.
+// A design that declares no axes (`/__stub/no-axes`, stage 15 D4 batch 1 #1): describe names none and each token
+// resolves at its one tuple.
+let noAxes = false;
 let LIVE = false, refuseRelease = '', previewMs = 0, reversed = false, refuseDescribe = '', describePasses = 0;
 const changedOf = (ops: { name?: string }[]) => ops.map(o => ({ file: 'app.tamber', token: o.name }));
 // A run's sessions (a restart starts their ids again, as a new server's do).
@@ -90,7 +96,11 @@ let longPolls = false, skipCursor = false, refuseHello = false; // (`refuseHello
 const LONG_POLL_MS = 25_000;
 let beat = LONG_POLL_MS;
 // Held proposals, as a test holds them (`/__stub/hold`).
-let held: Record<string, unknown>[] = [], holds = 0;
+let held: any[] = [], holds = 0, moves = 0, protocolSaid: string | null = null; // (`protocolSaid`: what hello says, a test's (`/__stub/protocol`))
+// (`holds`: the ids made; with `moves`, a choice recorded, the held list's revision.)
+// The `choose`s asked, as a test reads them (`/__stub/chooses`); `loseChooses`, how many more are recorded and their
+// answers lost, as a test asks (`/__stub/lose-choose` `{n}`).
+let chooses: { proposal: string; items: number[]; client: string }[] = [], loseChooses = 0;
 // Live copies (LLP 1122 T7), as a test turns them on (`/__stub/copies`):
 // hello's page is this stub's own origin, whose root is a copy's page: it
 // registers a build named by its frame (`copy-<name>`, a stable id, as a
@@ -129,6 +139,8 @@ let lastBy = 'changed on disk';
 function take(e: Record<string, any>) {
   // (`pad`: an event this many bytes larger, up to 4 MiB, as a test makes one larger than a stream's default ceiling.)
   if (typeof e.pad === 'number') { const { pad, ...rest } = e; e = { ...rest, note: 'x'.repeat(Math.min(pad, 4 << 20)) }; }
+  // (A `committed` event as the server sends it, `files` its paths: it moves no digest.)
+  if (e.event === 'committed') { log.push({ epoch: EPOCH, edits: [], ...e, seq: seq() + 1 } as Event); return; }
   // An event's `files` are the digests from then on, and its client (else a hand edit) who last changed them.
   if (e.files) { FILES = { ...FILES, ...e.files }; lastBy = e.client ?? 'changed on disk'; }
   // A `builds` event is the list hello gives from then on, and a
@@ -156,7 +168,7 @@ const seq = () => log.at(-1)?.seq ?? 0;
 // the next of a fixed series, so a test can type it. The remote doors a test opens
 // (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
 type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
-let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, refuseSelect = false, pageRefusesSelect = false, pageSelectGone = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, stayingSelect = false, slotSelect = false, furtherSelect = false, quietSelect = false, refuseSelect = false, pageRefusesSelect = false, pageSelectGone = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
 const GONE = 'this paired client was revoked or its token expired';
 const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
 // A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
@@ -220,7 +232,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (!allows(asker.scope, need, asker.local)) { const r = refusal(request.method, asker.scope, need); return send({ error: r.error }, r.status); }
       // (A server that lies to a paired client, saying it is local with a page, as a test asks: `/__stub/forge-local`.)
       if (request.method === 'hello' && refuseHello) return send({ error: { message: 'the design files could not be read' } }, 500);
-      if (request.method === 'hello') return send({ ok: { protocol: longPolls ? 'tamber/1.17' : 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
+      if (request.method === 'hello') return send({ ok: { protocol: protocolSaid ?? (longPolls ? 'tamber/1.18' : 'tamber/1.13'), format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
       // (Refused once each, as a test asks: `/__stub/refuse-pairing`.)
       if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
       if (request.method === 'pair-code') return mint(request);
@@ -284,11 +296,25 @@ Bun.serve({ hostname, port: Number(port), routes: {
           if (pageSelectGone) { pageSelectGone = false; log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'the selected node is gone in this generation: select it again', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           if (pageRefusesSelect) { log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'this build cannot move its selection up (select): click the node instead', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           const last = log.findLast(e => e.event === 'selection' && e.build === request.build) as { node?: number; source?: { chain?: unknown[] } } | undefined;
-          // (`/__stub/shallow-select`: a page whose tree changed has fewer above, and lands at the root.)
+          // (`/__stub/shallow-select`: a page with no other copy above it, which lands at the root having stepped none.)
           const chain = last?.source?.chain ?? [], up = shallowSelect ? chain.length : Math.min(Number(request.select.up), chain.length);
-          if (!last || !up) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
+          if (!last) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
+          // (No call site above it: a slot fill the app wrote, whose page steps to the slot's host, Card, one copy up.)
+          if (!chain.length && !stayingSelect) { log.push({ ...last, node: Number(last.node ?? 0) + 100, source: { file: '/stub/card.contract', line: 2, col: 3, end_col: 7, component: 'Card', chain: [] }, moved: { up: Number(request.select.up), stepped: 1 }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
+          // (`/__stub/staying-select`: the selection is the root already (App only renders its component), so the page
+          // reports the same node again, having stepped none.)
+          // (`/__stub/slot-select`: the page steps to a slot's host the call-site chain doesn't list, PostCard, which
+          // holds the pressed line's copy in its slot.)
+          if (slotSelect) { log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { file: '/stub/postcard.contract', line: 3, col: 3, end_col: 11, component: 'PostCard', chain: chain.slice(up) }, moved: { up: Number(request.select.up), stepped: up }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
+          // (`/__stub/quiet-select`: taken, and nothing reported yet: a test reports the page's answer itself, in one batch.)
+          if (quietSelect) return send({ ok: { builds: [request.build] } });
+          // (`/__stub/further-select`: the page lands a copy further out than the pressed line, on another of the
+          // selection's callers: the line pressed owned no node of its own there.)
+          if (furtherSelect && up < chain.length) { log.push({ ...last, node: Number(last.node ?? 0) + 100 * (up + 1), source: { ...(chain[up] as object), chain: chain.slice(up + 1) }, moved: { up: Number(request.select.up), stepped: up }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
+          if (stayingSelect) { log.push({ ...last, moved: { up: Number(request.select.up), stepped: 0 }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           // (Another node, as the page's ancestor is: its own view id.)
-          log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { ...(chain[up - 1] as object), chain: chain.slice(up) }, seq: seq() + 1 }); save();
+          // (With the page's `moved` (1.17): the up asked and the steps it took.)
+          log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { ...(chain[up - 1] as object), chain: chain.slice(up) }, moved: { up: Number(request.select.up), stepped: shallowSelect ? 0 : up }, seq: seq() + 1 }); save();
           return send({ ok: { builds: [request.build] } });
         }
         // A refresh asks a build's page to report again, inspect mode as it is:
@@ -334,7 +360,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
-      if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) };
+      if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}), ...(noAxes ? { axes: [] } : {}) };
         if (PACKAGED) ir.components = [...ir.components, ...PACKAGED.components];
         // (surface.card's dark side, which moves with app.tamber below, is in its entry too, as a server's describe folds it.)
         if (FILES['app.tamber'] !== 'a'.repeat(64)) ir.tokens = ir.tokens.map((t: { name: string; values: string[] }) => (t.name === 'surface.card' ? { ...t, values: t.values.map(() => `light-dark(#f1f3f5ff, #${FILES['app.tamber'].slice(0, 6)}ff)`) } : t));
@@ -343,12 +369,14 @@ Bun.serve({ hostname, port: Number(port), routes: {
         if (Object.keys(LIBRARY).length) { const known = ir.components.map((c: { identity: string }) => c.identity); ir.components = [...ir.components.map((c: { identity: string }) => (LIBRARY[c.identity] ? { ...c, ...LIBRARY[c.identity] } : c)), ...Object.entries(LIBRARY).filter(([id]) => !known.includes(id)).map(([identity, l]) => ({ identity, params: [], ...l }))]; } return send({ ok: { ...DIALS.describe, ir, files: FILES, ...(PACKAGED?.base ? { base: PACKAGED.base } : {}) } }); }
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
-      const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
+      const order = (tuples: { modes: Record<string, string> }[]) => noAxes ? tuples.slice(0, 1).map(t => ({ ...t, modes: {} })) : !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
       // A package param's resolve, its tuples' winning level and name (stage 12 B2-levels), as the test gives them.
       // (Each of the design's tuples, by its modes as a token's resolve gives them, its level the test's in turn: one given
       // as a string is both sides', as `{light, dark}` each side's.)
       const sides = (g: Record<string, unknown>) => Object.fromEntries(Object.entries(g).map(([k, v]) => [k, (k === 'level' || k === 'name') && typeof v === 'string' ? { light: v, dark: v } : v]));
       const packagedParam = PACKAGED?.components.some(c => ((c.params ?? []) as { name: string }[]).some(p => p.name === request.token));
+      // (A server before tamber/1.17's batch, as a real one refuses it: the tool asks again by name.)
+      if (request.method === 'resolve' && request.tokens) return send({ error: { message: '`token` is a string, and needed' } }, 400);
       if (request.method === 'resolve' && packagedParam && PACKAGED!.refuse?.includes(request.token)) return send({ error: { message: `the server could not resolve ${request.token}` } }, 400);
       if (request.method === 'resolve' && packagedParam) { const given = (PACKAGED!.resolve?.[request.token] ?? [{ level: 'default', name: request.token }]) as Record<string, unknown>[]; return send({ ok: { token: request.token, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>, i: number) => ({ modes: u.modes, ...sides(given[i % given.length]) }))) } }); }
       // surface.card's dark side moves once app.tamber does (an event's
@@ -371,10 +399,11 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // (`sha256` "stale"), or a value the app does not build with ("not-a-colour").
       const refusedRow = ['propose', 'transaction'].includes(request.method) && ((request.ops ?? []).map(rowRefusal).find(Boolean) || moveRefusal(request.ops ?? []));
       if (refusedRow) return send({ error: typeof refusedRow === 'string' ? { message: refusedRow } : refusedRow }, 409);
-      if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n${request.ops.map((op: unknown) => `+  ${JSON.stringify(op)}\n`).join('')}` } }); // (each operation a line)
       // A write on digests the files have left is the server's conflict, naming who moved them (the third pass's #2).
       if (request.method === 'transaction' && request.files?.['app.tamber'] && request.files['app.tamber'] !== FILES['app.tamber']) return send({ error: { message: 'stale digests: app.tamber', conflict: true, files: FILES, stale: ['app.tamber'], by: { 'app.tamber': lastBy } } }, 409);
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
+      if (request.method === 'commit' && request.dry) dryAsks += 1;
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
       if (request.method === 'commit') return refuseCommit
         ? send({ error: { message: `commit refused: app.tamber: ${refuseCommit}`, refused: [{ file: 'app.tamber', why: refuseCommit }] } }, 409)
@@ -385,12 +414,27 @@ Bun.serve({ hostname, port: Number(port), routes: {
         { file: 'app.tamber', status: 'M', repoPath: 'app.tamber', edits: [{ what: 'token', name: 'surface.card', when: [], before: 'light-dark(#f1f3f5, #16181c)', after: 'light-dark(#f3f1ef, #16181c)' }, { what: 'dial', name: 'hue', when: [], before: '200', after: '210' }] },
       ] }] } });
       if (request.method === 'revert') return send({ ok: { proposal: 'prop-stub-1', client: request.client, diff: '', changed: [], class: 'live', ops: [] } });
+      // `choose` (1.18): a held proposal's choice recorded on it, as the server's tamber-held-choice.mjs does.
+      if (request.method === 'choose' && longPolls) {
+        const p = held.find(h => h.proposal === request.proposal);
+        if (!p) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
+        // A server before 1.18 has no choose: one sent it is marked on the proposal's diff, for a test to see.
+        if (protocolSaid && protocolSaid !== 'tamber/1.18') { p.diff = `choose sent to a ${protocolSaid} server`; moves++; return send({ error: { message: 'the stub answers no choose' } }, 400); }
+        Object.assign(p, { choice: [...new Set(request.items as number[])].sort((a, b) => a - b), choiceBy: request.client, choiceAt: (p.choiceAt ?? 0) + 1 }); moves++; // (it moves the held list, as the server's does)
+        chooses.push({ proposal: p.proposal, items: p.choice, client: request.client });
+        if (loseChooses > 0) { loseChooses--; return send({ error: { message: 'the stub lost this answer' } }, 504); }
+        return send({ ok: { proposal: p.proposal, choice: p.choice, choiceBy: p.choiceBy, choiceAt: p.choiceAt } });
+      }
       if (request.method === 'accept') {
         const p = held.find(h => h.proposal === request.proposal);
         if (!p) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
+        if (request.choiceAt !== undefined && request.choiceAt !== (p.choiceAt ?? 0)) return send({ error: { message: `held proposal \`${p.proposal}\`'s choice was changed by ${p.choiceBy} since: review it, then accept`, stale: true, choice: p.choice, choiceBy: p.choiceBy, choiceAt: p.choiceAt } }, 409);
+        // No items: its choice, as the server takes it (all of it chosen, or none recorded, the whole).
+        if (request.items === undefined && p.choice && !p.choice.length) return send({ error: { message: `nothing is chosen in held proposal \`${p.proposal}\`: choose some of it, or drop it` } }, 400);
+        if (request.items === undefined && p.choice && p.choice.length < p.ops.length) request.items = p.choice;
         held = held.filter(h => h !== p);
-        // Some of it: held again as a new proposal of those items.
-        if (request.items) {
+        // Some of it: held again as a new proposal of those items (all of them named is the whole, as on the server).
+        if (request.items && new Set(request.items).size < p.ops.length) {
           // Its own diff and tokens: the items kept, as the server plans them.
           const kept = (p.ops as { index: number; op: { name?: string } }[]).filter(o => request.items.includes(o.index));
           // Its review renumbered to the items kept, as the server's is.
@@ -400,7 +444,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
           // A re-import's dials and pins too, those whose operations it kept (stage 10b).
           const marks = review && Object.fromEntries((['dials', 'pins'] as const).filter(k => review[k]).map(k => [k, renumber(review[k]!).filter(m => m.items.length)]).filter(([, all]) => all.length));
           const remapped = review && { ...review, dials: undefined, pins: undefined, ...marks, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: renumber(review.offers ?? []) };
-          const fresh = { ...p, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: kept.map((o, index) => ({ index, op: o.op })), ...(remapped ? { review: remapped } : {}), diff: `--- app.tamber\n+++ app.tamber\n${kept.map(o => `+  ${o.op.name} (kept)`).join('\n')}\n`, changed: kept.map(o => ({ file: 'app.tamber', token: o.op.name })) };
+          const fresh = { ...p, choice: undefined, choiceBy: undefined, choiceAt: undefined, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: kept.map((o, index) => ({ index, op: o.op })), ...(remapped ? { review: remapped } : {}), diff: `--- app.tamber\n+++ app.tamber\n${kept.map(o => `+  ${o.op.name} (kept)`).join('\n')}\n`, changed: kept.map(o => ({ file: 'app.tamber', token: o.op.name })) };
           held.push(fresh);
           return send({ ok: { recomputed: true, replaces: p.proposal, proposal: fresh.proposal } });
         }
@@ -411,6 +455,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'edit-held' && longPolls) {
         const old = held.find(h => h.proposal === request.proposal);
         if (!old) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
+        if (request.choiceAt !== undefined && request.choiceAt !== (old.choiceAt ?? 0)) return send({ error: { message: `held proposal \`${old.proposal}\`'s choice was changed by ${old.choiceBy} since: review it, then edit`, stale: true, choice: old.choice, choiceBy: old.choiceBy, choiceAt: old.choiceAt } }, 409);
         const ops = old.ops.map((o: any) => ({ ...o, op: { ...o.op, whens: o.op.whens?.map((w: any) => ({ ...w })) } }));
         const at = ops[request.index]?.op;
         if (request.when) at.whens[request.when - 1].value = request.value; else at.value = request.value;
@@ -418,7 +463,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
         const id = `edited-${++holds}`;
         // (its review renumbered to the items kept, as the server's: an offer whose items all go is offered no more)
         const review = old.review && { ...old.review, kept: true, from: request.proposal, offers: (old.review.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })) };
-        held = held.filter(h => h.proposal !== request.proposal).concat([{ ...old, proposal: id, ops: keep.map((i, index) => ({ index, op: ops[i].op })), ...(review ? { review } : {}), replaces: request.proposal, editedBy: request.client }]);
+        // (its choice carried, the kept ones renumbered)
+        const choice = old.choice && { choice: old.choice.filter((i: number) => keep.includes(i)).map((i: number) => keep.indexOf(i)), choiceBy: old.choiceBy, choiceAt: 1 };
+        held = held.filter(h => h.proposal !== request.proposal).concat([{ ...old, choice: undefined, choiceBy: undefined, choiceAt: undefined, ...choice, proposal: id, ops: keep.map((i, index) => ({ index, op: ops[i].op })), ...(review ? { review } : {}), replaces: request.proposal, editedBy: request.client }]);
         return send({ ok: { recomputed: true, replaces: request.proposal, proposal: id, client: old.client, editedBy: request.client } });
       }
       if (request.method === 'drop') { held = held.filter(h => h.proposal !== request.proposal); return send({ ok: { dropped: request.proposal } }); }
@@ -471,9 +518,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (!allows(asker.scope, needs({ method: 'events' })!, asker.local)) { const r = refusal('events', asker.scope, 'read'); return send({ error: r.error }, r.status); }
       const client = asker.client ?? named;
       if (typeof client === 'string') present.add(client);
+      if (client === 'design-tool:') namelessAsks += 1;
       const missed = (epoch !== undefined && epoch !== EPOCH) || miss;
       miss = false;
-      return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held, ...(longPolls ? { held: holds, cursor: `${seq()}.${holds}` } : {}) });
+      return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held, ...(longPolls ? { held: holds + moves, cursor: `${seq()}.${holds + moves}` } : {}) });
     },
     // The GET form (1.17): the same read by cursor (`<seq>.<held revision>`, here the holds made), held until news.
     GET: async (req) => {
@@ -482,17 +530,18 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (!allows(asker.scope, needs({ method: 'events' })!, asker.local)) { const r = refusal('events', asker.scope, 'read'); return send({ error: r.error }, r.status); }
       // (A first ask, with no `after`, answered at once: from `open`, a read's cursor, if given.)
       const q = new URL(req.url).searchParams, asked = q.get('after'), epoch = q.get('epoch'), from = asked ?? q.get('open');
-      const [after, revision] = (from ?? `${seq()}.${holds}`).split('.').map(Number);
+      const [after, revision] = (from ?? `${seq()}.${holds + moves}`).split('.').map(Number);
       const client = asker.client ?? q.get('client');
       if (typeof client === 'string') present.add(client);
-      const news = () => miss || (epoch !== null && epoch !== EPOCH) || log.some(e => e.seq > after) || revision !== holds;
+      if (client === 'design-tool:') namelessAsks += 1;
+      const news = () => miss || (epoch !== null && epoch !== EPOCH) || log.some(e => e.seq > after) || revision !== holds + moves;
       // (One its client let go, as a new ask replaces it, ends unanswered: it takes no news, nor the skip below.)
       for (const start = Date.now(); asked !== null && !news() && Date.now() - start < beat && !req.signal.aborted;) await Bun.sleep(20);
       if (req.signal.aborted || (asked !== null && !news())) return new Response(null, { status: 204 });
       const missed = (epoch !== null && epoch !== EPOCH) || miss;
       miss = false;
       const skipped = skipCursor; skipCursor = false;
-      return send({ events: missed ? [] : log.filter(e => e.seq > after + (skipped ? 1 : 0)), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held, held: holds, cursor: `${seq()}.${holds}`, asked: skipped ? `${after + 1}.${revision}` : from });
+      return send({ events: missed ? [] : log.filter(e => e.seq > after + (skipped ? 1 : 0)), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held, held: holds + moves, cursor: `${seq()}.${holds + moves}`, asked: skipped ? `${after + 1}.${revision}` : from });
     },
   },
   '/__stub/long-poll': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); longPolls = true; const { heartbeat } = await req.json().catch(() => ({})); beat = Number.isSafeInteger(heartbeat) && heartbeat > 0 ? heartbeat : LONG_POLL_MS; return send({ ok: true }); } },
@@ -507,6 +556,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__stub/page-select-gone': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageSelectGone = true; return send({ ok: true }); } },
   '/__stub/page-refuses-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageRefusesSelect = true; refuseSelect = false; return send({ ok: true }); } },
   '/__stub/refuse-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refuseSelect = true; return send({ ok: true }); } },
+  '/__stub/quiet-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); quietSelect = true; return send({ ok: true }); } },
+  '/__stub/further-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); furtherSelect = true; return send({ ok: true }); } },
+  '/__stub/slot-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); slotSelect = true; return send({ ok: true }); } },
+  '/__stub/staying-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); stayingSelect = true; return send({ ok: true }); } },
   '/__stub/shallow-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); shallowSelect = true; return send({ ok: true }); } },
   '/__stub/canvas-check': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasCheck = await req.json().catch(() => null); return send({ ok: true }); } },
   '/__stub/restart': {
@@ -516,16 +569,17 @@ Bun.serve({ hostname, port: Number(port), routes: {
       TOKEN = `stub-token-${restarts}`;
       log.length = 0;
       held = [];
-      holds = 0;
+      holds = 0; moves = 0; chooses = []; loseChooses = 0; protocolSaid = null;
+      dryAsks = 0; namelessAsks = 0;
       longPolls = false; skipCursor = false; refuseHello = false; beat = LONG_POLL_MS;
       heldAnswer = null;
       BUILDS = [];
-      reversed = false;
+      reversed = false; noAxes = false;
       refuseDescribe = '';
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; refuseSelect = false; pageRefusesSelect = false; pageSelectGone = false;
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; stayingSelect = false; slotSelect = false; furtherSelect = false; quietSelect = false; refuseSelect = false; pageRefusesSelect = false; pageSelectGone = false;
       copyDelays = {}; noNavigate = []; galleryCopies = []; refuseLater = []; navs.length = 0; LIBRARY = {};
       // (The files as they were before the first package post: what any number of posts merged in, gone.)
       if (filesBefore) FILES = filesBefore;
@@ -540,6 +594,11 @@ Bun.serve({ hostname, port: Number(port), routes: {
   // (Its files join every reply's, as the server's own Contract sources are in each.)
   '/__stub/package-component': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); PACKAGED = await req.json(); filesBefore ??= FILES; FILES = { ...FILES, ...PACKAGED!.files }; return send({ ok: true }); } },
   '/__stub/library': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); LIBRARY = await req.json(); return send({ ok: true }); } },
+  '/__stub/protocol': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); protocolSaid = (await req.json()).protocol ?? null; return send({ ok: true }); } },
+  '/__stub/lose-choose': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); loseChooses = Number((await req.json()).n ?? 1); return send({ ok: true }); } },
+  '/__stub/chooses': { GET: (req) => (driver(req) ? send({ chooses }) : send({ message: 'Not found.' }, 404)) },
+  // Another client's choice on a held proposal, as a test makes one (`{proposal, items, client}`).
+  '/__stub/choose': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); const b = await req.json(); const p = held.find(h => h.proposal === b.proposal); if (!p) return send({ message: 'no such proposal' }, 404); Object.assign(p, { choice: b.items, choiceBy: b.client, choiceAt: (p.choiceAt ?? 0) + 1 }); moves++; return send({ ok: true }); } },
   '/__stub/hold': {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
@@ -615,11 +674,27 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ ok: true });
     },
   },
+  '/__stub/no-axes': {
+    POST: (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      noAxes = true;
+      return send({ ok: true });
+    },
+  },
   '/__stub/reverse-axes': {
     POST: (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       reversed = true;
       return send({ ok: true });
+    },
+  },
+  '/__stub/asked': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      const { dry, nameless } = await req.json().catch(() => ({}));
+      const asked = { dry: dryAsks, nameless: namelessAsks }, as = (said: unknown, n: number) => said === undefined || said === n > 0;
+      dryAsks = 0; namelessAsks = 0;
+      return as(dry, asked.dry) && as(nameless, asked.nameless) ? send({ ok: asked }) : send({ message: `asked: ${JSON.stringify(asked)}` }, 409);
     },
   },
   '/__stub/miss': {

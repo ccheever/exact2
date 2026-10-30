@@ -26,9 +26,13 @@ final class GroupedCell: UICollectionViewListCell {
     #endif
 
     var row: UInt32?
+    /// Whether `interact` put `.notEnabled` in its traits.
+    var markedNotEnabled = false
     /// The node of its row's switch or detail button.
     var target: UInt32?
     var height: CGFloat?
+    /// An authored `min-height` for a cell UIKit's configuration sizes.
+    var minimumHeight: CGFloat?
     /// Its standard row's svg-only icon path token, drawn again at a new
     /// Dynamic Type size (stage 9 A2); nil for an SF Symbol or none.
     var pathSymbol: String? {
@@ -49,6 +53,18 @@ final class GroupedCell: UICollectionViewListCell {
         c.image = FaceSymbol.image(pathSymbol, points: Self.pathPoints(traitCollection))
         contentConfiguration = c
     }
+    /// Its standard row's content. UIKit's list content view hides a label
+    /// a new configuration drops but keeps its text, which UIKit's
+    /// accessibility still reads: a reused cell's Privacy Policy row read
+    /// the Font row's "Georgia" to VoiceOver (iOS 27). A cell that drops a
+    /// text starts from a new content view.
+    func show(_ c: UIListContentConfiguration) {
+        if let old = contentConfiguration as? UIListContentConfiguration,
+           old.secondaryText != nil && c.secondaryText == nil || old.text != nil && c.text == nil {
+            contentConfiguration = nil
+        }
+        contentConfiguration = c
+    }
     #if os(iOS)
     /// A touch its row leaves to no control goes to the row's one field: the
     /// cell is the field (LLP 1116.005 D2).
@@ -57,10 +73,30 @@ final class GroupedCell: UICollectionViewListCell {
     }
     #endif
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        guard let height else { return super.preferredLayoutAttributesFitting(attributes) }
-        let fitted = attributes.copy() as! UICollectionViewLayoutAttributes
-        fitted.size.height = height
-        return fitted
+        if let height {
+            let fitted = attributes.copy() as! UICollectionViewLayoutAttributes
+            fitted.size.height = height
+            return fitted
+        }
+        let fitted = super.preferredLayoutAttributesFitting(attributes)
+        guard let least = minimumHeight, fitted.size.height < least else { return fitted }
+        let raised = fitted.copy() as! UICollectionViewLayoutAttributes
+        raised.size.height = least
+        return raised
+    }
+}
+
+extension UICollectionViewListCell {
+    /// A row's or header's margins are the list layout's, never the safe
+    /// area's: a cell under the home indicator (a fling past the end)
+    /// otherwise grew by the inset, moved, and shrank a pixel a layout pass
+    /// until UIKit's feedback-loop check stopped the app. The layout's
+    /// sections already keep clear of the sides' safe area (its
+    /// `contentInsetsReference`). Again after each configuration, which may
+    /// replace the content view.
+    func marginsIgnoreSafeArea() {
+        insetsLayoutMarginsFromSafeArea = false
+        contentView.insetsLayoutMarginsFromSafeArea = false
     }
 }
 #endif

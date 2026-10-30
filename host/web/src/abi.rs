@@ -55,6 +55,7 @@ mod clock;
 mod midi;
 mod mode;
 mod presence;
+mod requests;
 
 #[cfg(test)]
 mod refusal_tests;
@@ -221,18 +222,6 @@ impl<D: DataSource> Bridge<D> {
             Host::data_ready,
         );
         self.emit(batch)
-    }
-
-    /// Whether the current runner still holds a request ticket (LLP 1016 D5).
-    pub fn request_active(&self, ticket: f64) -> u32 {
-        u32::from(
-            ticket.is_finite()
-                && ticket >= 0.0
-                && self
-                    .host
-                    .as_ref()
-                    .is_some_and(|host| host.runner().holds(ticket as u64)),
-        )
     }
 
     /// The input concatenates plan, pairing receipt, and browser environment id.
@@ -611,29 +600,6 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// A request's outcome from the page (LLP 1016 D2): the input buffer
-    /// holds `hlen` bytes of header lines, then `blen` bytes of body.
-    pub fn fulfill(
-        &mut self,
-        ticket: f64,
-        kind: u32,
-        status: u32,
-        hlen: usize,
-        blen: usize,
-        now_ms: f64,
-    ) -> u32 {
-        let n = self.input.len();
-        let hlen = hlen.min(n);
-        let blen = blen.min(n - hlen);
-        let headers = String::from_utf8_lossy(&self.input[..hlen]).into_owned();
-        let body = self.input[hlen..hlen + blen].to_vec();
-        let out = match self.host.as_mut() {
-            Some(h) => h.fulfill_at(ticket as u64, kind, status, &headers, body, now_ms),
-            None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
-        };
-        self.emit(out)
-    }
-
     /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
     pub fn surface_record(&mut self, len: usize) -> u32 {
         let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
@@ -948,23 +914,6 @@ impl<D: DataSource> Bridge<D> {
             })
         })()
         .unwrap_or_else(|error| exact_runner::agent::error(&error));
-        self.emit(out)
-    }
-
-    /// Move the clock: `mode` 0 fires every timer due (the wall clock), 1
-    /// stops after a timer that sends (the agent's jump), 2 lands only the
-    /// `then`s already armed, the clock unmoved (an agent's input's end).
-    pub fn advance(&mut self, now_ms: f64, mode: u32) -> u32 {
-        let out = match self.host.as_mut() {
-            // The `then`s an agent's input settled (Runner::land_then).
-            Some(h) if mode == 2 => {
-                let a = h.runner_mut().land_then();
-                h.advanced(a)
-            }
-            Some(h) if mode == 1 => h.advance_until_request(now_ms),
-            Some(h) => h.advance(now_ms),
-            None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
-        };
         self.emit(out)
     }
 
@@ -1295,6 +1244,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_display_scale(scale: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_display_scale(scale))
+        }
+
+        /// The aborts a realm heard between batches.
+        #[no_mangle]
+        pub extern "C" fn exact_collect_aborts() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().collect_aborts())
         }
 
         /// A topic the page module announced, in the input buffer.

@@ -272,15 +272,34 @@ pub(super) fn names_symbol(c: &Component, prop: &str) -> bool {
     names
 }
 
+/// Where a string prop is shown that its name can't be: an image's source, which no image loads, or a path's `d`,
+/// which no path parses (`attribute d: Expected moveto`, design-tool pass 3, #10).
+#[derive(Clone, Copy)]
+pub(super) enum Sink {
+    Image,
+    PathData,
+}
+
 /// Whether `c`'s view shows string prop `prop` as an image's source:
 /// `image prop`, or `prop` passed to a component of `file` that does, at
 /// any depth (PostCard's `avatar` reaches Avatar's `image src`). A `for`
 /// or `match` binding of the same name shadows it.
 pub(super) fn shows_image(c: &Component, file: &File, prop: &str) -> bool {
-    shows(c, file, prop, &mut Vec::new())
+    shows(c, file, prop, Sink::Image, &mut Vec::new())
 }
 
-fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)>) -> bool {
+/// Whether `c`'s view draws string prop `prop` as a path's data, `path d=prop`, likewise (BarItem's `d`).
+pub(super) fn draws_path(c: &Component, file: &File, prop: &str) -> bool {
+    shows(c, file, prop, Sink::PathData, &mut Vec::new())
+}
+
+fn shows(
+    c: &Component,
+    file: &File,
+    prop: &str,
+    sink: Sink,
+    seen: &mut Vec<(String, String)>,
+) -> bool {
     let key = (c.name.clone(), prop.to_string());
     if seen.contains(&key) {
         return false;
@@ -293,11 +312,17 @@ fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)
             return;
         }
         let is_prop = |e: &Expr| yields(e, prop);
-        match node {
-            Node::Element {
-                tag, positional, ..
-            } if tag == "image" => found |= positional.first().is_some_and(is_prop),
-            Node::Use { name, args, .. } => used.extend(
+        match (node, sink) {
+            (
+                Node::Element {
+                    tag, positional, ..
+                },
+                Sink::Image,
+            ) if tag == "image" => found |= positional.first().is_some_and(is_prop),
+            (Node::Element { tag, attrs, .. }, Sink::PathData) if tag == "path" => {
+                found |= attrs.iter().any(|a| a.name == "d" && is_prop(&a.value))
+            }
+            (Node::Use { name, args, .. }, _) => used.extend(
                 args.iter()
                     .filter(|a| is_prop(&a.value))
                     .map(|a| (name.clone(), a.name.clone())),
@@ -310,8 +335,93 @@ fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)
             file.components
                 .iter()
                 .find(|d| d.name == *name)
-                .is_some_and(|d| shows(d, file, param, seen))
+                .is_some_and(|d| shows(d, file, param, sink, seen))
         })
+}
+
+/// What a string prop the view writes as a style row's value is shown
+/// with, by the row's kind: a colour row's `-exact-label` (the text's role,
+/// which every row that takes one colour alone reads: `color`, `fill`, a
+/// caret, an accent, a press colour, where `currentcolor` is refused on
+/// some; a shadow, gradient or filter that holds a colour takes none alone
+/// and keeps the prop's name, a token's it may be), a length row's `24px`,
+/// where the prop's name would be no colour, token or length (Avatar's
+/// `width=size`, VerifiedBadge's `color=ink`, LLP 1121 stage 15 B); a
+/// length row is one whose every row is a dimension (a width, a padding),
+/// so a font's family or a weight keeps its name. Through a component of
+/// `file` the prop is passed to, at any depth, as [`shows_image`]; a colour
+/// row first where it reaches both. None for a prop no row takes.
+pub(super) fn style_sample(c: &Component, file: &File, prop: &str) -> Option<&'static str> {
+    let (colour, length) = styled(c, file, prop, &mut Vec::new());
+    if colour {
+        Some("-exact-label")
+    } else if length {
+        Some("24px")
+    } else {
+        None
+    }
+}
+
+/// Whether `c`'s view (or a component it passes `prop` to) writes `prop`
+/// as a colour row's value, and as a length row's.
+fn styled(
+    c: &Component,
+    file: &File,
+    prop: &str,
+    seen: &mut Vec<(String, String)>,
+) -> (bool, bool) {
+    use contract_lower::tags::AttrTarget;
+    use exact_kernel::generated::StyleCodec;
+    let key = (c.name.clone(), prop.to_string());
+    if seen.contains(&key) {
+        return (false, false);
+    }
+    seen.push(key);
+    let (mut colour, mut length) = (false, false);
+    let mut used: Vec<(String, String)> = Vec::new();
+    each(&c.view, &[], &mut |node, bound| {
+        if bound.iter().any(|b| b == prop) {
+            return;
+        }
+        match node {
+            Node::Element { attrs, .. } => {
+                for a in attrs.iter().filter(|a| yields(&a.value, prop)) {
+                    if let Some(AttrTarget::Styles(rows)) =
+                        contract_lower::style_names::lookup(&a.name)
+                    {
+                        colour |= !rows.is_empty()
+                            && rows.iter().all(|r| {
+                                matches!(
+                                    r.codec(),
+                                    StyleCodec::Rgba8
+                                        | StyleCodec::ColorValue
+                                        | StyleCodec::KeywordColor
+                                        | StyleCodec::Paint
+                                )
+                            });
+                        length |= !rows.is_empty()
+                            && rows
+                                .iter()
+                                .all(|r| matches!(r.codec(), StyleCodec::Dimension));
+                    }
+                }
+            }
+            Node::Use { name, args, .. } => used.extend(
+                args.iter()
+                    .filter(|a| yields(&a.value, prop))
+                    .map(|a| (name.clone(), a.name.clone())),
+            ),
+            _ => {}
+        }
+    });
+    for (name, param) in used {
+        if let Some(d) = file.components.iter().find(|d| d.name == name) {
+            let (c2, l2) = styled(d, file, &param, seen);
+            colour |= c2;
+            length |= l2;
+        }
+    }
+    (colour, length)
 }
 
 /// Whether `e`'s value is `prop`'s, unchanged: the name itself, a template
@@ -360,6 +470,49 @@ fn each(nodes: &[Node], bound: &[String], f: &mut dyn FnMut(&Node, &[String])) {
                 each(none, bound, f);
             }
             Node::Children { .. } => {}
+        }
+    }
+}
+
+/// The string literals `c`'s own view compares prop `prop` with in an `if`
+/// (`if badge == "verified"`, either side, an `else if` too), in the order
+/// written, each once: the values that draw something, which a string's name
+/// never does (VerifiedBadge, stage 15 D4 batch 1 #2). With `ne`, a `!=`
+/// counts too (an enum's `if badge != "none"`: PostCard's, ProfileHeader's,
+/// PersonRow's, stage 15 B batch 2). A `for` or `match` binding of the same
+/// name shadows it.
+pub(super) fn compared_literals(c: &Component, prop: &str, ne: bool) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    each(&c.view, &[], &mut |node, bound| {
+        if bound.iter().any(|b| b == prop) {
+            return;
+        }
+        if let Node::When { cond, .. } = node {
+            compared(cond, prop, ne, &mut found);
+        }
+    });
+    found
+}
+
+/// Each literal `e` compares `prop` with by `==` (and `!=` with `ne`),
+/// through `and`/`or`.
+fn compared(e: &Expr, prop: &str, ne: bool, found: &mut Vec<String>) {
+    use contract_syntax::BinOp;
+    if let Expr::Binary(op, l, r, _) = e {
+        match (op, l.as_ref(), r.as_ref()) {
+            (BinOp::Eq | BinOp::Ne, Expr::Ident(name, _), Expr::Str(lit, _))
+            | (BinOp::Eq | BinOp::Ne, Expr::Str(lit, _), Expr::Ident(name, _))
+                if name == prop && (ne || *op == BinOp::Eq) =>
+            {
+                if !found.contains(lit) {
+                    found.push(lit.clone());
+                }
+            }
+            (BinOp::And | BinOp::Or, l, r) => {
+                compared(l, prop, ne, found);
+                compared(r, prop, ne, found);
+            }
+            _ => {}
         }
     }
 }

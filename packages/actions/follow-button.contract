@@ -1,0 +1,100 @@
+// A person's Follow button (Bluesky's FollowButtonInner: a solid Button,
+// size "small", rounded_full), an authored pressable as PostButton and
+// HeaderButton are (LLP 1139 D9's exception; LLP 1121 stage 15 B batch 2).
+// Its variants are Bluesky's real ones, no knob for a copy's drift: `tone`
+// primary (color primary), inverted (secondary_inverted, colorInverted),
+// subtle (primary_subtle) and overlay (on a video); `size` small or tiny;
+// `shape` a pill with its label, or round (33 by 33, icon only); `icon` the
+// three patterns Bluesky draws (plus and check, plus only, check only) or
+// none. Following, primary and inverted take secondary's colours and subtle
+// the ghost secondary (Bluesky's notification author); overlay keeps its own.
+// Its words are the app's (no English in a package): `text` is the visible
+// label (Follow, Follow back, Following), `label` the spoken one ("" says
+// `text`). Following is said by the label alone, as Bluesky does, with no
+// aria-pressed (theme2's 14:15 ruling: a toggle with aria-pressed keeps one
+// label), so the app swaps both. A round button shows no text: its `label`
+// must not be "" ("Follow Ada", "Following Ada"), which the compiler can't
+// see; library-gate.test checks every round cell, and an adopting copy its
+// round sites.
+style FollowButtonLook
+  border-radius="actions.follow-corner"
+  align-items="center"
+  justify-content="center"
+
+component FollowButton
+  params
+    fill: color = "actions.follow-fill" control = "token" group = "Color" priority = 1 label = "Fill"
+    ink: color = "actions.follow-ink" control = "token" group = "Color" priority = 1 label = "Text"
+    followingFill: color = "actions.follow-following-fill" control = "token" group = "Color" priority = 2 label = "Following fill"
+    followingInk: color = "actions.follow-following-ink" control = "token" group = "Color" priority = 2 label = "Following text"
+    invertedFill: color = "actions.follow-inverted-fill" control = "token" group = "Color" priority = 2 label = "Inverted fill"
+    invertedInk: color = "actions.follow-inverted-ink" control = "token" group = "Color" priority = 2 label = "Inverted text"
+    invertedFollowingFill: color = "actions.follow-following-fill" control = "token" group = "Color" priority = 3 label = "Inverted following fill"
+    invertedFollowingInk: color = "actions.follow-following-ink" control = "token" group = "Color" priority = 3 label = "Inverted following text"
+    subtleFill: color = "actions.follow-subtle-fill" control = "token" group = "Color" priority = 2 label = "Subtle fill"
+    subtleInk: color = "actions.follow-subtle-ink" control = "token" group = "Color" priority = 2 label = "Subtle text"
+    subtleFollowingFill: color = "actions.follow-subtle-following-fill" control = "token" group = "Color" priority = 3 label = "Subtle following fill"
+    subtleFollowingInk: color = "actions.follow-subtle-following-ink" control = "token" group = "Color" priority = 3 label = "Subtle following text"
+    overlayFill: color = "actions.follow-overlay-fill" control = "token" group = "Color" priority = 2 label = "Overlay fill"
+    overlayInk: color = "actions.follow-overlay-ink" control = "token" group = "Color" priority = 2 label = "Overlay text"
+    overlayFollowingFill: color = "actions.follow-overlay-fill" control = "token" group = "Color" priority = 3 label = "Overlay following fill"
+    overlayFollowingInk: color = "actions.follow-overlay-ink" control = "token" group = "Color" priority = 3 label = "Overlay following text"
+    pressScale: number = "actions.follow-press" step = 0.01 control = "slider" group = "Motion" priority = 3 label = "Press scale"
+    pressScaleTiny: number = "actions.follow-press-tiny" step = 0.01 control = "slider" group = "Motion" priority = 3 label = "Tiny press scale"
+    pressScaleRound: number = "actions.follow-press-round" step = 0.01 control = "slider" group = "Motion" priority = 3 label = "Round press scale"
+  props
+    // Its testId.
+    id: string
+    following: bool
+    text: string
+    label: string
+    tone: enum<"primary", "inverted", "subtle", "overlay">
+    size: enum<"small", "tiny">
+    shape: enum<"pill", "round">
+    icon: enum<"both", "follow", "following", "none">
+    press: action
+  parts
+    surface: paint shape space
+    icon: space
+    label: text
+  view
+    button part="surface" class=FollowButtonLook
+      testId=id
+      aria-label=(label == "" ? text : label)
+      press=press
+      display="flex"
+      flex-direction="row"
+      flex-shrink=0
+      background-color=(following ? (tone == "inverted" ? "param.invertedFollowingFill" : (tone == "subtle" ? "param.subtleFollowingFill" : (tone == "overlay" ? "param.overlayFollowingFill" : "param.followingFill"))) : (tone == "inverted" ? "param.invertedFill" : (tone == "subtle" ? "param.subtleFill" : (tone == "overlay" ? "param.overlayFill" : "param.fill"))))
+      -exact-press-scale=(shape == "round" ? "param.pressScaleRound" : (size == "tiny" ? "param.pressScaleTiny" : "param.pressScale"))
+      width=(shape == "round" ? (size == "tiny" ? "actions.follow-tiny-round" : "actions.follow-round") : "auto")
+      height=(shape == "round" ? (size == "tiny" ? "actions.follow-tiny-round" : "actions.follow-round") : "auto")
+      padding-top=(shape == "round" ? "0px" : (size == "tiny" ? "actions.follow-tiny-pad-block" : "actions.follow-pad-block"))
+      padding-bottom=(shape == "round" ? "0px" : (size == "tiny" ? "actions.follow-tiny-pad-block" : "actions.follow-pad-block"))
+      padding-left=(shape == "round" ? "0px" : (size == "tiny" ? "actions.follow-tiny-pad-inline" : "actions.follow-pad-inline"))
+      padding-right=(shape == "round" ? "0px" : (size == "tiny" ? "actions.follow-tiny-pad-inline" : "actions.follow-pad-inline"))
+      gap=(size == "tiny" ? "actions.follow-tiny-gap" : "actions.follow-gap")
+      // Bluesky's ButtonIcon: the icon centred in a box the text's height,
+      // pulled toward the pill's edge by its negative margins.
+      if icon == "both" or (icon == "follow" and not following) or (icon == "following" and following)
+        box part="icon"
+          width=(size == "tiny" ? "actions.follow-tiny-icon-box" : "actions.follow-icon-box")
+          height=(size == "tiny" ? "actions.follow-tiny-icon-box" : "actions.follow-icon-box")
+          margin-left=(shape == "round" ? "0px" : (size == "tiny" ? "actions.follow-tiny-icon-pull" : "actions.follow-icon-pull"))
+          margin-right=(shape == "round" ? "0px" : (size == "tiny" ? "actions.follow-tiny-icon-pull" : "actions.follow-icon-pull"))
+          display="flex"
+          align-items="center"
+          justify-content="center"
+          image (following ? "symbol:actions.follow-check" : "symbol:actions.follow-add")
+            width=(size == "tiny" ? "actions.follow-tiny-icon" : "actions.follow-icon")
+            height=(size == "tiny" ? "actions.follow-tiny-icon" : "actions.follow-icon")
+            flex-shrink=0
+            aria-hidden=true
+            color=(following ? (tone == "inverted" ? "param.invertedFollowingInk" : (tone == "subtle" ? "param.subtleFollowingInk" : (tone == "overlay" ? "param.overlayFollowingInk" : "param.followingInk"))) : (tone == "inverted" ? "param.invertedInk" : (tone == "subtle" ? "param.subtleInk" : (tone == "overlay" ? "param.overlayInk" : "param.ink"))))
+      if shape == "pill"
+        text text part="label"
+          font-size=(size == "tiny" ? "actions.follow-tiny-size" : "actions.follow-size")
+          line-height=(size == "tiny" ? "actions.follow-tiny-line" : "actions.follow-line")
+          font-weight=(size == "tiny" ? 600 : 500)
+          white-space="nowrap"
+          color=(following ? (tone == "inverted" ? "param.invertedFollowingInk" : (tone == "subtle" ? "param.subtleFollowingInk" : (tone == "overlay" ? "param.overlayFollowingInk" : "param.followingInk"))) : (tone == "inverted" ? "param.invertedInk" : (tone == "subtle" ? "param.subtleInk" : (tone == "overlay" ? "param.overlayInk" : "param.ink"))))

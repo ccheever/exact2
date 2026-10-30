@@ -12,12 +12,13 @@
 pub(crate) mod contact;
 mod held;
 mod sensors;
+mod stdio;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
 use exact_runner::instance::collection::Align;
 use exact_runner::DataSource;
-use std::io::{BufRead, Write};
+use std::io::Write;
 
 /// The host this agent runs on, as a refusal names it: the Windows host and
 /// the Android reader run this code too.
@@ -98,67 +99,24 @@ pub fn serve<D: DataSource + Default>(
     ready.push('}');
     let _ = writeln!(out, "{ready}");
     let _ = out.flush();
-    let stdin = std::io::stdin();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
+    p.agent = true;
+    stdio::each_request(p, |p, line| {
         if line.trim().is_empty() {
-            continue;
+            return true;
         }
-        if field_str(&line, "op").as_deref() == Some("quit") {
-            break;
+        if field_str(line, "op").as_deref() == Some("quit") {
+            return false;
         }
-        let reply = handle(p, &line);
-        let _ = writeln!(out, "{reply}");
+        let _ = writeln!(out, "{}", handle(p, line));
         let _ = out.flush();
-    }
+        true
+    });
     let _ = p.pointer_cancel(p.host().now());
     crate::teardown::finish(p, crate::teardown::EXIT_BOUND);
     0
 }
 
-/// Answer one request.
-pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> String {
-    p.agent = true;
-    p.poll_images();
-    // A reply that landed since the last operation commits before this one
-    // (the other hosts apply it as it lands; here nothing runs between) —
-    // a finished update check likewise, and the commands the last
-    // operation's commits asked for run before this one is answered.
-    if let Some(e) = p.pump(p.host().now()) {
-        eprintln!("exact: {e}");
-    }
-    p.poll_update();
-    p.poll_development(D::default);
-    p.run_commands(D::default);
-    p.sync_surfaces();
-    // A command is a turn of the loop for the hatches (LLP 1075.003.000.001
-    // §2.5): what they asked of elements during the last one runs before
-    // this one, a snapshot of it, and its caps start at nothing.
-    p.hatch_command();
-    p.hatch_turn();
-    let reply = answer(p, line);
-    p.sync_surfaces();
-    let reply = p.merge_surfaces(line, reply);
-    p.sync_surfaces();
-    let reply = p
-        .surfaces
-        .error
-        .take()
-        .map_or(reply, |e| refusal("gpu", &e).to_string());
-    p.run_commands(D::default);
-    let reply = p.settle_scroll_commands(line, reply);
-    // The moments this command's commits caused, after them and before its picture.
-    p.hatch_moments();
-    // In the headless carrier a completed paint is presentation. A command
-    // may activate a generation after the initial boot's frame was counted.
-    if p.dirty() {
-        let _ = p.frame();
-        // What that frame moved under the resting pointer is hovered (#139).
-        p.follow_pointer();
-    }
-    p.first_pixel();
-    tagged(p, line, reply)
-}
+pub use stdio::{handle, handle_for_window};
 
 /// Every reply carries the runner's `epoch`, `incarnation` and `clock`
 /// (LLP 1035.002 D3), read after the operation; a reply that already has a
@@ -248,12 +206,12 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         Some("perf") => p.hatch_sites(p.host().agent(line)),
         Some("state") => {
             p.boxes();
-            // The runner's state, then the sections a painter cannot observe
-            // (LLP 1035.002 D2): present as `unavailable`, never absent, so a
-            // reader can tell "no keyboard" from "no report".
+            // Host-only sections report `unavailable` instead of disappearing
+            // (LLP 1035.002 D2), distinguishing no keyboard from no report.
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
+                s.push_str(&format!(",\"painter\":{}", p.painter_state()));
                 let mut decorations: Vec<_> = p
                     .brush
                     .field_text
@@ -324,9 +282,8 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 if let Some(hatches) = p.hatch_state() {
                     s.push_str(&format!(",\"hatches\":{hatches}"));
                 }
-                // The top layer's open surface (LLP 1115.001 D10): each row's
-                // authored node and its box in the surface's window, which
-                // `tap` takes by that node. No shell makes windows here.
+                // The top layer's open surface (LLP 1115.001 D10): each row's node and its box,
+                // which `tap` takes by that node, whether a shell draws it or the author laid it out.
                 let surface = if p.neutral_alerts() {
                     p.alert_json()
                 } else if p.has_windows() {
@@ -342,6 +299,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     false => serde_json::json!({"unavailable": true}),
                 };
                 s.push_str(&format!(",\"bars\":{bars}"));
+                s.push_str(&format!(",\"split\":{}", p.split_json()));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );
@@ -411,9 +369,10 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     return malformed("tap back takes no other input fields");
                 }
                 return match p.agent_back(p.host().now()) {
-                    None => error("back: nothing to go back from: no route is beneath the selected one"),
-                    Some(Ok(())) => serde_json::json!({ "back": "route", "delivery": "platform" }).to_string(),
-                    Some(Err(why)) => serde_json::json!({ "back": "route", "delivery": "platform", "refused": why }).to_string(),
+                    None => {
+                        error("back: nothing to go back from: no route is beneath the selected one")
+                    }
+                    Some(answer) => answer.to_string(),
                 };
             }
             // An `into` is the runner's request, never a press: a bad alignment is refused before any delivery.
@@ -609,9 +568,8 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                         }
                     }
                 }
-                // A modifier's own key holds it while down, as a keyboard's
-                // does: Meta's keydown says `metaKey`, its keyup no longer
-                // does (#140). A held key's later down is a repeat.
+                // A modifier's own key holds it while down, as a keyboard's does: Meta's keydown
+                // says `metaKey`, its keyup no longer does (#140). A held key's later down is a repeat.
                 p.hold_modifier(code, !up);
                 let r = p.type_key(id, code, logical, !up, repeat);
                 if phase.is_none() && r.is_ok() {
@@ -633,6 +591,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             None => malformed("reveal needs an id"),
         },
         Some("clock") => clock(p, line),
+        Some("share") => p.receive_share(&q).unwrap_or_else(|e| error(&e)),
         // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
         Some("prefer") if top_level(line, "faults") => p.host().agent(line),
         // @ref LLP 1125 §4 — MIDI ports the agent names, and a message from one.
@@ -1020,10 +979,11 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 }
 
 /// The engine's settle time, milliseconds, when a transition is in flight.
-/// A reorder ghost's return counts too (LLP 1094 D8).
+/// A reorder ghost's return counts too (LLP 1094 D8), and a pad's effect.
 fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
     field_num(&p.host().agent("{\"op\":\"settle\"}"), "settle")
         .into_iter()
+        .chain(crate::pads::due())
         .chain(p.group_settles_at())
         .chain(p.scroll_end_due())
         .chain(p.brush.numerals.settles_at())
@@ -1035,9 +995,8 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
 /// own due time) and the motion engine's (a seek). The clock lands where
 /// the runner says: a timer's refusal stops it at that timer's due time and
 /// is the reply's error. `settle` is a fixed point: advance to when the last
-/// transition in flight ends, and if the timers crossed on the way started
-/// more, again — bounded, `settled: false` when the bound is hit (LLP 1012
-/// §2).
+/// transition in flight ends, and if the timers crossed on the way started more, again —
+/// bounded, `settled: false` when the bound is hit (LLP 1012 §2).
 fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     // The end of an input (LLP 1012 §2): the `then`s of the answers it
     // settled land, the clock unmoved and no timer fired (Runner::land_then).
@@ -1223,6 +1182,7 @@ fn clock_within<D: DataSource>(
             return r;
         }
         if p.pending() {
+            to = crate::pads::due().map_or(to, |due| to.max(due));
             rounds += 1;
             if rounds >= 16 || std::time::Instant::now() >= deadline {
                 return response(Some(false), true);
@@ -1293,7 +1253,7 @@ fn clock_stepped<D: DataSource>(
     deadline: std::time::Instant,
 ) -> (f64, Option<String>) {
     for _ in 0..4096 {
-        if !p.host().timer_due_ms().is_some_and(|d| d <= to) || !wait_for_replies(p, deadline) {
+        if !p.host().timer_due_by(to) || !wait_for_replies(p, deadline) {
             break;
         }
         let (landed, e) = p.clock_until_request(to);
@@ -1303,21 +1263,21 @@ fn clock_stepped<D: DataSource>(
     }
     // After 4096 stops, what is in flight still lands first. A stop at `to`
     // may leave a timer due there: only a plain advance ends.
-    if p.host().timer_due_ms().is_some_and(|d| d <= to) {
+    if p.host().timer_due_by(to) {
         wait_for_replies(p, deadline);
     }
     p.clock(to)
 }
 
-/// Pump the executor until no polled module source's ask is in flight, or
-/// until the call's deadline.
+/// Pump the executor until no polled module source's ask is in flight, or the deadline. Not on
+/// Android's reader, whose extensions answer on its main thread: `agent-android.mjs` waits there.
 fn wait_for_polls<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) {
     let asking = |p: &Presenter<D>| {
         p.host()
             .agent("{\"op\":\"polls\"}")
             .contains("\"asking\":true")
     };
-    while asking(p) && std::time::Instant::now() < deadline {
+    while !crate::reader_driven() && asking(p) && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(5));
         if let Some(e) = p.pump(p.host().now()) {
             eprintln!("exact: {e}");
@@ -1325,19 +1285,20 @@ fn wait_for_polls<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Inst
     }
 }
 
-/// Pump the executor until no request is in flight, or until the call's
-/// deadline (`settled: false` past it), false then.
+/// Pump the executor, with the packages' turn, until no request is in flight (a pad's effect
+/// answers when the clock reaches its end, not on wall time) or the deadline, false then.
 fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) -> bool {
-    while p.pending() {
-        if std::time::Instant::now() >= deadline {
-            return false;
+    loop {
+        p.package_turn();
+        let waiting = p.pending() && crate::pads::due().is_none();
+        if !waiting || std::time::Instant::now() >= deadline {
+            return !waiting;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
         if let Some(e) = p.pump(p.host().now()) {
             eprintln!("exact: {e}");
         }
     }
-    true
 }
 
 const LETTERS: [&str; 26] = [

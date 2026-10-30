@@ -14,11 +14,9 @@ import java.io.File
 import java.nio.ByteOrder
 import java.nio.IntBuffer
 
-/**
- * The heavy list as exact2 lays it out and Android's Canvas draws it (LLP 1076 §3.3). exact2 runs on the main thread
- * and hands over an op stream (host/linux/src/canvas.rs); rows are RenderNodes, recorded on a worker thread (async=0:
- * on the main thread), kept until exact2 frees them; a scroller's rows are one node that a scroll frame exact2 does
- * not paint only translates.
+/** Canvas reader for exact2's op stream (host/linux/src/canvas.rs; LLP 1076 §3.3).
+ * Rows are RenderNodes recorded on a worker (async=0: main) and retained until freed.
+ * A scroll frame translates the scroller's row group without repainting it.
  */
 class ExactView(context: Context, private val live: Boolean, private val onFirst: () -> Unit) : View(context) {
     /** Keys and text input reach the app (the activity's [ExactActivity.input]); see [Keys]. */
@@ -29,8 +27,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     internal var fields: Fields? = null
     /** The app's bars, over this view ([Bars], LLP 1115.001 D11): told with the stream they belong to. */
     internal var bars: Bars? = null
-    /** What exact2 tells of the accessibility tree ([Access], LLP 1115.001 D13), handed on with the stream it came
-     * with; and, where exact2 runs on this thread (owner=0), whether a service is on and it is asked at all. */
+    /** Delivers the stream's accessibility tree ([Access], LLP 1115.001 D13); owner=0 also checks service availability. */
     internal var access: ((IntArray) -> Unit)? = null
     private var accessible = false
     private var accessAgain = false
@@ -40,8 +37,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     /** The row whose body [ingest] is in (0: none), and the elements the unrowed stream names. */
     private val flatAlpha = (context as Activity).intent.getStringExtra("flatalpha") != "0"
     private var ingestRow = 0
-    /** Where the last stream drew each row (its top, the stream's pixels) and in which scroller's group (0: none),
-     * for [rowShows]. */
+    /** Each row's top in stream pixels and scroller group (0: none), used by [rowShows]. */
     private val rowTop = android.util.SparseIntArray()
     private val rowGroup = android.util.SparseIntArray()
     private var ingestGroup = 0
@@ -51,8 +47,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     /** Each kept row's recorded height (px). */
     private val rowTall = android.util.SparseIntArray()
 
-    /** Whether [row] is in the view or within a third of it (a frame of the fastest fling), where the last stream and
-     * its scroller's move since put it (true when the stream did not draw it: unknown). */
+    /** Shows rows within a margin of one third of the view after pending scrolls; undrawn rows count as visible. */
     private fun rowShows(row: Int): Boolean {
         // Sparse arrays of ints (a top as its float's bits): a stream names every row it draws, and a HashMap boxed
         // each key and value (two entries a row a stream).
@@ -81,14 +76,11 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private val stale = HashSet<Int>()
     /** Each scroller's rows, one RenderNode, moved (translated) on frames exact2 did not paint. */
     private val groups = HashMap<Int, android.graphics.RenderNode>()
-    /** Each image node's picture slot, and the slots each picture is drawn in. */
-    private val slots = HashMap<Int, android.graphics.RenderNode>()
     /** The copies of [images], [animated] and [slots] a row recorded on the worker reads: shared by the rows a stream
      * records until the map changes (a fast fling records many rows a frame; a copy each cost the main thread ~5%). */
     private var picturesCopy: Map<Int, Bitmap>? = null
     private var playingCopy: Map<Int, android.graphics.drawable.AnimatedImageDrawable>? = null
     private var heldCopy: Map<Int, android.graphics.RenderNode>? = null
-    private val drawnIn = HashMap<Int, HashSet<Int>>()
     /** Nodes exact2's reader animates, sampled every frame while any plays. */
     private val layers: Layers = Layers({ node, ops, ox, oy, memo ->
         // A layer whose dash phase moved: only its path is recorded again, read once.
@@ -108,12 +100,15 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         p.image = { images[it] }
         p.animated = { animated[it] }
         p.native = { natives?.node(it) ?: fields?.node(it) }
-        p.row = { id -> rows[id] ?: pending[id]?.let { rows[it] } }
+        p.row = { id -> rows[id]?.also { slots.refill(id) } ?: pending[id]?.let { rows[it]?.also { _ -> slots.refill(it) } } }
         p.group = { id -> groups.getOrPut(id) { android.graphics.RenderNode("exact group").apply { setClipToBounds(false) } } }
         p.holder = { id -> scrolling.holder(id) }
-        p.slot = { slots[it] }
+        p.slot = { slots.nodes[it] }
     }
     private val background = Player(fonts)
+    /** Each picture's slot; its own Player records one again while [main] may be mid-replay. */
+    private val slots = Slots(Player(fonts).also { p -> p.image = { images[it] }; p.animated = { animated[it] } },
+        { images.containsKey(it) }).also { it.changed = { heldCopy = null } }
     private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val async = (context as Activity).intent.getStringExtra("async") != "0"
     /** Timers, and the paint a scroll owes once it pauses (only then the collection pass it left behind). */
@@ -134,6 +129,20 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private fun asking() { Native.requests()?.let(asked) }
     /** exact2's own thread, when it has one ([Owner]); null: exact2 runs here, on the main thread. */
     internal var owner: Owner? = null
+        set(value) { field = value; value?.timerReader(this) }
+    private var timerTouch = false
+    private var timerApplied = 0L
+    private var timerIdlePosted = false
+    internal fun timerReport() {
+        val o = owner
+        if (o != null) o.timerReport(this, timerTouch || scrolling.timerActive, samplerPosted, timerApplied)
+        else if (started && Native.timerObservation(timerTouch || scrolling.timerActive, samplerPosted, false, false)) pump()
+    }
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) timerTouch = true
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) timerTouch = false
+        return try { super.dispatchTouchEvent(event) } finally { timerReport() }
+    }
     /** Scrolls sent to the owner that no published stream includes yet, and the feed's group with its translation in
      * the last stream: the group is drawn that far moved, less what the owner has yet to apply. */
     private var mainSeq = 0
@@ -516,12 +525,14 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         var any = false
         var painted = false
         var allQuiet = true
+        var publication = timerApplied
         var move: Owner.Pub? = null
         while (true) {
             val next = o.queue.peek() ?: break
             if (next.ops != null && natives?.prepare(next.ops, structure) { post { publish() } } == false) break
             val p = o.queue.poll() ?: break
             any = true
+            publication = p.publication
             // The fields first: the stream that came with them draws their nodes.
             p.fields?.let { fields?.told(it) }
             p.bars?.let { bars?.told(it) }
@@ -552,6 +563,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         if (coverTrace && painted) traceNewRows()
         moved = !painted
         quiet = painted && allQuiet && move == null
+        timerApplied = publication
+        timerReport()
         return any
     }
 
@@ -967,7 +980,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         val freed = ArrayList(freeing)
         for (id in freeing) free(id)
         freeing.clear()
-        layers.flush()
+        layers.flush { slots.gone(Slots.layer(it)) }
         unrowedSeen.clear()
         rowTop.clear(); rowGroup.clear(); ingestGroup = 0
         nearRows(stream)
@@ -985,13 +998,13 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     }
 
     private fun free(id: Int) {
-        // Still waiting to be made: it never is.
-        laterRows.remove(id)?.let { it.made = true }
+        // Still waiting to be made: it never is, but its slots' sets are recorded ([keepSlots]).
+        laterRows.remove(id)?.let { if (!it.made) { it.made = true; keepSlots(it) } }
         rowTall.delete(id)
         when {
-            pending.containsKey(id) -> cancelled.add(id)
+            pending.containsKey(id) -> { cancelled.add(id); slots.gone(id) }
             pending.containsValue(id) -> stale.add(id)
-            else -> { rows.remove(id)?.discardDisplayList(); tokens.remove(id) }
+            else -> { rows.remove(id)?.discardDisplayList(); tokens.remove(id); slots.gone(id) }
         }
     }
 
@@ -1034,6 +1047,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         val moving = layers.sample(at)
         ticker?.invalidate()
         if (moving) playLayers()
+        timerReport()
     }
     private var samplerPosted = false
     /** latesample=0: layers sampled at the frame's vsync always, to compare. */
@@ -1048,6 +1062,14 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         asking()
         if (!running) return
         wakes?.sync()
+        if (!timerIdlePosted && Native.timerHeld() and 16 != 0) {
+            timerIdlePosted = true
+            android.os.Looper.myQueue().addIdleHandler {
+                timerIdlePosted = false
+                if (Native.timerObservation(timerTouch || scrolling.timerActive, samplerPosted, false, true)) pump()
+                false
+            }
+        }
         if (Native.animating() && !turnPosted) { turnPosted = true; android.view.Choreographer.getInstance().postFrameCallback(turn) }
         var due = Native.nextDue()
         // A moved paint is owed a paint once scrolling pauses: each step pushes this back.
@@ -1086,7 +1108,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                 12 -> {
                     owner?.made?.remove(b.get(i + 1))?.recycle()
                     // Slots still drawing it draw nothing from now on (their rows are gone or about to change).
-                    drawnIn.remove(b.get(i + 1))?.forEach { slots.remove(it)?.discardDisplayList(); heldCopy = null }
+                    slots.pictureFreed(b.get(i + 1))
                     animated.remove(b.get(i + 1))?.let { it.stop(); playingCopy = null }
                     images.remove(b.get(i + 1))?.let { bmp ->
                         picturesCopy = null
@@ -1140,9 +1162,10 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                     rowW = Math.ceil(f(b, i + 3).toDouble()).toInt(); rowH = Math.ceil(f(b, i + 4).toDouble()).toInt()
                     val outerRow = ingestRow
                     if (outerRow == 0) rowTall.put(id, rowH)
-                    ingestRow = id
+                    val outerOwner = slotOwner
+                    ingestRow = id; slotOwner = id
                     ingest(b, body, end)
-                    ingestRow = outerRow
+                    ingestRow = outerRow; slotOwner = outerOwner
                     rowW = 0
                     var j = body + len
                     // (With an owner: its streams are copies that outlive the next one.)
@@ -1153,8 +1176,10 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                         val wait = Later(b, i, body + len)
                         sets@ while (j < n) {
                             when (b.get(j)) {
-                                24 -> { val l = b.get(j + 2); laterSlots[b.get(j + 1)] = wait; ingest(b, j + 3, j + 3 + l); j += 3 + l }
-                                30 -> { val l = b.get(j + 2); laterLayers[b.get(j + 1)] = wait; ingest(b, j + 19, j + 3 + l); j += 3 + l }
+                                // A row still waiting with an older set of that slot is made first, as below (op 24).
+                                24 -> { val l = b.get(j + 2); laterSlots.put(b.get(j + 1), wait)?.takeIf { it !== wait }?.let { makeOne(it) }
+                                    ingest(b, j + 3, j + 3 + l); j += 3 + l }
+                                30 -> { val l = b.get(j + 2); laterLayers[b.get(j + 1)] = wait; layerDefs(b, j, l); j += 3 + l }
                                 31 -> { laterLayers[b.get(j + 1)] = wait; j += 3 + b.get(j + 2) }
                                 33 -> { laterLayers[b.get(j + 1)] = wait; j += 3 }
                                 else -> break@sets
@@ -1177,7 +1202,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                 21 -> { if (ingestRow == 0) ingestGroup = 0; i += 1 }
                 23 -> {
                     // Its row's bounds, clipped: a slot is drawn in its row's coordinates.
-                    val s = slot(b.get(i + 1))
+                    val s = slots.node(b.get(i + 1))
+                    if (slotOwner != 0) slots.own(slotOwner, b.get(i + 1))
                     if (rowW > 0) { s.setPosition(0, 0, rowW, rowH); s.setClipToBounds(true) }
                     i += 2
                 }
@@ -1187,7 +1213,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                     val id = b.get(i + 1); val len = b.get(i + 2)
                     if (!skipDefs) laterLayers[id]?.let { makeOne(it) }
                     layers.set(id, b, i + 3, len)
-                    if (!skipDefs) ingest(b, i + 19, i + 3 + len)
+                    if (!skipDefs) layerDefs(b, i, len)
                     val node = layers.node(id)
                     // Its node only as big as its drawing (clipped to that): what HWUI damages as it moves and fades.
                     if (layerBounds && bounds.measure(b, i + 19, i + 3 + len, measured)) {
@@ -1198,6 +1224,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                     // is left alone: a RenderNode's is off natively, and turning it on gave every fading layer an
                     // offscreen surface its own size (xheavy: 10 GB of graphics memory in bursts).
                     layers.flat(id, flatAlpha && main.singleShape(b, i + 19, i + 3 + len))
+                    slots.refill(Slots.layer(id))
                     val c = node.beginRecording()
                     main.replayAt(c, b, i + 19, i + 3 + len, layers.originX(id), layers.originY(id))
                     node.endRecording()
@@ -1219,18 +1246,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                 24 -> {
                     val id = b.get(i + 1); val len = b.get(i + 2)
                     if (!skipDefs) { laterSlots[id]?.let { makeOne(it) }; ingest(b, i + 3, i + 3 + len) }
-                    val node = slot(id)
-                    val c = node.beginRecording()
-                    main.replay(c, b, i + 3, i + 3 + len)
-                    node.endRecording()
-                    if (hardware) slotBodies[id] = IntArray(len) { b.get(i + 3 + it) }
-                    // Which pictures it draws: freeing one empties it.
-                    var k = i + 3
-                    while (k < i + 3 + len) {
-                        val op = b.get(k)
-                        if (op == 8 || op == 14) drawnIn.getOrPut(b.get(k + 1)) { HashSet() }.add(id)
-                        k = when (op) { 1 -> k + 7; 4 -> k + 13; 6 -> k + 1; 8 -> k + 6; 11 -> k + 4; 14 -> k + 18; else -> i + 3 + len }
-                    }
+                    slots.set(id, b, i + 3, i + 3 + len, main)
                     i += 3 + len
                 }
                 else -> throw IllegalStateException("op ${b.get(i)} at $i")
@@ -1333,6 +1349,20 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         }
     }
 
+    /** A waiting row freed before it was made: its slots' sets, the latest of each slot (a later one makes this row
+     * first), are recorded, as exact2 does not send a slot's drawing again. */
+    private fun keepSlots(l: Later) {
+        val outer = skipDefs
+        skipDefs = true
+        var j = l.sets
+        while (j < l.end) {
+            val len = if (l.b.get(j) == 33) 3 else 3 + l.b.get(j + 2)
+            if (l.b.get(j) == 24) ingest(l.b, j, j + len)
+            j += len
+        }
+        skipDefs = outer
+    }
+
     /** Make one waiting row: its node (here when [now], else on the worker unless it is in view), then its slots'
      * and layers' drawings and tracks. */
     private fun makeOne(l: Later, now: Boolean = false) {
@@ -1375,7 +1405,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         val playing = playingCopy ?: HashMap(animated).also { playingCopy = it }
         val elements = natives?.snapshot() ?: emptyMap()
         val hosted = fields?.snapshot() ?: emptyMap()
-        val held = heldCopy ?: HashMap(slots).also { heldCopy = it }
+        val held = heldCopy ?: HashMap(slots.nodes).also { heldCopy = it }
         val animating = layers.nodes()
         pending[id] = previous
         if (coverTrace) definedAt[id] = System.nanoTime()
@@ -1415,7 +1445,6 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
      * are recorded again with it. Without, a picture is a heap bitmap plus the texture HWUI uploads from it.
      */
     private val hardware = (context as Activity).intent.getStringExtra("hw") == "1"
-    private val slotBodies = HashMap<Int, IntArray>()
 
     private fun harden(id: Int, bmp: Bitmap) {
         worker.execute {
@@ -1426,13 +1455,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                 picturesCopy = null
                 rootSig = null
                 main.forget(bmp)
-                for (slotId in drawnIn[id] ?: emptySet<Int>()) {
-                    val body = slotBodies[slotId] ?: continue
-                    val node = slots[slotId] ?: continue
-                    val c = node.beginRecording()
-                    main.replay(c, IntBuffer.wrap(body), 0, body.size)
-                    node.endRecording()
-                }
+                slots.redraw(id)
                 bmp.recycle()
             }
         }
@@ -1444,10 +1467,15 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
 
     private var rowW = 0
     private var rowH = 0
+    /** The row or layer ([Slots.layer]) whose drawing [ingest] walks, innermost: the owner of the slots it draws. */
+    private var slotOwner = 0
 
-    private fun slot(id: Int) = slots.getOrPut(id) {
-        heldCopy = null
-        android.graphics.RenderNode("exact slot").apply { setPosition(0, 0, 1 shl 14, 1 shl 14); setClipToBounds(false) }
+    /** A layer's drawing, op 30 at [at] and [len] long, walked for what it defines. */
+    private fun layerDefs(b: IntBuffer, at: Int, len: Int) {
+        val outer = slotOwner
+        slotOwner = Slots.layer(b.get(at + 1))
+        slots.again(slotOwner) { ingest(b, at + 19, at + 3 + len) }
+        slotOwner = outer
     }
 
     private fun skipPath(b: IntBuffer, at: Int): Int {

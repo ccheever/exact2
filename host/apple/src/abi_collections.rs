@@ -1,5 +1,6 @@
 //! Collection geometry, logical text and host covers at the native ABI.
 use super::*;
+use crate::host::Restyle;
 
 impl<D: DataSource> Bridge<D> {
     /// What native containers cover of boxes (LLP 1075.003 §3.5), from the
@@ -20,7 +21,9 @@ impl<D: DataSource> Bridge<D> {
     /// Kind 12 reports scrollbar gutters in the right and bottom fields.
     /// Kind 14 shows a split's own placeholder (LLP 1116.006 D2,
     /// `Runner::show_split_placeholder`) and kind 15 hides it again; their
-    /// four floats are unused.
+    /// four floats are unused. Kind 16 is the border box a person dragged
+    /// the box's `resize` grip to (`Runner::resize_box`): f32 width and
+    /// height, a NaN keeping that axis, and two unused.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let mut records = Vec::new();
@@ -40,7 +43,7 @@ impl<D: DataSource> Bridge<D> {
         let out = if !rest.is_empty() {
             self.refusal("covers: truncated record")
         } else {
-            let (mut covers, mut blocks, mut placements, mut margins, mut lists, mut shows) = (
+            let (mut covers, mut blocks, mut placements, mut margins, mut lists, mut restyles) = (
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
@@ -88,7 +91,11 @@ impl<D: DataSource> Bridge<D> {
                         }),
                     )),
                     9 => margins.push((view, None)),
-                    14 | 15 => shows.push((view, kind == 14)),
+                    14 | 15 => restyles.push((view, Restyle::Placeholder(kind == 14))),
+                    16 => {
+                        let axis = |i: usize| Some(edge(i)).filter(|v| !v.is_nan());
+                        restyles.push((view, Restyle::Size([axis(8), axis(12)])));
+                    }
                     10 => lists.push((view, Some([edge(8), edge(12)]))),
                     11 => lists.push((view, None)),
                     1 => {
@@ -108,7 +115,7 @@ impl<D: DataSource> Bridge<D> {
                 }
             }
             self.host.as_mut().map_or_else(not_booted, |h| {
-                h.set_claims(&covers, &blocks, &placements, &margins, &lists, &shows)
+                h.set_claims(&covers, &blocks, &placements, &margins, &lists, &restyles)
             })
         };
         self.emit(out)
@@ -253,6 +260,14 @@ impl<D: DataSource> Bridge<D> {
             .as_mut()
             .map_or_else(not_booted, |host| host.collection_feedback(bytes, now_ms));
         self.emit(out)
+    }
+
+    /// What UIKit covers of list `view`'s port at its start and end, its
+    /// bars over a list drawn under them (`Host::set_list_covered`).
+    pub fn list_covered(&mut self, view: u32, start: f64, end: f64) {
+        if let Some(host) = self.host.as_mut() {
+            host.set_list_covered(view, [start, end]);
+        }
     }
 
     /// `key\nblock\ninline` in the input buffer (LLP 1070.000 §5); the key may hold a newline.

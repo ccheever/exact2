@@ -1,0 +1,11 @@
+{
+  "name": "@exact/sign-in",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sign in with Apple and Google with FedCM's names, on @exact/passkeys' get: the provider's sheet or popup, its ID token for the app's server (LLP 1133.014).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

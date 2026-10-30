@@ -424,7 +424,7 @@ impl Tree {
         if !collection.edge_armed[1] {
             return false;
         }
-        collection.edge_armed[1] = false;
+        collection.disarm_edge(1);
         true
     }
 }

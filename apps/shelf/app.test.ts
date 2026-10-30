@@ -38,6 +38,19 @@ async function shelf() {
   return { call, book, reads: () => reads };
 }
 
+// Two edits that both wait on the first load (a tool's and the person's,
+// LLP 1133.023 §11) each apply to the newest state, so neither is lost.
+test('two edits waiting on the first load both land', async () => {
+  const { call } = await shelf();
+  await Promise.all([
+    call('addBook', 'Dune', 'Frank Herbert', 412, 'want', '', '', 1),
+    call('addBook', 'Emma', 'Jane Austen', 474, 'want', '', '', 2),
+  ]);
+  const titles = (await call('library')).books.map((b: { title: string }) => b.title);
+  expect(titles).toContain('Dune');
+  expect(titles).toContain('Emma');
+});
+
 test('progress clamps, a page read starts a book, the last page finishes it', async () => {
   const { call, book } = await shelf();
   await call('setPage', 'seed-2', -50);

@@ -250,6 +250,64 @@ test('`appTransportSecurity` writes ATS for web content only; absent, no key (#1
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('`allowsArbitraryLoads` turns ATS off on macOS, iOS and tvOS, written alone so ATS does not ignore it', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const app = (host) => ({ id: 'com.example.fixture', displayName: 'Fixture', manifest: { host } });
+  const flat = (plist) => plist.replace(/>\s+</g, '><');
+  const off = /<key>NSAppTransportSecurity<\/key><dict><key>NSAllowsArbitraryLoads<\/key><true\/><\/dict>/;
+  const reach = { localNetworking: true }; // what a `net.fetch local-network` line derives
+  const loads = { allowsArbitraryLoads: true };
+  // Alone, beside the web-content key, and beside local networking from the manifest or a grant line: the one key.
+  for (const ats of [loads, { ...loads, allowsArbitraryLoadsInWebContent: true }]) {
+    for (const plist of [macInfoPlist(app({ macos: { appTransportSecurity: ats } })), macInfoPlist(app({ macos: { appTransportSecurity: ats } }), { reach })]) assert.match(flat(plist), off);
+    for (const tv of [false, true]) {
+      for (const [ios, built] of [[{ appTransportSecurity: ats }, {}], [{ appTransportSecurity: ats, localNetworking: true }, {}], [{ appTransportSecurity: ats }, { reach }]]) {
+        assert.match(flat(infoPlist(app({ ios }), false, { tv, ...built })), off, JSON.stringify({ tv, ios, built }));
+      }
+    }
+  }
+  // The dev client's prompt is not ATS's and stays.
+  assert.match(infoPlist(app({ ios: { appTransportSecurity: loads, localNetworking: true } })), /NSLocalNetworkUsageDescription/);
+  // False is absent, and leaves the other keys as they were.
+  assert.doesNotMatch(macInfoPlist(app({ macos: { appTransportSecurity: { allowsArbitraryLoads: false } } })), /NSAppTransportSecurity/);
+  assert.match(flat(infoPlist(app({ ios: { appTransportSecurity: { allowsArbitraryLoads: false, allowsArbitraryLoadsInWebContent: true }, localNetworking: true } }))), /<key>NSAppTransportSecurity<\/key><dict><key>NSAllowsArbitraryLoadsInWebContent<\/key><true\/><key>NSAllowsLocalNetworking<\/key><true\/><\/dict>/);
+  // One platform's field never reaches the other's plist.
+  for (const plist of [macInfoPlist(app({ ios: { appTransportSecurity: loads } })), infoPlist(app({ macos: { appTransportSecurity: loads } }))]) assert.doesNotMatch(plist, /NSAppTransportSecurity/);
+  // The manifest takes the key on both platforms, as a boolean.
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ats-'));
+  try {
+    const save = (value) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'F', app: { id: 'com.example.f', name: 'F' }, host: { macos: { appTransportSecurity: { allowsArbitraryLoads: value } }, ios: { appTransportSecurity: { allowsArbitraryLoads: value } } } }));
+    save(true);
+    const host = readManifest(dir, 'f').host;
+    assert.equal(host.macos.appTransportSecurity.allowsArbitraryLoads, true);
+    assert.equal(host.ios.appTransportSecurity.allowsArbitraryLoads, true);
+    save('yes');
+    assert.throws(() => readManifest(dir, 'f'), /host\.macos\.appTransportSecurity\.allowsArbitraryLoads/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a manifest `start_url` other than the root bakes `ExactStartURL` on iOS and macOS (W3C App Manifest)', () => {
+  const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });
+  for (const plist of [infoPlist(app({ start_url: '/today' }), false), macInfoPlist(app({ start_url: '/today' }))]) {
+    assert.match(plist, /<key>ExactStartURL<\/key><string>\/today<\/string>/);
+  }
+  // Resolved against the manifest's URL, as `deploy.mjs` resolves it for the web.
+  for (const [start_url, want] of [['today', '/today'], ['./today', '/today'], ['/today?tab=2', '/today?tab=2']]) {
+    assert.ok(infoPlist(app({ start_url }), false).includes(`<key>ExactStartURL</key><string>${want}</string>`), start_url);
+  }
+  for (const start_url of [undefined, '', '/', './', '//elsewhere/today', 'https://example.com/today']) {
+    assert.doesNotMatch(infoPlist(app({ start_url }), false), /ExactStartURL/, String(start_url));
+  }
+  // On the app's declared origin an absolute or scheme-relative URL is a place in the app; on another, none.
+  const at = (start_url) => infoPlist({ ...app({ start_url }), origin: 'https://example.com' }, false);
+  for (const start_url of ['https://example.com/today', '//example.com/today', '/today']) {
+    assert.ok(at(start_url).includes('<key>ExactStartURL</key><string>/today</string>'), start_url);
+  }
+  for (const start_url of ['https://elsewhere.com/today', 'http://example.com/today', 'https://example.com/']) {
+    assert.doesNotMatch(at(start_url), /ExactStartURL/, start_url);
+  }
+});
+
 test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 1069.010 D4)', async () => {
   const { readManifest } = await import('./app.mjs');
   const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });

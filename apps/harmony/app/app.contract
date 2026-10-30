@@ -7,6 +7,10 @@
 // stand in for accounts and the You tab switches between them.
 use Badge, EmptyState from "exact:content"
 use registerPeriodicSync, unregisterPeriodicSync, backgroundSyncStatus, periodicSyncTags, sync, periodicsync, BackgroundSyncStatus, SyncEvent, SyncRegistration from "@exact/background"
+use showNotification, requestNotificationPermission, NotificationStatus from "@exact/notifications"
+use startCall, reportCallState, endCall, calls, callhangup, callhold, Call, CallEvent from "@exact/calls"
+use getUserMedia, stopTrack, MediaStream, MediaStreamTrack from "@exact/media-capture"
+use startMediaRecorder, stopMediaRecorder, pauseMediaRecorder, resumeMediaRecorder, MediaRecorderInfo, RecordedMedia from "@exact/recording"
 
 routes nav
   tab channels "/"
@@ -17,6 +21,12 @@ routes nav
     newDm "/new-message"
   tab you "/you"
     newEmoji "/you/new-emoji"
+
+shape Discarded
+  path: string
+
+shape TestCallBuild
+  available: bool
 
 shape Clock
   epochAtZero: number
@@ -241,22 +251,137 @@ component Harmony
   derive notifying = catchUps.filter(r => r.tag == "catch-up").length > 0
   mutation flushed as shape Flushed refreshes world
   mutation caught as shape Caught then notifyMention
+  // Asked when the switch turns on, in the press, so a catch-up's post finds the answer given.
+  mutation notifyAsked as shape NotificationStatus
   derive writing = pending(sent) or pending(edited) or pending(removed) or pending(reacted) or pending(pinToggled) or pending(typed) or pending(readMarked) or pending(channelCreated) or pending(dmOpened) or pending(profileSaved) or pending(emojiCreated) or pending(emojiRemoved)
 
   // Changes arrive through `live`; the clock still moves every ten seconds,
   // between writes, for what changes with time alone (a typing line that
   // expires, "Today"), and as a fallback should the feed drop.
-  task clock when not writing
+  task clock when page.visibilityState == "visible" and not writing
     every(10000, tick)
   // The open room is read as soon as it is seen, and again as messages arrive.
-  task follow when live.seq != seenSeq and not pending(world) key=live.seq
+  task follow when page.visibilityState == "visible" and live.seq != seenSeq and not pending(world) key=live.seq
     after(1, catchUp)
   task relive when live.state == "error" key=liveEpoch
     after(2000, reconnect)
-  task readOpen when roomId != "" and shown.unread > 0 and not pending(world) key=roomId
+  task readOpen when page.visibilityState == "visible" and roomId != "" and shown.unread > 0 and not pending(world) key=roomId
     after(300, markOpen)
   task fillStatus when world.loaded key=persona
     after(1, loadStatus)
+  task returned when page.visibilityState == "visible"
+    after(1, tick)
+  // The test call (LLP 1133.033 §9.2): a call in the system's call screen
+  // that an echo answers at once. With the call's audio up it records five
+  // seconds of the microphone, plays them back, then the echo hangs up and
+  // the take is deleted. It stays out of production builds until there is a
+  // call transport: its `device.calls` grant is a development build's only
+  // (app.ts), and the row shows only where the build holds it.
+  resource testCallBuild = testCallBuild() as shape TestCallBuild else empty()
+  state callSeq = 0
+  state callTrack = ""
+  state callRecorder = ""
+  state callTake = ""
+  // "", "opening", "recording", "playing", or "ending" (a hang-up during the take).
+  state callPhase = ""
+  resource callList = calls() as shape Call[] else empty()
+  derive callId = `test-call-${callSeq}`
+  derive testCall = callList.filter(c => c.id == callId and c.state != "ended")
+  derive inTestCall = testCall.length > 0
+  derive callAudio = testCall.filter(c => c.audio and c.state == "connected").length > 0
+  derive callHeld = testCall.filter(c => c.state == "held").length > 0
+  derive callMuted = testCall.filter(c => c.muted).length > 0
+  mutation callOpened as shape MediaStream then testCallArm
+  mutation callStarted as shape MediaRecorderInfo then testCallBegun
+  mutation callSaved as shape RecordedMedia then testCallPlay
+  mutation callPaused as shape MediaRecorderInfo
+  mutation callStopped as shape MediaStreamTrack
+  mutation callDiscarded as shape Discarded
+  // The microphone or the recorder refused (no microphone here, or its permission denied): the call ends `failed`.
+  derive callUnopened = (match failure(callOpened) { case some(f) => true, case none => false }) or (match failure(callStarted) { case some(f) => true, case none => false })
+  task testCallMic when callAudio and callPhase == "" key=callId
+    after(1, testCallOpen)
+  task testCallRefused when callPhase == "opening" and callUnopened key=callId
+    after(1, testCallFailed)
+  task testCallTake when callPhase == "recording" and not callHeld key=callRecorder
+    after(5000, testCallStop)
+  // A build without the grant starts nothing, however the action is reached.
+  action testCallStart
+    if testCallBuild.available
+      let next = callSeq + 1
+      callSeq = next
+      startCall(id=`test-call-${next}`, handle="test-call", displayName="Test Call")
+      reportCallState(id=`test-call-${next}`, state="connected")
+  action testCallOpen
+    callPhase = "opening"
+    send callOpened = getUserMedia(audio=true)
+  action testCallArm
+    match callOpened
+      case some(s)
+        callTrack = match s.tracks.at(0) { case some(t) => t.id, case none => "" }
+        send callStarted = startMediaRecorder(stream=s.id, path="app:/cache/test-call/take")
+      case none
+        testCallEnd(true)
+  action testCallBegun
+    match callStarted
+      case some(r)
+        callRecorder = r.id
+        // Hung up while the microphone opened: the take stops at once.
+        if callPhase == "ending"
+          send callSaved = stopMediaRecorder(recorder=r.id)
+        else
+          callPhase = "recording"
+      case none
+        testCallEnd(true)
+  action testCallStop
+    send callSaved = stopMediaRecorder(recorder=callRecorder)
+  action testCallPlay
+    send callStopped = stopTrack(track=callTrack)
+    callTrack = ""
+    callRecorder = ""
+    match callSaved
+      case some(m)
+        if callPhase == "ending"
+          send callDiscarded = discardTestCall(m.path)
+          callPhase = ""
+        else
+          callTake = m.path
+          callPhase = "playing"
+      case none
+        testCallEnd(true)
+  // The echo hangs up once the take has played back.
+  action testCallPlayed
+    testCallEnd(false)
+  action testCallFailed
+    testCallEnd(true)
+  action testCallEnd(failed: bool)
+    if inTestCall
+      endCall(id=callId, reason=(failed ? "failed" : "remote"))
+    if callTake != ""
+      send callDiscarded = discardTestCall(callTake)
+    callTake = ""
+    callPhase = ""
+  // The person hung up on the system's screen: the take stops and nothing plays.
+  action testCallHungUp(call: Call)
+    if call.id == callId
+      if callPhase == "recording"
+        callPhase = "ending"
+        send callSaved = stopMediaRecorder(recorder=callRecorder)
+      else
+        if callPhase == "opening"
+          callPhase = "ending"
+        else
+          if callTake != ""
+            send callDiscarded = discardTestCall(callTake)
+          callTake = ""
+          callPhase = ""
+  // Held, the take pauses as an interruption pauses it, and resumes at the unhold.
+  action testCallHeld(call: Call, e: CallEvent)
+    if call.id == callId and callRecorder != ""
+      if call.state == "held"
+        send callPaused = pauseMediaRecorder(recorder=callRecorder)
+      else
+        send callPaused = resumeMediaRecorder(recorder=callRecorder)
   action tick
     if not pending(world)
       sampledAt = performanceNow()
@@ -315,13 +440,17 @@ component Harmony
     draft = ""
     replyTo = ""
     sampledAt = performanceNow()
+    refresh world
   action afterEdit
     draft = ""
     editing = ""
     sampledAt = performanceNow()
-  // After a message write the view showed predicted, the read that delivers it.
+    refresh world
+  // After a message write the view showed predicted, the read that delivers it:
+  // asked again even when the clock has not moved since the last read.
   action resync
     sampledAt = performanceNow()
+    refresh world
   action cancelCompose
     replyTo = ""
     editing = ""
@@ -452,12 +581,14 @@ component Harmony
         sampledAt = sampledAt
   action setMentions(on: bool)
     if on
+      send notifyAsked = requestNotificationPermission()
       registerPeriodicSync(tag="catch-up", minInterval=1800000)
     else
       unregisterPeriodicSync(tag="catch-up")
 
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow sync=outboxDue periodicsync=caughtUp interactive-widget="resizes-content" testId="app"
+      callhangup=testCallHungUp callhold=testCallHeld
       width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
         for t in nav.tabs key=t.name
@@ -619,11 +750,31 @@ component Harmony
                         text "Harmony has no sign-in yet: choose who you are. Each person keeps their own copy of every room on this device, unread marks included."
                     if background.periodic
                       section
-                        row
-                          text "Notify Me of Mentions"
-                          input type="checkbox" switch checked=notifying change=setMentions aria-label="Notify me of mentions" testId="notify-mentions"
+                        if background.state == "denied"
+                          text "Background Activity Disabled" testId="background-denied"
+                        else
+                          row
+                            text "Notify Me of Mentions"
+                            input type="checkbox" switch checked=notifying change=setMentions aria-label="Notify me of mentions" testId="notify-mentions"
                         footer
-                          text "While Harmony is closed, it checks for mentions now and then, when the system allows."
+                          text (background.state == "denied" ? "Enable background activity in system settings to check for mentions while Harmony is closed." : "While Harmony is closed, it checks for mentions now and then, when the system allows.")
+                    if testCallBuild.available
+                      section
+                        header
+                          text "Test Call"
+                        button press=testCallStart disabled=inTestCall testId="test-call"
+                          image "symbol:microphone"
+                          text "Make a Test Call"
+                        if inTestCall
+                          row
+                            text (callHeld ? "On Hold" : callPhase == "recording" ? "Say something" : callPhase == "playing" ? "Playing back" : "Calling…")
+                              testId="test-call-status" flex=1 min-width=0
+                            if callMuted
+                              text "Muted" color="-exact-secondary-label" testId="test-call-muted"
+                          if callTake != ""
+                            audio src=callTake autoplay=true ended=testCallPlayed testId="test-call-playback"
+                        footer
+                          text "A test call records a few seconds of your microphone and plays them back, so you can check how you sound."
                     section
                       header
                         text "Custom Emoji"

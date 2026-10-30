@@ -6,8 +6,9 @@
 // the client must retry with, `jkt` bound at PAR and checked at the token
 // and resource servers, `ath` on the resource), `iss` in the callback. Two
 // registered clients, one per application type (after review, item 3): the
-// native one's redirect is the client id's hostname reversed, the web one's
-// the app's `/.exact/auth/callback` (any loopback port in development).
+// native one's redirect is the client id's hostname reversed, or a desktop's
+// loopback `/oauth/loopback` (LLP 1133.005 D9), the web one's the app's
+// `/.exact/auth/callback` (any loopback port in development).
 //
 //   bun apps/auth-fixture/fixture.mjs [--port 4331]
 //   GET /oauth/authorize?…&auto=1   the browser's page approves and redirects;
@@ -15,15 +16,29 @@
 //                                   {location} instead, for a drive's `type @t`
 //   GET /fixture/log                 what the server checked, for a smoke
 //   POST /passkey/…                  the passkey relying party (relying-party.mjs)
+//   POST /attest/challenge           a single-use challenge for @exact/attestation (LLP 1133.028 §8.1)
+//   POST /attest/verify              {format, token, keyId, clientData} → {ok, message, error}
+//   /sign-in/…                       nonce, the web's return route, identity (sign-in.mjs, LLP 1133.014 §10)
+//
+// `--substitute` accepts the agent's attestation tokens, which its drives
+// start it with; `--team <id>` is the team an App Attest key's RP ID names
+// (`EXACT_APPLE_TEAM`); `EXACT_PLAY_INTEGRITY_KEY` names the service
+// account's key file Play's tokens are decoded with, kept outside the repo.
+// `--idp-keys <file>` is the fixture identity provider's key file (with
+// `--substitute`, the only keys an ID token is checked against).
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { relyingParty } from './relying-party.mjs';
+import { said, verifier } from '../../packages/attestation/test/verify.mjs';
+import { androidOrigin, LOOPBACK, relyingParty } from './relying-party.mjs';
+import { signIn } from './sign-in.mjs';
 
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf('--port') + 1] || 4331) || 4331;
 export const ISSUER = `http://127.0.0.1:${port}`;
 const ORIGIN = 'https://auth-fixture.exact.test';
 const CLIENTS = {
-  [`${ORIGIN}/.exact/auth/client-metadata.native.json`]: uri => uri === 'test.exact.auth-fixture:/oauth',
+  [`${ORIGIN}/.exact/auth/client-metadata.native.json`]: uri => uri === 'test.exact.auth-fixture:/oauth'
+    || /^http:\/\/127\.0\.0\.1:\d+\/oauth\/loopback$/.test(uri),
   [`${ORIGIN}/.exact/auth/client-metadata.web.json`]: uri => uri === `${ORIGIN}/.exact/auth/callback`
     || /^http:\/\/(127\.0\.0\.1|localhost):\d+\/\.exact\/auth\/callback$/.test(uri),
 };
@@ -32,7 +47,19 @@ const requests = new Map(), codes = new Map(), tokens = new Map(), jtis = new Se
 const nonce = () => crypto.randomUUID();
 let authNonce = nonce(), resourceNonce = nonce(), coop = false, auto = false;
 const log = { par: 0, authorize: 0, token: 0, resource: 0, dpopVerified: 0, nonceRetries: 0, pkce: 0, refused: [] };
-const passkeys = relyingParty(log);
+// The RP IDs this server's relying party takes: the app's origin's host, with Apple's origin and each Android
+// signing certificate's (D6), and `localhost` for a loopback page. The public origin's are `origin.mjs`'s.
+const certificates = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8')).host?.android?.certificates ?? [];
+const passkeys = relyingParty(log, { rps: {
+  'auth-fixture.exact.test': [ORIGIN, ...certificates.map(androidOrigin)],
+  localhost: LOOPBACK,
+} });
+const identities = signIn(log, { substitute: args.includes('--substitute'), idpKeys: args.includes('--idp-keys') ? args[args.indexOf('--idp-keys') + 1] : null });
+const team = args.includes('--team') ? args[args.indexOf('--team') + 1] : process.env.EXACT_APPLE_TEAM ?? 'TEAMID';
+const attestations = verifier({ appId: `${team}.com.exact.authfixture`, packageName: 'com.exact.authfixture', substitute: args.includes('--substitute') });
+log.attestation = attestations.log;
+// Each attestation challenge, single use, five minutes (§8.1).
+const challenges = new Map();
 
 const b64 = s => Buffer.from(s, 'base64url');
 const sha64 = text => Buffer.from(Bun.CryptoHasher.hash('sha256', text)).toString('base64url');
@@ -152,11 +179,36 @@ export const server = createServer(async (req, res) => {
       log.resource++;
       return send(res, 200, { did: held.sub, handle: HANDLE });
     }
+    if (url.pathname === '/sign-in/return') {
+      const back = await identities.back(req.method, Object.fromEntries(url.searchParams), req.method === 'POST' ? await readForm(req) : {});
+      if (back.status === 303) { res.writeHead(303, { location: back.location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return; }
+      return refuse(res, back.status, 'invalid_request', back.body);
+    }
+    if (req.method === 'POST' && (url.pathname.startsWith('/sign-in/') || url.pathname === '/fixture/sign-in')) {
+      let text = '';
+      for await (const chunk of req) text += chunk;
+      const answer = await identities.route(url.pathname, JSON.parse(text || '{}'));
+      if (answer) return send(res, 200, answer);
+    }
     const passkey = req.method === 'POST' && passkeys.route(url.pathname);
     if (passkey) {
       let text = '';
       for await (const chunk of req) text += chunk;
       return send(res, 200, await passkey(JSON.parse(text || '{}')));
+    }
+    if (url.pathname === '/attest/challenge' && req.method === 'POST') {
+      const challenge = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
+      challenges.set(challenge, Date.now() + 5 * 60_000);
+      return send(res, 200, { challenge });
+    }
+    if (url.pathname === '/attest/verify' && req.method === 'POST') {
+      let text = '';
+      for await (const chunk of req) text += chunk;
+      const proof = JSON.parse(text || '{}'), expires = challenges.get(proof.clientData);
+      challenges.delete(proof.clientData); // spent whatever follows
+      if (!expires || expires < Date.now()) return send(res, 200, { ok: false, error: 'challenge', message: 'Refused: challenge' });
+      const verdict = await attestations.verify(proof);
+      return send(res, 200, { ok: verdict.ok, error: verdict.error ?? null, message: said(verdict) });
     }
     if (url.pathname === '/fixture/log') return send(res, 200, log);
     // `/fixture/auto?on=1`: approve without a page (a real session driven
@@ -167,6 +219,8 @@ export const server = createServer(async (req, res) => {
       requests.clear(); codes.clear(); tokens.clear(); jtis.clear(); authNonce = nonce(); resourceNonce = nonce(); coop = false; auto = false;
       Object.assign(log, { par: 0, authorize: 0, token: 0, resource: 0, dpopVerified: 0, nonceRetries: 0, pkce: 0, refused: [] });
       passkeys.reset();
+      identities.reset();
+      attestations.reset(); challenges.clear();
       return send(res, 200, { ok: true });
     }
     send(res, 404, { error: 'not_found' });

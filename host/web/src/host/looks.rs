@@ -3,7 +3,7 @@
 //! that order over the node's inline base, so rows a look doesn't name show
 //! the base. They show at once (no transition: a look's colours snap, under
 //! Reduce Motion too), and under the shell's pressed paint, which `:active`
-//! lowers to (LLP 1061 D7, index.html's important rules).
+//! lowers to (LLP 1061 D7, the input glue's important rule per painting node).
 
 use super::*;
 use exact_kernel::{StyleProps, LOOK_HOVER};

@@ -133,6 +133,55 @@ final class PageEdgesIOSTests: XCTestCase {
         }
     }
 
+    /// A scroller at the edges shown again inside an animation UIKit has
+    /// open (`display: none` lifted): it takes its band, its insets and its
+    /// offset together and at once, so its content does not slide
+    /// (`NodeView.setPageBand` through `Presenter.moveOrPlace`).
+    func testAScrollerShownAgainInsideAnAnimationTakesItsBandAtOnce() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
+        let (session, view) = try fixture()
+        let p = session.presenter, list = try node(session, "list"), sv = try XCTUnwrap(list.scroll)
+        let band = list.pageBand
+        XCTAssertGreaterThan(band.top + band.bottom, 0, "a band to take")
+        list.isHidden = true
+        p.reachPageEdges()
+        XCTAssertEqual(list.pageBand, .zero, "a hidden scroller has no band")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows it hidden
+        var open = false
+        UIView.animate(withDuration: 0.5) {
+            open = UIView.inheritedAnimationDuration > 0
+            list.isHidden = false
+            p.reachPageEdges()
+        }
+        XCTAssertTrue(open, "UIKit had an animation open")
+        XCTAssertEqual(list.pageBand, band)
+        XCTAssertEqual(sv.contentOffset.y + list.scrollTopInset(sv), 0, accuracy: 0.5, "at its rest under the band")
+        XCTAssertEqual(sv.layer.animationKeys() ?? [], [], "its frame and its offset at once, together")
+        _ = view
+    }
+
+    /// The offset of a grouped list's collection view, which UIKit sets as
+    /// it insets it, follows the same rule as a `ScrollView`'s: set inside an
+    /// animation on a list no frame has shown, it is there at once.
+    func testAGroupedListsOffsetInsideAnAnimationMovesOnlyIfItShowed() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
+        ExactGroupedLists.install()
+        let (session, _) = try fixture("PAGE_EDGES_GROUPED")
+        let list = try node(session, "list")
+        until("UIKit draws the list") { list.scrollView is UICollectionView && list.pageBand.top + list.pageBand.bottom > 0 }
+        let cv = try XCTUnwrap(list.scrollView as? UICollectionView)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows the list
+        let rest = cv.contentOffset
+        UIView.animate(withDuration: 0.5) { cv.contentOffset.y = rest.y + 20 }
+        XCTAssertNotNil(cv.layer.animation(forKey: "bounds.origin") ?? cv.layer.animation(forKey: "bounds"), "a list that showed moves with the animation")
+        cv.layer.removeAllAnimations()
+        list.isHidden = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows it hidden
+        list.isHidden = false
+        UIView.animate(withDuration: 0.5) { cv.contentOffset.y = rest.y }
+        XCTAssertEqual(cv.layer.animationKeys() ?? [], [], "one shown again since the last frame is at its offset at once")
+    }
+
     /// LLP 1131: a route's list under its control bars, drawn through them and the route's cover.
     func testAListRunsUnderItsControlBarsAndKeepsItsPlace() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bars and the safe area are a scene window's") }
@@ -159,6 +208,23 @@ final class PageEdgesIOSTests: XCTestCase {
             p.press(try node(session, "pick-\(shape)").id)
             until("\(shape) is no bar over the list") { list.pageBand == .zero }
         }
+    }
+
+    /// A transcript in a box over a composer its author filled: the composer is no bar, so
+    /// the rows stop above it, and the top still runs under the inline bar, as a hand-built
+    /// table under its navigation bar does whatever is pinned under it (bake-off r28's chat).
+    func testAListOverAFilledComposerStillRunsUnderTheBar() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bars and the safe area are a scene window's") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars are iOS 26's, where UIKit draws the edge effect over them") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        session.presenter.press(try node(session, "pick-filled").id)
+        until("the transcript runs under the bar") { (try? self.node(session, "wrapped"))?.pageBand.top ?? 0 > 0 }
+        let list = try node(session, "wrapped"), sv = try XCTUnwrap(list.scrollView), composer = try node(session, "filled-composer")
+        XCTAssertEqual(list.pageBand.bottom, 0, "the filled composer keeps the rows above it")
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).minY, 0, accuracy: 0.5, "its scroll view runs up under the bar")
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).maxY, composer.convert(composer.bounds, to: nil).minY, accuracy: 0.5, "and stops at the composer")
+        let route = try XCTUnwrap(session.presenter.navigation.activeRoute)
+        XCTAssertTrue(route.contentScrollView(for: .top) === sv, "the bar's edge effect follows it")
     }
 
     /// A virtualized transcript over its composer (the chat recipe), shown when its messages
@@ -245,6 +311,10 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertEqual(shortDragTop, beforeDrag + expanded - collapsed, accuracy: 0.5,
                        "the offset follows the same native snap instead of returning to the top")
         XCTAssertEqual(filter.convert(filter.bounds, to: route.view).minY, route.view.safeAreaInsets.top + 8, accuracy: 1)
+        // A route that clips to its own box (`overflow="hidden"` at `inset=0`) keeps its bars: no band passes its edge.
+        route.node.clipsToBounds = true
+        defer { route.node.clipsToBounds = false }
+        XCTAssertEqual(ControlBars(p).bars(of: list, in: route.node, top: true)?.isEmpty, false)
     }
 
     func testLargeTitleRidersRequireBothEdgesAndTheBarsPaintOrder() throws {

@@ -1,28 +1,41 @@
 //! The executor's integration tests: one binary, so one link and one launch.
 //! `tests/fixtures/` stays put: build.rs compiles those to bytecode.
 
+mod abort;
 mod admission;
 mod background;
 mod body_from;
+mod body_to;
 mod caltrain;
 mod castle;
 mod compress;
 mod context;
+mod doc_copy;
 mod ecdsa;
 mod entropy;
 mod forget;
 mod heap;
 mod inputs;
 mod interrupt;
+mod kept_json;
+mod listen;
+mod native_later;
+mod no_store;
+mod outlive;
 mod overlay;
+mod overrun;
 mod pinned_engines;
 mod presence;
+mod process;
 mod pure;
 mod render;
 mod snapshot;
 mod socket;
 mod storage;
 mod superseded;
+mod timers;
+mod turn_budget;
+mod upload;
 mod walk;
 mod watch;
 mod windows_lean;
@@ -39,4 +52,13 @@ pub fn runnable(dispatch: exact_runner::Dispatch) -> exact_runner::Dispatch {
         Dispatch::Again => Dispatch::Run(Work::Now(Box::new(Dispatch::again_outcome))),
         other => other,
     }
+}
+
+/// A module's journal without the line a slow top-level evaluation adds
+/// (`SLOW_LOAD_MS`): whether it appears depends on how fast the machine ran
+/// the load, not on what the module did.
+pub(crate) fn authored_logs(logs: Vec<String>) -> Vec<String> {
+    logs.into_iter()
+        .filter(|line| !line.starts_with("the module's top level took "))
+        .collect()
 }

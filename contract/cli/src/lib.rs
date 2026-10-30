@@ -22,6 +22,8 @@ pub fn paint_row(a: &contract_syntax::Attr) -> bool {
     !rows.is_empty() && !rows.iter().any(|r| r.affects_layout())
 }
 mod declaration;
+/// A faced tool's signature and digest (LLP 1133.023 D8).
+pub mod faces;
 pub mod functions;
 pub mod gallery;
 mod grants;
@@ -36,19 +38,23 @@ mod module_events;
 mod module_rust;
 mod modules;
 pub mod native;
+mod orientationlock;
 mod package_views;
 pub mod picker;
 mod resolve;
 mod retained;
 mod shape_schema;
 pub use retained::{retention_build, Kept, Retained};
+mod properties;
+mod reach;
 mod rust;
 mod sources;
 mod strings;
 mod surface;
 mod symbols;
+pub use properties::{check_properties_path, properties, tests};
 mod tests_json;
-pub use tests_json::tests_json;
+pub use tests_json::{authored_json, tests_json};
 pub mod snapshot;
 pub mod tamber_levels;
 pub mod tamber_params;
@@ -69,7 +75,8 @@ pub use module_rust::module_rust;
 pub use resolve::Origin;
 pub use rust::rust;
 pub use sources::{
-    code_beside, design_path, with_contract_texts, with_design_text, Package, Source, SourceGraph,
+    code_beside, design_path, with_contract_texts, with_design_text, GraphBase, Package, Source,
+    SourceGraph,
 };
 pub use symbols::symbols_json;
 pub use typescript::{design_exports, typescript, typescript_exporting};
@@ -84,7 +91,7 @@ pub fn strings_tables(app_root: &Path) -> Result<Option<std::sync::Arc<Strings>>
             .join("\n")
     })
 }
-use contract_syntax::{File, Span, Step, TestDecl};
+use contract_syntax::{File, Span};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
@@ -98,7 +105,8 @@ pub enum BakeError {
     /// The first frame, laid out at [`LINT_VIEWPORT`], shows a layout that
     /// cannot be what the author meant.
     Lint {
-        /// Stable id: `bake-scroll-unbounded`, `bake-zero-size`, `bake-layout`.
+        /// Stable id: `bake-scroll-unbounded`, `bake-zero-size`, `bake-layout`,
+        /// `bake-binding-trap`.
         id: &'static str,
         /// What and where — the node by its `testId` when it has one.
         message: String,
@@ -305,7 +313,9 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
         .and_then(|mut file| {
             contract_syntax::resolve_clock_timelines(&mut file)?;
             params(&mut file)?;
-            picker::check(&file, None).map_err(first)?;
+            picker::check(&file, None)
+                .and(orientationlock::check(&file, None))
+                .map_err(first)?;
             compile_file_warned(
                 &file,
                 None,
@@ -327,7 +337,9 @@ pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
     contract_syntax::resolve_clock_timelines(&mut file)?;
     params(&mut file)?;
     terminal::check(&file).map_err(first)?;
-    picker::check(&file, None).map_err(first)?;
+    picker::check(&file, None)
+        .and(orientationlock::check(&file, None))
+        .map_err(first)?;
     compile_file_output(&file, None, None, false, contract_lower::Profile::Terminal)
         .map(|(plan, _)| plan)
         .map_err(first)
@@ -414,6 +426,12 @@ pub fn compile_path_source_mapped(
 /// from, and the loader's refusals if it stopped (LLP 1091 D10): what a
 /// capture copies, a watcher watches, and a deploy freezes.
 pub fn source_graph(path: &Path) -> SourceGraph {
+    source_graph_base(path).map_or_else(|refused| refused, |base| base.tail())
+}
+
+/// [`source_graph`]'s Contract half ([`sources::GraphBase`]), which reads no design file, or its refusal (the root
+/// unreadable) as the whole graph: the design server's walk keeps it across a design-only edit.
+pub fn source_graph_base(path: &Path) -> Result<GraphBase, SourceGraph> {
     // The server's planned text of the root, where it has one (stage 8 D).
     let refused = |message: String| SourceGraph {
         sources: Vec::new(),
@@ -431,15 +449,15 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     };
     let src = match sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok) {
         Ok(src) => src,
-        Err(e) => return refused(format!("{}: {e}", path.display())),
+        Err(e) => return Err(refused(format!("{}: {e}", path.display()))),
     };
     let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     match source_root.canonicalize() {
-        Ok(app_root) => sources::graph(path, &src, &app_root),
-        Err(e) => refused(format!("{}: {e}", source_root.display())),
+        Ok(app_root) => Ok(sources::graph_base(path, &src, &app_root)),
+        Err(e) => Err(refused(format!("{}: {e}", source_root.display()))),
     }
 }
 
@@ -889,11 +907,18 @@ fn compile_loaded(
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
-    picker::check(&file, Some(&app_root)).map_err(|all| {
-        all.into_iter()
-            .map(|e| sources.resolve(e))
-            .collect::<Vec<_>>()
-    })?;
+    let _declared = contract_lower::DeclaredViews::set(
+        (views.iter())
+            .map(|v| (v.tag.clone(), v.declared.clone()))
+            .collect(),
+    );
+    picker::check(&file, Some(&app_root))
+        .and(orientationlock::check(&file, Some(&app_root)))
+        .map_err(|all| {
+            all.into_iter()
+                .map(|e| sources.resolve(e))
+                .collect::<Vec<_>>()
+        })?;
     // Surface findings join the compile's own refusals; neither hides the other.
     let surface: Vec<CompileError> = match surfaces.then(|| surface::arguments(&app_root)) {
         Some(declared) => match declared.map_err(|e| vec![e])? {
@@ -946,83 +971,15 @@ fn compile_loaded(
         let binds: Vec<&str> = v.binds.iter().map(String::as_str).collect();
         plan.add_view(&v.tag, &v.extension, v.displayed, &binds);
     }
-    if app_root.join("app.json").is_file() || app_root.join(".shells/app.json").is_file() {
-        let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
-            pass: "app",
-            id: "app-manifest".into(),
-            message,
-            span: Span::default(),
-            file: Some(path.into()),
-            related: Box::new([]),
-        })?;
-        if !plan.app_id.is_empty() && plan.app_id != manifest.id {
-            return Err(vec![CompileError {
-                pass: "app",
-                id: "app-identity".into(),
-                message: format!(
-                    "the plan names app {}, but app.json names {}",
-                    plan.app_id, manifest.id
-                ),
-                span: Span::default(),
-                file: Some(path.into()),
-                related: Box::new([]),
-            }]);
-        }
-        // @ref LLP 1075.003.000.001 §4.3 — each hatch word with the
-        // platforms that handle it, under the plan's signature: a host calls
-        // a word only where the plan says its platform handles it.
-        let rows = native::hatch_rows(&manifest).map_err(|message| {
-            vec![CompileError {
-                pass: "app",
-                id: "app-manifest".into(),
-                message,
-                span: Span::default(),
-                file: Some(path.into()),
-                related: Box::new([]),
-            }]
-        })?;
-        for (word, platforms) in rows {
-            plan.add_hatch(&word, platforms);
-        }
-        plan.app_id = manifest.id;
-    }
+    reach::from_manifest(path, &app_root, &file, &mut plan)?;
     Ok((plan, sites.map(|sites| SourceMap::new(sites, sources))))
-}
-
-/// The `test` blocks of a file (LLP 1017 P7) — normally `app.test.contract`
-/// beside the app, holding nothing else. Parsed, never compiled: a test is a
-/// script for the agent driver (`scripts/agent.mjs --test`), and its steps
-/// are the eight operations plus `expect` lines that read their replies.
-/// The file's top-level launch lines lead each test's steps, unless the test
-/// names the same fact itself (habits F7, calendar F13).
-pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
-    let file = contract_syntax::parse(src)?;
-    Ok(file
-        .tests
-        .into_iter()
-        .map(|mut test| {
-            // By fact, among the test's own leading launch lines: a `fail
-            // fetch` line by its prefix (LLP 1103 D3); a later one is a step.
-            let leading = test
-                .steps
-                .iter()
-                .take_while(|s| contract_syntax::is_launch(s));
-            let own = |l: &Step| leading.clone().any(|s| contract_syntax::same_launch(s, l));
-            let inherited = file
-                .launch
-                .iter()
-                .filter(|l| !own(l))
-                .cloned()
-                .collect::<Vec<_>>();
-            test.steps = inherited.into_iter().chain(test.steps).collect();
-            test
-        })
-        .collect())
 }
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
     // Media alone: a text has no app, so no `file_handlers` (LLP 1069.002 D1).
-    picker::check(&file, None).map_err(first)?;
+    picker::check(&file, None)
+        .and(orientationlock::check(&file, None))
+        .map_err(first)?;
     compile_file_output(&file, asset_root, None, false, contract_lower::Profile::Web)
         .map(|(plan, _)| plan)
         .map_err(first)
@@ -1280,6 +1237,19 @@ fn first_frame<D: DataSource>(
         exact_runner::Viewport::sized(LINT_VIEWPORT.0 as f64, LINT_VIEWPORT.1 as f64),
         "/",
     )?;
+    // A binding that traps on the baked answers fails the build, where the
+    // runner would unset its row and go on (LLP 1017.003 D3).
+    if let Some(line) = runner.journal().find(|l| l.contains(" trapped Trap(")) {
+        let site = line
+            .split("(site ")
+            .nth(1)
+            .and_then(|s| s.split(')').next());
+        return Err(BakeError::Lint {
+            id: "bake-binding-trap",
+            message: line.to_string(),
+            site: site.and_then(|s| s.parse().ok()).map(exact_plan::NodesId),
+        });
+    }
     lint(&mut runner, answered)?;
     Ok(runner)
 }

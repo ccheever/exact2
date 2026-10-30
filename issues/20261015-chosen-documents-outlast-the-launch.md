@@ -9,6 +9,13 @@
 
 Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): LLP 1069.010.000 accepted 2026-10-15. Stage 1 (watches and expected writes) built 2026-10-16 on macOS, Linux and the web; stage 2 (documents kept across launches) built on macOS 2026-10-18 (the LLP's "As built: stage 2 on macOS"); what remains is below
 
+## Status (2026-10-26)
+
+Stage 2 is built on Linux and the web as well (the LLP's "As built: stage 2
+on Linux and the web"), and TypeScript's `atomicWriteFile` carries a kept
+file. What remains in this repository is under "What remains (2026-10-26)".
+Exact Draw's row is work in Exact Draw's own repository, not this one.
+
 ## The consumer
 
 Exact Draw edits Excalidraw drawings on disk: a Contract shell (file explorer,
@@ -66,3 +73,14 @@ Recent list. Left:
   program replaces it, on each host.
 - **Exact Draw** (§7): reopen its last folder with its companion's file
   service stopped.
+
+## What remains (2026-10-26)
+
+- **D4's hard rows by an editor**: the Markdown editor saving a kept file
+  with its own atomic replace (the carry is built and tested beneath it,
+  from Rust and TypeScript), and a fixture where another program replaces
+  it, driven on each host.
+- **A Linux file chooser** (the desktop portal's `FileChooser`): the Linux
+  host has none, so a Linux desktop session keeps nothing in practice; the
+  keeping path it would call is built (`host/linux/src/kept.rs` `chosen`).
+- **Exact Draw** (§7), in its own repository.

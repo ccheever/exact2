@@ -122,10 +122,10 @@ final class BoxLayerMacTests: XCTestCase {
             n.applyBoxLayer()
             if shadow { XCTAssertNotNil(n.clipBox) }
             let target = try XCTUnwrap(n.clipBox?.layer ?? n.layer)
-            n.layoutScale = CGPoint(x: 0.5, y: 0.5)
+            n.layoutResize = CGSize(width: -80, height: -40)
             n.applySurface()
             XCTAssertTrue(target.mask === n.surface?.clip)
-            n.layoutScale = CGPoint(x: 1, y: 1)
+            n.layoutResize = .zero
             n.applySurface()
             n.display()
             XCTAssertNil(n.surface)

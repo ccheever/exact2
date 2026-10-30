@@ -3,6 +3,81 @@
 version = 4
 
 [[package]]
+name = "accesskit"
+version = "0.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e883d1d28c5fd5568c79ed2d2bd48d9f2fd3945c8974ed0f53690ceddb051be"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
+name = "accesskit_consumer"
+version = "0.39.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3da8f27636015191b2264ee1df681503170a632cafd832fdc1edfdd4e3a2fd3"
+dependencies = [
+ "accesskit",
+ "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "accesskit_ios"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5280724673bbfa8b30a838c013500b719392989be3b97c5a9964062c252c232"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer",
+ "hashbrown 0.17.1",
+ "objc2 0.5.2",
+ "objc2-foundation 0.2.2",
+ "objc2-ui-kit",
+]
+
+[[package]]
+name = "accesskit_macos"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "123828ceeec755b05255e3976cb0852993202de98a0626c97dd8d34246991f84"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer",
+ "hashbrown 0.17.1",
+ "objc2 0.5.2",
+ "objc2-app-kit 0.2.2",
+ "objc2-foundation 0.2.2",
+]
+
+[[package]]
+name = "accesskit_windows"
+version = "0.35.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "498668b90da9995302a0055aaecad4756932333da2ddef6baee1c00844c430fc"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer",
+ "hashbrown 0.17.1",
+ "static_assertions",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
+name = "accesskit_winit"
+version = "0.34.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd4ab4437b520ff03088fbe48676a11e7d44a929535e64b31432c1073e48dbcc"
+dependencies = [
+ "accesskit",
+ "accesskit_ios",
+ "accesskit_macos",
+ "accesskit_windows",
+ "raw-window-handle",
+ "winit",
+]
+
+[[package]]
 name = "activity-fixture-apple"
 version = "0.1.0"
 dependencies = [
@@ -197,6 +272,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "auth-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
 name = "auth-fixture-apple"
 version = "0.1.0"
 dependencies = [
@@ -246,6 +333,60 @@ name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
+name = "bench-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
+name = "bench-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "bench-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "bench-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
+name = "bench-windows"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-windows",
+]
 
 [[package]]
 name = "bit-set"
@@ -826,6 +967,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -1254,7 +1396,9 @@ dependencies = [
  "contract",
  "exact-color",
  "exact-data",
+ "exact-grants",
  "exact-kernel",
+ "exact-listen",
  "exact-logic",
  "exact-markdown",
  "exact-markdown-editor",
@@ -1268,6 +1412,18 @@ dependencies = [
  "ibex2",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "exact-apple-painted"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-ink",
+ "exact-linux",
+ "exact-runner",
+ "serde_json",
+ "winit",
 ]
 
 [[package]]
@@ -1404,6 +1560,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-ink"
+version = "0.1.0"
+dependencies = [
+ "block2 0.6.2",
+ "bytemuck",
+ "libc",
+ "naga 30.0.1",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation 0.3.2",
+ "objc2-metal 0.3.2",
+ "objc2-quartz-core 0.3.2",
+ "raw-window-handle",
+ "swash",
+ "tiny-skia",
+ "wasm-bindgen-futures",
+ "web-time",
+ "wgpu 30.0.1",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "exact-js"
 version = "0.1.0"
 dependencies = [
@@ -1421,8 +1602,10 @@ dependencies = [
  "hermes-lean-sys",
  "ibex2",
  "ibex2-sqlite",
+ "libc",
  "serde_json",
  "sha2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1498,8 +1681,11 @@ dependencies = [
  "exact-color",
  "exact-data",
  "exact-grants",
+ "exact-ink",
+ "exact-js",
  "exact-kernel",
  "exact-linux",
+ "exact-listen",
  "exact-markdown",
  "exact-motion",
  "exact-plan",
@@ -1519,10 +1705,12 @@ dependencies = [
  "libc",
  "libloading",
  "memmap2",
+ "messages-stress-data",
  "mimalloc",
  "parley",
  "png",
  "raw-window-handle",
+ "roxmltree",
  "serde",
  "serde_json",
  "sha2",
@@ -1533,6 +1721,7 @@ dependencies = [
  "url",
  "vello",
  "wgpu 29.0.4",
+ "windows",
  "windows-sys 0.61.2",
 ]
 
@@ -1549,6 +1738,14 @@ dependencies = [
  "exact-update",
  "ibex2",
  "serde_json",
+]
+
+[[package]]
+name = "exact-listen"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "socket2",
 ]
 
 [[package]]
@@ -1680,7 +1877,9 @@ dependencies = [
  "brotli",
  "contract",
  "exact-data",
+ "exact-grants",
  "exact-kernel",
+ "exact-listen",
  "exact-plan",
  "exact-render",
  "exact-runner",
@@ -1903,10 +2102,18 @@ dependencies = [
 name = "exact-windows"
 version = "0.1.0"
 dependencies = [
+ "accesskit",
+ "accesskit_winit",
+ "contract",
+ "exact-ink",
  "exact-kernel",
  "exact-linux",
  "exact-runner",
+ "serde_json",
  "softbuffer",
+ "tiny-skia",
+ "unicode-segmentation",
+ "windows",
  "windows-sys 0.61.2",
  "winit",
 ]
@@ -1951,6 +2158,7 @@ version = "0.1.0"
 dependencies = [
  "exact-js",
  "exact-js-bake",
+ "exact-linux",
  "exact-logic",
  "exact-windows",
  "serde_json",
@@ -2030,6 +2238,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
+name = "fieldnotes-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-data-host",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+ "fieldnotes-data",
+]
+
+[[package]]
 name = "fieldnotes-apple"
 version = "0.1.0"
 dependencies = [
@@ -2056,6 +2278,18 @@ dependencies = [
  "exact-runner",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "fieldnotes-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-data-host",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "fieldnotes-data",
 ]
 
 [[package]]
@@ -2226,6 +2460,48 @@ dependencies = [
  "typenum",
  "version_check",
  "zeroize",
+]
+
+[[package]]
+name = "geofence-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "geofence-fixture-data",
+]
+
+[[package]]
+name = "geofence-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "geofence-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "geofence-fixture-data",
+]
+
+[[package]]
+name = "geofence-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "geofence-fixture-data",
 ]
 
 [[package]]
@@ -2981,6 +3257,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "lights-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
+name = "lights-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "lights-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "lights-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "linebender_resource_handle"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3003,6 +3322,37 @@ name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
+
+[[package]]
+name = "listen-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "listen-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "listen-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
 
 [[package]]
 name = "litemap"
@@ -3665,6 +4015,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "oauth-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "oauth-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "objc-sys"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3703,6 +4084,18 @@ dependencies = [
  "objc2-core-image",
  "objc2-foundation 0.2.2",
  "objc2-quartz-core 0.2.2",
+]
+
+[[package]]
+name = "objc2-app-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
+dependencies = [
+ "bitflags 2.13.1",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
 ]
 
 [[package]]
@@ -3838,7 +4231,7 @@ checksum = "a1a1ae721c5e35be65f01a03b6d2ac13a54cb4fa70d8a5da293d7b0020261398"
 dependencies = [
  "block2 0.5.1",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
 ]
 
@@ -3979,6 +4372,58 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c7c9e0d9b23589f26070720bac724174bfec1083e82f7854cdd0267518343c0"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "orientation-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "orientation-fixture-data",
+]
+
+[[package]]
+name = "orientation-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "orientation-fixture-data",
+]
+
+[[package]]
+name = "orientation-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "orientation-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "orientation-fixture-data",
+]
+
+[[package]]
+name = "orientation-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "orientation-fixture-data",
 ]
 
 [[package]]
@@ -4131,6 +4576,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-bake",
+ "exact-data-host",
  "exact-linux",
  "photos-fixture-data",
 ]
@@ -4139,8 +4585,10 @@ dependencies = [
 name = "photos-fixture-data"
 version = "0.1.0"
 dependencies = [
+ "exact-data",
  "exact-plan",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]
@@ -4695,6 +5143,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "select-walk-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "select-walk-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "select-walk-fixture-data",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4816,6 +5284,16 @@ dependencies = [
  "exact-apple-update",
  "exact-js",
  "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "shelf-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
  "exact-logic",
 ]
 
@@ -5784,6 +6262,12 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "uuid"
+version = "1.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
 
 [[package]]
 name = "variable-type-android"
@@ -6783,7 +7267,7 @@ dependencies = [
  "libc",
  "ndk",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
  "objc2-ui-kit",
  "orbclient",

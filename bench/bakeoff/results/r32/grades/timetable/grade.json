@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Whole day 00:02–23:xx in time order, grouped under hour headings ('07:00–07:59') that stay pinned. Each row has the time, a coloured badge ('O · Orange'), the destination and the platform. Delayed and Cancelled show as status lines, but in plain primary-colour text with no colour cue."},
+      {"n": 2, "status": "pass", "note": "Station name with up/down chevrons at the top opens a sheet listing all 20 stations, with a checkmark on the current one and a native bottom search field. 'town' filters to Old Town and Chinatown; tapping one switches the board."},
+      {"n": 3, "status": "pass", "note": "Opens with the next departure (marked 'Next') right under the pinned heading. The Now button in the nav bar jumps back to it from 18:00. After switching to the Yellow filter, the next departure was left half-hidden under the pinned heading."},
+      {"n": 4, "status": "pass", "note": "Native pull-down menu: All, Red, Blue, Green, Yellow, Orange. The list filters correctly."},
+      {"n": 5, "status": "pass", "note": "Past departures have greyed time, destination and platform. The line badge stays at full colour, so the dimming is a little uneven."},
+      {"n": 6, "status": "pass", "note": "The star fills and the departure shows in the Saved tab, grouped by hour with 'From <station>'. Saved items and the chosen station both survived relaunch. Native swipe-to-delete in Saved."}
+    ],
+    "bugs": [
+      "After choosing a line in the filter, the list lands with the next departure mostly hidden behind the pinned hour heading."
+    ],
+    "tells": [
+      "The pinned hour heading is a translucent blur that rows show through while scrolling; text overlaps visibly behind it.",
+      "Delayed and Cancelled status is plain black text, not tinted (orange or red) as an iOS transit app would show it.",
+      "Uses an inline 'Timetable' title instead of a large title; the station and filter controls sit in a non-standard row under the nav bar.",
+      "At the largest text size the filter's 'All' and its chevrons are spread far apart across the row."
+    ],
+    "scroll": "Smooth and native: slow drags track the finger, flings decelerate naturally, pulling past the top rubber-bands, and headings pin and hand off cleanly. I saw no blank rows or jumps, and content scrolls under the glass tab bar.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Whole day in order, grouped by hour, with pinned headings ('07:00 —— 6 departures'). Rows have a bold time, a square coloured letter badge, destination, platform, and a coloured 'Delayed 6 min' or 'Cancelled' line."},
+      {"n": 2, "status": "pass", "note": "A 'Departing from' card opens a 'Choose station' sheet with all 20 stations and a 'Search 20 stations' field. 'town' filters correctly and selection works."},
+      {"n": 3, "status": "partial", "note": "The Now button scrolls correctly to the next departure, marked NEXT. But on every launch the list opens 2–3 rows past the next departure, which is hidden under the pinned heading (Harbor showed 07:30 first instead of 07:10; Old Town showed 07:53 first instead of 07:20). At the largest text size it opens at 05:00."},
+      {"n": 4, "status": "pass", "note": "'All lines' menu with coloured line swatches. Filtering works and updates the departure count."},
+      {"n": 5, "status": "pass", "note": "Past rows are clearly dimmed, including faded line badges."},
+      {"n": 6, "status": "pass", "note": "Star saves the departure to the Saved tab, which has the same layout and a count. Saved items and the chosen station survived relaunch. A full swipe removes an item, and there is a good empty state."}
+    ],
+    "bugs": [
+      "On launch the list opens scrolled past the next departure, which sits hidden under the pinned hour heading, so the spec's 'list opens there' is not met. Reproduced on every launch, at two stations, in light and dark.",
+      "At the largest text size the board opens at 05:00, not at the next departure.",
+      "At the largest text size the Saved empty-state title is clipped: 'Keep a' is cut off, leaving 'departure close'."
+    ],
+    "tells": [
+      "The large title, station card, date and departure count, and filter/Now buttons are fixed above a short embedded table. The large title never collapses, and the list gets only about half the screen (about a quarter at the largest text size).",
+      "The list is clipped at a hard edge above the tab bar instead of scrolling under the Liquid Glass bar.",
+      "Heavily custom-branded look: off-white and green palette, custom pill buttons, and a filled 'Now' capsule that reads more like a web or design-system app than a stock iOS one.",
+      "Quick swipes over the short table move it very little; scrolling far needs many gestures."
+    ],
+    "scroll": "Scrolling inside the table is smooth with no blank rows, and headings pin cleanly. But the list lives in a short window under a fixed header and is cut off above the tab bar, so it feels cramped and takes many flicks to cover the day.",
+    "scores": {"features": 7, "platform": 6, "polish": 7, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet most of the spec and keep saved items and the station across relaunch, but B never opens at the next departure: it is always hidden under the pinned heading, and at large text the board opens at 05:00. A is close to a stock iOS list, with a full-height scrolling list, native menus and sheets, and native swipe-to-delete. B is more styled but squeezes the list under a fixed header and clips content at large text sizes."
+}

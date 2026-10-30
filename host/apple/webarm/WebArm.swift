@@ -87,6 +87,9 @@ public typealias EventFn = @convention(c) (
 public typealias ReplyFn = @convention(c) (
     UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32
 ) -> Void
+/// The host's moment before a frame's web view is made (@ref LLP 1020.002
+/// §9): the arm's context and the `WKWebViewConfiguration`, for the app's hatch.
+public typealias ConfiguringFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
 /// Receives an asset's bytes from `ReadFn`; not called for a missing asset.
 public typealias SinkFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
 /// The host's read of an app asset by name (`deck/app.js`), through the
@@ -102,7 +105,7 @@ private var assetReader: ReadFn?
 /// origin is a scheme of its own; WebKit treats it as a secure context.
 /// One per web view: the configuration retains it, and it holds its arm
 /// weakly.
-private final class AssetScheme: NSObject, WKURLSchemeHandler {
+final class AssetScheme: NSObject, WKURLSchemeHandler {
     static let scheme = "exact-app"
     static let origin = "exact-app://app"
     static let base = URL(string: "exact-app://app/")!
@@ -139,6 +142,11 @@ private final class AssetScheme: NSObject, WKURLSchemeHandler {
         let range = task.request.value(forHTTPHeaderField: "Range")
         let id = ObjectIdentifier(task)
         let name = String(url.path.drop(while: { $0 == "/" }))
+        // A file the app gave this page (@ref LLP 1020.001 D7).
+        if url.host == "app", name.hasPrefix(FrameFiles.prefix) {
+            guard let file = arm.files.file(name) else { return refuse(task, url, given: "is not a file this frame was given") }
+            return serveGiven(task, url, file)
+        }
         guard url.host == "app", AssetScheme.trees.contains(where: name.hasPrefix) else { return refuse(task, url, logging: true) }
         AssetScheme.reads.async {
             let bytes = AssetScheme.read(name)
@@ -165,12 +173,15 @@ private final class AssetScheme: NSObject, WKURLSchemeHandler {
         stopped.insert(ObjectIdentifier(task))
     }
 
-    func refuse(_ task: WKURLSchemeTask, _ url: URL, logging: Bool) {
+    func refuse(_ task: WKURLSchemeTask, _ url: URL, logging: Bool = false, given: String? = nil) {
         if logging {
             let trees = AssetScheme.trees.joined(separator: " or ")
             FileHandle.standardError.write(Data("exact: iframe \(arm?.src ?? ""): \(url.absoluteString) is not an app asset under \(trees)\n".utf8))
         }
-        task.didReceive(HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])!)
+        if let given { FileHandle.standardError.write(Data("exact: iframe \(arm?.src ?? ""): \(url.absoluteString) \(given)\n".utf8)) }
+        // A given file's refusal carries its responses' sandbox, as they all do.
+        let headers = given == nil ? ["Content-Length": "0"] : ["Content-Length": "0", "Content-Security-Policy": FrameFiles.sandbox]
+        task.didReceive(HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: headers)!)
         task.didFinish()
     }
 
@@ -241,6 +252,10 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     #endif
     /// How many user scripts the arm put in the web view's content controller.
     var ownScripts = 0
+    /// The host's moment before each web view is made (`exact_web_set_configuring`).
+    var configuringHook: ConfiguringFn?
+    /// The data store the arm gave the web view's configuration.
+    weak var ownStore: WKWebsiteDataStore?
     /// A partitioned frame's name; its guest is a top-level page in that
     /// partition's data store, with no message bridge, no `exact-app` scheme
     /// and no script in the page's world (@ref LLP 1020.002 D1).
@@ -264,6 +279,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var ui: FrameUI?
     /// The frame handles `newwindow=`: only then does it ask for popups.
     var handlesNewWindow = false
+    /// The frame is marked `hatch`: its hatch writes on its configuration.
+    var hatched = false
     /// Requests held for the agent (`ask`), by token.
     var asked: [UInt32: (web: ObjectIdentifier?, done: ([String: Any]?) -> Void)] = [:]
     var nextAsk: UInt32 = 1
@@ -299,6 +316,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var localGuest = false
     /// A bundled HTML page's URL under `AssetScheme`, while one is served.
     var assetPage: URL?
+    /// The app files that page was given (@ref LLP 1020.001 D7).
+    let files = FrameFiles()
     /// The wrapper `AssetScheme` serves around such a page on iOS.
     var wrapperDocument: String?
     /// A bundled page's origin: loopback HTTP, a secure context (as the web
@@ -308,15 +327,20 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     static let localOrigin = "http://exact.localhost"
     static let template: WKWebViewConfiguration = {
         let template = WKWebViewConfiguration()
-        // Unsaid, as Safari has them (@ref LLP 1020.002 D1, D5): a scripted
-        // window needs a person's gesture, and a page's `requestFullscreen()`
-        // takes the screen.
-        template.preferences.javaScriptCanOpenWindowsAutomatically = false
-        template.preferences.isElementFullscreenEnabled = true
+        template.preferences = preferences()
         _ = template.websiteDataStore
         _ = template.defaultWebpagePreferences
         return template
     }()
+    /// Unsaid, as Safari has them (@ref LLP 1020.002 D1, D5): a scripted
+    /// window needs a person's gesture, and a page's `requestFullscreen()`
+    /// takes the screen.
+    static func preferences() -> WKPreferences {
+        let preferences = WKPreferences()
+        preferences.javaScriptCanOpenWindowsAutomatically = false
+        preferences.isElementFullscreenEnabled = true
+        return preferences
+    }
     var wrapperURL: URL
 
     init(id: UInt32, context: UnsafeMutableRawPointer?, event: @escaping EventFn, reply: @escaping ReplyFn) {
@@ -369,14 +393,16 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // and cookies) and default preferences. The script bridge stays per
         // view (@ref LLP 1020 D2, LLP 1068 §0.1 Q3: views are not pooled).
         let configuration = WebArm.template.copy() as! WKWebViewConfiguration
+        // A copy shares the template's preference objects: a frame whose
+        // hatch may write on them, or that says its own scheduling policy,
+        // has its own, so no other frame's change.
+        if hatched || options["inactiveSchedulingPolicy"] != nil {
+            configuration.preferences = WebArm.preferences()
+            configuration.defaultWebpagePreferences = WKWebpagePreferences()
+        }
         configuration.userContentController = controller
         let assets = AssetScheme()
         configuration.setURLSchemeHandler(assets, forURLScheme: AssetScheme.scheme)
-        #if os(macOS)
-        let webView: WKWebView = ExactWebView(frame: .zero, configuration: configuration)
-        #else
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        #endif
         assets.arm = self
         controller.add(self, contentWorld: world, name: "exactAgent")
         controller.add(self, contentWorld: world, name: "exactFrame")
@@ -401,6 +427,12 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false,
             in: world))
+        configuring(configuration)
+        #if os(macOS)
+        let webView: WKWebView = ExactWebView(frame: .zero, configuration: configuration)
+        #else
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        #endif
         // The guest is a leaf the kernel already framed. WKWebView's default
         // is to inset itself for the titlebar / safe area, which leaves a
         // black strip of `underPageBackgroundColor` over the top of the
@@ -427,9 +459,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = Partitions.store(partition!, agent: agent, app: app, session: session)
         configuration.userContentController = controller
-        let preferences = WKPreferences()
-        preferences.javaScriptCanOpenWindowsAutomatically = false
-        preferences.isElementFullscreenEnabled = true
+        let preferences = WebArm.preferences()
         if #available(macOS 14.0, iOS 17.0, *) { preferences.inactiveSchedulingPolicy = .throttle }
         configuration.preferences = preferences
         #if os(iOS)
@@ -443,6 +473,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         browser.install(on: controller)
         self.browser = browser
+        configuring(configuration)
         #if os(macOS)
         let webView: WKWebView = ExactWebView(frame: .zero, configuration: configuration)
         #else
@@ -450,6 +481,15 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         #endif
         browser.attach(webView)
         return webView
+    }
+
+    /// The app's hatch has the configuration before the web view is made
+    /// (@ref LLP 1020.002 §9), its data store, preferences and content
+    /// worlds set: what it adds (an `applicationNameForUserAgent`, content
+    /// rule lists, its own URL schemes) is the new web view's.
+    func configuring(_ configuration: WKWebViewConfiguration) {
+        ownStore = configuration.websiteDataStore
+        configuringHook?(context, Unmanaged.passUnretained(configuration).toOpaque())
     }
 
     /// The `apple.*` words and `zoom` (@ref LLP 1020.002 §9, D6). A word
@@ -462,7 +502,9 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         #if os(macOS)
         if said("allowsMagnification") { web.allowsMagnification = options["allowsMagnification"] as? Bool ?? false }
         #endif
-        if #available(macOS 14.0, iOS 17.0, *), said("inactiveSchedulingPolicy") {
+        // Never on the template's shared preferences: a policy said after the
+        // web view was made with them waits for its next one.
+        if #available(macOS 14.0, iOS 17.0, *), said("inactiveSchedulingPolicy"), web.configuration.preferences !== WebArm.template.preferences {
             switch options["inactiveSchedulingPolicy"] as? String {
             case "suspend": web.configuration.preferences.inactiveSchedulingPolicy = .suspend
             case "none": web.configuration.preferences.inactiveSchedulingPolicy = .none
@@ -485,6 +527,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         } else if let web = built {
             if web.navigationDelegate !== self { changed.append("navigationDelegate") }
             if web.uiDelegate !== ui { changed.append("uiDelegate") }
+            if web.configuration.websiteDataStore !== ownStore { changed.append("websiteDataStore") }
+            if web.configuration.userContentController !== controller { changed.append("userContentController") }
             if controller.userScripts.count != ownScripts { changed.append("the user scripts of the arm's content controller") }
             if abs(Double(web.pageZoom) - ((options["zoom"] as? NSNumber)?.doubleValue ?? 1)) > 0.001 { changed.append("pageZoom") }
             #if os(macOS)
@@ -507,6 +551,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         if let app = values["app"] as? String, !app.isEmpty { self.app = app }
         session = values["session"] as? String ?? ""
         handlesNewWindow = values["newwindow"] as? Bool ?? false
+        hatched = values["hatched"] as? Bool ?? false
         element = values["element"] as? String ?? ""
         owner = values["owner"] as? String ?? ""
         Automations.arms.add(self)
@@ -557,6 +602,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func invalidate() {
         guard !invalidated else { return }
         invalidated = true
+        files.end()
         automation?.end("iframe \(element) unmounted")
         Automations.arms.remove(self)
         pdf?.close()
@@ -608,7 +654,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         documentNonce = nil
         revoked = false
         direct = true
-        assetPage = nil
+        assetPage = files.give(nil, source: nil)
         localGuest = false
         expectedOrigin = nil
         let refusal: String?
@@ -745,7 +791,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             : web?.scheme?.lowercased() == "http" ? "http://exact.invalid" : "https://exact.invalid"
         wrapperURL = URL(string: "\(origin)/frame/\(id)/index.html")!
         localGuest = local != nil && error == nil
-        assetPage = localGuest ? src.flatMap(WebArm.assetURL) : nil
+        // Every serve gives the page's files anew, so the last serve's end.
+        assetPage = files.give(localGuest ? src.flatMap(WebArm.assetURL) : nil, source: src)
         if assetPage != nil { wrapperURL = URL(string: "\(AssetScheme.origin)/.exact/frame/\(id)/index.html")! }
         #if os(iOS)
         // iOS lays a top-level document out by its viewport `<meta>` (980
@@ -792,7 +839,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let url = URL(string: "\(WebArm.localOrigin)/frame/\(id)/index.html")!
         wrapperURL = url
         localGuest = true
-        assetPage = nil
+        assetPage = files.give(nil, source: nil)
         direct = true
         setPageBridge(false)
         expectedOrigin = guestOrigin(remote: nil, local: true)
@@ -1273,9 +1320,23 @@ public func exactWebSetReader(_ read: ReadFn?) {
     assetReader = read
 }
 
+/// Set by the host before the frame's first `exact_web_platform_view`.
+@_cdecl("exact_web_set_configuring")
+public func exactWebSetConfiguring(_ handle: UnsafeMutableRawPointer?, _ hook: ConfiguringFn?) {
+    arm(handle)?.configuringHook = hook
+}
+
 @_cdecl("exact_web_set_document")
 public func exactWebSetDocument(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
     arm(handle)?.suppliedDocument = present == 0 ? nil : Data(UnsafeBufferPointer(start: bytes, count: Int(length)))
+}
+
+/// Before `exact_web_set_src`: `{"app:/cache/a.pdf": "/…/cache"}`, each
+/// `app:/cache` or `app:/tmp` path the page's query names, to its root's
+/// directory; absent for none (@ref LLP 1020.001 D7).
+@_cdecl("exact_web_set_files")
+public func exactWebSetFiles(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
+    arm(handle)?.files.supplied = present == 0 ? [:] : json(bytes, length).compactMapValues { $0 as? String }
 }
 
 @_cdecl("exact_web_set_sandbox")

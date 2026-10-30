@@ -24,6 +24,7 @@ use mode::mirror::Mirror;
 mod auth;
 #[path = "canvas2d.rs"]
 mod canvas2d;
+mod complete;
 pub mod fonts;
 mod mode;
 mod scale;
@@ -81,11 +82,18 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
         7 => Outcome::Surface(SurfaceOutcome::Restored),
         0 => Outcome::Response(Response {
             status: status as u16,
+            // A line that starts with a colon is a pseudo-header the page
+            // names (`:exact-body-to`, exactBodyTo's size): no browser header
+            // name has a colon, so it keeps its leading one.
             headers: headers
                 .lines()
                 .filter_map(|l| {
-                    l.split_once(':')
-                        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                    let (pseudo, l) = l.strip_prefix(':').map_or((false, l), |l| (true, l));
+                    l.split_once(':').map(|(k, v)| {
+                        let k = k.trim();
+                        let k = if pseudo { format!(":{k}") } else { k.into() };
+                        (k, v.trim().to_string())
+                    })
                 })
                 .collect(),
             body,
@@ -643,12 +651,21 @@ impl<D: DataSource> Host<D> {
 
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last spring
-    /// in flight ends, milliseconds, `null` when none — from the engine here.
+    /// in flight ends, milliseconds, `null` when none — from the engine here,
+    /// and a resource's re-ask.
     /// CSS transitions are the browser's; the glue folds their end times in.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
-            return match self.springs.settle_time() {
-                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
+            // A re-ask after a turn over its budget: no I/O to wait on, so the
+            // clock goes to it (exact-runner's `overrun.rs`).
+            return match (self.springs.settle_time().map(|t| t * 1000.0))
+                .into_iter()
+                .chain(self.runner.reask_due_ms())
+                // An answer waiting on its own timer (`data_timers.rs`): the clock goes to it too.
+                .chain(self.runner.data_timer_due_ms())
+                .reduce(f64::max)
+            {
+                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),
                 None => "{\"settle\":null}".to_string(),
             };
         }
@@ -987,63 +1004,6 @@ impl<D: DataSource> Host<D> {
         for w in self.runner.take_store_writes() {
             batch.store(&w);
         }
-    }
-
-    /// Hand the last commit's requests to the page and finish the batch. A
-    /// continuation is dispatched here, on this thread, with the store as
-    /// committed (LLP 1027.002 D3); one a source holds is parked and
-    /// released after a later commit. Work a source answers at once — a
-    /// main member's turn in an ordered set — is fulfilled here, and the
-    /// commits it makes join the batch.
-    fn complete(&mut self, mut batch: Batch, error: Option<String>) -> String {
-        let mut error = error;
-        loop {
-            let mut immediate = Vec::new();
-            for r in self.runner.take_requests() {
-                self.emit_request(r, &mut batch, &mut immediate);
-            }
-            for (token, dispatch) in self.runner.release_work() {
-                if let Some(r) = self.parked.remove(&token) {
-                    self.emit_dispatch(r, dispatch, &mut batch, &mut immediate);
-                }
-            }
-            if immediate.is_empty() || error.is_some() {
-                break;
-            }
-            let mut receipts = Vec::new();
-            for (ticket, outcome) in immediate {
-                match self.runner.fulfill(ticket, outcome) {
-                    Ok(Some(receipt)) => receipts.push(Timed {
-                        at_ms: self.now_ms,
-                        receipt,
-                    }),
-                    Ok(None) => {}
-                    Err(e) => {
-                        error = Some(format!("{e:?}"));
-                        break;
-                    }
-                }
-            }
-            self.emit_receipts(&receipts, &mut batch);
-        }
-        let collections = self.runner.collections_json();
-        if collections != self.collections {
-            self.collections = collections;
-            batch.collections(&self.collections);
-        }
-        let language = self.runner.resolved_locale();
-        if self.language.as_deref() != Some(language) {
-            batch.language(language, self.runner.direction());
-            self.language = Some(language.into());
-        }
-        self.finish(batch, error.as_deref())
-    }
-
-    /// Close a batch: the runner's deadline, frames wanted (LLP 1073 D5), clock, `seq` (LLP 1079).
-    pub(crate) fn finish(&self, batch: Batch, error: Option<&str>) -> String {
-        let due = self.runner.timer_due_ms();
-        let batch = batch.seq(self.runner.seq_range());
-        batch.finish(due, self.runner.wants_frames(), self.runner.now_ms(), error)
     }
 
     fn emit_request(

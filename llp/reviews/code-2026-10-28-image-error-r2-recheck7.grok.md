@@ -1,0 +1,14 @@
+# Code review: the image error event on Linux, Android and Windows, round 2, re-check 7 (grok)
+
+- **Family:** xAI. Grok 4.7 via `grok`, reasoning effort xhigh, no subagents, Edit and Write denied, a throwaway worktree at `e44b32a574`.
+- **Method:** one brief (sha256 `1245301feee0677de814b7558300cfb491c2af20d935249fba3553c494de68ba`), shared by both reviewers, blind to the other review. The author (Claude, rt1) is not a reviewer.
+- **Transcription:** the final message, unedited.
+
+**Blocking**
+
+1. `host/apple/Sources/ExactKit/RasterRetry.swift:90` — The word break includes U+000B (vertical tab). Rust `is_ascii_whitespace` does not (only space, tab, line feed, form feed, and carriage return), and this function is supposed to be that pass. On Apple, `?` followed by U+000B never starts a query, and a U+000B later in the word ends it and clears the link mark, so the tail stays. `https://cdn.example/a.png?ex=1\0{000B}&hm=secret` becomes `https://cdn.example/a.png\0{000B}&hm=secret`, and `https://cdn.example/a.png?\0{000B}hm=secret` keeps the whole query. That string is the image `error` (`redacted`) and the `image refused:` / `image deferred:` logs. Linux drops both. Remove `\0{0B}` so the set is `" 	
+\0{0C}"`, and add those two strings on Apple (and the same asserts on Linux).
+
+**Non-blocking**
+
+none

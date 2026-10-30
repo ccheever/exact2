@@ -28,3 +28,6 @@ test "a search finds a model beyond the featured ones"
   clock data
   expect tree has "model-anthropic/claude-haiku-5.5"
   expect tree missing "model-openai/gpt-6.1-sol"
+
+after "edit" "edit writes only draft"
+  only writes draft

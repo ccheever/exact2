@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { conformArgs } from './conform-args.mjs';
-import { parseStep } from './conform-steps.mjs';
+import { clockOnAll, clockVerdict, parseStep } from './conform-steps.mjs';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts } from '../../scripts/agent-launch.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -117,4 +117,37 @@ test("a { slots } Linux entry skips only the slots it names; a stop skips none",
   expect(withoutSlots(['tap measure', 'why'], slots)).toEqual(slots);
   expect(withoutSlots(undefined, slots)).toEqual(slots);
   expect(withoutSlots({ slots: ['sizes'] }, undefined)).toBe(undefined);
+});
+
+test('a clock refused alike with Poisoned on every target is a step; one-sided, differing or other refusals fail', () => {
+  const wasm = 'clock: Poisoned', js = 'clock: t=0 refused advance: Poisoned';
+  expect(clockVerdict([['wasm', { error: wasm }], ['js', { error: js }]])).toEqual({ refused: 'Poisoned' });
+  expect(clockVerdict([['wasm', { error: wasm }], ['js', { error: js }], ['linux', { error: 'clock: Poisoned' }]])).toEqual({ refused: 'Poisoned' });
+  expect(clockVerdict([['wasm', { value: { clock: 5 } }], ['js', { value: { clock: 5 } }]])).toEqual({ answered: [{ clock: 5 }, { clock: 5 }] });
+  expect(clockVerdict([['wasm', { error: wasm }], ['js', { value: { clock: 0 } }]]).failure).toBe('wasm refused «Poisoned», js answered');
+  expect(clockVerdict([['wasm', { value: {} }], ['js', { error: js }]]).failure).toBe('wasm answered, js refused «Poisoned»');
+  expect(clockVerdict([['wasm', { error: wasm }], ['js', { error: 'clock: t=0 refused advance: NonFiniteClock (NaN)' }]]).failure)
+    .toBe('wasm refused «Poisoned», js refused «NonFiniteClock (NaN)»');
+  expect(clockVerdict([['wasm', { error: 'clock: TimerFireLimit' }], ['js', { error: 'clock: TimerFireLimit' }]]).failure)
+    .toBe('wasm refused «TimerFireLimit», js refused «TimerFireLimit»');
+});
+
+test("the drive's clock step holds Linux to the pages' Poisoned refusal, and asks it nothing when they answer", async () => {
+  const pair = (left, right) => Promise.all([left(), right()]);
+  const asked = [], session = (who, answer) => ({ clock: async arg => { asked.push([who, arg]); return answer(); } });
+  const refuse = text => () => { throw new Error(text); };
+  const pages = [['wasm', session('wasm', refuse('clock: clock: Poisoned'))], ['js', session('js', refuse('clock: clock: t=0 refused advance: Poisoned'))]];
+  expect(await clockOnAll('settle', pages, session('linux', refuse('clock: clock: Poisoned')), pair))
+    .toEqual({ refused: 'Poisoned', compared: ['wasm', 'js', 'linux'] });
+  expect(await clockOnAll('settle', pages, null, pair)).toEqual({ refused: 'Poisoned', compared: ['wasm', 'js'] });
+  expect(await clockOnAll('+60000', pages, session('linux', () => ({ clock: 50, settled: true })), pair))
+    .toEqual({ refused: 'Poisoned', linux: 'wasm refused «Poisoned», js refused «Poisoned», linux answered' });
+  expect((await clockOnAll('settle', pages, session('linux', refuse('clock: clock: TimerFireLimit { limit: 4096 }')), pair)).linux)
+    .toBe('wasm refused «Poisoned», js refused «Poisoned», linux refused «TimerFireLimit { limit: 4096 }»');
+  asked.length = 0;
+  const answered = [['wasm', session('wasm', () => ({ clock: 5 }))], ['js', session('js', () => ({ clock: 5 }))]];
+  expect(await clockOnAll('settle', answered, session('linux', () => ({ clock: 5 })), pair)).toEqual({ answered: [{ clock: 5 }, { clock: 5 }], compared: ['wasm', 'js'] });
+  expect(asked.map(([who]) => who)).toEqual(['wasm', 'js']);
+  const malformed = Object.assign(new Error('bad'), { malformed: true });
+  await expect(clockOnAll('settle', [pages[0], ['js', session('js', () => { throw malformed; })]], null, pair)).rejects.toBe(malformed);
 });

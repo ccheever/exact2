@@ -125,6 +125,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
+    touched = true; // any key, Tab included: a route's focus shows the ring to a keyboard's user (`arrive`, below)
     if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
     if (event.isComposing || event.keyCode === 229 || event.key === "Process" || !ready() || event.defaultPrevented) return; // an input method's key, WebKit's committing Enter included (rt.js `onKey`)
     if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
@@ -178,10 +179,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.key === "Process" || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
     if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
-    // when the browser clicks it. A press it declares shows meanwhile, as under
-    // a pointer: a native button's highlight, a `-exact-press-scale`, a pressed paint. (The
-    // unsaid dim needs nothing here: it is the browser's own `:active`.)
-    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || declaresPress(el))) return keyed(el);
+    // when the browser clicks it. Its press shows meanwhile, as under a pointer:
+    // the unsaid dim, a native button's highlight, a `-exact-press-scale`, a pressed paint.
+    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el)) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
     if (el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a disabled box takes no press by key either (LLP 1121 D8)
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
@@ -189,36 +189,24 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     el.click();
     if (event.key === " " && !surface(el)) keyed(el);
   });
-  // @ref LLP 1115.000 D6 — the unsaid dim (index.html) is CSS's while the
-  // press holds; on release it holds at least 0.1 s from the press and fades
-  // back over 0.2 s, ease-out, as the iOS host's does (PressFeedback.swift
-  // `dimHold`, `dimFade`), so a quick tap still flashes. The innermost
-  // pressable showing the dim's 65% is the one dimmed: a finger's
-  // `data-pressed` still holds at the release, read in capture; a mouse's
-  // `:active` has gone by then (Chrome sets it before `pointerdown`'s
-  // listeners and clears it before `pointerup`'s), so it is read at the press.
-  // The agent's clock skips it.
+  // Hold the default dim for at least 0.1 s after it appears, then fade over 0.2 s (LLP 1115.000 D6;
+  // PressFeedback.swift `dimHold`, `dimFade`). Only animate a node that showed the dim; immediate cancellation
+  // and the agent's clock skip the fade.
   const DIM = { opacity: "0.65", hold: 100, fade: 200 };
-  const dimStarts = new WeakMap(), dimFades = new WeakMap(), dimmedAtPress = new WeakSet();
-  const pressable = at => at?.closest?.('button, a[data-view][href], [data-exact-on~="press"]');
-  const fadeDim = el => {
-    if (agentMode || !el || !root.contains(el)) return;
-    if (getComputedStyle(el).opacity !== DIM.opacity && !dimmedAtPress.has(el)) return;
-    dimmedAtPress.delete(el);
-    const hold = Math.max(0, (dimStarts.get(el) ?? 0) + DIM.hold - performance.now());
-    dimFades.get(el)?.cancel();
-    // No closing keyframe: the fade ends at whatever lies beneath the dim.
-    dimFades.set(el, el.animate([{ opacity: DIM.opacity }, { opacity: DIM.opacity, offset: hold / (hold + DIM.fade), easing: "ease-out" }], { duration: hold + DIM.fade }));
+  const dimStarts = new WeakMap(), dimFades = new WeakMap();
+  const markPressed = (el, down, now = false) => {
+    if (down !== el.hasAttribute("data-pressed")) {
+      if (down) {
+        dimFades.get(el)?.cancel();
+        dimStarts.set(el, performance.now());
+      } else if (!now && !agentMode && el.isConnected && getComputedStyle(el).opacity === DIM.opacity) {
+        const hold = Math.max(0, (dimStarts.get(el) ?? 0) + DIM.hold - performance.now());
+        // No closing keyframe: the fade ends at whatever lies beneath the dim.
+        dimFades.set(el, el.animate([{ opacity: DIM.opacity }, { opacity: DIM.opacity, offset: hold / (hold + DIM.fade), easing: "ease-out" }], { duration: hold + DIM.fade }));
+      }
+    }
+    el.toggleAttribute("data-pressed", down);
   };
-  root.addEventListener("pointerdown", e => {
-    const el = pressable(e.target);
-    if (!el) return;
-    dimFades.get(el)?.cancel();
-    dimStarts.set(el, performance.now());
-    if (e.pointerType === "mouse" && getComputedStyle(el).opacity === DIM.opacity) dimmedAtPress.add(el);
-    else dimmedAtPress.delete(el);
-  }, true);
-  for (const type of ["pointerup", "pointercancel"]) addEventListener(type, e => fadeDim(pressable(e.target)), true);
   // @ref LLP 1115.000 D6 — a pressable covering the window is a surface (a
   // scrim that closes a sheet, a viewer that toggles its bars) and shows no
   // press, as on iOS (PressFeedback.swift `platformPressDims`). CSS cannot
@@ -230,22 +218,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const r = el.getBoundingClientRect(), page = document.documentElement;
     return el.toggleAttribute("data-exact-surface", r.width >= page.clientWidth && r.height >= page.clientHeight * .9);
   };
-  // Space held on a pressable this piece presses by key shows its press (its
-  // `-exact-press-scale` and pressed paint, else the shell's dim) until the key comes up or the
-  // focus leaves, as the browser holds a `<button>` `:active` under Space; so
-  // does a `<button>` whose press is declared.
-  // The press a key holds, which leaving the window or the page ends too.
+  // Hold keyboard feedback until Space lifts, focus leaves, or the window or page loses the press
   let keyHold = null;
   const keyed = el => {
     const up = (e, now = false) => {
       if (e?.type === "keyup" && e.key !== " ") return;
-      if (!now) fadeDim(el);
       showPress(el, false, now);
       removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
       if (keyHold === up) keyHold = null;
     };
     keyHold?.(null, true);
-    dimStarts.set(el, performance.now());
     showPress(el, true);
     up.el = el;
     keyHold = up;
@@ -263,31 +245,37 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // highlight: a wash, or a plain button's fading face).
   const feedback = new WeakMap();
   // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
-  // and on the same ease as the scale. The shell's important rules
-  // (index.html) paint it from the node's own properties, read live, `--exact-
-  // press-paint` of the way (which this piece eases) over the node's look
-  // beneath, which this piece reads again whenever the node's style or class
-  // changes, the scheme flips, or the press turns. Its `color` reaches the
-  // subtree as CSS's does.
+  // and on the same ease as the scale: an important rule of the node's own
+  // (`paintRule`) paints its pressed values `--exact-press-paint` of the way
+  // (which this piece eases) over its look beneath, read again whenever the
+  // node's style or class changes, the scheme flips, or the press turns. It
+  // paints on images (a background layer, a mask), which no transition
+  // animates, so the node's authored transitions run as authored, beneath
+  // the paint. (An earlier form wrote the paint into opacity, background-
+  // color and color through custom properties only its animation supplied,
+  // which the style a transition is computed from lacks: every press started
+  // the node's transitions toward the properties' initial values.) Its
+  // `color` reaches the subtree as CSS's does.
   // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
   // LLP 1121 D8), eased from what shows at the press, a hover look's included.
   const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
-  const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
   const paints = new Map();
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
   // Start the ease toward `state.to` from where it shows, over `duration`,
-  // on the node's look read now with the paint off: at the press, as it
+  // on the node's look beneath, read now (`paintRule`): at the press, as it
   // shows; later (the release, a change of the node's style or class, the
-  // scheme), a style change like any other, so a transition the node has on
-  // a painted property times the paint's move to a look that changed.
+  // scheme) with the paint on, its kept declarations in place.
   const paint = (el, state, duration) => {
     const from = Number(getComputedStyle(el).getPropertyValue("--exact-press-paint")) || 0;
-    el.removeAttribute("data-exact-painting");
-    const beneath = getComputedStyle(el);
-    const base = { "--exact-press-base-opacity": beneath.opacity, "--exact-press-base-background": beneath.backgroundColor, "--exact-press-base-color": beneath.color };
+    // The paint stays on while it is read again (`paintRule`): taking it off would itself be a style change.
+    const rule = paintRule(el, state);
     state.animation?.cancel();
-    const animation = state.animation = el.animate([{ ...base, "--exact-press-paint": from }, { ...base, "--exact-press-paint": state.to }], { ...EASE, duration: agentMode ? 0 : duration });
-    el.setAttribute("data-exact-painting", "");
+    const animation = state.animation = el.animate([{ "--exact-press-paint": from }, { "--exact-press-paint": state.to }], { ...EASE, duration: agentMode ? 0 : duration });
+    const written = new Set(el.getAnimations());
+    el.setAttribute("data-exact-painting", hold(el, state, rule));
+    // Writing a kept declaration back is the glue's own change, which Firefox (its transition styles see the
+    // animation) would time with the node's transition: one it starts is none of the node's.
+    if (Object.keys(state.kept ?? {}).length) { getComputedStyle(el).opacity; for (const a of el.getAnimations()) if (!written.has(a) && a.transitionProperty in state.kept) a.cancel(); }
     // A finish already queued when a re-press replaced the ease ends nothing.
     if (state.to === 0) animation.onfinish = () => { if (state.animation === animation) endPaint(el, state); };
     if (agentMode) animation.finish();
@@ -295,24 +283,183 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const endPaint = (el, state) => {
     if (paints.get(el) !== state) return;
     paints.delete(el);
-    if (!paints.size) sheets.disconnect();
+    if (!paints.size) { sheets.disconnect(); gone.disconnect(); }
     state.observer.disconnect();
     state.animation.cancel();
     el.removeAttribute("data-exact-painting");
+    drop(state);
+  };
+  // Whether the node declares a transition on `property` (by its name, `all`, or a shorthand holding it): the last
+  // entry naming it decides, by its combined duration (duration + delay, which may be negative) above 0.
+  const HOLDS = { "background-color": ["background"], "background-position": ["background"], "background-position-x": ["background", "background-position"], "background-position-y": ["background", "background-position"], "background-size": ["background"],
+    "mask-position": ["mask"], "mask-position-x": ["mask", "mask-position"], "mask-position-y": ["mask", "mask-position"], "mask-size": ["mask"], color: [], opacity: [] };
+  const transitioned = (cs, property) => {
+    const list = s => s.split(/\s*,\s*/), names = list(cs.transitionProperty), times = list(cs.transitionDuration), delays = list(cs.transitionDelay);
+    let on = false;
+    names.forEach((name, i) => { if (name === "all" || name === property || HOLDS[property]?.includes(name)) on = Math.max(0, parseFloat(times[i % times.length]) || 0) + (parseFloat(delays[i % delays.length]) || 0) > 0; });
+    return on;
+  };
+  // An authored transition running (or paused, as the agent's clock pauses it) on `property`.
+  const PAINTED_KEY = { opacity: "opacity", color: "color" };
+  const running = (el, property) => el.getAnimations().find(a => a.transitionProperty === property && (a.playState === "running" || a.playState === "paused"));
+  // A layered list (a background's, a mask's) with the paint's own layer first: each of the node's lists cycled out
+  // to its images' count, as CSS matches them, then `first` before it.
+  const items = said => { const out = []; let depth = 0, from = 0, quote = ""; for (let i = 0; i < said.length; i++) { const c = said[i]; if (quote) { if (c === "\\") i++; else if (c === quote) quote = ""; } else if (c === '"' || c === "'") quote = c; else if (c === "(") depth++; else if (c === ")") depth--; else if (c === "," && !depth) { out.push(said.slice(from, i).trim()); from = i + 1; } } out.push(said.slice(from).trim()); return out; };
+  const layered = (said, count, first) => { const list = items(said); return [first, ...Array.from({ length: count }, (_, i) => list[i % list.length])].join(", "); };
+  const LAYER = { background: { position: "0% 0%", size: "auto", repeat: "repeat", origin: "padding-box", clip: "border-box", attachment: "scroll" },
+    mask: { position: "0% 0%", size: "auto", repeat: "repeat", origin: "border-box", clip: "no-clip", composite: "intersect", mode: "alpha" } };
+  // The paint's layer over a node's own (`kind`: background or mask): its images, then every per-layer list shifted
+  // with them. Null where that would move the node's own layers under a transition (a position or size list
+  // changing length interpolates): that paint is left out.
+  const layer = (cs, kind, mine) => {
+    const read = name => cs.getPropertyValue(`${kind}-${name}`), images = read("image"), count = images === "none" ? 0 : items(images).length;
+    const out = [`${kind}-image: ${count ? `${mine}, ${images}` : mine} !important`];
+    for (const [name, value] of Object.entries(LAYER[kind])) {
+      const theirs = read(name);
+      // With no images of its own, a node's background clip and origin are its background colour's: the layer
+      // takes them (a mask's own no-clip still applies, so a shadow fades with the node).
+      if (!count && ((kind === "background" && (name === "clip" || name === "origin")) || items(theirs)[0] === value)) continue;
+      if ((name === "position" || name === "size") && [`${kind}-${name}`, ...(name === "position" ? [`${kind}-position-x`, `${kind}-position-y`] : [])].some(n => transitioned(cs, n))) return null;
+      out.push(`${kind}-${name}: ${count ? layered(theirs, count, value) : value} !important`);
+    }
+    return out.join("; ");
+  };
+  // The node's important paint (LLP 1061 D7), its own pressed values `--exact-press-paint` of the way over its look
+  // beneath: the pressed colour as a background-image layer over the node's own background-color (its own images
+  // beneath; a colour at alpha p over another, which is CSS's premultiplied mix for an opaque pressed colour),
+  // images changing discretely, so starting no transition; the pressed opacity as the property where the engine
+  // hands its own number (computedStyleMap; a float, exact) and elsewhere (Firefox) a uniform mask, which
+  // multiplies as opacity does (WebKit clips a mask to the border box, a shadow with it, so it takes the number);
+  // the pressed text colour as the property. Where the node declares a transition on a property the rule writes,
+  // the rule is exactly the look beneath at 0 (else a transition starts and, above every declaration, hides the
+  // paint), written only from a look whose numbers round-trip (an opaque rgb(), the engine's opacity), left out
+  // while a transition of the property runs (added when it ends), and, once written, kept as it is for the press:
+  // re-read with the paint on, so the paint's turn starts nothing (Firefox's transition styles see the animation).
+  const paintRule = (el, state) => {
+    if (!el.closest("#exact-root")) return "";
+    // What is kept holds only while the node's own inputs (its inline style: its opacity and colour, its pressed
+    // values; its class) are as they were when it was written, and no sheet, scheme or token changed: else the look
+    // beneath is read again (a base change, which the node's transition times, D8).
+    const inputs = `${el.getAttribute("style")}|${el.getAttribute("class")}`, was = state.kept ?? {}, before = new Set(el.getAnimations());
+    if (state.inputs !== inputs || state.stale) state.kept = {};
+    state.inputs = inputs; state.stale = false;
+    const kept = state.kept ?? {};
+    // Re-read with only the kept declarations on, under the same key: the look beneath of what isn't kept, and the
+    // node's own images and masks.
+    if (state.rule) hold(el, state, Object.values(kept).join("; "));
+    const cs = getComputedStyle(el), own = name => el.style.getPropertyValue(name) ? cs.getPropertyValue(name).trim() : "";
+    // A transition the read itself started (Firefox's transition styles see the animation, so taking a kept
+    // declaration off is a change there) toward the very look beneath the kept one was written from: none of the
+    // node's, cancelled at once. One toward another look is the base's own move, the node's to time (D8).
+    for (const a of el.getAnimations()) if (!before.has(a) && a.transitionProperty in was && String(a.effect.getKeyframes().at(-1)?.[PAINTED_KEY[a.transitionProperty]]) === state.keptBase?.[a.transitionProperty]) a.cancel();
+    const p = "var(--exact-press-paint)", out = [], next = {};
+    const number = (name, copy) => { if (!own(name)) return null; const v = parseFloat(cs.getPropertyValue(copy)); return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null; };
+    const settle = () => { if (paints.get(el) === state) repaint(el); };
+    const later = property => { const a = running(el, property); if (a && !state.waits?.has(a)) { (state.waits ??= new Set()).add(a); a.finished.then(settle, settle); } return !!a; };
+    if (own("--exact-press-background-color")) {
+      const bg = layer(cs, "background", `linear-gradient(color-mix(in srgb, var(--exact-press-background-color) calc(${p} * 100%), transparent) 0 0)`);
+      if (bg) out.push(bg);
+      state.background = !!bg;
+    }
+    const to = number("--exact-press-opacity-to", "--exact-press-opacity-to-number"), share = number("--exact-press-opacity", "--exact-press-opacity-number");
+    const held = el.computedStyleMap?.().get("opacity")?.value, base = Number.isFinite(held) ? held : Number(cs.opacity);
+    state.factor = null;
+    if (kept.opacity) next.opacity = kept.opacity;
+    else if ((to != null || share != null) && Number.isFinite(base) && !later("opacity")) {
+      if (Number.isFinite(held) || (to != null && to > base && !transitioned(cs, "opacity"))) {
+        const d = `opacity: ${to != null ? `calc(${held ?? base} + ${to - base} * ${p})` : `calc(${held ?? base} * (1 - ${p} * ${1 - share}))`} !important`;
+        if (transitioned(cs, "opacity")) next.opacity = d; else out.push(d);
+      } else if (to == null || (base > 0 && to <= base)) {
+        const factor = to != null ? `calc((${base} + ${to - base} * ${p}) / ${base})` : `calc(1 - ${p} * ${1 - share})`;
+        const mask = layer(cs, "mask", `linear-gradient(rgb(0 0 0 / ${factor}) 0 0)`);
+        if (mask) { out.push(mask); state.factor = paint => to != null ? (base + (to - base) * paint) / base : 1 - paint * (1 - share); }
+      }
+    }
+    if (kept.color) next.color = kept.color;
+    else if (own("--exact-press-color") && !later("color")) {
+      const m = /^rgba?\((\d+), (\d+), (\d+)\)$/.exec(cs.color), x = /^color\(srgb ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)(?: \/ ([\d.]+))?\)$/.exec(cs.getPropertyValue("--exact-press-color-in-srgb").trim());
+      if (m && x) {
+        const b = m.slice(1, 4).map(Number), v = x.slice(1, 4).map(Number), a = x[4] == null ? 1 : Number(x[4]);
+        // Opaque beneath: premultiplied over it is (b + (v·a − b)·p) / (1 + (a − 1)·p), exactly b at 0 (a pressed
+        // colour fully transparent at 1: no colour to divide, held off 0).
+        const alpha = `max(1 + ${a - 1} * ${p}, 0.000001)`;
+        const c = b.map((bi, i) => a === 1 ? `calc(${bi} + ${v[i] * 255 - bi} * ${p})` : `calc((${bi} + ${v[i] * 255 * a - bi} * ${p}) / ${alpha})`);
+        const d = `color: rgb(${c.join(" ")}${a === 1 ? "" : ` / calc(1 + ${a - 1} * ${p})`}) !important`;
+        if (transitioned(cs, "color")) next.color = d; else out.push(d);
+      } else if (!transitioned(cs, "color")) out.push(`color: color-mix(in srgb, var(--exact-press-color) calc(${p} * 100%), ${cs.color}) !important`);
+    }
+    state.kept = next;
+    // The look each kept declaration was written from: carried with it while it is kept (a re-read with it on sees
+    // the painted look, not that one), read now only where it was written now.
+    state.keptBase = { opacity: next.opacity ? (kept.opacity ? state.keptBase?.opacity : String(held ?? base)) : undefined, color: next.color ? (kept.color ? state.keptBase?.color : cs.color) : undefined };
+    return [...out, ...Object.values(next)].join("; ");
+  };
+  // What a painting node shows, as the page can't read it from the node's computed style (the paint is on images):
+  // its opacity times the mask, its background-color with the pressed colour over it (as pixels, 8-bit; its own
+  // images and masks aren't in it), its colour. Without OffscreenCanvas, the background-color beneath.
+  // The agent's node detail reports it (scripts/agent-inspect.mjs), and the press tests read it.
+  (globalThis.exact ??= {}).pressShown = el => {
+    const state = paints.get(el);
+    if (!state) return null;
+    const cs = getComputedStyle(el), paint = Number(cs.getPropertyValue("--exact-press-paint")) || 0;
+    const shown = { paint, opacity: String(+(Number(cs.opacity) * (state.factor?.(paint) ?? 1)).toPrecision(6)), color: cs.color, backgroundColor: cs.backgroundColor };
+    if (state.background && typeof OffscreenCanvas === "function") {
+      const g = new OffscreenCanvas(1, 1).getContext("2d");
+      if (!g) return shown;
+      g.fillStyle = cs.backgroundColor; g.fillRect(0, 0, 1, 1);
+      g.globalAlpha = Math.min(1, Math.max(0, paint)); g.fillStyle = cs.getPropertyValue("--exact-press-background-in-srgb").trim(); g.fillRect(0, 0, 1, 1);
+      const [r, gr, b, a] = g.getImageData(0, 0, 1, 1).data;
+      shown.backgroundColor = a === 255 ? `rgb(${r}, ${gr}, ${b})` : `rgba(${r}, ${gr}, ${b}, ${Math.round(a / 255 * 1000) / 1000})`;
+    }
+    return shown;
+  };
+  // Each painting node's rule, in one sheet on its root (a document or a shadow root; a frame's own), keyed by
+  // the value of its data-exact-painting, an attribute the paint sets anyway, so no observer sees anything new.
+  const paintSheets = new WeakMap();
+  let paintKeys = 0;
+  const sheetOf = el => {
+    const root = el.getRootNode?.(), Sheet = (root?.ownerDocument ?? root)?.defaultView?.CSSStyleSheet;
+    if (!Sheet || !root || !("adoptedStyleSheets" in root)) return null;
+    let sheet = paintSheets.get(root);
+    try {
+      if (!sheet) paintSheets.set(root, sheet = new Sheet());
+      // Adopted again if the page replaced the list since.
+      if (!root.adoptedStyleSheets.includes(sheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    } catch { return null; }
+    return sheet;
+  };
+  const hold = (el, state, declarations) => {
+    drop(state);
+    const sheet = declarations && sheetOf(el);
+    if (!sheet) return "";
+    state.key ??= String(++paintKeys);
+    const at = sheet.insertRule(`#exact-root [data-exact-painting="${state.key}"][data-exact-painting] { ${declarations} }`, sheet.cssRules.length);
+    state.rule = { sheet, rule: sheet.cssRules[at] };
+    return state.key;
+  };
+  const drop = state => {
+    if (!state.rule) return;
+    const { sheet, rule } = state.rule, at = [...sheet.cssRules].indexOf(rule);
+    state.rule = null;
+    if (at >= 0) sheet.deleteRule(at);
   };
   // The look beneath changed: the ease goes on from where it is, over the rest of its time.
-  const repaint = el => {
+  // `stale`: a sheet, the scheme or a token changed, which no attribute of the node's says.
+  const repaint = (el, stale = false) => {
     const state = paints.get(el);
     if (!state) return;
+    if (stale) state.stale = true;
     const t = state.animation.effect.getComputedTiming();
     paint(el, state, Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)));
   };
-  globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el); });
+  globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el, true); });
   // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
   // modes and tokens (the JS target's), which change no style of the node's own (LLP 1121 D8).
-  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el); });
+  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el, true); });
+  // A painting node gone from the page (removed, re-rendered) ends its paint and lets go of its rule at once.
+  const gone = new MutationObserver(() => { for (const [el, state] of paints) if (!el.isConnected) endPaint(el, state); });
   // The JS target writes its tokens and tuples through the CSSOM, which no observer sees: it calls this (modes.js).
-  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el); };
+  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el, true); };
   // `now`: the press ends at once (the window or the page went), as it does
   // for a node no longer in the page.
   const showPaint = (el, down, now = false) => {
@@ -326,6 +473,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         sheets.observe(document.head, { childList: true, subtree: true, characterData: true });
         sheets.observe(document.documentElement, { attributes: true });
       }
+      gone.observe(el.ownerDocument, { childList: true, subtree: true }); // a frame's node, its own document
       paints.set(el, state);
     }
     state.to = down ? 1 : 0;
@@ -338,7 +486,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const native = el.matches("button[data-button-style]");
     const eased = native && !down && !now && !agentMode && el.hasAttribute("data-pressed");
     const running = eased ? new Set(el.getAnimations({ subtree: true })) : null;
-    el.toggleAttribute("data-pressed", down);
+    markPressed(el, down, now);
     if (native && down) {
       // Flush the pressed style so a tap released before the next frame still shows its highlight (LLP 1061 D2)
       el.removeAttribute("data-exact-released");
@@ -574,39 +722,117 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return true;
   };
   addEventListener("keydown", () => { if (focusLook(deepFocus()) && !keyTurned()) requestAnimationFrame(keyTurned); }, true);
-  const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
+  // Delay touch and pen feedback only where a scroll can move the target. A quick tap flashes on release;
+  // a scroll cancels it before it shows (UIKit's `delaysContentTouches`, LLP 1061 D2).
+  const TOUCH_DELAY = 150;
+  const scrolled = new WeakMap();
+  const touchScroll = el => {
+    const since = performance.now() - TOUCH_DELAY;
+    let delay = false, moving = false;
+    for (let node = el; node; node = node.parentNode ?? node.host) {
+      if (!(node instanceof Element)) {
+        continue;
+      }
+      const style = getComputedStyle(node);
+      delay ||= /auto|scroll|overlay/.test(style.overflowY) && node.scrollHeight > node.clientHeight
+        || /auto|scroll|overlay/.test(style.overflowX) && node.scrollWidth > node.clientWidth;
+      moving ||= scrolled.get(node) > since;
+      // Stop at a bar that stays in place while an outer scroller moves
+      if (style.position === 'fixed' || style.position === 'sticky') {
+        return { delay, moving };
+      }
+    }
+    const page = document.scrollingElement;
+    delay ||= page.scrollHeight > page.clientHeight || page.scrollWidth > page.clientWidth;
+    moving ||= scrolled.get(document) > since;
+    return { delay, moving };
+  };
+  document.addEventListener("scroll", e => {
+    scrolled.set(e.target, performance.now());
+    if (press?.touch && touchScroll(press.el).moving) {
+      release();
+    }
+  }, { capture: true, passive: true });
+  const inside = (p, e) => { const [l, t, r, b] = p.box; return e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b; };
+  // Only mark a mouse-held link without a `press` handler: it dims unless it declares feedback, in which case
+  // it shows nothing (LLP 1121's `lower-state-dead` lint). Buttons and touch presses show authored feedback.
+  const showHeld = (p, down, now = false) => p.dimOnly ? markPressed(p.el, down, now) : showPress(p.el, down, now);
+  // Play the haptic when feedback appears, where `navigator.vibrate` is available (LLP 1077 D14)
+  const begin = p => {
+    // Discard delayed feedback if the target became unavailable before its timer fired
+    if (!p.el.isConnected || p.el.closest(DISABLED) || inertAncestor(p.el)) {
+      if (press === p) {
+        press = null;
+      }
+      return false;
+    }
+    showHeld(p, true);
+    if (p.haptic) {
+      navigator.vibrate?.(p.haptic);
+    }
+    return true;
+  };
+  // Keep a quick tap's feedback through its ease-in without releasing a later press on the same node
+  const lifts = new Map();
+  const unlift = (el, now = false) => {
+    const p = lifts.get(el);
+    lifts.delete(el);
+    clearTimeout(p.lift);
+    if (press?.el !== el || press.delay) showHeld(p, false, now);
+  };
+  // `lifted`: the pointer came up inside the box, so a tap still waiting out the delay shows its press now.
+  const release = (now = false, lifted = false) => {
+    const p = press;
+    press = null;
+    if (!p) return;
+    if (!p.delay) return showHeld(p, false, now);
+    clearTimeout(p.delay);
+    if (!lifted) return;
+    if (!begin(p)) {
+      if (lifts.has(p.el)) {
+        unlift(p.el);
+      }
+      return;
+    }
+    clearTimeout(lifts.get(p.el)?.lift);
+    p.lift = setTimeout(() => unlift(p.el), EASE.duration);
+    lifts.set(p.el, p);
+  };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
     surface(e.target);
-    // A finger holds the unsaid dim too (index.html): a touch's `:active` is the engine's choice, which Safari makes
-    // only for an element with a touch listener ("Safari Web Content Guide", Handling Events) and Chrome only after a
-    // tap gesture a synthesized touch never makes.
-    const touch = e.pointerType === "touch";
-    const el = e.target.closest?.(touch ? "[data-exact-on~=press],button,a[data-view][href]" : "[data-exact-on~=press],button[data-button-style]");
-    if (!el || !root.contains(el) || el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a box says `disabled` (LLP 1121 D8)
-    // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
-    // `navigator.vibrate` where the browser has it (not desktop, not iOS
-    // Safari), with `haptic()`'s two lengths (workout F4).
+    // The innermost pressable takes the press under every pointer; the shell's dim reads this mark, not `:active`
+    // (index.html). A field, or a link that is no view's, in a pressable takes it from it.
+    const el = e.target.closest?.("[data-exact-on~=press],button,a[href],input,select,textarea");
+    if (!el?.matches("[data-exact-on~=press],button,a[data-view][href]") || !root.contains(el) || el.closest(DISABLED)) return; // a box says `disabled` (LLP 1121 D8)
+    const touch = e.pointerType === "touch" || e.pointerType === "pen";
+    const scroll = touch && !agentMode ? touchScroll(el) : {};
+    if (scroll.moving) return;
     const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
-    if (haptic && haptic !== "none") navigator.vibrate?.(haptic === "selection" ? 5 : 12);
-    if (!(declaresPress(el) || el.matches("button[data-button-style]") || touch)) return;
     const r = unpressedBox(el);
-    press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
-    showPress(el, true);
+    const p = press = {
+      el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom], touch,
+      haptic: haptic && haptic !== "none" ? (haptic === "selection" ? 5 : 12) : 0,
+      dimOnly: !touch && el.matches('a:not([data-exact-on~=press])'),
+    };
+    if (scroll.delay) p.delay = setTimeout(() => { if (press !== p) return; p.delay = 0; begin(p); }, TOUCH_DELAY);
+    else begin(p);
   }, true);
   document.addEventListener("pointermove", e => {
     if (e.pointerId !== press?.id) return;
     // The button came up where this document did not hear it (outside the window).
     if (e.buttons === 0) return release();
-    const [l, t, r, b] = press.box;
-    showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
+    // Inside the delay the browser decides: a scroll cancels the touch, a tap lifts it.
+    if (press.delay) return;
+    showHeld(press, inside(press, e));
   }, true);
-  for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
+  document.addEventListener("pointerup", e => { if (e.pointerId === press?.id) release(false, inside(press, e)); }, true);
+  document.addEventListener("pointercancel", e => { if (e.pointerId === press?.id) release(); }, true);
   // Leaving the page, the window or the tab may take the release with it, as the pointer dispatch below assumes: the
   // press, a key's too, ends at once. A gesture that claims the contact (motion-glue's swipe) ends the press as it
   // claims it, as a pan cancels a touch.
-  const leave = () => { release(true); keyHold?.(null, true); };
+  const leave = () => { release(true); for (const el of lifts.keys()) unlift(el, true); keyHold?.(null, true); };
   addEventListener("blur", e => { if (e.target === window) leave(); });
   addEventListener("pagehide", leave);
   document.addEventListener("visibilitychange", () => { if (document.hidden) leave(); });
@@ -619,15 +845,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // (so a route that arrives with no press never takes the focus from where a person put it), but for one still in a
   // leaving element (`[data-exiting]`: a sheet sliding away or a presence view leaving), which is no one's. Another
   // tab's stack is no arrival (the focus stays on its tab), nor is the first sight of a page. Nothing scrolls, and the
-  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's (`focusVisible` says
-  // which, where the engine takes it). The stack is read from the attributes navigation.js projects from.
-  let shown = null, pressed = null;
+  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's, and none before the
+  // person has pressed a key or the pointer, as for a page's first route (`focusVisible` says which, where the engine
+  // takes it). The stack is read from the attributes navigation.js projects from.
+  let shown = null, pressed = null, touched = false;
   const origins = new WeakMap();
   // The press is noted as it begins (the pointer going down; Enter or Space, in the keys' listener above), before the
   // click any listener navigates by: a link to a route is followed from the document's capture phase (above, and the
   // JS target's router.js), so its commit arrives before a listener here would hear that click. A click with neither
   // before it (a script's, the agent's) is noted as it is heard.
-  const note = (e, key) => { if (root.contains(e.target)) pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
+  const note = (e, key) => { if (!root.contains(e.target)) return; touched = true; pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
   document.addEventListener("pointerdown", e => note(e, false), true);
   document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
   const lands = el => !!el?.isConnected && !inertAncestor(el) && el.getClientRects().length > 0 && !el.matches(":disabled");
@@ -660,7 +887,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
     const to = lands(origin) ? origin : titleOf(top) ?? top;
     if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
-    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
+    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : touched ? {} : { focusVisible: false }) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
   };
   return {
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
@@ -948,9 +1175,58 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
-  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
+  if (["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
+  if (!seen) {
+    (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+    return { revealed: id, scrolled: true, from: [x, y], to: clear(el, middle) ?? middle() };
+  }
+  const to = clear(el, middle);
+  return to ? { revealed: id, scrolled: true, from: [x, y], to } : { revealed: id, scrolled: false };
+}
+
+// A target whose middle a sticky or fixed box covers (the design tool's edit dock), as the tap's own hit-test finds it:
+// its scroller (or the page) scrolled so the middle lands in the band of its port the box leaves, as a person scrolls a
+// row out from under a docked bar. Only a box in the target's own scroller, or the page's fixed one, and never one in
+// the top layer (a popover, a modal), which no scroll takes away: the tap still refuses there. The middle it moved to,
+// or null when nothing covered it or nothing could move.
+function clear(el, middle) {
+  const [x, y] = middle(), root = el.getRootNode() ?? document, hit = root.elementFromPoint(x, y);
+  if (!hit || el === hit || el.contains(hit)) return null;
+  // (Anything of the top layer over it, a popover or a modal, is no scroll's to clear, whatever holds it.)
+  const above = a => a.closest(":popover-open, dialog[open], :modal");
+  if (above(hit)) return null;
+  const pinned = a => { const p = getComputedStyle(a).position; return p === "sticky" || p === "fixed"; };
+  // The sticky or fixed box a hit at a point is in, or null.
+  const coverAt = (h) => { let c = h; while (c && c.id !== "exact-root" && !pinned(c)) c = c.parentElement; return !c || c.id === "exact-root" || c.contains(el) || above(c) ? null : c; };
+  const cover = coverAt(hit);
+  if (!cover) return null;
+  // A sticky box's scroll container, as CSS finds it (the nearest ancestor whose overflow isn't visible on either axis),
+  // which must hold the target; for a fixed one, the target's nearest scroller with travel down, else the page.
+  const sticky = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) { const cs = getComputedStyle(s); if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY)) return s; } return document.scrollingElement; };
+  const travel = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) if (/(auto|scroll)/.test(getComputedStyle(s).overflowY) && s.scrollHeight > s.clientHeight) return s; return document.scrollingElement; };
+  const fixed = getComputedStyle(cover).position === "fixed", port = fixed ? travel(el) : sticky(cover);
+  if (port !== document.scrollingElement && !port.contains(el)) return null;
+  // Vertical only: a scroller with no travel down (a horizontal one, its sticky column) is no band's to clear.
+  if (port.scrollHeight <= port.clientHeight) return null;
+  const page = port === document.scrollingElement, box = page ? { top: 0, bottom: innerHeight, height: innerHeight } : port.getBoundingClientRect();
+  // What of the port the viewport shows, less each cover: the band above one whose middle is in the lower half, below
+  // one in the upper. Its middle hit-tested again: a second box there (a header across from a dock) narrows it too.
+  let [top, bottom] = [Math.max(box.top, 0), Math.min(box.bottom, innerHeight)];
+  const mid = (top + bottom) / 2;
+  for (let c = cover, n = 0; c && n < 4 && bottom > top; n++) {
+    const r = c.getBoundingClientRect();
+    if ((r.top + r.bottom) / 2 > mid) bottom = Math.min(bottom, r.top); else top = Math.max(top, r.bottom);
+    const next = bottom > top ? root.elementFromPoint(x, (top + bottom) / 2) : null;
+    // (Only a box of the same port, or a fixed one: a sticky of another scroller doesn't stay where this one moves.)
+    c = next && !(next === el || el.contains(next)) ? coverAt(next) : null;
+    if (c && getComputedStyle(c).position !== "fixed" && sticky(c) !== port) c = null;
+  }
+  if (bottom <= top) return null;
+  // (A scaled port scrolls by its own pixels: the viewport's distance over its scale.)
+  const scale = page || !port.clientHeight ? 1 : box.height / port.offsetHeight || 1;
+  const before = port.scrollTop;
+  port.scrollBy({ top: (y - (top + bottom) / 2) / scale, behavior: "instant" });
+  return port.scrollTop === before ? null : middle();
 }
 
 // A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
@@ -1079,5 +1355,40 @@ export function typeControl(el, request, inertAncestor, settleValue) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
-export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
+// A scroller moving on its own after an input (a fling's glide, a smooth scroll, a page that scrolls it every frame):
+// its `scroll` events go on. `clock settle` waits until two whole frames pass with none, 4 s at most, as a native
+// host waits for a scroll view a finger left moving (agent.mjs reason `scroll`). Two frames: a scroll written in a
+// frame's callbacks has its event at the next frame's rendering step. (Not `scrollend`: a page's instant step each
+// frame ends each time.) Watched from the agent's first operation on: never in an app's own run.
+let scrolls = 0, glides = false;
+export function watchGlides() {
+  if (glides) return;
+  glides = true;
+  addEventListener('scroll', () => { scrolls += 1; }, { capture: true, passive: true });
+}
+/** The `scroll` events seen so far: a settle round compares it before and after its work. */
+export const scrollsSeen = () => scrolls;
+/** Waits until two frames pass with no `scroll` event: whether they did before scrolling outlasted `budget.ms`, which
+ * the wait spends (one budget for a whole `clock settle`, so only time spent waiting on scrolls counts against its
+ * 4 s; a round that comes after it is spent still answers true when nothing scrolls). A frame that doesn't come
+ * (a throttled page) answers false. */
+export async function glidesSettled(budget) {
+  const started = performance.now(), deadline = started + budget.ms;
+  // (a frame gets at least 250 ms, past the budget too: a page drawing frames, however slowly, shows two quiet ones)
+  const frame = () => new Promise(r => {
+    const timer = setTimeout(() => r(false), Math.max(250, deadline - performance.now()));
+    requestAnimationFrame(() => { clearTimeout(timer); r(true); });
+  });
+  try {
+    for (;;) {
+      const before = scrolls;
+      if (!(await frame()) || !(await frame())) return false;
+      if (scrolls === before) return true;
+      if (performance.now() >= deadline) return false;
+    }
+  } finally {
+    budget.ms = Math.max(0, budget.ms - (performance.now() - started));
+  }
+}
+export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, watchGlides, glidesSettled, scrollsSeen };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

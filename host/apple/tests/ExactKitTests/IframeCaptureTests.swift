@@ -117,8 +117,10 @@ final class IframeCaptureTests: XCTestCase {
         #endif
     }
 
-    private func mount(_ arm: Arm, _ seen: Seen, configuration: [String: Any], src: String?, document: Data? = nil, sandbox: String? = nil) throws -> UnsafeMutableRawPointer {
+    private func mount(_ arm: Arm, _ seen: Seen, configuration: [String: Any], src: String?, document: Data? = nil, sandbox: String? = nil,
+                       configuring: (UnsafeMutableRawPointer) -> Void = { _ in }) throws -> UnsafeMutableRawPointer {
         let handle = arm.create(9, Unmanaged.passUnretained(seen).toOpaque(), Self.event, Self.reply)!
+        configuring(handle)
         json(configuration, arm.configure, handle)
         show(Unmanaged<AnyObject>.fromOpaque(arm.view(handle)!).takeUnretainedValue())
         if let document { sendData(document, arm.setDocument, handle) }
@@ -142,11 +144,12 @@ final class IframeCaptureTests: XCTestCase {
     }
 
     nonisolated(unsafe) private static var server: CapturePages?
+    private var baseURL: String { "http://127.0.0.1:\(Self.server!.port)" }
     override func setUpWithError() throws {
         #if os(macOS)
         _ = NSApplication.shared
         #endif
-        if Self.server == nil { Self.server = try CapturePages(port: 16630) }
+        if Self.server == nil { Self.server = try CapturePages() }
     }
 
     private func capture(_ arm: Arm, _ handle: UnsafeMutableRawPointer, _ seen: Seen, file: URL?, clip: [Double]? = nil) -> [String: Any]? {
@@ -189,7 +192,7 @@ final class IframeCaptureTests: XCTestCase {
         guard hostedWindowScene() != nil else { throw missing("scene", "WebKit paints a snapshot only in an app's window scene") }
         #endif
         let arm = try arm(), seen = Seen()
-        let handle = try mount(arm, seen, configuration: ["partition": "memory-shot"], src: "http://127.0.0.1:16630/target")
+        let handle = try mount(arm, seen, configuration: ["partition": "memory-shot"], src: "\(baseURL)/target")
         defer { arm.destroy(handle) }
         spin { seen.records.contains { $0.event == "navigatesuccess" } }
         pause(0.3)
@@ -218,7 +221,7 @@ final class IframeCaptureTests: XCTestCase {
         guard hostedWindowScene() != nil else { throw missing("scene", "WebKit paints a snapshot only in an app's window scene") }
         #endif
         let arm = try arm(), seen = Seen()
-        let handle = try mount(arm, seen, configuration: ["partition": "memory-pinch", "allowsMagnification": true], src: "http://127.0.0.1:16630/target")
+        let handle = try mount(arm, seen, configuration: ["partition": "memory-pinch", "allowsMagnification": true], src: "\(baseURL)/target")
         defer { arm.destroy(handle) }
         spin { seen.records.contains { $0.event == "navigatesuccess" } }
         pause(0.3)
@@ -394,7 +397,7 @@ final class IframeCaptureTests: XCTestCase {
     /// What the arm owns that a hatch changed, said by name in a development build (RFC §9).
     func testAChangedDelegateIsSaidByName() throws {
         let arm = try arm(), seen = Seen()
-        let handle = try mount(arm, seen, configuration: ["partition": "memory-owned"], src: "http://127.0.0.1:16630/target")
+        let handle = try mount(arm, seen, configuration: ["partition": "memory-owned"], src: "\(baseURL)/target")
         defer { arm.destroy(handle) }
         let web = try XCTUnwrap(current(arm, handle) as? WKWebView)
         let pipe = Pipe(), saved = dup(STDERR_FILENO)
@@ -413,6 +416,94 @@ final class IframeCaptureTests: XCTestCase {
         XCTAssert(said.contains("changed the user scripts of the arm's content controller"), said)
         XCTAssertEqual(said.components(separatedBy: "navigationDelegate").count, 2, "said once: \(said)")
     }
+
+    private typealias ConfiguringFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
+    /// What the host's moment before construction was handed: the frame's
+    /// context and its configuration's data store.
+    nonisolated(unsafe) private static var configured: [(context: UnsafeMutableRawPointer?, store: WKWebsiteDataStore)] = []
+    nonisolated(unsafe) private static var swapsStore = false
+    private static let configuring: ConfiguringFn = { context, raw in
+        let configuration = Unmanaged<WKWebViewConfiguration>.fromOpaque(raw!).takeUnretainedValue()
+        configured.append((context, configuration.websiteDataStore))
+        configuration.applicationNameForUserAgent = "Hatched/1"
+        if swapsStore { configuration.websiteDataStore = .nonPersistent() }
+    }
+
+    /// Tier 3's moment before construction (RFC §9): the configuration, the
+    /// arm's data store on it, before each web view the arm makes; what the
+    /// hatch adds is the web view's, and a store it swaps is said by name.
+    func testTheConfigurationComesBeforeEachWebView() throws {
+        let arm = try arm(), seen = Seen()
+        let library = try XCTUnwrap(dlopen(ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"], RTLD_NOW | RTLD_LOCAL))
+        let setConfiguring = unsafeBitCast(try XCTUnwrap(dlsym(library, "exact_web_set_configuring")), to: (@convention(c) (UnsafeMutableRawPointer?, ConfiguringFn?) -> Void).self)
+        defer { Self.configured = []; Self.swapsStore = false }
+        let context = Unmanaged.passUnretained(seen).toOpaque()
+
+        let shared = try mount(arm, seen, configuration: [:], src: nil, configuring: { setConfiguring($0, Self.configuring) })
+        defer { arm.destroy(shared) }
+        XCTAssertEqual(Self.configured.count, 1)
+        XCTAssertEqual(Self.configured.last?.context, context)
+        XCTAssertTrue(Self.configured.last?.store === WKWebsiteDataStore.default(), "an unpartitioned frame's: the default store")
+        XCTAssertEqual((current(arm, shared) as? WKWebView)?.configuration.applicationNameForUserAgent, "Hatched/1")
+
+        let handle = try mount(arm, seen, configuration: ["partition": "memory-configured"], src: nil, configuring: { setConfiguring($0, Self.configuring) })
+        defer { arm.destroy(handle) }
+        let first = try XCTUnwrap(current(arm, handle) as? WKWebView)
+        XCTAssertEqual(Self.configured.count, 2)
+        let store = try XCTUnwrap(Self.configured.last?.store)
+        XCTAssertFalse(store.isPersistent, "the partition's store, set before the hatch")
+        XCTAssertTrue(first.configuration.websiteDataStore === store)
+        XCTAssertEqual(first.configuration.applicationNameForUserAgent, "Hatched/1")
+
+        // A new partition is a new web view, and the moment again; a store the
+        // hatch swaps there is said by name in a development build.
+        Self.swapsStore = true
+        json(["partition": "memory-reconfigured"], arm.configure, handle)
+        let second = try XCTUnwrap(current(arm, handle) as? WKWebView)
+        XCTAssertFalse(second === first)
+        XCTAssertEqual(Self.configured.count, 3)
+        let pipe = Pipe(), saved = dup(STDERR_FILENO)
+        dup2(pipe.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+        arm.checkOwned(handle)
+        dup2(saved, STDERR_FILENO)
+        close(saved)
+        try pipe.fileHandleForWriting.close()
+        let said = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        XCTAssert(said.contains("the app's hatch changed websiteDataStore, which the web arm owns"), said)
+    }
+
+    private static let prefers: ConfiguringFn = { _, raw in
+        let configuration = Unmanaged<WKWebViewConfiguration>.fromOpaque(raw!).takeUnretainedValue()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        configuration.preferences.minimumFontSize = 30
+    }
+
+    /// A hatched frame's preferences are its own (RFC §9): what its hatch
+    /// writes, and a scheduling policy another frame says, change no other
+    /// frame's, though unhatched frames share one copy.
+    func testAHatchedFramesPreferencesAreItsOwn() throws {
+        let arm = try arm(), seen = Seen()
+        let library = try XCTUnwrap(dlopen(ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"], RTLD_NOW | RTLD_LOCAL))
+        let setConfiguring = unsafeBitCast(try XCTUnwrap(dlsym(library, "exact_web_set_configuring")), to: (@convention(c) (UnsafeMutableRawPointer?, ConfiguringFn?) -> Void).self)
+        let hatched = try mount(arm, seen, configuration: ["hatched": true], src: nil, configuring: { setConfiguring($0, Self.prefers) })
+        defer { arm.destroy(hatched) }
+        let scheduled = try mount(arm, seen, configuration: ["inactiveSchedulingPolicy": "none"], src: nil)
+        defer { arm.destroy(scheduled) }
+        let plain = try mount(arm, seen, configuration: [:], src: nil)
+        defer { arm.destroy(plain) }
+        let other = try mount(arm, seen, configuration: [:], src: nil)
+        defer { arm.destroy(other) }
+        let view = { (handle: UnsafeMutableRawPointer) in Unmanaged<WKWebView>.fromOpaque(arm.view(handle)!).takeUnretainedValue() }
+        XCTAssertFalse(view(hatched).configuration.defaultWebpagePreferences.allowsContentJavaScript)
+        XCTAssertEqual(view(hatched).configuration.preferences.minimumFontSize, 30)
+        XCTAssertTrue(view(plain).configuration.defaultWebpagePreferences.allowsContentJavaScript, "another frame keeps content JavaScript")
+        XCTAssertEqual(view(plain).configuration.preferences.minimumFontSize, 0)
+        XCTAssertFalse(view(hatched).configuration.preferences.javaScriptCanOpenWindowsAutomatically, "the arm's unsaid preferences on its own copy")
+        XCTAssertTrue(view(hatched).configuration.preferences.isElementFullscreenEnabled)
+        XCTAssertEqual(view(scheduled).configuration.preferences.inactiveSchedulingPolicy, .none)
+        XCTAssertEqual(view(plain).configuration.preferences.inactiveSchedulingPolicy, .suspend, "WebKit's default stays every other frame's")
+        XCTAssertTrue(view(plain).configuration.preferences === view(other).configuration.preferences, "unhatched frames share the template's")
+    }
     #endif
 }
 
@@ -422,19 +513,9 @@ final class IframeCaptureTests: XCTestCase {
 final class CapturePages {
     private let listener: NWListener
 
-    init(port: UInt16) throws {
-        let parameters = NWParameters.tcp
-        parameters.allowLocalEndpointReuse = true
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
-        listener = try NWListener(using: parameters)
-        listener.newConnectionHandler = { connection in CapturePages.serve(connection) }
-        var state: NWListener.State = .setup
-        listener.stateUpdateHandler = { state = $0 }
-        listener.start(queue: .main)
-        let deadline = Date(timeIntervalSinceNow: 5)
-        while Date() < deadline { if case .ready = state { return }; RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
-        throw NSError(domain: "IframeCaptureTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "port \(port) did not listen: \(state)"])
-    }
+    var port: UInt16 { listener.port!.rawValue }
+
+    init() throws { listener = try loopbackListener(Self.serve) }
 
     static let target = """
     <!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Target</title>

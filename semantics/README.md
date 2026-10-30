@@ -60,7 +60,7 @@ embedding stale when it is added.
 
 **Differential testing.** For each case, `difftest` compiles the program to a
 plan and boots it on the runner, delivers the script's events, and prints a
-canonical observation after every step: the outcome, every root slot, derive
+canonical observation after every step: the outcome, the commits attempted, every root slot, derive
 and resource, the commands issued to a host (not `setMode`, which the
 runner takes and applies itself: `hostCommands`), and the text of every
 element with a `testId`. Then it emits the program with the Lean backend, and runs many cases
@@ -69,6 +69,90 @@ each. The two texts must match line for line. Data sources are a seeded oracle
 that answers any call with a value of the declared shape. The runner's
 transcript of that oracle becomes the Lean side's oracle, so if the semantics
 makes a call the runner didn't, that is a divergence.
+
+The observation starts with `== <step>` and `outcome ok|refused|poisoned`.
+Before the configuration, each attempted commit prints
+`ran <kind> <action> <ok|refused|poisoned>`, in execution order. The kind is
+`handler`, `task`, `then`, or `queue`; a queue names its mutation. A failed
+outcome or commit is followed by `# <reason>`. Reasons are the runner's
+Debug text and Lean's `why`, and are not compared; `ran` lines are compared.
+Boot and an event with no handler have no `ran` line. Curried arguments that
+refuse print `ran handler <action> refused` and a `#` reason saying the arguments
+refused. A due refusal and a successful handler print separate commit outcomes
+even when the step's outcome is `refused`.
+
+`Observe.runScript` runs `advance` and `dispatch` beside their traced variants.
+The original supplies the configuration and outcome; the variant supplies only
+`ran` lines. A difference in either result replaces the configuration with
+`trace disagrees`, which always fails comparison. The guard compares derived
+structural representations of the entire configuration and outcome, including
+hidden scheduling state and the bits of every number. Projection equality is
+not proved. The new `land` has no earlier function to compare. `ScriptEvent`
+extends the harness vocabulary; the original `Observe.Event`, `step` and every
+existing theorem stay unchanged.
+
+The runner also commits transport or MIDI answers, re-asks, wake deliveries and
+expiry, drop deadlines, transport ends, and the advance tail's presence, polls,
+live times and text-axis frames. These have no corresponding semantics branch.
+They print no `ran` line. For each step, `observe.rs` compares successful commit receipts
+with successful `ran` lines. Extra receipts mark it with
+`# a commit the semantics has no branch for`; the census prints
+`steps with a commit the trace leaves out`. Property checks must exclude marked
+steps from `after`. The work before the advance loop (module deadlines, listed
+due work and presence) has no receipt; tracing compares the configuration before
+and after it. A move prints `untraced configuration moved` as well as the marker,
+so comparison fails even if later work restores the old value. A step that moves
+without any successful `ran` line gets the same diagnostic. An extra receipt alone
+is counted; a differing configuration is a divergence named with the marker.
+
+`land` drains armed `then`s and queued sends at the current clock, without firing
+a timer, even one due exactly now. It is `Runner::land_then` on the runner and
+`Observe.land` in Lean. An authored `clock data` emits it; an authored `tap` or
+`type`, and each explore tap, emits its input followed by `land`. Expectations
+read the observation after that pair and its automatic clock advances. `after
+"a"` reads the landing with `old` from before the input and commands from both
+steps. A refused input, another commit beside its handler, or an untraced commit
+makes the pair counted only. Its landing is not an `after clock` step. A timer
+due exactly now stands after `land` and fires at the next dispatch; that dispatch
+is counted only for `after` when it also runs a handler. A primitive `clock +0`
+still fires due timers as well as continuations.
+
+The device runner (`scripts/agent-test.mjs`, `testMutationClock`) advances one
+millisecond per mutation request, reading the runner's cumulative counter after
+each delivered operation and again after each advance, at most sixteen rounds.
+Delivery uses these device advances so a task armed for one millisecond by a
+mutation runs before the next authored expectation. An input lands before this
+clock runs, as it does on a device. Explore and walks use the same rule. Every
+advance is recorded as `clock +N` in the expansion's `.events` file and replayed
+on both evaluators; the matcher checks it as `after clock`. An expectation issues
+no requests, but still reads the counter. The receipt counts advances and bounds.
+Requests still issuing after sixteen advances stop the block or walk, as on the
+device; this differs from a settle bound, which lets the next step run.
+The shrinker keeps an input, its landing and these advances together; when a
+candidate's input reaches no handler, its landing and advances are removed.
+The harness retains their origin internally, so an authored `clock data` after
+the missing input is kept. Both kinds of landing still print `land`.
+
+A typed value reaches an `input` handler when the target has one, otherwise its
+`change` handler. Both evaluators choose that event before advancing due work;
+the script label remains `type`. Oracle string enums draw from their declared
+members, including enum fields nested in resource answers.
+
+An authored `clock settle` expands on a live runner: `clock +0`, then at most
+sixteen repetitions of `clock +N` to the latest task with
+`now < due <= now + 1`, where N is `due - now`, followed by another `clock +0`.
+Every task qualifies,
+including repeating tasks and tasks armed by earlier inputs or continuations.
+The expansion replaces the settle in the case and its expectation positions;
+Lean and JS replay those same events. A `.events` file under
+`target/difftest/expansions/` keeps it, and the block reports
+`settle expanded to k events` once, totaling all its settles. A task still due
+within a millisecond after sixteen rounds increments the bound count; the next
+authored step still runs. The host's waits on motion, scrolling and hatches,
+its seek to a re-ask's due time (the oracle schedules no re-ask), and its advance
+to an animation's end have no image here; verify prints that limit on its world
+line. The census computes undeliverable kinds from the parser's step enum minus
+the delivered kinds and prints the supported forms of input and clock steps.
 
 An event is delivered as every host delivers one, at the current time: the
 work already due (a timer, a mutation's `then`, a queue's next send) fires
@@ -189,8 +273,116 @@ events and by the semantics' sources and the harness that runs them
 async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
-app's `test` blocks (its own, those in `app.test.contract` and those in
-every other `*.test.contract` beside it) plus an explore script, on the runner and on the semantics. A divergence
+app's delivered test prefixes and explore script, plus 20 adaptive walks of at
+most 40 chosen primitive events each, plus automatic clock advances. `--walks`,
+`--steps` and `--walk-seed` set the
+search; the seed defaults to the app's path. Half the walks boot fresh; the others
+replay delivered test prefixes in turn before appending events. Each choice reads
+the live rendered controls. Inputs land before the next choice. Typed values come
+from that field's authored tests, then source literals, then the generator. Every
+script also runs from a seeded store when the app persists state, with the same
+oracle answers as its empty-store run.
+
+State properties beside the `test` blocks in `app.test.contract`:
+
+```contract-test
+always "the phone is on one of its five screens"
+  expect state screen in "lock" "home" "settings" "display" "messages"
+
+after "increment" "increment adds one"
+  expect state counter == old + 1
+
+never refuses "reset"
+```
+
+Use blocks that name your app's states and actions; [the properties recipe](../docs/recipes/properties.md)
+explains the literal forms and receipt. `bun exact.mjs verify` checks `always` on
+the device at boot, after inputs, reloads and every test-clock advance, then always
+runs `contract verify`.
+Either failure fails the command. Keep its receipt unchanged in the diary: the
+digests identify the sources, and the counts identify the scripts and world checked.
+“In the semantics' world” means the seeded oracle answers synchronously and never
+fails; it does not include a device's reloads, late replies or host inputs.
+
+`contract verify --js apps/<app>/app.contract` replays every search script, including
+stored variants, and the shrunk findings on the web JS target. It checks `always`
+on the JS observation and compares configurations with the runner. The receipt's
+`js:` entry gives agreements, outside cases, errors and property line checks;
+without the flag it says `not run`. JS and device runs count `after`, its frames
+and commands, and `never refuses` as unchecked because they expose no commit trace.
+
+The runner checks properties and classifies refusals on these scripts, then shrinks
+each distinct property-line or refusal-class/action finding in each script. Lean
+confirms the delivered tests and explore script, each shrunk finding, and `--confirm N` walks (default 2). A divergence is shrunk with both
+engines. Deletion tries large chunks before individual delivery groups; each retained candidate
+still satisfies the original predicate. The receipt counts candidates and times
+both halves. `--runner-only`, or an unavailable `lake`, skips the semantics and says
+why. A property failure or type refusal fails verification; app refusals are findings.
+`clock data` lands continuations; `clock settle` expands as described beside
+the observation format. Leading fixed `epoch` and `time-zone` lines set the
+runner's launch facts, using Bun's Date and Intl APIs for the date and offset;
+Lean receives the resulting host facts in its oracle. `epoch now` and other
+launch settings remain undelivered. A block runs up to its first
+undeliverable step, with its location, kind and reason printed. Only a block
+that stops at its first step is `SKIP`. Expectations before the stop still
+run. The summary counts whole, partial and skipped blocks.
+
+Properties in the app's test files (`always`, `after`, `never refuses`; the grammar
+and example are in `docs/contract-grammar.md`, "Authored tests") apply to every
+delivered script, explore script, walk and stored variant. Before delivery, the compiler checks reads
+against the expanded root and follows derives and functions to reject dependencies
+on resources, mutation status, the clock or geometry. `performanceNow` is the
+roster's clock read; date formatters read arguments, and `exactTime` is a resource.
+Mutation result slots remain admissible: their values here are oracle answers.
+
+`property.rs` matches the same observation on each side. `always` checks printed
+configurations; `stays` also reads the previous step. `after "a"` checks a successful
+handler-only input and its following `land`, from before the input through the
+landing. Extra commits on the input, commits other than `then` or `queue` on the
+landing, or an omitted-commit marker make the pair counted only. `after clock`
+checks `clock +N` and standalone `land` steps over all commits. Every changed root
+slot counts in a frame, including a queued mutation's slot. `never refuses` reads
+commit attribution, not the aggregate outcome. A poisoned step has no configuration
+and is counted only. Every line reports checks, counted-only steps and violations;
+an action never attempted is not exercised. A false property fails verify; if it
+holds on only one evaluator, it is also a divergence. These are observed-step
+checks under the seeded oracle, not proofs or device checks.
+
+Suggestions print D1 blocks; they never edit test files. They use all observed runner
+scripts, including shrink candidates and confirmation replays. The receipt's script,
+step and property denominators count the search scripts once; shrink work is separate.
+Frames require at least two eligible input/landing pairs or clock advances and include
+changed queue slots. Sets, whole numbers, options and stays use the same cone as
+authored properties. Existing predicates are compared by scope and line, ignoring names.
+
+The receipt records SHA-256 of the entry source, test files concatenated in filename
+order, and `contract::lean::lean_path(file, "app")`, plus the exact2 commit. It ends with
+the world and semantics boundaries. `never reached` names rendered test targets' actions
+that no walk attempted; declared actions and committed actions use the full plan.
+The receipt is the last output, so its command and seed can be kept with the app diary.
+
+Corpus properties live in `<program>.test.contract` beside the program. The corpus
+loads these sidecars as tests rather than programs; a sidecar without scripts uses
+the explore script. A program may declare the test-only comment
+`// # expect property false "name"`: corpus and quick require that named property to
+be falsified on both observations, and still compare the observations normally.
+`// # expect property refused "reason fragment"` requires the cone check to refuse
+before a script runs. These comments never exempt an app from verify. Unexpected
+violations, missing expected violations and missing expected refusals fail the corpus.
+
+The refusal census classifies every failed outcome and commit line as
+`world`, `limit`, `poisoned`, `cycle`, `value`, `app`, `type`, or
+`unclassified`. Those counts include both the aggregate outcome and its
+commit line; findings use the refusing commit's line, without attributing
+due work to the event. A boot or curried-expression refusal has no commit line.
+At slot initializers and writes, derives and ordinary action arguments, a value
+that fails `typed` is class `type` and fails verification; one that is typed but
+fails `conforms` is non-finite, class `value`. Hidden `@` parameters use `typed`
+alone. VM `Trap::Arity` is `type`; host-payload `RunnerError::Arity` is `world`.
+Coverage names actions committed and never run, clock actions fired against
+the declared tasks, steps with multiple commits, and poisoned steps.
+
+A divergence
 names the step where the two first differ and the line of the test that
 step comes from, where the element it tapped is declared, and the slot,
 derive or element whose line differs:
@@ -232,13 +424,21 @@ The web build's JS target (`host/web-js`, LLP 1071) is a second
 implementation of Contract: the plan compiled ahead to one ES module over a
 small runtime. `--js` on `corpus`, `explore` and `random` checks every case
 a third way, against the runner (`difftest/src/js.rs`); `--js-only` skips
-the semantics (no Lean needed).
+the semantics (no Lean needed). The JS module exposes no commit trace, so
+`js.rs` strips `ran` lines from both observations before comparing them;
+this checks the step's outcome and configuration, without commit attribution.
 
 ```
 cargo run -p contract-difftest -- corpus --js
 cargo run -p contract-difftest -- explore contract/corpus apps/*/app.contract --js-only
 cargo run -p contract-difftest -- random --seed 7 --count 2000 --js-only
+cargo run -p contract-difftest -- verify --js apps/typetour/app.contract
 ```
+
+These commands build `exact-web-js` locally with `cargo build -p exact-web-js`.
+The driver needs the repository's pinned Bun and installed dependencies; it
+downloads nothing. A build or driver failure fails verification and is named in
+the receipt.
 
 `difftest/js/drive.mjs` is the headless driver. Each case's program is
 compiled by `exact-web-js` (the build's compiler), bundled with the runtime
@@ -248,8 +448,10 @@ and run under Bun in a fresh VM context over the render DOM
 tabs use the live runtime's deferred construction. It omits virtualized
 descendants by the collection attached to the element, including a list
 whose role is `tabpanel`. Its sources answer synchronously from the
-runner's oracle transcript, as the runner's do; the host's reserved sources
-(viewport, page, time…) answer what the runner answered at boot. A call the
+runner's oracle transcript, as the runner's do; resources whose boot
+answers bypassed the oracle become host facts (except transport and MIDI,
+which remain outside the model). Their sources answer what the runner
+answered at boot. A call the
 runner never made is noted (`# js: the oracle has no answer…`) and shows as
 the refusal it causes. It prints `Contract.Observe`'s format from the
 module's own state (names.js) and the DOM: a `testId`'s text is a text's,
@@ -258,6 +460,8 @@ A tap goes to the element's `press` listener and a `type` to its `change`;
 an element without one is refused, as the runner refuses (NoHandler), and so
 is a value a browser could not deliver (a select's unknown or disabled
 option, a checkbox's text, a date outside HTML's format or its bounds).
+A press on a disabled control is outside the JS comparison: the runner's
+direct dispatch delivers it, while the browser's event handler declines it.
 
 The JS target's `sin` and `cos` are the browser's `Math.sin` and
 `Math.cos`, held to the runner's pinned libm by value, not by bits (LLP
@@ -644,10 +848,10 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
 - `render_good` (`RenderSound.lean`): a well-typed view (`NodesTy`)
   rendered in a well-typed environment and row store fails only
   legitimately (a non-finite row key or row slot initializer, an
-  expression's refusal), keeps every live row's slots of their types
-  (`StoreOK`), and records only handlers naming an existing action with
-  curried arguments typed, in the element's own scope, at most the
-  action's leading parameters (`VNodeOK`).
+  expression's refusal other than an attribute's), keeps every live row's
+  slots of their types (`StoreOK`), and records only handlers naming an
+  existing action with curried arguments typed, in the element's own
+  scope, at most the action's leading parameters (`VNodeOK`).
 - `reachable_configOK` (`StepSound.lean`): every configuration a
   well-typed program reaches is `ConfigOK` — root slots present and of
   their types, settled values of theirs, live rows' slots of theirs, every
@@ -722,7 +926,7 @@ fire in order of due time, ties by declaration order. A mutation's `then`
 is armed, due at the commit's time, by every commit that stood in which a
 send into the mutation was answered (here every answer is synchronous,
 `armThens`; arming again moves the due time); it runs as its own commit
-at the next advance, before any timer due at or after its time, ties by
+at the next advance or `land`, before any timer due at or after its time, ties by
 the mutations' order. A frame task is the runner's virtual display while
 the host presents no frames (the harness never does): due at
 `virtualFrame 0 k = k·1000/60` for k = 1, 2, …; presented frames
@@ -863,15 +1067,21 @@ has no reload.
 Presentation attributes are carried in the embedding but not evaluated,
 except the six attributes tab selection reads (`role`, `id`,
 `navigationKey`, `navigationBack`, `aria-controls`, `aria-selected`).
-Only a `text`'s text and an element's `testId` are observed, and nothing
-inside a virtualized `list`: the runner builds only the rows its window lays
-out, which is layout, so both sides leave a virtualized list's descendants
-out of the observation (the list's own line stays). The
-runner's evaluation bounds (list steps, string length, value size and depth)
-are a refinement the semantics doesn't model (LLP 1090 D8): a step the runner
-refuses for one (`IterationLimit`, `StringTooLong` as a trap or an argument's
-or write's refusal, `ValueTooLarge`, `ValueTooDeep`) is `UNSUPPORTED`, outside
-the semantics, not a divergence. The web's JS target refuses the same steps
+An attribute whose expression is refused (other than for fuel) has no
+value and the render goes on (`unsetRefused`), as the runner unsets a prop
+or style binding that traps (LLP 1017.003 D3); a refused subject, key or
+row initializer still fails the render. Only a `text`'s text and an
+element's `testId` are observed, and nothing inside a virtualized `list`:
+the runner builds only the rows its window lays out, which is layout, so
+both sides leave a virtualized list's descendants out of the observation
+(the list's own line stays). The runner's evaluation bounds (list steps,
+string length, value size and depth) are a refinement the semantics
+doesn't model (LLP 1090 D8): a step the runner refuses for one
+(`IterationLimit`, `StringTooLong` as a trap or an argument's or write's
+refusal, `ValueTooLarge`, `ValueTooDeep`) is `UNSUPPORTED`, outside the
+semantics, not a divergence, and so is a step after the runner unset a
+binding for one (its journal line is a `#` note in the runner's
+observation). The web's JS target refuses the same steps
 (`host/web-js/conform.mjs`). The checker's two type refusals that bound a value
 (`type-option-option`, `type-too-deep`) are in `Contract.check` too
 (`checkBounds`, and where `infer` grows a type: `some`, `map`, the roster).

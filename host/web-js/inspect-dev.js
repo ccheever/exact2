@@ -254,7 +254,7 @@ function impliedRow(t, el, name, lv) {
 }
 
 const bytes = (value) => new TextEncoder().encode(JSON.stringify(value)).length;
-async function selectedReport(el, click = null) {
+async function selectedReport(el, click = null, moved = null) {
   const x = globalThis.exact;
   // Under the facts it began under: a live batch while it read (a design
   // snapshot, the table) reads again, so the rows are that design's.
@@ -267,7 +267,7 @@ async function selectedReport(el, click = null) {
   }
   if (node.error) return { kind: "unsupported", what: "inspect", detail: node.error };
   const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: facts.plan, design: facts.design, revision: facts.revision });
-  let selected = { node: viewOf(el), type: node.type, testId: node.testId, site: node.site, instance: node.instance, planDigest: x?.plan ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style).map(([name, row]) => ({ name, ...row })), held: globalThis.exact?.heldOf?.(el)?.held ?? null, trimmed: false };
+  let selected = { node: viewOf(el), type: node.type, testId: node.testId, site: node.site, instance: node.instance, planDigest: x?.plan ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style).map(([name, row]) => ({ name, ...row })), held: globalThis.exact?.heldOf?.(el)?.held ?? null, trimmed: false, ...(moved ? { moved } : {}) };
   // (The held node, named by this runtime's ids, where the glue could not number it.)
   if (selected.held && selected.held.node == null && selected.held.el) selected.held.node = viewOf(selected.held.el);
   if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, fromSite, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, fromSite, token })), trimmed: true };
@@ -280,10 +280,10 @@ async function selectedReport(el, click = null) {
 // names: that one scrolls nothing. A selection is its element in a page: a
 // refresh after a reload finds it again by its site and instance path.
 let clicks = 0, asks = 0;
-async function select(el, clicked = false, click = null) {
+async function select(el, clicked = false, click = null, moved = null) {
   const seq = inspecting.seq, ask = ++asks;
   if (clicked) click = `${inspecting.session ??= crypto.getRandomValues(new Uint32Array(2)).join("")}.${++clicks}`;
-  const r = await selectedReport(el, click);
+  const r = await selectedReport(el, click, moved);
   // Left, another command came, or a later click or refresh: not published.
   if (!inspecting.on || inspecting.seq !== seq || ask !== asks) return;
   if (r.kind === "selected") {
@@ -294,25 +294,53 @@ async function select(el, clicked = false, click = null) {
   }
   env.report(r);
 }
-// `inspect` `{select: {up, levels, plan, from, instance}}` (tamber/1.16): the selection moves up its call sites, as a click on
-// the node it lands on would select it. `levels` are the plan sites of each enclosing copy that owns a node, nearest
-// first (past the outermost call, the app's own), by the server's map for the selection at site `from` (instance path `instance`) under `plan`:
-// it lands in the first level with a node above the selection, on the outermost there, by this page's own tree.
-async function selectUp({ levels, plan, from, instance }) {
-  const el = inspecting.selected?.el;
-  // (No selection here to move, or none above it of that copy: staleness, not inability; its selection as it is.)
-  if (!inspecting.on || !el?.isConnected || !Array.isArray(levels)) { await refresh(); return; }
-  // (Only the selection, its instance and the plan the server took its sites from. One that moved since on its way
-  // here is no inability (theme2 15:02): the page reports its selection as it is now, and the tool's chain follows.)
-  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
-  // The first level with a node above the selection, by this page's tree; in it, the outermost.
-  for (const level of levels) {
-    const want = new Set(level);
-    let found = null;
-    for (let at = above(el); at; at = above(at)) if (want.has(siteOf(at))) found = at;
-    if (found) { await select(found); return; }
+// `inspect` `{select: {up, plan, from, instance}}` (tamber/1.16; 1.17 by this page's own tree): the selection moves up
+// `up` copies, as a click on the node it lands on would select it, reported with `moved: {up, stepped}`. Walking up from
+// the selection, its own copy seen, each ancestor of a copy not yet seen is one step (a slot's host among them, a
+// component that only renders another none); at step `up` it lands on that copy's outermost ancestor; with fewer, on
+// the root (the outermost node with a site). Each site's copy is the plan's `copies`, sent with inspect mode on, once
+// per plan; with none for `plan`, or a selection that moved since, it reports its selection as it is now.
+let copiesHeld = { plan: null, list: null };
+function decodeCopies(text) {
+  if (typeof text !== "string" || !text.startsWith("r1:")) return null;
+  // (Bounded: a varint of at most 4 bytes, 2^20 sites in all, whole pairs; anything else is no copies.)
+  let bytes;
+  try { bytes = Uint8Array.from(atob(text.slice(3)), (c) => c.charCodeAt(0)); } catch { return null; }
+  const values = [];
+  for (let i = 0, v = 0, scale = 1; i < bytes.length; i++) {
+    v += (bytes[i] & 127) * scale;
+    if (!(bytes[i] & 128)) { values.push(v); v = 0; scale = 1; } else if ((scale *= 128) > 128 ** 3) return null;
+    if (i === bytes.length - 1 && bytes[i] & 128) return null;
   }
-  await refresh();
+  if (values.length % 2) return null;
+  let sites = 0;
+  for (let i = 1; i < values.length; i += 2) if ((sites += values[i]) > 1 << 20) return null;
+  const out = new Array(sites);
+  for (let i = 0, at = 0; i < values.length; i += 2) out.fill(values[i], at, (at += values[i + 1]));
+  return out;
+}
+async function selectUp({ up, plan, from, instance }) {
+  const el = inspecting.selected?.el;
+  if (!inspecting.on || !el?.isConnected || !Number.isSafeInteger(up)) { await refresh(); return; }
+  // (Only the selection, its instance and the plan the server took them from. One that moved since on its way here is
+  // no inability (theme2 15:02): the page reports its selection as it is now, and the tool's chain follows.)
+  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
+  const copies = copiesHeld.plan === plan ? copiesHeld.list : null;
+  if (!copies) { await refresh(); return; }
+  // (null: a node with no site, passed over; undefined: a site past these copies, which are not this tree's: stale.)
+  const copyOf = (at) => { const site = siteOf(at); return site == null ? null : copies[site]; };
+  if (copyOf(el) == null) { await refresh(); return; }
+  const seen = new Set([copyOf(el)]);
+  let stepped = 0, target, landing = null, root = null;
+  for (let at = above(el); at; at = above(at)) {
+    const copy = copyOf(at);
+    if (copy === null) continue;
+    if (copy === undefined) { await refresh(); return; }
+    root = at;
+    if (target === undefined && !seen.has(copy)) { seen.add(copy); if (++stepped === up) target = copy; }
+    if (target !== undefined && copy === target) landing = at;
+  }
+  await select(landing ?? root ?? el, false, null, { up, stepped });
 }
 async function refresh() {
   const was = inspecting.selected;
@@ -463,7 +491,17 @@ function outlineSites(frame) {
   unmark(true);
   const wanted = new Set(frame.sites.map(String));
   const found = [...document.querySelectorAll("[data-site]")].filter((el) => wanted.has(el.dataset.site) && !el.closest("[data-exiting]"));
-  if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) found[0]?.scrollIntoView({ block: "nearest" });
+  // The outline answering a click here scrolls nothing. Any other brings in the selection's own copy when this page
+  // holds the selection there (its plan, its site outlined, its element known), and nothing when that copy shows
+  // nowhere, never another copy of it (Apple pass #2: a move scrolled to a copy rows away); else (the tool's
+  // Outline, or a selection kept across a reload, its element unknown) the first. As host/web/dev.js and the Apple
+  // hosts' Inspect.revealing.
+  // (shown: rendered and not `visibility: hidden`, whose box would still take a scroll; Astra's round 1)
+  const shown = (el) => el.isConnected && (el.checkVisibility?.({ visibilityProperty: true }) ?? true);
+  const was = inspecting.selected;
+  const holds = was?.el && was.plan === frame.plan && wanted.has(String(was.site));
+  const chosen = holds ? (found.includes(was.el) && shown(was.el) ? was.el : null) : found.find(shown);
+  if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) chosen?.scrollIntoView({ block: "nearest" });
   for (const el of found) {
     const mark = document.createElement("div");
     mark.dataset.exactOutline = "";
@@ -567,6 +605,8 @@ async function holdNow(m) {
 
 export async function frame(m) {
   if (m.kind === "outline") { outlineSites(m); return; }
+  if (m.copies) copiesHeld = { plan: m.copies.plan ?? null, list: decodeCopies(m.copies.data) };
+  if (m.copies && !("on" in m) && !m.select && !m.refresh) return; // (copies alone: kept, inspect mode as it is)
   if (m.select) { await selectUp(m.select); return; }
   if (m.kind === "hold") { await hold(m); return; }
   if (m.refresh) { if (m.status) await env.status(); await refresh(); return; }

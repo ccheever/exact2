@@ -18,12 +18,15 @@ mod deps;
 mod document;
 mod find;
 mod foresee;
+mod keys;
 pub mod looks;
 mod rare;
 mod region;
 pub mod tabs;
 mod text;
 pub mod theme;
+mod trapped;
+use trapped::Evaluated;
 
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
@@ -34,6 +37,8 @@ pub use document::{DocNode, DocTree, DocTreeError};
 use exact_kernel::{Kernel, NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
 pub use foresee::Mount;
+pub(crate) use keys::key_text;
+use keys::{disambiguate, ident, key_text_into, repeated};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -44,12 +49,7 @@ use std::rc::Rc;
 /// refuses virtualized lists when this table is absent.
 pub struct ListLinks {
     create: CreateList,
-    update: fn(
-        &mut collection::Collection,
-        &mut Update<'_>,
-        &[Frame],
-        bool,
-    ) -> Result<(), InstanceError>,
+    update: UpdateList,
     typography: ListTypography,
     pub(crate) collections_json: fn(&Tree) -> String,
     /// `scrollIntoView` (LLP 1070.000): a request begun on its list.
@@ -61,6 +61,8 @@ pub struct ListLinks {
     pub(crate) into_view_json: fn(&Tree) -> String,
     /// `state.kept`: inner lists' kept positions (LLP 1070 §4.2).
     pub(crate) kept_json: fn(&Tree) -> String,
+    /// What the platform covers of a list's port, where no row is aligned.
+    pub(crate) covered: fn(&mut Tree, ViewId, [f64; 2]) -> bool,
 }
 
 type IntoViewLink = fn(
@@ -79,6 +81,15 @@ type CreateList = fn(
     ViewId,
     &[Frame],
 ) -> Result<Option<Box<collection::Collection>>, InstanceError>;
+/// A list's data update, given whether it follows its end and its
+/// `keep-mounted` value.
+type UpdateList = fn(
+    &mut collection::Collection,
+    &mut Update<'_>,
+    &[Frame],
+    bool,
+    Option<&Value>,
+) -> Result<(), InstanceError>;
 type ListTypography = fn(&mut [Child], &mut Update<'_>, &[Frame]) -> Result<(), InstanceError>;
 
 /// The list engine.
@@ -92,6 +103,7 @@ pub static LISTS: ListLinks = ListLinks {
     into_view_json: Tree::into_view_json,
     scroll_anchor: Tree::collection_scroll_anchor,
     kept_json: Tree::kept_positions_json,
+    covered: Tree::set_list_covered,
 };
 
 /// A list engine's state where the plan has no way to reach it: admission
@@ -102,36 +114,8 @@ fn unlinked() -> InstanceError {
     )
 }
 
-/// Why an instance could not be realized.
-#[allow(missing_docs)]
-#[derive(Debug, Clone, PartialEq)]
-pub enum InstanceError {
-    Trap(Trap),
-    Bridge(bridge::BridgeError),
-    UnknownNodeType(u8),
-    List(&'static str),
-    SubjectKind {
-        region: RegionsId,
-    },
-    KeyKind {
-        region: RegionsId,
-    },
-    DuplicateKey {
-        region: RegionsId,
-    },
-    SlotType {
-        slot: String,
-    },
-    Collection(String),
-    /// Host geometry rejected before changing any collection or kernel state.
-    InvalidCollectionFeedback,
-}
-
-impl From<Trap> for InstanceError {
-    fn from(t: Trap) -> Self {
-        InstanceError::Trap(t)
-    }
-}
+mod errors;
+pub use errors::InstanceError;
 
 /// One realized node.
 #[derive(Debug)]
@@ -972,23 +956,39 @@ impl NodeInst {
             let binding = plan.binding(b);
             let reads = &deps.bindings[b.0 as usize];
             let evaluated = u.work.bindings_evaluated;
+            // A constant's value is the one it was created with.
+            let slot = (!reads.is_constant()).then(|| Self::slot(u.sites, &row, i));
             let value = if reads.is_constant() {
                 let known = u.sites.constants.borrow().get(&b.0).cloned();
                 match known {
-                    Some(value) => value,
+                    Some(value) => Evaluated::Value(value),
                     None => {
                         u.work.bindings_evaluated += 1;
-                        let value = u.eval_binding(b, binding.expr, frames)?;
-                        u.sites.constants.borrow_mut().insert(b.0, value.clone());
+                        let value = self.eval_row(u, b, frames)?;
+                        if let Evaluated::Value(value) = &value {
+                            u.sites.constants.borrow_mut().insert(b.0, value.clone());
+                        }
                         value
                     }
                 }
             } else {
                 u.work.bindings_evaluated += 1;
-                u.eval_binding(b, binding.expr, frames)?
+                self.eval_row(u, b, frames)?
             };
-            // A constant's value is the one it was created with.
-            let slot = (!reads.is_constant()).then(|| Self::slot(u.sites, &row, i));
+            // A trap unsets the row (`trapped`); the next value is new.
+            let value = match value {
+                Evaluated::Value(value) => value,
+                Evaluated::Trapped { first } => {
+                    u.ids.evaluated(self.node, !first);
+                    if let Some(slot) = slot {
+                        self.last[slot] = None;
+                    }
+                    if first && !u.discard {
+                        self.unset_trapped(u, i, &binding);
+                    }
+                    continue;
+                }
+            };
             let unchanged = match slot {
                 None => !fresh,
                 Some(slot) => self.last[slot]
@@ -1022,16 +1022,25 @@ impl NodeInst {
             // view would then depend on history, not state. Unknown rows are plan defects.
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
-                    Ok((prop, pv)) => u.ops.push(Op::SetProp {
-                        value: bridge::icon_source(plan, prop, pv),
-                        id: self.view,
-                        prop,
-                    }),
+                    Ok((prop, pv)) => {
+                        let id = self.view;
+                        let pv = bridge::icon_source(plan, prop, pv);
+                        let value = match prop {
+                            exact_kernel::PropId::AtomFaces => self.faces(u, i, pv),
+                            _ => Some(pv),
+                        };
+                        if let Some(value) = value {
+                            u.ops.push(Op::SetProp { value, id, prop })
+                        }
+                    }
                     Err(
                         e @ (bridge::BridgeError::PropKind { prop, .. }
                         | bridge::BridgeError::Unset(prop)),
                     ) => {
                         let id = self.view;
+                        if prop == exact_kernel::PropId::AtomFaces {
+                            self.unthemed_faces(u, i);
+                        }
                         u.ops.push(Op::ClearProp { id, prop });
                         if matches!(e, bridge::BridgeError::PropKind { .. }) {
                             u.notes.push(invalid(id, prop.name(), &value));
@@ -1222,12 +1231,21 @@ impl NodeInst {
                         && b.id == exact_kernel::PropId::ScrollFollowEnd as u16
                 })
                 .is_some_and(|i| self.emitted(plan, u.sites, i) == Some(Value::Bool(true)));
+        let keep = self
+            .collection()
+            .and_then(|_| self.bound_prop(plan, u.sites, exact_kernel::PropId::KeepMounted));
         if let Some(collection) = self.collection_mut() {
             collection.around = theme::Around {
                 retheme: false,
                 ..u.theme.clone()
             };
-            (u.env.lists.ok_or_else(unlinked)?.update)(collection, u, frames, follow)?;
+            (u.env.lists.ok_or_else(unlinked)?.update)(
+                collection,
+                u,
+                frames,
+                follow,
+                keep.as_ref(),
+            )?;
         } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);
         }
@@ -1237,6 +1255,7 @@ impl NodeInst {
     fn destroy(self, u: &mut Update<'_>) {
         // Destroying the view destroys its subtree in the kernel; the instance
         // tree just drops.
+        collection::work::retire_node(u, &self);
         u.ops.push(Op::DestroyView { id: self.view });
     }
 }
@@ -1248,51 +1267,11 @@ fn invalid(view: ViewId, row: &str, value: &Value) -> String {
     format!("view {view}: invalid {row} value {shown}; unset")
 }
 
-/// A row's identity: its key's canonical text, or for the `dup`th repeat
-/// of that key, `d{dup}:` before it — never a canonical text, which starts
-/// `s:`, `n:` or `b:`.
-fn ident(key: &Value, dup: u32) -> Option<String> {
-    key_text(key).map(|text| disambiguate(text, dup))
-}
-
-fn disambiguate(text: String, dup: u32) -> String {
-    if dup == 0 {
-        text
-    } else {
-        format!("d{dup}:{text}")
-    }
-}
-
-/// The journal line for a repeated key's row.
-fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
-    let mut shown = String::new();
-    crate::agent::untyped_json(key, &mut shown);
-    format!(
-        "list {}: key {shown} repeats; this row is {ident}",
-        region.0
-    )
-}
-
-/// One canonical key text: strings, finite numbers (`-0` is `0`, matching the
-/// VM's equality), bools. NaN is not a key.
-pub(crate) fn key_text(v: &Value) -> Option<String> {
-    let mut text = String::new();
-    key_text_into(v, &mut text).then_some(text)
-}
-
-/// [`key_text`] appended to `out`; whether `v` is a key.
-fn key_text_into(v: &Value, out: &mut String) -> bool {
-    match v {
-        v @ exact_plan::str_value!() => exact_num::push_text!(out, "s:{}", v.text()),
-        Value::Number(n) if n.is_finite() => exact_num::push_text!(
-            out,
-            "n:{}",
-            exact_num::Shortest(if *n == 0.0 { 0.0 } else { *n })
-        ),
-        Value::Bool(b) => exact_num::push_text!(out, "b:{}", b),
-        _ => return false,
-    }
-    true
+/// A face's colour that is no colour (LLP 1045.000 D2), as written; `then`
+/// says what is drawn instead.
+pub(crate) fn invalid_face(view: ViewId, text: String, then: &str) -> String {
+    let shown = serde_json::Value::String(text);
+    format!("view {view}: invalid atomFaces colour {shown}; {then}")
 }
 
 /// The root of the instance tree: the plan's top-level sites.

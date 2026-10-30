@@ -45,6 +45,12 @@
     }
   },
   "hatches": [
-    "sticky-limit"
+    "sticky-limit",
+    "hdr-probe",
+    "hdr-reference"
+  ],
+  "data": [
+    "kind",
+    "limit"
   ]
 }

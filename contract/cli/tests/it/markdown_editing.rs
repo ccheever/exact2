@@ -1,5 +1,5 @@
 //! A real editor compiles its toolbar commands and receives a typed selection record.
-use exact_kernel::Kernel;
+use exact_kernel::{Kernel, PropId};
 use exact_plan::{EventKind, Plan, Value};
 use exact_runner::{DataError, DataSource, Event, Runner};
 
@@ -213,4 +213,100 @@ fn the_editors_text_events_carry_the_source_selection() {
     ))
     .unwrap_err();
     assert!(error.id.contains("handler"), "{error}");
+}
+
+/// `paragraphDirs` is the editor's (LLP 1045 D11): HTML's `dir` words, one
+/// per source line, reach its node and follow a bound value. Another word, a
+/// `string[]`, a literal of more than one word and any other node are refused.
+#[test]
+fn paragraph_dirs_reach_the_editor_and_are_refused_elsewhere() {
+    let source = r#"component App
+  state dirs = "ltr rtl"
+  action flip
+    dirs = "rtl"
+  view
+    column
+      textarea testId="editor" value="" markup="markdown" paragraphDirs=dirs
+      textarea testId="fixed" value="" markup="markdown" paragraphDirs="auto"
+      button testId="flip" press=flip
+        text "Flip"
+"#;
+    let plan = Plan::decode(&contract::compile(source).unwrap().encode()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let dirs = |r: &Runner<NoData>, name| {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id(name)[0]).unwrap();
+        (
+            node.id,
+            node.props.str(PropId::ParagraphDirs).map(str::to_owned),
+        )
+    };
+    assert_eq!(dirs(&r, "editor").1.as_deref(), Some("ltr rtl"));
+    assert_eq!(dirs(&r, "fixed").1.as_deref(), Some("auto"));
+    r.dispatch(dirs(&r, "flip").0, Event::Press).unwrap();
+    assert_eq!(dirs(&r, "editor").1.as_deref(), Some("rtl"));
+    let field = |tag: &str| {
+        format!(
+            "component App\n  state dirs = [\"rtl\"]\n  view\n    {tag} paragraphDirs=\"rtl\"\n"
+        )
+    };
+    for (source, code) in [
+        (field("textarea value=\"\""), "lower-paragraph-dirs-field"),
+        (
+            field("textarea value=\"\" markup=\"none\""),
+            "lower-paragraph-dirs-field",
+        ),
+        (
+            field("text \"a\" markup=\"markdown\""),
+            "lower-paragraph-dirs-field",
+        ),
+        (
+            field("textarea value=\"\" markup=\"markdown\"")
+                .replace("\"rtl\"\n", "\"rtl right\"\n"),
+            "lower-attr-value",
+        ),
+        (
+            field("textarea value=\"\" markup=\"markdown\"").replace("=\"rtl\"\n", "=dirs\n"),
+            "lower-attr-type",
+        ),
+        // A literal never sends new words: a list of them is bound.
+        (
+            field("textarea value=\"\" markup=\"markdown\"").replace("\"rtl\"\n", "\"ltr rtl\"\n"),
+            "lower-paragraph-dirs-literal",
+        ),
+    ] {
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, code, "{source}\n{error}");
+    }
+    let error = contract::compile(
+        &field("textarea value=\"\" markup=\"markdown\"").replace("\"rtl\"\n", "\"ltr rtl\"\n"),
+    )
+    .unwrap_err();
+    assert!(error.message.contains("paragraphDirs=dirs"), "{error}");
+    // A template whose parts are all literal is a literal too.
+    for (words, code) in [
+        ("`ltr rtl`", "lower-paragraph-dirs-literal"),
+        ("`ltr bogus`", "lower-attr-value"),
+        ("`ltr ${\"rtl\"}`", "lower-paragraph-dirs-literal"),
+    ] {
+        let source = field("textarea value=\"\" markup=\"markdown\"")
+            .replace("\"rtl\"\n", &format!("{words}\n"));
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, code, "{source}\n{error}");
+    }
+    // Through a component's prop, the error is at the caller's literal.
+    let source = "component App\n  view\n    Composer(dirs=\"ltr rtl\")\ncomponent Composer\n  props\n    dirs: string\n  view\n    textarea value=\"\" markup=\"markdown\" paragraphDirs=dirs\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.span.line, error.span.col),
+        ("lower-paragraph-dirs-literal", 3, 19),
+        "{error}"
+    );
 }

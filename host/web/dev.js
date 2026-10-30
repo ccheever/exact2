@@ -628,7 +628,7 @@ if (es) {
   // digests and pin revision the build runs; trimmed to the report's room
   // (counted in bytes, as the server does), and said so; refused, named, if
   // even the node's identity does not fit.
-  const selectedReport = async (id, click = null) => {
+  const selectedReport = async (id, click = null, moved = null) => {
     const x = globalThis.exact;
     await x.ready;
     if (x.stages?.()?.inspection === "staged") return { kind: "unsupported", what: "inspect", detail: "this build's inspection stage is not loaded" };
@@ -638,7 +638,7 @@ if (es) {
     // (Under the inspect command it was made in: one replaced since is refused.)
     // (And a click's token, which the outline answering it names.)
     const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: channel.plan, design, revision: channel.revision });
-    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), held: x.heldOf?.(x.views?.get(id), ask)?.held ?? null, trimmed: false };
+    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), held: x.heldOf?.(x.views?.get(id), ask)?.held ?? null, trimmed: false, ...(moved ? { moved } : {}) };
     if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, fromSite, token }) => ({ name, value, source, from, fromSite, token })), trimmed: true };
     while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
     if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
@@ -655,10 +655,10 @@ if (es) {
   // starts) and a counter, so any click of the session is known, however
   // many are on their way.
   let clicks = 0;
-  const select = async (id, clicked = false, click = null) => {
+  const select = async (id, clicked = false, click = null, moved = null) => {
     const seq = inspecting.seq;
     if (clicked) click = `${inspecting.session ??= crypto.getRandomValues(new Uint32Array(2)).join("")}.${++clicks}`;
-    const report_ = await selectedReport(id, click);
+    const report_ = await selectedReport(id, click, moved);
     // Left (or another command came) meanwhile: not published.
     if (!inspecting.on || inspecting.seq !== seq) return;
     if (report_.kind === "selected") inspecting.selected = { id, click, generation: globalThis.exact.generation, plan: report_.selected.planDigest, site: report_.selected.site, instance: JSON.stringify(report_.selected.instance) };
@@ -816,9 +816,18 @@ if (es) {
     const wanted = new Set(frame.sites);
     const found = views.sites.filter(([, site]) => wanted.has(site)).map(([id]) => globalThis.exact.views?.get(id)).filter((el) => el?.isConnected);
     // The outline answering a click here (its token) scrolls nothing: that
-    // copy is (or was) under the pointer. Any other (the tool's Outline)
-    // brings the first in.
-    if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) found[0]?.scrollIntoView({ block: "nearest" });
+    // copy is (or was) under the pointer. Any other brings in the
+    // selection's own copy when this page holds the selection there (that
+    // plan and generation, its site outlined), and nothing when that copy
+    // shows nowhere, never another copy of it (Apple pass #2: a move
+    // scrolled to a copy rows away); else (the tool's Outline) the first.
+    // As the Apple hosts' Inspect.revealing.
+    // (shown: rendered and not `visibility: hidden`, whose box would still take a scroll; Astra's round 1)
+    const shown = (el) => el?.isConnected && (el.checkVisibility?.({ visibilityProperty: true }) ?? true);
+    const was = inspecting.selected;
+    const holds = was && was.plan === frame.plan && was.generation === globalThis.exact.generation && wanted.has(was.site);
+    const chosen = holds ? (views.sites.some(([id, site]) => id === was.id && wanted.has(site)) ? globalThis.exact.views?.get(was.id) : null) : found.find(shown);
+    if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`)) && shown(chosen)) chosen.scrollIntoView({ block: "nearest" });
     for (const el of found) {
       const mark = document.createElement("div");
       mark.dataset.exactOutline = "";
@@ -910,28 +919,56 @@ if (es) {
     if (r.reason) end(revision, at.epoch);
     report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
   };
-  // `{select: {up, levels, plan, from, instance}}` (tamber/1.16): the selection moves up its call sites, as a click on the node
-  // it lands on would; it lands in the first of `levels` (each enclosing copy's plan sites, nearest first, by the
-  // server's map for the selection at `from`, instance path `instance`, under `plan`) with a node above the selection, on the outermost there.
-  const selectUp = async ({ levels, plan, from, instance }) => {
-    const id = inspecting.selected?.id;
-    // (No selection here to move, or none above it of that copy: staleness, not inability; its selection as it is.)
-    if (!inspecting.on || id == null || !Array.isArray(levels)) { await refresh(); return; }
-    // (Only the selection, its instance, generation and plan the server took its sites from. One that moved since on
-    // its way here is no inability (theme2 15:02): the page reports its selection as it is now, and the tool follows.)
-    if (inspecting.selected.generation !== globalThis.exact.generation || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
-    // Its ancestors and their sites, in one read with no node's rows (the runner's `ancestors`), the selection itself
-    // left out; the first level with one of them, and in it the outermost.
-    const above = (ask({ op: "ancestors", id }).ancestors ?? []).slice(1);
-    for (const level of levels) {
-      const want = new Set(level);
-      let found = null;
-      for (const [view, site] of above) if (want.has(site)) found = view;
-      if (found != null) { await select(found); return; }
+  // `{select: {up, plan, from, instance}}` (tamber/1.16; 1.17 by this page's own tree), as host/web-js/inspect-dev.js's
+  // `selectUp`: walking up from the selection, its own copy seen, each ancestor of a copy not yet seen is one step; at
+  // step `up` it lands on that copy's outermost ancestor, with fewer on the root, reported with `moved: {up, stepped}`.
+  // Each site's copy is the plan's `copies`, sent with inspect mode on, once per plan.
+  let copiesHeld = { plan: null, list: null };
+  const decodeCopies = (text) => {
+    if (typeof text !== "string" || !text.startsWith("r1:")) return null;
+    // (Bounded: a varint of at most 4 bytes, 2^20 sites in all, whole pairs; anything else is no copies.)
+    let bytes;
+    try { bytes = Uint8Array.from(atob(text.slice(3)), (c) => c.charCodeAt(0)); } catch { return null; }
+    const values = [];
+    for (let i = 0, v = 0, scale = 1; i < bytes.length; i++) {
+      v += (bytes[i] & 127) * scale;
+      if (!(bytes[i] & 128)) { values.push(v); v = 0; scale = 1; } else if ((scale *= 128) > 128 ** 3) return null;
+      if (i === bytes.length - 1 && bytes[i] & 128) return null;
     }
-    await refresh();
+    if (values.length % 2) return null;
+    let sites = 0;
+    for (let i = 1; i < values.length; i += 2) if ((sites += values[i]) > 1 << 20) return null;
+    const out = new Array(sites);
+    for (let i = 0, at = 0; i < values.length; i += 2) out.fill(values[i], at, (at += values[i + 1]));
+    return out;
+  };
+  const selectUp = async ({ up, plan, from, instance }) => {
+    const id = inspecting.selected?.id;
+    if (!inspecting.on || id == null || !Number.isSafeInteger(up)) { await refresh(); return; }
+    // (Only the selection, its instance, generation and plan the server took them from. One that moved since on its
+    // way here is no inability (theme2 15:02): the page reports its selection as it is now, and the tool follows.)
+    if (inspecting.selected.generation !== globalThis.exact.generation || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
+    const copies = copiesHeld.plan === plan ? copiesHeld.list : null;
+    if (!copies) { await refresh(); return; }
+    // Its ancestors and their sites, innermost first, in one read with no node's rows (the runner's `ancestors`).
+    const [self, ...above] = ask({ op: "ancestors", id }).ancestors ?? [];
+    // (A site past these copies: they are not this tree's, so stale; a node with no site is passed over.)
+    if (copies[self?.[1] ?? from] === undefined) { await refresh(); return; }
+    const seen = new Set([copies[self?.[1] ?? from]]);
+    let stepped = 0, target, landing = null, root = null;
+    for (const [view, site] of above) {
+      if (site == null) continue;
+      const copy = copies[site];
+      if (copy === undefined) { await refresh(); return; }
+      root = view;
+      if (target === undefined && !seen.has(copy)) { seen.add(copy); if (++stepped === up) target = copy; }
+      if (target !== undefined && copy === target) landing = view;
+    }
+    await select(landing ?? root ?? id, false, null, { up, stepped });
   };
   const inspect = async (frame) => {
+    if (frame.copies) copiesHeld = { plan: frame.copies.plan ?? null, list: decodeCopies(frame.copies.data) };
+    if (frame.copies && !("on" in frame) && !frame.select && !frame.refresh) return; // (copies alone: kept, inspect mode as it is)
     if (frame.select) { await selectUp(frame.select); return; }
     // `{refresh: true}`: the selection again, under the digests now.
     // (`status: true`: its status again first, one lost on the way.)
@@ -1011,7 +1048,7 @@ if (es) {
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {
         await globalThis.exact.ready;
-        const id = await buildId, answer = await post(nonce, { kind: "register", id, host: "web", capabilities: ["pin", "inspect", "hold", "navigate"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
+        const id = await buildId, answer = await post(nonce, { kind: "register", id, host: "web", capabilities: ["pin", "inspect", "copies", "hold", "navigate"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
         // A framed copy tells the page framing it which build it is (LLP
         // 1122 T7): the design tool maps the frame to its tile by this
         // message's source. The id grants nothing without the stream's nonce.

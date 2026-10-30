@@ -57,10 +57,12 @@ mod menus;
 mod metrics;
 pub mod motion;
 mod native;
+mod native_typed;
 mod nodes;
 mod overflow;
 pub mod params;
 mod popover_surface;
+mod root_names;
 mod routes;
 mod row_look;
 mod scale;
@@ -77,6 +79,7 @@ mod symbols;
 pub mod tags;
 mod theme;
 mod timers;
+mod tools;
 mod type_tokens;
 mod values;
 pub mod warning_rank;
@@ -92,6 +95,7 @@ pub use identity::compiler_identity;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
+pub use native_typed::{DeclaredView, DeclaredViews, EVENT_MARKER};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites, Written};
 pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
@@ -208,6 +212,12 @@ pub(crate) struct Lowerer<'a> {
     pub mutations: Vec<exact_plan::MutationsId>,
     /// Each mutation's `option<T>` slot, by mutation index.
     pub mutation_slots: Vec<exact_plan::SlotsId>,
+    /// The root's states (`Ok`) and mutations (`Err`) by name ([`root_names`]).
+    pub(crate) slot_names: std::collections::HashMap<&'a str, Result<usize, usize>>,
+    /// The root's actions by name, to the first declaration's index.
+    pub(crate) action_names: std::collections::HashMap<&'a str, usize>,
+    /// The root's mutations by name, to the first declaration's index.
+    pub(crate) mutation_names: std::collections::HashMap<&'a str, usize>,
     pub actions: Vec<exact_plan::ActionsId>,
     /// The file's `style` declarations, by name (LLP 1017 P6).
     pub styles: BTreeMap<String, Vec<Attr>>,
@@ -272,6 +282,9 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) row_depth: u8,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
+    /// The element whose children are being lowered, through any region arms between (an arm's root has no plan
+    /// parent): the node a site is placed under, as a page's tree has it (`NodeSite::parent`, stage 15 D3).
+    site_parent: Option<u32>,
     parent_bounded_column: bool,
     parent_horizontal_flex: Option<bool>,
     /// Where a native button may not be, from the nearest ancestor that says.
@@ -395,6 +408,9 @@ fn lower_with_sites(
         resources: Vec::new(),
         mutations: Vec::new(),
         mutation_slots: Vec::new(),
+        slot_names: root_names::slots(root),
+        action_names: root_names::first(root.actions.iter().map(|a| a.name.as_str())),
+        mutation_names: root_names::first(root.mutations.iter().map(|m| m.name.as_str())),
         actions: Vec::new(),
         styles: BTreeMap::new(),
         decorations: BTreeMap::new(),
@@ -413,6 +429,7 @@ fn lower_with_sites(
         element_children: false,
         row_depth: 0,
         parent_positioned: true,
+        site_parent: None,
         parent_bounded_column: false,
         parent_horizontal_flex: Some(false),
         button_context: None,
@@ -573,9 +590,12 @@ fn lower_body(
     // A used module's other names are there too, unread: its substitute reads
     // them (its status, the source a send answers from).
     let mut sources = root_types.sources.clone();
-    // An event the root hears uses its module too (LLP 1133.004 D6).
+    // An event the root hears uses its module too (LLP 1133.004 D6), and so
+    // does a name data code alone calls (LLP 1133.011 D12), which Contract
+    // never reads: a package of such names alone (`@exact/clipboard`, LLP
+    // 1133.006) is used once a `use` reads its declaration.
     let used: Vec<&str> = (file.modules.iter())
-        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some())
+        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some() || m.data_only)
         .map(|m| m.extension.as_str())
         .collect();
     // An `img` scheme is one package's (LLP 1133.019 D11 item 1).
@@ -762,14 +782,14 @@ fn lower_body(
             l.b.set_mutation_queue(l.mutations[i]);
         }
         if let Some((name, _)) = &m.then {
-            let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
+            let action = l.actions[l.action_names[name.as_str()]];
             l.b.set_mutation_then(l.mutations[i], action);
         }
     }
     // Each module event the root hears, and the action it runs (LLP 1133.004 D6).
     for m in &file.modules {
         let Some(name) = &m.handler else { continue };
-        let Some(i) = root.actions.iter().position(|a| &a.name == name) else {
+        let Some(&i) = l.action_names.get(name.as_str()) else {
             continue;
         };
         l.b.module_event(
@@ -781,6 +801,7 @@ fn lower_body(
             m.budget,
         );
     }
+    l.tools(file)?;
     l.timers(&root.tasks, &scope)?;
     l.sequences(&root.sequences, &scope)?;
     // The view, inlined (by `expand`, above).
@@ -1003,6 +1024,7 @@ impl<'a> Lowerer<'a> {
                     n => n,
                 };
                 let row_depth = std::mem::replace(&mut self.row_depth, below);
+                let site_parent = self.site_parent.replace(step.id.0);
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
@@ -1011,6 +1033,7 @@ impl<'a> Lowerer<'a> {
                     locals,
                     Some(step.tag),
                 );
+                self.site_parent = site_parent;
                 self.parent_horizontal_flex = parent_axis;
                 self.nav_place = nav_place;
                 self.row_depth = row_depth;
@@ -1124,20 +1147,16 @@ impl<'a> Lowerer<'a> {
         if a.name == "atomFaces" {
             return self.bind_atom_faces(a, scope, locals, bindings);
         }
+        if a.name == "keep-mounted" {
+            return self.bind_keep_mounted(a, scope, locals, bindings);
+        }
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
-        // @ref LLP 1021 §5.3 — stable menu ids, never localized titles.
-        if a.name == "-exact-menu"
-            && (tag != "button"
-                || !matches!(&a.value, Expr::Str(value, _) if matches!(value.as_str(),
-                    "about" | "app" | "file" | "edit" | "view" | "go" | "window" | "help" | "none")))
-        {
-            return err(
-                "lower-menu-placement",
-                "`-exact-menu` belongs to a button and takes a literal about, app, file, edit, view, go, window, help or none",
-                a.span,
-            );
+        // @ref LLP 1021 §5.3, LLP 1133.025 D11 item 4 — stable menu ids,
+        // never localized titles.
+        if a.name == "-exact-menu" {
+            menus::check_menu_placement(tag, a)?;
         }
         // HTML's global `title` on any element but `head`: advisory text, the
         // platform's tooltip (studio diary R24); `head`'s is the document's.

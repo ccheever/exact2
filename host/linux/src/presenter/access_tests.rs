@@ -9,8 +9,8 @@ use crate::fields::{FieldFace, FieldMetrics};
 use crate::presenter::top::SurfacePainter;
 use exact_runner::{DataError, Value};
 
-/// Shelf's data: a library of `0` books, no works, the clock; and for the
-/// list fixture, 400 rows.
+/// Shelf's data: a library of `0` books, no works, no book for an ISBN, the
+/// clock; and for the list fixture, 400 rows.
 struct Data(usize);
 impl DataSource for Data {
     fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -28,6 +28,7 @@ impl DataSource for Data {
                 Value::Number(0.0),
                 text(""),
                 text(""),
+                Value::Number(0.0),
             ])
         };
         match name {
@@ -42,6 +43,13 @@ impl DataSource for Data {
                 Value::Bool(true),
                 Value::str(""),
                 Value::list(Vec::new()),
+            ])),
+            "bookByIsbn" => Ok(Value::record(vec![
+                Value::str(""),
+                Value::Bool(false),
+                Value::str(""),
+                Value::str(""),
+                Value::Number(0.0),
             ])),
             "exactTime" => Ok(Value::record(vec![Value::Number(0.0)])),
             "rows" => Ok(Value::list(
@@ -809,4 +817,59 @@ fn a_host_whose_shell_never_asks_builds_nothing() {
         !p.access_act(port as i32, act::FORWARD, 0.0, 0.0),
         "no tree, no node"
     );
+}
+
+#[test]
+fn inline_controls_keep_their_labels_geometry_and_native_actions() {
+    let source = r#"component App
+  state presses: number = 0
+  action reveal
+    presses = presses + 1
+  view
+    column width=320 height=300
+      text testId="paragraph" font-size=16 white-space="pre-wrap"
+        text "Before "
+        text aria-label="Spoiler" press=reveal testId="spoiler"
+          text "secret "
+          text "details"
+        text " after"
+        text " omitted" aria-hidden=true
+      text testId="linked" font-size=16
+        text "Read "
+        text "the documentation" href="https://example.com/docs" testId="link"
+      text `Pressed ${presses}`
+"#;
+    let mut p = boot(source, (320., 300.), 0);
+    let nodes = statement(&mut p).nodes;
+    assert!(nodes
+        .iter()
+        .all(|n| !n.name.contains("secret") && !n.name.contains("omitted")));
+    named(&nodes, "Before Spoiler after");
+    let spoiler = named(&nodes, "Spoiler");
+    assert_eq!(spoiler.role, role::BUTTON);
+    assert_eq!(spoiler.flags & flag::CLICK, flag::CLICK);
+    let [x, y, w, h] = spoiler.rect;
+    assert!(w > 40.0 && h > 10.0);
+    let target = id(&p, "spoiler");
+    assert_eq!(p.hit(x + w / 2., y + h / 2.), Some(target));
+    p.pointer_down(x + w / 2., y + h / 2., 10.).unwrap();
+    p.pointer_up(x + w / 2., y + h / 2., 20.).unwrap();
+    settle(&mut p);
+    named(&read(&mut p), "Pressed 1");
+    assert!(p.access_act(spoiler.id, act::CLICK, 0., 30.));
+    settle(&mut p);
+    named(&read(&mut p), "Pressed 2");
+    assert_eq!(p.set_focus(None, 40.), None);
+    assert_eq!(p.move_focus(false, 40.), None);
+    assert_eq!(p.focus, Some(target));
+    p.key_down("Enter", 41.);
+    settle(&mut p);
+    named(&read(&mut p), "Pressed 3");
+    assert_eq!(named(&read(&mut p), "the documentation").role, role::LINK);
+    tap(&mut p, "link");
+    assert!(p
+        .host
+        .runner()
+        .journal()
+        .any(|line| line.contains("openURL https://example.com/docs")));
 }

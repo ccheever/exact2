@@ -10,6 +10,7 @@ mod mixed;
 pub mod modules;
 pub mod placed;
 pub mod presence;
+pub mod process;
 pub mod storage;
 pub use mixed::Mixed;
 pub use placed::Placed;

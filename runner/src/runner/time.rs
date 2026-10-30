@@ -157,6 +157,8 @@ impl<D: DataSource> Runner<D> {
     /// [`Runner::apply_announced`] on its own. A source with no native
     /// handle announces nothing.
     pub fn listen(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        // An abort heard off this thread wakes the host to collect it.
+        self.data.abort_wake(wake.clone());
         let native = self.native_slot();
         let queue = self.announced.clone();
         native.on_changed(Some(std::sync::Arc::new(move |topic: &str| {
@@ -204,9 +206,34 @@ impl<D: DataSource> Runner<D> {
                 self.raise_emitted(event);
                 continue;
             }
+            // The platform expired a wake an implementation raised.
+            if let Some(expired) = topic.strip_prefix(super::modules::EXPIRED) {
+                let (more, error) = self.expire_told_wake(expired);
+                receipts.extend(more);
+                if let Some(error) = error {
+                    return (receipts, Some(error));
+                }
+                continue;
+            }
             // A wake a bound implementation raised (LLP 1133.017 D8).
             if let Some(wake) = topic.strip_prefix(super::modules::TOLD) {
                 self.raise_told_wake(wake);
+                continue;
+            }
+            // A person's act on a bound implementation's own screen, on a
+            // list the runner keeps (LLP 1133.033 §13).
+            if let Some(choice) = topic.strip_prefix(super::modules::CHOSEN) {
+                self.listed_choice(choice);
+                continue;
+            }
+            // An implementation's own objects, for `state.extensions` (LLP 1133.008 D8 item 9).
+            if let Some(state) = topic.strip_prefix(super::modules::STATED) {
+                self.disclosed_told(state);
+                continue;
+            }
+            // A foreground-service claim under the agent (LLP 1133.033 D21).
+            if let Some(claim) = topic.strip_prefix(super::modules::CLAIMED) {
+                self.foreground_service_told(claim);
                 continue;
             }
             match self.changed(&topic) {
@@ -233,7 +260,8 @@ impl<D: DataSource> Runner<D> {
     pub fn changed(&mut self, topic: &str) -> Result<Option<CommitReceipt>, RunnerError> {
         let mut which = Vec::new();
         for i in 0..self.watching.len() {
-            if !self.watching[i].iter().any(|t| t == topic) {
+            // An upload is asked once for its arguments (LLP 1016.000 D10).
+            if !self.watching[i].iter().any(|t| t == topic) || self.upload_stands(i) {
                 continue;
             }
             // A stream keeps no reply to wait for, and a refused request

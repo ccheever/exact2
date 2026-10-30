@@ -147,9 +147,8 @@ fn a_place_known_at_launch_is_read_from_the_first_frame() {
     let plan = contract::bake(contract::compile(PLACE_APP).unwrap(), NoData).unwrap();
     let boot = |place: Option<exact_runner::time::Place>| {
         let launch = exact_runner::time::Launch {
-            time: None,
             place,
-            clock: None,
+            ..exact_runner::time::Launch::NONE
         };
         exact_runner::time::launching_with(launch, || {
             Runner::boot(

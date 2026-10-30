@@ -60,3 +60,33 @@ fn an_answer_lists_and_forgets_what_the_app_keeps() {
     kept::end(9131);
     exact_data::documents::forget(9131);
 }
+
+/// LLP 1069.010.000 D4: the app's own `atomicWriteFile` of a kept file from
+/// TypeScript replaces it with a new file, and the entry is carried to it,
+/// so the next launch reopens what the app saved.
+#[cfg(unix)]
+#[test]
+fn an_atomic_save_from_typescript_keeps_the_document() {
+    use exact_data::documents::kept;
+    use std::os::unix::fs::MetadataExt;
+    let root = Root::new();
+    std::fs::create_dir_all(&root.0).unwrap();
+    let file = root.0.join("saved.md");
+    std::fs::write(&file, "before").unwrap();
+    let before = std::fs::metadata(&file).unwrap().ino();
+    let set = root.0.join("kept.json");
+    kept::open(9132, "test.js.kept-save", &set);
+    let doc = kept::keep(9132, &file, "", "readwrite").unwrap();
+    let mut module = root.module();
+    module.set_document_owner(9132);
+    module.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    assert_eq!(call(&mut module, &mut store, "kept-save", &doc), doc);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "saved");
+    let after = std::fs::metadata(&file).unwrap().ino();
+    assert_ne!(before, after, "an atomic write is a new file");
+    let written: serde_json::Value = serde_json::from_slice(&std::fs::read(&set).unwrap()).unwrap();
+    assert_eq!(written["documents"][0]["inode"], after);
+    kept::end(9132);
+    exact_data::documents::forget(9132);
+}

@@ -45,8 +45,8 @@ final class PresentedText: TextPresentation {
         return nil
         #endif
     }
-    func markdown(_ engine: TextEngine, source: Run, atoms: String, faces: String) -> [Run]? {
-        MarkdownLink.installed?.expand(source.text, base: source, color: nil, boldText: engine.boldTextSteps(source.family), atoms: MarkdownAtoms(kinds: atoms, faces: faces))
+    func markdown(_ engine: TextEngine, source: Run, atoms: String, faces: String, rtl: Bool) -> [Run]? {
+        MarkdownLink.installed?.expand(source.text, base: source, color: nil, linkColor: nil, atomColor: nil, boldText: engine.boldTextSteps(source.family), atoms: MarkdownAtoms(kinds: atoms, faces: faces, rtl: rtl))
     }
     func attributes(_ r: Run, color: [Double], attributes a: inout [NSAttributedString.Key: Any]) {
         a[.foregroundColor] = r.color.map(TextEngine.color) ?? TextEngine.color(color)
@@ -54,7 +54,8 @@ final class PresentedText: TextPresentation {
         if r.fixedInk, r.color != nil { a[.exactFixedInk] = true }
         // A centred stroke over the fill: Core Text's negative width,
         // in percent of the run's size (LLP 1077 D7). Each run's own.
-        if let st = r.stroke, st.count == 5, st[0] > 0, r.size > 0 {
+        // Its colour four channels, or nine in its own space (a wide colour, or a dimmed face's grey past white).
+        if let st = r.stroke, st.count == 5 || st.count == 10, st[0] > 0, r.size > 0 {
             a[.strokeWidth] = -st[0] / Double(r.size) * 100
             a[.strokeColor] = TextEngine.color(Array(st[1...]))
         }
@@ -137,6 +138,10 @@ extension TextEngine {
     /// UIView's): one CTLineDraw per line, on device-pixel baselines on UIKit
     /// and whole-point baselines on macOS, flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
+        // Font smoothing is graphics state (LLP 1019 D12).
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        if spec.antialiased { ctx.setShouldSmoothFonts(false) }
         // CSS `text-shadow`: under every glyph of the paragraph at once, so
         // one line's shadow never covers another's text (LLP 1077 D3). Core
         // Graphics' blur is CSS's radius; its offset is base space, y up.

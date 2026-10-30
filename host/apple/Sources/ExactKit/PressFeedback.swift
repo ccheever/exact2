@@ -304,6 +304,7 @@ extension NodeView {
             // A 3D rotation or a z translation (LLP 1077 D8): the layer's own
             // transform, the view's affine one left at identity.
             if transform != .identity { transform = .identity }
+            if CATransform3DIsIdentity(layer.transform) { Self.textGeometry &+= 1 } // as `transform`'s (TextIndexIOS.swift)
             layer.transform = CATransform3DConcat(space, CATransform3DMakeAffineTransform(outer))
             return
         }
@@ -476,29 +477,57 @@ extension NodeView {
 /// `easePress`): one display link for every session, alive only while some
 /// press is still easing, at the panel's full rate so the 120 ms reads as
 /// motion on ProMotion (LLP 1061 D4).
-final class PressClock: NSObject {
+final class PressClock {
     static let shared = PressClock()
+    private let windows = NSMapTable<NSWindow, WindowPressClock>.weakToStrongObjects()
+    func run(_ view: NodeView) {
+        guard let window = view.window else { return }
+        let clock = windows.object(forKey: window) ?? WindowPressClock(window: window, closed: { [weak self, weak window] in
+            if let window { self?.windows.removeObject(forKey: window) }
+        })
+        windows.setObject(clock, forKey: window)
+        clock.run(view)
+    }
+    static func rate(maximum: Int) -> CAFrameRateRange {
+        let maximum = Float(max(1, maximum))
+        return CAFrameRateRange(minimum: min(80, maximum), maximum: maximum, preferred: maximum)
+    }
+}
+
+/// Each window follows its own display; another window's 60 Hz screen cannot cap it.
+private final class WindowPressClock: NSObject {
+    private weak var window: NSWindow?
     private var link: CADisplayLink?
     private let views = NSHashTable<NodeView>.weakObjects()
-
+    private var observers: [NSObjectProtocol] = []
+    init(window: NSWindow, closed: @escaping () -> Void) {
+        self.window = window
+        super.init()
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.updateRate() })
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in self?.stop(); closed() })
+    }
     func run(_ view: NodeView) {
         views.add(view)
-        guard link == nil else { return }
-        let l = view.displayLink(target: self, selector: #selector(tick(_:)))
-        l.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
-        l.add(to: .main, forMode: .common)
-        link = l
+        guard link == nil, let window else { return }
+        let link = window.displayLink(target: self, selector: #selector(tick(_:)))
+        self.link = link
+        updateRate()
+        link.add(to: .main, forMode: .common)
+    }
+    private func updateRate() { link?.preferredFrameRateRange = PressClock.rate(maximum: window?.screen?.maximumFramesPerSecond ?? 60) }
+    private func stop() {
+        link?.invalidate(); link = nil
+        for view in views.allObjects { view.press = PressFeedback(); view.applyTransform() }
+        views.removeAllObjects()
     }
     @objc private func tick(_ link: CADisplayLink) {
         let now = CACurrentMediaTime()
         for view in views.allObjects {
-            // A release held for an unseen press goes once the press is in.
+            if view.window !== window { views.remove(view); view.press = PressFeedback(); view.applyTransform(); continue }
             if view.press.releaseHeld, view.press.settled(at: now) {
                 view.press.releaseHeld = false
                 view.press.aim(1, at: now)
             }
-            // A settled release goes back to idle before its last write, so
-            // the transform ends exactly where the engine left it.
             if view.press.settled(at: now), !view.press.releaseHeld {
                 views.remove(view)
                 if view.press.to == 1 { view.press = PressFeedback() }
@@ -507,5 +536,6 @@ final class PressClock: NSObject {
         }
         if views.allObjects.isEmpty { link.invalidate(); self.link = nil }
     }
+    deinit { link?.invalidate(); observers.forEach(NotificationCenter.default.removeObserver) }
 }
 #endif

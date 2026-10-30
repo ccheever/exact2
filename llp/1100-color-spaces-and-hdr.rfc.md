@@ -257,6 +257,10 @@ column for every app to serve the few colors that need it.
   conversion for fills and strokes; this does not change SVG's dynamic range.
 - **Web and Linux** don't have it. The web gets it when browsers ship
   `@color-profile`, and then emits the at-rule as written.
+- **Not on an atom's face.** A face's `color` and `backgroundColor` (LLP
+  1045.000 D2) reach a host as text alone, which names no ICC file, so the
+  runner refuses a declared profile's colour there, with a journal line. A
+  standard space's colour (D1) is read there as it is anywhere else.
 - An image's own embedded profile needs no declaration; the decoder reads
   it (D4).
 
@@ -851,6 +855,13 @@ runs in the async lane or by a person.
 - The panel actually brightening can't be proven on a simulator; that is
   V6.
 
+The four clips are in Color Gallery and `ColorFixtures`; `make.swift <directory>
+--videos` regenerates them. `HDRVideoIOSTests` verifies transfer functions,
+primaries, HDR classification, all 90 decoded frames and live range changes.
+`state.media[].state.appliedDynamicRange` reads the actual presentation objects.
+The [iPhone run](../apps/color-gallery/diary/2026-10-27-hdr-paint-video.md)
+covers both renderers under all three limits, plus native paint comparisons.
+
 ### V5 — The web oracle (async lane, headless Chrome)
 
 The color gallery on the JS target. For each fixture `<img>`, the glue in
@@ -1046,7 +1057,7 @@ It is not built for Linux.
 - **Verification:**
   - the vendored WPT cases (`kernel/tests/fixtures/css-color/`)
   - the four color Contract fixtures
-  - the clips `V1`–`V4` and `anim-p3.webp`
+  - `anim-p3.webp`
   - V5's Chrome numbers and V8's `*.web.png` references
-  - the V6 device run and the V7 measurements
-  - the gallery has no video and no seam layout
+  - the full V6 device matrix and the V7 measurements
+  - the gallery has no seam layout

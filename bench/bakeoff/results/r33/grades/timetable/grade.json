@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Shows the whole day in time order, grouped by hour. Hour headings stay pinned. Each row has the time, a coloured letter badge, destination, platform, and a red 'Cancelled' or grey bold 'Delayed 11 min'. The badge shows only a letter, and the delay text isn't coloured."},
+      {"n": 2, "status": "pass", "note": "Tapping the station opens a sheet listing the 20 stations, with a native search field at the bottom. Typing 'riv' filters to Riverside. Picking it changes the board."},
+      {"n": 3, "status": "pass", "note": "Opens near now, and the Now button scrolls back there. The next departure is on screen as the third row, with two past rows above it rather than at the top."},
+      {"n": 4, "status": "pass", "note": "Menu filters to All lines or one of Red/Blue/Green/Yellow/Orange, and the list keeps its place."},
+      {"n": 5, "status": "pass", "note": "Past rows are greyed and carry a small 'Past' tag."},
+      {"n": 6, "status": "pass", "note": "Starring fills the star and adds the departure to the Saved tab, grouped by hour with the station name. Saved items and the chosen station survive a relaunch."}
+    ],
+    "bugs": [
+      "The departures list loses its scroll position when you switch to Saved and back: it jumps back to now.",
+      "Pinned hour headings have no solid background. The row scrolling under them shows through, blurred, behind the hour text (badge, destination and star are visible ghosted behind '23:00'), and it is worse at the largest text size."
+    ],
+    "tells": [
+      "Rows are very tall (about 117 pt): time, destination and platform each sit on their own line, so only about 5 departures fit on screen. That doesn't feel like a dense iOS departure board.",
+      "The line badge is a bare letter, and the line's name never appears on screen.",
+      "The delayed status is grey bold text with no warning colour.",
+      "Neither the board nor Saved has swipe actions; unsaving only works through the star.",
+      "Inline nav title with no large title. The station and filter controls sit in a loose row under the nav bar, with a pin glyph for the station.",
+      "There's a faint shadow smudge above the pinned hour heading."
+    ],
+    "scroll": "Native list feel: fling, deceleration and bounce at the top all behave like a system list, with no blank or popping rows. Headings pin correctly but show content through them, and the position resets after switching tabs.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Whole day grouped by hour. Pinned headings have a solid band and an 'N DEPARTURES' count, and the next heading pushes the old one off cleanly. Rows show the time, a coloured badge, destination, 'Red line · Platform 3', and a coloured status with an icon (amber 'Delayed 3 min', red 'Cancelled')."},
+      {"n": 2, "status": "pass", "note": "A large station card opens a sheet with alphabetical stations, a count, and a native bottom search ('Search all 20 stations'). Typing 'riv' filters correctly, and picking a station updates the board."},
+      {"n": 3, "status": "partial", "note": "The Now button scrolls exactly to the next departure, with a 'NEXT' accent bar. But on launch the list consistently opens past it: at 10:48 it opened at about 11:16 (10:51 and 10:58 hidden); for Riverside at 10:54 it opened at about 11:42–11:56. At the largest text size it opened at 07:00. After a station change it first showed the next departure, then drifted on to about 11:56."},
+      {"n": 4, "status": "pass", "note": "A menu filters by line, the button shows the chosen line in the accent colour, and the list keeps its place at the next departure for that line."},
+      {"n": 5, "status": "pass", "note": "Past rows are clearly faded, including the badge and status colour."},
+      {"n": 6, "status": "pass", "note": "Starring fills the star with the accent colour, and the Saved tab lists it with its station and a 'NEXT' marker. Saved items and the station survive a relaunch."}
+    ],
+    "bugs": [
+      "The board doesn't open at the next departure. It lands several rows past it, or at 07:00 at the largest text size, and after a station change it can drift on by itself.",
+      "Pluralisation: the Saved footer reads '1 saved departures today'. Accessibility labels say '1 departures' and 'Filter: Yellow lines'."
+    ],
+    "tells": [
+      "A custom brand theme (warm off-white or navy background, rust accent, a custom 'Departures from' card) instead of system grouped backgrounds and tint; it looks designed rather than stock.",
+      "The station card, date and filter row don't scroll away, so the list gets only about 513 pt of the screen. The nav title is a left-aligned icon plus title instead of a standard large title.",
+      "A 'Now' button also appears on the Saved tab, and Saved has a marketing-style hero heading ('Your saved departures / Regular trips. One place.').",
+      "Neither the board nor Saved has swipe actions.",
+      "The star glyphs and hour headings stay small at the largest text size, while the rows grow."
+    ],
+    "scroll": "Smooth native table scrolling, with cleanly pinned opaque headings that push off nicely and no blank or popping rows. Because the fixed header block takes almost half the screen, the scrolling area feels cramped. Scroll position is kept across tab switches.",
+    "scores": {"features": 8, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "B",
+  "why": "Both meet nearly all of the spec. B's board reads better: line names, coloured delay and cancel status, a clear NEXT marker, opaque sticky headings, and it keeps its scroll position. Its launch position skips past the next departure, though Now fixes it in one tap. A is closer to stock iOS, but its rows are sparse and tall, its pinned headings let rows show through, and it loses its place on tab switches, so B narrowly wins."
+}

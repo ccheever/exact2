@@ -317,6 +317,43 @@ test('edit-held through the TLS door: a paired propose client edits its own held
   } finally { await doors.close(); await wire.close(); }
 }, 30_000);
 
+test('choose through the TLS door (tamber/1.18): a paired propose client chooses on its own held proposal, not another\'s, a forged name pinned; a write client chooses on another\'s, named as the chooser', async () => {
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  const doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 } }, { say: () => {} });
+  try {
+    const port = Number(new URL(doors.info().origin).port);
+    let token = null;
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const local = async body => {
+      let text = '';
+      const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+      queueMicrotask(() => req.end(JSON.stringify(body)));
+      await wire.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+      return JSON.parse(text);
+    };
+    const pair = async (scope, name) => {
+      const code = (await local({ method: 'pair-code', scope, name })).ok.code;
+      return JSON.parse((await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name }) })).text).ok;
+    };
+    const remote = async (paired, body) => {
+      const r = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': paired.token }, body: JSON.stringify(body) });
+      return { status: r.status, ...JSON.parse(r.text) };
+    };
+    const proposer = await pair('propose', 'laptop'), writer = await pair('write', 'desk');
+    const agents = (await local({ method: 'propose', hold: true, client: 'agent:codex', ops: [{ op: 'set-token', name: 'ink', value: '#010101' }] })).ok.proposal;
+    const own = (await remote(proposer, { method: 'propose', hold: true, client: proposer.client, ops: [{ op: 'set-token', name: 'ink', value: '#020202' }] })).ok.proposal;
+    const choose = (paired, proposal, client = paired.client) => remote(paired, { method: 'choose', client, proposal, items: [0] });
+    const mine = await choose(proposer, own);
+    expect([mine.status, mine.ok?.choiceBy]).toEqual([200, proposer.client]);
+    const theirs = await choose(proposer, agents);
+    expect([theirs.status, theirs.error?.needs]).toEqual([403, 'write']);
+    const forged = await choose(proposer, agents, 'agent:codex');
+    expect([forged.status, forged.error?.needs]).toEqual([403, 'write']);
+    const written = await choose(writer, agents);
+    expect([written.status, written.ok?.choiceBy]).toEqual([200, writer.client]);
+  } finally { await doors.close(); await wire.close(); }
+}, 30_000);
+
 // The ghost builds' follow-up (review2's condition 1): under Bun a request on a socket handed to the HTTP server, as
 // every TLS door request is, never fires req 'close'. A paired client's subscription there still ends when the client
 // goes, on res 'close': it is present while the stream is open and not after.
@@ -914,7 +951,7 @@ test('no answer to a remote client names this machine\'s directories; authored t
     for (const [who, request] of asked) replies.push([request, await app.remote(who, request)]);
     const body = i => JSON.parse(replies[i][1].text);
     expect(body(0).ok.app).toBe(basename(dir));
-    expect(body(0).ok.protocol).toBe('tamber/1.17');
+    expect(body(0).ok.protocol).toBe('tamber/1.18');
     const sites = body(4).ok.sites;
     expect(sites.length).toBeGreaterThan(0);
     const linkedName = sites[0].file;
@@ -1076,4 +1113,35 @@ test('an unnamed package linked from far outside the app is refused, and no remo
     rmSync(dir, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
   }
+}, 600_000);
+
+// tamber/1.17's batched resolve (the third pass's #5 B) through the TLS door, against the real design server: a paired
+// read client's batch whose answers pass 1 MiB (a stream's reply cap, not a fetch's) is read whole (theme2's condition).
+test('a batched resolve past 1 MiB through the TLS door: a paired read client reads it whole', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-remote-batch-'));
+  // 180 families near the value bound (about 3.9 KB each, twice that in an answer): about 1.6 MB of answers.
+  const stack = n => Array.from({ length: 550 }, (_, i) => `f${n}x${i}`).join(', ').slice(0, 3900).replace(/, [^,]*$/, '');
+  const faces = Array.from({ length: 180 }, (_, n) => `face${n}`);
+  writeFileSync(join(app, 'app.json'), '{"app": {"id": "dev.test.batch", "name": "Batch"}, "host": {"web": {}}}');
+  writeFileSync(join(app, 'app.tamber'), `tamber t\n\ntheme\n  ink = #111111\n${faces.map((f, n) => `  ${f}: family = ${stack(n)}\n`).join('')}`);
+  writeFileSync(join(app, 'app.contract'), `component App\n  view\n    column background-color="ink"\n${faces.map(f => `      text "x" font-family="${f}"\n`).join('')}`);
+  const wire = tamberServer({ appDir: app, log: () => {} });
+  const doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 } }, { say: () => {} });
+  try {
+    const port = Number(new URL(doors.info().origin).port);
+    let token = null, text = '';
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => req.end(JSON.stringify({ method: 'pair-code', scope: 'read', name: 'laptop' })));
+    await wire.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+    const paired = JSON.parse((await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: JSON.parse(text).ok.code, name: 'laptop' }) })).text).ok.token;
+    const tokens = ['ink', ...faces];
+    const r = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired, 'content-type': 'application/json' }, body: JSON.stringify({ method: 'resolve', tokens }) });
+    expect(r.status, r.text?.slice(0, 300)).toBe(200);
+    expect(r.text.length).toBeGreaterThan(1 << 20);
+    const answers = JSON.parse(r.text).ok.answers;
+    expect(answers.length).toBe(tokens.length);
+    expect(answers.every(a => !a.error)).toBe(true);
+    expect(answers.at(-1).tuples[0].family).toContain('f179x0');
+  } finally { await doors.close(); await wire.close(); rmSync(app, { recursive: true, force: true }); }
 }, 600_000);

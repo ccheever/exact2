@@ -1041,10 +1041,10 @@ page's layout viewport ends at the docked keyboard's top, with no bottom safe-ar
 inset at that edge. Native navigation keeps the document and its UIKit container
 full size: only the route containing the live keyboard editor receives a shorter
 layout block. This applies to the default and an explicit `resizes-content`.
-The route's physical scroll view fills its controller and takes a bottom content
-inset. A returning route with no editor keeps its full allocation while UIKit
-moves the outgoing screen and keyboard. The document's safe area and fold regions
-stay unchanged. `resizes-visual` keeps the route's layout and insets its scrollport;
+Authored scroll containers handle scrolling within the shorter layout block.
+A returning route with no editor keeps its full allocation while UIKit moves the
+outgoing screen and keyboard. The document's safe area and fold regions stay
+unchanged. `resizes-visual` keeps the route's layout and insets its scrollport;
 `overlays-content` keeps layout and lets keyboard toolbars accommodate the overlap.
 
 Ownership comes from the live session-mounted `UIKeyInput` responder, including

@@ -8,8 +8,8 @@
  * and the script capture fixtures,
  * the web host's app-building document test in its own step, the web JS target's conformance run
  * (`host/web-js/conform.mjs --strict`), the separate game workspace and in-repo game tests,
- * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
- * --no-install`) for any range beyond documentation-only edits,
+ * the UIKit XCTests on a simulator and the tvOS and watchOS compiles (`build.mjs
+ * --tvos --no-install`, `--watchos --no-install`) for any range beyond documentation-only edits,
  * the
  * Contract semantics (`semantics/README.md`) as four checks — the Lean proofs,
  * the extracted VM's proofs, the differential run against the Lean semantics
@@ -20,7 +20,9 @@
  * moves with the load). A failure that the previous commit did not have is filed with
  * `issue.mjs`, naming the commit that introduced it. A check past 2 h is
  * killed and filed as hung; the worktree's debug target is kept under 80 GiB.
- * Logs and timings (with the load average) stay in <worktree>/target/async/.
+ * Logs and timings (with the load average) stay in <worktree>/target/async/. What each commit's
+ * checks found is also its git note, `refs/notes/async` (tier 2: `async2`), pushed to origin for
+ * `scripts/known.mjs` (LLP 1146 D1).
  *
  *   bun scripts/async.mjs                 watch: check new commits every 300 s
  *   bun scripts/async.mjs --once          check what is pending, then exit
@@ -53,6 +55,7 @@ import { availableParallelism, loadavg } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { INPUTS, Inputs, Store, checkEnv, decide, outcomeOf } from './async-inputs.mjs';
 import { main as issue } from './issue.mjs';
+import { noteOf, publish } from './known.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const option = (name, fallback) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback;
@@ -76,8 +79,7 @@ function laneTests() {
 
 const workspace = ['--workspace'];
 const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'duo-lab', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery'];
-// The second lane: watchOS compiles Caltrain with the pinned nightly and
-// rust-src (webToolchainEnv names their install); tvOS uses Caltrain (its TypeScript-free build needs no
+// The second lane: tvOS uses Caltrain (its TypeScript-free build needs no
 // Hermes) and installs it on an Apple TV simulator, which the first lane's
 // compile does not; Linux and Windows compile their target-only branches:
 // Windows with Windows Desk, on x64 and ARM64 (LLP 1115.004 D0.3), Linux with every app (`*-linux` is the
@@ -86,7 +88,6 @@ const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player
 // reader's Kotlin and a module's (LLP 1133.002 stage 4, Charlie's say-so).
 export function tierTwoChecks() {
   return [
-    ['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']],
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
     ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', '*-linux']],
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
@@ -96,6 +97,7 @@ export function tierTwoChecks() {
   ];
 }
 export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];
+export const watchosCompile = ['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']];
 export const gameScaffoldCheck = ['game-scaffold', 'bun', ['test', 'game/proof-game.test.mjs', 'game/new.test.mjs', '--test-name-pattern', 'proof script|worldPixels|AGENTS.md lists vocab|new logic/tests file']];
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
 // Glue files that edit an app's checked-in sources while they run
@@ -113,7 +115,7 @@ export function glueTests(root) {
   const files = ['host/web', 'host/web-js'].flatMap(dir => [...new Bun.Glob(`${dir}/**/*.test.{mjs,js}`).scanSync({ cwd: root, onlyFiles: true })])
     .filter(file => !LEFT_OUT.test(file)).sort().map(file => `./${file}`);
   // The glue lane is macOS: link.test reads Mach-O load commands with Apple tools.
-  return [...files, './host/apple/link.test.mjs', './host/apple/cloak.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-keychain', 'app-manifest', 'exact', 'push', 'agent', 'agent-launch', 'agent-drag', 'tamber-server', 'tamber-events-get', 'tamber-edit-held', 'test-children', 'scale-check', 'tool-drive', 'help-parity', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool-levels', 'tamber-tool-answers', 'design-tool', 'design-tool-ops', 'design-tool-library', 'design-tool-canvas', 'design-tool-scrub', 'design-tool-kinds', 'design-tool-inspect', 'design-tool-commit', 'design-tool-fields', 'design-tool-poll', 'design-tool-scale', 'library-gate', 'stage12-gate', 'position-reads', 'wasm-check', 'tamber-body-limit', 'tamber-upstream', 'harmony-seed', 'design-tool-harness', 'tamber-timing', 'agent-clock-until', 'agent-held'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
+  return [...files, './host/apple/link.test.mjs', './host/apple/cloak.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-keychain', 'app-manifest', 'exact', 'check-watchdog', 'push', 'agent', 'agent-launch', 'agent-drag', 'tamber-server', 'tamber-watch', 'tamber-events-get', 'tamber-edit-held', 'test-children', 'scale-check', 'tool-drive', 'help-parity', 'tamber-builds', 'tamber-inspect', 'tamber-select-walk', 'tamber-scrub', 'tamber-dtcg', 'design-tool-levels', 'tamber-tool-answers', 'design-tool', 'design-tool-ops', 'design-tool-library', 'design-tool-canvas', 'design-tool-scrub', 'design-tool-kinds', 'design-tool-inspect', 'design-tool-noaxes', 'design-tool-commit', 'design-tool-fields', 'design-tool-dock', 'design-tool-edit-dock', 'design-tool-poll', 'design-tool-scale', 'library-gate', 'stage12-gate', 'position-reads', 'wasm-check', 'tamber-body-limit', 'tamber-upstream', 'tamber-request', 'tamber-tool-via', 'harmony-seed', 'design-tool-harness', 'tamber-timing', 'agent-clock-until', 'agent-held', 'android-manifest'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
@@ -180,6 +182,11 @@ export function checks(sha, since, selection = {}) {
     // and signed, installed on nothing (Charlie, 2026-10-12): it needs the tvOS
     // SDK and Rust's tvOS simulator target, and no simulator. Tier 2 installs.
     ...(apple ? [tvosCompile] : []),
+    // watchOS compiles ExactCore and the snapshot driver's Swift a third time, and a
+    // name watchOS lacks breaks it (CACurrentMediaTime in HostPhases, 2026-10-26). It
+    // builds Caltrain's watch bundle with the pinned nightly and rust-src
+    // (webToolchainEnv names their install), and no simulator.
+    ...(apple ? [watchosCompile] : []),
     ...semanticsChecks(),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
@@ -254,7 +261,7 @@ export function semanticsChecks(base = process.env) {
 /** What the semantics checks read at the worktree's checkout, read once for all four. */
 const semanticsInputs = () => new Inputs(WT, semanticsEnv(process.env));
 
-export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos']) {
+export function retainSkippedFailures(previous, result, conditionalNames = TIER === 1 ? ['lane', 'ios', 'ios-touch', 'tvos', 'watchos'] : []) {
   const conditional = new Set(conditionalNames);
   result.failures.push(...previous.filter(f => {
     const name = f.split(': ', 1)[0];
@@ -400,6 +407,9 @@ async function once(state) {
     const fresh = result.failures.filter(f => !before.has(f));
     console.log(`${sha.slice(0, 8)} ${result.subject}: ${result.failures.length} failure(s), ${baseline ? 'baseline' : `${fresh.length} new`}`);
     if (fresh.length && !baseline) file(result, fresh, since);
+    // What it found, on the commit as a git note other checkouts read (LLP 1146 D1, `known.mjs`).
+    const unpublished = publish(noteOf(result, TIER));
+    if (unpublished) console.log(`${sha.slice(0, 8)}: the note was not published: ${unpublished}`);
     Object.assign(state, { last: sha, failures: result.failures });
     writeFileSync(STATE, JSON.stringify(state, null, 2));
   }

@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All contacts sorted by last name, plain list with letter section headers (A…Z), bold last names, footer count ('320 contacts'). Section index on the right with a ★ entry for Favorites; tapping M jumps correctly to the M section."},
+      {"n": 2, "status": "partial", "note": "Search field in the nav bar filters live by company ('umbra'), phone (both '9483202405' and '320-2405'), email and name; clearing or Close restores the full list; good 'No Results for “zzzq”' empty state. But results keep the list's previous scroll offset: after jumping to M and searching, the A/D matches sit above the viewport and an 'M' header shows with its row hidden under the bar."},
+      {"n": 3, "status": "pass", "note": "Detail shows avatar, large bold name, company, Phone and Email rows in blue with SF icons and an outbound arrow (clearly tappable), Birthday row only when known (hidden for a new contact without one)."},
+      {"n": 4, "status": "pass", "note": "Add/Remove from Favorites on details toggles immediately; Favorites appear at the top as a horizontal card carousel with a count, plus a ★ on favourite rows in the alphabetical list. Persisted across relaunch."},
+      {"n": 5, "status": "pass", "note": "New Contact sheet with First/Last/Company/Phone/Email, autofocus on First name, Return advances fields, keyboard Done bar; Save disabled with hint until a first or last name is entered (whitespace-only also rejected). Edit uses the same form; a last-name-only contact sorts under its last name."},
+      {"n": 6, "status": "pass", "note": "Swipe-left Delete on list rows and Delete Contact on details, both behind a confirmation popover; list count updates."},
+      {"n": 7, "status": "pass", "note": "Added contact, edits, deletions and favourite changes all survived relaunch."}
+    ],
+    "bugs": [
+      "Search results keep the old scroll offset: if you've scrolled the list (e.g. via the index to M) and then search, earlier matches sit above the viewport and section headers show with their rows hidden under the nav bar."
+    ],
+    "tells": [
+      "Section index is drawn on top of content: index letters overlap the Favorites carousel card text ('Sara Ba★') and crowd the row chevrons.",
+      "The swipe-delete confirmation is a popover whose arrow points at the top of the screen, not at the row or the Delete button.",
+      "At the largest text size the email on details breaks inside the word ('dana.abbot' / 't@example…'); the search field balloons to a tall pill and the placeholder runs into its edge.",
+      "Form fields show a small caption label above an identical placeholder ('First name' / 'First name'), which is redundant.",
+      "Phone numbers you enter are stored and shown unformatted ('5551234567') while seeded ones are formatted."
+    ],
+    "scroll": "Smooth native list: slow drags, flings and fling-back show no blank rows or popping, the title collapses to inline and back with a blurred bar, rubber-banding at the top, and scroll position is kept after visiting a contact.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list sorted by last name with letter headers and a standard A–Z section index (no favourites entry); tapping M jumps to the M section correctly. Large 'Contacts' title."},
+      {"n": 2, "status": "partial", "note": "Filters live by company, phone ('320-2405', digits) and email; good empty state with Clear Search / Add Contact buttons that restore the list. But the bottom search field stays behind the keyboard while you type, so you can't see the query or reach its clear button (my tap on it hit the keyboard and the next query was appended). The nav bar also disappears while searching, so rows scroll under the status bar."},
+      {"n": 3, "status": "pass", "note": "Details look like Apple Contacts: grey initials avatar, name, company, then phone and email in blue (tappable) and birthday when known (omitted for a new contact)."},
+      {"n": 4, "status": "pass", "note": "Add/Remove from Favorites row on details works; favourites listed as their own section at the top; persisted across relaunch. The alphabetical list doesn't mark favourites."},
+      {"n": 5, "status": "pass", "note": "New Contact sheet with ✕ / ✓ buttons; ✓ disabled with 'Enter a first or last name to save.' hint, including whitespace-only names. Edit uses the same form and updates details. No autofocus, and Return dismisses the keyboard instead of moving to the next field."},
+      {"n": 6, "status": "pass", "note": "Swipe-left Delete on rows (immediate) and Delete Contact on details with an alert confirmation."},
+      {"n": 7, "status": "pass", "note": "Added contact, edit, deletions and favourite change all survived relaunch."}
+    ],
+    "bugs": [
+      "The bottom search bar does not rise above the keyboard: while typing, the field, its text and its clear button are hidden behind the keyboard.",
+      "While searching, the navigation bar vanishes and list content scrolls under the status bar with no bar behind it."
+    ],
+    "tells": [
+      "Search field hidden under the keyboard (see bugs): the system bottom search bar moves above the keyboard.",
+      "Return in the add/edit form dismisses the keyboard instead of moving to the next field, and nothing gets focus when the form opens.",
+      "During a swipe-to-delete, the row turns grey and its subtitle disappears.",
+      "The section index has no Favorites (★) entry, and the alphabetical list doesn't mark favourites; 30 favourite rows push the 'A' section a long way down.",
+      "Row chevrons sit well inside the card, leaving a wide empty trailing gutter.",
+      "At the largest text size, phone and email in the edit form truncate with an ellipsis (names hyphenate, which is excused)."
+    ],
+    "scroll": "Scrolling feels native: no blank rows or stutter on slow drags or flings, large title collapses properly, scroll indicator and rubber-band at the top, and position is kept after returning from a contact.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both meet every requirement and persist correctly. A's search bug only shows when you search after scrolling down, but B's search field sits behind the keyboard on every search, which hurts the app's core interaction. A is also more finished overall: icons, a ★ favourites index entry, autofocus and Return-to-next-field in forms, and delete confirmations. Its weak spots are the section index overlapping content and an email breaking mid-word at the largest text size."
+}

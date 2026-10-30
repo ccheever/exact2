@@ -1,0 +1,20 @@
+// The conformance fixture (LLP 1133.028 §8.4 drive 11): the status, and one
+// request whose answer the row shows. Excord (apps/excord) is the module's
+// consumer and its drives' app.
+use requestAgeRange, ageRangeStatus, AgeRange, AgeRangeStatus from "@exact/age-range"
+
+component Fixture
+  resource status = ageRangeStatus() as shape AgeRangeStatus
+  mutation age as shape AgeRange
+  action ask
+    send age = requestAgeRange(ageGates=[13, 18])
+  view
+    column padding=24 gap=12
+      text `Available: ${status.available}` testId="status"
+      button press=ask testId="ask"
+        text "Ask for the age range"
+      match age
+        case some(a)
+          text `${a.status} ${a.lowerBound}` testId="age"
+        case none
+          text "" testId="age"

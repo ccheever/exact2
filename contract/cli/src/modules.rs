@@ -305,6 +305,8 @@ fn call(
                     .find(|f| f.name == *option)
                     .and_then(|f| member(&name, &f.ty, &value))
                     .or_else(|| bounded(m, option, &value, surfaces))
+                    .or_else(|| literal(m, option, &value))
+                    .or_else(|| handler(m, option, &value))
                 {
                     errors.push(e);
                 } else {
@@ -466,6 +468,20 @@ fn bounded(
                 )
             })
         }
+        Expr::Str(text, at)
+            if (sub["colorOptions"].as_array().into_iter().flatten()).any(|o| o == option) =>
+        {
+            exact_kernel::Color::parse(text).is_none().then(|| {
+                error(
+                    "contract-module-color",
+                    format!(
+                        "`{}`'s `{option}` is a CSS colour, given {text:?}",
+                        m.declared
+                    ),
+                    *at,
+                )
+            })
+        }
         Expr::Str(name, at) => {
             let surface =
                 (sub["surfaceOptions"].as_array().into_iter().flatten()).any(|o| o == option);
@@ -483,6 +499,46 @@ fn bounded(
         }
         _ => None,
     }
+}
+
+/// A computed value where the declaration requires a literal (LLP 1133.026
+/// D19 item 4): the Android manifest and the Play Console name each
+/// permission a `read` list can ask, so the list is written out.
+fn literal(m: &ModuleDecl, option: &str, value: &Expr) -> Option<CompileError> {
+    let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+    let required = (sub["literal"].as_array().into_iter().flatten()).any(|o| o == option);
+    let plain = |e: &Expr| matches!(e, Expr::Str(..) | Expr::Number(..) | Expr::Bool(..));
+    let written = match value {
+        Expr::List(items, _) => items.iter().all(plain),
+        other => plain(other),
+    };
+    (required && !written).then(|| {
+        error(
+            "contract-module-literal",
+            format!(
+                "`{}`'s `{option}` is written out, a list of literals: the permissions it asks are derived from it at bake",
+                m.declared
+            ),
+            value.span(),
+        )
+    })
+}
+
+/// A handler named by anything but a string literal (LLP 1133.034 D5): the
+/// runner admits the module's call back by the name the call wrote.
+fn handler(m: &ModuleDecl, option: &str, value: &Expr) -> Option<CompileError> {
+    let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+    let named = (sub["handlerOptions"].as_array().into_iter().flatten()).any(|o| o == option);
+    (named && !matches!(value, Expr::Str(..))).then(|| {
+        error(
+            "contract-module-literal",
+            format!(
+                "`{}`'s `{option}` names a function of the data module's `tools` by a string literal, `{option}=\"placeOrder\"`",
+                m.declared
+            ),
+            value.span(),
+        )
+    })
 }
 
 /// The surface names the canvases of `file` place, `canvas surface=world(…)`.
@@ -615,6 +671,7 @@ const RESERVED_STATES: &[&str] = &[
     "midi",
     "extensions",
     "wakelock",
+    "orientationlock",
     "head",
     "focus",
     "language",

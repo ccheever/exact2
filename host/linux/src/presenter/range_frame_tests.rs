@@ -324,6 +324,7 @@ fn a_field_not_painted_is_unavailable_and_a_reload_reads_only_its_own() {
         p.ranges.range_frame(id, 0, 1).unavailable,
         "the old paint is not read"
     );
+    fixture_fonts(&mut p);
     p.frame();
     let after = measure(&mut p, 1)[0].unwrap();
     assert_eq!(after[1], first[1] + 50., "the new paint is");

@@ -48,6 +48,10 @@
 //     65,537 code units traps at its call (c 43), into 65,536 pieces between
 //     its separators does not (c 44); `indexOf` scanning 40,000 labels after
 //     their `map` traps (c 45), and finding the first takes one step (c 46).
+// LLP 1017.003 D3: a text binding past the bound is unset, journaled with its
+//     trap, and the commit goes on (c 47); the next step runs (c 0). A
+//     painted style row (`z-index`) past the bound is journaled once (c 48),
+//     and not again while it goes on trapping (c 49).
 routes nav
   tab home "/"
 
@@ -99,7 +103,7 @@ component Budget
   state armed = false
   state edge = false
   state poison = false
-  derive size = c == 1 or c == 38 ? 65536 : c == 2 or c == 37 ? 65537 : c == 3 ? 300 : c == 8 ? 32768 : c == 24 ? 32769 : c == 11 ? 2000 : c == 15 ? 20000 : c == 18 or c == 30 or c == 41 or c == 42 ? 10000 : c == 25 or c == 29 or c == 36 ? 30000 : c == 4 or c == 5 or c == 6 or c == 12 or c == 16 or c == 35 or c == 39 or c == 40 or c == 45 or c == 46 ? 40000 : 0
+  derive size = c == 1 or c == 38 ? 65536 : c == 2 or c == 37 or c == 47 or c == 48 or c == 49 ? 65537 : c == 3 ? 300 : c == 8 ? 32768 : c == 24 ? 32769 : c == 11 ? 2000 : c == 15 ? 20000 : c == 18 or c == 30 or c == 41 or c == 42 ? 10000 : c == 25 or c == 29 or c == 36 ? 30000 : c == 4 or c == 5 or c == 6 or c == 12 or c == 16 or c == 35 or c == 39 or c == 40 or c == 45 or c == 46 ? 40000 : 0
   derive slen = c == 12 or c == 25 or c == 15 ? 2048 : c == 18 or c == 30 ? 1000 : c == 41 ? 4096 : c == 42 ? 3000 : c == 43 ? 65537 : c == 44 ? 65535 : 0
   resource k = cards(size, 0) as shape Card[]
   resource j = cards(c == 6 ? 30000 : 0, 0) as shape Card[]
@@ -214,6 +218,12 @@ component Budget
           text "45"
         button press=go(46) testId="case-46"
           text "46"
+        button press=go(47) testId="case-47"
+          text "47"
+        button press=go(48) testId="case-48"
+          text "48"
+        button press=go(49) testId="case-49"
+          text "49"
       row gap=4 flex-wrap="wrap"
         button press=arm testId="arm"
           text "arm"
@@ -226,6 +236,7 @@ component Budget
       text `c ${c} size ${size} k ${k.length} two ${two.length} str ${str.length} t ${t}` testId="facts"
       text `${d1} ${d3} ${a6} ${b6} ${d8} ${d9} ${d11} ${d12} ${d13} ${d14} ${d15} ${d18} ${same.length}` testId="results"
       text `${d35} ${d37} ${d39} ${d41} ${d43} ${d45}` testId="lists"
+      text c == 47 ? k.map(x => x.label).join(",") : "unbound" testId="bound" z-index=c == 48 or c == 49 ? k.map(x => x.n).length + c : 0
       if c == 5
         column testId="rows"
           for x in three key=k.map(y => y).length * 10 + x.n

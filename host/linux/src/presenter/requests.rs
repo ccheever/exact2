@@ -18,7 +18,12 @@
 //! each command keeps what it did there. On Android the shell is the Canvas
 //! host's reader (`host/android/README.md` has the words as it reads them).
 use super::*;
+use exact_runner::orientation::Session;
 use exact_runner::share::Share;
+
+mod packages;
+#[cfg(test)]
+mod packages_tests;
 
 /// What the presenter asks of its shell. The number is the kind on the wire.
 #[derive(Debug, Clone, PartialEq)]
@@ -71,6 +76,11 @@ pub enum Request {
     /// on the store's completion path, never by this request's id, so the
     /// value never passes the requests' journal.
     Presence(String),
+    /// The session's orientation lock (LLP 1133.029 D6), told when it
+    /// changes: none (the manifest's orientation), or the types' set with
+    /// whether a holder says `natural` or `current`, and each counted
+    /// holder's view and word for a conflict line the shell writes.
+    Orientation(Session),
 }
 
 /// What a picker is opened with, each value as HTML writes it and empty
@@ -109,6 +119,7 @@ impl Request {
             Request::Hatch(_) => 10,
             Request::Module(_) => 11,
             Request::Presence(_) => 12,
+            Request::Orientation(_) => 13,
         }
     }
 }
@@ -204,11 +215,21 @@ pub(super) struct State {
     wakelock: Option<bool>,
     wakelock_epoch: Option<u64>,
     wakelock_said: bool,
+    /// The orientation lock the shell was last told and the kernel epoch it
+    /// was read at; whether a host with no shell journaled it.
+    orientation: Option<Session>,
+    orientation_epoch: Option<u64>,
+    orientation_said: bool,
     /// Module calls the runner handed the native slot, from any thread,
     /// until a turn queues them (`modules_in`).
     inbox: Inbox,
     /// Module calls the shell took, by id, until it answers.
     modules: BTreeMap<u32, exact_runner::Reply>,
+    /// The packages this binary composes, which answer their extensions'
+    /// calls on the loop's thread.
+    packages: packages::Packages,
+    /// Whether the native slot's handler is installed.
+    handling: bool,
 }
 
 /// `EXACT_LOG_REQUESTS=1`: each request and each answer on stderr (a
@@ -249,6 +270,21 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
         }
         Request::Back(goes) | Request::KeepScreenOn(goes) => out.push(i32::from(*goes)),
         Request::Keyboard(kind, field) => out.extend([*kind as i32, *field as i32]),
+        // 0 for none; else 1, the types' bits (portrait-primary 1,
+        // portrait-secondary 2, landscape-primary 4, landscape-secondary 8),
+        // `natural`, `current`, the count of holders, then each one's view
+        // and word.
+        Request::Orientation(session) => match session.lock() {
+            None => out.push(0),
+            Some(lock) => {
+                out.extend([1, i32::from(lock.types), i32::from(lock.natural)]);
+                out.extend([i32::from(lock.current), lock.by.len() as i32]);
+                for (view, word) in &lock.by {
+                    out.push(*view as i32);
+                    string(out, word);
+                }
+            }
+        },
         Request::Surface(surface) => surface.encode(out),
         Request::Hatch(words) => out.extend(words),
         // The node, then the kind and the four values.
@@ -274,8 +310,46 @@ impl<D: DataSource> Presenter<D> {
     pub fn serve_requests(&mut self) {
         self.requests.shell = true;
         (self.requests.wakelock, self.requests.wakelock_epoch) = (None, None);
+        (self.requests.orientation, self.requests.orientation_epoch) = (None, None);
         // The shell's extensions answer the module calls the runner hands
         // the native slot, once their names are bound (`bind_extensions`).
+        self.handle_modules();
+    }
+
+    /// The packages this binary composes (`crate::package`, LLP 1133.022
+    /// D10 item 5): bound now, each told it runs under the agent unless the
+    /// drive binds it (`--bind`), on the target this binary was built for.
+    pub fn serve_packages(&mut self, table: Vec<crate::package::Entry>) {
+        let agent = self.agent || std::env::var("EXACT_AGENT").as_deref() == Ok("1");
+        self.requests.packages.set(table, agent);
+        // Said with no package composed too: a substitute's per-target answer
+        // is this target's, not that of the OS the binary was built on.
+        let target = if cfg!(target_os = "windows") {
+            "windows"
+        } else {
+            "linux"
+        };
+        self.host.runner_mut().set_module_target(target);
+        if self.requests.packages.is_empty() {
+            return;
+        }
+        self.handle_modules();
+        let (real, under) = self.requests.packages.bound();
+        self.host.runner_mut().bind_extensions(&real, &under);
+    }
+
+    /// The session ends: each package instance's `destroy`.
+    pub fn end_packages(&mut self) {
+        self.requests.packages.destroy();
+        self.package_lines();
+    }
+
+    /// The native slot's one handler: every module call queued, with its
+    /// reply, for the loop's turn (`modules_in`), and the loop woken.
+    fn handle_modules(&mut self) {
+        if std::mem::replace(&mut self.requests.handling, true) {
+            return;
+        }
         let (inbox, wake) = (self.requests.inbox.clone(), self.executor.waker());
         let handler: exact_runner::NativeHandler = std::sync::Arc::new(move |body, reply| {
             inbox
@@ -287,8 +361,9 @@ impl<D: DataSource> Presenter<D> {
         self.host.runner().native_slot().host(Some(handler));
     }
 
-    /// The module calls handed over since the last turn, queued for the
-    /// shell, each answered by its id (`answer_request`).
+    /// The module calls handed over since the last turn: a composed
+    /// package's, called now; a shell's, queued for it, each answered by its
+    /// id (`answer_request`); any other, `NotSupportedError`.
     pub(super) fn modules_in(&mut self) {
         let calls = std::mem::take(
             &mut *self
@@ -300,11 +375,33 @@ impl<D: DataSource> Presenter<D> {
         if calls.is_empty() {
             return;
         }
+        let mut queued = false;
+        let (native, wake) = (self.host.runner().native_slot(), self.executor.waker());
         for (body, reply) in calls {
-            let id = self.queue(Request::Module(String::from_utf8_lossy(&body).into_owned()));
-            self.requests.modules.insert(id, reply);
+            let extension = packages::extension_of(&body).unwrap_or_default();
+            if self.requests.packages.serves(&extension) {
+                let now = self.host.now();
+                let inbox = self.requests.inbox.clone();
+                (self.requests.packages).dispatch(&body, reply, now, &native, &inbox, &wake);
+            } else if self.requests.shell {
+                let id = self.queue(Request::Module(String::from_utf8_lossy(&body).into_owned()));
+                self.requests.modules.insert(id, reply);
+                queued = true;
+            } else {
+                crate::package::Reply::new(reply).error("NotSupportedError", None);
+            }
         }
-        self.executor.notify();
+        self.package_lines();
+        if queued {
+            self.executor.notify();
+        }
+    }
+
+    /// The packages' journal lines, into the journal.
+    fn package_lines(&mut self) {
+        for line in self.requests.packages.take_lines() {
+            self.host.log(line);
+        }
     }
 
     /// Whether a shell takes requests.
@@ -369,6 +466,9 @@ impl<D: DataSource> Presenter<D> {
         if let Some(held) = self.wakelock_moved() {
             self.queue(Request::KeepScreenOn(held));
         }
+        if let Some(session) = self.orientation_moved() {
+            self.queue(Request::Orientation(session));
+        }
         // A package view's displayed state, by the same rule, now the bars'
         // covers are set (LLP 1133.008 D8 item 2).
         self.host.runner_mut().report_views();
@@ -382,7 +482,7 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         self.requests.wakelock_epoch = Some(epoch);
-        let held = !exact_runner::wakelock::holders(self.host.kernel()).is_empty();
+        let held = !exact_runner::wakelock::holders(self.host.runner()).is_empty();
         // Untold is off, as a new reader's view is (`keepScreenOn` false).
         (self.requests.wakelock.unwrap_or(false) != held).then(|| {
             self.requests.wakelock = Some(held);
@@ -404,11 +504,62 @@ impl<D: DataSource> Presenter<D> {
             .log("wakelock: unavailable: this host keeps no display awake");
     }
 
-    /// Another host took over (`Presenter::replaced`): its kernel may have
-    /// the epoch the wake lock was last read at, so it is read again; what
-    /// the shell was told stands.
-    pub(super) fn wakelock_replaced(&mut self) {
+    /// The session's orientation lock (`exact_runner::orientation`, read
+    /// again only after a commit), when it is not what the shell was last
+    /// told; untold is none, as a new reader's activity has the manifest's.
+    /// Reading it journals a conflict or a lock in a top-layer box.
+    fn orientation_moved(&mut self) -> Option<Session> {
+        let epoch = self.host.kernel().epoch();
+        if self.requests.orientation_epoch == Some(epoch) {
+            return None;
+        }
+        self.requests.orientation_epoch = Some(epoch);
+        let session = self.host.runner_mut().orientation_session();
+        let told = self.requests.orientation.as_ref().unwrap_or(&Session::None);
+        (*told != session).then(|| {
+            self.requests.orientation = Some(session.clone());
+            session
+        })
+    }
+
+    /// A host with no shell (desktop Linux, a headless run) has no screen
+    /// orientation to lock (LLP 1133.029 D12): the first time a lock is
+    /// held, the journal says so, and `state.orientationlock.applied` reads
+    /// "unavailable". The Windows host applies the lock itself
+    /// ([`Presenter::orientation_lock`]).
+    pub(super) fn orientation_unavailable(&mut self) {
+        if self.requests.shell || cfg!(windows) {
+            return;
+        }
+        let held = self.orientation_moved().is_some_and(|s| s.lock().is_some());
+        if held && !self.requests.orientation_said {
+            self.requests.orientation_said = true;
+            self.host
+                .log("orientationlock: this host has no screen orientation");
+        }
+    }
+
+    /// The session's orientation lock when it changed since the last call,
+    /// for a host that applies it itself (Windows, LLP 1133.029 D8).
+    pub fn orientation_lock(&mut self) -> Option<Session> {
+        self.orientation_moved()
+    }
+
+    /// What the host applied (LLP 1133.029 §8), JSON, and whether its
+    /// resolution found a conflict: `state.orientationlock.applied`.
+    pub fn orientation_applied(&mut self, applied: String, conflict: bool) {
+        self.host
+            .runner_mut()
+            .set_orientation_applied(applied, conflict);
+    }
+
+    /// Another host took over (`Presenter::replaced`), or the top layer
+    /// opened or closed: the kernel may have the epoch the holds while
+    /// displayed were last read at, so they are read again; what the shell
+    /// was told stands.
+    pub(super) fn holds_changed(&mut self) {
         self.requests.wakelock_epoch = None;
+        self.requests.orientation_epoch = None;
     }
 
     /// Whether Back has somewhere to go may have changed with no commit (a
@@ -684,7 +835,13 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn copy_text(&mut self, args: &[exact_plan::Value]) {
         match args {
             [text] if text.is_str() => {
-                self.request(Request::Copy(text.text().to_string()));
+                if let Some(clipboard) = &mut self.clipboard {
+                    if let Err(error) = clipboard.write_text(text.text()) {
+                        self.host.log(error);
+                    }
+                } else {
+                    self.request(Request::Copy(text.text().to_string()));
+                }
             }
             _ => self.host.log("copyText requires one string"),
         }
@@ -698,6 +855,11 @@ impl<D: DataSource> Presenter<D> {
         // The app's page in Settings (LLP 1133.002 D11), the shell's to open;
         // under the agent, journaled only.
         if url == Some("app-settings:") {
+            if !self.has_shell() {
+                self.host
+                    .log("openURL app-settings: unavailable on this host");
+                return;
+            }
             let agent = std::env::var("EXACT_AGENT").is_ok_and(|v| v == "1");
             self.host.log(format!(
                 "openURL app-settings: opens the app's page in Settings{}",
@@ -720,7 +882,14 @@ impl<D: DataSource> Presenter<D> {
     /// Leave the app for `url`, where a shell can and `url` is one of the
     /// four kinds that do; whether it was asked.
     pub(super) fn leave(&mut self, url: &str) -> bool {
-        let target = crate::text::markup::target(url).filter(|t| !t.starts_with('/'));
+        let target =
+            crate::text::markup::target(url).filter(|t| !t.starts_with('/') && !t.contains('\0'));
+        if let (Some(target), Some(open)) = (target, self.url_opener.as_ref()) {
+            if let Err(error) = open(target) {
+                self.host.log(format!("openURL: {error}"));
+            }
+            return true;
+        }
         match target.filter(|_| self.requests.shell) {
             Some(target) => {
                 self.request(Request::Open(target.to_string()));

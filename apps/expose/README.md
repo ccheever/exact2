@@ -28,6 +28,11 @@ you": an unread dot, the send button, the assistant's caret while it writes.
   and, when you press *Ask Expose* in Reader, the article. Leave the thread
   while it is writing and the answer arrives as a banner; on the lock screen it
   becomes a notification.
+- **The battery** in the status bar and in Settings is the device's, from
+  `@exact/device`: the mark fills to the level, shows a bolt while charging
+  and turns yellow in Low Power Mode. Where the device has no battery it is
+  full and charging, as the web's Battery Status API reports; where it cannot
+  be read (Safari, Firefox) the mark is full and Settings shows no level.
 - **Settings → Intelligence** picks the model and holds the key, kept under
   `secret.keep` on the device. Display & Text Size scales the reading text and
   switches the scheme.
@@ -43,9 +48,14 @@ The assistant needs an OpenRouter key. Two ways to give it one:
    device only.
 2. Bake it into your own build: `EXPOSE_OPENROUTER_KEY=sk-or-… bun host/apple/build.mjs …`.
    Each crate's `build.rs` writes `apps/expose/local.ts` from the variable
-   (gitignored; an empty one is written when the variable is unset so a clean
-   checkout builds). The dev loop reads the same file, so write it once by
-   hand or run any native build first.
+   (gitignored; an empty one when the variable is unset, so the bake watches
+   it). `./local` resolves to that file when it exists and to the tracked
+   `apps/expose/local/index.ts` (no key) when it doesn't, so a clean checkout
+   builds with nothing generated. The dev loop reads the same file,
+   so write it once by hand or run any native build first.
+
+   A `local.ts` written before stays, and still wins, after the variable is
+   unset: delete `apps/expose/local.ts` to un-bake the key.
 
 A key from Settings wins over a baked one. *Forget the saved key* in Settings
 falls back to the baked one.

@@ -117,9 +117,8 @@ def CProgram.component? (p : CProgram) (name : String) : Option CComponent :=
 statement naming one is never a call. -/
 def hostCommands : List String :=
   ["blur", "copyText", "deliveryActivate", "deliveryCheck", "focus", "format", "haptic", "openURL",
-   "reload", "selectText", "setSelectionRange", "setScheme", "showPicker", "share", "showNotification",
-   "closeNotification", "saveFile", "showOpenFilePicker", "showDirectoryPicker",
-   "showSaveFilePicker", "scrollIntoView", "postMessage", "preventDefault", "stopPropagation",
+   "reload", "selectText", "setSelectionRange", "setScheme", "showPicker", "share", "saveFile",
+   "showOpenFilePicker", "showDirectoryPicker", "showSaveFilePicker", "requestPermission", "scrollIntoView", "postMessage", "preventDefault", "stopPropagation",
    "close", "playSound", "playSounds", "stopSounds", "requestMIDIAccess", "sendMIDI"]
 
 /-- `c`'s statements with every same-component call made a `call` (calls.rs

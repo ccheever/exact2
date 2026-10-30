@@ -375,9 +375,26 @@ fn tests(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match contract::tests(&src) {
-        Ok(t) => {
-            println!("{}", contract::tests_json(&t));
+    match contract::tests(&src).and_then(|t| contract::properties(&src).map(|p| (t, p))) {
+        Ok((t, p)) => {
+            if !p.is_empty() {
+                let test = std::path::Path::new(input);
+                let paired = test.with_file_name(
+                    test.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace(".test.contract", ".contract"),
+                );
+                let app = test.with_file_name("app.contract");
+                let app = if app.is_file() { app } else { paired };
+                if let Err(errors) = contract::check_properties_path(&app, &p) {
+                    for e in errors {
+                        eprintln!("{input}:{e}");
+                    }
+                    return ExitCode::from(1);
+                }
+            }
+            println!("{}", contract::authored_json(&t, &p));
             ExitCode::SUCCESS
         }
         Err(e) => {

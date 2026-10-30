@@ -358,8 +358,9 @@ def elementText (fuel : Nat) (env : Env) (ls : Locals) (tag : String) (pos : Lis
   match pos with
   | e :: _ =>
     if tag == "text" || tag == "tspan" || tag == "option" then do
-      let v ← eval fuel env false ls e
-      pure (Option.some (← v.display))
+      match ← unsetRefused (eval fuel env false ls e) with
+      | .some v => pure (Option.some (← v.display))
+      | .none => pure Option.none
     else pure Option.none
   | [] => pure Option.none
 
@@ -367,7 +368,10 @@ def elementText (fuel : Nat) (env : Env) (ls : Locals) (tag : String) (pos : Lis
 def elementTestId (fuel : Nat) (env : Env) (ls : Locals) (props : List (String × Expr)) :
     Result (Option String) :=
   match lookupField "testId" props with
-  | .some e => do pure (Option.some (← (← eval fuel env false ls e).display))
+  | .some e => do
+    match ← unsetRefused (eval fuel env false ls e) with
+    | .some v => pure (Option.some (← v.display))
+    | .none => pure Option.none
   | .none => pure Option.none
 
 /-- The form control an element is, when not a text field. -/
@@ -392,8 +396,8 @@ def render : Nat → RenderCx → Locals → List Node → RowStore → Result (
         let text ← elementText fuel cx.env ls tag pos
         let testId ← elementTestId fuel cx.env ls props
         let values ← (tabProps props).mapM fun (name, e) => do
-          pure (name, ← eval fuel cx.env false ls e)
-        let navigation := cx.tabs.element props values
+          pure (name, ← unsetRefused (eval fuel cx.env false ls e))
+        let navigation := cx.tabs.element props (values.filterMap fun (n, v) => v.map (n, ·))
         let (kids, live) ← (if navigation.opened then
           render fuel { cx with tabs := cx.tabs.children props } ls children live
           else pure ([], live))
@@ -494,11 +498,28 @@ the product first (the runner's `virtual_frame`), so sixty frames are
 exactly a second. -/
 def virtualFrame (base : F64) (k : Nat) : F64 := base + F64.ofNat k * 1000 / 60
 
+/-- The least virtual frame at or after a deadline, correcting binary64 division. -/
+def frameAtOrAfter (deadline : F64) : F64 :=
+  let k := F64.toNat (F64.ceil (deadline * 60 / 1000))
+  let k := if k > 0 && deadline ≤ virtualFrame 0 (k - 1) then k - 1 else k
+  let k := if virtualFrame 0 k < deadline then k + 1 else k
+  virtualFrame 0 k
+
+/-- The first nominal beat strictly after an execution time. -/
+def waitBeatAfter (deadline interval execution : F64) : F64 :=
+  let k := max 1 (F64.toNat (F64.floor ((execution - deadline) / interval)) + 1)
+  let beat := fun k => deadline + F64.ofNat k * interval
+  let k := if k > 1 && execution < beat (k - 1) then k - 1 else k
+  beat (if beat k ≤ execution then k + 1 else k)
+
 /-- A timer. A frame task's is a virtual display (the runner's, while the
 host does not present frames, as in a differential run): it is due at
 `virtualFrame base k`, and each fire moves to the next frame. -/
 structure Timer where
   action : String
+  waitKind : Nat := 0
+  nominal : F64 := 0
+  maxMs : Nat := 0
   interval : F64
   once : Bool
   next : F64
@@ -519,7 +540,18 @@ interval on. -/
 def Timer.fired (tm : Timer) : Timer :=
   if tm.once then { tm with next := F64.posInf }
   else if tm.frame then { tm with k := tm.k + 1, next := virtualFrame tm.base (tm.k + 1) }
+  else if tm.waitKind != 0 then
+    let nominal := waitBeatAfter tm.nominal tm.interval tm.next
+    { tm with nominal, next := if tm.waitKind == 1 then frameAtOrAfter nominal else nominal }
   else { tm with next := tm.next + tm.interval }
+
+/-- Execution time, then idle priority, nominal time and declaration order. -/
+def Timer.precedes (tm b : Timer) : Bool :=
+  tm.next < b.next || (tm.next == b.next &&
+    ((b.waitKind == 4 && tm.waitKind != 4) ||
+      ((b.waitKind == 4) == (tm.waitKind == 4) &&
+        (if tm.waitKind == 0 then tm.next else tm.nominal) <
+        (if b.waitKind == 0 then b.next else b.nominal))))
 
 /-- What a refused queued send saw: the slots, and the derives and
 resources settled against them (LLP 1092 D3). -/
@@ -641,7 +673,7 @@ def gateTimer (env : Env) (tm : Timer) : Result Timer :=
       else if tm.frame then
         { tm with armed := true, armedKey := key, base := env.now, k := 1,
                   next := virtualFrame env.now 1 }
-      else { tm with armed := true, armedKey := key, next := env.now + tm.interval })
+      else { tm with armed := true, armedKey := key, nominal := env.now + tm.interval, next := (if tm.waitKind == 1 then frameAtOrAfter (env.now + tm.interval) else env.now + tm.interval) })
 
 theorem gateTimer_fields {env : Env} {tm tm' : Timer} (h : gateTimer env tm = .ok tm') :
     tm'.action = tm.action ∧ tm'.gate = tm.gate ∧ tm'.key = tm.key := by
@@ -963,7 +995,8 @@ def startTimers (p : Program) (slots : List (String × Value)) : Result (List Ti
                gate := t.gate, key := t.key, armed := !gated }
     let ms ← (← eval fuel { prog := p, slots } false [] t.ms).asNum
     pure { action := t.action, interval := ms, once := t.kind == .after,
-           next := if gated then F64.posInf else ms, gate := t.gate, key := t.key, armed := !gated }
+           waitKind := t.waitKind, maxMs := t.maxMs, nominal := ms,
+           next := if gated then F64.posInf else if t.waitKind == 1 then frameAtOrAfter ms else ms, gate := t.gate, key := t.key, armed := !gated }
 
 /-- The late slots, in declaration order, against the settled values. -/
 def lateSlots (p : Program) (st : Settled) (slots : List (String × Value)) :
@@ -1093,7 +1126,7 @@ def advance (p : Program) (o : Oracle) (c : Config) (t : F64) : Config × Outcom
       if tm.next ≤ t then
         match best with
         | .none => Option.some (tm, i)
-        | .some (b, j) => if tm.next < b.next then Option.some (tm, i) else Option.some (b, j)
+        | .some (b, j) => if tm.precedes b then Option.some (tm, i) else Option.some (b, j)
       else best) Option.none
   let pick (c : Config) : Option Clock := clockPick p c t ((due c).map (·.1.next))
   let finish (c : Config) : Config × Outcome := ({ c with now := if t > c.now then t else c.now }, .ok)

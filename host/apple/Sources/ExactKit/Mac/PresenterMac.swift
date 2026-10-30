@@ -23,6 +23,7 @@ package final class Presenter {
     let menusHeldFocus = NSHashTable<NodeView>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
+    var orientationLock = OrientationLock() // journaled once: the Mac has no orientation (LLP 1133.029 D12)
     /// The document: the roots live here, content-sized like a page.
     let root = FlippedView(frame: .zero)
     /// The viewport over it: the window's content view, scrolling like a browser's.
@@ -129,7 +130,10 @@ package final class Presenter {
     lazy var toolbar = WindowToolbarHost(self)
     /// What native presentations cover of boxes (LLP 1115.002 D8.1, CoversMac.swift).
     lazy var covers = HostCovers(self)
+    lazy var statusItems = StatusItemHost(self)
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// The border box a person dragged a box's `resize` grip to; nil keeps an axis (ResizeGrip.swift).
+    var onResizeBox: ((UInt32, CGFloat?, CGFloat?) -> Void)?
     /// The root tab bar as the window's sidebar (LLP 1115.002 D3), and the kernel's rule for a root's tabs.
     lazy var sidebar = SidebarHost(self)
     var rootTabs: ((UInt32) -> RootTabs?)?
@@ -588,11 +592,14 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        resetting = true // (from its first teardown: a view it removes may end an edit)
+        defer { resetting = false }
         MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
-        WakeLock.hold(self, false) // the new host's first batch says it again
+        WakeLock.hold(self, false); releaseOrientationLock() // the new host's first batch says them again
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
         pointerHeld = nil; pointerPath = []; pointerSource = nil; mouseChain.bubbledPress?.cancel()
+        mouseChain.early = nil; mouseChain.reported = []; mouseChain.heldUp = nil; mouseChain.releaseAfterBubbling = false
         elements.reset()
         blocks.forgetRects() // the new runtime's ids are its own
         resetFlights()
@@ -610,13 +617,12 @@ package final class Presenter {
         tables.reset()
         leaves.reset()
         autofocusProcessed.removeAll()
-        resetting = true
-        defer { resetting = false }
         menus.reset()
         dialogs.reset()
         toolbar.reset() // its header's cover goes with `covers.reset()` below, untold
         navigation.reset()
         sidebar.reset()
+        statusItems.reset()
         covers.reset()
         segments.reset()
         controls.reset()
@@ -681,66 +687,6 @@ package final class Presenter {
     var composedChord: NSEvent?
 
     lazy var popoverEvents = PopoverEvents(self)
-    /// `showModal(id)`, `close(id)` from an action (LLP 1115 D6): a
-    /// `dialog` by its id, in the session's top layer as its invoker's
-    /// `command="show-modal"` puts it (DialogsMac).
-    func dialogCommand(_ name: String, _ id: String) {
-        guard let dialog = carrying("tag:dialog").first(where: { $0.props["id"] == id }) else {
-            if name == "showModal" { session?.log("showModal \(id) refused: no dialog has that id") }
-            return
-        }
-        if name == "showModal", dialogs.owns(dialog) || alerts.isOpen(dialog) {
-            session?.log("showModal \(id) ignored: dialog is already open")
-        } else if name == "showModal" { dialogs.show(dialog) } else { dialogs.close(dialog) }
-    }
-
-    /// The action's focus(html-id), delivered only after the batch is mounted.
-    func focusElement(_ args: [Any], selectText: Bool = false) {
-        guard args.count == 1, let name = args.first as? String,
-              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
-        if !selectText, menus.focus(target) { return }
-        // A search input the window's toolbar hosts, or a prompt's input lent to its
-        // alert, has no box in the page (LLP 1115.002 D2): the caret goes to its field.
-        if target.pageField != nil {
-            if !target.formDisabled, toolbar.focusSearch(target) || alerts.focus(target), selectText { fieldSelections.selectAll(target) }
-            return
-        }
-        guard let window = target.window, !target.formDisabled,
-              target.bounds.width > 0, target.bounds.height > 0 else { return }
-        var ancestor: NSView? = target
-        while let view = ancestor {
-            if view.isHidden || (view as? NodeView)?.inert == true { return }
-            ancestor = view.superview
-        }
-        if target.kind == "native", !selectText { _ = session?.natives.focus(target); return }
-        if selectText, target.textArea == nil, target.field == nil { return }
-        if let field = target.field, window.firstResponder === field.currentEditor() {
-            if selectText { fieldSelections.selectAll(target) }
-            return
-        }
-        let responder = target.web ?? keyView(of: target)
-        if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
-        if selectText, window.firstResponder === target.textArea || target.field?.currentEditor() != nil { fieldSelections.selectAll(target) }
-    }
-
-    /// The action's blur(): drop the first responder; blur(html-id) only when
-    /// that node holds it (a field's responder is its editor).
-    func blurElement(_ args: [Any]) {
-        // In the window the keyboard is in: an open dialog's sheet, else the page's.
-        guard var window = frontWindow else { return }
-        if let name = args.first as? String {
-            guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
-            window = target.window ?? window
-            if target.kind == "native" {
-                guard window.firstResponder === target || session?.natives.ownsFocus(target) == true else { return }
-                window.makeFirstResponder(nil)
-                return
-            }
-            let responder = keyView(of: target)
-            guard window.firstResponder === responder || window.firstResponder === target.field?.currentEditor() else { return }
-        }
-        window.makeFirstResponder(nil)
-    }
 
     /// The events beyond press and change (LLP 1005 §3).
     var onHover: ((UInt32, Bool) -> Void)?
@@ -863,6 +809,15 @@ package final class Presenter {
     var pressHeld = ""
     /// The click being sent as a press, given by the mouse paths only (`pressMount`, FocusMac.swift).
     var pressClick: NSEvent?
+    /// A native button's click being sent as a press (`activateNative`): its
+    /// point only, since its focus is AppKit's button's, not `pressMount`'s.
+    var nativeClick: NSEvent?
+    /// Where that click was in the viewport, its `MouseEvent`'s `clientX`/`clientY`
+    /// (LLP 1021 D2); none for a key's or VoiceOver's press, which DOM puts at 0, 0.
+    var pressPoint: CGPoint? {
+        guard let click = pressClick ?? nativeClick, [.leftMouseDown, .leftMouseUp].contains(click.type) else { return nil }
+        return client(NodeView.point(click, in: viewport.window))
+    }
     package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false, outsideModal: Bool = false, click: NSEvent? = nil) {
         pressHeld = held; defer { pressHeld = "" } // `outsideModal`: an app-wide menu item's (ShortcutsMac `enabled`)
         guard let node = textHost(id), !(bubbled || outsideModal ? node.authoredInert : node.inert), !node.disabled,
@@ -929,7 +884,8 @@ package final class Presenter {
     var devPill: PlatformView?
     /// Painted popovers' measures in their regions this batch (`placePainted`).
     var regionMeasures = PositionArea.MeasureCache()
-    private var resetting = false
+    /// In `reset`, from its first teardown (FocusEvents keeps the focus it last reported: ResetGate).
+    private(set) var resetting = false
     private var pendingGeometry: (() -> Void)?
 
     /// Window chrome can synchronously resize ExactView while an older batch
@@ -1040,18 +996,21 @@ package final class Presenter {
 
     func apply(_ batch: Batch) {
         session?.fieldChrome.presented(batch.layoutProvisional)
-        defer { applyLanguage(batch); applyWakeLock(batch) }
+        defer { applyLanguage(batch); toolbar.languageApplied(batch); applyWakeLock(batch); applyOrientationLock(batch) }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops"), phase = HostPhases.shared.begin(.apply)
         defer { Self.signposts.endInterval("apply", post); HostPhases.shared.end(phase) }
         viewport.invalidateDocumentFit()
         collections.beginBatch(batch)
-        // The window's bar is read again only by a batch that can change it (`WindowToolbarHost.concerns`).
+        // The window's bar is read again only by a batch that touches what it read (`WindowToolbarHost.concerns`),
+        // or one whose navigation pass moved what it reads (`inputsChanged`, below).
         let bar = toolbar.concerns(batch)
         if bar { toolbar.prepare() }
         anchorChanges.reset()
-        let anchorFocus = scrollers.isEmpty ? nil : focusedNode
-        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition(focused: anchorFocus) }
+        // A collection keeps its own place; the focus is read only for another scroller.
+        let anchored = scrollers.filter { !collections.owns($0) }
+        let anchorFocus = anchored.isEmpty ? nil : focusedNode
+        for id in anchored { views[id]?.captureScrollPosition(focused: anchorFocus) }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         if let text = session?.text {
             // SVG text shapes with the session's fonts (LLP 1055.000 D11).
@@ -1137,6 +1096,7 @@ package final class Presenter {
                 v.handlers = op.handlers
                 v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
+                v.embedFrame(self)
                 views[id] = v
                 elements.created(v)
                 if v.kind == "list" { listViews[id] = v }
@@ -1231,6 +1191,7 @@ package final class Presenter {
                 v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
+                if v.surface != nil { v.applySurface() } // its size is the laid-out one plus `layoutResize`
                 v.layoutContent()
             case .fieldContent:
                 views[id]?.applyFieldContent(op.payload)
@@ -1244,7 +1205,7 @@ package final class Presenter {
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
-                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutResize = CGSize(width: CGFloat(op.w), height: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.presentedAlpha = x; v.alphaValue = v.disabledShown ? x * NodeView.disabledOpacity : x; v.refreshPressOpacity()
@@ -1286,8 +1247,15 @@ package final class Presenter {
         menus.sync()
         glassGroups.reconcile()
         positionContexts()
-        if bar { toolbar.sync() }
+        if bar || toolbar.inputsChanged() {
+            toolbar.sync()
+        } else {
+            #if DEBUG
+            toolbar.shadowCheck()
+            #endif
+        }
         shortcuts.sync()
+        statusItems.sync()
         if structureChanged { selection.structureChanged() }
         // The key-view loop is read only by a key event (Tab): it is marked
         // stale here and rebuilt when one arrives (`flushKeyViewLoop`), not
@@ -1408,6 +1376,8 @@ package final class Presenter {
     /// through captures again at the end of the batch — the canvas above
     /// it, and itself for its own `children` op.
     func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false) {
+        // A filtered box draws again when it or anything in it changes.
+        if !boxFilters.isEmpty, let start = views[id] { boxFilters.touched(start) }
         guard let start = views[id] else { return }
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {
@@ -1430,7 +1400,8 @@ package enum Capture {
 
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
-    package static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
+    package static func bitmap(of view: NSView, scale: CGFloat, prepared: Bool = false) -> NSBitmapImageRep? {
+        if !prepared { prepareBackingLayers(of: view) }
         // A subtree painted through its canvas composites at alpha 0; paint
         // it opaque into the bitmap regardless.
         let alpha = view.alphaValue
@@ -1447,7 +1418,7 @@ package enum Capture {
             }
         }
         hide(view)
-        let rep = paintOrderBitmap(of: view, scale: scale)
+        let rep = paintOrderBitmap(of: view, scale: scale, prepared: true)
         for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep

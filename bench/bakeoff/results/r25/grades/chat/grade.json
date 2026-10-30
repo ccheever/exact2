@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Blue right / grey left bubbles, oldest at top, centred date headings ('Sep 26, 2026 at 4:08 PM', 'Today at 12:53 AM') at day changes; opens at newest message."},
+      {"n": 2, "status": "pass", "note": "Send appends the bubble, stays at bottom, composer clears; send disabled when empty or whitespace-only."},
+      {"n": 3, "status": "pass", "note": "Composer rides above keyboard; newest messages stay visible above it."},
+      {"n": 4, "status": "pass", "note": "'Sam is typing…' row with dots plus 'typing…' subtitle under the nav title; reply ('👍', 'Sounds good!') arrives ~2 s later."},
+      {"n": 5, "status": "partial", "note": "Context menu with Copy/Delete works (copy pasted correctly, delete removes and persists), but the lifted preview is a blank white pill with no text or colour."},
+      {"n": 6, "status": "pass", "note": "Flings all the way to the first message (Jul 1); a round chevron 'Jump to newest message' button appears and returns to the bottom."},
+      {"n": 7, "status": "pass", "note": "Sent messages, Sam's replies and deletions survive relaunch."}
+    ],
+    "bugs": [
+      "Long-press context menu preview renders as an empty white rounded rectangle instead of the message bubble."
+    ],
+    "tells": [
+      "Navigation bar has no material/scroll-edge effect: content is hard-clipped under the title bar and above the composer rather than blurring under bars as iOS 26+ does.",
+      "Send button sits inside the composer as a flat grey pill rather than a system glass/filled circular button; composer border looks hand-drawn.",
+      "Emoji-only messages are shown inside a normal bubble rather than as large standalone emoji like Messages.",
+      "Scroll indicator's page count drifts (26 → 39 pages) while scrolling, suggesting estimated row heights; indicator jumps.",
+      "Bubbles have no tails and identical corners; at the largest text size corners look squarish."
+    ],
+    "scroll": "Smooth flings with no blank rows seen and it reaches the first message, but it takes many flings and the scroll indicator resizes as content heights are measured; one mid-fling frame showed a text-rendering seam.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Right blue / left grey bubbles, oldest at top, date headings like 'Fri, Oct 9 6:40 PM' and 'Today 12:54 AM'; opens at newest message."},
+      {"n": 2, "status": "pass", "note": "Send appends and stays at bottom, composer clears; whitespace-only cannot be sent; trailing newline trimmed."},
+      {"n": 3, "status": "pass", "note": "Composer and separate send button stay above the keyboard; newest messages visible."},
+      {"n": 4, "status": "pass", "note": "Animated dots 'Sam is typing…' row plus 'typing…' nav subtitle; reply ('Perfect') ~2 s later."},
+      {"n": 5, "status": "pass", "note": "Native context menu with Copy/Delete and a correct lifted bubble preview; copy pastes correctly; delete removes and persists."},
+      {"n": 6, "status": "partial", "note": "Scrolling reaches the first message smoothly and a glass chevron 'Jump to newest message' button appears, but tapping it does nothing — the list stays where it is (verified repeatedly)."},
+      {"n": 7, "status": "pass", "note": "Sent messages, replies and deletions survive relaunch."}
+    ],
+    "bugs": [
+      "'Jump to newest message' button does not scroll: tapping it repeatedly leaves the thread at the same position."
+    ],
+    "tells": [
+      "Scroll indicator page count drifts (40 → 45 → 43 pages) while scrolling, indicating estimated heights.",
+      "Bubbles have no tails (only a slightly tighter corner), unlike Messages."
+    ],
+    "scroll": "Feels like a native list: smooth flings, content blurs under the glass nav bar and composer with the iOS scroll-edge effect, reaches the first message without blank rows; only the indicator length shifts a little.",
+    "scores": {"features": 7, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "B",
+  "why": "B looks and feels more like a current iPhone app: Liquid Glass send and jump buttons, scroll-edge blur under the bars, large standalone emoji and a correct context-menu preview. Its jump-to-newest button is broken, which is a real functional miss, while A's flaws are cosmetic (blank menu preview, flat hard-clipped bars). On balance B is the one I'd rather polish and ship, but it's close."
+}

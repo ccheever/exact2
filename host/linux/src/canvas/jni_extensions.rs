@@ -50,6 +50,33 @@ pub fn under_agent(name: &str) -> bool {
     agent() && !bound.split(',').any(|b| b == name)
 }
 
+/// The answers of the app's handlers a package called (`Native.invoke`,
+/// LLP 1133.016 D15 item 1), by the call's number, until `Native.invoked`
+/// reads each.
+static INVOKED: std::sync::Mutex<std::collections::BTreeMap<i32, String>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+static INVOKES: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// A number for a package's call of a handler, and where its answer goes.
+pub(crate) fn invoking() -> (i32, Box<dyn FnOnce(String) + Send>) {
+    let id = INVOKES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let answer = Box::new(move |text: String| {
+        INVOKED
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, text);
+    });
+    (id, answer)
+}
+
+/// Call `id`'s answer, once it came.
+pub fn invoked(id: i32) -> Option<String> {
+    INVOKED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id)
+}
+
 /// A package's sample for a canvas input (`Native.sensorInput`, LLP 1133.013
 /// D6): whether none waited before it.
 pub fn sensor_input(
@@ -133,6 +160,21 @@ macro_rules! canvas_jni_extensions {
             with(|h| h.presence_reply(&answer));
         }
 
+        /// What the activity asked for the orientation lock (`Orientation.kt`,
+        /// LLP 1133.029 D6): JSON, a conflict, and a line to journal or null.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_orientationApplied(
+            env: *mut JNIEnv,
+            _class: jclass,
+            applied: jstring,
+            conflict: jboolean,
+            line: jstring,
+        ) {
+            let applied = $crate::canvas::field::text(env, applied);
+            let line = (!line.is_null()).then(|| $crate::canvas::field::text(env, line));
+            with(|h| h.orientation_applied(&applied, conflict == JNI_TRUE, line.as_deref()));
+        }
+
         /// The activity started (`false`) or stopped (`true`): the page's
         /// `visibilityState` (LLP 1133.010 §9).
         #[no_mangle]
@@ -142,6 +184,20 @@ macro_rules! canvas_jni_extensions {
             hidden: jboolean,
         ) {
             with(|h| h.page_hidden(hidden == JNI_TRUE));
+        }
+
+        /// Waits up to `ms` for the store's writes, which the store's own
+        /// thread makes (`host/store_writer.rs`): whether every commit handed
+        /// over was written. The activity going to the background. Any thread.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_storeDrain(
+            _env: *mut JNIEnv,
+            _class: jclass,
+            ms: jint,
+        ) -> jboolean {
+            flag($crate::host::drain_store_writes(
+                std::time::Duration::from_millis(ms.max(0) as u64),
+            ))
         }
 
         /// Whether the page places a canvas of surface `name`. Any thread.
@@ -222,6 +278,32 @@ macro_rules! canvas_jni_extensions {
             names: jstring,
         ) {
             $crate::canvas::jni::jni_extensions::bind_later(string(env, names));
+        }
+
+        /// A package's call of the app's handler (`ExtensionContext.invoke`),
+        /// `{"extension", "handle", "handler", "args"}`: its number, whose
+        /// answer `invoked` reads; -1 with no session.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_invoke(
+            env: *mut JNIEnv,
+            _class: jclass,
+            body: jstring,
+        ) -> jint {
+            let body = string(env, body);
+            with(|h| h.module_invoke(&body)).unwrap_or(-1)
+        }
+
+        /// Call `id`'s answer as JSON, or null while it has none.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_invoked(
+            env: *mut JNIEnv,
+            _class: jclass,
+            id: jint,
+        ) -> jstring {
+            match $crate::canvas::jni::jni_extensions::invoked(id) {
+                Some(answer) => $crate::canvas::field::java(env, &answer),
+                None => std::ptr::null_mut(),
+            }
         }
     };
 }

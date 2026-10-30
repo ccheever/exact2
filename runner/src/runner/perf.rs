@@ -1,7 +1,7 @@
 //! The runner's half of `perf` (LLP 1079 D1): the switch a host turns once,
 //! the transaction sequence, and the receipt tally.
 use super::*;
-use crate::perf::{Failures, Handler, SiteWork, ALERTS};
+use crate::perf::{Failures, Handler, SiteWork};
 
 impl<D: DataSource> Runner<D> {
     /// Measure each plan site's work from here on (LLP 1079 D1): what a host
@@ -30,8 +30,10 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             self.ids.work.sites = sites;
+            self.ids.work.since = self.now_ms();
         }
         self.ids.work.moves = moves;
+        self.begin_resource_inspection();
     }
 
     /// [`Runner::measure`] as a host holding its baked `compat.json` decides
@@ -72,6 +74,22 @@ impl<D: DataSource> Runner<D> {
             if let Some(site) = self.ids.site(view) {
                 self.ids.work.sites[site.0 as usize].moved += 1;
             }
+        }
+    }
+
+    /// Declare that this host reports every kernel layout entry while measuring.
+    pub fn measure_kernel_layouts(&mut self) {
+        if !self.ids.work.sites.is_empty() {
+            self.ids.work.kernel_layouts.get_or_insert(0);
+        }
+    }
+
+    /// Record entry into a kernel layout operation, including failed attempts.
+    /// Hosts call at the operation, never infer it from a receipt or moved nodes.
+    pub fn count_kernel_layout(&mut self) {
+        if !self.ids.work.sites.is_empty() {
+            let count = self.ids.work.kernel_layouts.get_or_insert(0);
+            *count = count.saturating_add(1);
         }
     }
 
@@ -131,30 +149,23 @@ impl<D: DataSource> Runner<D> {
     pub fn alert(&mut self, line: impl Into<String>) {
         let line = line.into();
         if !self.ids.work.sites.is_empty() {
-            let mut queue = self.ids.work.alerts.borrow_mut();
-            queue.0.push_back(line.clone());
-            if queue.0.len() > ALERTS {
-                queue.0.pop_front();
-                queue.1 += 1;
-            }
+            crate::perf::queue(&self.ids.work.alerts, line.clone());
         }
-        self.log(line);
+        self.journal_only(line);
     }
 
     /// The alert lines queued since the last call, oldest first, each once:
     /// a batch carries them (`alerts`). Lines dropped past the bound are
     /// counted in a first line of their own.
     pub fn take_alerts(&self) -> Vec<String> {
-        let mut queue = self.ids.work.alerts.borrow_mut();
-        let dropped = std::mem::take(&mut queue.1);
-        let mut lines: Vec<String> = queue.0.drain(..).collect();
-        if dropped > 0 {
-            lines.insert(
-                0,
-                format!("{dropped} earlier alert lines were dropped; `logs` has the journal"),
-            );
-        }
-        lines
+        crate::perf::take(&self.ids.work.alerts, "alert")
+    }
+
+    /// The other journal lines queued since the last call, as
+    /// [`take_alerts`](Self::take_alerts) gives alerts: a batch carries them
+    /// (`journal`, LLP 1143 open question 1).
+    pub fn take_journal(&self) -> Vec<String> {
+        crate::perf::take(&self.ids.work.journal, "journal")
     }
 
     /// Resource `i`'s answer was refused (D4): counted while measuring.
@@ -173,6 +184,18 @@ impl<D: DataSource> Runner<D> {
         }
         f.count += 1;
         f.last = now;
+    }
+
+    /// Resource `i`'s data source was asked (LLP 1146 D3): counted while measuring.
+    pub(super) fn count_ask(&mut self, i: usize) {
+        if self.ids.work.sites.is_empty() {
+            return;
+        }
+        let asked = &mut self.ids.work.asked;
+        if asked.len() <= i {
+            asked.resize(self.plan.resources.len().max(i + 1), 0);
+        }
+        asked[i] += 1;
     }
 
     /// Each resource refused since measuring began, by name: `state.failures`.

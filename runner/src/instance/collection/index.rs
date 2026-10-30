@@ -69,12 +69,22 @@ struct RowHeight {
 /// A short-lived anchor around a mutation, sharing an immutable order snapshot.
 /// A deleted key uses its next surviving old neighbor, then its previous neighbor,
 /// at the same within-row offset. If no old key survives, restore to the start.
+/// The JS target ports this anchor (`host/web-js/list.js` `SizeIndex`
+/// `anchor`, `anchorAt`, `restoreAnchor`): a change here is made there too.
 #[derive(Debug, Clone)]
 pub(crate) struct Anchor {
     order: Rc<[Rc<str>]>,
     row: Option<usize>,
     within: f64,
     follows_end: bool,
+    /// How far past the end the port was (a rubber band under a finger or a
+    /// fling): kept past the end, an end it follows included, so a
+    /// correction does not pull the band back.
+    beyond: f64,
+    /// The offset it was taken at, unclamped: with no row to anchor, the
+    /// port is kept there, past the end too (a rubber band on a list shorter
+    /// than its port).
+    raw: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -635,6 +645,8 @@ impl SizeIndex {
             row,
             within,
             follows_end,
+            beyond: (raw - max).max(0.0),
+            raw,
         })
     }
 
@@ -674,6 +686,8 @@ impl SizeIndex {
             row: Some(self.position(key)?),
             within,
             follows_end: false,
+            beyond: 0.0,
+            raw: 0.0,
         })
     }
 
@@ -707,18 +721,22 @@ impl SizeIndex {
             .map(|i| self.tree.prefix(i) + anchor.within)
     }
 
+    /// Ported to the JS target as `host/web-js/list.js` `restoreAnchor`.
     pub(crate) fn restore_anchor(&self, anchor: &Anchor, viewport: f64) -> Result<f64, IndexError> {
         valid_geometry(viewport)?;
         let max = self.max_offset(viewport);
         if anchor.follows_end {
-            return Ok(max);
+            return Ok(max + anchor.beyond);
         }
         if anchor.row.is_none() {
-            return self.clamp_offset(anchor.within, viewport);
+            if anchor.beyond > 0.0 {
+                return Ok(anchor.raw);
+            }
+            return self.clamp_offset(anchor.raw, viewport);
         }
-        Ok(self
-            .anchor_position(anchor)
-            .map_or(0.0, |offset| offset.max(-self.leading).min(max)))
+        Ok(self.anchor_position(anchor).map_or(0.0, |offset| {
+            offset.max(-self.leading).min(max) + anchor.beyond
+        }))
     }
 
     fn band(&self, start: f64, end: f64) -> Range<usize> {

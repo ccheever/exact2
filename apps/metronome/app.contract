@@ -11,7 +11,12 @@
 // With an input chosen to follow (stage 4) the sequence keeps that device's
 // time instead: it waits for Start, counts in, and plays at the device's
 // tempo, which the stepper's place shows. Share as image sends a picture of
-// the tempo card where the host draws one (LLP 1125 D12).
+// the tempo card where the host draws one (LLP 1125 D12). A practice timer is an
+// alarm (LLP 1133.030 D17): it rings through silent mode and Focus when the
+// time is up, stops the transport, and offers another round; its row shows
+// only where the device has alarms.
+use scheduleAlarm, cancelAlarm, pauseAlarm, resumeAlarm, alarms, alarmStatus, AlarmStatus, Alarm from "@exact/alarms"
+
 sound "assets/click-high.wav"
 sound "assets/click-low.wav"
 sound "assets/kick.wav"
@@ -57,11 +62,18 @@ shape MIDI
   inputs: Port[]
   outputs: Port[]
 
+shape Time
+  epochAtZero: number
+
 // A step's sample and, on a track with a MIDI output, its General MIDI
 // percussion note (channel 10, index 9) at the sample's level.
 fn step(beat: number, src: string, gain: number, haptic: string, note: number): Step = Step(beat=beat, src=src, gain=gain, group="", note=note, velocity=max(1, round(gain * 127)), channel=9, duration=0.1, haptic=haptic)
 fn drum(beat: number, src: string, gain: number, note: number): Step = step(beat, src, gain, "", note)
 fn track(beats: number, out: string, steps: Step[]): Track = Track(beats=beats, loops=0, offset=0, output=out, steps=steps)
+
+// Time left as minutes and seconds, rounded up, as a countdown reads.
+fn pad2(n: number): string = n < 10 ? `0${n}` : `${n}`
+fn clock(ms: number): string = `${floor(ceil(ms / 1000) / 60)}:${pad2(ceil(ms / 1000) % 60)}`
 
 // A bar of four clicks: beat 1 high when accented (the high and low wood
 // blocks, 76 and 77), each beat's haptic when asked.
@@ -85,9 +97,19 @@ component Metronome
   state clock = false
   // The MIDI input whose clock it follows, by its id ("" keeps its own time).
   state follow = ""
+  // The practice length chosen, in minutes, and the session's time, which a
+  // running practice timer ticks each second for its readout.
+  state practiceMinutes = 10
+  state now = 0
   resource transport = exactTransport() as shape Transport
   resource page = exactPage() as shape Page
   resource midi = exactMIDI() as shape MIDI
+  resource time = exactTime() as shape Time
+  resource alarmState = alarmStatus() as shape AlarmStatus
+  resource alarmList = alarms() as shape Alarm[]
+  // The practice alarm, and its state ("" when there is none).
+  derive practice = alarmList.filter(a => a.tag == "practice")
+  derive practiceState = practice.map(a => a.state).join("")
   derive tracks = groove ? [bar(accent, haptics, output)].concat(drums(output)) : [bar(accent, haptics, output)]
   derive clicks = [step(0, "assets/click-high.wav", 1, "", 76), step(1, "assets/click-high.wav", 1, "", 76), step(2, "assets/click-high.wav", 1, "", 76), step(3, "assets/click-high.wav", 1, "", 76)]
   // The beat now: computed here so the transport's own commit (start, seek, the
@@ -124,11 +146,35 @@ component Metronome
     clock = on
   action chooseFollow(id: string)
     follow = id
+  action choosePractice(minutes: number)
+    practiceMinutes = minutes
+  // The alarm asks for permission itself while it is `prompt` (D7).
+  action startPractice
+    now = performanceNow()
+    scheduleAlarm(tag="practice", title=`Practice: ${practiceMinutes} min`, duration=practiceMinutes * 60000, snooze=practiceMinutes * 60000)
+  action pausePractice
+    pauseAlarm(tag="practice")
+  action resumePractice
+    now = performanceNow()
+    resumeAlarm(tag="practice")
+  action cancelPractice
+    cancelAlarm(tag="practice")
+  action tickPractice
+    now = performanceNow()
+  // The alarm is heard alone, and nothing resumes after it.
+  action practiceUp
+    playing = false
+  action practiceSettings
+    openURL("app-settings:")
 
   sequence click when playing
     play(tracks, bpm=bpm, from=countIn ? -4 : 0, countIn=clicks, clock=follow, clockOut=clock ? output : "")
   task readout when transport.state == "countin" or transport.state == "playing"
     every(frame, draw)
+  task practiceTick when practiceState == "countdown"
+    every(1000, tickPractice)
+  task practiceRing when practiceState == "alerting"
+    after(1, practiceUp)
 
   view
     main accent-color="-exact-system-orange" display="flex" flex-direction="column" align-items="center" justify-content="center" flex=1 gap=24 padding=24 testId="app"
@@ -148,6 +194,42 @@ component Metronome
       if page.canSharePictures
         button press=shareCard testId="share-card"
           text "Share as image"
+      // A practice timer, where the device has alarms (iOS 26 and Android).
+      if alarmState.available
+        column gap=8 max-width=420 align-items="center" testId="practice"
+          match first(practice)
+            case some(p)
+              match p.at
+                case some(at)
+                  text (p.state == "alerting" ? "Time is up" : `${clock(max(0, at - time.epochAtZero - now))} left`) font="-exact-title-3" font-variant-numeric="tabular-nums" testId="practice-left"
+                case none
+                  match p.remaining
+                    case some(left)
+                      text `Paused, ${clock(left)} left` font="-exact-title-3" font-variant-numeric="tabular-nums" testId="practice-left"
+                    case none
+                      text p.title font="-exact-title-3" testId="practice-left"
+              row gap=12
+                if p.state == "paused"
+                  button press=resumePractice testId="practice-resume"
+                    text "Resume"
+                else if p.state == "countdown"
+                  button press=pausePractice testId="practice-pause"
+                    text "Pause"
+                button press=cancelPractice testId="practice-cancel"
+                  text (p.state == "alerting" ? "Stop" : "Cancel")
+            case none
+              text "Practice" font="-exact-headline"
+              row role="radiogroup" aria-label="Practice length" gap=4
+                for m in [5, 10, 20, 30] key=m
+                  button role="radio" aria-checked=(practiceMinutes == m) press=choosePractice(m) testId=`practice-${m}`
+                    text `${m} min`
+              if alarmState.state == "denied"
+                text "Alarms are turned off for Metronome." font="-exact-footnote" color="-exact-secondary-label" testId="practice-denied"
+                button press=practiceSettings testId="practice-settings"
+                  text "Open Settings"
+              else
+                button press=startPractice buttonStyle="bordered" testId="practice-start"
+                  text "Start practice"
       column gap=8 max-width=420
         row gap=8 align-items="center"
           input type="checkbox" checked=accent change=setAccent aria-label="Accent beat 1" testId="accent"

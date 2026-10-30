@@ -133,7 +133,52 @@ const LINES: &[(&str, &str, &str)] = &[
     ),
 ];
 
-fn files(dir: &Path, out: &mut Vec<PathBuf>) {
+/// The tracked source files under `dir` (`git ls-files`), never what a build
+/// left on disk: a built web host's `host/web/dist.gen/` is gitignored output
+/// (bundled, minified copies of the sources), and a disk walk read it as
+/// readers. Under the same names as before: `.rs`, `.js`, `.mjs` and `.ts` but
+/// `.d.ts`, outside `target`, `node_modules`, `dist`, `web-dist` and dot
+/// directories. Outside a git checkout (a source archive, which holds no build
+/// output) the files on disk are the sources, so they are walked instead.
+fn files(root: &Path, dir: &str, out: &mut Vec<PathBuf>) {
+    if !root.join(".git").exists() {
+        return walked(&root.join(dir), out);
+    }
+    let listed = std::process::Command::new("git")
+        .args(["ls-files", "-z", "--", dir])
+        .current_dir(root)
+        .output()
+        .expect("git ls-files: the guard reads the tracked sources");
+    assert!(
+        listed.status.success(),
+        "git ls-files -- {dir} failed: {}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    for rel in String::from_utf8(listed.stdout)
+        .expect("UTF-8 paths")
+        .split('\0')
+        .filter(|p| !p.is_empty())
+    {
+        let (parents, name) = rel.rsplit_once('/').unwrap_or(("", rel));
+        let skipped = parents.split('/').any(|d| {
+            matches!(d, "target" | "node_modules" | "dist" | "web-dist") || d.starts_with('.')
+        });
+        if !skipped && scanned(name) {
+            out.push(root.join(rel));
+        }
+    }
+}
+
+/// A source file the guard reads, by name.
+fn scanned(name: &str) -> bool {
+    [".rs", ".js", ".mjs", ".ts"]
+        .iter()
+        .any(|x| name.ends_with(x))
+        && !name.ends_with(".d.ts")
+}
+
+/// The disk walk for a tree that is no git checkout, under the same skips.
+fn walked(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -143,18 +188,32 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
         if path.is_dir() {
             if !matches!(
                 name.as_str(),
-                "target" | "node_modules" | "dist" | "web-dist"
+                "target"
+                    | "node_modules"
+                    | "dist"
+                    | "dist.gen"
+                    | "dist.previous"
+                    | "web-dist"
+                    | "web-dist.gen"
+                    | "web-dist.previous"
             ) && !name.starts_with('.')
+                && !name.starts_with("dist.stage-")
+                && !name.starts_with("web-dist.stage-")
             {
-                files(&path, out);
+                walked(&path, out);
             }
-        } else if [".rs", ".js", ".mjs", ".ts"]
-            .iter()
-            .any(|x| name.ends_with(x))
-            && !name.ends_with(".d.ts")
-        {
+        } else if scanned(&name) {
             out.push(path);
         }
+    }
+}
+
+/// Removes a test's scratch tree however the test ends, a panic included.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
@@ -216,7 +275,7 @@ fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
     let mut escapes = (0, 0);
     for dir in SCANNED {
         let mut all = Vec::new();
-        files(&root.join(dir), &mut all);
+        files(&root, dir, &mut all);
         for path in all {
             let rel = path
                 .strip_prefix(&root)
@@ -261,6 +320,78 @@ fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
         "an allowed line is no longer present; remove it:\n{}",
         stale.join("\n")
     );
+}
+
+/// A built web host's output is no reader: an ignored `host/web/dist.gen/`
+/// file and an untracked one holding a forbidden line are not scanned, while
+/// a tracked file with the same line still fails.
+#[test]
+fn the_scan_reads_tracked_files_not_build_output() {
+    let tmp = std::env::temp_dir().join(format!("exact-icon-guard-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let _scratch = Scratch(tmp.clone());
+    let git = |args: &[&str]| {
+        let r = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&tmp)
+            .output()
+            .unwrap();
+        assert!(
+            r.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&r.stderr)
+        );
+    };
+    let forbidden = "const symbolSource = s; const parts = s.split(\"|\");\n";
+    for (rel, text) in [
+        (".gitignore", "host/web/dist.*\n"),
+        ("host/web/dist.gen/abc/app.js", forbidden),
+        ("host/web/untracked.js", forbidden),
+        ("host/web/src/tracked.js", forbidden),
+    ] {
+        let path = tmp.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    git(&["init", "-q"]);
+    git(&["add", ".gitignore", "host/web/src/tracked.js"]);
+    let mut all = Vec::new();
+    files(&tmp, "host", &mut all);
+    let found: Vec<String> = all
+        .iter()
+        .flat_map(|p| {
+            let rel = p
+                .strip_prefix(&tmp)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            readers(&rel, &std::fs::read_to_string(p).unwrap()).0
+        })
+        .collect();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].starts_with("host/web/src/tracked.js:1:"),
+        "{found:?}"
+    );
+}
+
+/// Outside a git checkout (a source archive) the files on disk are walked, so
+/// the guard still runs and still finds a reader.
+#[test]
+fn the_scan_walks_a_tree_that_is_no_checkout() {
+    let tmp = std::env::temp_dir().join(format!("exact-icon-guard-archive-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let _scratch = Scratch(tmp.clone());
+    let path = tmp.join("host/web/src/reader.js");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        "const symbolSource = s; const parts = s.split(\"|\");\n",
+    )
+    .unwrap();
+    let mut all = Vec::new();
+    files(&tmp, "host", &mut all);
+    assert_eq!(all, vec![path]);
 }
 
 /// Every guard bypass from rounds 1-4 fails; what isn't one passes.

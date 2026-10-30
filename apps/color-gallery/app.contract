@@ -5,6 +5,10 @@ shape Display
   colorGamut: string
   dynamicRange: string
 
+shape NativeFeatures
+  reference: bool
+  video: bool
+
 shape Swatch
   label: string
   color: string
@@ -104,6 +108,7 @@ component ColorGallery
   resource hiddenHdr = hidden("hdr") as shape string
   resource caveat = caveat("constrained") as shape string
   resource host = hostKind() as shape string
+  resource nativeFeatures = nativeFeatures() as shape NativeFeatures
   // rec2100 colors come from data: the web build refuses a literal one.
   resource one = hdrWhite(1) as shape string
   resource four = hdrWhite(4) as shape string
@@ -114,6 +119,13 @@ component ColorGallery
   // sticky top of 8.
   state docked = false
   state moved = false
+  state videoSource = "assets/sdr.mp4"
+  state videoPlaying = false
+  action chooseVideo(value: string)
+    videoSource = value
+    videoPlaying = true
+  action toggleVideo()
+    videoPlaying = not videoPlaying
   action choose(value: string)
     limit = value
   action toggleMoved()
@@ -247,6 +259,27 @@ component ColorGallery
           GradientRow(label="increasing hue", gradient="linear-gradient(in oklch increasing hue to right, #ff0000, #0000ff)")
           GradientRow(label="decreasing hue", gradient="linear-gradient(in oklch decreasing hue to right, #ff0000, #0000ff)")
 
+          if nativeFeatures.reference
+            text "UIKit reference · iOS 26+" class=Section
+            text "Native gradient, PQ image and shadow under no-limit, constrained and standard. The gradient runs from 1× to 4× white; the shadow uses 4× white." class=Legend
+            row column-gap=6
+              box width=116 height=112 hatch="hdr-reference" data-limit="no-limit" testId="native-no-limit"
+              box width=116 height=112 hatch="hdr-reference" data-limit="constrained" testId="native-constrained"
+              box width=116 height=112 hatch="hdr-reference" data-limit="standard" testId="native-standard"
+
+          if nativeFeatures.video
+            text "Video color profiles" class=Section
+            text "The same three-second clip without controls and with native controls. A moving dark bar confirms playback. The page limit applies to both players." class=Legend
+            row column-gap=8
+              button "SDR" press=chooseVideo("assets/sdr.mp4") testId="video-sdr"
+              button "PQ" press=chooseVideo("assets/pq.mov") testId="video-pq"
+              button "HLG" press=chooseVideo("assets/hlg.mov") testId="video-hlg"
+              button "P3 SDR" press=chooseVideo("assets/p3-sdr.mov") testId="video-p3"
+            button (videoPlaying ? "Pause videos" : "Play videos") press=toggleVideo testId="video-toggle"
+            row column-gap=8
+              video videoSource controls=false muted=true loop=true playsinline=true preload="auto" paused=(not videoPlaying) width=170 height=100 testId="video-inline"
+              video videoSource controls=true muted=true loop=true playsinline=true preload="auto" paused=(not videoPlaying) width=170 height=100 testId="video-controls"
+
           text "Transitions" class=Section
           text "Two seconds, linear. Legacy colors move in sRGB; a color in its own space moves in Oklab, so its midpoint stays light and saturated." class=Legend
           button press=toggleMoved testId="transition-toggle" align-self="flex-start" margin-top=4 padding-left=14 padding-right=14 padding-top=6 padding-bottom=6 border-radius=8 background-color="#1f6feb"
@@ -352,19 +385,20 @@ component HdrPaintTrio
       text label class=Label
       column class=Row column-gap=6
         column dynamic-range-limit="no-limit"
-          HdrPaint(kind=kind, one=one, four=four)
+          HdrPaint(kind=kind, one=one, four=four, limit="no-limit")
         column dynamic-range-limit="constrained"
-          HdrPaint(kind=kind, one=one, four=four)
+          HdrPaint(kind=kind, one=one, four=four, limit="constrained")
         column dynamic-range-limit="standard"
-          HdrPaint(kind=kind, one=one, four=four)
+          HdrPaint(kind=kind, one=one, four=four, limit="standard")
 
 component HdrPaint
   props
+    limit: string
     kind: string
     one: string
     four: string
   view
-    column width=116 height=32 box-sizing="border-box" background-color="#000000" align-items="center" justify-content="center" class=Hairline testId=`hdr-${kind}`
+    column width=116 height=32 box-sizing="border-box" background-color="#000000" align-items="center" justify-content="center" class=Hairline testId=`hdr-${kind}-${limit}` hatch="hdr-probe" data-kind=kind data-limit=limit
       if kind == "background"
         box width=116 height=32 background-color=four
       if kind == "text"

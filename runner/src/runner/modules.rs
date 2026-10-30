@@ -30,49 +30,92 @@
 use super::{DataError, DataSource, Runner, RunnerError, Target};
 use crate::failure::FailureCode;
 use crate::request::{Answer, Dispatch, Outcome, Reply, Request, Response, Work};
-use crate::HoldAnswer;
 use exact_plan::{ModulesRow, TypesId, Value};
-use serde_json::{json, Map, Value as Json};
+use serde_json::{json, Value as Json};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod admit;
 mod agent;
+mod answered;
+mod arrival;
 mod bound;
+mod calls;
 mod ceremony;
 mod declared;
+mod devices;
+mod disclosed;
 mod events;
 mod fed;
 mod handles;
 mod invoke;
+mod keyed;
+mod letgo;
+mod members;
+mod network;
 mod permits;
 mod pictures;
 mod poll;
 mod presence;
+mod processes;
 mod samples;
+mod services;
+mod sheet;
+mod spans;
+mod stale;
+#[cfg(test)]
+mod substitute_tests;
+mod values;
 mod views;
 mod wakes;
 pub use admit::CallOrigin;
+pub(super) use admit::OriginsSaved;
 use admit::{Origins, Route};
+pub use calls::CallHow;
 pub use declared::AppState;
+pub(super) use declared::CHOSEN;
+pub(super) use disclosed::STATED;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
+pub(super) use processes::Refused;
+pub(super) use services::CLAIMED;
 use std::sync::{Arc, Mutex};
+use values::{absent_is_none, fill, set_path};
+
+/// The key of the answer `decide` gives a send that lists what it answers,
+/// which its caller turns into the entry (`region_list.rs`, `listed_or`).
+const LISTS: &str = "exact:lists";
 pub use wakes::WakeHow;
-pub(super) use wakes::TOLD;
+pub(super) use wakes::{EXPIRED, TOLD};
 
 /// The continuation tokens the runner keeps for its held module requests:
 /// a data source's count up from zero, far below, and its reserved ones
 /// (`BACKGROUND`) sit at the top, above.
 const TOKENS: std::ops::Range<u64> = 1 << 62..1 << 63;
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: how many substitutes were parsed from the plan's text.
+    pub(crate) static SUBSTITUTE_PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The runner's module state for this session (LLP 1124 D7: until cleared
 /// or the session ends).
 #[derive(Default)]
 pub(super) struct Extensions {
+    /// `@exact/child-process`'s children and clock (LLP 1133.007).
+    processes: processes::Processes,
+    /// Each module's substitute as it reads on the host target, by the plan's
+    /// string: parsed once, since the plan's strings never change under a
+    /// runner (a new plan is a new runner); cleared when the target changes,
+    /// so it holds at most one entry a module row.
+    substitutes: std::cell::RefCell<std::collections::HashMap<u32, std::sync::Arc<Json>>>,
     /// The agent's preferred values, by `extension.source`.
     preferred: BTreeMap<String, Json>,
     /// Each declared permission's state, by its name: `prompt` when absent.
     permission: BTreeMap<String, String>,
+    /// The facts a person's answer kept beside a state the platform hides
+    /// (`keyed.rs`): `shared` and `since`, by permission.
+    facts: BTreeMap<String, Json>,
     /// Requests held for the agent.
     held: Vec<Held>,
     /// Held requests answered, with whether the host has dispatched them.
@@ -93,6 +136,12 @@ pub(super) struct Extensions {
     pub(super) events: events::Events,
     /// Wakes, running and to come (LLP 1133.017 D5).
     wakes: wakes::Wakes,
+    /// Foreground-service claims under the agent (LLP 1133.033 D21).
+    services: services::Services,
+    /// What bound implementations disclose of their own objects (`disclosed.rs`).
+    disclosed: disclosed::Disclosed,
+    /// Tool calls, running and to come (LLP 1133.023 D7).
+    calls: calls::Calls,
     /// Each bound live source's Contract readers, by resource, with the
     /// arguments each last asked with (`bound.rs`).
     readers: BTreeMap<String, BTreeMap<usize, String>>,
@@ -107,6 +156,9 @@ pub(super) struct Extensions {
     arrived: handles::Arrived,
     /// Each polled source's last ask, on the session's clock (`poll.rs`).
     polls: BTreeMap<String, f64>,
+    /// When each live source's last answer goes stale, on the session's
+    /// clock; infinite once asked (`stale.rs`).
+    stale: BTreeMap<String, f64>,
     /// What each package view's implementation was told (`views.rs`).
     views: views::Views,
     /// The polled sources whose last answer was an error, not asked again by
@@ -119,6 +171,10 @@ pub(super) struct Extensions {
     /// The ceremonies and signals held or answered, by held token, with
     /// their extension (`ceremony.rs`).
     ceremonies: Vec<(u64, String, Json)>,
+    /// The sends answered after a span, and the calls kept (`spans.rs`).
+    spans: spans::Spans,
+    /// The devices remembered and open, their readers and writes (`devices.rs`).
+    devices: devices::Devices,
     /// The pictures admitted and refused, by extension (`pictures.rs`).
     pictures: pictures::Pictures,
     /// The canvases packages feed, and their leases (`fed.rs`).
@@ -126,6 +182,8 @@ pub(super) struct Extensions {
     /// The handles whose work may call the app's handlers, and the handlers
     /// running (`invoke.rs`).
     invocations: invoke::Invocations,
+    /// The payment sheets the substitute holds (`sheet.rs`).
+    sheets: sheet::Sheets,
     /// The last number a forwarded send was given, and each send in flight
     /// by ticket: its `extension.send` and number, which a `cancel` names
     /// when it is let go (`bound.rs`).
@@ -134,6 +192,10 @@ pub(super) struct Extensions {
     /// Each polled source's Contract readers whose last answer is within
     /// its `while`, by resource (`poll.rs`).
     within: BTreeMap<String, BTreeMap<usize, bool>>,
+    /// What arrivals keep (`arrival.rs`), and the data-code calls held, by
+    /// the request that made them (`letgo.rs`).
+    arrivals: arrival::Arrivals,
+    letgo: letgo::LetGo,
 }
 
 /// A Contract read or send of a module's name, as admission saw it.
@@ -175,6 +237,8 @@ struct Held {
     /// The call's body for the implementation, once the ticket allows it.
     forward: Option<Vec<u8>>,
     origin: CallOrigin,
+    /// The invocation it is part of (`admit.rs`); 0 for none.
+    id: u64,
     /// The call's arguments: a denial fails it only where they ask for what
     /// the permission gates (`permission.continues`), and which of an
     /// interface's permissions it asks (`permission_of`).
@@ -230,6 +294,11 @@ enum Waits {
     /// answers from (`choose`: the limited selection, LLP 1133.019 §10): the
     /// agent's `type @t` sets the agent word it names; `cancel` leaves it.
     Choose,
+    /// A send the substitute answers after its span (`spans.rs`).
+    Span,
+    /// A device module's chooser, or its permission dialog at an open on
+    /// Android (`devices.rs`).
+    Device,
 }
 
 impl Waits {
@@ -241,6 +310,8 @@ impl Waits {
             Waits::Check => "check",
             Waits::Ceremony => "ceremony",
             Waits::Choose => "choose",
+            Waits::Span => "span",
+            Waits::Device => "device",
         }
     }
 }
@@ -304,6 +375,7 @@ impl<D: DataSource> Runner<D> {
         let row = self.module_row(source);
         let mut args = self.args_json(&row, args);
         self.clamp_bounds(&row, &mut args);
+        self.resolve_of(&row, &mut args);
         let send = matches!(target, Target::Mutation(_));
         let timeout = send.then(|| self.timeout(&row, &args)).flatten();
         let origin = self.origin_for(Some(target));
@@ -314,7 +386,8 @@ impl<D: DataSource> Runner<D> {
         // A sampled source's reader is known to its answer (`samples.rs`).
         self.extensions.samples.asking = reader.map(|r| (r, origin));
         self.sampled_ask(&row, &args);
-        let decision = self.admitted(&row, &args, origin, send, timeout);
+        let causes = self.causes_for(target);
+        let decision = self.calling(causes, |r| r.admitted(&row, &args, origin, send, timeout));
         let called = Called {
             target,
             source,
@@ -361,6 +434,7 @@ impl<D: DataSource> Runner<D> {
                 Ok(Answer::Later(self.bound_request(&row, args, reader)))
             }
             Decision::Now(json) => {
+                let json = self.listed_or(&row, &args, json);
                 // The runner's own answer (an implementation's permission status
                 // under the agent) is the substitute's, not a refusal.
                 let how = if route == Route::Substitute || error_code(&json).is_none() {
@@ -433,8 +507,10 @@ impl<D: DataSource> Runner<D> {
         if !self.native_slot().synced() {
             self.publish_sync();
         }
+        self.spans_due(now_ms);
+        self.sheet_deadlines(now_ms);
         let due: Vec<(u64, u64)> = (self.extensions.held.iter())
-            .filter(|h| h.deadline.is_some_and(|d| d <= now_ms))
+            .filter(|h| h.waits != Waits::Span && h.deadline.is_some_and(|d| d <= now_ms))
             .map(|h| (h.token, h.hold))
             .collect();
         for (token, hold) in due {
@@ -479,7 +555,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// `extension.source`, as `prefer` and the journal name it.
-    fn key(&self, row: &ModulesRow) -> String {
+    pub(super) fn key(&self, row: &ModulesRow) -> String {
         format!(
             "{}.{}",
             self.plan.str(row.extension),
@@ -487,8 +563,18 @@ impl<D: DataSource> Runner<D> {
         )
     }
 
-    fn substitute(&self, row: &ModulesRow) -> Json {
-        serde_json::from_str(self.plan.str(row.substitute)).unwrap_or_default()
+    fn substitute(&self, row: &ModulesRow) -> std::sync::Arc<Json> {
+        let key = row.substitute.0;
+        if let Some(sub) = self.extensions.substitutes.borrow().get(&key) {
+            return sub.clone();
+        }
+        #[cfg(test)]
+        SUBSTITUTE_PARSES.with(|n| n.set(n.get() + 1));
+        let mut sub = serde_json::from_str(self.plan.str(row.substitute)).unwrap_or_default();
+        self.this_target(&mut sub);
+        let sub = std::sync::Arc::new(sub);
+        (self.extensions.substitutes.borrow_mut()).insert(key, sub.clone());
+        sub
     }
 
     /// The row of the name `declared` that `row`'s extension declares.
@@ -517,26 +603,33 @@ impl<D: DataSource> Runner<D> {
         if send && sub["records"] == true {
             return Decision::Now(Json::Null);
         }
+        if let Some(decision) = self.decide_spans(row, &sub, send, args) {
+            return decision;
+        }
         self.decide_value(row, &sub, send, args)
     }
 
     /// What the runner's permission decides of `row` now: its status
     /// source's answer, a denial, or a ticket; `None` when it allows the call.
     fn decide_permission(&self, row: &ModulesRow, send: bool, args: &Json) -> Option<Decision> {
+        if let Some(each) = self.decide_each(row, send, args) {
+            return each;
+        }
         let sub = self.substitute_for(row, args);
         let permission = &sub["permission"];
         let name = permission["name"].as_str()?;
         let state = self.permission_state(name);
         if !send && permission["status"].as_str() == Some(self.plan.str(row.declared)) {
             let mut status = self.value_of(row).unwrap_or(json!({}));
-            // Each permission this source answers the state of, in its field.
-            for p in self.statuses_of(row) {
-                if let (Some(object), Some(field), Some(name)) = (
-                    status.as_object_mut(),
-                    p["field"].as_str(),
-                    p["name"].as_str(),
-                ) {
-                    object.insert(field.into(), json!(self.permission_state(name)));
+            // Each permission this source answers the state of, in its field:
+            // a path into a record the status has (`android.notifications`).
+            // A target whose restriction makes the module absent keeps its
+            // own answer (`unknown`, LLP 1133.030 D7).
+            let absent =
+                self.substitute(row)["targets"][self.host_target()]["available"] == json!(false);
+            for p in self.statuses_of(row).into_iter().filter(|_| !absent) {
+                if let (Some(field), Some(name)) = (p["field"].as_str(), p["name"].as_str()) {
+                    set_path(&mut status, field, json!(self.permission_state(name)));
                 }
             }
             return Some(Decision::Now(status));
@@ -559,7 +652,7 @@ impl<D: DataSource> Runner<D> {
             return Some(Decision::Now(json!({ "error": permission["denied"] })));
         }
         let asks = self.asks(row, send);
-        if state == "prompt" && asks && self.status_asks(row, &sub) {
+        if network::asks_in(permission, &state) && asks && self.status_asks(row, &sub) {
             return Some(Decision::Hold(Waits::Permission));
         }
         // A name that is no request fails until the state is granted, where
@@ -601,6 +694,9 @@ impl<D: DataSource> Runner<D> {
 
     /// What answers `row` once its permission allows it.
     fn decide_value(&self, row: &ModulesRow, sub: &Json, send: bool, args: &Json) -> Decision {
+        if let Some(arrival) = self.arrival_decide(row, sub, send, args) {
+            return arrival;
+        }
         if let Some(choose) = self.decide_choose(row, send) {
             return choose;
         }
@@ -627,6 +723,15 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             return Decision::Hold(Waits::Check);
+        }
+        if let Some(value) = (!send)
+            .then(|| self.network_value(row, sub, args))
+            .flatten()
+        {
+            return Decision::Now(value);
+        }
+        if !send && sub["counts"].is_object() {
+            return Decision::Now(self.counted(row, sub, args));
         }
         if !send {
             return Decision::Now(
@@ -655,6 +760,16 @@ impl<D: DataSource> Runner<D> {
         if sub["ticket"].is_string() && from.is_some() {
             return Decision::Hold(Waits::Value);
         }
+        // A send that lists what it answers does so once admitted
+        // (`region_list.rs`), where the caller can change the state.
+        if sub["list"].is_object() {
+            return Decision::Now(json!({ LISTS: true }));
+        }
+        // A send with nothing preferred answers its declared default (LLP
+        // 1133.021 §12: a geocode answers `[]`).
+        if !sub["default"].is_null() {
+            return Decision::Now(sub["default"].clone());
+        }
         Decision::Now(json!({ "error": "NotSupportedError" }))
     }
 
@@ -666,7 +781,7 @@ impl<D: DataSource> Runner<D> {
     /// (`targets`). Its `facts` are the runner's own, over either.
     fn value_of(&self, row: &ModulesRow) -> Option<Json> {
         let sub = self.substitute(row);
-        if let Some(listed) = self.listed_value(&sub) {
+        if let Some(listed) = self.listed_value(row, &sub) {
             return Some(listed);
         }
         let default = (!sub["default"].is_null()).then(|| {
@@ -697,6 +812,10 @@ impl<D: DataSource> Runner<D> {
                 object.insert(field.clone(), known);
             }
         }
+        // A login item's status with the app's registration (LLP 1133.025 §11).
+        if sub["login"] == "status" {
+            value = self.login_status(value);
+        }
         Some(value)
     }
 
@@ -706,23 +825,6 @@ impl<D: DataSource> Runner<D> {
             self.fill_all(row, &mut value);
         }
         Some(value)
-    }
-
-    /// `row`'s declared `fill`, where `value` leaves a path out.
-    fn fill_all(&self, row: &ModulesRow, value: &mut Json) {
-        let now = self.time.epoch_at_zero + self.now_ms;
-        for (path, filler) in self.substitute(row)["fill"]
-            .as_object()
-            .into_iter()
-            .flatten()
-        {
-            let filler = if filler == "now" {
-                json!(now)
-            } else {
-                filler.clone()
-            };
-            fill(value, path, filler);
-        }
     }
 
     /// Hold a module request for the agent under a fresh device ticket: work
@@ -744,10 +846,18 @@ impl<D: DataSource> Runner<D> {
         self.extensions.next += 1;
         let name = self.target_name(target);
         let permission = self.permission_name(&row, &args);
-        let hold = self.device_hold(&row, name, waits, origin, &permission, &args);
-        let deadline = timeout
-            .filter(|_| waits == Waits::Value)
-            .map(|t| self.now_ms + t);
+        // One sheet at a time (`ceremony.rs`): behind a modal one, no ticket yet.
+        let queued = waits == Waits::Ceremony && self.ceremony_begins(&row);
+        let (hold, deadline) = match waits {
+            Waits::Span => (u64::MAX, Some(self.span_deadline(&row, &args))),
+            _ if queued => (u64::MAX, None),
+            _ => (
+                self.device_hold(&row, name, waits, origin, &permission, &args),
+                timeout
+                    .filter(|_| waits == Waits::Value)
+                    .map(|t| self.now_ms + t),
+            ),
+        };
         self.extensions.held.push(Held {
             token,
             reply: None,
@@ -760,11 +870,16 @@ impl<D: DataSource> Runner<D> {
             deadline,
             forward,
             origin,
+            id: self.invocation_id(),
             args,
             permission,
             request: None,
-            queued: false,
+            queued,
         });
+        self.arrival_claimed(&row);
+        if waits == Waits::Ceremony && !queued {
+            self.sheet_opened(token);
+        }
         let verb = if row.send { "send" } else { "source" };
         let body =
             json!({ "extension": self.plan.str(row.extension), verb: self.plan.str(row.declared) });
@@ -783,10 +898,13 @@ impl<D: DataSource> Runner<D> {
         permission: &str,
         call: &Json,
     ) -> u64 {
+        if let Some(hold) = self.shared_hold(waits, permission) {
+            return hold;
+        }
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let checks = check_choices(&sub);
-        let taps = self.ceremony_choices(&sub);
+        let taps = self.ceremony_choices(row, &sub);
         let taps: Vec<&str> = taps.iter().map(String::as_str).collect();
         // A permission's further answers (`choices`), after allow and deny.
         let mut asked = vec!["allow".to_owned(), "deny".to_owned()];
@@ -797,10 +915,13 @@ impl<D: DataSource> Runner<D> {
         );
         let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
         // A sheet's taps besides `cancel` (LLP 1133.018 D13 item 4).
-        let sheet: Vec<&str> = (sub["choose"]["choices"].as_array().into_iter().flatten())
-            .filter_map(Json::as_str)
-            .collect();
+        let sheet = self.sheet_choices(row);
+        let sheet: Vec<&str> = sheet.iter().map(String::as_str).collect();
+        let (more, typed) = Self::ticket_taps(&sub);
+        let more: Vec<&str> = more.iter().map(String::as_str).collect();
         let (capability, args, choices, value) = match waits {
+            // A span holds no device ticket (`spans.rs`).
+            Waits::Span => return u64::MAX,
             Waits::Permission => {
                 // What `allow` grants this request (`asks`, D13 item 3).
                 let line = self.asked_line(row);
@@ -810,7 +931,11 @@ impl<D: DataSource> Runner<D> {
                 if let (Some(asks), true) = (asks, line.is_some()) {
                     args["asks"] = Json::Object(asks);
                 }
-                ("permission".to_owned(), args, &asked[..], false)
+                // A request asking several together names each (`keyed.rs`).
+                if self.is_each(row) {
+                    args["permissions"] = json!(permission.split(',').collect::<Vec<_>>());
+                }
+                ("permission".to_owned(), args, &asked[..], self.is_each(row))
             }
             Waits::Choose => (
                 sub["choose"]["ticket"]
@@ -818,15 +943,15 @@ impl<D: DataSource> Runner<D> {
                     .unwrap_or("choose")
                     .to_owned(),
                 // The sheet shows what the call asked (the properties, the event).
-                json!({ "request": declared, "origin": origin.word(), "options": call }),
+                json!({ "request": declared, "origin": origin.word(), "options": call, "target": self.host_target() }),
                 &sheet[..],
                 sub["choose"]["typed"] != false,
             ),
             Waits::Value => (
                 sub["ticket"].as_str().unwrap_or("value").to_owned(),
                 json!({ "request": declared }),
-                &[][..],
-                true,
+                &more[..],
+                typed,
             ),
             Waits::Raise => (
                 sub["raise"]["ticket"]
@@ -854,6 +979,15 @@ impl<D: DataSource> Runner<D> {
                 &taps[..],
                 true,
             ),
+            Waits::Device => {
+                let (capability, args, choices) = self.device_ticket(row, origin, call);
+                let choices: Vec<&str> = choices.iter().map(String::as_str).collect();
+                let ticket = self.hold(&capability, None, &args.to_string(), &choices, false);
+                if let Some(h) = self.device_holds.iter_mut().find(|h| h.ticket == ticket) {
+                    h.name = name;
+                }
+                return ticket;
+            }
         };
         let ticket = self.hold(&capability, None, &args.to_string(), choices, value);
         if let Some(h) = self.device_holds.iter_mut().find(|h| h.ticket == ticket) {
@@ -976,10 +1110,13 @@ impl<D: DataSource> Runner<D> {
         }
         let mut args = v.get("args").cloned().unwrap_or(json!({}));
         self.clamp_bounds(&row, &mut args);
+        self.resolve_of(&row, &mut args);
         let origin = self.data_origin();
-        // A send that answers nothing (LLP 1133.004 D5) settles once done.
-        if self.is_effect(&row) {
-            return Some(self.effect_call(&row, args, origin));
+        let causes = self.data_causes();
+        // A send that answers nothing (LLP 1133.004 D5) settles once done,
+        // as does one that lists what it answers (`region_list.rs`).
+        if self.is_effect(&row) || self.lists_answer(&row) {
+            return Some(self.calling(causes, |r| r.effect_call(&row, args, origin)));
         }
         let held_args = args.clone();
         let timeout = self.timeout(&row, &args);
@@ -989,7 +1126,7 @@ impl<D: DataSource> Runner<D> {
         self.sampled_ask(&row, &args);
         // The call's request, when its reply carries handles (`handles.rs`).
         let request = self.claim_request(body);
-        let decision = self.admitted(&row, &args, origin, send, timeout);
+        let decision = self.calling(causes, |r| r.admitted(&row, &args, origin, send, timeout));
         let out = match decision {
             Decision::Forward => {
                 if !send {
@@ -1002,12 +1139,14 @@ impl<D: DataSource> Runner<D> {
                 if let Some(n) = v["request"].as_u64() {
                     body = numbered(&body, n);
                 }
+                let anchored = self.anchor_body(&row, &body, origin);
                 // A reply carrying handles grants them the handlers its call
                 // listed (`invoke.rs`); a watched one's `watched` grants them.
                 let work = match request {
                     Some(ticket) => self.watched(body, ticket),
                     None => self.granting(&row, &body.clone(), self.to_implementation(body)),
                 };
+                let work = self.unanchoring(anchored, work);
                 Some(match (sampled, reader) {
                     (Some(decl), samples::Reader::Data(id)) => {
                         self.cursored(work, id, decl["cursor"].as_str().unwrap_or("sequence"))
@@ -1040,14 +1179,17 @@ impl<D: DataSource> Runner<D> {
                 let permission = self.permission_name(&row, &args);
                 // One sheet at a time (`ceremony.rs`): behind a modal one, no ticket yet.
                 let queued = waits == Waits::Ceremony && self.ceremony_begins(&row);
-                let hold = match queued {
+                let hold = match queued || waits == Waits::Span {
                     true => u64::MAX,
                     false => self.device_hold(&row, key, waits, origin, &permission, &args),
                 };
                 let slot = Arc::new(Mutex::new(Pending::default()));
-                let deadline = timeout
-                    .filter(|_| waits == Waits::Value)
-                    .map(|t| self.now_ms + t);
+                let deadline = match waits {
+                    Waits::Span => Some(self.span_deadline(&row, &args)),
+                    _ => timeout
+                        .filter(|_| waits == Waits::Value)
+                        .map(|t| self.now_ms + t),
+                };
                 let forward = (route == Route::Agent).then(|| self.forward_body(&row, args, None));
                 self.extensions.held.push(Held {
                     token,
@@ -1064,11 +1206,14 @@ impl<D: DataSource> Runner<D> {
                     deadline,
                     forward,
                     origin,
+                    id: self.invocation_id(),
                     args: held_args.clone(),
                     permission,
                     request,
                     queued,
                 });
+                self.note_data_hold(token, body);
+                self.arrival_claimed(&row);
                 if waits == Waits::Ceremony {
                     self.record_ceremony(
                         token,
@@ -1076,6 +1221,9 @@ impl<D: DataSource> Runner<D> {
                         &held_args,
                         if queued { "queued" } else { "held" },
                     );
+                    if !queued {
+                        self.sheet_opened(token);
+                    }
                 }
                 Some(Dispatch::Run(Work::Later(Box::new(move |reply| {
                     let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
@@ -1145,13 +1293,17 @@ impl<D: DataSource> Runner<D> {
         let h = self.extensions.held.iter().find(|h| h.hold == ticket)?;
         if h.waits == Waits::Ceremony {
             let row = self.module_row(&h.source);
-            let typed = self.ceremony_typed(&row, text);
+            let typed = self.ceremony_typed(&row, &h.args, h.token, text);
             return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
         }
         if h.waits == Waits::Choose {
             let row = self.module_row(&h.source);
             let typed = self.choose_typed(&row, &h.args, text);
             return Some(typed.map_err(|e| format!("@{ticket}: {e}")));
+        }
+        if h.waits == Waits::Permission && self.is_each(&self.module_row(&h.source)) {
+            let typed = self.each_typed(&h.permission, text);
+            return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
         }
         if h.waits != Waits::Value {
             return Some(Err(format!("@{ticket}: answered by tap, not type")));
@@ -1165,13 +1317,14 @@ impl<D: DataSource> Runner<D> {
         )
     }
 
-    /// `text`, the agent's answer to a value ticket: JSON, or the `short`
-    /// form, numbers by comma into the declared paths; checked, filled, as
-    /// the source's shape takes it.
+    /// `text`, the agent's answer to a value ticket: JSON (a record, or a
+    /// list for a source answering one, as `reverseGeocode`'s places), or
+    /// the `short` form, numbers by comma into the declared paths; checked,
+    /// filled, as the source's shape takes it.
     fn typed(&self, row: &ModulesRow, text: &str) -> Result<Json, String> {
         let key = self.key(row);
         let value = match serde_json::from_str::<Json>(text.trim()) {
-            Ok(v) if v.is_object() => v,
+            Ok(v) if v.is_object() || v.is_array() => v,
             _ => {
                 let short: Vec<String> = (self.substitute(row)["short"]
                     .as_array()
@@ -1210,136 +1363,6 @@ impl<D: DataSource> Runner<D> {
         Ok(value)
     }
 
-    /// The agent answered hold `hold`, already spent: §6's transitions.
-    pub(super) fn module_answered(&mut self, hold: u64, answer: &HoldAnswer) {
-        if self.effect_answered(hold, answer) {
-            return;
-        }
-        if self.effect_answered(hold, answer) {
-            return;
-        }
-        let Some(h) = self.extensions.held.iter().find(|h| h.hold == hold) else {
-            return;
-        };
-        let (token, source, waits) = (h.token, h.source.clone(), h.waits);
-        let name = h.permission.clone();
-        let row = self.module_row(&source);
-        let sub = self.substitute(&row);
-        match (waits, answer) {
-            (Waits::Permission, HoldAnswer::Choice(c)) => {
-                let chosen = self.permission_named(&row, &name)["choices"][c.as_str()].is_object();
-                // The access the request asked (`asks`, LLP 1133.018 D13 item 3).
-                let asked = self.asked_line(&row);
-                match c.as_str() {
-                    "allow" => {
-                        self.set_permission_asked(&name, "granted", "allow", asked.as_deref())
-                    }
-                    "deny" => self.set_permission(&name, "denied"),
-                    // A grant of less than all (`limited`, LLP 1133.019 D11 item 3).
-                    choice if chosen => {
-                        self.set_permission_asked(&name, "granted", choice, asked.as_deref())
-                    }
-                    // The dialog dismissed: the state stays, this request fails.
-                    _ => {
-                        let code = self.permission_named(&row, &name)["denied"].clone();
-                        self.release(token, json!({ "error": code }))
-                    }
-                }
-            }
-            (Waits::Value, HoldAnswer::Choice(_)) => {
-                let cancel =
-                    (sub.get("cancel").cloned()).unwrap_or(json!({ "error": "NotSupportedError" }));
-                self.release(token, cancel);
-            }
-            (Waits::Value, HoldAnswer::Value(text)) => {
-                let Some(from) = sub["from"].as_str().and_then(|f| self.sibling(&row, f)) else {
-                    return;
-                };
-                if let Ok(value) = self.typed(&from, text) {
-                    let key = self.key(&from);
-                    self.extensions.preferred.insert(key.clone(), value);
-                    self.log(format!("{key}: answered by the agent"));
-                    self.settle_values();
-                    self.announce(&key);
-                }
-            }
-            (Waits::Raise, HoldAnswer::Choice(c)) => {
-                let Some(answers) = sub["answers"].as_str().and_then(|a| self.sibling(&row, a))
-                else {
-                    return;
-                };
-                let key = self.key(&answers);
-                if c == "allow" {
-                    let mut value = self
-                        .extensions
-                        .preferred
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or(json!({}));
-                    for (field, v) in sub["raise"]["allow"].as_object().into_iter().flatten() {
-                        value[field] = v.clone();
-                    }
-                    self.extensions.preferred.insert(key.clone(), value);
-                    self.log(format!("{key}: raised by the agent"));
-                }
-                // Declined or dismissed is no failure: the call answers the value as it is.
-                let answer = match self.decide(&answers, false, &json!({})) {
-                    Decision::Now(value) => value,
-                    Decision::Hold(_) | Decision::Forward => {
-                        json!({ "error": "NotSupportedError" })
-                    }
-                };
-                self.release(token, answer);
-                // An implementation answering beside the runner's status hears it.
-                if c == "allow" && self.route(&row) == Route::Agent {
-                    self.tell_preferred(self.plan.str(row.extension));
-                }
-                self.announce(&key);
-            }
-            (Waits::Check, HoldAnswer::Choice(c)) => {
-                let check = &sub["check"];
-                let answer = match c.as_str() {
-                    "allow" => {
-                        let mut value = check.get("allow").cloned().unwrap_or(json!({}));
-                        self.fill_all(&row, &mut value);
-                        value
-                    }
-                    "cancel" => json!({ "error": check["cancel"] }),
-                    other => json!({ "error": check["choices"][other] }),
-                };
-                self.release(token, answer);
-            }
-            (Waits::Ceremony, HoldAnswer::Choice(c)) => {
-                let answer = self.ceremony_tapped(&sub, c);
-                self.release(token, answer);
-            }
-            (Waits::Ceremony, HoldAnswer::Value(text)) => {
-                if let Ok(response) = self.ceremony_typed(&row, text) {
-                    self.release(token, response);
-                }
-            }
-            (Waits::Choose, answer) => self.chosen(&row, token, answer),
-            (Waits::Permission | Waits::Raise | Waits::Check, HoldAnswer::Value(_)) => {}
-        }
-    }
-
-    /// Value tickets whose source now has a preferred value: each answers.
-    fn settle_values(&mut self) {
-        let waiting: Vec<(u64, u64, String)> = (self.extensions.held.iter())
-            .filter(|h| h.waits == Waits::Value)
-            .map(|h| (h.token, h.hold, h.source.clone()))
-            .collect();
-        for (token, hold, source) in waiting {
-            let row = self.module_row(&source);
-            let sub = self.substitute(&row);
-            let from = sub["from"].as_str().and_then(|f| self.sibling(&row, f));
-            if let Some(value) = from.as_ref().and_then(|f| self.preferred(f)) {
-                self.retire_hold(hold);
-                self.release(token, value);
-            }
-        }
-    }
-
     fn retire_hold(&mut self, ticket: u64) {
         if let Some(at) = self.device_holds.iter().position(|h| h.ticket == ticket) {
             let hold = self.device_holds.remove(at);
@@ -1354,9 +1377,11 @@ impl<D: DataSource> Runner<D> {
         self.release_sampled();
         self.dispose_dropped();
         self.cancel_let_go();
+        self.let_go_data_calls();
         self.prune_origins();
+        self.sheets_let_go();
         let gone: Vec<u64> = (self.extensions.held.iter())
-            .filter(|h| h.reply.is_none())
+            .filter(|h| h.reply.is_none() && !self.sheet_kept(h.token))
             .filter(|h| !self.pending.iter().any(|p| p.continuation == Some(h.token)))
             .map(|h| h.hold)
             .collect();
@@ -1436,47 +1461,4 @@ fn check_choices(sub: &Json) -> Vec<&'static str> {
         }
     }
     out
-}
-
-/// Set `path` (`coords.accuracy`) in `value` to `filler` where it is absent.
-fn fill(value: &mut Json, path: &str, filler: Json) {
-    let mut at = value;
-    let mut parts = path.split('.').peekable();
-    while let Some(part) = parts.next() {
-        let Some(object) = at.as_object_mut() else {
-            return;
-        };
-        if parts.peek().is_none() {
-            object.entry(part).or_insert(filler);
-            return;
-        }
-        at = object
-            .entry(part)
-            .or_insert_with(|| Json::Object(Map::new()));
-    }
-}
-
-/// A module's answer leaves out an option field it has nothing for (a
-/// platform's words where another platform answers, a declared default):
-/// absent is `none`, as an omitted word is (LLP 1133.002 D2).
-fn absent_is_none(json: &mut Json, shape: &exact_js_value::Shape) {
-    use exact_js_value::Shape;
-    match (json, shape) {
-        (Json::Object(map), Shape::Record(fields)) => {
-            for (name, field) in fields {
-                match map.get_mut(name) {
-                    Some(value) => absent_is_none(value, field),
-                    None if matches!(field, Shape::Option(_)) => {
-                        map.insert(name.clone(), Json::Null);
-                    }
-                    None => {}
-                }
-            }
-        }
-        (Json::Array(items), Shape::List(item)) => {
-            items.iter_mut().for_each(|v| absent_is_none(v, item))
-        }
-        (value, Shape::Option(inner)) if !value.is_null() => absent_is_none(value, inner),
-        _ => {}
-    }
 }

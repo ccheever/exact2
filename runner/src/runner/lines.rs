@@ -141,7 +141,7 @@ pub(super) fn waits_for(topic: &str, ticket: u64, name: &str) -> String {
 /// That request's reply landed (or failed): the resource is asked again.
 pub(super) fn asked_again(ticket: u64, name: &str) -> String {
     text!(
-        "{}: asked again, a watched topic changed while request {} was in flight",
+        "{}: asked again, a watched topic changed or module work wrote the store while request {} was in flight",
         name,
         ticket
     )
@@ -170,6 +170,16 @@ pub(super) fn enqueued(ticket: u64, name: &str, request: &Request) -> String {
             token
         ),
         None if request.storage.is_some() => text!("storage {} ({})", ticket, name),
+        // A child's program, never its arguments or environment (LLP 1133.007 D2).
+        None if request.is_process() => {
+            let (kind, program) = crate::process::summary(&request.body);
+            let program = program.map_or(String::new(), |p| format!(" {p}"));
+            let origin = match request.reach.origin {
+                crate::CallOrigin::App => String::new(),
+                other => format!(" (origin {})", other.word()),
+            };
+            format!("process {ticket} ({name}): {kind}{program}{origin}")
+        }
         None => text!(
             "request {} ({}): {} {}",
             ticket,
@@ -228,6 +238,18 @@ pub(super) fn send_failed_now(name: &str, why: &str) -> String {
 
 pub(super) fn failed_now(name: &str, why: &str) -> String {
     text!("resource {} failed: {}", name, why)
+}
+
+/// A resource a turn over its budget refused, asked again (`overrun.rs`).
+pub(super) fn overrun_reask(name: &str, why: &str, after_ms: f64, nth: usize, of: usize) -> String {
+    text!(
+        "resource {}: {}; asked again in {} ms ({} of {})",
+        name,
+        why,
+        after_ms as u64,
+        nth,
+        of
+    )
 }
 
 #[cfg(test)]

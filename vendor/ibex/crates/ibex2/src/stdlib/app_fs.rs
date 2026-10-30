@@ -8,10 +8,10 @@ mod implementation;
 #[cfg(any(unix, windows))]
 pub use implementation::*;
 #[cfg(any(unix, windows))]
-pub(crate) use implementation::{atomic_native, document};
+pub(crate) use implementation::{atomic_native, document, document_file};
 
 #[cfg(unix)]
-pub(crate) use implementation::remove_native;
+pub(crate) use implementation::{remove_native, run_below, Below};
 
 #[cfg(not(any(unix, windows)))]
 mod implementation {
@@ -56,7 +56,24 @@ mod implementation {
             "document filesystem unsupported",
         ))
     }
+    pub(crate) fn document_file(
+        _root: &std::fs::File,
+        _path: &str,
+    ) -> std::io::Result<std::fs::File> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "document filesystem unsupported",
+        ))
+    }
     impl AppDirectories {
+        pub(crate) fn copy_in<G>(
+            &self,
+            _grants: &GrantSet,
+            _destination: &str,
+            _source: impl FnOnce() -> Result<(std::fs::File, G), HostError>,
+        ) -> Result<FsResult, HostError> {
+            Err(unsupported())
+        }
         pub(crate) fn prepare_atomic(
             &self,
             _grants: &GrantSet,
@@ -89,6 +106,20 @@ mod implementation {
             Err(unsupported())
         }
     }
+    pub struct Staged;
+    impl AppDirectories {
+        pub fn stage(&self, _grants: &GrantSet, _path: &str) -> Result<Staged, HostError> {
+            Err(unsupported())
+        }
+    }
+    impl Staged {
+        pub fn write_all(&mut self, _bytes: &[u8]) -> Result<(), HostError> {
+            Err(unsupported())
+        }
+        pub fn publish(self) -> Result<(), HostError> {
+            Err(unsupported())
+        }
+    }
     pub(crate) struct AtomicTarget;
     impl AtomicTarget {
         pub(crate) fn write(self, _data: &[u8]) -> Result<(), HostError> {
@@ -112,4 +143,4 @@ mod implementation {
 #[cfg(not(any(unix, windows)))]
 pub use implementation::*;
 #[cfg(not(any(unix, windows)))]
-pub(crate) use implementation::{atomic_native, document};
+pub(crate) use implementation::{atomic_native, document, document_file};

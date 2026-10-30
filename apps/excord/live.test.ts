@@ -1,12 +1,27 @@
-import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test';
 import type { Answer, Args, Result, Source, Storage, Store, StreamEvent, StreamSocket } from './app.contract.d.ts';
 import * as S from './discord/store.ts';
 import { snowflakeFromMs } from './discord/ids.ts';
 import { readyPayload, startFixture } from './fixture/server.ts';
 import { constants as zlibConstants, createDeflate } from 'node:zlib';
-import { applyEvent, call, clock, connect, createLive, digest, loadSession, pastedToken, signIn, signOut } from './live.ts';
+import { applyEvent, call, clock, connect, createLive, digest, loadSession, page, pastedToken, recordIdentify, signIn, signOut, view } from './live.ts';
 import { unlockSession } from './lock.ts';
 import { createRenderer, windowOf, type Stored } from './render.ts';
+
+// The gateway fixture has no device language detector.
+mock.module('@exact/translation', () => ({
+  languageDetectorAvailability: async () => ({ availability: 'unavailable' }),
+  createLanguageDetector: async () => { throw new Error('Language detection is unavailable in the gateway fixture'); },
+  detectLanguage: async () => { throw new Error('Language detection is unavailable in the gateway fixture'); },
+}));
+
+// The gateway fixture has no attached mention light.
+mock.module('@exact/hid', () => ({
+  attachedDevices: async () => [],
+  getDevices: async () => [],
+  open: async () => { throw new Error('No HID device is attached in the gateway fixture'); },
+  sendFeatureReport: async () => { throw new Error('No HID device is open in the gateway fixture'); },
+}));
 
 const EPOCH = Date.UTC(2026, 9, 22, 12);
 const INTERVAL = 41250;
@@ -72,7 +87,7 @@ function serverForTest() {
   const counts = new Map<string, number>();
   const pending = new Set<Promise<unknown>>();
   const releases: (() => void)[] = [];
-  const holds = new Map<string, { entered: (request: Request) => void; wait: Promise<void> }>();
+  const holds = new Map<string, { entered: (request: Request) => void; wait: Promise<void>; reply: boolean }>();
   const track = (work: Promise<unknown>) => {
     pending.add(work);
     void work.then(() => pending.delete(work), () => pending.delete(work));
@@ -95,6 +110,8 @@ function serverForTest() {
     const held = holds.get(url.pathname);
     if (held) {
       holds.delete(url.pathname);
+      // A held reply: the server has acted on the request, and only its answer waits.
+      const answered = held.reply ? await handle(request, {}) : undefined;
       held.entered(request);
       const aborted = Promise.withResolvers<never>();
       const abort = () => aborted.reject(request.signal.reason);
@@ -104,6 +121,7 @@ function serverForTest() {
         await Promise.race([held.wait, aborted.promise]);
         request.signal.throwIfAborted();
       } finally { request.signal.removeEventListener('abort', abort); }
+      if (answered) return answered;
     }
     return handle(request, {});
   }
@@ -185,6 +203,12 @@ function serverForTest() {
           await ask('sendIdentify', []);
           await drain();
         }
+        // The view's `digest` task: a frame too large for the stream's own turn is applied here (a test that
+        // dials expecting another state reads the queue itself).
+        for (let turns = 0; ready === 'ready' && (peers.at(-1)?.snapshots.at(-1)?.queued ?? 0) > 0 && turns < 100; turns++) {
+          peers.at(-1)!.snapshots.push(await ask('digest', [epoch]));
+          await drain();
+        }
         expect(peers).toHaveLength(count + 1);
         const peer = peers.at(-1)!;
         expect(peer.snapshots.at(-1)).toMatchObject(ready === 'ready' ? { state: 'ready', me: fixture.world.me.id, fixture: true } : { state: ready });
@@ -194,9 +218,9 @@ function serverForTest() {
     };
   };
   return { fixture, peers, requests, counts, request, state, control, drain, app,
-    hold(path: string) {
+    hold(path: string, reply = false) {
       const entered = Promise.withResolvers<Request>(), released = Promise.withResolvers<void>();
-      holds.set(path, { entered: entered.resolve, wait: released.promise });
+      holds.set(path, { entered: entered.resolve, wait: released.promise, reply });
       releases.push(released.resolve);
       return { entered: entered.promise, release: released.resolve };
     },
@@ -303,7 +327,7 @@ test('4. the viewed channel subscribes its guild again after a non-resumable rec
 
 test('5. snapshots have fixed keys and only the viewed channel supplies history versions', async () => {
   const app = await rig.app(), peer = await app.dial();
-  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'channel', 'version', 'history', 'members', 'retryIn', 'attempt'].sort();
+  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'dmList', 'channelList', 'elsewhere', 'channel', 'version', 'history', 'members', 'memberRows', 'retryIn', 'attempt'].sort();
   expect(Object.keys(peer.snapshots.at(-1)!).sort()).toEqual(keys);
   const channel = rig.fixture.world.generalChannelId;
   const other = rig.fixture.world.guilds[0].channels.find(value => value.id !== channel)!.id;
@@ -311,18 +335,57 @@ test('5. snapshots have fixed keys and only the viewed channel supplies history 
   await rig.control('heartbeat-request', {});
   const before = peer.snapshots.at(-1)!;
   expect(before.channel).toBe(channel);
+  // The open server's member list arrived with the subscription.
+  expect(before.members).toBeGreaterThan(0);
+  expect(before.memberRows).toBeGreaterThan(0);
   expect(await app.ask('inject', [other, 'message', '', EPOCH + 1000])).toEqual({ ok: true, error: '' });
   await rig.drain();
   const elsewhere = peer.snapshots.at(-1)!;
-  expect(elsewhere.sidebar).toBeGreaterThan(before.sidebar);
+  expect(elsewhere.channelList).toBeGreaterThan(before.channelList);
+  expect(elsewhere.elsewhere).toBeGreaterThan(before.elsewhere);
+  expect(elsewhere.dmList).toBe(before.dmList);
   expect(elsewhere.version).toBe(before.version);
   expect(elsewhere.history).toBe(before.history);
+  // Typing shows only on screen, so no list moves for it.
+  expect(await app.ask('inject', [other, 'typing', '', EPOCH + 1500])).toEqual({ ok: true, error: '' });
+  await rig.drain();
+  const typed = peer.snapshots.at(-1)!;
+  expect(typed.elsewhere).toBeGreaterThan(elsewhere.elsewhere);
+  expect([typed.sidebar, typed.dmList, typed.channelList]).toEqual([elsewhere.sidebar, elsewhere.dmList, elsewhere.channelList]);
   expect(await app.ask('inject', [channel, 'message', '', EPOCH + 2000])).toEqual({ ok: true, error: '' });
   await rig.drain();
   const here = peer.snapshots.at(-1)!;
   expect(here.history).toBeGreaterThan(elsewhere.history);
   expect(here.version).toBeGreaterThan(elsewhere.version);
   for (const snapshot of peer.snapshots) expect(Object.keys(snapshot).sort()).toEqual(keys);
+});
+
+test('5b. a page off screen moves the lists only when it changes what they show', async () => {
+  const app = await rig.app(), peer = await app.dial();
+  const channel = rig.fixture.world.generalChannelId;
+  const other = rig.fixture.world.guilds[0].channels.find(value => value.id !== channel)!.id;
+  await app.ask('viewChannel', [channel]); await rig.drain();
+  expect(await app.ask('loadPage', [other, 'latest', ''])).toEqual({ ok: true, error: '' });
+  expect(await app.ask('markRead', [other])).toMatchObject({ ok: true });
+  const newest = BigInt(rig.fixture.world.messages[other].at(-1)!.id);
+  const after = Number((newest >> 22n) + 1420070400000n) + 1000;
+  expect(await app.ask('inject', [other, 'message', '', after])).toEqual({ ok: true, error: '' });
+  await rig.drain();
+  await rig.control('heartbeat-request', {});
+  const before = peer.snapshots.at(-1)!;
+  expect(await app.ask('loadPage', [other, 'latest', ''])).toEqual({ ok: true, error: '' });
+  await rig.control('heartbeat-request', {});
+  const paged = peer.snapshots.at(-1)!;
+  expect(paged.elsewhere).toBeGreaterThan(before.elsewhere);
+  expect([paged.sidebar, paged.dmList, paged.channelList]).toEqual([before.sidebar, before.dmList, before.channelList]);
+  // The unread message is gone from the server without a gateway event: the page that finds it gone
+  // clears the unread, which the lists show.
+  rig.fixture.world.messages[other].pop();
+  expect(await app.ask('loadPage', [other, 'latest', ''])).toEqual({ ok: true, error: '' });
+  await rig.control('heartbeat-request', {});
+  const cleared = peer.snapshots.at(-1)!;
+  expect(cleared.sidebar).toBeGreaterThan(paged.sidebar);
+  expect(cleared.channelList).toBeGreaterThan(paged.channelList);
 });
 
 test('6. a newer page ask is refused without aborting the page already in flight', async () => {
@@ -339,6 +402,28 @@ test('6. a newer page ask is refused without aborting the page already in flight
   expect(await first).toEqual({ ok: true, error: '' });
   expect(ids((await app.window(channel)).rows)).toEqual(ids(rig.fixture.world.messages[channel].slice(-49)));
   expect(rig.counts.get(path)).toBe(1);
+});
+
+test('6b. a vote whose reply comes after the gateway has moved on leaves the gateway\'s account', async () => {
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, asked = rig.fixture.world.messages[channel].at(-1)! as { id: string; poll?: unknown };
+  asked.poll = { question: { text: 'Lunch?' }, answers: [{ answer_id: 1, poll_media: { text: 'Tacos' } }, { answer_id: 2, poll_media: { text: 'Ramen' } }],
+    expiry: null, allow_multiselect: false, results: { is_finalized: false, answer_counts: [] } };
+  await app.ask('viewChannel', [channel]); await rig.drain();
+  expect(await app.ask('loadPage', [channel, 'latest', ''])).toEqual({ ok: true, error: '' });
+  const held = rig.hold(`/api/v9/channels/${channel}/polls/${asked.id}/answers/@me`, true);
+  const voted = app.ask('vote', [channel, asked.id, ['2']]);
+  await held.entered;
+  // This vote's own event arrives, then another device takes it back, before the reply.
+  await rig.control('vote', { channel_id: channel, message_id: asked.id, user_id: rig.fixture.world.me.id, answer_id: 2, add: false });
+  await rig.drain();
+  await app.ask('digest', [EPOCH + 100]);
+  held.release();
+  expect(await voted).toEqual({ ok: true, error: '' });
+  await rig.drain();
+  await app.ask('digest', [EPOCH + 200]);
+  const row = (await app.window(channel)).rows.find(r => r.id === asked.id)!;
+  expect(row.poll[0]).toMatchObject({ voted: false, answers: [{ count: 0, me: false }, { count: 0, me: false }] });
 });
 
 test('7. a fresh READY hides stale rows until each page confirms them', async () => {
@@ -422,6 +507,21 @@ test('9. deleting an uncached original advances history and redraws its cached r
   expect(window().rows.find(row => row.id === reply.id)!.reply[0]).toMatchObject({ id: original, state: 'deleted' });
 });
 
+test('9b. a person\'s new name redraws the open channel, and an unchanged member update does not', () => {
+  const { fixture } = rig, channel = fixture.world.generalChannelId, guild = fixture.world.guilds[0].id;
+  const live = createLive({ rest: fixture.origin, gateway: fixture.gatewayUrl, cdn: fixture.origin, fixture: true });
+  applyEvent(live, 'READY', readyPayload(fixture.world, 'member-test', fixture.gatewayUrl));
+  live.viewing = { channel, guild };
+  const user = fixture.world.users.find(u => u.id !== fixture.world.me.id)!;
+  const update = (global_name: string | null) => applyEvent(live, 'GUILD_MEMBER_UPDATE', { guild_id: guild, roles: [], user: { ...user, global_name } });
+  update(user.global_name);
+  const before = live.history.get(channel) ?? 0;
+  update(user.global_name);
+  expect(live.history.get(channel) ?? 0).toBe(before);
+  update('Someone New');
+  expect(live.history.get(channel) ?? 0).toBe(before + 1);
+});
+
 test('10. a token Discord refuses (4004) is forgotten and the gateway says signed out', async () => {
   const secrets = secretsStore();
   secrets.set('fixture-token', 'not-the-fixture-token');
@@ -455,6 +555,19 @@ test('12. a pasted token is taken from its header value or quotes; anything else
   expect(signIn(live, secrets, `"${token}"`)).toBe('');
   expect(secrets.get('discord-token')).toBe(token);
   expect(live.token).toBe(token);
+});
+
+test('12b. an identify record that lands after its connection was retired does not let the next connection identify', async () => {
+  const live = createLive({ rest: 'http://127.0.0.1:4790', gateway: 'ws://127.0.0.1:4790', cdn: 'http://127.0.0.1:4790', fixture: true });
+  let land!: () => void;
+  const storage = { fs: { atomicWriteFile: () => new Promise<void>(resolve => { land = resolve; }) } } as unknown as Storage;
+  live.gw = { identifies: [EPOCH] } as any;
+  live.held = 'first';
+  const writing = recordIdentify(live, storage);
+  // The connection is retired and the next one's HELLO holds its own IDENTIFY while the write is pending.
+  live.attempt++; live.held = 'second'; live.recorded = '';
+  land(); await writing;
+  expect(live.recorded).toBe('');
 });
 
 test('13. a READY too large for one turn waits for digest, which applies it a part a turn, and what came after, in order', async () => {
@@ -660,6 +773,61 @@ test('19. a REST reply that lands after a sign-out leaves the next account\'s li
     await expect(first).rejects.toThrow('Signed out');
     lands[1](new Response('{}', { status: 200 }));
     expect(await second).toEqual({});
+  } finally { fetchSpy.mockRestore(); }
+});
+
+// F1 (x2-perf4's fling plan): the window names one older page per anchor, and keeps what lands, up to 300 rows.
+test('F1. with the anchor at the first row, one older page is named; re-anchored as each lands, the window grows to 300 rows', async () => {
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, history = rig.fixture.world.messages[channel], path = historyPath(channel);
+  expect(await app.ask('loadPage', [channel, 'latest', ''])).toEqual({ ok: true, error: '' });
+  const top = (await app.window(channel)).firstId;
+  // The view's lead (app.contract's leadOlder) moves the anchor to the first row again as each page lands; the
+  // window names one page per anchor, so the lead adds a page a step and stops within a page of 100 rows.
+  const edge = await app.window(channel, top);
+  // The cursor is the oldest cached message, the one that only supplies the first row's grouping.
+  expect(edge).toMatchObject({ need: 'before', cursor: history.at(-50)!.id });
+  expect(await app.ask('loadPage', [channel, edge.need, edge.cursor])).toEqual({ ok: true, error: '' });
+  const led = await app.window(channel, top);
+  expect(led.need).toBe('');
+  expect(ids(led.rows).indexOf(top)).toBe(50);
+  expect(rig.counts.get(path)).toBe(2);
+  // The window holds at most 300 rows, and the rows a page just brought are never shed from it.
+  let anchor = led.firstId, longest = 0;
+  for (let pages = 0; pages < 6; pages++) {
+    const edge = await app.window(channel, anchor);
+    if (edge.need !== 'before') break;
+    expect(await app.ask('loadPage', [channel, edge.need, edge.cursor])).toEqual({ ok: true, error: '' });
+    const grown = await app.window(channel, anchor);
+    expect(grown.rows.length).toBeLessThanOrEqual(300);
+    const at = history.findIndex(m => m.id === edge.cursor);
+    expect(ids(grown.rows).slice(0, 50)).toEqual(ids(history.slice(Math.max(0, at - 49), at + 1)));
+    anchor = grown.firstId; longest = Math.max(longest, grown.rows.length);
+  }
+  // 300 cached rows, the oldest supplying only the first row's grouping.
+  expect(longest).toBe(299);
+});
+
+test('a page whose body fails after its headers gives the route\'s slot back, so the next page goes out', async () => {
+  const live = createLive({ rest: 'https://discord.com', gateway: 'wss://gateway.discord.gg', cdn: 'https://cdn.discordapp.com', fixture: false });
+  live.token = 'a'.repeat(60);
+  let asked = 0;
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((() => {
+    asked++;
+    // The headers are in; the connection drops while the body arrives.
+    const body = new ReadableStream({ start(controller) { queueMicrotask(() => controller.error(new TypeError('connection reset'))); } });
+    // The second reply's headers say the route's bucket is spent for 5 s.
+    const spent = asked === 2 ? { 'X-RateLimit-Bucket': 'history', 'X-RateLimit-Limit': '5', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset-After': '5' } : {};
+    return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/json', ...spent } }));
+  }) as any);
+  try {
+    view(live, 'A');
+    await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('connection reset');
+    await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('connection reset');
+    expect(asked).toBe(2);
+    // What the failed reply's headers said still holds: the next page waits, without a request.
+    await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('Discord asks to wait 5 s');
+    expect(asked).toBe(2);
   } finally { fetchSpy.mockRestore(); }
 });
 

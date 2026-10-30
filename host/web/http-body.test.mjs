@@ -279,6 +279,32 @@ test('the wasm early GET follows a return chain and is claimed at the granted fi
   } finally { origin.stop(true); middle.stop(true); final.stop(true); }
 });
 
+test('a tool\'s request to the local network from a public page waits for the person, sent by neither path (LLP 1133.036 D6)', async () => {
+  globalThis.exact ??= {};
+  const { fetchEarly } = await import('./module-glue.js');
+  const was = globalThis.location, sent = [], real = globalThis.fetch;
+  let hits = 0;
+  const light = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch() { hits++; return new Response('{}'); } });
+  globalThis.location = { hostname: 'lights.example', origin: 'https://lights.example', href: 'https://lights.example/' };
+  globalThis.fetch = (url, init) => { sent.push(String(url)); return real(url, init); };
+  try {
+    const set = normalized('device.local-network lanPurpose\nnet.fetch local-network development');
+    const host = { grantSet: set, controllers: new Set(), moduleLoader: null };
+    const lan = { method: 'GET', url: 'http://192.168.1.40/json/si', headers: [], origin: 'tool', reachState: 'prompt' };
+    expect(fetchEarly(lan, set)).toBe(null);
+    const refused = await request(lan, host);
+    expect([refused.kind, new TextDecoder().decode(refused.body)]).toEqual([2, 'NotAllowedError: person-required']);
+    const denied = await request({ ...lan, url: `${light.url}json/si`, reachState: 'denied' }, host);
+    expect([denied.kind, new TextDecoder().decode(denied.body)]).toEqual([2, 'NotAllowedError: local network access is denied']);
+    const socket = await request({ ...lan, url: `ws://127.0.0.1:${light.port}/`, stream: true }, { ...host, grantSet: normalized('device.local-network lanPurpose\nnet.websocket local-network development') });
+    expect(new TextDecoder().decode(socket.body)).toBe('NotAllowedError: person-required');
+    expect([sent, hits]).toEqual([[], 0]);
+    // The app's own reach is the ask, and goes.
+    const own = await request({ method: 'GET', url: `${light.url}json/si`, headers: [] }, host);
+    expect([own.kind, own.status, hits]).toEqual([0, 200, 1]);
+  } finally { light.stop(true); globalThis.fetch = real; globalThis.location = was; }
+});
+
 test('a scheme line admits every origin of its scheme, and a request names the line that admitted it', async () => {
   const set = normalized('net.fetch https://api.example\nnet.fetch http:\nnet.websocket wss://feed.example\nnet.websocket ws:');
   expect([
@@ -422,4 +448,59 @@ test('a retry asks no sooner than the floor, a busy body is never read, and a cu
     assert.equal(r.asked.length, 0);
     r.server.stop(true);
   } finally { longPollTiming.heartbeatMs = 1000; }
+});
+
+// LLP 1016.000, an upload (D10): Fetch tells no bytes
+// sent, so the page sends it by XMLHttpRequest. Each `upload` progress event is
+// a message of the bytes sent; the reply, any status, read whole within the
+// ceiling, is the outcome; nothing asks for events. A redirect out of the
+// grants, an abort and the deadline end it as a fetch's would.
+test('an upload goes by XMLHttpRequest: its bytes sent are messages, its reply the outcome', async () => {
+  const made = [];
+  class Xhr {
+    constructor() { this.upload = {}; this.headers = []; made.push(this); }
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader(name, value) { this.headers.push([name, value]); }
+    send(body) { this.body = body; }
+    abort() { this.onabort?.(); }
+    getAllResponseHeaders() { return 'content-type: application/json\r\n'; }
+    answer(status, text, url = this.url) { this.status = status; this.response = new TextEncoder().encode(text).buffer; this.responseURL = url; this.onload(); }
+  }
+  const saved = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = Xhr;
+  try {
+    const tick = () => new Promise((r) => setTimeout(r, 5)), decode = (o) => new TextDecoder().decode(o.body);
+    const host = (sent, controller = new AbortController()) => ({ grantSet: normalized('net.fetch https://example.test'), controllers: new Set(), controller, message: (m) => sent.push([m.event, m.data]) });
+    const op = { method: 'POST', url: 'https://example.test/upload', headers: [['content-type', 'image/png']], body: btoa('12345678'), stream: true, upload: true, maxResponseBytes: 64 };
+    const sent = [], done = request(op, host(sent));
+    await tick();
+    const xhr = made[0];
+    assert.deepEqual([xhr.method, xhr.url, xhr.headers, [...xhr.body]], ['POST', op.url, [['content-type', 'image/png']], [...'12345678'].map((c) => c.charCodeAt(0))]);
+    xhr.upload.onprogress({ lengthComputable: true, loaded: 4, total: 8 });
+    xhr.upload.onprogress({ lengthComputable: true, loaded: 8, total: 8 });
+    xhr.answer(201, '{"id":"a1"}');
+    const end = await done;
+    // Its start, just before it went out, then its bytes sent (LLP 1016.000 D10).
+    assert.deepEqual(sent, [['exact:sending', ''], ['exact:progress', '{"loaded":4,"total":8}'], ['exact:progress', '{"loaded":8,"total":8}']]);
+    assert.deepEqual([end.kind, end.status, end.headers, decode(end)], [0, 201, 'content-type: application/json', '{"id":"a1"}']);
+
+    const away = request(op, host([]));
+    await tick();
+    made[1].answer(200, 'ok', 'https://other.example/landed');
+    const left = await away;
+    assert.deepEqual([left.kind, decode(left)], [2, "outside the app's grants (net.fetch): redirected to https://other.example"]);
+
+    const big = request(op, host([]));
+    await tick();
+    made[2].answer(200, 'x'.repeat(65));
+    assert.deepEqual([(await big).kind, decode(await big)], [2, 'HTTP response exceeds limit']);
+
+    const controller = new AbortController(), aborted = request(op, host([], controller));
+    await tick();
+    controller.abort();
+    assert.equal((await aborted).kind, 4);
+
+    const late = await request({ ...op, timeoutMs: 20 }, host([]));
+    assert.deepEqual([late.kind, decode(late)], [10, 'the request timed out after 20 ms']);
+  } finally { globalThis.XMLHttpRequest = saved; }
 });

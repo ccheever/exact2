@@ -32,6 +32,69 @@ private final class VideoLayerView: UIView {
 }
 #endif
 
+#if os(iOS)
+/// AVKit's video overlay hides its controls in an audio element's 54-point
+/// box. UIKit controls keep an audio-only player usable at that size.
+private final class AudioControls: UIView {
+    weak var arm: VideoArm?
+    let toggle = UIButton(type: .system)
+    let position = UISlider()
+    let remaining = UILabel()
+
+    init(arm: VideoArm) {
+        self.arm = arm
+        super.init(frame: .zero)
+        toggle.addTarget(self, action: #selector(playPause), for: .touchUpInside)
+        position.isContinuous = false
+        position.accessibilityLabel = NSLocalizedString("Playback position", comment: "Audio scrubber")
+        position.addTarget(self, action: #selector(scrub), for: .valueChanged)
+        remaining.font = .monospacedDigitSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .regular)
+        remaining.textColor = .secondaryLabel
+        remaining.textAlignment = .right
+        remaining.isAccessibilityElement = false
+        addSubview(toggle)
+        addSubview(position)
+        addSubview(remaining)
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let buttonWidth = min(44, bounds.width)
+        let labelWidth = min(52, max(0, bounds.width - buttonWidth))
+        toggle.frame = CGRect(x: 0, y: 0, width: buttonWidth, height: bounds.height)
+        remaining.frame = CGRect(x: bounds.width - labelWidth, y: 0, width: labelWidth, height: bounds.height)
+        position.frame = CGRect(x: buttonWidth + 4, y: 0, width: max(0, bounds.width - buttonWidth - labelWidth - 12), height: bounds.height)
+    }
+
+    func refresh() {
+        guard let arm else { return }
+        let playing = arm.player.timeControlStatus != .paused
+        toggle.setImage(UIImage(systemName: playing ? "pause.fill" : "play.fill"), for: .normal)
+        toggle.accessibilityLabel = playing ? NSLocalizedString("Pause", comment: "Audio control") : NSLocalizedString("Play", comment: "Audio control")
+        toggle.isEnabled = arm.player.currentItem?.status == .readyToPlay
+        let duration = arm.sessionDuration
+        let finite = duration.isFinite && duration > 0
+        position.isEnabled = toggle.isEnabled && finite
+        position.maximumValue = finite ? Float(duration) : 1
+        let elapsed = max(0, arm.seconds)
+        if !position.isTracking { position.value = finite ? Float(elapsed) : 0 }
+        remaining.text = finite ? "−" + Self.time(max(0, duration - elapsed)) : "–:––"
+        position.accessibilityValue = finite ? "\(Self.time(elapsed)) / \(Self.time(duration))" : nil
+    }
+
+    private static func time(_ seconds: Double) -> String {
+        let value = Int(seconds.rounded(.down))
+        return String(format: "%d:%02d", value / 60, value % 60)
+    }
+
+    @objc private func playPause() { arm?.togglePlayPause(); refresh() }
+    @objc private func scrub() { arm?.seek(Double(position.value)); refresh() }
+}
+#endif
+
 /// One parsed asset per unchanged local file (LLP 1042): a feed that repeats a
 /// source makes each new item from it instead of opening and inspecting the
 /// file again. A remote source is always its own asset; a failed item's asset
@@ -66,7 +129,12 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     var inline: VideoLayerView?
     /// The full-screen presentation `requestFullscreen` made, while it shows.
     var fullscreen: FullscreenPlayer?
+    #if os(iOS)
+    var audioControls: AudioControls?
+    var presentation: UIView? { audioControls ?? controller?.view ?? inline }
+    #else
     var presentation: UIView? { controller?.view ?? inline }
+    #endif
     #endif
     let context: UnsafeMutableRawPointer?
     let callback: VideoCallback
@@ -142,14 +210,21 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         ]
         NowPlaying.shared.joined(self)
     }
-    /// The periodic observer runs only while `timeupdate` is handled; `state`
-    /// reads the time from the player when asked.
+    /// The periodic observer serves `timeupdate` handlers and inline audio
+    /// controls; `state` reads the time from the player when asked.
     func updateTick() {
-        let wants = listeners.contains("timeupdate") && !invalidated
+        var wants = listeners.contains("timeupdate")
+        #if os(iOS)
+        wants = wants || audioControls != nil && bool("controls")
+        #endif
+        wants = wants && !invalidated
         if wants && tick == nil {
             tick = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] _ in
                 // A seek in flight reports its own time when it lands.
                 guard let self, !self.invalidated, self.seekTarget == nil else { return }
+                #if os(iOS)
+                self.audioControls?.refresh()
+                #endif
                 self.emit("timeupdate", payload: String(self.seconds))
             }
         } else if !wants, let tick {
@@ -191,6 +266,9 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         #if os(macOS)
         return "AVKit"
         #else
+        #if os(iOS)
+        if audioControls != nil { return "UIKit" }
+        #endif
         return controller != nil ? "AVKit" : inline != nil ? "AVPlayerLayer" : "AVPlayer"
         #endif
     }
@@ -212,7 +290,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
                 "poster": poster.image == nil ? "none" : poster.isHidden ? "hidden" : "shown", "frameReady": frameReady,
                 // @ref LLP 1100 D11
                 "hdr": hdrItem, "eligibleForHDR": AVPlayer.eligibleForHDRPlayback,
-                "dynamicRange": props["dynamicRangeLimit"] ?? "no-limit"]
+                "dynamicRange": props["dynamicRangeLimit"] ?? "no-limit",
+                "appliedDynamicRange": appliedDynamicRange]
     }
     func emit(_ event: String = "snapshot", payload: String = "") {
         guard !invalidated else { return }
@@ -284,6 +363,9 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     func timeStatusChanged() {
         guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.timeStatusChanged() }; return }
         guard !invalidated else { return }
+        #if os(iOS)
+        audioControls?.refresh()
+        #endif
         let status = player.timeControlStatus
         let paused = status == .paused
         if paused != lastPaused { lastPaused = paused; emit(paused ? "pause" : "play"); if !paused { NowPlaying.shared.played(self) } }
@@ -470,6 +552,9 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
                 guard let self, !self.invalidated, self.generation == token, mine == self.seeks else { return }
                 self.seekTarget = nil
                 guard completed else { return }
+                #if os(iOS)
+                self.audioControls?.refresh()
+                #endif
                 self.emit("seeked"); self.emit("timeupdate", payload: String(self.seconds))
             }
         }
@@ -552,6 +637,31 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         player.currentItem?.asset.tracks(withMediaType: .video).contains { $0.hasMediaCharacteristic(.containsHDRVideo) } ?? false
     }
 
+    /// Read the presentation objects, so diagnostics can catch a missed update.
+    var appliedDynamicRange: [String: String] {
+        var result: [String: String] = [:]
+        #if os(iOS) || os(tvOS)
+        if #available(iOS 26, tvOS 26, *), let layer = inline?.playerLayer {
+            let range = layer.preferredDynamicRange
+            result["layer"] = range == .standard ? "standard" : range == .constrainedHigh ? "constrained" : "no-limit"
+        }
+        #endif
+        #if os(iOS) || os(macOS)
+        if #available(iOS 26, macOS 26, *) {
+            #if os(iOS)
+            if let controller {
+                let range = controller.preferredDisplayDynamicRange
+                result["controller"] = range == .standard ? "standard" : range == .constrainedHigh ? "constrained" : "no-limit"
+            }
+            #else
+            let range = presentation.preferredDisplayDynamicRange
+            result["controller"] = range == .standard ? "standard" : range == .constrainedHigh ? "constrained" : "no-limit"
+            #endif
+        }
+        #endif
+        return result
+    }
+
     /// `dynamic-range-limit` on the poster, AVKit's player and the inline
     /// layer (LLP 1100 D11). Before iOS/macOS 26 AVKit has no range control.
     func applyDynamicRange() {
@@ -596,8 +706,20 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     private func configurePresentation() {
         guard props["src"] != nil || presentation != nil else { return }
         // An `audio` has no picture to take full screen or to picture in
-        // picture: only its `controls` ask for AVKit (LLP 1042 §8).
+        // picture. Its inline controls are UIKit on iOS (LLP 1042 §8).
         let audio = props["semanticTag"] == "audio"
+        #if os(iOS)
+        if audio {
+            if audioControls == nil && bool("controls") {
+                let controls = AudioControls(arm: self)
+                audioControls = controls
+                container.insertSubview(controls, belowSubview: poster)
+            }
+            audioControls?.isHidden = !bool("controls")
+            updateTick()
+            return
+        }
+        #endif
         #if os(tvOS)
         // tvOS shows AVKit's controls only full screen (`requestFullscreen`):
         // an inline controller takes the remote's Play/Pause into a full
@@ -679,6 +801,9 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             frame = CGRect(x: (frame.width - naturalSize.width * scale) / 2, y: (frame.height - naturalSize.height * scale) / 2, width: naturalSize.width * scale, height: naturalSize.height * scale)
         }
         if presentation.superview === container { presentation.frame = frame }
+        #if os(iOS)
+        audioControls?.refresh()
+        #endif
         poster.frame = posterFrame
     }
     func invalidate() {

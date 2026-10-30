@@ -1,0 +1,17 @@
+# Code review: the image error event on Linux, Android and Windows, round 2, re-check 6 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra via `codex exec`, reasoning effort max, read-only sandbox, a throwaway worktree at `27ee326938`.
+- **Method:** one brief (sha256 `21d39732069ce88b73164aa878fbc600cd3050a73ec70a2572efc856f9f515e5`), shared by both reviewers, blind to the other review. The author (Claude, rt1) is not a reviewer.
+- **Transcription:** the final message, unedited.
+
+**Blocking**
+
+1. [remote.rs:53](host/linux/src/image/remote.rs:53), [RasterRetry.swift:95](host/apple/Sources/ExactKit/RasterRetry.swift:95): Unicode whitespace still leaks query parameters. With an actual U+00A0 in `https://h/a.svg?x=a\0{00A0}&hm=secret`, both helpers retain `&hm=secret`. Linux’s SVG logger interpolates the original source, so fetch-time URL encoding does not protect that log. Sanitize known source URLs before interpolation and avoid treating non-ASCII URL characters as query boundaries; add regression cases on both hosts.
+
+2. [RasterRetry.swift:93](host/apple/Sources/ExactKit/RasterRetry.swift:93): Swift’s `Character` iteration can miss the query delimiter entirely. In `https://h/a.svg?\0{0301}x=1&hm=secret` (actual combining U+0301), `?` and the combining mark form one character unequal to `"?"`; the complete query survives. Scan Unicode scalars, as Rust does, and test combining marks immediately after `?` and `#`.
+
+**Non-blocking**
+
+none.
+
+Static review only; no tests or builds run.

@@ -18,6 +18,9 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// what the route hatch last saw; whether the hatch has run; the header
     /// lifted into the bar; the content scroll view a hatch was handed.
     var projectedSource: BarSource?, projected: HatchSource?, backSource: String?
+    /// `projectedSource` with every item's enabling left out: an item that is only enabled or disabled changes
+    /// in place, on the item kept for it (`NavigationHost.enable`, `barItemsMade`).
+    var projectedFaces: BarSource?
     var hatched = false
     /// Whether a route of its stack is beneath it, to go back to: written
     /// as the stack's routes are prepared, before UIKit shows any of them
@@ -58,6 +61,13 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     var bottomClearance: CGFloat = 0
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
+    /// The bar items last made, by node: one whose kind is unchanged is
+    /// updated in place, so UIKit's glass animates the change (`barItemMade`).
+    var barItemsMade: [UInt32: (item: HeaderShape.Item, bar: UIBarButtonItem, press: BarPress, menuFrom: UInt64?)] = [:]
+    /// Whether the bar has been projected: the items of a later projection animate where it shows.
+    var barProjected = false
+    /// The space before each group, by the item that follows it.
+    var barSpaces: [UInt32: UIBarButtonItem] = [:]
     /// The bar items of its header's readouts, by node, kept across
     /// projections so a readout's view changes in place (§9.15).
     var readouts: [UInt32: UIBarButtonItem] = [:]
@@ -121,7 +131,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     }
 
     override func loadView() {
-        view = UIView()
+        view = PresentationMount()
         paintBackdrop()
         view.addSubview(node)
         host?.presenter.session?.natives.routeLoaded(node)
@@ -167,7 +177,8 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// The route's own background, if it paints one.
     private func ownBackdrop(dark: Bool) -> [Double]? {
         if node.groundIsSheets { return nil }
-        return node.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
+        // As written, never greyed: the view keeps the colour its provider gave (TintDimmingIOS.swift)
+        return node.undimmedChannels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
     }
 
     /// What shows behind the route where it paints nothing: its own
@@ -176,7 +187,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// through a transparent route (LLP 1116 D2: a root's
     /// `-exact-grouped-background` under every screen).
     func backdrop(dark: Bool) -> [Double]? {
-        let painted = { (n: NodeView) in n.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
+        let painted = { (n: NodeView) in n.undimmedChannels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
         if let own = ownBackdrop(dark: dark) { return own }
         guard let host, let root = host.container else { return nil }
         var next: UIView? = host.logicalParent(of: node)
@@ -210,8 +221,23 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         if node.superview !== contentMount { contentMount.addSubview(node) }
         host?.presenter.regrid(node) // from the controller's view, a grid origin of its own
     }
-    /// Scroll the document inside the native container; the navigation and tab bars stay in their viewport.
+    /// The route's room for the keys, and under `resizes-visual` its
+    /// viewport's frame, extent and inset.
     func fitContentViewport(in block: CGRect? = nil) {
+        #if os(iOS)
+        // Under a search in the bar the route keeps its layout (`block(in:)`)
+        // and takes the keys as safe area, as SwiftUI's keyboard region is:
+        // UIKit insets its edge scroller so the last rows reach above them.
+        // A visual viewport takes them as its inset instead, without reflow.
+        if let presenter = host?.presenter {
+            var keys: CGFloat = 0
+            if contentViewport == nil, presenter.editsInBar(of: view), let top = presenter.keyboardTop, let window = view.window {
+                let edge = view.convert(CGPoint(x: 0, y: top), from: window).y
+                keys = max(0, view.bounds.maxY - edge - (view.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom))
+            }
+            if additionalSafeAreaInsets.bottom != keys { additionalSafeAreaInsets.bottom = keys }
+        }
+        #endif
         guard let scroll = contentViewport, let presenter = host?.presenter else { return }
         let oldSize = scroll.bounds.size, oldContent = scroll.contentSize, oldInset = scroll.contentInset
         let allocation = block ?? presenter.owners.block(in: view)
@@ -243,12 +269,19 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         presenter.transformGeometry.changed()
         presenter.videoVisibility?.changed()
         presenter.scrollPump.scrolled(nil)
+        FrameSampler.scrolled(scrollView, in: presenter.session, person: false)
+        presenter.session?.frameHealth.trackScrolled(scrollView)
         node.repaintThrough()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         host?.presenter.elementScrolls.userScrolled(scrollView)
+        if let session = host?.presenter.session { session.frameHealth.beginScroll(scrollView, session: session) }
     }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { host?.presenter.session?.frameHealth.endScroll(scrollView) }
+    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { host?.presenter.session?.frameHealth.endScroll(scrollView) }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         host?.presenter.elementScrolls.revealEnded(scrollView)
@@ -280,6 +313,33 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     override func setContentScrollView(_ scrollView: UIScrollView?, for edge: NSDirectionalRectEdge) {
         super.setContentScrollView(scrollView, for: edge)
         (parent as? HeldStack)?.setContentScrollView(scrollView, for: edge)
+        if edge == .top { followTopEdge(scrollView) }
+    }
+
+    private var topEdgeWatch: NSKeyValueObservation?
+    /// iOS 26 draws the bar's edge effect on the outermost scroll view under
+    /// it, which for a route whose scroller (a list) lies in its page is the
+    /// page's viewport, not that scroller (measured on iOS 27: UIKit alone
+    /// does the same with a table view in a scroll view). So the viewport's
+    /// top effect shows only while that scroller is scrolled from its top,
+    /// as UIKit's does over a list that is the controller's own: no effect
+    /// over a list at rest. Its style stays `automatic`: the rows blurred and
+    /// faded under the whole bar to a line at its foot, as a UIKit or SwiftUI
+    /// list or scroll view draws them there (iOS 27, measured), where `soft`
+    /// left them legible under the title.
+    private func followTopEdge(_ scrollView: UIScrollView?) {
+        topEdgeWatch = nil
+        guard #available(iOS 26.0, tvOS 26.0, *), let page = contentViewport else { return }
+        guard let scrollView, scrollView !== page, node.style["scroll_edge_effect"] == nil else {
+            if page.topEdgeEffect.isHidden, node.style["scroll_edge_effect"]?.string != "none" { page.topEdgeEffect.isHidden = false }
+            return
+        }
+        let follow = { [weak page] (sv: UIScrollView) in
+            let rest = sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top
+            if let page, page.topEdgeEffect.isHidden != rest { page.topEdgeEffect.isHidden = rest }
+        }
+        follow(scrollView)
+        topEdgeWatch = scrollView.observe(\.contentOffset) { sv, _ in follow(sv) }
     }
 }
 
@@ -368,16 +428,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var coversPending = false
     /// Whether the session's view last took the whole of its own for a bar.
     var tookWholeView = false
-    private var primaryAllocation: [NSLayoutConstraint] = []
-    var pinsPrimaryViewport: Bool { !primaryAllocation.isEmpty }
-    private var keyboardRangePinned = false
-
-    private func refreshKeyboardRange() {
-        let pinned = pinsPrimaryViewport
-        guard pinned != keyboardRangePinned else { return }
-        keyboardRangePinned = pinned
-        presenter.setKeyboardInset(presenter.keyboardInset)
-    }
     private var pendingSync = false
     /// The press whose commit a deferred sync still owes (PressHandoffIOS).
     private weak var pendingPress: PressHandoff?
@@ -527,7 +577,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             return (index == at ? Array(routes[range]) : routes).map { node -> RouteController in
                 presented = presented || ["modal", "fullscreen"].contains(node.props["navigationPresentation"] ?? "")
                 let c = controllers[node.id] ?? RouteController(node)
-                c.usesPageViewport = !presented && !ExactEnv.authoredChrome
+                // A separate visual viewport accommodates the keyboard without reflowing the route
+                c.usesPageViewport = !presented && !ExactEnv.authoredChrome && presenter.keyboardPolicy == "resizes-visual"
                 c.host = self
                 controllers[node.id] = c
                 c.mount()
@@ -537,43 +588,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         return Projection(root: root, tabs: tabs, stacks: stacks, at: at, selected: range.upperBound - 1, wanted: wanted)
     }
 
-    /// Keep the native container in the viewport while CSS page content scrolls.
-    /// UIKit's frame guide owns the position; no scroll-offset correction is needed.
+    /// The native container fills the page's area. It owns the screen, so
+    /// the document is in its mount, where no scroll view holds it (`hostDocument`).
     func fitOwner() {
+        presenter.hostDocument(fixed: wantsWholeView)
         guard let owner = primaryOwner, let view = owner.viewIfLoaded, let root = view.superview else { return }
-        defer { refreshKeyboardRange() }
-        let viewport = presenter.viewport
-        let margins = presenter.pageMargins
         let frame = ownerFrame(owner, in: root)
-        guard !ExactEnv.authoredChrome, root.isDescendant(of: viewport) else {
-            clearOwnerAllocation()
-            if view.frame != frame { view.frame = frame }
-            return
-        }
-        if primaryAllocation.first?.firstItem as? UIView !== view {
-            clearOwnerAllocation()
-            view.translatesAutoresizingMaskIntoConstraints = false
-            let guide = viewport.frameLayoutGuide
-            primaryAllocation = [view.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
-                                 view.topAnchor.constraint(equalTo: guide.topAnchor),
-                                 view.widthAnchor.constraint(equalTo: guide.widthAnchor),
-                                 view.heightAnchor.constraint(equalTo: guide.heightAnchor, constant: ownerKeyboardExtension(owner))]
-            NSLayoutConstraint.activate(primaryAllocation)
-        }
-        let constants = [margins.left, margins.top, -margins.left - margins.right,
-                         ownerKeyboardExtension(owner) - margins.top - margins.bottom]
-        for (constraint, constant) in zip(primaryAllocation, constants) where constraint.constant != constant {
-            constraint.constant = constant
-        }
-        if view.frame != frame { viewport.layoutIfNeeded() }
-    }
-
-    func clearOwnerAllocation() {
-        let view = primaryAllocation.first?.firstItem as? UIView
-        NSLayoutConstraint.deactivate(primaryAllocation)
-        primaryAllocation = []
-        view?.translatesAutoresizingMaskIntoConstraints = true
-        refreshKeyboardRange()
+        if view.frame != frame { view.frame = frame }
     }
 
     private func installPrimary(_ p: Projection, first: [RouteController]) {
@@ -669,6 +690,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func refitForBars() {
         guard wantsWholeView != tookWholeView else { return }
         tookWholeView = wantsWholeView
+        // Now, not at the layout: under `cover` or the agent's own size the
+        // view's area does not change, and `fit` refits the owner only when it does.
+        presenter.hostDocument(fixed: wantsWholeView)
         presenter.session?.view?.setNeedsLayout()
     }
 
@@ -1274,6 +1298,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let departed = stacks[ObjectIdentifier(navigationController)]?.written.last.flatMap { id in
             controllers.values.first { ObjectIdentifier($0) == id && !navigationController.viewControllers.contains($0) }
         }
+        let written = Set(stacks[ObjectIdentifier(navigationController)]?.written ?? [])
+        let poppedKeys = controllers.values.filter { written.contains(ObjectIdentifier($0)) && !navigationController.viewControllers.contains($0) }.map(\.key)
         let source = swipe.map { (node: $0.node, key: $0.key) } ?? departed.map { (node: $0.node, key: $0.key) }
         recordPop(navigationController)
         guard navigationController === navigation, let viewController = navigationController.topViewController else { return }
@@ -1317,11 +1343,19 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let sourceReplaced = swipe != nil && sourceKey == nil
             && selectedRouteCount == swipe?.depth
         let rootKey = selectedKey ?? ""
-        let dispatches = (viewController as? RouteController).map {
+        let uikitTop = (viewController as? RouteController)?.key ?? ""
+        let sourceRule = (viewController as? RouteController).map {
             NavigationRules.dispatchesBack(shownKey: $0.key, rootKey: rootKey,
                                            sourceKey: sourceKey, sourceReplaced: sourceReplaced,
                                            modalActive: presenter.modals.inTransition)
         } ?? false
+        let behindUIKit = !presenter.modals.inTransition
+            && NavigationRules.appIsBehind(poppedKeys: poppedKeys, uikitTop: uikitTop, shownKeys: shownKeys, rootKey: rootKey)
+        // A cancelled pop performed no Back, whatever the app did to its source meanwhile
+        let dispatches = !cancelled && (sourceRule || behindUIKit)
+        if dispatches, !sourceRule {
+            presenter.session?.log("navigation: UIKit popped to \(uikitTop); the app's stack follows it from \(rootKey)")
+        }
         lastTransition = dispatches ? "completed" : (cancelled ? "cancelled" : "idle")
         guard dispatches else { return }
         if swipe == nil, let destination = (viewController as? RouteController)?.key,
@@ -1340,7 +1374,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func reset(clearFocus: Bool = true) {
-        clearOwnerAllocation()
         syncAfterTransitionArmed = false
         unanimated = false
         presenter.modals.reset()

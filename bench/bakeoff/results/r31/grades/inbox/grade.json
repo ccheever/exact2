@@ -1,0 +1,120 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Newest first. Each row shows sender, subject, a two-line preview, and the time (today) or date (Oct 24). Unread rows get a terracotta dot and a bold sender."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Swiping left shows Flag and Archive. Archive removes the row and shows a 'Message archived / Undo' toast. Swiping right shows Mark Unread/Read. The archived message appears on the Archive screen, which can swipe it back to the Inbox."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "There is a flag button in each row, in the swipe actions and in the message view. The All mail / Unread / Flagged filter works and shows a count for each."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Opening a message pushes a reader with sender initials, date and body, plus Archive, Mark Unread and Flag toolbar buttons. The message is marked read."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Pulling down adds two made-up unread messages at the top with today's time and a '2 new messages' toast. A short pull of about 100 pt is enough to trigger it."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "'N unread' appears under the title and again in the floating 'N messages · N unread' pill."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Read, flagged, archived and refreshed messages all survived a relaunch."
+      }
+    ],
+    "bugs": [
+      "The large 'Inbox' title disappears for good after pull to refresh or after scrolling back to the top. Only the subtitle line is left, so the screen has no title.",
+      "The Archive screen never shows its title. The nav bar is blank and the space where the large title should be is empty, though the accessibility tree reports the title.",
+      "Grammar: the Archive pill reads '1 messages · 0 unread'.",
+      "Rows that are off screen still show up in accessibility at a dummy frame [0,168], so VoiceOver sees hundreds of phantom elements."
+    ],
+    "tells": [
+      "A heavily themed web-like look: cream background, terracotta accent, a 'MAIL / PERSONAL' pill and a tagline ('A little space for what matters.') instead of system grouped colours.",
+      "Hand-drawn search pill and segmented control (rounded, tinted text) instead of the system search bar and UISegmentedControl.",
+      "A floating 'N messages · N unread' capsule at the bottom and a black toast bar; neither is an iOS idiom.",
+      "Swipe actions use custom earth-tone circles (gold Flag, rust Archive, slate Mark Unread) rather than system colours.",
+      "The large title vanishes and the inline title comes and goes inconsistently, which never happens with a real UINavigationBar.",
+      "At the largest text size the nav-bar pills and the bottom pill don't scale. Flag icons stay tiny, and the subject wraps oddly ('Coffee / this week?') because of the flag column. The filter collapses to a menu button."
+    ],
+    "scroll": "Slow drags and flings are smooth with no blank rows, the section header sticks, and a fling back reaches the top. Each time it does, though, the large title is gone.",
+    "scores": {
+      "features": 9,
+      "platform": 5,
+      "polish": 6,
+      "overall": 6
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Newest first. Each row shows sender, subject, a two-line preview, and Mail-style dates (time, weekday, then M/D/YY). Unread rows get a blue dot and a bold sender; flagged rows get an orange flag in the gutter."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Mail-style swipes: left shows Flag (orange) and Archive (purple), right shows Unread/Read (blue), with the row highlighted while open. The Archive screen lists archived mail and can move it back to the Inbox. There is no undo."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Flag from the swipe action or from the message nav bar. The system segmented control's All / Unread / Flagged filters work."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Opening a message pushes a reader with Flag, Mark Unread and Archive in a glass nav-bar group. The message is marked read and the unread count drops."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Pulling down, or the Refresh button, adds two made-up unread messages at the top with today's time."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "'N unread' is shown under the large title."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Archived, flagged, read and refreshed state all survived relaunching."
+      }
+    ],
+    "bugs": [
+      "Quick downward flings barely move the list (about 15 pt) and can't fling back to the top. Only slow drags scroll up.",
+      "No undo after archiving."
+    ],
+    "tells": [
+      "The large title, unread count and filter bar are pinned in a fixed header. The title never collapses into an inline title as you scroll; the list scrolls in a box beneath it.",
+      "The message screen's 'Message' title sits next to the back chevron rather than centred, and the back button has no 'Inbox' label.",
+      "At the largest text size the unread dot stays tiny and sits at the top of the first line, the segmented control's text doesn't grow, and the preview is no longer held to two lines (5–6 lines per row).",
+      "A row briefly showed clipped, half-drawn text during a fast fling."
+    ],
+    "scroll": "Downward scrolling is smooth with native deceleration, but a row was briefly drawn half-clipped during one fling. Flicking back up hardly scrolls at all, and the pinned header never collapses.",
+    "scores": {
+      "features": 8,
+      "platform": 7,
+      "polish": 7,
+      "overall": 7
+    }
+  },
+  "better": "B",
+  "why": "Both apps meet all seven requirements and persist state. B looks and behaves like iOS Mail: system segmented control, blue unread dots, Mail-coloured swipe actions, a glass toolbar and a bottom search field. A is a custom-themed, web-like design whose large title disappears after refresh or scrolling and whose Archive screen has no title. B's pinned header and weak upward flings cost it, but less than A's missing titles and hand-drawn chrome."
+}

@@ -60,7 +60,36 @@ fn the_compiled_kinds_and_the_faces_parse() {
     assert_eq!(a.faces.len(), 1);
     assert_eq!(a.faces["@x"].label, "X é");
     assert_eq!(a.faces["@x"].icon, "a.svg");
+    assert_eq!(a.faces["@x"].color, "", "no paint: its kind's");
     assert!(Atoms::parse("not json", "[").is_empty());
+    let painted = Atoms::parse(
+        KINDS,
+        r##"[{"source":"@x","label":"","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"#d52c361c"}]"##,
+    );
+    assert_eq!(painted.faces["@x"].color, "light-dark(#d52c36, #ff6762)");
+    assert_eq!(painted.faces["@x"].background_color, "#d52c361c");
+    assert_eq!(
+        painted.faces["@x"].direction, "",
+        "no direction: its line's"
+    );
+    // A face pins its pill's direction with `ltr` or `rtl`; any other word
+    // follows the line, as an empty one does.
+    for (said, kept) in [("ltr", "ltr"), ("rtl", "rtl"), ("auto", ""), ("RTL", "")] {
+        let faces = format!(
+            r#"[{{"source":"@x","label":"","icon":"","title":"","color":"","backgroundColor":"","direction":"{said}"}}]"#
+        );
+        assert_eq!(
+            Atoms::parse(KINDS, &faces).faces["@x"].direction,
+            kept,
+            "{said}"
+        );
+    }
+    assert_eq!(painted.faces["@x"].aria_label, "", "no name: its label");
+    let named = Atoms::parse(
+        KINDS,
+        r#"[{"source":"@x","label":"x.png 40%","icon":"","title":"","color":"","backgroundColor":"","direction":"","ariaLabel":"Image attachment, x.png"}]"#,
+    );
+    assert_eq!(named.faces["@x"].aria_label, "Image attachment, x.png");
 }
 
 #[test]
@@ -217,7 +246,7 @@ fn a_lone_image_atom_is_a_line_of_text_not_a_figure() {
 
 #[test]
 fn an_atom_is_one_piece_with_its_label_in_the_formats_around_it() {
-    let faces = r#"[{"source":"[q](t3-citation:1)","label":"A  long\n quote","icon":"q.svg","title":"The quote"}]"#;
+    let faces = r##"[{"source":"[q](t3-citation:1)","label":"A  long\n quote","icon":"q.svg","title":"The quote","color":"","backgroundColor":"#efe7ff","direction":"ltr"}]"##;
     let a = Atoms::parse(KINDS, faces);
     let pieces = pieces_with("say **[q](t3-citation:1)** ok", &a);
     let texts: Vec<&str> = pieces.iter().map(|p| p.text.as_str()).collect();
@@ -231,6 +260,12 @@ fn an_atom_is_one_piece_with_its_label_in_the_formats_around_it() {
     assert_eq!(detail.title, "The quote");
     assert_eq!(detail.href, "t3-citation:1");
     assert_eq!(detail.source, "[q](t3-citation:1)");
+    assert_eq!(
+        [detail.color.as_str(), &detail.background_color],
+        ["", "#efe7ff"]
+    );
+    assert_eq!(detail.direction, "ltr");
+    assert_eq!(detail.aria_label, "", "no name of its own");
     // Two adjacent atoms stay two pieces.
     let two = pieces_with("[a](t3-citation:1)[b](t3-citation:2)", &atoms(&[]));
     assert_eq!(two.len(), 2);
@@ -242,6 +277,32 @@ fn plain_copy_writes_each_atom_as_its_label() {
     assert_eq!(
         plain_with("hi @x and [q](t3-citation:1) **b**", &a),
         "hi Ex and q b"
+    );
+}
+
+/// Copy writes the label; what a screen reader says (`spoken`) is the
+/// face's `ariaLabel` where it has one, the label where it does not.
+#[test]
+fn spoken_atoms_read_each_face_by_its_accessible_name() {
+    let a = Atoms::parse(
+        KINDS,
+        r#"[{"source":"@x","label":"x.png 40%","ariaLabel":"Image attachment, x.png"},{"source":"@y","label":"Why","ariaLabel":""}]"#,
+    );
+    let s = "see @x and @y ok";
+    assert_eq!(plain_with(s, &a), "see x.png 40% and Why ok");
+    assert_eq!(
+        plain_with(s, &a.spoken()),
+        "see Image attachment, x.png and Why ok"
+    );
+    assert_eq!(
+        plain_range(s, Range::new(4, 6), &a.spoken()),
+        "Image attachment, x.png"
+    );
+    let pieces = pieces_with(s, &a);
+    assert_eq!(pieces[1].text, "x.png 40%", "the pill draws its label");
+    assert_eq!(
+        pieces[1].atom.as_ref().unwrap().aria_label,
+        "Image attachment, x.png"
     );
 }
 

@@ -12,19 +12,35 @@
 //! Corpus cases are `test` blocks in `semantics/corpus/*.contract`; random
 //! cases come from [`gen`].
 
+#[cfg(test)]
+mod a2_tests;
 pub mod arith;
+mod census;
 pub mod expansion;
+mod finding;
 pub mod gen;
 pub mod js;
+mod launch;
 pub mod leanrun;
 pub mod lowering;
 pub mod observe;
+#[cfg(test)]
+mod observe_tests;
 pub mod oracle;
+mod property;
+mod property_corpus;
 pub mod quick;
+mod receipt;
+#[cfg(test)]
+mod refusal_tests;
 pub mod rng;
 pub mod script;
+mod settle;
+mod shrink;
+mod suggest;
 pub mod types;
 pub mod verify;
+mod walk;
 
 use script::{Case, Expect, Item, Scripted};
 use std::path::{Path, PathBuf};
@@ -63,6 +79,8 @@ pub struct Outcome {
     pub case: Case,
     /// What happened.
     pub verdict: Verdict,
+    /// Both raw observations when the semantics ran.
+    pub observations: Option<(Vec<String>, Vec<String>)>,
 }
 
 /// A deterministic seed for a case name.
@@ -200,16 +218,25 @@ pub fn check(cases: Vec<Case>, batch: usize, tag: &str) -> Result<Vec<Outcome>, 
             .expect("every batch ran")?;
         let mut lean = lean.into_iter().zip(batch.ready);
         for (case, verdict) in chunk.iter().zip(batch.done) {
+            let mut observations = None;
             let verdict = match verdict {
                 Some(v) => v,
                 None => {
                     let (lean, p) = lean.next().expect("one result per prepared case");
-                    compare(p.rust, lean)
+                    observations = Some((p.rust.clone(), lean.clone()));
+                    let property_result = property_corpus::check(case, &p.rust, false)
+                        .and_then(|()| property_corpus::check(case, &lean, false));
+                    let verdict = compare(p.rust, lean);
+                    match (verdict, property_result) {
+                        (Verdict::Agree, Err(e)) => Verdict::Expectation(e),
+                        (verdict, _) => verdict,
+                    }
                 }
             };
             outcomes.push(Outcome {
                 case: case.clone(),
                 verdict,
+                observations,
             });
         }
     }
@@ -236,6 +263,62 @@ const BOUNDS: [&str; 4] = [
     "ValueTooDeep",
 ];
 
+/// Classify the runner's Debug reason, never the semantics' prose. The
+/// names are RunnerError and Trap variants; an unknown variant stays visible.
+pub fn refusal_class(reason: &str) -> &'static str {
+    fn variant(s: &str) -> &str {
+        s.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .next()
+            .unwrap_or("")
+    }
+    let reason = reason.strip_prefix("# ").unwrap_or(reason);
+    let tag = variant(reason);
+    if BOUNDS.contains(&tag) {
+        return "limit";
+    }
+    match tag {
+        "HandlerArguments" => refusal_class(
+            reason
+                .split_once(", error: ")
+                .map_or("", |(_, error)| error),
+        ),
+        "Trap" | "Instance" => refusal_class(reason.split_once('(').map_or("", |(_, inner)| inner)),
+        "Data"
+        | "Shape"
+        | "UnknownView"
+        | "NoHandler"
+        | "InvalidEvent"
+        | "InvalidValue"
+        | "InvalidViewport"
+        | "InvalidTime"
+        | "InvalidPlace"
+        | "InvalidCollectionFeedback" => "world",
+        // Runner arity is the host's payload; the VM's is a type error.
+        "Arity" if reason.starts_with("Arity { action:") => "world",
+        "Arity" | "SlotType" | "DeriveType" | "ArgumentType" | "TypeMismatch"
+        | "StackUnderflow" | "BadField" | "BadScope" | "BadParam" | "WriteNotDeclared"
+        | "BadJump" | "Malformed" | "NoResult" | "SubjectKind" | "UnknownNodeType" => "type",
+        "TimerFireLimit" | "QueueFull" => "limit",
+        "Poisoned" => "poisoned",
+        "Cycle" => "cycle",
+        "NonFiniteValue" | "NonFiniteClock" | "ClockOutOfRange" | "ClockDidNotAdvance"
+        | "TaskKey" | "PathParameter" | "KeyKind" | "Router" => "value",
+        "RangeCount" if reason.contains("non_finite: true") => "value",
+        "RangeCount" if reason.contains("non_finite: false") => "app",
+        "UnwrapNone" | "DuplicateKey" | "List" | "Collection" => "app",
+        "router" if reason.contains(" refused: ") => "app",
+        "KernelSchemaMismatch"
+        | "AppMismatch"
+        | "Plan"
+        | "NotOneRoot"
+        | "Kernel"
+        | "RootRegion"
+        | "Bridge"
+        | "Pending" => "unclassified",
+        _ => "unclassified",
+    }
+}
+
 fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
     // `#` lines are commentary (a refusal's reason), never compared.
     let keep = |v: Vec<String>| -> Vec<String> {
@@ -247,6 +330,14 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
     let lean_raw = lean.clone();
     let rust_raw = rust.clone();
     let (rust, lean) = (keep(rust), keep(lean));
+    if let Some(at) = lean.iter().position(|l| l == "trace disagrees") {
+        return Verdict::Diverge {
+            at,
+            rust: rust_raw,
+            lean,
+            lean_raw,
+        };
+    }
     // Where the two first differ, a refusal for a construct the semantics
     // leaves out is not a divergence.
     let unsupported = |at: usize| -> Option<String> {
@@ -292,10 +383,29 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
             .find(|l| BOUNDS.iter().any(|b| l.contains(b)))
             .map(|l| format!("{l} (the runner's evaluation bound, LLP 1090 D8)"))
     };
+    // A binding past a bound was unset and the runner went on (LLP
+    // 1017.003 D3): from that step on, what it shows is outside the
+    // unbounded semantics.
+    let unset = |at: usize| -> Option<String> {
+        let mut seen = 0;
+        for l in rust_raw.iter().flat_map(|l| l.lines()) {
+            if !l.starts_with('#') {
+                seen += 1;
+                if seen > at + 1 {
+                    return None;
+                }
+            } else if l.contains(" trapped Trap(") && BOUNDS.iter().any(|b| l.contains(b)) {
+                return Some(format!("{l} (the runner's evaluation bound, LLP 1090 D8)"));
+            }
+        }
+        None
+    };
     let first = rust.iter().zip(&lean).position(|(a, b)| a != b);
     if let Some(at) = first.or((rust.len() != lean.len()).then(|| rust.len().min(lean.len()))) {
-        if let Some(why) = unsupported(at).or_else(|| bound(at)) {
-            return Verdict::Unsupported(why);
+        if !omitted_at(&rust_raw, at) {
+            if let Some(why) = unsupported(at).or_else(|| bound(at)).or_else(|| unset(at)) {
+                return Verdict::Unsupported(why);
+            }
         }
     }
     let at = rust.iter().zip(&lean).position(|(a, b)| a != b);
@@ -316,6 +426,18 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
     }
 }
 
+/// Whether the step at a compared line committed work absent from the modeled trace.
+pub fn omitted_at(lines: &[String], at: usize) -> bool {
+    let mut end = 0;
+    for step in chunks(lines) {
+        end += step.iter().filter(|l| !l.starts_with('#')).count();
+        if at < end {
+            return step.iter().any(|l| l == observe::OMITTED_COMMIT);
+        }
+    }
+    false
+}
+
 /// The runner's observation split into steps: entry 0 is boot, entry `k`
 /// follows the `k`-th event.
 fn chunks(lines: &[String]) -> Vec<&[String]> {
@@ -332,14 +454,22 @@ fn chunks(lines: &[String]) -> Vec<&[String]> {
 /// Check a corpus case's `expect` lines against the runner's observation.
 pub fn expectations(s: &Scripted) -> Result<(), String> {
     let plan = compile(&s.case)?;
-    let oracle = oracle::Oracle::new(&plan, seed_of(&s.case.name));
+    let oracle = oracle::Oracle::for_case(&plan, &s.case);
     let (rust, _) = observe::run(plan, oracle, &s.case.events);
-    let steps = chunks(&rust);
+    expectations_on(s, &rust)?;
+    property_corpus::check(&s.case, &rust, true)
+}
+
+/// Check expectations against an observation already produced by the runner.
+pub fn expectations_on(s: &Scripted, rust: &[String]) -> Result<(), String> {
+    let steps = chunks(rust);
     let mut k = 0;
     for item in &s.items {
         match item {
             Item::Event(_) => k += 1,
-            Item::Expect(e) => {
+            Item::Observe(_) => {}
+            Item::Settle { .. } => return Err("settle was not expanded".into()),
+            Item::Expect(e, _) => {
                 let step = steps.get(k).copied().unwrap_or(&[]);
                 let ok = match e {
                     Expect::State(name, v) => ["slot", "derive", "resource"]
@@ -378,6 +508,9 @@ pub fn corpus(dirs: &[PathBuf]) -> Result<(Vec<Scripted>, Vec<String>), String> 
     let mut out = Vec::new();
     let mut errors = Vec::new();
     for f in files {
+        if f.to_string_lossy().ends_with(".test.contract") {
+            continue;
+        }
         // Named from the project, however the path was spelled: the name
         // seeds the case's data.
         let f = f.canonicalize().unwrap_or(f);
@@ -391,6 +524,17 @@ pub fn corpus(dirs: &[PathBuf]) -> Result<(Vec<Scripted>, Vec<String>), String> 
             .unwrap_or(&f)
             .display()
             .to_string();
+        match property_corpus::cases(&f, &name, &src) {
+            Ok(Some(cases)) => {
+                out.extend(cases);
+                continue;
+            }
+            Err(e) => {
+                errors.push(e);
+                continue;
+            }
+            Ok(None) => {}
+        }
         let cases = script::scripted(&name, &src, Some(&f)).unwrap_or_else(|e| {
             errors.push(e);
             Vec::new()
@@ -414,18 +558,25 @@ pub fn stored_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
     let mut out = Vec::new();
     for s in cases {
         let persists = compile(&s.case).is_ok_and(|p| p.slots.iter().any(|r| r.persist));
-        let variant = persists.then(|| Scripted {
-            case: Case {
-                name: format!("{} (stored)", s.case.name),
-                stored: true,
-                ..s.case.clone()
-            },
-            items: s.case.events.iter().cloned().map(Item::Event).collect(),
-        });
+        let variant = persists.then(|| stored_variant(&s));
         out.push(s);
         out.extend(variant);
     }
     out
+}
+
+/// The same oracle and events from a seeded store; authored expectations belong to the empty store.
+pub(crate) fn stored_variant(s: &Scripted) -> Scripted {
+    Scripted {
+        case: Case {
+            name: format!("{} (stored)", s.case.name),
+            stored: true,
+            seed: Some(s.case.seed.unwrap_or_else(|| seed_of(&s.case.name))),
+            ..s.case.clone()
+        },
+        items: s.case.events.iter().cloned().map(Item::Event).collect(),
+        delivery: s.delivery.clone(),
+    }
 }
 
 /// `cases`, each followed, when its program has a tab panel, by the same
@@ -443,6 +594,7 @@ pub fn prerendered_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
                 ..s.case.clone()
             },
             items: s.case.events.iter().cloned().map(Item::Event).collect(),
+            delivery: s.delivery.clone(),
         });
         out.push(s);
         out.extend(variant);
@@ -455,12 +607,14 @@ pub fn prerendered_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
 pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
     let mut events = Vec::new();
     let probe = Case {
+        seed: None,
         name: name.to_string(),
         source: source.to_string(),
         events: Vec::new(),
         path: path.map(Path::to_path_buf),
         stored: false,
         prerendered: false,
+        launch: Default::default(),
     };
     if let Ok(plan) = compile(&probe) {
         let oracle = oracle::Oracle::new(&plan, seed_of(name));
@@ -472,7 +626,10 @@ pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
             .filter(|id| !id.contains('\\'))
             .collect();
         for _ in 0..2 {
-            events.extend(ids.iter().map(|id| script::Event::Tap(id.clone())));
+            events.extend(
+                ids.iter()
+                    .flat_map(|id| [script::Event::Tap(id.clone()), script::Event::InputLand]),
+            );
         }
         events.push(script::Event::Clock(1000.0));
         events.push(script::Event::Clock(60_000.0));
@@ -482,10 +639,15 @@ pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
         events: events.clone(),
         ..probe
     };
-    Scripted {
+    let mut script = Scripted {
         case,
         items: events.into_iter().map(Item::Event).collect(),
+        delivery: Default::default(),
+    };
+    if let Err(error) = crate::settle::expand(&mut script, None) {
+        eprintln!("explore delivery: {error}");
     }
+    script
 }
 
 /// Every `.contract` file at `path` (a file, or a directory searched
@@ -507,30 +669,9 @@ pub fn collect(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-/// Shrink a diverging case's script: drop events while it still diverges,
-/// one Lean process per round (every single-event removal at once).
+/// Drop chunks of delivery groups, then individual groups, while both engines still diverge.
 pub fn shrink(case: &Case, tag: &str) -> Result<Case, String> {
-    let mut best = case.clone();
-    loop {
-        if best.events.is_empty() {
-            return Ok(best);
-        }
-        let candidates: Vec<Case> = (0..best.events.len())
-            .map(|i| {
-                let mut c = best.clone();
-                c.events.remove(i);
-                c
-            })
-            .collect();
-        let outcomes = check(candidates, usize::MAX, tag)?;
-        match outcomes
-            .into_iter()
-            .find(|o| matches!(o.verdict, Verdict::Diverge { .. }))
-        {
-            Some(o) => best = o.case,
-            None => return Ok(best),
-        }
-    }
+    crate::shrink::divergence(case, tag, |_| {}).map(|(case, _)| case)
 }
 
 #[cfg(test)]
@@ -569,6 +710,89 @@ mod tests {
                 matches!(verdict, Verdict::Diverge { .. }),
                 !outside,
                 "{reason}"
+            );
+        }
+    }
+    #[test]
+    fn a_trace_disagreement_or_an_omitted_commit_cannot_be_hidden_as_outside() {
+        let rust = lines(&[
+            "== boot",
+            "outcome ok",
+            "== land",
+            "outcome refused",
+            "# Trap(IterationLimit { pc: 0 })",
+        ]);
+        let lean = lines(&[
+            "== boot",
+            "outcome ok",
+            "== land",
+            "outcome ok",
+            "trace disagrees",
+        ]);
+        assert!(matches!(
+            compare(rust.clone(), lean),
+            Verdict::Diverge { .. }
+        ));
+        let mut omitted = rust;
+        omitted.push(observe::OMITTED_COMMIT.into());
+        assert!(omitted_at(&omitted, 3));
+        assert!(!omitted_at(&omitted, 1));
+        let lean = lines(&["== boot", "outcome ok", "== land", "outcome ok"]);
+        assert!(matches!(compare(omitted, lean), Verdict::Diverge { .. }));
+        let lean = lines(&[
+            "== boot",
+            "outcome ok",
+            "== land",
+            "outcome ok",
+            "slot n true",
+        ]);
+        let mut rust = lean.clone();
+        rust.push(observe::OMITTED_COMMIT.into());
+        rust.push("untraced configuration moved".into());
+        assert!(matches!(compare(rust, lean), Verdict::Diverge { .. }));
+    }
+
+    /// A binding the runner unset for passing an evaluation bound shows
+    /// what the unbounded semantics does not: outside, from that step on.
+    /// One unset for another trap shows what the semantics shows (none), so
+    /// a difference there still diverges (LLP 1017.003 D3).
+    #[test]
+    fn a_binding_unset_for_a_bound_is_outside() {
+        let lean = lines(&[
+            "== boot",
+            "outcome ok",
+            "== tap \"go\"",
+            "outcome ok",
+            "view \"t\" \"x,x\"",
+        ]);
+        for (note, outside) in [
+            (
+                "# view 3 (site 1): text trapped Trap(IterationLimit { pc: 5 }); unset",
+                true,
+            ),
+            (
+                "# view 3 (site 1): text trapped Trap(TypeMismatch { pc: 5, op: Call }); unset",
+                false,
+            ),
+        ] {
+            let rust = lines(&[
+                "== boot",
+                "outcome ok",
+                "== tap \"go\"",
+                "outcome ok",
+                note,
+                "view \"t\" -",
+            ]);
+            let verdict = compare(rust, lean.clone());
+            assert_eq!(
+                matches!(verdict, Verdict::Unsupported(_)),
+                outside,
+                "{note}"
+            );
+            assert_eq!(
+                matches!(verdict, Verdict::Diverge { .. }),
+                !outside,
+                "{note}"
             );
         }
     }

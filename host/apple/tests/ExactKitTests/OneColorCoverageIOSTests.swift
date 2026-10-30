@@ -26,7 +26,7 @@ final class OneColorCoverageIOSTests: XCTestCase {
         let width = Int(size.width), height = Int(size.height.rounded(.up))
         let output = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
             bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        ink.layer.render(in: output)
+        ink.render(in: output)
         let bytes = try XCTUnwrap(output.data).assumingMemoryBound(to: UInt8.self)
         XCTAssertEqual(bytes[3], 0, "an uncovered corner stays clear")
         let alpha = stride(from: 3, to: width * height * 4, by: 4).map { bytes[$0] }

@@ -27,6 +27,7 @@ fn main() {
         "src/standard.js",
         "src/binary.js",
         "src/prelude.js",
+        "src/process.js",
         "src/intl.js",
         "tests/fixtures/harden-probe.js",
     ] {
@@ -106,6 +107,7 @@ fn main() {
         "src/standard.js",
         "src/binary.js",
         "src/prelude.js",
+        "src/process.js",
         "src/intl.js",
     ]
     .iter()
@@ -114,6 +116,14 @@ fn main() {
     .join("\n");
     let prelude = if target_os == "windows" {
         "globalThis.__exact_windows_storage = true;\n".to_owned() + &prelude
+    } else {
+        prelude
+    };
+    // The hosts that start programs for data code (LLP 1133.007 §8):
+    // `js/src/process.js` binds `@exact/child-process` to them, and every
+    // other target answers NotSupportedError.
+    let prelude = if matches!(target_os.as_str(), "macos" | "linux") {
+        format!("globalThis.__exact_process_host = \"{target_os}\";\n{prelude}")
     } else {
         prelude
     };
@@ -174,12 +184,22 @@ fn main() {
         "spin",
         "shared-load",
         "overlay",
+        "overlay-none",
+        "overlay-some",
+        "overlay-odd",
+        "overlay-throws",
+        "overlay-getter",
         "socket",
+        "listen",
+        "process",
         "heap",
         "snapshot",
         "context",
         "walk",
         "presence",
+        "timers",
+        "outlive",
+        "kept-json",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());

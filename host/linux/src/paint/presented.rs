@@ -36,8 +36,9 @@ pub struct Presented {
     /// Presented paint while it moves (LLP 1055.000 D6, LLP 1062): one slot
     /// per [`Property::PAINT`]; `None` paints the row.
     pub colors: PaintValues,
-    /// A layout transition's offset from the laid-out origin and scale of
-    /// the laid-out size, `[dx, dy, sx, sy]` (LLP 1063).
+    /// A layout transition's offset from the laid-out origin and its
+    /// surface's difference from the laid-out size, `[dx, dy, dw, dh]`
+    /// (LLP 1063).
     pub layout: [f32; 4],
     /// What the reader plays instead of the engine (`crate::host::lower`'s
     /// bits): painted at the underlying values, in a layer it moves.
@@ -59,7 +60,7 @@ impl Presented {
         opacity: 1.0,
         svg: [None; 8],
         colors: PaintValues::NONE,
-        layout: [0.0, 0.0, 1.0, 1.0],
+        layout: [0.0; 4],
         lowered: 0,
         looks: [false; 2],
     };
@@ -125,8 +126,8 @@ impl Presented {
     /// its top-left corner. Its content and children keep the laid-out
     /// geometry: a growing card reveals its title, never squashes it.
     pub(super) fn surface(&self, (x, y, w, h): (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
-        let [.., sx, sy] = self.layout;
-        (x, y, (w * sx).max(0.0), (h * sy).max(0.0))
+        let [.., dw, dh] = self.layout;
+        (x, y, (w + dw).max(0.0), (h + dh).max(0.0))
     }
 }
 
@@ -316,7 +317,7 @@ mod tests {
     #[test]
     fn a_layout_springs_size_overshoot_is_clamped_to_zero() {
         let shown = Presented {
-            layout: [5.0, -8.0, -0.5, -2.0],
+            layout: [5.0, -8.0, -150.0, -120.0],
             ..Presented::IDENTITY
         };
         assert_eq!(
@@ -334,7 +335,7 @@ mod tests {
             (point[0].x, point[0].y)
         };
         let grow = Presented {
-            layout: [5.0, -8.0, 1.0, 0.25],
+            layout: [5.0, -8.0, 0.0, -30.0],
             ..Presented::IDENTITY
         };
         // Moved by the offset, never scaled: its content keeps its size.

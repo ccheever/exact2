@@ -2,11 +2,11 @@
 
 **Type:** RFC
 **Status:** Draft
-**Systems:** Text, Kernel (one prop), Contract (one attribute, two commands, one event), Apple host, Web host, Linux host (reading only; editing is v2), the `markdown/` and `markdown/editor/` crates, Interview (first consumer)
+**Systems:** Text, Kernel (two props), Contract (two attributes, two commands, one event), Apple host, Web host, Linux host (reading only; editing is v2), the `markdown/` and `markdown/editor/` crates, Interview (first consumer)
 **Author:** Charlie Cheever / Claude (Fable 5.1)
 **Implementer:** Claude (initial slices); Codex / Astra (editing slice, 2026-09-21)
 **Date:** 2026-09-21
-**Revised:** 2026-10-20 r6, Apple hides link destinations by the editor crate's rules (D5); 2026-10-19 r5, the editor's source selection and range edits (D1 Undo, D5, D6); 2026-09-22 r4, CodeMirror removed; the editing rules are one crate, an on-demand wasm on the web (r3, 2026-09-21: the source-editing plan)
+**Revised:** 2026-10-29 r7, each source line's base direction from the app, `paragraphDirs` (D11); 2026-10-20 r6, Apple hides link destinations by the editor crate's rules (D5); 2026-10-19 r5, the editor's source selection and range edits (D1 Undo, D5, D6); 2026-09-22 r4, CodeMirror removed; the editing rules are one crate, an on-demand wasm on the web (r3, 2026-09-21: the source-editing plan)
 **Related:** LLP 1001 §6 (text measurement), LLP 1008 §3/§5/§9 (the Apple textarea, keyboard viewport), LLP 1007 (web textarea), LLP 1005 §3 (capability commands), LLP 1020 (`iframe`), LLP 1033 / 1044 (the reader and what its rows cost), LLP 1035.001 D7 (draft lifetime), LLP 1024 (native modules — not used)
 **Children:** LLP 1045.000 (inline atoms: a span of the source shown and edited as one pill; Accepted 2026-10-23)
 
@@ -142,6 +142,7 @@ each host:
   omitted and traits (heading, link, code) set; revealed markers read as text.
 - **Bidirectional text.** Markers are ASCII punctuation; hiding them removes
   neutral characters, which cannot change the base direction of a paragraph.
+  Each line's base direction is the app's when it gives one (D11).
   Mixed-direction selection across a hidden range is proven on the phone, not
   assumed.
 
@@ -513,6 +514,114 @@ app's state (a placeholder URL the app later replaces in the source).
 
 This takes `fileinput` off `rules/DEFERRED.md` in this form only — a
 picker limited to images and video, no camera, no generic file input.
+
+### D11 — Each line's base direction is the app's (r7, 2026-10-29)
+
+`paragraphDirs` on the editor gives each source line its base direction: one
+word per source line, HTML's `dir` (`ltr`, `rtl`, `auto`), separated by white
+space, the first word the first line's:
+
+```contract
+textarea value=draft input=edit markup="markdown" paragraphDirs=dirs
+```
+
+The unit is the source line, which a line break ends (LF; on Apple, whose
+source keeps CR, also CRLF and CR, where TextKit ends a paragraph; the web
+editor folds both into LF): a paragraph for the bidirectional algorithm
+([UAX #9](https://www.unicode.org/reports/tr9/) P1), and the one each host
+draws. It is not the styler's block, so a Markdown
+paragraph broken over three source lines takes three words, as do a list's
+items and a fenced block's lines. A line past the last word takes the last,
+so one word sets every line. A literal says one word, which every line takes:
+a literal never sends new words, so a list written there would drift with the
+first edit, and the compiler refuses one (`lower-paragraph-dirs-literal`). A
+list is bound, so the app sends the next one with each change.
+
+The words are the app's because the rule is policy. T3 Code gives each
+composer block the direction of most of its words
+(`apps/web/src/composer-text-direction.ts`, upstream `3690c86253`): the first
+strong letter, which `dir="auto"` and Apple's natural direction use, reads
+Arabic prose that opens with an English term as left to right. In its rule a
+line without letters follows the one above, a list takes one direction from
+all its items, and a code block stays left to right.
+
+- **Words travel with their lines.** New words are placed by line number.
+  Until the next ones, each word stays with its line through edits: the
+  lines before and after an edit keep theirs, the edited lines theirs in
+  order, and a line the edit adds takes the word of the line above it (at
+  the top, the one below). Return at the end of the first line of `A\nب\nC`
+  under `ltr rtl ltr` draws the new line left to right and ب still right to
+  left. Both hosts compare the source's lines before and after the edit
+  (`carry` in `markup-editor.js`, `MarkupDirections.carry` on Apple), code
+  unit for code unit, so text rewritten from NFC to NFD is another source.
+  New words that arrive in the same batch as a new value are placed after
+  it.
+- **Undo and redo give the words back.** Each undo step keeps the words of
+  the state it returns to, however many keystrokes it holds, and undo and
+  redo give them back with the source; an edit that only rebuilds a removed
+  line gives back nothing, so the line takes the word above it. The app's
+  next words forget them all, as does a value the app writes, which resets
+  the history (D1). A field without words keeps none, and a kept set of
+  words holds only its lines whose word is not the most common one. On the
+  web the editor keeps them in its own undo snapshots (`mde_set_words`,
+  `mde_words_back`), within the history's bound of 200 steps and 4M code
+  units, which counts sources and words. On Apple they stay out of the
+  field's undo manager, where an action of the editor's ends AppKit's typing
+  coalescing and makes each keystroke a step: `MarkupEditor` keeps two stacks
+  of them beside it, one for undo and one for redo, and takes one set as
+  each step's top-level group opens, before its first edit changes the
+  text. That group is the event's, for a typed, pasted, cut or dropped
+  edit, a composition's first marked text and, grouping by event, a
+  command; `setRangeText` groups alone. An edit the platform coalesces into
+  an open step takes none. Each undo and redo moves one set from one stack
+  to the other, as the manager moves one step, and a step whose set the
+  app's words forgot carries.
+- **A line without a word** (no attribute, or a word other than the three)
+  takes the field's own `direction`, the author's or else the document's, on
+  every host. No first strong letter selects it, as none has for Apple text
+  since `0cb3cfbda0`, nor for Apple's plain text fields, so the same field
+  with `markup="none"` keeps it; LLP 1001 §1 declares where one still does,
+  Linux.
+- **`auto`** is the line's first strong letter (a letter, or an explicit
+  mark) outside its Markdown syntax and its atoms; a line with none takes the
+  field's direction. The syntax passed over is the markers the styler dims or
+  hides, a list's, a task's or a rule's marker at the line's start, a link's
+  brackets and destination, and a code fence; a footnote mark's label is
+  text, as the web draws it. The editor crate decides it for both hosts
+  (`exact_markdown_editor::auto_directions`: `mde_auto` on the web,
+  `exact_markup_auto` on Apple) from the styling with nothing revealed, so
+  the caret, which reveals the syntax of its line, changes no line's answer.
+  The platform's `dir="auto"` and natural direction are not used: they read
+  hidden syntax.
+- **Web.** Each line's block takes its resolved direction as `dir`, set in
+  place, so new words redraw no line and keep a native keystroke's DOM.
+  List indents and markers are `padding-inline-start` and
+  `inset-inline-start`, and quote bars a `border-inline-start` whose border
+  image keeps one bar per depth, so all of them follow a line's `dir` and a
+  field's CSS `direction` alike; a task box's press area and an empty line's
+  caret (`rangeFrame`) follow too. An empty editor's placeholder is drawn on
+  its first line, in that line's direction.
+- **Apple.** The restyle sets each line's
+  `NSParagraphStyle.baseWritingDirection` (TextKit 2, AppKit and UIKit) over
+  the paragraph rows' styles: the most common direction once, in the base
+  style, then only the runs of lines that differ. The directions are
+  computed again only when the source, the words, the field's direction or
+  the atoms change, so a restyle for a moved selection reuses them. A
+  `headIndent` is measured from the leading margin and natural text aligns to
+  it, so a right-to-left list item indents from the right. Typing, and the
+  placeholder of an empty editor (macOS and iOS), take the caret line's
+  direction. New words restyle though the source has not changed. tvOS
+  draws the same and does not edit.
+- **Declared.** Linux, Windows and Android show the source in a plain field
+  (D5: Linux editing is v2), whose lines take their direction as any text
+  there does (LLP 1001 §1), and ignore the attribute. The terminal host has
+  no Markdown editor. The reader takes none (`lower-paragraph-dirs-field`):
+  it draws blocks, not lines, in its node's `direction`.
+- **Not here.** Inline code isolated inside a right-to-left line
+  (`unicode-bidi: isolate`) is another capability.
+
+Approved by Daehyeon Mun, 2026-10-29 (the T3 Code clone's proposal F3);
+implemented by Claude (Opus 5.5) the same day.
 
 ## 4. Slices (each verified by running)
 

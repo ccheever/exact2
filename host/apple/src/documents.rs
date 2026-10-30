@@ -17,8 +17,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// The calls [`answer`] answers.
-const OPS: [&str; 7] = [
+const OPS: [&str; 8] = [
     "openDocument",
+    "documentPermission",
     "mintDocument",
     "forgetDocuments",
     "keptDocuments",
@@ -48,6 +49,9 @@ fn store_file(app_id: &str) -> Option<PathBuf> {
 ///   for one that reads its files itself; `mintDocument` (`{"path"}`: what
 ///   a picker returned, exactly) answers `{"doc"}`; `forgetDocuments` drops
 ///   every handle the session minted that its app does not keep.
+/// - `documentPermission` (`{"path"}`): `{"granted": true}` when the path
+///   resolves for the session, what a native host answers to
+///   `requestPermission` (LLP 1069.010.000 D7).
 /// - `keptDocuments`, as the session's data activates: `{"keep": false}`
 ///   for an app that keeps nothing; else the records this launch has yet to
 ///   find (`restore`: `n`, `bookmark`, `device`, `inode`), which the host
@@ -116,6 +120,9 @@ fn documents<D: exact_runner::DataSource>(
             Some(doc) => reply("path", &doc),
             None => reply("path", &path),
         },
+        "documentPermission" => {
+            serde_json::json!({ "granted": documents::resolve(&path, owner).is_ok() }).to_string()
+        }
         "mintDocument" => match documents::mint(std::path::Path::new(&path), owner) {
             Some(doc) => reply("doc", &doc),
             None => error(&format!("{path} is not a file or folder")),
@@ -173,7 +180,7 @@ fn documents<D: exact_runner::DataSource>(
 /// The Swift host's hook for a document the app forgot (`forgetDocument`):
 /// it takes the object off `NSDocumentController`'s recents.
 pub fn on_forgotten(forgotten: extern "C" fn(u64, u64)) {
-    kept::on_forgotten(Arc::new(move |identity| {
+    kept::on_forgotten(Arc::new(move |identity, _| {
         forgotten(identity.device, identity.inode)
     }));
 }

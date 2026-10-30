@@ -26,7 +26,7 @@ impl super::Painter {
         selection: FieldSelection,
         upstream: bool,
     ) {
-        if selection.start != selection.end {
+        if selection.start != selection.end || self.caret_hidden {
             return;
         }
         let rect = field.geometry.caret(crate::text::field::Cursor {

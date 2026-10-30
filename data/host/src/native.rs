@@ -18,6 +18,13 @@ pub(super) fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str, String> {
     v[k].as_str()
         .ok_or_else(|| format!("storage: {k} must be a string"))
 }
+/// A whole-number argument, as the text D6a's operations take.
+fn number(v: &Value, k: &str) -> Result<Vec<u8>, String> {
+    let n = v[k]
+        .as_u64()
+        .ok_or_else(|| format!("storage: {k} must be a whole number"))?;
+    Ok(n.to_string().into_bytes())
+}
 fn bytes(v: &Value) -> Result<Vec<u8>, String> {
     if let Some(t) = v.get("text").and_then(Value::as_str) {
         return Ok(t.as_bytes().to_vec());
@@ -177,6 +184,26 @@ fn operation<'a>(op: &str, args: &'a Value) -> Result<Operation<'a>, String> {
         "fs.realpath" => (FsOp::Realpath, None, None),
         "fs.rename" => (FsOp::Rename, Some(text(args, "destination")?), None),
         "fs.copyFile" => (FsOp::CopyFile, Some(text(args, "destination")?), None),
+        // LLP 1133.007 D6a: each takes its one argument as text.
+        "fs.lstat" => (FsOp::Lstat, None, None),
+        "fs.readlink" => (FsOp::Readlink, None, None),
+        "fs.access" => (FsOp::Access, None, Some(number(args, "mode")?)),
+        "fs.chmod" => (FsOp::Chmod, None, Some(number(args, "mode")?)),
+        "fs.symlink" => (
+            FsOp::Symlink,
+            None,
+            Some(text(args, "target")?.as_bytes().to_vec()),
+        ),
+        "fs.digest" => (
+            FsOp::Digest,
+            None,
+            Some(text(args, "algorithm")?.as_bytes().to_vec()),
+        ),
+        // A lock belongs to the runtime that took it (LLP 1133.007 D6a),
+        // which a Rust source's storage has none of yet.
+        "fs.flock" | "fs.unlock" => {
+            return Err(format!("{op}: a TypeScript source's storage only, for now"))
+        }
         _ => return Err(format!("unsupported storage operation {op}")),
     })
 }
@@ -369,32 +396,37 @@ fn fs_value(result: FsResult) -> Value {
             "size": stat.size,
             "isFile": stat.is_file,
             "isDirectory": stat.is_directory,
-            "modifiedMs": stat.modified_ms
+            "modifiedMs": stat.modified_ms,
+            "mode": stat.mode,
+            "isSymbolicLink": stat.is_symlink
         }),
     }
 }
 /// A `doc:` path (LLP 1069.010 D1): the file or folder the person chose,
 /// through ibex2's one executor for documents, the one a TypeScript
 /// source's `storage.fs` runs, so a grant means the same in either language.
+/// `directories` are the app's, given only to a copy into them.
 fn document_request(
     grants: &GrantSet,
+    directories: Option<&AppDirectories>,
     op: &str,
     args: &Value,
     owner: u64,
 ) -> Result<Value, String> {
     let path = text(args, "path")?;
-    let (operation, _, data) = operation(op, args)?;
+    let (operation, destination, data) = operation(op, args)?;
+    let destination = destination.filter(|_| copies_into_app(op, args));
     let run = |operation, data: Option<&[u8]>| {
         fs::run_with_limits(
             grants,
-            None,
+            directories,
             Some(&move |path, _access| documents(path, owner)),
             fs::ResultLimits {
                 bytes: exact_data::storage::MAX_BYTES,
             },
             operation,
             path,
-            None,
+            destination,
             data,
         )
         .map_err(error)
@@ -490,6 +522,14 @@ fn native_filesystem(op: &str, args: &Value) -> bool {
             !path.starts_with("app:/") && !exact_data::documents::is_document(path)
         })
 }
+/// `copyFile` from a chosen document into an app file (LLP 1069.010 D1,
+/// 2026-10-26), the one document request that needs the app's directories.
+fn copies_into_app(op: &str, args: &Value) -> bool {
+    op == "fs.copyFile"
+        && args["destination"]
+            .as_str()
+            .is_some_and(|d| d.starts_with("app:/"))
+}
 /// Chosen documents, the kept list and Windows disk requests require no
 /// app directories.
 pub(super) fn independent_storage(payload: &[u8]) -> bool {
@@ -497,9 +537,10 @@ pub(super) fn independent_storage(payload: &[u8]) -> bool {
         matches!(
             r["op"].as_str(),
             Some("fs.recentDocuments" | "fs.forgetDocument")
-        ) || r["args"]["path"]
+        ) || (r["args"]["path"]
             .as_str()
             .is_some_and(exact_data::documents::is_document)
+            && !copies_into_app(r["op"].as_str().unwrap_or(""), &r["args"]))
             || r["op"]
                 .as_str()
                 .is_some_and(|op| native_filesystem(op, &r["args"]))
@@ -533,11 +574,21 @@ pub(super) fn run(
         {
             return Err(format!("{}: needs app:/ paths", &op[3..]));
         }
+        let app_directories = || {
+            let paths = paths.ok_or("storage is unavailable in an unconfigured host")?;
+            for path in [&paths.data, &paths.cache, &paths.temporary] {
+                std::fs::create_dir_all(path).map_err(error)?;
+            }
+            AppDirectories::new(&paths.data, &paths.cache, &paths.temporary).map_err(error)
+        };
         if args["path"]
             .as_str()
             .is_some_and(exact_data::documents::is_document)
         {
-            return document_request(&grants, op, args, owner);
+            let directories = copies_into_app(op, args)
+                .then(app_directories)
+                .transpose()?;
+            return document_request(&grants, directories.as_ref(), op, args, owner);
         }
         if native_filesystem(op, args) {
             return execute(&grants, None, op, args);
@@ -545,13 +596,7 @@ pub(super) fn run(
         if !text(args, "path")?.starts_with("app:/") {
             return Err("portable storage needs an app:/ path".into());
         }
-        let paths = paths.ok_or("storage is unavailable in an unconfigured host")?;
-        for path in [&paths.data, &paths.cache, &paths.temporary] {
-            std::fs::create_dir_all(path).map_err(error)?;
-        }
-        let directories =
-            AppDirectories::new(&paths.data, &paths.cache, &paths.temporary).map_err(error)?;
-        execute(&grants, Some(&directories), op, &request["args"])
+        execute(&grants, Some(&app_directories()?), op, &request["args"])
     })();
     match result {
         Ok(v) => {

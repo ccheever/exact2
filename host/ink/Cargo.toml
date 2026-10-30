@@ -1,0 +1,58 @@
+[package]
+name = "exact-ink"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+tiny-skia = "0.12"
+swash = "0.2"
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc = "0.2"
+objc2 = "0.6.4"
+block2 = "0.6"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSError", "NSString", "NSURL", "NSProcessInfo"] }
+objc2-metal = { version = "0.3.2", default-features = false, features = [
+    "std", "block2", "objc2-core-foundation", "MTLAllocation", "MTLBinaryArchive", "MTLBlitCommandEncoder", "MTLBuffer",
+    "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLDevice", "MTLLibrary", "MTLDrawable",
+    "MTLPixelFormat", "MTLRenderCommandEncoder", "MTLRenderPass", "MTLRenderPipeline",
+    "MTLResource", "MTLSampler", "MTLTexture", "MTLTypes", "MTLVertexDescriptor",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+raw-window-handle = "0.6"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "NSApplication", "NSEvent", "objc2-quartz-core"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CALayer", "CAMetalLayer", "CATransaction", "objc2-metal", "objc2-core-graphics"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGColorSpace", "CGDirectDisplay"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["wgsl", "metal", "vulkan", "dx12"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu"] }
+web-time = "1"
+wasm-bindgen-futures = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+    "Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Threading",
+    "Win32_System_Performance", "Win32_System_SystemInformation", "Win32_System_ProcessStatus", "Win32_System_LibraryLoader", "Win32_System_Com", "Win32_System_Ole",
+    "Win32_UI_Controls_RichEdit", "Win32_UI_Input_Ime", "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Power",
+    "Win32_System_StationsAndDesktops", "Win32_Security",
+] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.62", features = ["Win32_UI_Accessibility"] }
+
+[build-dependencies]
+naga = { version = "30", features = ["wgsl-in", "msl-out", "hlsl-out", "spv-out", "glsl-out"] }

@@ -1,0 +1,348 @@
+{
+  "udid": "53546626-A3B9-4C30-9E6C-20F4E31C151E",
+  "pid": 86034,
+  "flings": 10,
+  "fifty": 0,
+  "distance": 600,
+  "log": [
+    {
+      "t": 1793127485501,
+      "what": "launched",
+      "pid": 86034
+    },
+    {
+      "t": 1793127492182,
+      "what": "tapped conversation-demo"
+    },
+    {
+      "t": 1793127496728,
+      "what": "trace",
+      "name": "trace-0-before",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-0-before.json"
+    },
+    {
+      "t": 1793127498470,
+      "what": "positions",
+      "label": "before",
+      "first": {
+        "label": "Message 446",
+        "y": 66
+      },
+      "last": {
+        "label": "Message 453",
+        "y": 540
+      },
+      "count": 16
+    },
+    {
+      "t": 1793127498470,
+      "what": "fling",
+      "i": 0,
+      "dy": 372.4
+    },
+    {
+      "t": 1793127498763,
+      "what": "lifted",
+      "i": 0
+    },
+    {
+      "t": 1793127502576,
+      "what": "trace",
+      "name": "trace-1-after-fling-1",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-1-after-fling-1.json"
+    },
+    {
+      "t": 1793127504236,
+      "what": "positions",
+      "label": "after fling 1",
+      "first": {
+        "label": "Message 396",
+        "y": 67
+      },
+      "last": {
+        "label": "Message 403",
+        "y": 542
+      },
+      "count": 16
+    },
+    {
+      "t": 1793127504236,
+      "what": "fling",
+      "i": 1,
+      "dy": -372.4
+    },
+    {
+      "t": 1793127504669,
+      "what": "lifted",
+      "i": 1
+    },
+    {
+      "t": 1793127510330,
+      "what": "trace",
+      "name": "trace-2-after-fling-2",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-2-after-fling-2.json"
+    },
+    {
+      "t": 1793127512019,
+      "what": "positions",
+      "label": "after fling 2",
+      "first": {
+        "label": "Message 444",
+        "y": 36
+      },
+      "last": {
+        "label": "Message 451",
+        "y": 527
+      },
+      "count": 16
+    },
+    {
+      "t": 1793127512019,
+      "what": "fling",
+      "i": 2,
+      "dy": 372.4
+    },
+    {
+      "t": 1793127512390,
+      "what": "lifted",
+      "i": 2
+    },
+    {
+      "t": 1793127517118,
+      "what": "trace",
+      "name": "trace-3-after-fling-3",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-3-after-fling-3.json"
+    },
+    {
+      "t": 1793127518772,
+      "what": "positions",
+      "label": "after fling 3",
+      "first": {
+        "label": "Message 396",
+        "y": 34
+      },
+      "last": {
+        "label": "Message 404",
+        "y": 572
+      },
+      "count": 17
+    },
+    {
+      "t": 1793127518772,
+      "what": "fling",
+      "i": 3,
+      "dy": -372.4
+    },
+    {
+      "t": 1793127519074,
+      "what": "lifted",
+      "i": 3
+    },
+    {
+      "t": 1793127522347,
+      "what": "trace",
+      "name": "trace-4-after-fling-4",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-4-after-fling-4.json"
+    },
+    {
+      "t": 1793127523981,
+      "what": "positions",
+      "label": "after fling 4",
+      "first": {
+        "label": "Message 444",
+        "y": 27
+      },
+      "last": {
+        "label": "Message 451",
+        "y": 518
+      },
+      "count": 16
+    },
+    {
+      "t": 1793127523981,
+      "what": "fling",
+      "i": 4,
+      "dy": 372.4
+    },
+    {
+      "t": 1793127524278,
+      "what": "lifted",
+      "i": 4
+    },
+    {
+      "t": 1793127527886,
+      "what": "trace",
+      "name": "trace-5-after-fling-5",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-5-after-fling-5.json"
+    },
+    {
+      "t": 1793127529433,
+      "what": "positions",
+      "label": "after fling 5",
+      "first": {
+        "label": "Message 396",
+        "y": 58
+      },
+      "last": {
+        "label": "Message 403",
+        "y": 533
+      },
+      "count": 16
+    },
+    {
+      "t": 1793127529433,
+      "what": "fling",
+      "i": 5,
+      "dy": -372.4
+    },
+    {
+      "t": 1793127529724,
+      "what": "lifted",
+      "i": 5
+    },
+    {
+      "t": 1793127532682,
+      "what": "trace",
+      "name": "trace-6-after-fling-6",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-6-after-fling-6.json"
+    },
+    {
+      "t": 1793127534236,
+      "what": "positions",
+      "label": "after fling 6",
+      "first": {
+        "label": "Message 444",
+        "y": 24
+      },
+      "last": {
+        "label": "Message 451",
+        "y": 516
+      },
+      "count": 16
+    },
+    {
+      "t": 1793127534236,
+      "what": "fling",
+      "i": 6,
+      "dy": 372.4
+    },
+    {
+      "t": 1793127534527,
+      "what": "lifted",
+      "i": 6
+    },
+    {
+      "t": 1793127536755,
+      "what": "trace",
+      "name": "trace-7-after-fling-7",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-7-after-fling-7.json"
+    },
+    {
+      "t": 1793127540489,
+      "what": "positions",
+      "label": "after fling 7",
+      "first": {
+        "label": "Message 396",
+        "y": 51
+      },
+      "last": {
+        "label": "Message 403",
+        "y": 525
+      },
+      "count": 16
+    },
+    {
+      "t": 1793127540489,
+      "what": "fling",
+      "i": 7,
+      "dy": -372.4
+    },
+    {
+      "t": 1793127540802,
+      "what": "lifted",
+      "i": 7
+    },
+    {
+      "t": 1793127543220,
+      "what": "trace",
+      "name": "trace-8-after-fling-8",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-8-after-fling-8.json"
+    },
+    {
+      "t": 1793127545210,
+      "what": "positions",
+      "label": "after fling 8",
+      "first": {
+        "label": "Message 441",
+        "y": 53
+      },
+      "last": {
+        "label": "Message 448",
+        "y": 544
+      },
+      "count": 16
+    },
+    {
+      "t": 1793127545210,
+      "what": "fling",
+      "i": 8,
+      "dy": 372.4
+    },
+    {
+      "t": 1793127545509,
+      "what": "lifted",
+      "i": 8
+    },
+    {
+      "t": 1793127547333,
+      "what": "trace",
+      "name": "trace-9-after-fling-9",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-9-after-fling-9.json"
+    },
+    {
+      "t": 1793127548745,
+      "what": "positions",
+      "label": "after fling 9",
+      "first": {
+        "label": "Message 391",
+        "y": 36
+      },
+      "last": {
+        "label": "Message 398",
+        "y": 528
+      },
+      "count": 16
+    },
+    {
+      "t": 1793127548745,
+      "what": "fling",
+      "i": 9,
+      "dy": -372.4
+    },
+    {
+      "t": 1793127549033,
+      "what": "lifted",
+      "i": 9
+    },
+    {
+      "t": 1793127550884,
+      "what": "trace",
+      "name": "trace-10-after-fling-10",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-3/trace-10-after-fling-10.json"
+    },
+    {
+      "t": 1793127552402,
+      "what": "positions",
+      "label": "after fling 10",
+      "first": {
+        "label": "Message 440",
+        "y": 11
+      },
+      "last": {
+        "label": "Message 448",
+        "y": 560
+      },
+      "count": 17
+    }
+  ]
+}

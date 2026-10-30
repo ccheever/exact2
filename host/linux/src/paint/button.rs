@@ -470,6 +470,31 @@ impl Painter {
             !disabled && self.feedback.0 == Some(node.id),
             !disabled && self.presses(node.id),
         );
+        if let Some(palette) = look::contrast().filter(|_| authored.is_none()) {
+            let active = !disabled && (pressed || hover || style == "fill");
+            let ink = if disabled {
+                palette.disabled
+            } else if active {
+                palette.highlighted_text
+            } else {
+                palette.button_text
+            };
+            if !node.style.written.has(StyleId::BackgroundColor) {
+                self.backend.fill(
+                    shape,
+                    if active {
+                        palette.highlight
+                    } else {
+                        palette.button
+                    },
+                    ts,
+                );
+            }
+            if style != "text" || active {
+                super::neutral::edge(self.backend.as_mut(), shape, 1., ink, ts);
+            }
+            return ink;
+        }
         let label = role("-exact-label", dark);
         if node.is_neutral_tab()
             && matches!(
@@ -871,7 +896,11 @@ impl Painter {
                 ts,
             );
         }
-        if let Some(symbol) = &face.symbol {
+        if let Some(symbol) = face
+            .symbol
+            .as_ref()
+            .filter(|_| !self.split_hides_symbol(node))
+        {
             let tint = if layout.symbol_style.mask.has(StyleId::TintColor) {
                 layout
                     .symbol_style

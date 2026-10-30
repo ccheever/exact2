@@ -88,7 +88,9 @@ impl FailureCode {
             FailureKind::Network => FailureCode::Offline,
             FailureKind::Timeout => FailureCode::Timeout,
             FailureKind::Refused => FailureCode::Refused,
-            FailureKind::Unsupported | FailureKind::Aborted => FailureCode::Error,
+            FailureKind::Unsupported | FailureKind::Aborted | FailureKind::NotFound => {
+                FailureCode::Error
+            }
         }
     }
 }
@@ -124,7 +126,8 @@ impl Failure {
                 | DataError::BadArguments(s)
                 | DataError::Unavailable(s)
                 | DataError::DeferredAtBake(s)
-                | DataError::Interface(s) => (FailureCode::Error, s.clone(), String::new()),
+                | DataError::Interface(s)
+                | DataError::Overrun(s) => (FailureCode::Error, s.clone(), String::new()),
             },
             RunnerError::Shape { resource, why } => (
                 FailureCode::Shape,

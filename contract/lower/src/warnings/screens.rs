@@ -40,14 +40,21 @@ pub(super) fn screen_by_state(checked: &Checked<'_>) -> Vec<LowerError> {
 /// What the expanded root's names are.
 struct App<'a> {
     root: &'a Component,
+    /// The root's actions by name, the first of each.
+    actions: std::collections::HashMap<&'a str, &'a contract_syntax::Action>,
     /// States a `tab` or a `radio` reads its selection from.
     picked: BTreeSet<String>,
 }
 
 impl<'a> App<'a> {
     fn new(root: &'a Component) -> Self {
+        let mut actions = std::collections::HashMap::new();
+        for a in &root.actions {
+            actions.entry(a.name.as_str()).or_insert(a);
+        }
         let mut app = App {
             root,
+            actions,
             picked: BTreeSet::new(),
         };
         let mut picked = BTreeSet::new();
@@ -106,7 +113,7 @@ impl<'a> App<'a> {
             _ => return BTreeSet::new(),
         };
         let mut out = BTreeSet::new();
-        if let Some(a) = self.root.actions.iter().find(|a| &a.name == name) {
+        if let Some(a) = self.actions.get(name.as_str()) {
             assigned(&a.body, &mut out);
         }
         out

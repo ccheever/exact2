@@ -16,8 +16,7 @@ final class GlassGroupIOSTests: XCTestCase {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass is iOS 26") }
     }
 
-    private func presenter(_ ops: [[String: Any]]) -> Presenter {
-        let p = Presenter()
+    private func presenter(_ ops: [[String: Any]], _ p: Presenter = Presenter()) -> Presenter {
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
@@ -36,9 +35,156 @@ final class GlassGroupIOSTests: XCTestCase {
             + box(3, x: 48, w: 48) + box(4, ["backgroundMaterial": "glass"])
             + [["op": "children", "id": 3, "ids": [4]], ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]]
     }
+    /// A batch a person's input caused, marked as `ExactSession.applyInput` marks it.
+    private func pressed(_ ops: [[String: Any]]) -> Batch {
+        var batch = wireBatch(ops)
+        batch.input = CACurrentMediaTime()
+        return batch
+    }
     private func spacing(_ node: NodeView) -> CGFloat? {
         guard #available(iOS 26.0, *) else { return nil }
         return (node.glassGroupView?.effect as? UIGlassContainerEffect)?.spacing
+    }
+
+    /// A glass that a person's input adds to a group already in the window
+    /// materializes: its effect is set in an animation and its content fades
+    /// in. One that arrives with its group, that no input adds (data, a
+    /// timer), or that is under an authored animation is drawn at once.
+    func testAGlassJoiningAGroupInTheWindowMaterializes() throws {
+        let p = presenter(box(1, ["glassGroup": "12"], w: 200) + box(2, ["backgroundMaterial": "glass"])
+            + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let fades = { (id: UInt32) in p.views[id]?.materialView?.contentView.layer.animation(forKey: "opacity") != nil }
+        XCTAssertFalse(fades(2), "arrived with its group")
+        p.apply(wireBatch(box(3, ["backgroundMaterial": "glass"], x: 48) + [["op": "children", "id": 1, "ids": [2, 3]]]))
+        XCTAssertFalse(fades(3), "no input added it")
+        p.apply(pressed(box(5, ["backgroundMaterial": "glass"], x: 96) + [["op": "children", "id": 1, "ids": [2, 3, 5]]]))
+        XCTAssertTrue(fades(5), "a press added it: its content fades in")
+        XCTAssertNotNil(p.views[5]?.materialView?.effect)
+        let three = try XCTUnwrap(p.views[3]), into = try XCTUnwrap(three.superview)
+        three.removeFromSuperview()
+        into.addSubview(three)
+        XCTAssertFalse(fades(3), "moved into the window after the press's batch: no mark")
+        p.apply(wireBatch(box(9, ["backgroundMaterial": "glass"], x: 120) + [["op": "children", "id": 1, "ids": [2, 3, 5, 9]]]))
+        XCTAssertFalse(fades(9), "the batch after the press carries no mark")
+        // An animation its author wrote, on the glass (6) or on a box (7)
+        // between a glass (8) and the group, says how the glass moves.
+        let written: [String: Any] = ["border_radius": 20.0, "text_color": [0, 0, 0, 255], "written": ["animation"]]
+        var own = box(6, ["backgroundMaterial": "glass"], x: 144), outer = box(7, x: 160)
+        own[0]["style"] = written
+        outer[0]["style"] = written
+        p.apply(pressed(own + outer + box(8, ["backgroundMaterial": "glass"])
+            + [["op": "children", "id": 7, "ids": [8]], ["op": "children", "id": 1, "ids": [2, 3, 5, 9, 6, 7]]]))
+        for id: UInt32 in [6, 8] {
+            XCTAssertFalse(fades(id), "\(id): its author animates it in")
+            XCTAssertNotNil(p.views[id]?.materialView?.effect)
+        }
+        // A group the same input adds arrives with its glass.
+        p.apply(pressed(box(10, ["glassGroup": "12"], w: 200) + box(11, ["backgroundMaterial": "glass"])
+            + [["op": "children", "id": 10, "ids": [11]], ["op": "roots", "ids": [1, 10]]]))
+        XCTAssertFalse(fades(11), "arrived with its group")
+    }
+
+    /// The input's mark is its own batch's: a tick published before it,
+    /// which the session lands first, draws the glass it adds at once.
+    func testOnlyTheInputsOwnBatchMaterializes() throws {
+        let session = ExactApp.shared.makeSession(label: "glass-input-\(UUID().uuidString)")
+        defer { session.destroy() }
+        let p = presenter([], session.presenter)
+        session.apply(wireBatch(box(1, ["glassGroup": "12"], w: 200) + box(2, ["backgroundMaterial": "glass"])
+            + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]]))
+        session.publishTickForTests(wireBatch(box(3, ["backgroundMaterial": "glass"], x: 48) + [["op": "children", "id": 1, "ids": [2, 3]]]))
+        session.applyInput(wireBatch(box(5, ["backgroundMaterial": "glass"], x: 96) + [["op": "children", "id": 1, "ids": [2, 3, 5]]]))
+        let fades = { (id: UInt32) in p.views[id]?.materialView?.contentView.layer.animation(forKey: "opacity") != nil }
+        XCTAssertNotNil(p.views[3]?.window, "the tick landed first")
+        XCTAssertFalse(fades(3), "a tick added it")
+        XCTAssertTrue(fades(5), "a press added it")
+    }
+
+    /// A press and an edit are applied as input (`presenter.onPress`,
+    /// `onInput`), so the glass each adds to a group in the window
+    /// materializes. A popover's `toggle`, which an app's command fires
+    /// too, is not, and the glass it adds is drawn at once.
+    func testAGlassAPersonsInputAddsMaterializes() throws {
+        let session = ExactApp.shared.makeSession(label: "glass-press-\(UUID().uuidString)")
+        defer { session.destroy() }
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let view = ExactView(session: session), host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        view.frame = host.view.bounds
+        XCTAssertNil(session.boot(plan: try fixturePlan("GLASS_PRESS"), size: window.bounds.size).error)
+        view.layoutIfNeeded()
+        let node = { (testId: String) in session.presenter.views.values.first { $0.props["testId"] == testId } }
+        let fades = { (testId: String) throws -> Bool in
+            try XCTUnwrap(node(testId)?.materialView, testId).contentView.layer.animation(forKey: "opacity") != nil
+        }
+        XCTAssertNil(node("added"))
+        XCTAssertNil(Agent(session: session).tap(["id": Int(try XCTUnwrap(node("add")).id)])["error"])
+        XCTAssertTrue(try fades("added"), "a press added it: its content fades in")
+        // An edit as UIKit reports it; an unhosted field sends no `.editingChanged` itself.
+        let field = try XCTUnwrap(node("field"))
+        try XCTUnwrap(field.field).text = "Ada"
+        field.fieldChanged()
+        XCTAssertTrue(try fades("typed"), "an edit added it")
+        session.presenter.clipboard(try XCTUnwrap(node("popover")).id, 50, "closed,open")
+        XCTAssertFalse(try fades("toggled"), "a toggle added it: drawn at once")
+    }
+
+    /// Every path a person's input reaches the app by marks its batch: the
+    /// glass each `on-<path>` element's handler adds materializes, and so
+    /// does one already in the group that a press reveals, makes glass or
+    /// makes visible. The presenter's callbacks are what UIKit's events call.
+    func testAGlassAnyOfAPersonsInputsAddsMaterializes() throws {
+        let session = ExactApp.shared.makeSession(label: "glass-inputs-\(UUID().uuidString)")
+        defer { session.destroy() }
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 1400))
+        let view = ExactView(session: session), host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        view.frame = host.view.bounds
+        XCTAssertNil(session.boot(plan: try fixturePlan("GLASS_PRESS"), size: window.bounds.size).error)
+        view.layoutIfNeeded()
+        let p = session.presenter
+        let node = { (testId: String) in p.views.values.first { $0.props["testId"] == testId } }
+        let on = { (path: String) throws -> UInt32 in try XCTUnwrap(node("on-\(path)"), path).id }
+        let sample = PointerSample(x: 10, y: 10, buttons: 1, pressure: 0.5, type: "touch", id: 1, clientX: 10, clientY: 10)
+        let paths: [(String, () throws -> Void)] = [
+            ("checkbox", { p.onChecked?(try on("checkbox"), true) }),
+            ("slider", { p.onControlValue?(try on("slider"), "5", true, false) }),
+            ("change", { p.onChange?(try on("change"), "Ada") }),
+            ("beforeinput", { p.fieldSelections.onBeforeInput?(try on("beforeinput"), "", FieldSelection(start: 0, end: 0), FieldInput(inputType: "insertText", data: "A")) }),
+            ("submit", { p.onSubmit?(try on("submit")) }),
+            ("paste", { p.onClipboard?(try on("paste"), 34, "Ada") }),
+            ("key", { p.onKey?(try on("key"), KeyPress("a", code: "KeyA")) }),
+            ("contextmenu", { p.onContextmenu?(try on("contextmenu")) }),
+            ("swiperight", { p.onSwiperight?(try on("swiperight")) }),
+            ("refresh", { p.onRefresh?(try on("refresh")) }),
+            ("dblclick", { p.onDblclick?(try on("dblclick")) }),
+            ("hover", { p.onHover?(try on("hover"), true) }),
+            ("pan", { p.onPan?(try on("pan"), 4, 0) }),
+            ("panrelease", { p.onPanRelease?(try on("pan"), 0, 0) }),
+            ("pointer", { p.onPointer?(try on("pointer"), .down, sample) }),
+        ]
+        for (path, input) in paths {
+            XCTAssertNil(node(path), path)
+            try input()
+            let glass = try XCTUnwrap(node(path)?.materialView, "\(path) added its glass")
+            XCTAssertNotNil(glass.contentView.layer.animation(forKey: "opacity"), "\(path): it materializes")
+        }
+        // A glass already in the group appears too: shown again, a box's material made glass, made visible
+        for (press, glass) in [("on-reveal", "revealed"), ("on-material", "glassy"), ("on-visible", "seen")] {
+            XCTAssertNotNil(node(glass), glass)
+            p.onPress?(try XCTUnwrap(node(press)).id)
+            let view = try XCTUnwrap(node(glass)?.materialView, glass)
+            XCTAssertNotNil(view.contentView.layer.animation(forKey: "opacity"), "\(glass): it materializes")
+        }
+        // A group shown again draws the glass shown with it at once, as one that comes into the window does
+        p.onPress?(try XCTUnwrap(node("on-group")).id)
+        let late = try XCTUnwrap(node("late-glass")?.materialView)
+        XCTAssertFalse(late.isHidden || late.window == nil)
+        XCTAssertNil(late.contentView.layer.animation(forKey: "opacity"), "shown with its group: drawn at once")
     }
 
     func testAGroupHoldsItsChildrenInnermostAndGivesThemBack() throws {

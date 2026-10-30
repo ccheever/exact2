@@ -10,10 +10,11 @@ import { fileURLToPath } from 'node:url';
 import { faultRequest as rawFaultRequest, PREFERENCES, preferGroups } from './agent-prefer.mjs';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
+import { perfDelta } from './agent-inspect.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
-import { serverUrl } from './verify.mjs';
-import { backendOriginSelection } from '../js/bake/src/typescript.mjs';
+import { onThisMachine, serverUrl } from './verify.mjs';
+import { backendOrigin, backendOriginSelection } from '../js/bake/src/typescript.mjs';
 import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
@@ -144,6 +145,10 @@ export function targetsIn(nodes, limit = 12) {
   }).filter(Boolean))];
   return named.length ? `; targets here: ${named.slice(0, limit).join(', ')}${named.length > limit ? ', …' : ''}` : '';
 }
+
+/** The host as a test's `on` names it (LLP 1146 D7): `mac` is macOS's other name, and the sample host's
+ * sessions are the Mac's and the iPhone's. */
+export const testScope = (host) => ({ mac: 'macos', host: 'macos', 'host-ios': 'ios' })[host] ?? host;
 
 /** Where a native host keeps a drive's scratch stores (host/apple and host/linux `configure_storage`), or
  * null where the driver cannot reach them: an iOS simulator's are in its app container and go with the app. */
@@ -313,6 +318,73 @@ export function refusalExpectation(logs, target) {
   return { message: `expected mutation ${JSON.stringify(target)} to refuse, but no refused reply was observed; clock data or clock settle lands a send` };
 }
 
+/** What had failed when a test launched: nothing (LLP 1146 D4). */
+export const NO_FAILURES = Object.freeze({ failures: {}, failed: {}, mutations: {}, faults: {}, journal: 0 });
+
+/** What has failed so far, to compare with an earlier mark (`unarranged`): each resource's refusals (`state.failures`,
+ * a development build's) and its latest reason, each send's failure, how often each fetch fault fired, and the
+ * journal's cursor. */
+export async function failureMark(s) {
+  const state = await s.state();
+  const journal = (await s.op({ op: 'logs', since: Number.MAX_SAFE_INTEGER }).catch(() => null))?.next ?? 0;
+  return {
+    failures: Object.fromEntries(Object.entries(state.failures ?? {}).map(([name, f]) => [name, f.count])),
+    failed: state.failed ?? {}, mutations: state.mutationFailures ?? {},
+    faults: Object.fromEntries((state.faults ?? []).map((f) => [f.prefix, f.hits])), journal,
+  };
+}
+
+/** The failures between two marks that the test did not arrange (LLP 1146 D4): a resource refused while no fetch fault
+ * fired (a fault's failures are the test's), a send that failed whose name no `expect refusal` gives, and the runner's
+ * churn alerts. One line each. */
+export function unarranged(was, now, { refusals = [], churn = [] } = {}) {
+  const out = [];
+  const faulted = Object.entries(now.faults).some(([prefix, hits]) => hits > (was.faults[prefix] ?? 0));
+  if (!faulted) {
+    for (const [name, count] of Object.entries(now.failures)) {
+      const more = count - (was.failures[name] ?? 0);
+      if (more > 0) out.push(`resource ${name} was refused ${more === 1 ? 'once' : `${more} times`}${now.failed[name] ? ` (${now.failed[name]})` : ''}`);
+    }
+    // A host that counts no refusals still names what failed.
+    for (const [name, why] of Object.entries(now.failed)) if (!(name in now.failures) && !(name in was.failed)) out.push(`resource ${name} failed (${why})`);
+  }
+  for (const [name, f] of Object.entries(now.mutations)) {
+    if (refusals.includes(name) || JSON.stringify(f) === JSON.stringify(was.mutations[name])) continue;
+    out.push(`send ${name} failed (${f.code}: ${f.message})`);
+  }
+  return [...out, ...churn];
+}
+
+/** The runner's churn alerts in journal lines (`query.rs` `count_churn`), without their time stamps. */
+export function churnLines(lines) {
+  return (Array.isArray(lines) ? lines : []).map(String).filter((l) => / was asked \d+ times in a second/.test(l)).map((l) => l.replace(/^t=\S+\s+/, ''));
+}
+
+/** An `expect perf` line against the last `perf` block's counts (LLP 1146 D3); null when it holds, else what was
+ * counted. `query` reads a resource's asks; `built` the views created and virtual rows constructed, and `evaluated`
+ * the bindings evaluated, at a component's plan sites (the development source map's names), else under the view
+ * with that `testId`. A component the map declares that did no work counts 0. */
+export function perfExpectation(measured, st, resources = []) {
+  if (!measured) return 'no `perf` block has run before this line';
+  const said = `${st.subject} ${st.subject === 'query' ? st.target : JSON.stringify(st.target)}`;
+  let got, by = [];
+  if (st.subject === 'query') {
+    if (!measured.whole.resources) return `this host counts no resource asks, so \`expect perf ${said}\` cannot be read`;
+    if (resources.length && !resources.includes(st.target)) return `no resource is named ${st.target} (${resources.join(', ')})`;
+    got = measured.whole.resources.find((r) => r.name === st.target)?.asked ?? 0;
+  } else {
+    const count = st.subject === 'built' ? (x) => (x.created ?? 0) + (x.rowConstructed ?? 0) : (x) => x.evaluated ?? 0;
+    let sites = measured.whole.sites.filter((x) => x.source?.component === st.target);
+    if (!sites.length && !measured.components?.has(st.target)) sites = measured.under.get(st.target)?.sites;
+    if (!sites) return `"${st.target}" names no component in the development source map and no view on screen when the \`perf\` block at line ${measured.line} began`;
+    got = sites.reduce((n, x) => n + count(x), 0);
+    by = sites.filter((x) => count(x) > 0).sort((a, b) => count(b) - count(a)).slice(0, 3)
+      .map((x) => `${x.source?.status === 'compatible' ? `${x.source.file.split('/').pop()}:${x.source.line}` : `site ${x.site}`} ${count(x)}`);
+  }
+  const holds = st.compare === '<=' ? got <= st.value : got === st.value;
+  return holds ? null : `${said} counted ${got} in the \`perf\` block at line ${measured.line}, expected ${st.compare} ${st.value}${by.length ? ` (${by.join(', ')})` : ''}`;
+}
+
 /** The first sound a journal says the runner dropped as undeclared (`sound dropped: …`, a sequence's `… step N dropped: …`; LLP 1096 D5), as quoted there. */
 export function undeclaredSound(lines) {
   for (const l of Array.isArray(lines) ? lines : []) {
@@ -432,7 +504,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
       // request-shape refusals above and failing assertions below still get actionable notes.
       if (process.env.EXACT_AGENT_DEBUG) for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}`);
       const pending = (state?.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name);
-      if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so a drive that reads the app's data starts with "clock data"`);
+      if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply has surely landed only after a clock step, so a drive that reads the app's data starts with "clock data"`);
     } catch { /* advice only */ }
   };
 }
@@ -446,7 +518,8 @@ export async function serverRequest(base, st) {
   const url = whole ? st.path : `${base}${st.path}`, said = `request ${st.method} ${url}${st.as ? ` as ${st.as}` : ''}`;
   const headers = { ...(st.body != null ? { 'content-type': 'application/json' } : {}), ...(st.as ? { authorization: `Bearer ${st.as}` } : {}) };
   let res;
-  try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(10_000) }); }
+  // A bound only for a hanging server (docs/testing.md): a request that waits for the app, as an OAuth fixture's `await`, may take a loaded machine a while.
+  try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(60_000) }); }
   catch (e) { throw new Error(`${said}: nothing answered (${e.message}); test and verify start the app's server (server.ts, at the address app.ts calls) for a run; a server of its own that they leave alone must be running`); }
   const text = (await res.text().catch(() => '')).trim();
   const answered = `the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`;
@@ -455,6 +528,52 @@ export async function serverRequest(base, st) {
 
 /** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */
 const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed: 'seed' };
+
+/** Literal `always` predicates over the driver's JSON values (LLP 1151 D8). */
+export function propertyHolds(line, state, previous) {
+  const bag = { ...state.derives, ...state.slots };
+  if (!Object.hasOwn(bag, line.name)) return false;
+  const value = bag[line.name], before = { ...previous?.derives, ...previous?.slots }[line.name];
+  const literal = (got, v) => {
+    switch (v.kind) {
+      case 'none': return got === null;
+      case 'some': return got !== undefined && got !== null;
+      case 'empty-list': return Array.isArray(got) && got.length === 0;
+      default: return Object.is(got, v.value);
+    }
+  };
+  switch (line.test) {
+    case 'equal': return literal(value, line.value);
+    case 'in': return line.values.some(v => literal(value, v));
+    case 'at-least': return typeof value === 'number' && value >= line.number;
+    case 'at-most': return typeof value === 'number' && value <= line.number;
+    case 'whole': return Number.isInteger(value);
+    case 'stays': return !literal(before, line.value) || literal(value, line.value);
+    default: throw new Error(`unknown always predicate ${line.test}`);
+  }
+}
+
+async function propertyFailure(p, line, state, previous, s, file, test, step, index, host) {
+  const label = ['boot', 'reload'].includes(step.op) ? step.op : step.op === 'clock' ? `clock ${step.arg}` : `${step.op} ${JSON.stringify(step.target)}${step.op === 'type' ? ` ${JSON.stringify(step.text)}` : ''}`;
+  const location = at => `${at.file}:${at.line}:${at.col}`;
+  const out = [`PROPERTY ${JSON.stringify(p.name)} is false on ${host}`,
+    `  property line: ${file}:${line.line}`,
+    `  at step ${index + 1}: ${label} (${file}:${step.line}; test ${JSON.stringify(test)})`];
+  if (step.target) {
+    const at = (await s.layout(step.target).catch(() => null))?.node?.sourceMap;
+    if (at?.status === 'compatible') out.push(`  the element ${JSON.stringify(step.target)} is ${location(at)}`);
+  }
+  const at = await s.declaration(line.name, state);
+  if (at) out.push(`  ${line.name} is declared at ${location(at)}`);
+  const value = snapshot => {
+    const kind = Object.hasOwn(snapshot?.slots ?? {}, line.name) ? 'slot' : 'derive';
+    const got = snapshot?.[kind === 'slot' ? 'slots' : 'derives']?.[line.name];
+    return `${kind} ${line.name} ${got === undefined ? '<not printed>' : JSON.stringify(got)}`;
+  };
+  out.push(`  ${host}: ${value(state)}`);
+  if (line.test === 'stays') out.push(`  before ${host}: ${value(previous)}`);
+  return out.join('\n');
+}
 
 /**
  * Run a `test "…"` file against a host. Each test is a session of its own
@@ -492,9 +611,14 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
-  // Native runs use the scaffold's same declared origin when no web admission file exists.
-  const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
-  const tests = backendFetchPrefixes(JSON.parse(c.stdout), granted.length ? granted : appOrigin ? [appOrigin] : []);
+  // Native runs use the origin their build selected (LLP 1142 D13), else the scaffold's declared one, when no web
+  // admission file exists.
+  const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? backendOrigin(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
+  const authored = JSON.parse(c.stdout), properties = authored.properties.filter(p => p.kind === 'always');
+  const unchecked = authored.properties.filter(p => p.kind !== 'always').reduce((n, p) => n + Math.max(1, p.lines.length), 0);
+  console.error(`properties on ${host}: ${unchecked} lines not checked (after, its frames and commands, and never refuses); the driver exposes no commit trace`);
+  let propertyChecks = 0, propertyFalse = 0;
+  const tests = backendFetchPrefixes(authored.tests, granted.length ? granted : appOrigin ? [appOrigin] : []);
   const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
   if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
   const results = [];
@@ -507,14 +631,21 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Android's stores are on the device, out of the driver's reach, but a run's names stay its own there too (LLP 1107).
   const tag = base || host === 'android' ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
-  const server = serverUrl(selected.dir); // where a `request` line's path is (LLP 1116.006 D8)
+  // Where a `request` line's path is (LLP 1116.006 D8): the backend the build selected when it is on this
+  // machine (a checkout's fixture port, LLP 1142 D13), else the address app.ts calls.
+  const chosen = backendOrigin(selected.dir, launched);
+  const server = chosen && onThisMachine(chosen) ? chosen.replace(/\/+$/, '') : serverUrl(selected.dir);
   let done = false;
+  const scope = testScope(host), timing = launched.EXACT_AGENT_TIMING;
   for (const [n, t] of tests.entries()) {
     if (done) break;
+    if (t.hosts && !t.hosts.includes(scope)) { results.push({ name: t.name, failures: [], notes: [], skipped: `on ${t.hosts.join(', ')}` }); continue; }
     const failures = [], expectedRefusals = [];
     const refusalCursors = new Map();
     let end = null;
-    const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
+    // The app's server is the auth fixture: a sign-in held for its origin shows its whole URL, for `authorize` (LLP 1146 D4).
+    const fixture = server ? { EXACT_AUTH_FIXTURE: new URL(server).origin } : {};
+    const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), ...fixture, EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
     const facts = { size, seed, locale, formatLocale, timeZone, epoch, failFetch };
@@ -602,15 +733,16 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       facts.epoch = await reached();
       if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; resetLogs(s); s.notes = notes; return; }
-      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env: { ...(env ?? {}), ...fixture }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
       for (const [name, value] of Object.entries(media)) {
         const r = await s.prefer({ [name]: value });
         if (r?.error) throw new Error(r.error);
       }
     };
-    // The clock stands still between steps: what an input started (a reply,
-    // a mutation's `then`, a timer, a transition) lands at a clock step. A
-    // failed expect after an input with none says so (kanban F19).
+    // The clock stands still between steps: a reply may land between them
+    // (host I/O, LLP 1012 §2), but what an input started (a reply, a
+    // mutation's `then`, a timer, a transition) has surely landed only after a
+    // clock step. A failed expect after an input with none says so (kanban F19).
     let input = null;
     // What the test typed since its last other input: fields it left holding a draft (verify's reload does not compare them); and all it typed.
     const typed = new Set(), touched = new Set();
@@ -640,11 +772,24 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const pending = (state.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name);
       failures.push(`${message}${failed}${pending.length ? ` (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : ''}${held}`);
     };
+    let previous;
+    const checkProperties = async (state, step, index) => {
+      for (const p of properties) for (const line of p.lines) {
+        propertyChecks++;
+        if (!propertyHolds(line, state, previous)) {
+          propertyFalse++;
+          failures.push(await propertyFailure(p, line, state, previous, s, file, t.name, step, index, host));
+        }
+      }
+      previous = state;
+    };
     try {
+      if (properties.length) await checkProperties(await s.state(), { op: 'boot', line: t.line }, -1);
       for (const st of preferences) {
         try { await prefer(st); } catch (e) { failures.push(`${t.name}: line ${st.line}: ${e.message}`); break; }
       }
       try { if (!failures.length) await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
+      if (properties.length && !beforeData && !failures.length) await checkProperties(await s.state(), { op: 'clock', arg: 'data', line: t.line }, -1);
       // A counted fault that matched no fetch fails the test at the line that armed it (LLP 1103 D3).
       // A table the host never made (no fetch consulted it) matched nothing either; an unreadable state is said so.
       const unfired = async (prefix) => {
@@ -658,184 +803,241 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       };
       // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
       // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
-      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize', 'back']);
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'authorize', 'clipboard', 'resize', 'back']);
       const settleFired = async () => {
         if (!armed.size) return;
         const faults = (await s.state()).faults ?? [];
         for (const f of faults) if (f.hits > 0) armed.delete(f.prefix);
+      };
+      // The last `perf` block's counts, and what had failed at launch or at the last `expect no failures` (LLP 1146 D3, D4).
+      // The launch's mark is empty: a failure while the app booted is one the test did not arrange.
+      let measured = null, mark = NO_FAILURES;
+      const refusals = t.steps.filter((x) => x.op === 'expect-refusal').map((x) => x.target);
+      // One step: an input, a read, an expect, or a `perf` block, whose steps run here in turn (LLP 1146 D3).
+      const runStep = async (st, n, at) => {
+        if (INPUTS.has(st.op)) await settleFired();
+        if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
+        switch (st.op) {
+          case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
+          case 'prefer': if (n >= leading) await prefer(st); break;
+          // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
+          case 'fail-fetch': {
+            if (n < leading) break;
+            // Under `before data` nothing has loaded until a clock step (or a reload) waits for it.
+            if (beforeData && !loaded) early(st);
+            await unfired(st.prefix);
+            const r = await s.op({ op: 'prefer', faults: { fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) } });
+            if (r?.error) throw new Error(r.error);
+            if (st.times != null) armed.set(st.prefix, st.line);
+            break;
+          }
+          case 'pass-fetch': { const r = await s.op({ op: 'prefer', faults: { pass: st.prefix } }); if (r?.error) throw new Error(r.error); break; }
+          // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
+          case 'tap': {
+            const opts = st.form === 'into' ? { into: { key: st.key } }
+              : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
+              : st.form === 'wheel' ? { wheel: st.wheel }
+              : st.form === 'mediasession' ? { mediaSession: st.action, ...(st.seconds != null ? { seconds: st.seconds } : {}) }
+              : st.form !== 'press' ? { [st.form]: true }
+              : st.modifiers ? { modifiers: st.modifiers } : undefined;
+            delivered(await s.tap(st.target, opts)); input = st.line; break;
+          }
+          // MIDI (LLP 1125 §4): the ports a request finds, and a message from an input now.
+          case 'prefer-midi': { const r = await s.op({ op: 'prefer', midi: { ...(st.state ? { state: st.state } : {}), ...(st.inputs ? { inputs: st.inputs } : {}), ...(st.outputs ? { outputs: st.outputs } : {}) } }); if (r?.error) throw new Error(r.error); await s.clock('settle'); break; }
+          case 'tap-midi': delivered(await s.tap(null, { midi: st.clock ? { input: st.input, clock: st.clock } : { input: st.input, data: st.data } })); input = st.line; break;
+          case 'drag': {
+            const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
+            if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
+            delivered(await s.tap(st.target, { drag })); input = st.line; break;
+          }
+          case 'type': {
+            // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
+            let text = st.text;
+            if (st.append) {
+              const { nodes } = await s.tree(), field = nodes.find((n) => n.props.testId === st.target && !n.inactive) ?? nodes.find((n) => n.props.testId === st.target);
+              if (field && typeof field.props.value !== 'string') throw new Error(`type … append: "${st.target}" shows no text value to append to`);
+              if (field?.props.type === 'password' && field.props.value !== '') throw new Error(`type … append: "${st.target}" is a password field, whose value the tree does not show`);
+              text = (field?.props.value ?? '') + text;
+            }
+            delivered(await s.type(st.target, text)); input = st.line; break;
+          }
+          case 'reload': await reload(); refusalCursors.clear(); expectedRefusals.length = 0; await data(); input = null; loaded = true; break;
+          case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
+          // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
+          case 'pick': {
+            try { delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); }
+            catch (error) { if (error.message.includes('held: none')) error.message += '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId'; throw error; }
+            input = st.line; break;
+          }
+          // The held sign-in, completed against the app's own server (LLP 1146 D4): its authorization URL is
+          // requested with redirects not followed, and the redirect's Location answers the hold.
+          case 'authorize': {
+            const held = ((await s.state())?.pending ?? []).filter((p) => p.device?.capability === 'auth');
+            if (!held.length) throw new Error("authorize: no sign-in is held. Tap the button whose action calls openAuthSession first; if a step did, the sign-in failed before it opened, and the app's error text or `logs` says why");
+            if (held.length > 1) throw new Error(`authorize: ${held.length} sign-ins are held (${held.map((p) => `@${p.ticket}`).join(', ')}); authorize completes one, so start only one before it`);
+            const [{ ticket, device: { args } }] = held;
+            if (st.cancel) { delivered(await s.tap(`@${ticket}`, { choice: 'cancel' })); input = st.line; break; }
+            if (!args.url && server && args.origin === new URL(server).origin) throw new Error(`authorize: the held sign-in goes to the app's server, ${args.origin}, but the host shows its URL redacted: it was not told that server is the drive's auth fixture (EXACT_AUTH_FIXTURE natively, ?authFixture= on the web), which the driver passes to every host it launches; a carrier that does not is the driver's to fix`);
+            if (!args.url) throw new Error(`authorize: the held sign-in goes to ${args.origin}, not the app's server${server ? ` (${new URL(server).origin})` : ''}; authorize completes only a sign-in against the server test starts (docs/recipes/oauth.md)`);
+            let answer;
+            try { answer = await fetch(args.url, { redirect: 'manual', signal: AbortSignal.timeout(60_000) }); }
+            catch (e) { throw new Error(`authorize: ${args.origin}${args.path} did not answer: ${e.message}`); }
+            const location = answer.headers.get('location');
+            if (![302, 303].includes(answer.status) || !location) throw new Error(`authorize: ${args.origin}${args.path} answered ${answer.status}${location ? '' : ' with no Location'}, not a redirect to the app's callback: ${(await answer.text()).slice(0, 200)}`);
+            delivered(await s.type(`@${ticket}`, location)); input = st.line; break;
+          }
+          case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
+          case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
+          // The driver writes through the app's server as another person (LLP 1116.006 D8), not the app: nothing it
+          // shows changes until it reads again.
+          case 'request': await serverRequest(server, st); unpolled = st.line; break;
+          case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
+          // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
+          // one that closed takes the session, so a step after it fails naming it.
+          // Counted faults are checked first: a window that closes takes the table with it.
+          case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
+          // The platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed
+          // route popped. Nothing to go back from fails the step; a Back the app refuses (a disabled control, closedby="none") is a note.
+          case 'back': { const r = await s.back(); delivered(r); if (r?.refused) notes.push(`line ${st.line}: back refused: ${r.refused}`); input = st.line; break; }
+          case 'screenshot': await s.screenshot(st.path); shots.push(resolve(st.path)); break;
+          case 'expect-tree': {
+            const tree = await s.tree();
+            const f = treeExpectation(tree.nodes, st.target, st.present);
+            // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
+            const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size' || p.op === 'prefer');
+            if (f?.unshown) failures.push(`${at}: ${f.message}`);
+            else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
+            break;
+          }
+          case 'expect-refusal': {
+            const logs=await s.op({op:'logs',since:refusalCursors.get(st.target) ?? 0});
+            const refusal=refusalExpectation(logs,st.target);
+            if (refusal.message) await fail(`${at}: ${refusal.message}`);
+            else { expectedRefusals.push(...refusal.expected); refusalCursors.set(st.target,logs.next); }
+            break;
+          }
+          case 'expect-disabled': {
+            const f = disabledExpectation((await s.tree()).nodes, st.target, st.disabled);
+            if (f) await fail(`${at}: ${f.message}`);
+            break;
+          }
+          case 'expect-text': {
+            const f = textExpectation((await s.tree()).nodes, st.target, st.value);
+            if (f?.unshown) failures.push(`${at}: ${f.message}`);
+            else if (f) await fail(`${at}: ${f.message}`);
+            break;
+          }
+          case 'expect-state': {
+            const state = await s.state();
+            const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
+            // A field or a list index at any depth, `name.field` or `rows.0` (feed F10, drums R7).
+            const [name, ...fields] = st.name.split('.');
+            if (!(name in bag)) { failures.push(`${at}: no state named "${name}"`); break; }
+            let got = bag[name], path = name, missing = null;
+            for (const field of fields) {
+              if (got === null || typeof got !== 'object' || !(field in got)) { missing = field; break; }
+              got = got[field]; path += `.${field}`;
+            }
+            if (missing != null) { await fail(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
+            if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+            break;
+          }
+          case 'expect-wakelock': {
+            const lock = (await s.state()).wakelock;
+            if (!lock) { failures.push(`${at}: this host reports no wakelock holder record`); break; }
+            if (lock.held !== st.held) {
+              const nodes = lock.by.length ? (await s.tree()).nodes : [];
+              const holders = lock.by.map(id => {
+                const testId = nodes.find(node => node.id === id)?.props?.testId;
+                return `view ${id}${testId ? ` (${JSON.stringify(testId)})` : ''}`;
+              });
+              failures.push(`${at}: expected wakelock ${st.held ? 'held' : 'released'}; ${holders.length ? `held by ${holders.join(', ')}` : 'nothing holds it'}`);
+            }
+            break;
+          }
+          // The runner's voice table, the whole record (LLP 1096 D10): a voice of that
+          // source matching every clause given, or none; a dropped call is not a voice.
+          case 'expect-sound': {
+            const sounds = (await s.state(undefined, undefined, false, false, { sounds: 'all' })).sounds;
+            const clauses = ['at', 'gain', 'ends', 'playbackRate', 'pan', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
+            // `state.sounds` names a voice's rate and pan only when not 1 and 0 (LLP 1125 D10).
+            const field = (v, k) => v[k] ?? { playbackRate: 1, pan: 0 }[k];
+            if (!sounds) { failures.push(`${at}: the app declares no sound, so the runner keeps no voice table`); break; }
+            const first = sounds.voices[0]?.at ?? Infinity;
+            if (sounds.evicted > 0 && (st.at != null ? st.at < first : !st.present)) { failures.push(`${at}: voices before t=${first} are no longer recorded (the record keeps the last ${sounds.recorded})`); break; }
+            const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => field(v, k) === st[k]));
+            if (found !== st.present) {
+              const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain}${v.playbackRate != null ? ` playbackRate ${v.playbackRate}` : ''}${v.pan != null ? ` pan ${v.pan}` : ''} ends ${v.ends} by ${v.by}`);
+              // A voice is recorded by the commit that issued it: no clock hint applies.
+              failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
+            }
+            break;
+          }
+          // The MIDI queue's record (LLP 1125 D5): a message to that output, not taken back, at `at` when given.
+          case 'expect-midi': {
+            const midi = (await s.state(undefined, undefined, false, false, { midi: 'all' })).midi;
+            if (!midi) { failures.push(`${at}: the app keeps no MIDI queue (no sequence, no sendMIDI, exactMIDI or midimessage)`); break; }
+            const hex = st.data.map((b) => b.toString(16).padStart(2, '0')).join(' '), said = `"${st.output}" ${hex}${st.at != null ? ` at ${st.at}` : ''}`;
+            const found = midi.sent.some((m) => m.output === st.output && m.data === hex && m.state !== 'retracted' && (st.at == null || m.at === st.at));
+            if (found !== st.present) {
+              const of = midi.sent.filter((m) => m.output === st.output).slice(-8).map((m) => `#${m.id} ${m.data} at ${m.at} ${m.state}${m.by ? ` by ${m.by}` : ''}`);
+              failures.push(`${at}: expected ${st.present ? 'a' : 'no'} message to ${said}; ${of.length ? `its messages: ${of.join('; ')}` : `nothing was queued for it (access ${midi.state}, outputs ${midi.outputs.map((o) => o.id).join(', ') || 'none'})`}`);
+            }
+            break;
+          }
+          // The media session the host reports (LLP 1098 D10): a field, the owner by its testId, or an offered action.
+          case 'expect-mediasession': {
+            const ms = (await s.state()).mediaSession;
+            if (!ms) { failures.push(`${at}: this host reports no media session`); break; }
+            if (st.action != null) {
+              if (ms.actions.includes(st.action) !== st.present) await fail(`${at}: expected the media session ${st.present ? 'to offer' : 'not to offer'} "${st.action}"; it offers ${ms.actions.length ? ms.actions.join(', ') : 'nothing'}${ms.owner == null ? ' (no owner)' : ''}`);
+              break;
+            }
+            const got = st.field === 'owner' ? (ms.owner == null ? null : ms.testId ?? `view ${ms.owner}`) : st.field === 'playbackState' ? ms.playbackState : ms.metadata?.[st.field] ?? null;
+            if (got !== st.value) await fail(`${at}: mediasession ${st.field} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+            break;
+          }
+          // A measured window (LLP 1146 D3): whole-tree `perf` reads around the block's steps, and a read of each
+          // view the `expect perf` lines after it name by `testId`; the counts repeat only on the agent's clock.
+          case 'perf': {
+            if (timing === 'platform') throw new Error('a `perf` block counts work on the agent\'s clock; this run uses platform timing, under which the counts depend on the machine\'s speed');
+            const named = [];
+            for (const e of t.steps.slice(t.steps.indexOf(st) + 1)) { if (e.op === 'perf') break; if (e.op === 'expect-perf' && e.subject !== 'query') named.push(e.target); }
+            const whole = await s.perf(), components = s.components?.(whole.plan) ?? new Set(whole.sites.map((x) => x.source?.component).filter(Boolean));
+            const under = new Map();
+            for (const name of new Set(named)) if (!components.has(name)) { try { under.set(name, await s.perf(name)); } catch { /* neither a component nor a view on screen: its expect says so */ } }
+            for (const inner of st.steps) await runStep(inner, Infinity, `${t.name}: line ${inner.line}`);
+            measured = { line: st.line, components, whole: perfDelta(whole, await s.perf()), under: new Map() };
+            for (const [name, before] of under) measured.under.set(name, perfDelta(before, await s.perf(name)));
+            break;
+          }
+          case 'expect-perf': {
+            const f = perfExpectation(measured, st, Object.keys((await s.state()).resources ?? {}));
+            if (f) failures.push(`${at}: ${f}`);
+            break;
+          }
+          // No failure the test did not arrange since launch or the last of these (LLP 1146 D4).
+          case 'expect-no-failures': {
+            const now = await failureMark(s);
+            const lines = unarranged(mark, now, { refusals, churn: churnLines((await peekLogs(s, mark.journal).catch(() => null))?.lines) });
+            if (lines.length) failures.push(`${at}: expected no failures the test did not arrange; ${lines.join('; ')}`);
+            mark = now;
+            break;
+          }
+          default: failures.push(`${at}: unknown step ${st.op}`);
+        }
+        if (closedAt == null) await mutationClock.advance(s, properties.length ? async (state, delta) => {
+          if (delta || ['tap', 'type', 'clock', 'key', 'reload'].includes(st.op)) {
+            await checkProperties(state, delta ? { ...st, op: 'clock', arg: '+' + delta } : st, n);
+          } else previous = state;
+        } : undefined);
       };
       for (const [n, st] of (failures.length ? [] : t.steps).entries()) {
         const at = `${t.name}: line ${st.line}`;
         if (closedAt != null) { failures.push(`${at}: the window closed at line ${closedAt}, so nothing after it runs`); break; }
         current = st.line;
         try {
-          if (INPUTS.has(st.op)) await settleFired();
-          if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
-          switch (st.op) {
-            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
-            case 'prefer': if (n >= leading) await prefer(st); break;
-            // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
-            case 'fail-fetch': {
-              if (n < leading) break;
-              // Under `before data` nothing has loaded until a clock step (or a reload) waits for it.
-              if (beforeData && !loaded) early(st);
-              await unfired(st.prefix);
-              const r = await s.op({ op: 'prefer', faults: { fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) } });
-              if (r?.error) throw new Error(r.error);
-              if (st.times != null) armed.set(st.prefix, st.line);
-              break;
-            }
-            case 'pass-fetch': { const r = await s.op({ op: 'prefer', faults: { pass: st.prefix } }); if (r?.error) throw new Error(r.error); break; }
-            // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
-            case 'tap': {
-              const opts = st.form === 'into' ? { into: { key: st.key } }
-                : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
-                : st.form === 'mediasession' ? { mediaSession: st.action, ...(st.seconds != null ? { seconds: st.seconds } : {}) }
-                : st.form !== 'press' ? { [st.form]: true }
-                : st.modifiers ? { modifiers: st.modifiers } : undefined;
-              delivered(await s.tap(st.target, opts)); input = st.line; break;
-            }
-            // MIDI (LLP 1125 §4): the ports a request finds, and a message from an input now.
-            case 'prefer-midi': { const r = await s.op({ op: 'prefer', midi: { ...(st.state ? { state: st.state } : {}), ...(st.inputs ? { inputs: st.inputs } : {}), ...(st.outputs ? { outputs: st.outputs } : {}) } }); if (r?.error) throw new Error(r.error); await s.clock('settle'); break; }
-            case 'tap-midi': delivered(await s.tap(null, { midi: st.clock ? { input: st.input, clock: st.clock } : { input: st.input, data: st.data } })); input = st.line; break;
-            case 'drag': {
-              const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
-              if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
-              delivered(await s.tap(st.target, { drag })); input = st.line; break;
-            }
-            case 'type': {
-              // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
-              let text = st.text;
-              if (st.append) {
-                const { nodes } = await s.tree(), field = nodes.find((n) => n.props.testId === st.target && !n.inactive) ?? nodes.find((n) => n.props.testId === st.target);
-                if (field && typeof field.props.value !== 'string') throw new Error(`type … append: "${st.target}" shows no text value to append to`);
-                if (field?.props.type === 'password' && field.props.value !== '') throw new Error(`type … append: "${st.target}" is a password field, whose value the tree does not show`);
-                text = (field?.props.value ?? '') + text;
-              }
-              delivered(await s.type(st.target, text)); input = st.line; break;
-            }
-            case 'reload': await reload(); refusalCursors.clear(); expectedRefusals.length = 0; await data(); input = null; loaded = true; break;
-            case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
-            // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
-            case 'pick': {
-              try { delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); }
-              catch (error) { if (error.message.includes('held: none')) error.message += '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId'; throw error; }
-              input = st.line; break;
-            }
-            case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
-            case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
-            // The driver writes through the app's server as another person (LLP 1116.006 D8), not the app: nothing it
-            // shows changes until it reads again.
-            case 'request': await serverRequest(server, st); unpolled = st.line; break;
-            case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
-            // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
-            // one that closed takes the session, so a step after it fails naming it.
-            // Counted faults are checked first: a window that closes takes the table with it.
-            case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
-            // The platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed
-            // route popped. Nothing to go back from fails the step; a Back the app refuses (a disabled control, closedby="none") is a note.
-            case 'back': { const r = await s.back(); delivered(r); if (r?.refused) notes.push(`line ${st.line}: back refused: ${r.refused}`); input = st.line; break; }
-            case 'screenshot': await s.screenshot(st.path); shots.push(resolve(st.path)); break;
-            case 'expect-tree': {
-              const tree = await s.tree();
-              const f = treeExpectation(tree.nodes, st.target, st.present);
-              // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
-              const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size' || p.op === 'prefer');
-              if (f?.unshown) failures.push(`${at}: ${f.message}`);
-              else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
-              break;
-            }
-            case 'expect-refusal': {
-              const logs=await s.op({op:'logs',since:refusalCursors.get(st.target) ?? 0});
-              const refusal=refusalExpectation(logs,st.target);
-              if (refusal.message) await fail(`${at}: ${refusal.message}`);
-              else { expectedRefusals.push(...refusal.expected); refusalCursors.set(st.target,logs.next); }
-              break;
-            }
-            case 'expect-disabled': {
-              const f = disabledExpectation((await s.tree()).nodes, st.target, st.disabled);
-              if (f) await fail(`${at}: ${f.message}`);
-              break;
-            }
-            case 'expect-text': {
-              const f = textExpectation((await s.tree()).nodes, st.target, st.value);
-              if (f?.unshown) failures.push(`${at}: ${f.message}`);
-              else if (f) await fail(`${at}: ${f.message}`);
-              break;
-            }
-            case 'expect-state': {
-              const state = await s.state();
-              const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
-              // A field or a list index at any depth, `name.field` or `rows.0` (feed F10, drums R7).
-              const [name, ...fields] = st.name.split('.');
-              if (!(name in bag)) { failures.push(`${at}: no state named "${name}"`); break; }
-              let got = bag[name], path = name, missing = null;
-              for (const field of fields) {
-                if (got === null || typeof got !== 'object' || !(field in got)) { missing = field; break; }
-                got = got[field]; path += `.${field}`;
-              }
-              if (missing != null) { await fail(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
-              if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
-              break;
-            }
-            case 'expect-wakelock': {
-              const lock = (await s.state()).wakelock;
-              if (!lock) { failures.push(`${at}: this host reports no wakelock holder record`); break; }
-              if (lock.held !== st.held) {
-                const nodes = lock.by.length ? (await s.tree()).nodes : [];
-                const holders = lock.by.map(id => {
-                  const testId = nodes.find(node => node.id === id)?.props?.testId;
-                  return `view ${id}${testId ? ` (${JSON.stringify(testId)})` : ''}`;
-                });
-                failures.push(`${at}: expected wakelock ${st.held ? 'held' : 'released'}; ${holders.length ? `held by ${holders.join(', ')}` : 'nothing holds it'}`);
-              }
-              break;
-            }
-            // The runner's voice table, the whole record (LLP 1096 D10): a voice of that
-            // source matching every clause given, or none; a dropped call is not a voice.
-            case 'expect-sound': {
-              const sounds = (await s.state(undefined, undefined, false, false, { sounds: 'all' })).sounds;
-              const clauses = ['at', 'gain', 'ends', 'playbackRate', 'pan', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
-              // `state.sounds` names a voice's rate and pan only when not 1 and 0 (LLP 1125 D10).
-              const field = (v, k) => v[k] ?? { playbackRate: 1, pan: 0 }[k];
-              if (!sounds) { failures.push(`${at}: the app declares no sound, so the runner keeps no voice table`); break; }
-              const first = sounds.voices[0]?.at ?? Infinity;
-              if (sounds.evicted > 0 && (st.at != null ? st.at < first : !st.present)) { failures.push(`${at}: voices before t=${first} are no longer recorded (the record keeps the last ${sounds.recorded})`); break; }
-              const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => field(v, k) === st[k]));
-              if (found !== st.present) {
-                const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain}${v.playbackRate != null ? ` playbackRate ${v.playbackRate}` : ''}${v.pan != null ? ` pan ${v.pan}` : ''} ends ${v.ends} by ${v.by}`);
-                // A voice is recorded by the commit that issued it: no clock hint applies.
-                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
-              }
-              break;
-            }
-            // The MIDI queue's record (LLP 1125 D5): a message to that output, not taken back, at `at` when given.
-            case 'expect-midi': {
-              const midi = (await s.state(undefined, undefined, false, false, { midi: 'all' })).midi;
-              if (!midi) { failures.push(`${at}: the app keeps no MIDI queue (no sequence, no sendMIDI, exactMIDI or midimessage)`); break; }
-              const hex = st.data.map((b) => b.toString(16).padStart(2, '0')).join(' '), said = `"${st.output}" ${hex}${st.at != null ? ` at ${st.at}` : ''}`;
-              const found = midi.sent.some((m) => m.output === st.output && m.data === hex && m.state !== 'retracted' && (st.at == null || m.at === st.at));
-              if (found !== st.present) {
-                const of = midi.sent.filter((m) => m.output === st.output).slice(-8).map((m) => `#${m.id} ${m.data} at ${m.at} ${m.state}${m.by ? ` by ${m.by}` : ''}`);
-                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} message to ${said}; ${of.length ? `its messages: ${of.join('; ')}` : `nothing was queued for it (access ${midi.state}, outputs ${midi.outputs.map((o) => o.id).join(', ') || 'none'})`}`);
-              }
-              break;
-            }
-            // The media session the host reports (LLP 1098 D10): a field, the owner by its testId, or an offered action.
-            case 'expect-mediasession': {
-              const ms = (await s.state()).mediaSession;
-              if (!ms) { failures.push(`${at}: this host reports no media session`); break; }
-              if (st.action != null) {
-                if (ms.actions.includes(st.action) !== st.present) await fail(`${at}: expected the media session ${st.present ? 'to offer' : 'not to offer'} "${st.action}"; it offers ${ms.actions.length ? ms.actions.join(', ') : 'nothing'}${ms.owner == null ? ' (no owner)' : ''}`);
-                break;
-              }
-              const got = st.field === 'owner' ? (ms.owner == null ? null : ms.testId ?? `view ${ms.owner}`) : st.field === 'playbackState' ? ms.playbackState : ms.metadata?.[st.field] ?? null;
-              if (got !== st.value) await fail(`${at}: mediasession ${st.field} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
-              break;
-            }
-            default: failures.push(`${at}: unknown step ${st.op}`);
-          }
-          if (closedAt == null) await mutationClock.advance(s);
+          await runStep(st, n, at);
           if (atStep && closedAt == null && (INPUTS.has(st.op) || st.op === 'reload')) {
             const next = await atStep(s, { name: t.name, line: st.line, op: st.op });
             if (next === 'done') done = true;
@@ -848,6 +1050,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
+      // What failed that the test did not arrange, and the requests it ended with in flight (LLP 1146 D4). Advice only.
+      if (closedAt == null) try {
+        const now = await failureMark(s), state = await s.state();
+        for (const line of unarranged(NO_FAILURES, now, { refusals, churn: churnLines((await peekLogs(s, 0).catch(() => null))?.lines) })) notes.push(`unarranged: ${line}`);
+        const pending = (state.pending ?? []).filter((p) => !p.device && !p.held && !p.stream).map((p) => p.name);
+        if (pending.length) notes.push(`ended with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so what the test read last may not include it`);
+      } catch { /* advice only */ }
       if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: { ...launchFacts({ ...facts, epoch: first, env: env ?? {} }), media: { ...media } }, reached: await reached(), typed: [...typed], touched: [...touched], expectedRefusals: [...expectedRefusals], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
       // A failed test shows what the data module logged, the last lines of it (sb4 farm wave 7, E1: 093 rendered
       // values into the view to see them; `logs` had them all along). Advice only.
@@ -868,18 +1077,21 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
-  const failed = results.filter((r) => r.failures.length).length;
-  return { passed: results.length - failed, failed, results };
+  const failed = results.filter((r) => r.failures.length).length, skipped = results.filter((r) => r.skipped).length;
+  if (properties.length) console.error(`properties on ${host}: ${propertyChecks} always line checks at boot, after authored inputs, reloads and clocks; ${propertyFalse} false${propertyChecks ? '' : '; not exercised'}`);
+  return { passed: results.length - failed - skipped, failed, skipped, results };
 }
 
 /** Resolve the built grant alias and diagnose a fault that cannot meet a granted URL. */
 export function resolveFaultPrefix(prefix, origins, say=console.warn) {
   const unique=[...new Set(origins.map(o=>o.replace(/\/+$/,'')))];
-  if (prefix==='backend') {
+  // A path (`/api/v9/channels`) is under the backend, as a `request` line's is: the test names what it
+  // fails without the port a checkout's fixture was given.
+  if (prefix==='backend' || prefix.startsWith('/')) {
     const loopback=unique.filter(origin=>/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin));
     const candidates=loopback.length ? loopback : unique;
-    if (candidates.length!==1) throw new Error(`fetch "backend" needs exactly one net.fetch origin; found ${candidates.length}. Use a literal URL for a multi-backend app.`);
-    return candidates[0];
+    if (candidates.length!==1) throw new Error(`fetch ${JSON.stringify(prefix)} needs exactly one net.fetch origin; found ${candidates.length}. Use a literal URL for a multi-backend app.`);
+    return prefix==='backend' ? candidates[0] : candidates[0]+prefix;
   }
   if (!unique.some(origin => origin.startsWith(prefix) || prefix.startsWith(origin+'/') || prefix===origin))
     say(`warning: fetch fault prefix ${JSON.stringify(prefix)} matches no granted origin (${unique.join(', ') || 'none'}); it will not intercept the backend`);
@@ -910,21 +1122,25 @@ export { driverCapabilities } from './help.mjs';
 /** One millisecond per source mutation request, counted once across data continuations.
  * Action arguments retain their atomic snapshot; the next action sees the advanced clock. */
 export function testMutationClock() {
-  let cursor=0;
+  let cursor=0, state;
   return {
-    reset() { cursor=0; },
-    async advance(s) {
-      let total=0;
-      for(let round=0;round<16;round++) {
-        const requests=(await s.state()).mutationRequests;
+    get state() { return state; },
+    reset() { cursor=0; state=undefined; },
+    async advance(s, observe) {
+      let total=0, delta=0;
+      for(let round=0;round<=16;round++) {
+        state=await s.state();
+        if (observe) await observe(state, delta);
+        const requests=state.mutationRequests;
         if (!Number.isSafeInteger(requests) || requests<cursor) throw new Error('test clock: driver did not return a monotonic mutation request count');
         const mutations=requests-cursor;
         cursor=requests;
         if (!mutations) return total;
+        if (round === 16) throw new Error('test clock: mutations kept issuing requests across 16 automatic clock steps');
         total+=mutations;
+        delta=mutations;
         await s.clock('+'+mutations);
       }
-      throw new Error('test clock: mutations kept issuing requests across 16 automatic clock steps');
     },
   };
 }

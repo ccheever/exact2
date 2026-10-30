@@ -50,6 +50,7 @@ mod conform;
 pub mod decorations;
 pub mod delivery;
 pub mod design;
+pub mod desktop;
 pub mod device;
 pub mod failure;
 pub mod file_pickers;
@@ -60,17 +61,22 @@ pub mod hardened;
 pub mod head;
 pub mod held;
 pub mod instance;
+pub mod listen;
 pub mod lists;
-pub mod notify;
+pub mod local_network;
+pub mod orientation;
 pub mod page;
 pub mod perf;
 pub mod presence;
+pub mod process;
 pub mod request;
 pub mod runner;
 pub mod save_file;
 /// The picker's helpers a host shares (LLP 1069.002): types by name,
 /// `accept` matching, the HEIC rule, a `type @t` answer's paths.
 pub use runner::picker as picker_support;
+/// A received share's helpers a host shares (LLP 1133.024 D2, D3).
+pub use runner::picker::shared as share_in;
 pub mod machine;
 pub mod midi;
 pub mod share;
@@ -81,7 +87,9 @@ pub mod stream_timing;
 pub mod strings;
 pub mod surface_record;
 pub mod time;
+pub mod tools;
 pub mod transport;
+pub mod upload;
 pub mod uses;
 pub mod viewport;
 pub mod vm;
@@ -101,27 +109,30 @@ pub use instance::collection::{
 };
 pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LISTS};
 pub use page::Page;
+pub use process::{ProcessOp, WorkClock, PROCESS_URL};
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, LongPoll, Message, Outcome,
     Placement, Redirect, Reply, Request, RequestOut, Response, RetryReader, Retrying, SocketOp,
-    SocketOrigin, SocketSend, SurfaceOutcome, SurfaceRequest, Work, LONG_POLL_REPLY,
-    MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
+    SocketOrigin, SocketSend, SurfaceOutcome, SurfaceRequest, Work, BODY_TO_HELD_BYTES,
+    BODY_WRITTEN, LONG_POLL_REPLY, MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_BODY_TO_BYTES,
+    MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
 };
-pub use runner::WakeHow;
 pub use runner::{
     canvas_engine, press_writes_router, routing, virtual_frame, Advanced, Announce, AuthLinks,
     BackgroundState, BlockPlacement, CallOrigin, CanvasEngine, CanvasLink, CanvasList, Carried,
     Checkpoint, Command, ControlValue, DataError, DataSource, DeviceLinks, DrawReply, DrawRequest,
     Drawn, DropEvent, Event, FieldSelection, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer,
     InFlight, InputDetails, Interrupt, Intersection, KeyModifiers, KeyboardEvent, Limits,
-    ListTextPolicy, ListTextPosition, Native, NativeCall, NativeHandler, Overlaid, Picked,
-    PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange, RouterLink,
-    Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, SnapshotModule,
-    SocketReader, SocketState, StackSplit, StreamCount, SurfaceAnswer, Target, Timed, WheelEvent,
-    Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
-    TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    ListTextPolicy, ListTextPosition, MouseEvent, Native, NativeCall, NativeHandler, Overlaid,
+    Picked, PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange,
+    RouterLink, Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection,
+    SnapshotModule, SocketReader, SocketState, StackSplit, StreamCount, SurfaceAnswer, Target,
+    Timed, UploadEnd, UploadMark, WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS,
+    PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use runner::{AppState, LiveApplied, LiveRefusal, Place, Tamber};
+pub use runner::{CallHow, WakeHow};
+pub use upload::{UPLOAD_PROGRESS, UPLOAD_SENDING};
 /// The binding core's names (LLP 1121 D12): what `contract tamber gen rust`
 /// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
 pub mod tamber {
@@ -134,3 +145,8 @@ pub use store::{Store, StoreChange, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
 pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};
 pub use vm::Trap;
+
+/// Timer admission observations shared by all hosts.
+pub use runner::{
+    frame_at_or_after, Admitted, IdleObservation, NativeTimer, TaskTiming, Wait, WaitKinds, Waits,
+};

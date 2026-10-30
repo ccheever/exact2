@@ -59,6 +59,12 @@ pub struct Launch {
     /// due `ms` from now however long the host ran before it (the timers
     /// RFC, D1). `None`: a seek clock's boot, at zero.
     pub clock: Option<f64>,
+    /// A cold share's tokens and what each has so far (LLP 1133.024 D3), set
+    /// with the boot's other facts so the first frame is the share's route.
+    pub shared: Vec<(String, crate::share_in::SharedFiles)>,
+    /// The claims that cold share drew from, so a later share this launch
+    /// draws its tokens and file names past them.
+    pub claims: Option<crate::share_in::Claims>,
 }
 
 impl Launch {
@@ -67,6 +73,8 @@ impl Launch {
         time: None,
         place: None,
         clock: None,
+        shared: Vec::new(),
+        claims: None,
     };
 }
 
@@ -103,6 +111,8 @@ pub fn launching_with<T>(launch: Launch, boot: impl FnOnce() -> T) -> T {
         clock: launch
             .clock
             .filter(|t| (0.0..=crate::MAX_CLOCK_MS).contains(t)),
+        shared: launch.shared,
+        claims: launch.claims,
     };
     let _restore = Restore(Some(LAUNCH.with(|l| l.replace(launch))));
     boot()
@@ -130,6 +140,16 @@ pub(crate) fn launch_time() -> WallTime {
 /// [`launching_with`] was told, else zero.
 pub(crate) fn launch_clock() -> f64 {
     LAUNCH.with(|l| l.borrow().clock).unwrap_or(0.0)
+}
+
+/// A cold share's tokens, when a boot under [`launching_with`] was told.
+pub(crate) fn launch_shared() -> Vec<(String, crate::share_in::SharedFiles)> {
+    LAUNCH.with(|l| l.borrow().shared.clone())
+}
+
+/// The claims a cold share drew from, when a boot under [`launching_with`] was told.
+pub(crate) fn launch_claims() -> Option<crate::share_in::Claims> {
+    LAUNCH.with(|l| l.borrow().claims.clone())
 }
 
 /// Where the viewer is, when a boot under [`launching_with`] was told.

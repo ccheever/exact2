@@ -12,6 +12,10 @@ pub struct Batch {
     ops: Vec<String>,
     collection_accepted: bool,
     seq: Option<(u64, u64)>,
+    alerts: Vec<String>,
+    /// A data module's timer continuation an advance released is still out
+    /// (`Runner::data_timer_landing`): the agent's jump waits for its reply.
+    landing: bool,
 }
 
 /// Validate before token translation or storage/continuation serialization.
@@ -25,15 +29,17 @@ impl Batch {
 }
 
 pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'static str> {
-    if let exact_runner::HttpScheduling::Independent { max_response_bytes } = request.http {
+    if let exact_runner::HttpScheduling::Independent { .. } = request.http {
         if request.storage.is_some() || request.continuation.is_some() {
             return Some("only HTTP may opt into independent transport");
         }
-        if max_response_bytes == 0 || max_response_bytes > 64 * 1024 * 1024 {
-            return Some("independent HTTP response limit must be 1..=64 MiB");
-        }
     }
-    (request.timeout_refusal().or(request.body_from_refusal())).or(request.long_poll_refusal())
+    (request.ceiling_refusal())
+        .or(request.timeout_refusal())
+        .or(request.body_from_refusal())
+        .or(request.body_to_refusal())
+        .or(request.long_poll_refusal())
+        .or(request.upload_progress_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
@@ -216,6 +222,12 @@ impl Batch {
     }
 
     /// A terminal admission refusal, delivered after the enclosing DOM batch.
+    /// A request the app aborted: the page cancels it, whatever its method.
+    pub(crate) fn abort(&mut self, ticket: u64) {
+        self.ops
+            .push(text!("{{\"op\":\"abort\",\"ticket\":{}}}", ticket));
+    }
+
     pub(crate) fn refuse(&mut self, ticket: u64, message: &str) {
         let mut out = text!("{{\"op\":\"refuse\",\"ticket\":{},\"message\":", ticket);
         quote(message, &mut out);
@@ -654,10 +666,25 @@ impl Batch {
             s.push_str(",\"bodyFrom\":");
             quote(path, &mut s);
         }
+        // `exactBodyTo`: the page writes a 2xx body to the app file.
+        if let Some(path) = &r.request.body_to {
+            s.push_str(",\"bodyTo\":");
+            quote(path, &mut s);
+        }
         // Absent is `follow` (http-body.js)
         if r.request.redirect != exact_runner::Redirect::Follow {
             s.push_str(",\"redirect\":");
             quote(r.request.redirect.name(), &mut s);
+        }
+        // Who asked it, for the local network's rule at the page's fetch
+        // and WebSocket open (LLP 1133.036 D6); absent is the app's own.
+        // Under the agent the substitute's state stands for the browser's.
+        let reach = r.request.reach;
+        if reach.origin != exact_runner::CallOrigin::App {
+            push_text!(&mut s, ",\"origin\":\"{}\"", reach.origin.word());
+            if let Some(state) = reach.substitute {
+                push_text!(&mut s, ",\"reachState\":\"{}\"", state.word());
+            }
         }
         s.push_str(",\"body\":\"");
         s.push_str(&exact_runner::agent::base64(&r.request.body));
@@ -668,6 +695,11 @@ impl Batch {
         // body as events and delivers each as a message (kind 8).
         if r.request.stream {
             s.push_str(",\"stream\":true");
+        }
+        // An upload (LLP 1016.000 D10): the page sends it with XMLHttpRequest and
+        // delivers its bytes sent as messages, then its reply.
+        if r.request.upload_progress {
+            s.push_str(",\"upload\":true");
         }
         // A long poll (D8): the page asks again with each reply's cursor.
         if let Some(poll) = &r.request.long_poll {
@@ -899,6 +931,18 @@ impl Batch {
         self
     }
 
+    /// Failure lines already bounded by the runner, delivered once (LLP 1142 D9).
+    pub fn alerts(mut self, lines: Vec<String>) -> Batch {
+        self.alerts = lines;
+        self
+    }
+
+    /// With `"landing":true` while a released timer's continuation is out.
+    pub fn landing(mut self, landing: bool) -> Batch {
+        self.landing = landing;
+        self
+    }
+
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
@@ -921,6 +965,16 @@ impl Batch {
         }
         s.push(']');
         let timers = timer_due_ms.is_some();
+        if !self.alerts.is_empty() {
+            s.push_str(",\"alerts\":[");
+            for (i, line) in self.alerts.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(line, &mut s);
+            }
+            s.push(']');
+        }
         if let Some(due) = timer_due_ms {
             push_text!(&mut s, ",\"timer_due_ms\":{}", Shortest(due));
         }
@@ -929,6 +983,9 @@ impl Batch {
         }
         if self.collection_accepted {
             s.push_str(",\"accepted\":true");
+        }
+        if self.landing {
+            s.push_str(",\"landing\":true");
         }
         if let Some((first, last)) = self.seq {
             push_text!(&mut s, ",\"seq\":[{},{}]", first, last);
@@ -983,6 +1040,14 @@ mod timer_tests {
         let frames = super::Batch::new().finish(None, true, 0.0, None);
         assert!(frames.contains("\"frames\":true"), "{frames}");
         assert!(empty.contains("\"timers\":false"), "{empty}");
+        let alerts = super::Batch::new()
+            .alerts(vec!["bad \"field\"\n".into()])
+            .finish(None, false, 0.0, None);
+        assert!(
+            alerts.contains("\"alerts\":[\"bad \\\"field\\\"\\n\"]"),
+            "{alerts}"
+        );
+        assert!(!empty.contains("alerts"));
     }
 }
 

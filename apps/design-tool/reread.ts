@@ -46,8 +46,8 @@ export function keep(epoch: string, seq: number, described: any, answers: any[])
  * (on the server run `epoch`), `changeset` the session's (its `gap`s); null
  * for a full read. Each event since the kept read's describe must have
  * named its tokens: it then resolves those and every token whose IR entry
- * moved (a package's token derived from one the app's file set, which the
- * event, of the app's file, does not name). An event that named none, a
+ * moved (belt and braces: the app's design is planned folded with its
+ * packages', so an event names their derived tokens too). An event that named none, a
  * gap, another server run, another outline or a token named that the
  * design has not is a full read. */
 export function again(kept: Kept | undefined, epoch: string, described: any, changeset: { seq: number; gap?: boolean }[]): Set<string> | null {
@@ -65,4 +65,46 @@ export function again(kept: Kept | undefined, epoch: string, described: any, cha
   const params = new Set((described.ir.components ?? []).flatMap((c: { params?: { name: string; short?: string }[] }) => (c.params ?? []).flatMap(p => [p.name, p.short])));
   for (const t of described.ir.tokens as { name: string }[]) if (params.has(t.name) || kept.entries.get(t.name) !== JSON.stringify(t)) names.add(t.name);
   return names;
+}
+
+// The most names one batch asks: about 370 KB of the clone's answers (the server takes 4,096, 16 MiB of answers).
+const BATCH_NAMES = 1024;
+
+/** Each of `names`' `resolve`, as one per name answers it (a refused one
+ * `{error, reply: {error}}`): one `resolve` with `tokens` (tamber/1.17, the
+ * third pass's #5 B), one snapshot and one fold at the server; else, from a
+ * server before it, one per name, four at a time (a browser keeps
+ * connections for the long poll and the other reads), until `still` is
+ * false: none once it is. */
+export async function resolveAll<R extends { error: string; reply: any }>(call: (path: string, body: unknown, timeout: number) => Promise<R>, names: string[], which: { file?: string }, timeout: number, still: () => boolean): Promise<R[]> {
+  if (!names.length || !still()) return [];
+  // At most 1,024 names an ask (the server takes 4,096), and half as many again when a batch's answers pass its bytes.
+  if (names.length > BATCH_NAMES) {
+    const out: R[] = [];
+    for (let at = 0; at < names.length && still(); at += BATCH_NAMES) out.push(...await resolveAll(call, names.slice(at, at + BATCH_NAMES), which, timeout, still));
+    return out;
+  }
+  const batch = await call('/__tamber', { method: 'resolve', tokens: names, ...which }, timeout), answers = batch.reply?.ok?.answers;
+  if (batch.reply?.error?.id === 'tamber-resolve-batch' && names.length > 1) {
+    const half = Math.ceil(names.length / 2), first = await resolveAll(call, names.slice(0, half), which, timeout, still);
+    return first.length < half ? first : [...first, ...await resolveAll(call, names.slice(half), which, timeout, still)];
+  }
+  if (!batch.error && Array.isArray(answers) && answers.length === names.length) {
+    return answers.map((a: any) => (a?.error ? { ...batch, error: String(a.error.message ?? 'The design server refused the token.'), reply: { error: a.error } } : { ...batch, reply: { ok: { ...a, files: batch.reply.ok.files } } }));
+  }
+  // Asked again by name only from a server before the batch, which refuses it for its missing `token` (in the words
+  // contract/cli/tests/it/tamber_resolve_batch.rs pins: a refusal carries no id to match on); any other
+  // failure (no server, a timeout, the gateway's 504 while the batch still runs) is each name's answer. A request by
+  // name that reached none stops the rest, each name not asked answering with it.
+  if (!/^`token` is a string/.test(String(batch.reply?.error?.message ?? ''))) return names.map(() => batch);
+  const out: R[] = [];
+  let next = 0, stalled: R | null = null;
+  await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
+    while (next < names.length && still() && !stalled) {
+      const i = next++;
+      out[i] = await call('/__tamber', { method: 'resolve', token: names[i], ...which }, timeout);
+      if (out[i].error && !out[i].reply?.error) stalled = out[i];
+    }
+  }));
+  return stalled ? names.map((_, i) => out[i] ?? stalled!) : out;
 }

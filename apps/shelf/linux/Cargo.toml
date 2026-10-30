@@ -1,0 +1,26 @@
+# Shelf on the Linux host: one executable with the runner, the kernel, the
+# baked plan and the app's TypeScript data module as Hermes bytecode (both
+# written by build.rs, never committed). Its tools' calls and its desktop
+# entry's actions (LLP 1133.023 §11) are driven here headless.
+[package]
+name = "shelf-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shelf on the Linux host: the app's executable"
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "shelf-linux"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-linux = { path = "../../../host/linux" }
+exact-js = { path = "../../../js" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

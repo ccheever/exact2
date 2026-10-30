@@ -202,7 +202,7 @@ component DuoLab
               if t.name == "keyboard"
                 column navigationKey=`${entry.id}` navigationScroll=`keyboard-scroll-${entry.id}` id=`keyboard-route-${entry.id}` hatch="keyboard-route" data-keyboard-screen=entry.name data-focus-on-show=(entry.name == "keyboard-editor" ? "keyboard-editor" : entry.name == "keyboard" and returnFocus ? "keyboard-return" : "") class=Screen background-color=((entry.name == "keyboard" or entry.name == "keyboard-form") ? "-exact-grouped-background" : "Canvas") testId=`screen-${entry.name}`
                   header class=Head display="flex" align-items="center" gap=8
-                    text (entry.name == "keyboard" ? "Keyboard Check" : entry.name == "keyboard-form" ? "Far focus" : entry.name == "keyboard-search" ? "Search" : "Editor") role="heading" aria-level=2
+                    text (entry.name == "keyboard" ? "Keyboard Check" : entry.name == "keyboard-form" ? "Far Focus" : entry.name == "keyboard-search" ? "Search" : "Editor") role="heading" aria-level=2
                     if entry.name == "keyboard-form"
                       button press=checkFocusFirst retainFocus=true testId="keyboard-focus-first"
                         text "First"
