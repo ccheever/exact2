@@ -725,11 +725,12 @@ component ProgressDocument
       const e = document.querySelector('[data-testid="'+id+'"]'), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect();
       return { x: r.x - p.x, width: r.width };
     })`);
-    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 0, width: 20 }]);
+    // A block parent's `justify-items: center` centres the sized one, as the kernel's block layout does.
+    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 110, width: 20 }]);
     await browser.tap('toggle');
     expect(await frames()).toEqual([{ x: 0, width: 240 }, { x: 110, width: 20 }]);
     await browser.tap('toggle');
-    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 0, width: 20 }]);
+    expect(await frames()).toEqual([{ x: 0, width: 20 }, { x: 110, width: 20 }]);
   } finally {
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }

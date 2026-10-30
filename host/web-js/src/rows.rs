@@ -527,9 +527,12 @@ impl Em<'_> {
             ))));
         }
         if id == StyleId::JustifyItems && parts.css.contains("--exact-progress-justify:") {
+            // Aligning as the justify-items writer admits it (grid.js `gridValue`): a value it
+            // refuses (a CSS-wide keyword, a legacy form, `last baseline`, a function) is `unset`,
+            // which computes to `normal`, so it aligns nothing.
             let normal = self.uses.rt("normal");
             writes.push(("--exact-progress-aligned".into(), String::new(), Some(format!(
-                "v=>[\"normal\",\"stretch\",\"\"].includes({normal}(\"justify-items\",String(v??\"\")))?\"initial\":\"auto\""
+                "v=>{{const s={normal}(\"justify-items\",String(v??\"\")).toLowerCase();return !s||s.includes(\"(\")||/^(?:normal|stretch|inherit|initial|unset|revert|revert-layer|last baseline|legacy(?: (?:left|right|center))?|(?:left|right|center) legacy)$/.test(s)?\"initial\":\"auto\"}}"
             ))));
         }
         if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {

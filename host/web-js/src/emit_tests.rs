@@ -1014,12 +1014,12 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
 /// aligns the progress, as the kernel's block layout does.
 #[test]
 fn a_progress_follows_its_block_parents_justify_items() {
-    let program = |items: &str| {
-        let source = format!("component App\n  state alignment = \"center\"\n  view\n    box justify-items={items} width=240 height=40\n      progress testId=\"live\"\n");
+    let program = |items: &str, inner: &str| {
+        let source = format!("component App\n  state alignment = \"center\"\n  view\n    box justify-items={items} width=240 height=80\n      progress testId=\"outer\"\n      box width=240 height=40{inner}\n        progress testId=\"inner\"\n");
         let out = crate::emit::emit(&contract::compile(&source).unwrap(), false, false).unwrap();
         format!("{}\n{}", out.css, out.js)
     };
-    let written = program("\"center\"");
+    let written = program("\"center\"", "");
     assert!(
         written.contains("--exact-progress-aligned:auto"),
         "{written}"
@@ -1028,14 +1028,22 @@ fn a_progress_follows_its_block_parents_justify_items() {
         written.contains("var(--exact-progress-aligned,var(--exact-progress-justify,start))"),
         "{written}"
     );
-    let normal = program("\"normal\"");
+    // A plain block inside an aligning one cuts the inheritance: its progress keeps `start`.
+    assert!(
+        written.contains("--exact-progress-aligned:initial"),
+        "{written}"
+    );
+    let normal = program("\"normal\"", "");
     assert!(
         !normal.contains("--exact-progress-aligned:auto"),
         "{normal}"
     );
-    let bound = program("alignment");
+    // A bound justify-items writes the property, `initial` for a value that aligns nothing.
+    let bound = program("alignment", "");
+    assert!(bound.contains("\"--exact-progress-aligned\""), "{bound}");
     assert!(
-        bound.contains("--exact-progress-aligned"),
-        "a bound justify-items writes the property: {bound}"
+        bound.contains("?\"initial\":\"auto\""),
+        "the bound writer: {bound}"
     );
+    assert!(!normal.contains("?\"initial\":\"auto\""), "{normal}");
 }

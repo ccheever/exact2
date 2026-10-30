@@ -446,13 +446,17 @@ pub fn project(
                 .push_str(&format!("--exact-progress-justify:{justify};"));
             // A block parent's own `justify-items` that aligns (`start`, `center`, …) aligns the
             // progress, as the kernel's block layout does: its `start` is not written over it.
-            // A bound `justify-items` writes the same property through `style_row`.
-            if !matches!(
+            // `initial` (guaranteed-invalid) otherwise, so an aligning ancestor's value is not
+            // inherited. A bound `justify-items` writes the same property through `style_row`.
+            let aligned = !matches!(
                 node.style.justify_items,
                 exact_kernel::JustifyItems::Normal | exact_kernel::JustifyItems::Stretch
-            ) {
-                parts.css.push_str("--exact-progress-aligned:auto;");
-            }
+            );
+            parts.css.push_str(if aligned {
+                "--exact-progress-aligned:auto;"
+            } else {
+                "--exact-progress-aligned:initial;"
+            });
         }
         if progress[i] {
             parts.css = parts.css.replace("justify-self:start;", "");
