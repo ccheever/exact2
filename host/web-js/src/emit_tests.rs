@@ -1085,3 +1085,21 @@ fn a_canvas_follows_its_parents_justify_items() {
         "the bound writer: {bound}"
     );
 }
+
+/// A canvas that parents a canvas writes its child's alignment under the pair's other name, so its
+/// own `justify-self` still reads what its parent wrote.
+#[test]
+fn a_canvas_inside_a_canvas_reads_the_other_name() {
+    let source = "component App\n  view\n    box justify-items=\"center\" width=240 height=60\n      canvas testId=\"outer\" height=50 justify-items=\"normal\"\n        canvas testId=\"inner\" height=20\n";
+    let out = crate::emit::emit(&contract::compile(source).unwrap(), false, false).unwrap();
+    let css = out.css;
+    for want in [
+        "--exact-progress-aligned:auto",
+        "justify-self:var(--exact-progress-aligned,start)",
+        "--exact-progress-aligned-2:initial",
+        "justify-self:var(--exact-progress-aligned-2,start)",
+    ] {
+        assert!(css.contains(want), "{want}: {css}");
+    }
+    assert!(!css.contains("--exact-progress-aligned:initial"), "{css}");
+}
