@@ -1097,27 +1097,37 @@ caption panel):
 - A freshly saved EAS host ("Realinput EAS", saved by a pointer press) draws Edit and Remove at full
   opacity, as the older host beside it does (1 of 1).
 
-**Checked with real input and VoiceOver (2026-10-31)** (bundle of `1caaa582f5`, a lane copy on its own
-home, `second` seeded with `--turns --pull-request`, pointer and keys through `orca computer`, VoiceOver
-read from its caption panel):
+**Checked with real input and VoiceOver (2026-10-31)** (a lane copy on its own home, `second` seeded with
+`--turns --pull-request`, pointer and keys through `orca computer`, VoiceOver read from its caption panel;
+first the bundle of `1caaa582f5`, then this branch with exact2 #1180, the macOS host change that lets
+VoiceOver reach the chips, on a local branch):
 
 - A chip's details popover takes the focus as it opens, as the reference's PopoverPopup does
-  (`initialFocus`). A pointer press on a review comment chip reads "Review comment, outline.ts L3,
-  dialog" with the popup focused (4 of 4), and on the Settings prompt sample's skill chip "Skill
-  Frontend Design, dialog" (3 of 3). An accessibility press (AXPress) on the review comment chip focuses it
-  too (2 of 2). Before, the focus stayed on the prompt: the shared field's press makes the prompt the first
-  responder, and the popover's `autofocus` yields to a focused field. The root now moves the focus with
-  `focus(id)` as the details open (`chipOpenFocus`, composer-members.contract).
-- Escape gives the prompt the focus back with the chip selected: "Message …, edit text …, is
-  selected Review comment, outline.ts L3. Show details" (4 of 4), and on the Settings sample (3 of 3).
-  The sample's case had never refocused it: its finish counted Settings itself, a route dialog, as a
-  cover. A press outside the open details (Search settings) closes them and leaves the focus there
-  (1 of 1).
-- VO-Space on a chip and VO-Right from Message still fail (VO-Right: 'Default, collapsed, button', 1
-  of 1; interacting with the prompt, VO-Right reads the chip's words as text, and VO-Space on them
-  opens nothing). The cause is the framework's: on macOS a Markdown editor's atom elements are
-  children of the text view (LLP 1045.000 §10 Q10), which VoiceOver's next-item command passes over,
-  so its cursor never rests on the chip's button. Changing that is a framework decision.
+  (`initialFocus`). Before, the focus stayed on the prompt: the shared field's press makes the prompt
+  the first responder, and the popover's `autofocus` yields to a focused field. The root now moves the
+  focus with `focus(id)` as the details open (`chipOpenFocus`, composer-members.contract). Driven
+  targets: the popup ("Review comment, outline.ts L3, dialog" after a pointer press on a review comment
+  chip, 6 of 6; "Skill Frontend Design, dialog" on the Settings prompt sample's skill chip, 7 of 7; an
+  accessibility press (AXPress) on a review comment chip, 2 of 2) and a skill's View instructions ("View
+  instructions, button" after a pointer press on a composer skill chip, 2 of 2). The terminal output
+  target is not checked with real input: the fixture has no terminal excerpt. The app tests cover all
+  three targets.
+- VO-Right from Message reads each chip in text order and then 'Default, collapsed, button' (two
+  review comments and an image chip, 5 of 5), and VO-Left goes back the same way (1 of 1). On the
+  Settings sample it reads the skill chip, both file chips and then the Monospace font heading (2 of
+  2). Before #1180, VO-Right went from Message straight to 'Default' and skipped every chip.
+- VO-Space on a chip opens it with the focus inside: a review comment reads "Review comment, outline.ts
+  L7, dialog" (5 of 5), the Settings sample's skill chip "Skill Frontend Design, dialog" (5 of 5), and an
+  image chip opens "Expanded image preview, dialog" with Close image preview focused, as the reference's
+  ExpandedImageDialog does (5 of 5). Before #1180 VO-Space on a chip opened nothing.
+- Escape gives the prompt the focus back with the chip selected: "Message …, edit text …, is selected
+  Review comment, outline.ts L3. Show details", after every popup and image preview above. On the
+  Settings sample the chip finish had never given the sample its focus back: it counted Settings
+  itself, a route dialog, as a dialog over the sample.
+- A press outside the open details leaves the focus where the press put it, never on the prompt, as
+  the reference's FloatingFocusManager returns the focus on an outside press only to a tabbable
+  trigger: on Search settings (1 of 1), on the Typography heading (2 of 2), and on empty ground in
+  Settings, where the Settings dialog keeps it (2 of 2).
 
 **Fixed, not checked with real input or VoiceOver:**
 
@@ -1183,19 +1193,18 @@ menu, not TISSelectInputSource, before they judge IME rows.
 
 - Escape on the Merge confirmation over the thread-details popover in a narrow window. Not checked on
   2026-10-30: `orca computer` cannot resize the window, and its drags deliver nothing here.
-- VO-Space on the chip kinds session K did not press (sample.py, an image, a video, doc.pdf, the
-  citation and the thread chip pass), and VO-Right from Message to the chips in text order: both wait
-  on the framework decision named in the 2026-10-31 list above.
+- VO-Space on the chip kinds the 2026-10-31 session did not press (sample.py, a video, doc.pdf, the
+  citation and the thread chip), and the terminal output as a chip's focus target.
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
 sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and GitHub writes.
 
-**Next real-input session:** VO-Space on each chip kind and VO-Right through the chips, once the
-framework exposes the atoms to VoiceOver's next-item command; the textarea grip and the narrow-window
-Merge row, which need a tool whose drags reach the app; and the Usage page's bars under VoiceOver.
-While VoiceOver runs, its caption panel covers the composer of a window 840 pt tall, and `orca
-computer` refuses a click there (`window_not_focused`): make the window shorter first.
+**Next real-input session:** VO-Space on the chip kinds not yet pressed and a terminal excerpt's
+details; the textarea grip and the narrow-window Merge row, which need a tool whose drags reach the
+app; and the Usage page's bars under VoiceOver. Drive it with `orca computer`. While VoiceOver runs,
+its caption panel covers the composer of a window 840 pt tall, and `orca computer` refuses a click
+there (`window_not_focused`): make the window shorter first.
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` (each has its
 README) give This machine plus two lane environments, a machines list, and an ACP agent stand-in.
