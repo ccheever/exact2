@@ -205,6 +205,7 @@ No service or overlay is installed. Build and test before measurement.
 
 ```powershell
 python bench/heavy-list/egui/windows-measure.py --out target/g6/warm
+python bench/heavy-list/egui/windows-measure.py --startup-only --out target/g6/warm-startup
 python bench/heavy-list/egui/windows-measure.py --cold --out target/g6/cold
 python bench/heavy-list/egui/windows-summary.py target/g6 > target/g6/summary.json
 ```
@@ -225,3 +226,9 @@ the record. Driver-cache-cold launches each follow a separate confirmed AMD
 Software reset; application and OS caches remain. `windows-reset-cache.ps1`
 requires AMD Software open at Gaming > Graphics and minimizes it after the
 confirmation closes. It changes no graphics setting.
+
+Startup-only processes are spaced five seconds apart, including an observation
+after the final launch. G6 uses `warm-startup/` for retained-driver startup and
+the first five `warm/` rounds for fling/rest. The original rapid startup tail
+in `warm/` remains in the raw record: one CPU observation exceeded the quiet
+limit. Its startup values are excluded from the reported startup distribution.

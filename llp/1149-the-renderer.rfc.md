@@ -1040,6 +1040,29 @@ color and accessibility gaps, and unequal scroll work; the run cannot rank
 renderers or decide D15's unmeasured arms (`bench/heavy-list/gpui/RESULTS.md`,
 “G4”).
 
+**G6, Windows, 2026-10-29**: the heavy list on the NucBox, release,
+800×800 outer window, 100% scale, 60 Hz. Ten quiet interleaved fresh
+processes per arm give DWM complete-screen proxies of **175.98/716.21/248.76
+ms** for Ink D3D11 / Ink wgpu / egui; ten more after a supported AMD shader
+cache reset give **249.30/1007.25/348.00 ms**. Both wgpu arms select the Radeon
+8060S's **DX12** backend; egui explicitly requests it. D3D11's DXGI display
+medians are **187.14/261.69 ms** retained/reset. Eframe exposes no DXGI swap
+chain to the app, so egui has only the DWM proxy plus next-dispatch delay;
+Ink/wgpu uses readback/softbuffer. Five quiet fling/rest samples give process
+CPU **553.92/121.41/24.91 ms/s**, rest CPU **4.66/1.55/0.00 ms/s**, peak working
+set **220.88/324.75/181.74 MiB**, and ending working set
+**220.88/322.48/170.00 MiB**. PresentMon records D3D11/egui display p95
+**83.35/16.77 ms**, with no lost ETW events; Ink/wgpu presents are unavailable.
+S2's Shelf **142/859 ms** first screens and **48/139 ms** device creation,
+with **457 ms** wgpu pipelines, do not predict egui's whole-app startup.
+Egui owns layout, text and virtualization without the kernel or runner;
+Windows uses Segoe UI, with Consolas in egui's code runs. Scroll work,
+geometry, images, readiness and presentation differ. One loaded observation
+in the original rapid startup tail led to a complete spaced startup series;
+all attempts are retained. Mac checks pass; native qualification retains a
+D3D11 background tint mismatch after recovery and a wgpu DPI image size failure. See
+[the G6 tables and limits](../bench/heavy-list/gpui/RESULTS.md#g6-egui-against-ink-on-windows).
+
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
 device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms

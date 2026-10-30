@@ -3139,3 +3139,5 @@ The three ETL captures remain in the mirror's `target/ink-s29/` and are diagnost
 only. The eight temporary desktop tasks were removed and tracing stopped.
 The code builds and the recovery/bound changes are qualified, but the tail requirement and its causal diagnosis remain open. DirectX 11 remains the
 branch's configured default; this report does not approve landing it.
+
+G6 measures the heavy list on this NucBox through direct D3D11, Ink/wgpu and egui/DX12, with retained and reset driver caches: [tables, instruments and native qualification limits](../../bench/heavy-list/gpui/RESULTS.md#g6-egui-against-ink-on-windows).

@@ -2173,3 +2173,242 @@ Commands, exits and logs are in `target/g4c/{checks,checks-rebased}/`.
 The retained executables, probes, wheel helper, driver and message data all
 match G4b's provenance hashes. `git diff --check` passed. This reporting
 chunk opened no windows and posted no input.
+
+## G6: egui against ink on Windows
+
+**2026-10-29, NucBox.** Direct D3D11 starts fastest; egui uses the least
+fling CPU and has steadier displayed cadence. Three release applications
+render the heavy list:
+Ink through direct DirectX 11 composition; the same executable with
+`EXACT_INK_DEVICE=wgpu`, using DX12, readback and softbuffer; and published
+egui/eframe **0.37.0**, wgpu **30.0.1**, through eframe's DX12 swap chain.
+Both wgpu arms report **AMD Radeon(TM) 8060S Graphics (Dx12)**. Egui's Windows
+build enables only DX12 and explicitly requests it to match the control;
+this is a selected backend, not an inference about eframe's defaults.
+
+The machine is S2's Ryzen AI MAX+ 395, 16 cores/32 logical processors,
+Windows 11 Pro build **26200**, Radeon driver **32.0.23033.1002**, Balanced
+power plan, signed-in **5120×1440, 60 Hz, 100%** desktop. All applications
+open an **800×800 outer window**, as in G4. Windows leaves a **784×761**
+client, against the Mac's 800×768 content area. Rust is **1.97.0**, Bun
+**1.4.2**; the native build uses SDK **10.0.26100.0**'s x64 `fxc`.
+The measured executables use source `f3bd9710aa`, based on `origin/main`
+`48653eb5cb`, which includes the requested `be5413a907`. The clean NucBox mirror at
+`C:\Users\Charlie Cheever\projects\exact2` advanced through local Git
+bundles on `lane/g6-windows`; no branch was pushed. The spaced startup
+driver is `336fa9e44b`; the executables are unchanged.
+
+### Method and readiness
+
+Ten fresh processes per arm run in rotating order, with application and OS
+caches retained. A separate five-round series contains ten seconds of fling
+and ten seconds of rest per arm. Startup-only launches are spaced five
+seconds apart, and the final launch receives the same observation interval.
+Four decaying gestures start at 0, 2.5, 5 and 7.5
+seconds; each lasts about one second and posts 1,500 wheel units. This is
+600 logical pixels at the host's three-line, 16-pixel wheel mapping.
+The driver calls `DwmFlush` for each input tick and posts one `WM_MOUSEWHEEL`
+per return, without timer catch-up batches. Egui applies its own wheel
+conversion and smoothing; identical input does not establish equal scroll
+work. The second startup series performs AMD Software's supported **Reset
+Shader Cache**, confirms the dialog and minimizes AMD Software before
+every launch. It retains application and OS caches. Diagnostic launches,
+builds and native qualification precede the timed series.
+
+Windows has no Unix load average. The quiet rule here is no compiler
+process and less than 10% total system CPU over five seconds, checked before
+collection and every five seconds throughout. All attempts remain in the
+raw record. Tables use medians
+**[minimum–maximum]**. The original series's rapid startup-only tail had one
+11.5% CPU observation among 73. Its startup distribution is superseded by
+the complete spaced series, without selecting individual fast launches. All
+15 fling/rest samples overlap quiet observations only (**71** observations,
+maximum **9.7%** CPU). All **34** spaced retained-driver observations pass,
+with maximum **7.2%** CPU. All **38** reset-driver observations pass,
+with maximum **9.4%** CPU. The cache-reset driver's first invocation stopped
+before launching an application because AMD Software's window was absent;
+reopening it restored the supported reset path.
+
+The DWM proxy is process age from `GetProcessTimes` and the precise system
+clock after `DwmFlush` returns for the first frame with all requested images
+loaded. The Windows host also waits for data activation. Egui requests one
+more repaint after its complete UI pass, then observes the preceding
+paint/present in the next `App::logic`; its proxy includes that event-dispatch
+delay. [DwmFlush](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmflush)
+synchronizes with the compositor; it does not identify scanout of the
+application's particular frame. Direct D3D11 additionally reads the
+matching DXGI present's display timestamp, as in S2. Eframe's public wgpu
+render state exposes its adapter, instance, device, queue and renderer,
+but no surface or DXGI swap chain, so egui has no corresponding timestamp.
+The Ink/wgpu readback/softbuffer path has none either.
+
+### Startup
+
+Ten fresh processes per arm per cache condition; all 60 reach readiness.
+The original 30 launches also succeed, including the 15 fling/rest samples.
+All first-screen adapters are Radeon hardware; none reports WARP.
+
+| Arm | Retained-driver DWM proxy, ms | Retained-driver DXGI display, ms | Reset-driver DWM proxy, ms | Reset-driver DXGI display, ms |
+| --- | --- | --- | --- | --- |
+| Ink / D3D11 | 175.98 [169.40–190.49] | 187.14 [182.01–200.87] | 249.30 [241.31–263.67] | 261.69 [253.10–274.78] |
+| Ink / wgpu DX12 | 716.21 [706.02–736.88] | — | 1007.25 [994.91–1026.16] | — |
+| egui / wgpu DX12 | 248.76 [240.70–255.15] | — | 348.00 [337.97–365.33] | — |
+
+### CPU and memory
+
+Five ten-second phases per arm. CPU is milliseconds per second; working set
+is MiB. Main-thread CPU uses the HWND owner thread. Windows CPU accounting
+is quantized in 15.625 ms units; a zero rate means no accounted tick in that
+phase. Peak is the process lifetime peak at the end of rest; sampled fling
+peak is separate. PresentMon and the driver are outside these process totals.
+
+| Metric | Ink / D3D11 | Ink / wgpu DX12 | egui / wgpu DX12 |
+| --- | --- | --- | --- |
+| Fling process CPU, ms/s | 553.92 [504.33–583.87] | 121.41 [107.35–130.74] | 24.91 [17.13–32.69] |
+| Fling main-thread CPU, ms/s | 358.13 [347.11–370.30] | 112.02 [94.90–118.29] | 24.91 [15.57–32.69] |
+| Rest process CPU, ms/s | 4.66 [1.55–6.21] | 1.55 [1.55–6.21] | 0.00 [0.00–0.00] |
+| Rest main-thread CPU, ms/s | 3.11 [1.55–6.21] | 1.55 [1.55–6.21] | 0.00 [0.00–0.00] |
+| Lifetime peak working set, MiB | 220.88 [176.90–223.93] | 324.75 [320.96–329.70] | 181.74 [181.54–181.82] |
+| Sampled fling peak working set, MiB | 220.88 [176.65–223.93] | 322.48 [318.68–327.42] | 170.77 [170.66–171.54] |
+| End-of-fling working set, MiB | 220.88 [176.65–223.93] | 322.48 [318.64–327.42] | 170.00 [169.03–171.54] |
+| End-of-rest working set, MiB | 220.88 [176.65–223.93] | 322.48 [318.64–327.42] | 170.00 [169.03–171.54] |
+
+### Presented cadence and input pacing
+
+PresentMon **2.6.0** ran with the account’s existing elevated desktop
+privileges, without installing a service. Its DXGI/DWM ETW trace supplies
+display timestamps for D3D11 and egui. Ink/wgpu exits normally but produces
+no app-owned DXGI present records on its readback/softbuffer path; cadence
+there is **unmeasured**, not zero. Optional GPU/input tracking is disabled.
+The retained timed traces lose **zero ETW events**. Earlier diagnostic traces
+with broader tracking lost events and are excluded from the tables.
+
+Intervals count only consecutive displays inside the same one-second gesture
+window. “Late” is over 25 ms, or 1.5 refresh periods at 60 Hz, per gesture
+second. Per-run quantiles are aggregated below; the full-phase rate also
+includes pauses between gestures. Rest counts cover the following ten seconds.
+
+| Metric | Ink / D3D11 | Ink / wgpu DX12 | egui / wgpu DX12 |
+| --- | --- | --- | --- |
+| Display interval p50, ms | 16.73 [16.68–33.32] | — | 16.67 [16.67–16.68] |
+| Display interval p95, ms | 83.35 [33.35–83.37] | — | 16.77 [16.76–16.82] |
+| Display interval p99, ms | 83.38 [33.36–100.06] | — | 16.88 [16.84–17.21] |
+| Late intervals / gesture second | 12.41 [7.39–12.84] | — | 0.00 [0.00–0.00] |
+| Displays / gesture second | 26.05 [25.73–50.51] | — | 57.86 [57.74–58.06] |
+| Displays / full fling second | 11.36 [11.26–21.52] | — | 25.60 [25.42–25.70] |
+| Rest displays, count | 0 [0–0] | — | 0 [0–0] |
+| Posted wheel events, count | 244 [243–244] | 243 [241–244] | 243 [243–244] |
+| Largest within-gesture posting gap, ms | 19.11 [18.17–22.42] | 18.94 [17.79–21.81] | 20.31 [19.08–27.22] |
+| Posting gaps over 25 ms, count | 0 [0–0] | 0 [0–0] | 0 [0–1] |
+
+**Finding.** Direct D3D11 reaches the complete heavy-list screen first:
+**175.98 ms**, against **248.76 ms** for egui and **716.21 ms** for Ink/wgpu;
+a supported driver-cache reset raises these to **249.30/348.00/1007.25 ms**,
+respectively. [D12's S2 summary](../../../llp/1149-the-renderer.rfc.md#d12--where-it-is-the-presenter-and-what-the-same-everywhere-promises)
+records Shelf first screens of **142 ms D3D11 versus 859 ms wgpu**;
+[C6](../../../host/ink/MEASUREMENTS.md#device-startup-host-dev) measured
+device creation **48 versus 139 ms** and wgpu pipeline creation **457 ms**.
+G6 confirms a large startup difference between Ink's
+two paths, but egui's DX12 application starts much closer to direct D3D11;
+S2's Ink/wgpu cost cannot be assigned to every wgpu application. The workloads
+and profiles differ: G6 is the heavy list in release, S2 Shelf used `gpu-dev`.
+Startup does not predict the fling result: D3D11/Ink-wgpu/egui process CPU is
+**553.92/121.41/24.91 ms/s**, while D3D11 and egui display-interval p95 is
+**83.35/16.77 ms**. Egui also has the lowest peak and ending working-set
+medians and no accounted CPU tick during rest. D3D11's first fling presents
+216 frames versus 113–115 in the other four; its wide range is retained,
+with no cause established here. These are whole-application results on
+unequal layout, scrolling, text, image and presentation paths, not isolated
+renderer costs.
+
+### Parity and non-comparables
+
+The 105 generated data files match `data.sha256`; Exact's baked messages
+match the same JSON and its 104 bundled JPEGs match egui's image files.
+The JSON SHA-256 is
+`0b63b79ca113dfc23e52fdc9f4b653890bd48a59110f917fe3cae80c730a30dd`.
+Both use Segoe UI at SPEC's sizes on Windows. Egui loads regular, semibold
+and italic system files, with **15-point Consolas** for inline code;
+SF and SF Mono are absent. Egui's four WIC workers request reduced JPEG
+decodes and scale/crop to the texture size; the Exact host keeps its own
+image pipeline. Equal files and font families do not equalize shaping,
+line height, fallback, emoji, color management or crop behavior.
+
+The separate row-zero captures were visually inspected after images loaded.
+Both show Ava, Ben and Chloé, avatars, photos and rich text. The end
+captures confirm scrolling but differ: Ink shows Ingrid and José, while
+egui shows Giulia, Hiro and part of Ingrid. Segoe UI wrapping
+is close but row geometry differs; Ink's separators span the window and
+egui's are inset. Photo color and crop differ. These are content checks,
+not pixel parity. The top captures contain no quote box, so this check does
+not qualify every row type or script. Captures remain under `target/g6/`;
+the desktop outside the rounded window corners is not published.
+
+Egui owns its immediate-mode layout, HarfRust text, tessellation, texture
+caches and estimated-height viewport virtualization, with **no Exact kernel
+or runner**. Exact runs the baked plan and host; egui parses JSON and loads
+font bytes. Egui lacks the benchmark's native row accessibility labels and
+uses equal-width digit cells rather than an OpenType `tnum` selector. The
+DirectX 11/wgpu Ink comparison includes the latter's GPU readback and
+softbuffer presentation. It does not isolate wgpu device creation or shader
+translation. No live mode, input-to-photon latency, energy, renderer-only
+cost, or shipping accessibility/IME qualification is measured. Windows
+working set is not G4's macOS physical footprint.
+
+### Reproduction and validation
+
+The [Windows README](../egui/README.md#g6-windows) gives the release build,
+desktop launch, supported cache reset and summary commands. The committed
+`windows-measure.py`, `windows-reset-cache.ps1` and `windows-summary.py`
+retain individual launches, input QPC timestamps, CPU/memory endpoints,
+PresentMon CSVs, focus observations and the quiet log. Raw evidence is in
+both worktrees' `target/g6/{warm,warm-startup,cold,native}/`;
+diagnostics are separate.
+`target/g6/provenance-nucbox.json` records data checks and effective tools.
+`target/g6/checks/` holds the Mac commands, timings and exits. The Ink
+executable SHA-256 is
+`47997e9150f7989c55df2b7b85dd2f42dd355d7d3aab51f19fe71d366c2bc3cf`;
+egui is `880cafe46277d29a7b86892f5ebcc68d3bc469987640d7cad049aa536b194b2e`.
+Both Ink arms use the same bytes.
+
+The fling process-CPU medians were checked against raw endpoints: D3D11
+round 3 is `(5796.875 − 234.375) / 10.0421222 = 553.9168 ms/s`; wgpu round 3
+is `(1984.375 − 765.625) / 10.0379882 = 121.4138 ms/s`; egui round 4 is
+`(421.875 − 171.875) / 10.0369905 = 24.9079 ms/s`. QPC frequency is
+10,000,000 ticks/s in every sample.
+
+All six Mac checks pass: root all-target build, tests, clippy plus fmt,
+staged caps, boot, and the workspace all-target check. Root tests report
+**7,257 passed, 82 ignored**, with `RUST_TEST_THREADS=2`. Egui's separate
+clippy (`-D warnings`) and fmt pass; clippy first found a redundant return
+in the conditional Mac decoder, which was removed. Native egui release
+build and clippy also pass. Each checkout uses its own `target/`.
+
+S2.8b's Windows qualification was rebuilt with native `fxc`: Shelf on
+unmodified `gpu-dev`, native Ink/Windows libraries, and exact-linux test
+executables with only that test crate's optimization set to zero. Required
+GPU flags and `--test-threads=1` apply. Both devices pass **42** Ink library
+tests (**27 ignored**), **35** Windows tests (**1 ignored**), pinned paint
+**56** (**1 ignored**), borders **6**, tint **2**, backdrop **5**, gradients
+**1**, visual **8**, materials **1**, and image **3**. The window filter with
+ignored tests enabled passes **9**; composition passes **12**; all ten
+S2.8b startup/fallback fault journeys pass. The six desktop journeys give:
+
+| Journey | Ink D3D11 | Ink wgpu/DX12 |
+| --- | --- | --- |
+| Resize | Pass | Pass |
+| Minimize/restore | Pass | Pass |
+| DPI 100→150→100→150→100% | Pass with Settings operator | Fail: final image sizes differ |
+| Idle caret | Pass | Pass |
+| Forced device loss | Fail: recovered background tint differs | Pass |
+| Sleep/wake | Pass | Pass |
+
+The first DPI attempts timed out without the Settings operator. D3D11 then
+passed. Wgpu completed all four scale transitions, but its final comparison
+received **5120×1369 versus 1024×720** images; this repeated on the third
+attempt, where investigation stopped. D3D11 recovered its hardware device
+but lost Shelf's tinted background: comparison mean **8.8669/255**, with
+**23.1606%** of pixels over 32, against limits 5 and 6%. The same failure
+repeated once. Both remain in `QUEUE.md`; no rendering fix or full native
+qualification is claimed by this benchmark. Desktop scaling was restored
+to 100% and every measured launch independently checked 96 DPI.

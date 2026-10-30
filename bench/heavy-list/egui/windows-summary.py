@@ -54,7 +54,7 @@ def frames(sample,path):
                 modes=sorted(set(r['PresentMode'] for r in rows)))
 
 report={}
-for phase in ['warm','cold']:
+for phase in ['warm','warm-startup','cold']:
     directory=root/phase
     if not directory.exists(): continue
     quiet=[json.loads(line) for line in (directory/'quiet.jsonl').read_text().splitlines()]

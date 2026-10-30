@@ -278,7 +278,7 @@ def main():
                 result=run(arm,number,out,number<=5 and not (args.cold or args.startup_only),True)
                 print(arm,number,result['dwmMs'],flush=True)
                 if result.get('focusLosses'): raise RuntimeError('focus lost')
-                if args.cold or args.startup_only:
+                if args.cold or args.startup_only or number>5:
                     # Keep startup bursts apart and observe the final launch's quiet interval.
                     time.sleep(5)
     finally:
