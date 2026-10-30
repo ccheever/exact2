@@ -390,7 +390,8 @@ fn is_progress_bar(node: &NodeFacts<'_>) -> bool {
 /// `::before`) fills the content box whether or not a height is given
 /// (container units resolve to 0 in an automatic height). Like the kernel's form controls (`item_is_table`), it
 /// keeps that width in block flow, where a `div` would stretch
-/// (`justify-self: start`, as a canvas's), and stretches where the kernel
+/// (`justify-self: start`, as a canvas's, unless the block parent's own
+/// `justify-items` aligns it: [`aligned_by_block_parent`]), and stretches where the kernel
 /// does: in a flex or grid container, and between an absolute box's insets.
 fn progress_css(node: &NodeFacts<'_>, parent: Option<&NodeFacts<'_>>, css: &mut String) {
     use exact_kernel::{Display, PositionType};
@@ -404,9 +405,21 @@ fn progress_css(node: &NodeFacts<'_>, parent: Option<&NodeFacts<'_>>, css: &mut 
         position,
         PositionType::Static | PositionType::Relative | PositionType::Sticky
     );
-    if in_flow && parent.is_none_or(|p| p.style.display == Display::Block) {
+    if in_flow && parent.is_none_or(|p| p.style.display == Display::Block) && !aligned_by_block_parent(parent) {
         css.push_str("justify-self:start;");
     }
+}
+
+/// Whether a block parent's `justify-items` aligns its children (`start`, `center`, `end`, …): then
+/// a progress, which keeps its own width in block flow, is aligned by it, as the
+/// kernel's block layout does (Taffy patch 66; Chrome's), and no `justify-self: start` is written
+/// over it. Under `normal` or `stretch` a `div` would stretch, so the box says `start`.
+fn aligned_by_block_parent(parent: Option<&NodeFacts<'_>>) -> bool {
+    use exact_kernel::{Display, JustifyItems};
+    parent.is_some_and(|p| {
+        p.style.display == Display::Block
+            && !matches!(p.style.justify_items, JustifyItems::Normal | JustifyItems::Stretch)
+    })
 }
 
 /// The element for a node: its type, refined by `semanticTag`. A `<button>`

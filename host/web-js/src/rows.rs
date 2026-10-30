@@ -526,6 +526,12 @@ impl Em<'_> {
                 "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"auto\":\"start\""
             ))));
         }
+        if id == StyleId::JustifyItems && parts.css.contains("--exact-progress-justify:") {
+            let normal = self.uses.rt("normal");
+            writes.push(("--exact-progress-aligned".into(), String::new(), Some(format!(
+                "v=>[\"normal\",\"stretch\",\"\"].includes({normal}(\"justify-items\",String(v??\"\")))?\"initial\":\"auto\""
+            ))));
+        }
         if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
             let normal = self.uses.rt("normal");
             writes.push((

@@ -444,6 +444,15 @@ pub fn project(
             parts
                 .css
                 .push_str(&format!("--exact-progress-justify:{justify};"));
+            // A block parent's own `justify-items` that aligns (`start`, `center`, …) aligns the
+            // progress, as the kernel's block layout does: its `start` is not written over it.
+            // A bound `justify-items` writes the same property through `style_row`.
+            if !matches!(
+                node.style.justify_items,
+                exact_kernel::JustifyItems::Normal | exact_kernel::JustifyItems::Stretch
+            ) {
+                parts.css.push_str("--exact-progress-aligned:auto;");
+            }
         }
         if progress[i] {
             parts.css = parts.css.replace("justify-self:start;", "");
@@ -459,7 +468,7 @@ pub fn project(
     Ok(out)
 }
 
-pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
+pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-aligned,var(--exact-progress-justify,start))";
 
 /// Whether image `i` draws a symbol in its author's `color` (LLP 1121 stage
 /// 9 B; `NodeRef::symbol_color_said`), as far as the static tree says:
