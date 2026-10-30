@@ -1006,9 +1006,9 @@
   function cleanUp() { var waiting = false; calls.forEach(function (c) { if (!c.stream && !c.letGo) waiting = true; }); if (gcOwed && !waiting) { gcOwed = false; gcEpoch(true); } }
   function ok(value, held) {
     var reply = { tag: 0, value: value === undefined ? null : value };
-    if (typeof captureString !== "function") return JSON.stringify(reply);
+    if (typeof captureString !== "function") return binary.keptReply(reply, null);
     var head = null, root = true;
-    return JSON.stringify(reply, function (key, item) {
+    return binary.keptReply(reply, function (key, item) {
       var first = root;
       root = false;
       var large = typeof item === "string" && item.length >= 65536;
