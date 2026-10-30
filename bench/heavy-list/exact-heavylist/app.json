@@ -12,7 +12,8 @@
   "host": {
     "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
     "macos": { "minimumOS": "14.0" },
+    "windows": { "painter": "ink", "window": { "width": 800, "height": 768 } },
     "web": {}
   },
-  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0", "windows": "0" } }
 }
