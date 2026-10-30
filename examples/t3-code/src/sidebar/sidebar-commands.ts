@@ -9,7 +9,7 @@ import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { canSnooze, capabilities, latestRun, orderKeyBetween, planReorder, wokeAt } from './sidebar-model';
 import { bulkMenuState, canArchive, rowConfig, threadMenuState } from './sidebar-menu';
-import { wall, latestWall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
+import { wall, latestWall, shownWall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
 import { partition, projectScopes, renderedRows, scopedRowKey, undoLabel, workingInbox } from './sidebar-view';
@@ -17,7 +17,7 @@ import { pickSearchResult, showPendingFind } from './sidebar-search';
 import { announce, cancelAnnouncement } from '../shell/announce';
 import { completeRouteReveal } from './route-reveal';
 import { copyThreadTarget, threadChipCopyTarget } from './thread-reference';
-import { pickSnoozePreset, snoozePresetSettings } from './sidebar-presentation';
+import { pickSnoozePreset, snoozePresets, snoozePresetSettings } from './sidebar-presentation';
 import { sidebarDrop } from './sidebar-drop';
 import { dismissProviderPill, scheduleProviderPill } from './sidebar-provider-pill';
 import { claimThreadOpen } from '../palette/palette-search';
@@ -543,8 +543,8 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'undo') { await undoLatest(client, nativeHandle); return ''; }
   if (op === 'rename') { await rename(client, nativeHandle, id, value); return ''; }
   if (op === 'dialog-confirm') return confirmDialog(client, nativeHandle, storage, value);
-  // CustomSnoozeDialog's "Edit snooze options": the dialog closes on Settings › Threads' Snooze options.
-  if (op === 'snooze-settings') { if (session.dialog.kind === 'snooze') closeDialog(session); return 'sidebar:settings:threads:snooze-options'; }
+  // CustomSnoozeDialog's "Edit snooze options": the dialog closes on Settings › Threads (`sidebar:settings:<route>`).
+  if (op === 'snooze-settings') { if (session.dialog.kind === 'snooze') closeDialog(session); return 'sidebar:settings:threads'; }
   if (op === 'dialog-cancel') { if (session.dialog.kind === 'delete-worktree') await answerWorktree(client, nativeHandle, storage, false); else closeDialog(session); return ''; }
   if (op === 'drop' && id.startsWith('sweep|')) return sweepRelease(client, nativeHandle, storage, id); // upstream 1826fb55cc
   if (op === 'drop') return sidebarDrop(client, nativeHandle, id, value);
@@ -681,7 +681,8 @@ function selectedRows(client: T3Client, now: number): Obj[] {
 }
 /** Sidebar.snooze.ts pickSnoozePreset: the menu choice as picked now, or the warning that its time has passed. */
 function pickPreset(client: T3Client, choice: string, config: Obj) {
-  const preset = pickSnoozePreset(choice.slice('snooze:'.length), wall(client), client.local.deviceSettings.timestampFormat, snoozePresetSettings(config));
+  const format = client.local.deviceSettings.timestampFormat, settings = snoozePresetSettings(config);
+  const preset = pickSnoozePreset(snoozePresets(shownWall(client), format, settings), choice.slice('snooze:'.length), wall(client), format, settings);
   if (!preset) pushToast(client, { kind: 'warning', title: 'Could not snooze thread', description: 'That snooze time has passed. Choose another time.' });
   return preset;
 }

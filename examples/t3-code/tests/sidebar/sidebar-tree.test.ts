@@ -63,6 +63,10 @@ test('the arrows, Home and End move the focus through the rows; Right and Left o
   expect(focused('thread-s', 'ArrowLeft')).toEqual(['shelf-settled']);
   expect(press('shelf-snoozed', 'ArrowRight').done).toEqual([['prevent'], ['local', 'shelf', 'snoozed', '']]);
   expect(press('shelf-settled', 'ArrowLeft').done).toEqual([['prevent'], ['local', 'shelf', 'settled', '']]);
+  // F2 renames a focused thread in place (SidebarThreadRow handleKeyDown); a shelf has no title to rename.
+  expect(press('thread-a', 'F2').done).toEqual([['prevent'], ['local', 'rename-start', 'a', '']]);
+  expect(press('shelf-settled', 'F2').done).toEqual([]);
+  expect(press('thread-a', 'F2', { metaKey: true }).done).toEqual([]);
   // Modified keys and others are the rows' own (Enter opens, a ⇧ click selects).
   expect(press('thread-a', 'ArrowDown', { shiftKey: true }).done).toEqual([]);
   expect(press('thread-a', 'Enter').done).toEqual([]);
@@ -74,6 +78,16 @@ test('the list is one Tab stop: a row is a tree item that takes the stop only wh
   expect(rows).toHaveLength(2); // the card and the slim row
   for (const row of rows) for (const part of ['role="treeitem"', 'aria-level=treeLevel', 'tabindex=(sidebarTreeStop == `thread-${t.id}` ? 0 : -1)', 'key=treeKey(`thread-${t.id}`)']) expect(row).toContain(part);
   expect(lines('sidebar.contract', 'id=`shelf-${section}`')[0]).toContain('role="treeitem"');
+  // Each tree item draws the reference's focus-visible ring (ring-2 ring-inset ring-ring) beneath its own line.
+  for (const [file, marker] of [['sidebar-row.contract', 'id=`thread-${t.id}` press=openPress'], ['sidebar-row.contract', 'id=`draft-${d.id}`'],
+    ['sidebar.contract', 'id=`shelf-${section}`'], ['sidebar.contract', 'id="settled-more"']] as const) {
+    const text = appText(file).split('\n');
+    for (const [index, line] of text.entries()) if (line.includes(marker) && line.trimStart().startsWith('button ')) {
+      const block = text.slice(index + 1, index + 4).map(entry => entry.trim());
+      expect(block).toContain(':focus-visible');
+      expect(block.find(entry => entry.startsWith('box-shadow='))).toContain('inset 0 0 0 2px');
+    }
+  }
 });
 
 test("Copy › Thread's chip is the composer's own link for that thread, which a paste reads back as a thread chip", async () => {

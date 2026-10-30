@@ -14,7 +14,6 @@ use FindLine from "../timeline/thread-find.contract"
 use MessageImage from "../timeline/timeline-attachments.contract"
 use MessageFile from "../timeline/timeline-attachments.contract"
 use ComposerView from "../composer/composer-shapes.contract"
-use SnoozePreset from "../sidebar/sidebar-shapes.contract"
 use Thread from "../sidebar/sidebar-shapes.contract"
 use ChatGptPlanNotice from "../providers/codex-setup.contract"
 use SidebarView from "../sidebar/sidebar-shapes.contract"
@@ -555,7 +554,6 @@ shape Snapshot
   diffRevealTarget: string
   projects: Project[]
   searchFirstId: string
-  snoozePresets: SnoozePreset[]
   threads: Thread[]
   sidebar: SidebarView
   // General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).

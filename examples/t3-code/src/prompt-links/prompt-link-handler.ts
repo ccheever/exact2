@@ -116,8 +116,8 @@ function placeDraft(client: T3Client, link: NewThreadLink, key: string, extraPro
   const text = [link.prompt?.text, extraPrompt].filter(Boolean).join('\n\n');
   if (text) placeLinkedPrompt(client, key, { text, hiddenCharacters: link.prompt?.hiddenCharacters ?? 0 }, notes);
 }
-/** scratchEnvironmentId: this machine's environment wins; the last active one only when it offers no folder for a thread
- *  without a project; else the one environment that does. */
+/** scratchEnvironmentId: this machine's environment wins; the last active one only when this machine's offers no folder
+ *  for a thread without a project; else the one environment that does. */
 async function openScratch(client: T3Client, native: Native, storage: Files, link: NewThreadLink): Promise<void> {
   const list = environments(client), primary = primaryEnvironmentId();
   const available = (environment: PrEnvironment | null | undefined) => environment && str(environment.config.scratchWorkspaceRoot) ? environment : null;

@@ -109,9 +109,12 @@ describe('snooze', () => {
     // A list the server would refuse falls back to the defaults.
     expect(snoozePresetSettings({ settings: { snoozePresets: [{ kind: 'after', minutes: 0 }] } })).toHaveLength(5);
     expect(snoozePresetSettings({ settings: { snoozePresets: [] } })).toEqual([]);
-    // A duration starts when picked; a passed set time is refused.
-    expect(pickSnoozePreset('after:60', wednesdayEvening + 60_000, '24-hour')?.until).toBe(new Date(wednesdayEvening + 3_660_000).toISOString());
-    expect(pickSnoozePreset('at:today:18:00', new Date(2026, 9, 7, 18, 1).getTime(), '24-hour')).toBeUndefined();
+    // A duration starts when picked; a set time keeps the wake shown, refused once that has passed.
+    expect(pickSnoozePreset(late, 'after:60', wednesdayEvening + 60_000, '24-hour')?.until).toBe(new Date(wednesdayEvening + 3_660_000).toISOString());
+    expect(pickSnoozePreset(late, 'at:today:18:00', new Date(2026, 9, 7, 18, 1).getTime(), '24-hour')).toBeUndefined();
+    const beforeMidnight = new Date(2026, 9, 7, 23, 59).getTime(), afterMidnight = new Date(2026, 9, 8, 0, 1).getTime();
+    expect(pickSnoozePreset(snoozePresets(beforeMidnight, '24-hour'), 'at:tomorrow:09:00', afterMidnight, '24-hour')?.until).toBe(new Date(2026, 9, 8, 9, 0).toISOString());
+    expect(pickSnoozePreset([], 'at:tomorrow:09:00', afterMidnight, '24-hour')).toBeUndefined();
     expect(snoozePresets(0, 'locale')).toEqual([]);
   });
 

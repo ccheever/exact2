@@ -99,11 +99,14 @@ export function snoozePresets(now: number, format: string, settings: readonly Sn
 }
 
 /**
- * A menu choice as picked at `now`. A duration re-resolves from its setting, so it starts at selection; a set time
- * keeps its wake while that is still ahead. Undefined when the time has passed.
+ * A menu choice as picked at `now`, from the menu as it was shown (`shown`). A duration re-resolves from its setting
+ * (not the deduped menu) so it starts at selection. A set time keeps the shown wake, which a day change would
+ * otherwise shift. Undefined when that wake has passed.
  */
-export function pickSnoozePreset(id: string, now: number, format: string, settings: readonly SnoozePresetSetting[] = DEFAULT_SNOOZE_PRESETS): SnoozePreset | undefined {
-  const setting = settings.find(candidate => snoozePresetId(candidate) === id);
-  if (!setting || !Number.isFinite(now) || now <= 0) return undefined;
-  return resolveSnoozePreset(setting, new Date(now), format) ?? undefined;
+export function pickSnoozePreset(shown: readonly SnoozePreset[], id: string, now: number, format: string, settings: readonly SnoozePresetSetting[] = DEFAULT_SNOOZE_PRESETS): SnoozePreset | undefined {
+  if (!Number.isFinite(now) || now <= 0) return undefined;
+  const original = shown.find(preset => preset.id === id);
+  const ahead = original && Date.parse(original.until) > now ? original : undefined;
+  const setting = settings.find(candidate => candidate.kind === 'after' && snoozePresetId(candidate) === id);
+  return (setting && resolveSnoozePreset(setting, new Date(now), format)) ?? ahead;
 }

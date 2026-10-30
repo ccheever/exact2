@@ -337,9 +337,9 @@ export function rootActions(client: T3Client): Item[] {
     if (promptLinkRepositoryOf(projects.find(project => project.id === client.projectId))) action('copy-prompt-link-with-context', ['copy', 'share', 'prompt', 'link', 'repository', 'model'], { op: 'flow', arg: 'copy-prompt-link', arg2: 'context', icon: 'link', title: 'Copy prompt link with repo and model' });
   }
   if (thread) {
-    const reference = threadReferenceTarget(client, openPanelPullRequestUrl(client)); // Copy PR link or thread ID
-    if (reference) action('copy-thread-reference', reference.kind === 'pull-request' ? ['copy', 'pull request', 'link', 'reference'] : ['copy', 'thread id', 'reference'],
-      { op: 'copy-thread', icon: 'link', title: reference.kind === 'pull-request' ? 'Copy PR link' : 'Copy thread ID', description: reference.value, shortcut: commandShortcut(client, 'thread.copyReference') });
+    const reference = threadReferenceTarget(client, openPanelPullRequestUrl(client)); // Copy PR link or the thread's chip
+    if (reference) action('copy-thread-reference', reference.kind === 'pull-request' ? ['copy', 'pull request', 'link', 'reference'] : ['copy', 'thread', 'thread id', 'reference'],
+      { op: 'copy-thread', icon: 'link', title: reference.kind === 'pull-request' ? 'Copy PR link' : 'Copy thread', description: reference.description, shortcut: commandShortcut(client, 'thread.copyReference') });
     if (linkMode(client.config) !== 'unsupported') action('link-pull-request', ['link', 'pull request', 'pr', 'attach', 'stack'], { op: 'page', arg: 'link-pr', icon: 'pull-request-link', title: 'Link pull request to thread' });
     if (capabilities(client).threadPullRequests === true) {
       const linked = arr(thread.pullRequests).length > 0;

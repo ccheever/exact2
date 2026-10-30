@@ -150,6 +150,8 @@ shape Thread
   hoverErrorWarning: bool
   // handleThreadContextMenu's items, or the bulk menu's on a selected row (the row's context popover).
   menu: SidebarMenuRow[]
+  // The row's own environment's snooze options (SidebarThreadRow's), none while it cannot snooze.
+  snoozePresets: SnoozePreset[]
 // A row of the sidebar's tree (sidebar-view.ts sidebarTree), by element id; `expanded` is "true" or "false" on a shelf header.
 shape SidebarTreeRow
   id: string

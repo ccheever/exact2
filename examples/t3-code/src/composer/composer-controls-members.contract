@@ -195,6 +195,9 @@ members T3Code
           openSettings() // a project link replaces the whole scope (retainSettingsScope)
           settingsProjectId = result.message.slice(25)
           settingsRoute = "projects"
+        if result.message.startsWith("sidebar:settings:") // a settings page by its route (Custom snooze's Edit snooze options)
+          openSettings()
+          settingsRoute = result.message.slice(17)
       case none
     pendingModal = ""
     commandPending = false

@@ -159,6 +159,8 @@ export function noteSnapshotTime(client: T3Client, now: number): void {
   if (Number.isFinite(now) && now > 1e12 && now > (snapshotTimes.get(client) ?? 0)) snapshotTimes.set(client, now);
 }
 export function latestWall(client: T3Client): number { return Math.max(wall(client), snapshotTimes.get(client) ?? 0); }
+/** The time the menus now painted were resolved at: the latest snapshot's, else `wall`. */
+export function shownWall(client: T3Client): number { return snapshotTimes.get(client) ?? wall(client); }
 /** threadUndoNoticeSummary: "Settled 2 threads", "Discarded 1 draft". */
 export function undoSummary(undo: UndoEntry): string {
   const count = undo.threadIds.length;

@@ -647,7 +647,7 @@ describe('sidebar navigation, drafts and the hover card', () => {
     const rows = threadMenuItems(sidebarSnapshotMenuState(client, now)).find(item => item.id === 'snooze')!.children!;
     expect(rows.map(item => item.id)).toEqual(['snooze:after:30', 'snooze:at:tomorrow:09:00', 'snooze:custom']);
     expect(rows.at(-1)).toMatchObject({ separatorBefore: true });
-    expect(sidebarSnapshot(client, now, helpers).snoozePresets.map(preset => preset.label)).toEqual(['In 30 minutes', 'Tomorrow']);
+    expect(sidebarSnapshot(client, now, helpers).threads.find(row => row.id === 'a')!.snoozePresets.map(preset => preset.label)).toEqual(['In 30 minutes', 'Tomorrow']);
     await sidebarCommand(client, native, files, 'snooze:after:30', 'a', '');
     expect(Date.parse(String(dispatched.at(-1)?.snoozedUntil)) - now).toBeGreaterThanOrEqual(30 * 60_000);
     // An option the settings no longer hold, or a time that has passed, snoozes nothing and says so.
@@ -659,7 +659,7 @@ describe('sidebar navigation, drafts and the hover card', () => {
     (client.config as Obj).settings = { snoozePresets: [] };
     expect(threadMenuItems(sidebarSnapshotMenuState(client, now)).find(item => item.id === 'snooze')!.children).toEqual([{ id: 'snooze:custom', label: 'Custom…', separatorBefore: false }]);
     await sidebarCommand(client, native, files, 'snooze:custom', 'b', '');
-    expect(await sidebarCommand(client, native, files, 'snooze-settings', '', '')).toBe('sidebar:settings:threads:snooze-options');
+    expect(await sidebarCommand(client, native, files, 'snooze-settings', '', '')).toBe('sidebar:settings:threads');
     expect(sidebarSnapshot(client, now, helpers).sidebar.dialog).toBe('');
   });
 });

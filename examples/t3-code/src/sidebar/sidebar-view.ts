@@ -78,6 +78,7 @@ export interface SidebarThread {
   scratchMachine: string; scratchLabel: string; // a "No project" thread's machine, in the branch's place
   searchPr: string; searchPrIcon: string; searchPrState: string; searchPrLabel: string; // a search result's pull request badge (its row's)
   menu: MenuRow[]; // handleThreadContextMenu's items (the bulk menu's on a selected row), for the row's context popover
+  snoozePresets: SnoozePreset[]; // the row's own environment's options (SidebarThreadRow), none while it cannot snooze
 }
 /** A row of the sidebar's tree (lib/sidebarTree.ts), by its element id: a shelf header's rows name it as their parent. */
 export interface SidebarTreeRow { id: string; parent: string; expanded: string }
@@ -335,6 +336,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     titleColor: titleInk(card, section, recede, unread, woke, status, active), titleWeight: recede ? 400 : 500, recede,
     pinned: thread.pinnedAt != null, canPin: caps.pinning,
     canSettle: caps.settlement && card, canSnooze: caps.snooze && card && canSnooze(thread, now),
+    snoozePresets: caps.snooze && card && canSnooze(thread, now) ? snoozePresets(now, client.local.deviceSettings.timestampFormat, snoozePresetSettings(environment)) : [],
     canUnsettle: caps.settlement && section === 'settled', canWake: caps.snooze && section === 'snoozed',
     wakeLabel: section === 'snoozed' && thread.snoozedUntil != null ? snoozeWakeLabel(thread.snoozedUntil, now) : '',
     // ThreadWorktreeIndicator: the row draws FolderGit2 only for a worktree thread; a checkout thread's branch stands alone.
@@ -406,7 +408,7 @@ function revealRows(client: T3Client, rows: { thread: Obj }[], searching: boolea
   return { revealRow, revealPending: revealRow && sidebarSession(client).reveal.pendingKey === scopedRowKey(client, revealRow) ? revealRow : '' };
 }
 
-export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarHelpers): { threads: SidebarThread[]; searchFirstId: string; snoozePresets: SnoozePreset[]; sidebar: SidebarView } {
+export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarHelpers): { threads: SidebarThread[]; searchFirstId: string; sidebar: SidebarView } {
   // The legacy sidebar keeps its own reveal while it is the one shown (legacy-sidebar-view.ts).
   const searching = client.query.trim() !== '', reveals = client.local.clientSettings?.legacySidebarEnabled !== true;
   noteSnapshotTime(client, now);
@@ -438,7 +440,6 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const inbox = workingInbox(client), graceUntil = inbox.nextDeadline(), graceOwed = inbox.owed();
   return {
     threads, searchFirstId: searching ? str(rows[searchIndex]?.thread.id) : '',
-    snoozePresets: snoozePresets(now, client.local.deviceSettings.timestampFormat, snoozePresetSettings(client.config)),
     sidebar: {
       drafts: searching ? [] : draftRows(client, helpers.projectIdentity),
       searching, searchPending: searching && rows.length === 0 && threadSearchPending(client), searchIndex,
