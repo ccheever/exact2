@@ -194,3 +194,24 @@ fn the_accessibility_tree_keeps_the_page_under_a_popover() {
         assert!(views.contains(&id(&p, name)), "{name} in {views:?}");
     }
 }
+
+/// Structural reads see an open popover's subtree, as the web's do: the
+/// presenter reports the box to the runner's top layer, and a closed one
+/// is hidden again.
+#[test]
+fn reads_see_an_open_popovers_subtree() {
+    let source = APP
+        .replace("  state saves = 0", "  state saves = 0\n  state marked = []\n  action mark\n    marked = querySelectorAll(\"[data-mood~=\\\"accent\\\"]\")")
+        .replace("testId=\"save\"", "testId=\"save\" id=\"save\" data-mood=\"accent\"");
+    let mut p = boot(&source);
+    let marked = |p: &mut Presenter<()>| {
+        p.host.runner_mut().act("mark", vec![]).unwrap();
+        p.host.runner().slot("marked").cloned()
+    };
+    assert_eq!(marked(&mut p), Some(Value::list(vec![])));
+    tap(&mut p, "open");
+    assert_eq!(marked(&mut p), Some(Value::list(vec![Value::str("save")])));
+    p.key_down("Escape", 300.);
+    p.frame();
+    assert_eq!(marked(&mut p), Some(Value::list(vec![])));
+}
