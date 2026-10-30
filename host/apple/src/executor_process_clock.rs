@@ -22,7 +22,9 @@ const ADVANCE_BOUND: Duration = Duration::from_secs(3);
 struct Waiter {
     /// Its next deadline, in this clock's milliseconds; `None` waits for input alone.
     deadline: Option<f64>,
-    /// Woken by an advance, and not waiting again yet.
+    /// Woken by an advance, or just joined, and not waiting (again) yet:
+    /// an advance waits for it, so one made once a child's `spawn` landed
+    /// sees what that child's first turn did.
     running: bool,
     /// What wakes it: a tick into its input.
     wake: Box<dyn Fn() + Send>,
@@ -98,7 +100,7 @@ impl Clock {
             id,
             Waiter {
                 deadline: None,
-                running: false,
+                running: true,
                 wake,
             },
         );
@@ -212,6 +214,27 @@ mod tests {
         assert_eq!(clock.due(), None);
         worker.join().unwrap();
         assert_eq!(clock.now(), 2000.0);
+    }
+
+    #[test]
+    fn an_advance_waits_for_a_waiter_that_has_not_waited_yet() {
+        // A supervisor joins, then does its first turn (a script's steps
+        // at 0) before it first waits.
+        let clock = Arc::new(Clock::agent());
+        let id = clock.join(Box::new(|| {}));
+        let turned = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker = {
+            let (clock, turned) = (clock.clone(), turned.clone());
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                turned.store(true, std::sync::atomic::Ordering::Release);
+                clock.wait_for(id, Some(100.0));
+            })
+        };
+        clock.advance(0.0);
+        assert!(turned.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(clock.due(), Some(100.0));
+        worker.join().unwrap();
     }
 
     #[test]

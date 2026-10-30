@@ -12,6 +12,10 @@ use std::time::{Duration, Instant};
 
 const GRANTS: &str = "process.spawn path:t3\nprocess.spawn /usr/bin/tar\nenv.read login:PATH\nenv.read HOME\nnet.fetch http://127.0.0.1";
 
+/// A wall-clock wait's limit, which only stops a hanging test
+/// (docs/testing.md, "Waiting").
+const BOUND: Duration = Duration::from_secs(30);
+
 fn script(json: &str) -> String {
     let dir = std::env::temp_dir().join(format!("exact-process-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -63,7 +67,7 @@ fn taken(core: &Core) -> Vec<Outcome> {
 
 /// The next outcome, waiting for it on the wall (a one-shot's thread).
 fn next(core: &Core, woke: &Receiver<()>) -> Outcome {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + BOUND;
     loop {
         core.begin_pump();
         if let Some(done) = core.drain().pop() {
@@ -108,10 +112,11 @@ fn clock(core: &Core) -> std::sync::Arc<dyn WorkClock> {
     core.work_clock().expect("under the agent")
 }
 
-/// Wait for the supervisor to start the child: its `spawn` is queued, and
-/// it waits on the clock.
+/// Wait for the supervisor to start the child: its `spawn` is queued. The
+/// next advance waits for the rest of its first turn (the clock counts it
+/// as running until it first waits).
 fn waiting(core: &Core) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + BOUND;
     loop {
         let spawned =
             (core.shared.state.lock().unwrap().completed.iter().flatten()).any(|done| done.message);
@@ -121,7 +126,6 @@ fn waiting(core: &Core) {
         assert!(Instant::now() < deadline, "the supervisor never started");
         std::thread::sleep(Duration::from_millis(2));
     }
-    std::thread::sleep(Duration::from_millis(20));
 }
 
 fn ops(ops: Vec<(u32, ProcessOp)>) -> SocketSend {
@@ -158,7 +162,7 @@ fn a_scripted_child_streams_its_events_and_restarts_on_the_agents_clock() {
     assert_eq!(events(&taken(&core)), ["spawn 12 1", "stderr again"]);
     clock.advance(650.0);
     // 78 is prevented: the stream ends with the last close.
-    let end = std::time::Instant::now() + Duration::from_secs(5);
+    let end = Instant::now() + BOUND;
     let mut seen = taken(&core);
     while seen.len() < 2 && Instant::now() < end {
         std::thread::sleep(Duration::from_millis(5));
@@ -308,14 +312,15 @@ fn release_signals_the_group_and_escalates_after_the_grace() {
     clock.advance(0.0);
     assert_eq!(events(&taken(&core)), ["spawn 41 0", "stdout up"]);
     core.forget(|_| false);
-    std::thread::sleep(Duration::from_millis(50));
-    assert_eq!(
-        clock.due(),
-        Some(2000.0),
-        "the escalation waits out the grace"
-    );
+    // The release reaches the supervisor on the wall; its escalation then
+    // waits out the grace.
+    let deadline = Instant::now() + BOUND;
+    while clock.due() != Some(2000.0) {
+        assert!(Instant::now() < deadline, "{:?}", clock.due());
+        std::thread::sleep(Duration::from_millis(2));
+    }
     clock.advance(2000.0);
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + BOUND;
     while !core.shared.state.lock().unwrap().running.is_empty() {
         assert!(Instant::now() < deadline, "the stream never ended");
         std::thread::sleep(Duration::from_millis(2));
@@ -391,9 +396,9 @@ fn one_shots_answer_from_the_script_and_the_drive() {
     );
 }
 
-/// Wait until no stream runs, or fail after five seconds.
+/// Wait until no stream runs.
 fn ended(core: &Core) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + BOUND;
     while !core.shared.state.lock().unwrap().running.is_empty()
         || !core.shared.processes.children.lock().unwrap().is_empty()
     {
@@ -413,7 +418,7 @@ fn a_child_let_go_before_its_first_event_is_released() {
     // Forgotten at once: its `spawn` finds nobody to take it.
     core.forget(|_| false);
     let clock = clock(&core);
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + BOUND;
     while clock.due() != Some(2000.0) {
         assert!(Instant::now() < deadline, "the group was never signalled");
         std::thread::sleep(Duration::from_millis(2));
@@ -449,13 +454,18 @@ fn on_failure_restarts_no_child_the_app_signalled() {
             let sigint = ProcessOp::Kill("SIGINT".into());
             core.socket(&ops(vec![(1, sigint)])).unwrap();
         }
-        let deadline = Instant::now() + Duration::from_secs(5);
         for t in [1.0, 10.0, 110.0, 111.0] {
             clock.advance(t);
-            std::thread::sleep(Duration::from_millis(20));
             seen.extend(events(&taken(&core)));
         }
-        assert!(Instant::now() < deadline);
+        // The app's `kill` reaches the supervisor on the wall, not at an
+        // advance: wait for the stream's end.
+        let deadline = Instant::now() + BOUND;
+        while kill && !seen.iter().any(|e| e.starts_with("end ")) {
+            assert!(Instant::now() < deadline, "{seen:?}");
+            std::thread::sleep(Duration::from_millis(5));
+            seen.extend(events(&taken(&core)));
+        }
         seen
     };
     // The app's own `kill`: the stream ends at the close.
@@ -501,11 +511,10 @@ fn an_operation_for_an_ended_incarnation_reaches_no_later_one() {
     waiting(&core);
     let clock = clock(&core);
     clock.advance(0.0);
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + BOUND;
     let mut seen = Vec::new();
     // The restart waits the 100 ms floor, though the delay says 0.
     clock.advance(99.0);
-    std::thread::sleep(Duration::from_millis(20));
     assert!(!events(&taken(&core)).contains(&"spawn 72 1".to_string()));
     while !seen.iter().any(|e: &String| e == "stdout two") {
         assert!(Instant::now() < deadline, "{seen:?}");
@@ -547,7 +556,7 @@ fn an_operation_for_an_ended_incarnation_reaches_no_later_one() {
     core.socket(&write(50_000)).unwrap();
     assert_eq!(core.socket_reader()(1), Some(150_000));
     clock.advance(110.0);
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + BOUND;
     while core.socket_reader()(1) != Some(80_000) {
         assert!(Instant::now() < deadline, "{:?}", core.socket_reader()(1));
         std::thread::sleep(Duration::from_millis(2));
@@ -556,7 +565,7 @@ fn an_operation_for_an_ended_incarnation_reaches_no_later_one() {
 
 /// Outcomes, on the wall, until one is a stream's or a one-shot's last.
 fn to_the_end(core: &Core) -> Vec<Outcome> {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + BOUND;
     let mut seen = taken(core);
     while !seen.iter().any(|o| !matches!(o, Outcome::Message(_))) {
         assert!(Instant::now() < deadline, "{:?}", events(&seen));
@@ -632,7 +641,7 @@ fn an_exec_files_signal_deadline_ends_it_as_a_timeout() {
     out.request.timeout_ms = Some(100);
     core.run(out, None).unwrap();
     let clock = clock(&core);
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + BOUND;
     while clock.due() != Some(100.0) {
         assert!(Instant::now() < deadline, "the deadline was never armed");
         std::thread::sleep(Duration::from_millis(2));
@@ -709,4 +718,34 @@ fn one_shots_have_room_of_their_own() {
     ended(&core);
     assert_eq!(lane(&core), (0, 0));
     core.run(request(18, body, false), None).unwrap();
+}
+
+#[test]
+fn a_spawn_without_readiness_makes_no_network_host() {
+    // Only `exactReady`'s probes use one. Counted on the stream's own
+    // thread: the lane's workers, which start with the first request, make
+    // theirs.
+    let file = script(r#"{"incarnations":[{"pid":91,"steps":[]}]}"#);
+    let made = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let host: super::super::StreamHost = {
+        let made = made.clone();
+        std::sync::Arc::new(move || {
+            let name = std::thread::current().name().map(str::to_string);
+            if name.is_some_and(|n| n.starts_with("exact-stream-")) {
+                made.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            ibex2::host::Host::new()
+        })
+    };
+    let (wake, _woke) = channel::<()>();
+    let wake = Box::new(move || {
+        let _ = wake.send(());
+    });
+    let core = Core::under_agent(&[("path:t3", &format!("script:{file}"))], || {
+        Core::start_on(None, GRANTS, wake, host)
+    });
+    let body = r#"{"kind":"spawn","program":"path:t3"}"#;
+    core.run(request(1, body, true), None).unwrap();
+    waiting(&core);
+    assert_eq!(made.load(std::sync::atomic::Ordering::Relaxed), 0);
 }

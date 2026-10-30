@@ -172,13 +172,13 @@ impl<'a> Supervisor<'a> {
         ran: Ran,
         ctl: Arc<ChildCtl>,
         rx: Receiver<Input>,
-        host: ibex2::host::Host,
+        host: Option<ibex2::host::Host>,
         set: &ibex2::grant::GrantSet,
     ) -> Self {
         let clock = shared.processes.clock.clone();
         let tick = ctl.clone();
         let waiter = clock.join(Box::new(move || tick.send(Input::Tick)));
-        let probe = spec.ready.as_ref().map(|_| host.endow(set.clone()));
+        let probe = host.map(|host| host.endow(set.clone()));
         let leave = Some(Leave(clock.clone(), waiter));
         Supervisor {
             shared,
