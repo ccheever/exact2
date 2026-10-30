@@ -696,6 +696,12 @@ impl<D: DataSource> Presenter<D> {
 
     fn access_walk_node(&self, b: &mut Build, node: NodeRef<'_>, mut scope: Scope) {
         let id = node.id;
+        // An open popover is drawn in the top layer: no clip or scroll of its
+        // page ancestors holds it (a modal box is walked alone, from here).
+        if self.alert_root() == Some(id) {
+            scope.shift = (0., 0.);
+            scope.clip = (0., 0., self.viewport.0, self.viewport.1);
+        }
         let (hidden, inert) = self.host.route_visibility(id);
         if hidden
             || inert

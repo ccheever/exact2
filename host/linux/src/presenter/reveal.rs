@@ -103,7 +103,7 @@ impl<D: DataSource> Presenter<D> {
     /// layer, which no scroll takes away: the tap still refuses there. Whether it scrolled.
     fn clear_of_sticky(&mut self, id: ViewId, at: (f32, f32)) -> bool {
         // (An open surface of the top layer, a popover or an alert, is over the page: no scroll clears it.)
-        if self.surface_open() || self.alert.is_some() {
+        if self.surface_open() || self.alert_inert() {
             return false;
         }
         let Some((cover, scroller)) = self.sticky_at(id, at) else {

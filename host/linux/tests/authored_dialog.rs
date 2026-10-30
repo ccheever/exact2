@@ -350,7 +350,9 @@ fn popover_surfaces_placement_dismissal_and_modal_replacement() {
     tap(&mut p, "manual");
     outside(&mut p);
     key(&mut p, "Escape");
-    assert!(p.system_back(0.));
+    // Back under a manual popover is the page's (no close watcher): with no
+    // route to go back to, the app does not take it, and the popover stays.
+    assert!(!p.system_back(0.));
     assert_eq!(surface(&mut p)["kind"], "popover");
     tap(&mut p, "manual-hide");
     assert!(surface(&mut p).is_null());
@@ -460,10 +462,10 @@ fn authored_controls_keep_radio_keys_and_tab_inside() {
         key(&mut p, "ArrowLeft");
         assert_eq!(p.focus(), Some(id(&p, "b")));
         assert_eq!(words(&p, "choice"), "b");
-        // Tab stays inside a modal box; a popover's page is live, so Tab
-        // goes on from its last stop to the page's first.
+        // Tab stays inside a modal box; a popover's stops follow its
+        // invoker's (HTML's popover focus scope), then the page goes on.
         let order = if popover {
-            ["close", "open", "outside", "b"]
+            ["close", "outside", "open", "b"]
         } else {
             ["close", "b", "close", "b"]
         };

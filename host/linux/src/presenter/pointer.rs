@@ -233,6 +233,10 @@ impl<D: DataSource> Presenter<D> {
         let primary = self.pointer_buttons & 1;
         let buttons = primary | after as u8;
         let error = if self.pointer_held.is_none() && before == 0 && after != 0 {
+            // Any button's press outside a popover light-dismisses it (HTML).
+            if self.alert.is_some() && !self.alert_inert() {
+                self.alert_pointer(x, y, now_ms);
+            }
             self.pointer_pressed_with(x, y, after as u8, now_ms)
         } else if self.pointer_held.is_some() && buttons == 0 {
             self.pointer_lifted(Some((x, y)), now_ms)

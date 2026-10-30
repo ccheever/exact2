@@ -118,6 +118,11 @@ impl<D: DataSource> Presenter<D> {
                 "view {id} activates view {actual} at its projected center"
             ));
         }
+        // Landing outside an open popover dismisses it first, as a person's
+        // press there does (HTML's light dismiss); the press goes on.
+        if self.alert.is_some() && !self.alert_inert() {
+            self.alert_pointer(x, y, now);
+        }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
         // The pointer's `pointerdown` and `pointerup` there before the press,
         // in DOM's order, as `pointer_down` and `pointer_up` send a real one's.

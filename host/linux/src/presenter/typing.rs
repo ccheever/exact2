@@ -525,7 +525,8 @@ impl<D: DataSource> Presenter<D> {
         boxed: &BTreeSet<ViewId>,
     ) -> Option<String> {
         let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
-        for (at, id) in self.host.preorder().into_iter().enumerate() {
+        let tree = self.alert_tab_order(self.host.preorder());
+        for (at, id) in tree.into_iter().enumerate() {
             if self.tabbable(id, boxed) {
                 let index = self
                     .host

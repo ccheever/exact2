@@ -263,8 +263,8 @@ fn reads_see_an_open_popovers_box_where_it_is_drawn() {
 #[test]
 fn a_second_invoker_closes_the_open_popover_once() {
     let source = APP.replace(
-        "      column id=\"menu\"",
-        "      button \"Again\" testId=\"again\" popovertarget=\"menu\" width=120 height=30\n      column id=\"menu\"",
+        "      button \"Probe\"",
+        "      button \"Again\" testId=\"again\" popovertarget=\"menu\" width=120 height=30\n      button \"Probe\"",
     );
     let mut p = boot(&source);
     click(&mut p, "open", 0.);
@@ -390,14 +390,44 @@ fn a_long_press_works_under_a_manual_popover() {
 /// A wheel over a popover that doesn't scroll goes on to the page.
 #[test]
 fn a_wheel_over_a_popover_scrolls_the_page() {
-    let source = APP.replace(
-        "        button \"Other\" testId=\"other\" height=30\n",
-        "        button \"Other\" testId=\"other\" height=30\n      box height=2000\n",
-    );
+    let source = APP
+        .replace(
+            "column width=\"100%\" height=\"100%\"",
+            "column width=\"100%\"",
+        )
+        .replace(
+            "        button \"Other\" testId=\"other\" height=30\n",
+            "        button \"Other\" testId=\"other\" height=30\n      box height=2000\n",
+        );
     let mut p = boot(&source);
+    p.wheel_at(400., 300., 0., 100.);
+    p.frame();
+    assert_eq!(p.page().1, 100., "the page scrolls without a popover");
+    p.wheel_at(400., 300., 0., -100.);
+    p.frame();
     tap(&mut p, "open");
     let (x, y, w, h) = p.rect_of(id(&p, "menu")).unwrap();
     p.wheel_at(x + w / 2., y + h / 2., 0., 100.);
     p.frame();
     assert!(p.page().1 > 0., "the page scrolled: {:?}", p.page());
+}
+
+/// A popover authored inside a scroller is drawn in the top layer: the
+/// scroller's clip does not drop it from the accessibility tree.
+#[test]
+fn a_popover_inside_a_scroller_stays_in_the_accessibility_tree() {
+    let source = APP.replace(
+        "      column id=\"menu\" testId=\"menu\"",
+        "      scroll testId=\"clip\" height=10 width=40\n        box height=100\n        column id=\"menu\" testId=\"menu\"",
+    )
+    .replace("        button \"Save\"", "          button \"Save\"")
+    .replace("        button \"Other\"", "          button \"Other\"");
+    let mut p = boot(&source);
+    tap(&mut p, "open");
+    let save = id(&p, "save");
+    let node = p.access_tree().0.into_iter().find(|n| n.view == save);
+    assert!(
+        node.is_some_and(|n| n.rect[2] > 0. && n.rect[3] > 0.),
+        "save is in the tree with its box"
+    );
 }

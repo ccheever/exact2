@@ -1168,7 +1168,7 @@ impl<D: DataSource> Presenter<D> {
     /// finger is, and the touch presses nothing when it lifts. Whether a
     /// node took it. Nothing on a host with no top layer.
     pub fn long_press(&mut self, x: f32, y: f32, now_ms: f64) -> bool {
-        if (!self.has_windows() && !self.neutral_alerts()) || self.top_open() {
+        if (!self.has_windows() && !self.neutral_alerts()) || self.page_inert() {
             return false;
         }
         let Some(hit) = self.hit(x, y) else {

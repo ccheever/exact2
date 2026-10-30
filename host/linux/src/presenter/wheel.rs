@@ -115,7 +115,7 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        if self.overlay_wheel(x, y, dy) || self.alert.is_some() && self.hit(x, y).is_none() {
+        if self.overlay_wheel(x, y, dy) || self.alert_inert() && self.hit(x, y).is_none() {
             return;
         }
         self.restore_scroll_anchors();
@@ -168,7 +168,7 @@ impl<D: DataSource> Presenter<D> {
                 return;
             }
             // At every requested edge, containment or the modal ends the chain.
-            if stops || self.alert_root() == Some(id) {
+            if stops || self.alert_inert() && self.alert_root() == Some(id) {
                 return;
             }
             at = parent;
