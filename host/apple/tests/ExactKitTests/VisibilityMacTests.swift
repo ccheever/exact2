@@ -149,8 +149,11 @@ final class VisibilityMacTests: XCTestCase {
             ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 240, "h": 160], ["op": "frame", "id": 2, "x": 16, "y": 16, "w": 200, "h": 80],
         ]))
         let page = try XCTUnwrap(p.views[1]), inside = try XCTUnwrap(p.views[2])
+        page.display(); inside.display()
         XCTAssertTrue(page.standsOnSheetGround, "the ground is the sheet's own, which AppKit draws")
+        XCTAssertNil(page.layer?.backgroundColor, "and paints none of its own")
         XCTAssertFalse(inside.standsOnSheetGround)
+        XCTAssertNotNil(inside.layer?.backgroundColor, "the card paints its own")
         // The card's role is the under-page grey; painted in the sheet, it stands apart from the sheet's own ground
         XCTAssertEqual(inside.style["background_color"].flatMap { if case .object(let o) = $0 { return o["sys"]?.string } else { return nil } }, "underPageBackgroundColor")
         let rep = try XCTUnwrap(Capture.picture(of: p.viewport))
