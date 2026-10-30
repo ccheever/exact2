@@ -60,8 +60,9 @@ export interface Table {
  * unless it says so (LLP 1041 §8.4), and a route check that waits out its 2.5 s would hold every other read.
  */
 export const fetchHttp: Http = async (url, init) => {
+  const exact = { exactTimeout: init.timeoutMs, exactIndependentHttp: { maxResponseBytes: init.maxBytes ?? 1024 * 1024 } };
   const response = await fetch(url, { method: init.method ?? 'GET', headers: init.headers, ...(init.bodyFrom ? { exactBodyFrom: init.bodyFrom } : { body: init.body }), signal: init.signal,
-    redirect: 'manual', exactTimeout: init.timeoutMs, exactIndependentHttp: { maxResponseBytes: init.maxBytes ?? 1024 * 1024 } } as RequestInit);
+    redirect: 'manual', ...exact } as RequestInit);
   const reply: HttpReply = { status: response.status, text: await response.text() };
   return reply;
 };
