@@ -66,11 +66,11 @@ describe('sticky model and next-turn selection', () => {
     const menu = traitsMenu([effort, fast], [{ id: 'fastMode', value: true }]);
     expect(menu.items.filter(item => item.descriptor === 'fastMode').map(item => [item.kind, item.label, item.selected])).toEqual([
       ['divider', '', false], ['header', 'Fast mode', false], ['option', 'On', true], ['option', 'Off', false]]);
-    expect(traitsDisplay('codex', [effort, fast], [{ id: 'fastMode', value: true }])).toEqual({ label: 'Medium Fast' });
-    expect(traitsDisplay('claudeAgent', [fast], [])).toEqual({ label: 'Normal' });
+    expect(traitsDisplay('codex', [effort, fast], [{ id: 'fastMode', value: true }])).toEqual({ label: 'Medium Fast', speedLabel: 'Fast', otherLabels: [] });
+    expect(traitsDisplay('claudeAgent', [fast], [])).toEqual({ label: 'Normal', speedLabel: null, otherLabels: [] });
     const tier = { id: 'serviceTier', type: 'select', options: [{ id: 'default', label: 'Normal' }, { id: 'priority', label: 'Fast' }, { id: 'flex', label: 'Ultrafast' }] };
-    expect(traitsDisplay('codex', [effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: 'Medium Ultrafast' });
-    expect(traitsDisplay('codex', [effort, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [])).toEqual({ label: 'Medium · Thinking On' });
+    expect(traitsDisplay('codex', [effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: 'Medium Ultrafast', speedLabel: 'Ultrafast', otherLabels: [] });
+    expect(traitsDisplay('codex', [effort, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [])).toEqual({ label: 'Medium · Thinking On', speedLabel: null, otherLabels: ['Thinking On'] });
   });
   test('a started thread locks the picker to its driver; drafts are unrestricted', async () => {
     const { client, command } = await opened();
@@ -322,10 +322,10 @@ describe('docked banners, activity and the provider control', () => {
   });
   test('trailing labels compact before the model name', () => {
     expect(Math.round(textWidth('Medium'))).toBe(53);
-    const base = { model: 'GPT-5.6-Luna', traits: 'Medium', traitsIcon: false, runtime: 'Full access', plan: '' };
-    expect(footerLayout({ ...base, host: 420 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 340 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 250 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true });
+    const base = { model: 'GPT-5.6-Luna', traits: 55, runtime: 'Full access', runtimeShown: true, mode: true, plan: '' };
+    expect(footerLayout({ ...base, host: 360 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
+    expect(footerLayout({ ...base, host: 280 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
+    expect(footerLayout({ ...base, host: 215 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true });
     expect(footerLayout({ ...base, host: 0 })).toMatchObject({ runtimeIconOnly: false });
   });
 });

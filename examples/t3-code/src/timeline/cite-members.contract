@@ -34,7 +34,9 @@ members T3Code
   // let a grown composer's reservation through (composer-overlay.ts). The snapshot reads them (transcript-facts.ts).
   // A focused composer rests too, keeping its focus (ChatComposer canScrollCollapseComposer); a focus coming in
   // (composerFocus), a press in the prompt (composerPressed) or an edit (restTyped) brings it back.
-  derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerText.includes("\n") and data.approvals.length == 0 and data.questions.length == 0 and not data.settled
+  // Since T3 Code v0.1.5 the composer never rests (its Collapse composer on scroll setting is gone); the reader's
+  // position at the end still feeds the composer's reservation.
+  derive canRest = false
   state restOwner = ""
   state restResting = false
   // The prompt as the composer came to rest: any edit after it expands the composer (expandComposerForEditorChange).

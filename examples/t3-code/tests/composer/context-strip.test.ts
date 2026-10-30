@@ -34,27 +34,22 @@ describe('shouldShowEnvironmentIndicator', () => {
   });
 });
 
-describe('shouldShowComposerContextStrip', () => {
-  test.each([false, true])('honors the active-thread preference with resting controls %s', hostsRestingComposerControls => {
-    const input = { isDraftHeroState: false, hasActiveProject: true, isGitRepo: true, showEnvironmentIndicator: true, hostsRestingComposerControls };
+describe('shouldShowComposerContextStrip (v0.1.5 BranchToolbar.logic.test.ts)', () => {
+  test('honors the active-thread preference', () => {
+    const input = { isDraftHeroState: false, hasActiveProject: true, isGitRepo: true, showEnvironmentIndicator: true };
     expect(shouldShowComposerContextStrip({ ...input, persistInActiveThreads: false })).toBe(false);
     expect(shouldShowComposerContextStrip({ ...input, persistInActiveThreads: true })).toBe(true);
   });
-  test('keeps the environment indicator visible for a non-Git project', () => {
-    expect(shouldShowComposerContextStrip({ isDraftHeroState: true, persistInActiveThreads: false, hasActiveProject: true, isGitRepo: false,
-      showEnvironmentIndicator: true, hostsRestingComposerControls: false })).toBe(true);
+  test('an active thread of a non-Git project needs the environment indicator', () => {
+    const input = { isDraftHeroState: false, persistInActiveThreads: true, hasActiveProject: true, isGitRepo: false };
+    expect(shouldShowComposerContextStrip({ ...input, showEnvironmentIndicator: true })).toBe(true);
+    expect(shouldShowComposerContextStrip({ ...input, showEnvironmentIndicator: false })).toBe(false);
   });
-  test('hides the strip when a non-Git project has nothing to show', () => {
-    expect(shouldShowComposerContextStrip({ isDraftHeroState: true, persistInActiveThreads: false, hasActiveProject: true, isGitRepo: false,
-      showEnvironmentIndicator: false, hostsRestingComposerControls: false })).toBe(false);
-  });
-  test('keeps the strip for visible resting composer controls in a non-Git thread', () => {
-    expect(shouldShowComposerContextStrip({ isDraftHeroState: true, persistInActiveThreads: false, hasActiveProject: true, isGitRepo: false,
-      showEnvironmentIndicator: false, hostsRestingComposerControls: true })).toBe(true);
-  });
-  test('shows Git controls without requiring an environment indicator', () => {
-    expect(shouldShowComposerContextStrip({ isDraftHeroState: true, persistInActiveThreads: false, hasActiveProject: true, isGitRepo: true,
-      showEnvironmentIndicator: false, hostsRestingComposerControls: false })).toBe(true);
+  test('a new thread always shows the strip, which names its permissions', () => {
+    for (const isGitRepo of [false, true]) for (const showEnvironmentIndicator of [false, true]) {
+      expect(shouldShowComposerContextStrip({ isDraftHeroState: true, persistInActiveThreads: false, hasActiveProject: true, isGitRepo, showEnvironmentIndicator })).toBe(true);
+    }
+    expect(shouldShowComposerContextStrip({ isDraftHeroState: true, persistInActiveThreads: false, hasActiveProject: false, isGitRepo: true, showEnvironmentIndicator: true })).toBe(false);
   });
 });
 
@@ -77,13 +72,14 @@ describe('the non-Git strip shows only where it runs (BranchToolbar.tsx, BranchT
     expect(strip).toMatchObject({ show: true, gitless: true, envShow: true, envLocked: false, envMachineLabel: 'Local' });
     expect(strip.envOptions.map(option => [option.id, option.selected])).toEqual([['a', true]]);
   });
-  test('a draft on this device alone has nothing to show; a non-Git project on two machines does', () => {
+  test('a draft on this device alone shows the strip without the machine selector (its Permissions only)', () => {
     primaryAt('http://127.0.0.1:1', 'a'); // this device: the primary environment
-    expect(gitlessStrip(plain('http://127.0.0.1:1'), hidden, false, new EnvironmentFleet())).toBe(hidden);
+    const bare = { ...hidden, show: true, gitless: true, envShow: false };
+    expect(gitlessStrip(plain('http://127.0.0.1:1'), hidden, false, new EnvironmentFleet())).toEqual(bare);
     const source = new EnvironmentFleet(), b = entry('b', { shell: { projects: [{ id: 'pb', workspaceRoot: '/notes' }], threads: [], sequence: 0 } as unknown as FleetEntry['shell'] });
     source.entries.set(b.key, b);
     // A path without a repository identity stays on its machine (deriveLogicalProjectKey): '/notes' on b is another project.
-    expect(gitlessStrip(plain('http://127.0.0.1:1'), hidden, false, source)).toBe(hidden);
+    expect(gitlessStrip(plain('http://127.0.0.1:1'), hidden, false, source)).toEqual(bare);
   });
   test('a started thread keeps the static machine row, and only when its strip persists', () => {
     expect(gitlessStrip(plain('https://far.example.invalid', 't1'), hidden, true, new EnvironmentFleet())).toMatchObject({ show: true, gitless: true, envLocked: true, envOptions: [] });
@@ -99,7 +95,7 @@ describe('the non-Git strip shows only where it runs (BranchToolbar.tsx, BranchT
       return later(input);
     };
     client.config.scratchWorkspaceRoot = '/repo'; // the fixture's project is this machine's "No project" folder
-    expect(await composerBranches(client, native, false, '')).toMatchObject({ show: false, gitless: false }); // this device alone
+    expect(await composerBranches(client, native, false, '')).toMatchObject({ show: true, gitless: true, envShow: false }); // this device alone
     const b = entry('b');
     fleet.entries.set(b.key, b);
     try {

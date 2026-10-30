@@ -43,57 +43,57 @@ export function textWidth(text: string, small = false): number {
 }
 
 /**
- * resolveRestingComposerControlsLayout (composer-resting-layout.ts): trailing
- * blocks lose their labels first (mode, then traits), then move into the "More
- * composer controls" menu (mode, then traits); only then does the model picker
- * shrink, and below its minimum the cluster hides. Labels are measured
- * (composer-measure.ts); the rest is the toolbar's geometry. `previous` holds
- * each size's last step (icon-only blocks plus hidden blocks) and whether the
- * cluster showed, for the promotion slack.
+ * The footer's fit (resolveRestingComposerControlsLayout, composer-resting-layout.ts, as ComposerControlsBar runs it
+ * at v0.1.5): trailing blocks lose their labels first (mode, then traits), then move into the "More composer
+ * controls" menu (mode, then traits); only then does the model picker shrink, and below its minimum the cluster
+ * hides. `traits` is the effort block's width (effortBlockWidth) and `runtime` the Permissions chip's label, '' when
+ * the chip shows its icon only; `mode` false when the chip is hidden and Plan is off (no mode block). Labels are
+ * measured (composer-measure.ts); the rest is the toolbar's geometry. `previous` holds the last step (icon-only
+ * blocks plus hidden blocks) and whether the cluster showed, for the promotion slack.
  */
-export type FooterSteps = { sm: number; xs: number; smHidden?: boolean; xsHidden?: boolean };
-export function footerLayout(input: { model: string; traits: string; traitsIcon: boolean; runtime: string; plan: string; host: number; measure?: Measure; previous?: FooterSteps;
+export type FooterSteps = { sm: number; smHidden?: boolean };
+export function footerLayout(input: { model: string; traits: number; runtime: string; runtimeShown: boolean; mode: boolean; plan: string; host: number;
+  measure?: Measure; previous?: FooterSteps;
   /** An unavailable model's badge, which follows its name inside the picker (0 without one). */
   badge?: number }) {
   // Label widths come from laid-out probes (composer-measure.ts); the estimate stands in until then.
-  const width = (text: string, small: boolean, kind: ProbeKind) => labelWidth(text, small, kind, input.measure, textWidth);
-  const steps = (small: boolean) => {
-    // Block widths from the toolbar's own geometry (composer-controls.contract), matching the
-    // reference's measured blocks. Since 3816296021 a block is its trigger alone: no separators, and
-    // the controls row has no gap. "sm" triggers pad 9+9 (px-2 and the 1pt border) with 6pt gaps, 16pt
-    // icons and a 10pt chevron; "xs" ones pad 7+7 with 4pt gaps, 12pt icons and an 8pt chevron.
-    // The picker sits at margin-left -8 (resting -10) and, resting, at most 168pt wide (ProviderModelPicker
-    // max-w-42); its minimum is the trigger's min-width (48 / 40) less that margin.
-    // The badge sits after the name across the trigger's gap (4pt resting, 6pt otherwise).
-    const badge = input.badge ? input.badge + (small ? 4 : 6) : 0;
-    const picker = small ? Math.min(158, 34 + width(input.model, true, 'model') + badge) : 48 + width(input.model, false, 'model') + badge;
-    const traits = !input.traits && !input.traitsIcon ? 0
-      : (small ? 26 : 34) + (input.traitsIcon ? (small ? 16 : 22) : 0) + (input.traits ? width(input.traits, small, 'traits') : 0);
-    const traitsIcon = !traits ? 0 : small ? 38 : 50;
-    // The plan toggle's glyph: PencilRuler 16pt while planning, Bot 18pt otherwise ("sm"); 12pt resting.
-    const planGlyph = small ? 12 : input.plan === 'Plan' ? 16 : 18;
-    const plan = input.plan ? (small ? 14 : 18) + planGlyph + (small ? 4 : 6) + width(input.plan, small, 'plan') : 0;
-    const mode = (small ? 42 : 56) + width(input.runtime, small, 'runtime') + plan;
-    const modeIcon = (small ? 38 : 50) + (input.plan ? (small ? 14 : 18) + planGlyph : 0);
-    // The reference's expanded footer has no gap before its actions (gap-2 sm:gap-0), so its controls
-    // host is 8pt wider than this footer's controls row (gap=8); the resting row is measured as it is.
-    const host = input.host > 0 ? input.host + (small ? 0 : 8) : 0;
-    const blocks = traits ? [traits, mode] : [mode], icons = traits ? [traitsIcon, modeIcon] : [modeIcon];
-    const previousStep = (small ? input.previous?.xs : input.previous?.sm) ?? 0;
-    const previous = { hiddenCount: Math.max(0, previousStep - blocks.length), iconOnlyCount: Math.min(previousStep, blocks.length),
-      visible: !(small ? input.previous?.xsHidden : input.previous?.smHidden) };
-    // The "…" trigger: an icon-only control (16pt glyph padded 9+9, resting 12pt padded 7+7).
-    const layout = host > 0 ? resolveRestingComposerControlsLayout({ gap: 0, naturalFixedWidth: picker, minimumFixedWidth: small ? 30 : 40,
-      blockWidths: blocks, iconOnlyBlockWidths: icons, overflowWidth: small ? 26 : 34, hostWidth: host, previous }) : { hiddenCount: 0, iconOnlyCount: 0, visible: true };
-    const iconOnly = layout.iconOnlyCount ?? 0, hidden = layout.hiddenCount;
-    return { iconMode: iconOnly >= 1, iconTraits: !!traits && iconOnly >= 2, modeHidden: hidden >= 1, traitsHidden: !!traits && hidden >= 2,
-      hidden: !layout.visible, step: iconOnly + hidden };
-  };
-  const sm = steps(false), xs = steps(true);
-  return { runtimeIconOnly: sm.iconMode, traitsIconOnly: sm.iconTraits, restingRuntimeIconOnly: xs.iconMode, restingTraitsIconOnly: xs.iconTraits,
-    // Blocks in the overflow menu, and the cluster hidden below the picker's minimum.
-    modeOverflow: sm.modeHidden, traitsOverflow: sm.traitsHidden, restingModeOverflow: xs.modeHidden, restingTraitsOverflow: xs.traitsHidden,
-    controlsHidden: sm.hidden, restingControlsHidden: xs.hidden, steps: { sm: sm.step, xs: xs.step, smHidden: sm.hidden, xsHidden: xs.hidden } as FooterSteps };
+  const width = (text: string, kind: ProbeKind) => labelWidth(text, false, kind, input.measure, textWidth);
+  // Block widths from the toolbar's own geometry (composer-controls.contract). A trigger pads 9 at its start (px-2
+  // and the 1pt border) and 5 at its end (pe-1), with 6pt gaps and 16pt icons; the controls sit 2pt apart (gap-0.5).
+  // The picker's minimum is min-w-13; the badge sits after the name across the trigger's gap.
+  const badge = input.badge ? input.badge + 6 : 0;
+  const picker = 36 + width(input.model, 'model') + badge;
+  const traits = input.traits, traitsIcon = traits ? 20 : 0;
+  // The plan toggle's glyph: PencilRuler 16pt while planning, Bot 18pt otherwise.
+  const planGlyph = input.plan === 'Plan' ? 16 : 18;
+  const plan = input.plan ? 18 + planGlyph + 6 + width(input.plan, 'plan') : 0;
+  // The Permissions chip pads 7 at its start (ps-1.5) and 9 at its end: its icon alone, or the icon and its label.
+  const chip = !input.runtimeShown ? 0 : input.runtime ? 38 + width(input.runtime, 'runtime') : 32;
+  const mode = chip + plan + (chip && plan ? 2 : 0);
+  const modeIcon = (input.runtimeShown ? 32 : 0) + (input.plan ? 18 + planGlyph : 0) + (input.runtimeShown && input.plan ? 2 : 0);
+  const host = input.host > 0 ? input.host : 0;
+  const blocks = [...(traits ? [traits] : []), ...(input.mode ? [mode] : [])], icons = [...(traits ? [traitsIcon] : []), ...(input.mode ? [modeIcon] : [])];
+  const previousStep = input.previous?.sm ?? 0;
+  const previous = { hiddenCount: Math.max(0, previousStep - blocks.length), iconOnlyCount: Math.min(previousStep, blocks.length), visible: !input.previous?.smHidden };
+  // The "…" trigger: an icon-only control (16pt glyph padded 9+9).
+  const layout = host > 0 && blocks.length ? resolveRestingComposerControlsLayout({ gap: 2, naturalFixedWidth: picker, minimumFixedWidth: 52,
+    blockWidths: blocks, iconOnlyBlockWidths: icons, overflowWidth: 34, hostWidth: host, previous }) : { hiddenCount: 0, iconOnlyCount: 0, visible: true };
+  const iconOnly = layout.iconOnlyCount ?? 0, hidden = layout.hiddenCount;
+  return { runtimeIconOnly: input.mode && iconOnly >= 1, traitsIconOnly: !!traits && iconOnly >= (input.mode ? 2 : 1),
+    // How many trailing blocks the measurement moved into the overflow menu (resolveComposerControlsOwnership's input),
+    // and the cluster hidden below the picker's minimum.
+    measuredHidden: hidden, controlsHidden: !layout.visible, steps: { sm: iconOnly + hidden, smHidden: !layout.visible } as FooterSteps };
+}
+
+/**
+ * The effort trigger's width (TraitsPicker in the composer): it reads on from the model name, 4pt into the picker's
+ * end padding (-ms-1), padded 1 (ps-0 and the border) before a word or 3 before bars and 5 after; its parts 6pt apart.
+ */
+export function effortBlockWidth(effort: { word: string; bars: number; speed: string; other: string; shown: boolean }, measure?: Measure): number {
+  if (!effort.shown) return 0;
+  const parts = [effort.word ? labelWidth(effort.word, false, 'traits', measure, textWidth) : effort.bars ? 4 * effort.bars - 2 : 0,
+    effort.speed === 'Ultrafast' ? 15 : effort.speed ? 12 : 0, effort.other ? Math.min(96, textWidth(effort.other, true)) : 0].filter(width => width > 0);
+  return (effort.word ? 1 : 3) + 5 - 4 + parts.reduce((sum, width) => sum + width, 0) + 6 * Math.max(0, parts.length - 1);
 }
 
 // traitsDisplay (buildTraitsTriggerDisplay) lives in composer-controls-model.ts, beside the option labels it reads; Settings' TraitsPicker rows share it.

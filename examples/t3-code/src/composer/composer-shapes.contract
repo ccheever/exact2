@@ -189,6 +189,13 @@ shape FanoutMark
   key: string
   driver: string
   icon: string
+// One bar of the effort glyph (effort-glyph.ts effortBars): its x, top and height in a 14pt box, filled up to the level.
+shape EffortBar
+  x: number
+  y: number
+  height: number
+  on: bool
+
 shape ComposerView
   placeholder: string
   modelTip: string
@@ -204,12 +211,30 @@ shape ComposerView
   fanoutMore: number
   fanoutKeys: string[]
   traitsLabel: string
+  // The effort chip (TraitsPicker in the composer): shown when the model has traits; its word ("High", "" for bars),
+  // its bars, the speed ("Fast", "Ultrafast" or ""), the other traits ("1M") and its name and tooltip.
+  effortShown: bool
+  effortWord: string
+  effortBars: EffortBar[]
+  effortBarsWidth: number
+  effortSpeed: string
+  effortOther: string
+  traitsTip: string
+  // Where Permissions live (composer-controls-ownership.ts): the chip shows "label", "icon" or is "hidden"; it is
+  // emphasized off the project's default; the mode block (the chip or Plan) shows; the effort chip or the overflow
+  // menu answers composer.mode; a new thread's strip names them.
+  accessDisplay: string
+  accessEmphasized: bool
+  showModeBlock: bool
+  effortOwnsMode: bool
+  overflowPermissions: bool
+  permissionsInStrip: bool
+  permissionsTip: string
+  stripPermissionsTip: string
   // The selected ACP Registry instance's agent icon URL (acp-instance-icon.ts).
   providerIcon: string
   runtimeIconOnly: bool
   traitsIconOnly: bool
-  restingRuntimeIconOnly: bool
-  restingTraitsIconOnly: bool
   sendRunning: bool
   sendLabel: string
   sendIcon: string
@@ -294,21 +319,14 @@ shape ComposerView
   // The prompt drives the ultrathink frame (composer-ultrathink.ts).
   ultrathink: bool
   // Blocks moved into "More composer controls", the cluster hidden below the
-  // picker's minimum, and the menu's rows and widths, for the expanded and the resting footer.
+  // picker's minimum, and the menu's rows and widths.
   modeOverflow: bool
   traitsOverflow: bool
-  restingModeOverflow: bool
-  restingTraitsOverflow: bool
   controlsHidden: bool
-  restingControlsHidden: bool
   more: ComposerTrait[]
   moreCount: number
-  restingMore: ComposerTrait[]
-  restingMoreCount: number
   moreMenuWidth: number
-  restingMoreMenuWidth: number
   moreMenuHeight: number
-  restingMoreMenuHeight: number
   keyEffort: string
   keyMode: string
   attach: bool

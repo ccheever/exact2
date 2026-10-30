@@ -37,7 +37,7 @@ const restore = (client: Fake) => applyCoreSetting(as(client), native, 'restore-
 const REFERENCE_PATCH_CLIENT_KEYS = [
   'appearanceContrast', 'diffColorScheme', 'chatWidth', 'timestampFormat', 'notificationMode', 'inAppNotificationsEnabled', 'wordWrap',
   'persistComposerContextStrip', 'diffFilesCollapsed', 'diffIgnoreWhitespace', 'diffLayout', 'proactivePanelsEnabled', 'showSkillsInSlashMenu',
-  'composerCollapseOnScroll', 'composerRichTextEnabled', 'sendShortcut', 'followUpBehavior', 'contextWindowMeterEnabled', 'environmentIdentificationMode',
+  'composerRichTextEnabled', 'sendShortcut', 'followUpBehavior', 'contextWindowMeterEnabled', 'environmentIdentificationMode',
   'glassOpacity', 'panelAnimationDurationMs', 'sidebarThreadPreviewCount', 'sidebarProjectGroupingMode', 'sidebarProjectSortOrder', 'sidebarWorkingShelfEnabled',
   'confirmThreadArchive', 'confirmThreadDelete', 'confirmThreadUnpin', 'confirmQuit', 'fontFamilySans', 'fontFamilyComposer', 'fontFamilyCode', 'fontFamilyTerminal',
   'fontSizeInterface', 'fontSizePrompt', 'fontSizeCode', 'fontSizeTerminal', 'browserDefaultViewport', 'browserDefaultZoomFactor', 'browserDefaultAppearance',
@@ -79,7 +79,7 @@ describe('Restore defaults resets what the reference resets', () => {
     const client = fake();
     client.local.clientSettings = decodeClientPrefs(CHANGED);
     for (const key of Object.keys(CLIENT_DEFAULTS)) expect([key, prefsOf(client)[key]]).toEqual([key, CHANGED[key as keyof typeof CHANGED]]);
-    client.local.deviceSettings = { composerCollapseOnScroll: false, planModeEnabled: true, timestampFormat: '24-hour', appearanceMode: 'dark', sendShortcut: 'mod-enter', snapShotEnabled: true };
+    client.local.deviceSettings = { planModeEnabled: true, timestampFormat: '24-hour', appearanceMode: 'dark', sendShortcut: 'mod-enter', snapShotEnabled: true };
     client.local.groupingMode = 'separate';
     const listed = restoreLabels(client.local as never, null);
     expect(listed).not.toContain('Font smoothing');
