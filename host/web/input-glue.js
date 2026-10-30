@@ -531,6 +531,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (effect) effect.setKeyframes(frames);
     return box;
   };
+  // A press's target as `inside` tests it: its unpressed box's edges.
+  const boxOf = el => { const r = unpressedBox(el); return [r.left, r.top, r.right, r.bottom]; };
   let press = null;
   // @ref LLP 1122 D8, LLP 1121 stage 8 E — a held state, shown as the real one: `active` the press of the node the
   // press resolves to (its paint and scale, eased as a real press, at once on the agent's clock), `hover` and
@@ -783,6 +785,19 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // Delay touch and pen feedback only where a scroll can move the target. A quick tap flashes on release;
   // a scroll cancels it before it shows (UIKit's `delaysContentTouches`, LLP 1061 D2).
   const TOUCH_DELAY = 150;
+  // Only a person's scroll ends a touch's press: one that follows a touch or a pen the browser took (`pointercancel`)
+  // or a wheel (a trackpad's momentum is wheels too), in a scroller holding what that input landed on, until its
+  // scrolls rest for the delay. Any other scroll is the page moving itself (an app's `scrollTop`, scroll anchoring,
+  // `scrollIntoView`), which, like UIKit's `setContentOffset`, cancels no touch: the press goes on, measured where its
+  // target now is.
+  let person = { until: -Infinity, from: null };
+  const personInput = e => { person = { until: performance.now() + TOUCH_DELAY, from: e.target }; };
+  // Whether `node` is `el` or inside it, through any shadow root's host.
+  const holds = (el, node) => { while (node && node !== el) node = node.parentNode ?? node.host; return !!node; };
+  addEventListener("pointercancel", e => { if (e.pointerType === "touch" || e.pointerType === "pen") personInput(e); }, true);
+  addEventListener("wheel", personInput, { capture: true, passive: true });
+  // It ends with its scroller's `scrollend`, which comes after the glide: what moves that scroller next is the page.
+  document.addEventListener("scrollend", e => { if (holds(e.target, person.from)) person.until = -Infinity; }, { capture: true, passive: true });
   const scrolled = new WeakMap();
   const touchScroll = el => {
     const since = performance.now() - TOUCH_DELAY;
@@ -806,12 +821,19 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return { delay, moving };
   };
   document.addEventListener("scroll", e => {
-    scrolled.set(e.target, performance.now());
-    if (press?.touch && touchScroll(press.el).moving) {
-      release();
+    const now = performance.now();
+    if (now <= person.until && holds(e.target, person.from)) {
+      person.until = now + TOUCH_DELAY;
+      scrolled.set(e.target, now);
+      if (press?.touch && touchScroll(press.el).moving) return release();
     }
+    if (!press || !holds(e.target, press.el)) return;
+    press.box = boxOf(press.el);
+    if (!press.delay) showHeld(press, stillUnder(press));
   }, { capture: true, passive: true });
   const inside = (p, e) => { const [l, t, r, b] = p.box; return e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b; };
+  // Whether the finger, where it last was, is over the target as the page last moved it.
+  const stillUnder = p => inside(p, { clientX: p.at[0], clientY: p.at[1] });
   // Only mark a mouse-held link without a `press` handler: it dims unless it declares feedback, in which case
   // it shows nothing (LLP 1121's `lower-state-dead` lint). Buttons and touch presses show authored feedback.
   const showHeld = (p, down, now = false) => p.dimOnly ? markPressed(p.el, down, now) : showPress(p.el, down, now);
@@ -868,19 +890,20 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const scroll = touch && !agentMode ? touchScroll(el) : {};
     if (scroll.moving) return;
     const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
-    const r = unpressedBox(el);
     const p = press = {
-      el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom], touch,
+      el, id: e.pointerId, box: boxOf(el), at: [e.clientX, e.clientY], touch,
       haptic: haptic && haptic !== "none" ? (haptic === "selection" ? 5 : 12) : 0,
       dimOnly: !touch && el.matches('a:not([data-exact-on~=press])'),
     };
-    if (scroll.delay) p.delay = setTimeout(() => { if (press !== p) return; p.delay = 0; begin(p); }, TOUCH_DELAY);
+    // The delay over, the press shows if its target is still under the finger: the page may have moved it away.
+    if (scroll.delay) p.delay = setTimeout(() => { if (press !== p) return; p.delay = 0; if (stillUnder(p)) begin(p); }, TOUCH_DELAY);
     else begin(p);
   }, true);
   document.addEventListener("pointermove", e => {
     if (e.pointerId !== press?.id) return;
     // The button came up where this document did not hear it (outside the window).
     if (e.buttons === 0) return release();
+    press.at = [e.clientX, e.clientY];
     // Inside the delay the browser decides: a scroll cancels the touch, a tap lifts it.
     if (press.delay) return;
     showHeld(press, inside(press, e));

@@ -528,18 +528,38 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await pressedAfter('bare')).not.toBe(null);
     expect(await bare()).toBe('0.9,1');
     await finger('touchEnd');
-    // A touch that stops a list still moving is no press, and a scroll under a press ends it.
-    await evaluate(`document.getElementById('away').insertAdjacentHTML('beforebegin', '<div id="scroller" style="position:fixed;top:0;left:0;width:300px;height:40px;overflow:auto"><div id="deep" data-exact-on="press" style="height:200px">deep</div></div>')`);
-    const scroll = (to) => evaluate(`new Promise(ok => { const s = document.getElementById('scroller'); s.addEventListener('scroll', ok, { once: true }); s.scrollTop = ${to}; })`);
-    await scroll(10);
-    await finger('touchStart', await centre('scroller'));
+    // A person's scroll under a press ends it (the browser takes the touch to pan: `pointercancel`), and a touch that
+    // stops a list a person set moving is no press.
+    await evaluate(`document.getElementById('away').insertAdjacentHTML('beforebegin', '<div id="scroller" style="position:fixed;top:0;left:0;width:300px;height:40px;overflow:auto"><div id="deep" data-exact-on="press" style="height:200px">deep</div><div style="height:100px"></div></div>')`);
+    const scrollTop = () => evaluate(`document.getElementById('scroller').scrollTop`);
+    const [across] = await centre('scroller');
+    await finger('touchStart', [across, 35]);
+    for (const y of [28, 21, 14, 7]) await finger('touchMove', [across, y]);
+    expect([await marked('deep', 'data-pressed'), await scrollTop() > 0]).toEqual([false, true]);
+    await finger('touchEnd');
+    await finger('touchStart', [across, 20]);
     if (await evaluate('at.down - at.scrolled < 150')) expect(await pressedAfter('deep')).toBe(null);
     await finger('touchEnd');
     await released('deep');
-    await finger('touchStart', await centre('scroller'));
+    // The page moving itself (an app's `scrollTop`) is no person's scroll, as UIKit's `setContentOffset` cancels no
+    // touch: a touch just after it presses, and a press it moves goes on, shown while its target is under the finger.
+    await evaluate(`new Promise(ok => { const poll = setInterval(() => { if (performance.now() - at.scrolled > 150) { clearInterval(poll); ok(); } }, 10); })`);
+    const scroll = (to) => evaluate(`new Promise(ok => { const s = document.getElementById('scroller'); s.addEventListener('scroll', ok, { once: true }); s.scrollTop = ${to}; })`);
+    await scroll(0);
+    await finger('touchStart', [across, 20]);
     expect(await pressedAfter('deep')).toBeGreaterThanOrEqual(150);
+    const moved = [];
+    for (const to of [20, 190, 20]) { await scroll(to); moved.push(await marked('deep', 'data-pressed')); }
+    expect(moved).toEqual([true, false, true]);
+    await finger('touchEnd');
+    // Moved away inside the delay, the press does not show when the delay ends; brought back, it does.
+    await released('deep');
+    await scroll(0);
+    await finger('touchStart', [across, 20]);
+    await scroll(190);
+    expect(await pressedAfter('deep')).toBe(null);
     await scroll(20);
-    expect(await marked('deep', 'data-pressed')).toBe(false);
+    expect(await marked('deep', 'data-pressed')).toBe(true);
     await finger('touchEnd');
     await evaluate(`document.getElementById('scroller').remove()`);
     // A pressable nothing scrolls under shows its press at the touch, as a tab bar's item does on iOS: in a fixed bar,
@@ -1269,6 +1289,11 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press f
         el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType, pointerId: 1, isPrimary: true,
           button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + r.width / 2, clientY: r.y + 10 }));
       };
+      // A person's scroll: another finger the browser took to pan, then the scroll it makes.
+      window.personScroll = target => {
+        target.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerType: 'touch', pointerId: 2 }));
+        target.dispatchEvent(new Event('scroll'));
+      };
     });
     const seen = {};
     seen.authoredButton = await page.evaluate(() => {
@@ -1278,25 +1303,43 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press f
       pointer('authored', 'pointerup', 'mouse');
       return opacity;
     });
-    // A document's scroll is reported on Document, outside the element ancestor chain
-    await page.evaluate(() => { document.dispatchEvent(new Event('scroll')); pointer('moving', 'pointerdown'); });
+    // A document's scroll is reported on Document, outside the element ancestor chain. The page scrolling itself is
+    // no person's scroll, and takes no press.
+    // A wheel elsewhere makes no other scroller's own scrolling a person's.
+    for (const [name, scroll] of [['movingPage', 'person'], ['appScroll', 'app'], ['wheelElsewhere', 'wheel']]) {
+      await page.evaluate(scroll => {
+        if (scroll === 'person') personScroll(document);
+        else if (scroll === 'wheel') { document.getElementById('authored').dispatchEvent(new WheelEvent('wheel', { bubbles: true })); document.getElementById('port').dispatchEvent(new Event('scroll')); }
+        else document.dispatchEvent(new Event('scroll'));
+        pointer('moving', 'pointerdown');
+      }, scroll);
+      await page.clock.runFor(151);
+      seen[name] = await page.evaluate(() => {
+        const marked = document.getElementById('moving').hasAttribute('data-pressed');
+        pointer('moving', 'pointerup');
+        return marked;
+      });
+      await page.clock.runFor(151);
+    }
+    // A person's scroll ends with its scroller's `scrollend`: the page scrolling that scroller itself every 100 ms after
+    // it is no person's, and a touch then presses.
+    await page.evaluate(() => { const port = document.getElementById('port'); personScroll(port); port.dispatchEvent(new Event('scrollend')); });
+    for (let i = 0; i < 3; i++) { await page.clock.runFor(100); await page.evaluate(() => document.getElementById('port').dispatchEvent(new Event('scroll'))); }
+    await page.evaluate(() => pointer('moving', 'pointerdown'));
     await page.clock.runFor(151);
-    seen.movingPage = await page.evaluate(() => {
-      const marked = document.getElementById('moving').hasAttribute('data-pressed');
-      pointer('moving', 'pointerup');
-      return marked;
-    });
+    seen.afterScrollEnd = await page.evaluate(() => { const marked = document.getElementById('moving').hasAttribute('data-pressed'); pointer('moving', 'pointerup'); return marked; });
+    await page.clock.runFor(151);
     // A fixed bar stays still while its ancestor scrolls
     seen.fixedBar = await page.evaluate(() => {
-      document.getElementById('port').dispatchEvent(new Event('scroll'));
+      personScroll(document.getElementById('port'));
       pointer('fixed', 'pointerdown');
       const el = document.getElementById('fixed'), before = el.hasAttribute('data-pressed');
-      document.getElementById('port').dispatchEvent(new Event('scroll'));
+      personScroll(document.getElementById('port'));
       const after = el.hasAttribute('data-pressed');
       pointer('fixed', 'pointerup');
       return [before, after];
     });
-    expect(seen).toEqual({ authoredButton: '0.4', movingPage: false, fixedBar: [true, true] });
+    expect(seen).toEqual({ authoredButton: '0.4', movingPage: false, appScroll: true, wheelElsewhere: true, afterScrollEnd: true, fixedBar: [true, true] });
     // Ignore delayed feedback if the target is disabled or removed before its timer fires
     await page.clock.runFor(151);
     for (const change of ['disabled', 'removed']) {
