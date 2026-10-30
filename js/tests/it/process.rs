@@ -321,3 +321,26 @@ fn exec_file_answers_from_the_process_request_and_refused_options_reject() {
         .to_string();
     assert!(bad.contains("`shell` is refused"), "{bad}");
 }
+
+#[test]
+fn an_exec_file_its_signal_aborts_resumes_rejected_and_is_cancelled() {
+    let mut m = Module::new(HBC.to_vec(), "test.process", "process.spawn path:t3\n");
+    m.load().unwrap();
+    let src = "component App\n  resource held = held() as shape string\n  mutation halted as shape string\n  action halt\n    send halted = halt()\n  view\n    text held\n";
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    let out = r.take_requests();
+    let exec = out.iter().find(|o| o.target == "held").unwrap();
+    assert!(exec.request.is_process() && !exec.request.stream);
+    // Another answer's turn aborts it: answered aborted at the host's next
+    // pump, and handed to the host to cancel, which ends the child (D3).
+    r.act("halt", vec![]).unwrap();
+    let (ticket, outcome) = r.take_request_refusal(false).expect("the aborted answer");
+    assert_eq!(ticket, exec.ticket);
+    r.fulfill(ticket, outcome).unwrap();
+    assert_eq!(
+        r.resource("held").and_then(Value::as_str),
+        Some("AbortError")
+    );
+    assert_eq!(r.take_explicit_aborts(), [exec.ticket]);
+}
