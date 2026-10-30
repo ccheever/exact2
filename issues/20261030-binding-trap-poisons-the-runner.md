@@ -11,7 +11,22 @@
 
 **Cause.** `NodeInst::emit_bindings` propagates a binding's trap with `?` (`runner/src/instance.rs:963,970`; also `instance/looks.rs:100`). The failed settled update poisons the runner (`runner/src/runner/lists.rs:134`), and `poison` (`runner/src/runner/commit.rs:761`) drops every request, command, pending answer and background job. The web target does the same in `flush`'s catch (`host/web-js/rt.js:207`). This is the accepted behaviour: LLP 1017.003 D3 and LLP 1090 D6 say a trap while the tree updates poisons, and they defer recoverable tree traps. `runner/tests/it/now_screen/bad_data.rs:108-119` pins it.
 
-**Reproduction.** A text binding `join(map(items, i => i.name), ",")` over an answer of 65,537 rows: the commit is refused with `Instance(Trap(IterationLimit { … }))`, then `act` and `advance` return `Poisoned`.
+**Reproduction.** This contract compiles with `contract build`. Its data source answers `items(n)` with `n` rows.
+
+```
+shape Item
+  name: string
+
+component A
+  state n = 1
+  resource items = items(n) as shape Item[]
+  action grow
+    n = 65537
+  view
+    text items.map(i => i.name).join(",") testId="names"
+```
+
+The runner boots. `act("grow")` is refused with `Instance(Trap(IterationLimit { … }))`, the journal says `act grow poisoned the runner`, and every later `act` returns `Poisoned`.
 
 **Fix (needs a ruling).** Option A: treat a trapping prop or style binding as invalid at computed-value time, as Charlie's 2026-09-22 ruling already treats a refused bound value (LLP 1005 "Atomicity"). The row is unset (`ClearProp`/`ClearStyle`), one journal line names the binding's site and the trap, and the update continues. No transaction is needed, because the trap stays inside one binding. Traps in a subject, a key or a row initializer still poison. This changes LLP 1017.003 D3 and 1090 D6, the JS target's emitted bindings, conformance and the semantics' observation. Option B: keep the poison and make the compiler warn when a binding inside a `for` walks the list that `for` iterates (`contract/lower/src/warnings/rows.rs` covers only a lookup into another list). Option C: both. Recommendation: C, with A first.
 
