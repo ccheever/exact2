@@ -39,6 +39,9 @@ and stop it after; start none of your own for them. They find it this way:
   Arguments after the entry in `commands.server` are passed through in order.
 - **Its address:** the first `http://127.0.0.1:<port>` in `app.ts` (or a module it imports, as the
   starter's `API`). To use another port, change it there; the server reads it from the same constant.
+  An origin fixed at build (a deployed API's) is a setting: `"env": ["API_BASE_URL"]` in `app.json`,
+  `const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080'` in `app.ts`, its value from the
+  environment, `.env.local` or `.env`, in that order. Keep the local server's address as the default.
 - **Its database:** the path in `DB`, which the entry or a module it imports reads:
   `new Database(process.env.DB ?? 'data.db')`.
   If the server keeps no database, set `"server": { "database": false }` beside

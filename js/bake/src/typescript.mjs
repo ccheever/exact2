@@ -12,6 +12,8 @@ import { builtinModules, createRequire } from 'node:module';
 import { resolve, relative, dirname, basename, join, sep, isAbsolute, toNamespacedPath } from 'node:path';
 // The bake writes the binding's generator beside this file in its stage (js/bake/src/resident.rs `BINDING`).
 import { moduleBinding } from './__exact_binding.mjs';
+// And the settings' reader beside it (resident.rs `ENV`).
+import { inlineSettings, strayReads } from './__exact_env.mjs';
 
 export { moduleBinding };
 
@@ -576,7 +578,7 @@ export function capturedSources(stage, refusals=null) {
       id=physicalId(id);
       const parse=(c,o)=>this.parse(c,o), js=/\.[cm]?js$/.test(id) && within(id,stage);
       // The app's own JavaScript is checked as package code is, and for the clock as the app's TypeScript is.
-      report([...(files.has(id) ? [] : ambientRefusals(stage,id,code,parse)), ...(js ? packageRefusals(code,(at)=>label(id,at),parse) : [])]);
+      report([...(files.has(id) ? [] : [...ambientRefusals(stage,id,code,parse), ...strayReads(stage,id,code,parse)]), ...(js ? packageRefusals(code,(at)=>label(id,at),parse) : [])]);
       return null;
     },
     buildEnd() {
@@ -981,7 +983,10 @@ export function configure(stage, incremental=false, parse) {
     const authored=existsSync(original) ? JSON.parse(readFileSync(original,'utf8')) : before;
     const selection=backendOriginSelection(app), warning=backendOriginWarning(authored,selection,parse);
     writeFileSync(resolve(stage,'__exact_backend_warning.json'), JSON.stringify(warning));
-    const after=developmentGrants(injectBackendOrigin(authored,selection?.origin ?? null,parse),parse);
+    // `import.meta.env` first: a `const origin` it sets is a literal the backend selection may then override.
+    const settings=inlineSettings(authored,app,parse);
+    writeFileSync(resolve(stage,'__exact_env.json'), JSON.stringify(settings.record));
+    const after=developmentGrants(injectBackendOrigin(settings.code,selection?.origin ?? null,parse),parse);
     if (before!==after) writeFileSync(modulePath,after);
     // Every producer refuses alike what the web build cannot read without running it.
     if (parse) staticFacts(after,parse);

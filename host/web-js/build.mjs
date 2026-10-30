@@ -24,6 +24,7 @@ import { copyGpuCache } from './gpu-cache.mjs';
 import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev, withRuntimeStamp } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
+import { settingLines } from '../../js/bake/src/__exact_env.mjs';
 import { withLook } from '../web/look.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -264,6 +265,8 @@ if (checkOnly) {
   if (typeError) { console.error(`${String(typeError.message ?? typeError).trimEnd()}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
   process.exit(0);
 }
+// Each setting app.ts read, as inlined, and its source (`configure`; LLP 1153 D4).
+if (ts) for (const line of settingLines(JSON.parse(readFileSync(resolve(tsStage, '__exact_env.json'), 'utf8')))) console.log(line);
 async function typecheck(checking) {
   const { configure, check, capturedSources, staticFacts } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
@@ -382,7 +385,7 @@ const grants = ts ? developmentLocalNetwork(String(tsModule.grants ?? '')) : '';
 if (ts) {
   const expected = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
   const problems = [
-    ...['__exact_backend_source.json', '__exact_backend_warning.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_binding.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
+    ...['__exact_backend_source.json', '__exact_backend_warning.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_binding.mjs', '__exact_env.mjs', '__exact_env.json', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
     ...tsModule.exported.includes('draw') !== tsModule.exported.includes('surfaces') ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
     ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json's "app": { "id" } is ${expected} (its top-level "id" is the web manifest's, another field): make the two the same`] : [],

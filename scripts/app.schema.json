@@ -1225,6 +1225,15 @@
       "properties": { "scope": { "type": "string" } },
       "additionalProperties": false
     },
+    "env": {
+      "type": "array",
+      "description": "The settings app.ts reads at build (LLP 1153 D4), as `const API = import.meta.env.API_BASE_URL`, optionally `?? 'a default'`: each value comes from the environment, then `.env.local`, then `.env` beside app.json, and is inlined into the module. Every value is public: it ships in the module on every host, so a secret never belongs here. A name app.ts reads that this list lacks, or one it lists that app.ts never reads, is refused at build.",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      }
+    },
     "typescript": {
       "type": "object",
       "properties": {

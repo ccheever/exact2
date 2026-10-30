@@ -43,6 +43,8 @@ import { ensureShells } from './app-shells.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
 import { shareTargetProblems, webShareTarget } from './share-target.mjs';
+import { noteBunLoaded } from '../js/bake/src/__exact_env.mjs';
+noteBunLoaded(); // before this script starts a process: the settings Bun loaded from `.env` files (LLP 1153 D4)
 /** rustup puts cargo in `~/.cargo/bin` and a login profile puts that on PATH;
  * a non-interactive shell (an agent's, a launchd job's) often skips the
  * profile, and every cargo spawn below then fails as ENOENT. Every script that
@@ -1101,6 +1103,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   }
   for (const pkg of packages) if(usedPackages.has(pkg.id))add(pkg.manifest_path);
   add(resolve(graph.metadata.workspace_root,'Cargo.toml'));add(resolve(graph.metadata.workspace_root,'Cargo.lock'));add(resolve(app.dir,'.exact/backend-origin'),true); // the bake's backend selection, by bytes or absence
+  for (const file of app.manifest?.env?.length ? ['.env.local', '.env'] : []) add(resolve(app.dir, file), true); // its settings' files (LLP 1153 D4), likewise
   // Watch absent art without a missing Cargo input that dirties every build.
   if (app.manifest.game) add(resolve(app.dir, 'art'), true);
   if (app.manifest.game?.render && graph.surface) {
@@ -1238,8 +1241,8 @@ export function wholeProgram(kind, profile) {
  * `check` runs `cargo check`: the build scripts (the bake) and the receipt,
  * with no linked product (delivery's web bake, host/web/build.mjs --bake).
  * `options.kind` overrides the crate kind the platform implies. */
-/** What an app's bake watches besides its sources (its asset roots that exist, whether a backend origin is chosen); unset, a missing one stays an input where the app holds its build output, and every build reruns the script and relinks (bake/src/receipt/watch.rs). Every baking build passes it. `app`: its `dir`, `manifest`. */
-export const bakeWatchEnv = app => ({ EXACT_ASSET_ROOTS: ['assets', 'deck', ...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root => (root === 'assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir, 'art')))) || existsSync(resolve(app.dir, root))).join(','), EXACT_BACKEND_SELECTION: existsSync(resolve(app.dir, '.exact/backend-origin')) ? 'present' : 'absent' });
+/** What an app's bake watches besides its sources (its asset roots that exist, whether a backend origin is chosen, which of the settings files `.env.local` and `.env` exist); unset, a missing one stays an input where the app holds its build output, and every build reruns the script and relinks (bake/src/receipt/watch.rs). Every baking build passes it. `app`: its `dir`, `manifest`. */
+export const bakeWatchEnv = app => ({ EXACT_ASSET_ROOTS: ['assets', 'deck', ...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root => (root === 'assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir, 'art')))) || existsSync(resolve(app.dir, root))).join(','), EXACT_BACKEND_SELECTION: existsSync(resolve(app.dir, '.exact/backend-origin')) ? 'present' : 'absent', EXACT_ENV_FILES: ['.env.local', '.env'].filter(file => existsSync(resolve(app.dir, file))).join(',') });
 /** The dev loop's bake driver (host/web/dev.mjs): an app's `<app>-dev` bin (`devBin`), else `exact-dev`, on host-dev (seconds after an edit, not release's minute), with `bakeWatchEnv` (nothing rebuilt when nothing changed): its cargo args before `--`, cwd and env over `env`. */
 export const devBinRun = (app, devBin, env) => ({ args: ['run', '-q', ...(devBin ? injectedProfiles(app) : []), '--profile', HOST_DEV, '-p', devBin ? app.crate('web') : 'exact-web', '--bin', devBin ?? 'exact-dev'], cwd: devBin ? app.workspace : ROOT, env: { ...env, ...bakeWatchEnv(app) } });
 export function buildBake(app, platform, target, options = {}) {

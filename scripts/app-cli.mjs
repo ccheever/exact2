@@ -6,6 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { noteBunLoaded } from '../js/bake/src/__exact_env.mjs';
 
 /** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
  * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, Cargo's for a build
@@ -93,6 +94,8 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
 
 /** `bun exact.mjs <verb> [arguments]` for the app `name` in `dir`, with the checkout `exact2`; the exit code. */
 export async function run({ dir, name, game = false, exact2, args }) {
+  // Before any process starts: which settings Bun loaded from this directory's `.env` files (LLP 1153 D4).
+  noteBunLoaded();
   // The design tool's tests, drives and verify run on this checkout's own port (port-lock.mjs `checkoutPort`, unless
   // EXACT_TOOL_PORT names one), from a copy staged with that origin and its stub (tamber-tool-port.mjs
   // `stageToolTests`), so its stub never binds the 7740 a person's tool holds; EXACT_TOOL_PORT=7740 runs them in place.

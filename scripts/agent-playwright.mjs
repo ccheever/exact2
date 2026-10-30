@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { agentPage, backLayer, chromium, launchFacts, listenOn, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
+import { agentPage, backLayer, builtSettingLines, chromium, launchFacts, listenOn, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs'; import { bootedGeneration, leaseGeneration } from '../host/web/generations.mjs';
@@ -226,7 +226,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   const hosted = await files({ plan, pageURL, app, webDist, port, env });
   let browserServer, browser, context, page, poolKey;
   // Only Chrome keeps a named store's profile between drives (agent.mjs `openWeb`); here it is this drive's own.
-  const hostLines = storage === undefined ? [] : [`${name}: --storage ${storage} is this drive's own profile, emptied when it ends; Chrome keeps a store between drives`];
+  const hostLines = [...pageURL ? [] : builtSettingLines(resolve(webDist ?? defaultWebDist())), ...storage === undefined ? [] : [`${name}: --storage ${storage} is this drive's own profile, emptied when it ends; Chrome keeps a store between drives`]];
   // Why a page never booted: its last 20 lines when the wait gave up, as a hangup's report (agent-wire.mjs).
   const neverBooted = what => () => `${what}; ${hostLines.slice(-20).join('\n')}`;
   const closeFiles = () => {

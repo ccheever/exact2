@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
+import { builtSettings } from '../../js/bake/src/__exact_env.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, markWorlds, rustPolicy, webGpuArtifacts, webHostFiles, worldSurfaces } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webAppManifest, webDist, copyShaders, bakeOutput, bakeWatchEnv, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
@@ -87,8 +88,9 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     // the build rewrote them, are one line (LLP 1116.001 D4.5).
     for (const line of compiler) console.error(line);
     for (const line of (js.stderr ?? '').split('\n')) if (/^(warning|app\.contract\.d\.ts): /.test(line)) console.error(line);
+    // `env`: each setting app.ts read, as inlined, and its source (LLP 1153 D4), for the drive's logs and `changedSettings`.
     writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
-      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs, inputsAt }) + '\n');
+      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs, inputsAt, ...builtSettings(stage) }) + '\n');
     replaceBuild(stage, dist);
     stage = null;
     process.exit(0);
@@ -101,7 +103,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   // check's file:line:col diagnostics, including paths with spaces, and its
   // refusals of package code (js/bake/src/typescript.mjs `capturedSources`).
   const packageRefusal = (l) => / (?:imports Node's built-in|uses the DOM's|uses Node's|loads a module by a computed name|loads code from a string|uses the page's)|, (?:which is not installed|a native addon|which the checked capture did not resolve)|: not an npm package name and version| must be a constant the build reads without running|^(?:Error: )?two copies of /.test(l);
-  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )|^note: /.test(l) || ambientDiagnostic(l) || packageRefusal(l) || /\bunoptimized$|\bnot on PATH\b/.test(l))
+  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )|^note: /.test(l) || ambientDiagnostic(l) || packageRefusal(l) || /\bunoptimized$|\bnot on PATH\b|import\.meta\.env/.test(l))
     // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
     .map((l) => l.replace(/^Error: (?=module outside captured app: )/, ''));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');

@@ -14,7 +14,7 @@ import {refusalMessage} from './agent-keys.mjs';
 // only); `fling` and `hold` are a trackpad's through the window server, which
 // AppKit runs with its momentum and rubber band, and `wheel 0 0 release` lifts a
 // hold (LLP 1142 D3, macOS only, the terminal's Accessibility grant). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, agentPage, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, webNeeds, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, webChanges, bakedPlans, parityScript, netFlags, launchEntries } from './agent-launch.mjs';
+import { Cdp, agentPage, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, webNeeds, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, webChanges, builtSettingLines, bakedPlans, parityScript, netFlags, launchEntries } from './agent-launch.mjs';
 import { widgetStep } from './agent-widget.mjs';
 import { sourceMapReaders, identifyResources, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, pidTrace, writeTrace, layoutArgs, tapRefusal, nextCommitTasks, settleBound, worldView, phoneTrace, stateOp, worldLook, worldTells, lookAcross, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -144,7 +144,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME`);
   }
   onProcess?.(child);
-  const hostLines = [], launchTail = launchLog();
+  const hostLines = js ? builtSettingLines(dist) : [], launchTail = launchLog();
   let partial = ''; // a line split across stderr chunks
   const line = (l) => {
     if (!l) return;

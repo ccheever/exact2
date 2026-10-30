@@ -219,7 +219,9 @@ component Groceries
 **The data module** answers each source with exactly its declared shape: an extra
 field fails a resource or voids a mutation’s reply, whose slot keeps its old value.
 Type the function returning a reply (`Promise<Result<'post'>>`) so the build names
-an extra field. It reaches only what its `grants` name. A failed read should
+an extra field. It reaches only what its `grants` name. A value fixed at build, such as an
+API's origin, is `const API = import.meta.env.API_BASE_URL` at its top level, the name declared
+in `app.json`'s `env` ([rest-backend](recipes/rest-backend.md)). A failed read should
 fail its resource so Exact can retain its previous answer; a mutation may return
 a shaped domain refusal for its action to handle
 ([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and

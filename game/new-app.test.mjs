@@ -67,6 +67,8 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.ok(text <= 1536, `AGENTS.md is ${text} bytes besides the checkout's paths`);
     assert.match(agents(), /exact\.mjs setup --check/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
+    // A setting's local value (`import.meta.env`, LLP 1153 D4) stays out of the repository.
+    assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.env\.local$/m);
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
     const launcher = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
     assert.ok(launcher.trimEnd().split('\n').length <= 25, `exact.mjs is ${launcher.split('\n').length} lines`);

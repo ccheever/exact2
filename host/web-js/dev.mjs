@@ -18,6 +18,7 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathS
 import { basename, dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
+import { builtSettings } from '../../js/bake/src/__exact_env.mjs';
 import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, listenDelay, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { generationFile, generationPath, servedFile } from '../web/generations.mjs';
 import { localInstaller } from '../web/local-install.mjs';
@@ -36,6 +37,8 @@ const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
+/** The files beside app.json a setting is read from (`import.meta.env`, LLP 1153 D4): inputs, though dot files. */
+const settingsFile = (name) => /^\.env(?:\.local)?$/.test(String(name));
 /** Whether `path` changed from `since` (ms) until now, by the entry's own times (lstat: a link replaced by one to an older
  * file is new, though its target is not): its modification, or its status change, which alone moves when an older file
  * is renamed over it. A time past now is a file dated ahead (an archive's, a clock's), which a build read as it is, so it is no change. Throws
@@ -157,7 +160,7 @@ function build(app, dist, keep = () => false, compiler = null, superseded = null
         });
       }
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
-        manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
+        manifestSha256: appManifestDigest(app), files: buildFileCards(stage), ...builtSettings(stage) }) + '\n');
       // Once more after the watchers' events queued meanwhile are taken.
       setImmediate(() => {
         if (moved()) return setAside();
@@ -201,7 +204,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // once the watchers are on.
   let built, startMoved = false;
   for (let moved = false, tries = 1; ; moved = false, tries++) {
-    const input = (name) => name && ((!skipped.test(String(name)) && String(name) !== 'app.contract.d.ts') || /^\.exact(?:[\\/]backend-origin)?$/.test(String(name)));
+    const input = (name) => name && ((!skipped.test(String(name)) && String(name) !== 'app.contract.d.ts') || /^\.exact(?:[\\/]backend-origin)?$/.test(String(name)) || settingsFile(name));
     const begun = Date.now();
     const early = [watch(app.dir, { recursive: true }, (_, name) => { if (!moved && input(name) && movedSince(resolve(app.dir, String(name)), begun)) moved = true; }), watch(resolve(root, 'host/web-js'), { recursive: true }, (_, name) => { if (!moved && name && !skipped.test(String(name)) && movedSince(resolve(root, 'host/web-js', String(name)), begun)) moved = true; })];
     try { built = await build(app, dist, () => false, null, tries < 3 ? () => moved : null); } finally { for (const w of early) w.close(); }
@@ -667,7 +670,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // A Contract source the compile read is an input even where the app's
     // watcher skips (a dot directory).
     if (name && skip.test(String(name)) && !contractInput(resolve(base, String(name)))
-      && !(base === app.dir && /^\.exact(?:[\\/]backend-origin)?$/.test(String(name)))) return;
+      && !(base === app.dir && (/^\.exact(?:[\\/]backend-origin)?$/.test(String(name)) || settingsFile(name)))) return;
     // `.exact/` is an input only for `backend-origin`: the loop's own design
     // server makes the directory for its lock, which is none. An event for
     // either is an edit when that file's bytes (or its being there) differ

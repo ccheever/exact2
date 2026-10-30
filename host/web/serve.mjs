@@ -1082,6 +1082,8 @@ async function main() {
   const at = argv.indexOf('--origin');
   if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('--origin needs a directory');
   const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : webDist();
+  // TODO(LLP 1153 D3): the `serve` verb asks `changedSettings` (js/bake/src/__exact_env.mjs) here, and rebuilds on a
+  // difference when the app's sources are beside the build, or refuses it, naming the name and both values.
   // A JS-target build (LLP 1071) is served as its tree, uncompressed.
   const js = jsTargetBuild(dist);
   if (!js && !await readStaticFileAsync(dist, '/app.wasm')) {

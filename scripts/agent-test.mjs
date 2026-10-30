@@ -15,6 +15,7 @@ import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { onThisMachine, serverUrl } from './verify.mjs';
 import { backendOrigin, backendOriginSelection } from '../js/bake/src/typescript.mjs';
+import { declaredSettings, settingValues } from '../js/bake/src/__exact_env.mjs';
 import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
@@ -171,6 +172,10 @@ export function backendOriginSource(app, origin, env=process.env) {
   if (!dir) return 'built net.fetch grant';
   const selected=backendOriginSelection(dir,env);
   if (selected?.origin===origin) return selected.source;
+  // A setting app.ts reads (`import.meta.env`, LLP 1153 D4) whose value is at this origin.
+  const at=value=>{ try { return new URL(value).origin; } catch { return null; } };
+  const setting=Object.entries(settingValues(dir,declaredSettings(dir),env)).find(([,s])=>s && at(s.value)===origin);
+  if (setting) return `import.meta.env.${setting[0]} from ${setting[1].source}`;
   let code=''; try { code=readFileSync(resolve(dir,'app.ts'),'utf8'); } catch { /* no TypeScript source */ }
   const literal=/\bconst\s+origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1]?.replace(/\/+$/,'');
   return !selected && literal===origin ? 'app.ts origin literal' : 'built net.fetch grant (rebuild after changing the backend selection)';
