@@ -114,8 +114,8 @@ fn a_row_mounted_dimmed_is_presented_whole_once_its_opacity_returns_to_one() {
 /// observation), whose commit lifts `busy`. The round's presentation is
 /// written into the same batch after the mount's `present opacity 0.64`, so
 /// the value back at identity must be presented too: the presenter does not
-/// start that view at identity any more. The T3 Code clone's saved EAS host
-/// took its end this way, through its timers due at the round.
+/// start that view at identity any more. The T3 Code clone's save of an EAS
+/// host ended this way, in a timer the round ran.
 const ROUND: &str = r##"shape Host
   id: string
 
