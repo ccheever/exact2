@@ -3661,3 +3661,60 @@ outputs and script are retained beside the logs. Verbatim:
 probe: painter-specific completeness and one boot-expose wake passed
 aggregate: per-painter complete scenes, fast misses, boot-only spans, and missing historical completeness passed
 ```
+
+
+### Chunk 3 — post-rebase checks
+
+The review fixes are `f2c1dc9679`, rebased onto `origin/main` `2ebe456363`.
+The RESULTS conflict retained G5's record followed by Stage 0b; the QUEUE
+conflict retained every entry. The renderer, presenter, carrier and A1 changes
+are byte-identical to their pre-rebase revision, `e304ac76f9`. The shared probe
+and aggregator include main's G5 instrumentation, and their windowless checks
+pass again (`target/stage-0b/chunk-3/post-rebase-instrument/`).
+
+**Five of the six post-rebase checks pass; the workspace check remains red.**
+Build, root tests, clippy plus fmt, caps and boot pass. Root tests report
+7,373 passed, 0 failed and 83 ignored, including child runs. The workspace
+check exits 101 in all three attempts: 60, 60, 60 app build scripts fail,
+respectively, with `SIGSEGV`. The third attempt sets `CARGO_BUILD_JOBS=2`;
+it does not resolve the crash. No further retry was made. This matches the
+app-bake failure already recorded on fetched main in `QUEUE.md`, following its
+vendored Ibex update; this lane changes no app-bake or Ibex code. The same
+workspace check passed before the rebase. This branch is **not fully green for
+landing** until that upstream failure is resolved.
+
+The commands and original exits are in
+`target/stage-0b/chunk-3/post-rebase/results.json`; `workspace-attempts.json`
+lists all three attempts and failing packages. Their complete stdout and
+stderr remain in `workspace.log`, `workspace-retry-2.log` and
+`workspace-retry-3-jobs-2.log`. One representative error, verbatim:
+
+```text
+error: failed to run custom build command for `weatherlight-apple v0.1.0 (/Users/ccheever/projects/exact2-wt-1149-s0b/apps/weatherlight/apple)`
+
+Caused by:
+  process didn't exit successfully: `/Users/ccheever/projects/exact2-wt-1149-s0b/target/debug/build/weatherlight-apple-d1217ea3dbb61207/build-script-build` (signal: 11, SIGSEGV: invalid memory reference)
+```
+
+The required-Metal ink suite and gated transition pass again after the rebase;
+the carrier's all-target build also passes. Commands and exits are in
+`additional-checks.json`. Verbatim test results:
+
+`post-rebase/ink.log`:
+
+```text
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+`post-rebase/transition.log`:
+
+```text
+Metal archive transition: mean 0.023/255, 0.000% beyond 32
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1654 filtered out; finished in 2.59s
+```
+
+No window series, live-resize interaction or reboot was performed. Miss and
+retained startup distributions, passive displayed timestamps and complete
+scenes per painter remain for the silver M5 Max after landing. These checks
+add no startup timing claim and do not change M10's unmet 100 ms obligation.
