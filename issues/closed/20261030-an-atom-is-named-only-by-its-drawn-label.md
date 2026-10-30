@@ -13,18 +13,20 @@ it "Image attachment, <name>, <size>" (`apps/web/src/components/composerContextP
 
 **Cause.** `AtomFace(source, label, icon, title, color, backgroundColor, direction)` had no field for
 the name. Every host took the accessible name from `label`: the web's `aria-label` (`host/web/atoms.js`),
-the Apple `AtomElement`'s label (`host/apple/Sources/ExactKit/FieldAtoms.swift`), the field's accessible
-value (`NSAttributedString.shownText`) and a reader's text (`NodeView.accessibleText`).
+the Apple `AtomElement`'s label (`host/apple/Sources/ExactKit/FieldAtoms.swift`) and the field's
+accessible value (`NSAttributedString.shownText`). An Apple reader's element read neither: its label and
+value were its Markdown source (`NodeView.visibleParagraphText`), the atoms' syntax included.
 
 **Fix.** `AtomFace` gains `ariaLabel`; empty reads the label. The runner writes it into the
 `atomFaces` JSON (it moves the compatibility id of plans that bind faces). The web's pill takes it as
 `aria-label` in the editor (`mde_atom_faces`) and the reader (the piece's detail, both targets); on Apple
-it names the atom's element and stands for the atom in the field's value and in a reader's text
-(`exact_markup_plain`'s `spoken`). The pill still draws the label, copy still takes it, and `state.atoms`
-still reports it.
+it names the atom's element and stands for the atom in the field's value and in a reader's text, which
+a reader with atoms now reads as plain text (`exact_markup_plain`'s `spoken`). The pill still draws the
+label, copy still takes it, and `state.atoms` still reports it.
 
 **Acceptance.** `spoken_atoms_read_each_face_by_its_accessible_name` (markdown);
 `atoms_cross_the_seam_through_one_handle` (host/apple's Rust); the web's "a face's ariaLabel names its
 pill" and reader tests in Chrome, Firefox and WebKit; `testAFacesAriaLabelIsItsAccessibleName` on macOS
 and iOS and `testAReaderReadsAnAtomByItsAriaLabel`; Markdown Stress's `tidy` pill, `ariaLabel="Skill,
-tidy"`, is "Skill, tidy" in `agent.mjs macos tree --ax`.
+tidy"`, is "Skill, tidy" in `agent.mjs macos tree --ax`, in the editor's button and value and in the
+reader's text.

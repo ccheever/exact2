@@ -773,7 +773,8 @@ final class InlineAtomReaderTests: XCTestCase {
     }
 
     /// D8: a reader is read with each atom as its accessible name, its face's
-    /// `ariaLabel`, where its pill draws the label.
+    /// `ariaLabel`, where its pill draws the label, and without the atoms'
+    /// Markdown source.
     func testAReaderReadsAnAtomByItsAriaLabel() throws {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
         let drawn = MarkupRuns.expand(source, base: base, color: nil, atoms: MarkdownAtoms(kinds: kinds, faces: named))
@@ -781,6 +782,12 @@ final class InlineAtomReaderTests: XCTestCase {
         let node = NodeView(id: 2, kind: "text", presenter: Presenter())
         node.props = ["text": source, "markup": "markdown", "atoms": kinds, "atomFaces": named]
         XCTAssertEqual(node.accessibleText, "Ask Image attachment, quote now")
+        node.updateTextAccessibility()
+        #if os(macOS)
+        XCTAssertEqual(node.accessibilityLabel(), "Ask Image attachment, quote now", "its element reads it so, not its source")
+        #else
+        XCTAssertEqual(node.accessibilityLabel, "Ask Image attachment, quote now", "its element reads it so, not its source")
+        #endif
         node.props["atomFaces"] = faces
         XCTAssertEqual(node.accessibleText, "Ask A quote now", "without one, its label")
     }
