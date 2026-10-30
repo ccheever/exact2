@@ -115,12 +115,14 @@ mobile tests, 253 focused tests including desktop minimap, strict TypeScript,
 generator verification and the six repository checks pass. Both actual preview
 components pass baseline/current EAS controls at 16-point light and 20-point dark.
 Heading/table controls, natural wrapping and single code pans remain usable.
+
 Baseline native measurements proved the long-code blanking mechanism. The raster
 was marked whole and settled at 592 points despite uncut paint widths of 787.54
 and 969.28 points. Legal inner scrolling exposed those missing pixels. Later
 outward pans chained into the fixture root. The separate end-padding discrepancy
 remains unqualified. Source and the temporary observer are restored exactly;
 evidence is under `target/t3-poc-evidence/phone-code-native-metrics/`.
+
 The painting correction now retains measured coverage in each raster result.
 Both real preview owners pass initial, middle, legal edge and return pans on EAS,
 with exact source identity, one current image and zero CoreText pixel mismatches.
@@ -128,10 +130,25 @@ Private native huge-line and tall-wide jumps also answer current demand with
 finite windows and idle convergence; paused-worker reversal keeps admitted work.
 Shared Apple tests pass; UIKit tests compile, and the shared tvOS target builds.
 Evidence is under `target/t3-poc-evidence/phone-code-raster-implementation/`.
-Independent review is pending. End padding and fixture-root chaining remain
-outside this painting correction. The normal app passes Home, Settings,
-Search, New task, Back and relaunch. Entries and normal declarations are restored;
-the cloud device is shut down. Evidence is under
+Independent review verifies artifact hashes and identifies a distant HDR-shadow
+dependency that could disappear from partial windows. The correction captures
+those casters in translated source coordinates with physical-pixel alignment.
+Sixteen native shadow cases pass direct pixel comparisons at 1x and 3x; EAS also
+passes the fractional-offset case with zero mismatches and idle convergence.
+Oversized dependencies decline partial admission instead of claiming coverage.
+All 43 selected shared Apple tests, 4,153 mobile tests, strict TypeScript,
+generator verification and six root checks pass. UIKit owner tests compile with
+restored allowance and urgency assertions; they are not executed locally. The
+shared tvOS target builds. Thirty-two stale or redundant comment lines are removed.
+The clean normal build from `7060041026` passes Home, Settings, Search typing and
+clearing, New task, Back and process restart on EAS. Both preview edges repeat
+with complete final words and zero pixel mismatches. Evidence for this review
+correction is under the raster implementation's `parent-review-fix/` directory.
+End padding and fixture-root chaining remain outside this painting correction.
+Entries, normal declarations and temporary observers are restored; the cloud
+device is shut down.
+
+Formatted-prose evidence is under
 `target/t3-poc-evidence/phone-formatted-prose-implementation/`. Supplied-data
 rendering does not qualify connected reads, auth, cache, persistence, quantitative
 font parity or full selection parity. Independent review passes 253 focused tests,
