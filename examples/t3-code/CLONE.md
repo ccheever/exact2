@@ -121,9 +121,13 @@ Search, New task, Back and relaunch. Entries and normal declarations are restore
 the cloud device is shut down. Evidence is under
 `target/t3-poc-evidence/phone-formatted-prose-implementation/`. Supplied-data
 rendering does not qualify connected reads, auth, cache, persistence, quantitative
-font parity or full selection parity. Parent independent review and normal push
-remain pending. This slice reaches no release checkpoint and is outside the
-POC TestFlight build.
+font parity or full selection parity. Independent review passes 253 focused tests,
+80 boundary probes and all 2,196 saved production results. Its heading-heavy CPU
+finding is corrected by fragment-local break lists and one ordered range walk.
+All captured results remain exact, and all mobile tests and repository checks
+pass again. The normal build from `f349a4d50a` repeats Settings, Search, New task,
+Back and restart on fresh EAS. Native large-document latency remains unqualified.
+This slice reaches no release checkpoint and is outside the POC TestFlight build.
 
 These earlier implementation checkpoints are available on GitHub:
 
