@@ -537,6 +537,66 @@ final class TextPaintTests: XCTestCase {
         }
     }
 
+    func testLegalCodePanRetainsTheNativeLineEnd() throws {
+        let code = "SENTINEL\nkeep newline and pan to CODE_RIGHT_EDGE with a deliberately long independently scrolling code line\n"
+        for size in [CGFloat(13), 16] {
+            let run = Run(text: code, size: size, weight: 400, family: 6, italic: false,
+                          lineHeight: size + 6, letterSpacing: 0)
+            var spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.whiteSpace = 4
+            let paragraph = engine.paragraph(spec, width: 336)
+            let box = CGRect(x: 0, y: 0, width: 336, height: paragraph.height)
+            let advance = paragraph.lines.map { CTLineGetTypographicBounds($0, nil, nil, nil) }.max()!
+            let scale: CGFloat = 3
+            let edge = ceil((advance + 14) * scale) / scale - 364
+            let port = CGRect(x: edge - 14, y: 0, width: 364, height: box.height)
+            XCTAssertGreaterThan(port.minX, box.maxX)
+            let job = TextRasterJob(source: engine.attributed(spec), ranges: paragraph.lines.map(CTLineGetStringRange),
+                                    baselines: paragraph.baselines, flush: 0, box: box, size: box.size, scale: scale,
+                                    room: box, crop: true, antialiased: true)
+            let raster = try XCTUnwrap(job.render())
+            try assertNativeWindow(raster, paragraph: paragraph, port: port, scale: scale)
+        }
+    }
+
+    private func assertNativeWindow(_ raster: TextRasterImage, paragraph: Paragraph, port: CGRect, scale: CGFloat,
+                                    file: StaticString = #filePath, line: UInt = #line) throws {
+        let width = Int((port.width * scale).rounded()), height = Int((port.height * scale).rounded(.up))
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                             bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.translateBy(x: 0, y: CGFloat(height)); context.scaleBy(x: scale, y: -scale)
+        context.translateBy(x: -port.minX, y: -port.minY)
+        context.setShouldSmoothFonts(false)
+        for (text, baseline) in zip(paragraph.lines, paragraph.baselines) {
+            context.saveGState()
+            context.translateBy(x: 0, y: TextEngine.paintedBaseline(baseline, scale: scale))
+            context.scaleBy(x: 1, y: -1)
+            context.textMatrix = .identity; context.textPosition = .zero
+            CTLineDraw(text, context)
+            context.restoreGState()
+        }
+        let expected = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        let pixels = rasterPixels(raster)
+        #if os(macOS)
+        let rw = raster.surface.width, rh = raster.surface.height
+        #else
+        let rw = raster.image.width, rh = raster.image.height
+        #endif
+        let dx = Int(((port.minX - raster.frame.minX) * scale).rounded())
+        let dy = Int(((port.minY - raster.frame.minY) * scale).rounded())
+        var missing = 0, referenceInk = 0
+        for y in 0..<height { for x in 0..<width {
+            let alpha = Int(expected[(y * width + x) * 4 + 3])
+            if alpha > 32 { referenceInk += 1 }
+            let sx = x + dx, sy = y + dy
+            let actual = sx >= 0 && sx < rw && sy >= 0 && sy < rh ? Int((pixels[sy * rw + sx].w * 255).rounded()) : 0
+            if abs(alpha - actual) > 2 { missing += 1 }
+        } }
+        XCTAssertGreaterThan(referenceInk, 100, "the independent native window contains text", file: file, line: line)
+        XCTAssertEqual(missing, 0, "every native reference pixel survives the legal code pan", file: file, line: line)
+    }
+
     private func rasterBytes(_ r: TextRasterImage) -> Data {
         #if os(iOS)
         return (r.image.dataProvider?.data as Data?) ?? Data()
