@@ -669,6 +669,7 @@ impl Backend for Ink {
     }
 
     fn finish(&mut self) -> std::result::Result<Pixmap, String> {
+        exact_ink::counters::add(exact_ink::counters::Counter::PaintAttempts, 1);
         if let Some(e) = &self.error {
             return Err(e.clone());
         }
@@ -702,6 +703,7 @@ impl Backend for Ink {
         } else {
             #[cfg(target_os = "macos")]
             if target == FrameTarget::Window && self.device.has_layer() {
+                exact_ink::counters::add(exact_ink::counters::Counter::PaintAttempts, 1);
                 if let Some(e) = &self.error {
                     return Err(e.clone());
                 }
@@ -723,6 +725,7 @@ impl Backend for Ink {
             if target == FrameTarget::Window
                 && matches!(&self.device, Selected::D3d11(d) if d.has_window())
             {
+                exact_ink::counters::add(exact_ink::counters::Counter::PaintAttempts, 1);
                 if let Some(e) = &self.error {
                     return Err(e.clone());
                 }

@@ -67,7 +67,6 @@ impl Ink {
     }
 
     pub(super) fn update_statistics(&self) {
-        exact_ink::counters::add(exact_ink::counters::Counter::PaintAttempts, 1);
         let (glyphs, color_glyphs) = self.glyphs.stats();
         self.statistics.0.set(Statistics {
             snapshots: self.statistics.read().snapshots + 1,

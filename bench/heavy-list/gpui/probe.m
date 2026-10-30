@@ -9,6 +9,7 @@
 #include <mach/mach_time.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <dlfcn.h>
 
 static double processStart, loaded, firstDrawable, firstComplete;
 static double firstCpu, firstInk;
@@ -125,10 +126,11 @@ static NSDictionary *gpuUsage(int phase) {
 }
 
 // Opt-in fixed storage; serializing a trace happens after the measured scroll.
-static struct { const char *name; double start, end, value; mach_port_t thread; } intervals[131072];
+static struct { const char *name, *caller; double start, end, value; mach_port_t thread; } intervals[131072];
 static size_t intervalCount, intervalDropped;
 static BOOL tracing;
 static BOOL dispatchTracing;
+static BOOL wakeTracing;
 static pthread_mutex_t traceLock = PTHREAD_MUTEX_INITIALIZER;
 static const char *(*counterName)(size_t);
 static uint64_t (*counterValue)(size_t, bool);
@@ -143,14 +145,42 @@ static void backgroundActivateIgnoring(id object, SEL selector, BOOL ignoring) {
 static void backgroundOrder(id window, SEL selector, id sender) {
     [(NSWindow *)window orderFront:sender];
 }
-void g1_interval(const char *name, double start, double end, double value) {
+static void interval(const char *name, double start, double end, double value, const char *caller) {
     if (!tracing) return;
     pthread_mutex_lock(&traceLock);
     if (intervalCount < sizeof(intervals) / sizeof(intervals[0])) {
-        intervals[intervalCount++] = (typeof(intervals[0])){name, start, end, value, pthread_mach_thread_np(pthread_self())};
+        intervals[intervalCount++] = (typeof(intervals[0])){name, caller, start, end, value, pthread_mach_thread_np(pthread_self())};
     } else intervalDropped++;
     pthread_mutex_unlock(&traceLock);
 }
+void g1_interval(const char *name, double start, double end, double value) {
+    interval(name, start, end, value, NULL);
+}
+static const char *callerName(void *address) {
+    Dl_info info;
+    return dladdr(address, &info) ? (info.dli_sname ?: info.dli_fname) : "unresolved";
+}
+
+// Observe wake requests without changing their delivery or the timer deadline.
+static void wakeLoop(CFRunLoopRef loop) {
+    double start = wakeTracing ? CACurrentMediaTime() : 0;
+    CFRunLoopWakeUp(loop);
+    if (wakeTracing) interval("run loop wake request", start, CACurrentMediaTime(), loop == CFRunLoopGetMain(), callerName(__builtin_return_address(0)));
+}
+static void armTimer(CFRunLoopTimerRef timer, CFAbsoluteTime date) {
+    double start = wakeTracing ? CACurrentMediaTime() : 0;
+    CFRunLoopTimerSetNextFireDate(timer, date);
+    if (wakeTracing) {
+        double delay = date - CFAbsoluteTimeGetCurrent();
+        // Winit uses extreme dates to stop or immediately fire its timer.
+        interval("run loop timer arm", start, CACurrentMediaTime(), fmax(-1e12, fmin(1e12, delay)) * 1000, callerName(__builtin_return_address(0)));
+    }
+}
+__attribute__((used, section("__DATA,__interpose")))
+static const struct { const void *replacement, *original; } wakeObservers[] = {
+    {(const void *)wakeLoop, (const void *)CFRunLoopWakeUp},
+    {(const void *)armTimer, (const void *)CFRunLoopTimerSetNextFireDate},
+};
 
 void g1_boot_expose(void (^callback)(void)) {
     bootExpose = [callback copy];
@@ -325,9 +355,11 @@ static void saveTrace(void) {
     pthread_mutex_lock(&traceLock);
     for (size_t i = 0; i < intervalCount; i++) {
         typeof(intervals[0]) e = intervals[i];
+        NSMutableDictionary *args = [@{@"value": @(e.value)} mutableCopy];
+        if (e.caller) args[@"caller"] = @(e.caller);
         [events addObject:@{@"name": @(e.name), @"cat": @"ink", @"ph": @"X",
             @"ts": @(e.start * 1e6), @"dur": @((e.end - e.start) * 1e6),
-            @"pid": @(getpid()), @"tid": @(e.thread), @"args": @{@"value": @(e.value)}}];
+            @"pid": @(getpid()), @"tid": @(e.thread), @"args": args}];
     }
     size_t dropped = intervalDropped;
     pthread_mutex_unlock(&traceLock);
@@ -468,7 +500,11 @@ static NSData *signature(NSView *view) {
     }];
     signal(SIGUSR2, SIG_IGN);
     self.signals = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGUSR2, 0, dispatch_get_main_queue());
-    dispatch_source_set_event_handler(self.signals, ^{ [self advance]; });
+    dispatch_source_set_event_handler(self.signals, ^{
+        double began = dispatchTracing ? CACurrentMediaTime() : 0;
+        [self advance];
+        if (dispatchTracing) g1_interval("probe phase transition", began, CACurrentMediaTime(), self.phase);
+    });
     dispatch_resume(self.signals);
     signal(SIGUSR1, SIG_IGN);
     self.focusSignals = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGUSR1, 0, dispatch_get_main_queue());
@@ -603,20 +639,24 @@ static NSData *signature(NSView *view) {
         }
         self.start = endpointUsage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue]; self.peakSample = self.start;
         self.samples = [NSMutableArray arrayWithObject:self.start];
-        self.memory = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-        dispatch_source_set_timer(self.memory, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_MSEC);
-        dispatch_source_set_event_handler(self.memory, ^{
-            double began = dispatchTracing ? CACurrentMediaTime() : 0;
-            [self observeFocus];
-            NSDictionary *sample = usage();
-            [self.samples addObject:sample];
-            if ([sample[@"footprint"] unsignedLongLongValue] > self.peak) {
-                self.peak = [sample[@"footprint"] unsignedLongLongValue]; self.peakSample = sample;
-            }
-            if (dispatchTracing) g1_interval("probe timer", began, CACurrentMediaTime(), self.phase);
-        });
-        dispatch_resume(self.memory);
-        self.phase = 1; self.link.paused = NO; setGPUPhase(1);
+        if (!getenv("G1_NO_PROBE_TIMER")) {
+            self.memory = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+            dispatch_source_set_timer(self.memory, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_MSEC);
+            dispatch_source_set_event_handler(self.memory, ^{
+                double began = dispatchTracing ? CACurrentMediaTime() : 0;
+                [self observeFocus];
+                NSDictionary *sample = usage();
+                [self.samples addObject:sample];
+                if ([sample[@"footprint"] unsignedLongLongValue] > self.peak) {
+                    self.peak = [sample[@"footprint"] unsignedLongLongValue]; self.peakSample = sample;
+                }
+                if (dispatchTracing) g1_interval("probe timer", began, CACurrentMediaTime(), self.phase);
+            });
+            dispatch_resume(self.memory);
+        }
+        self.result[@"probeDisplayTicks"] = @(getenv("G1_NO_PROBE_DISPLAY") == NULL);
+        self.result[@"probeMemoryTimer"] = @(getenv("G1_NO_PROBE_TIMER") == NULL);
+        self.phase = 1; self.link.paused = getenv("G1_NO_PROBE_DISPLAY") != NULL; setGPUPhase(1);
         writeJSON(self.start, [output stringByAppendingFormat:@".%@", workload]);
     } else if (self.phase == 1) {
         setGPUPhase(2);
@@ -666,6 +706,7 @@ __attribute__((constructor)) static void initialize(void) {
         if (getenv("G1_AGENT_CPU_ONLY") && !getenv("EXACT_AGENT_LIVE")) abort();
         tracing = getenv("G1_TRACE") != NULL;
         dispatchTracing = tracing && getenv("G1_DISPATCH_TRACE");
+        wakeTracing = tracing && getenv("G1_WAKE_TRACE");
         if (dispatchTracing) {
             Method method = class_getInstanceMethod(NSApplication.class, @selector(sendEvent:));
             class_addMethod(NSApplication.class, @selector(g1_originalSendEvent:), method_getImplementation(method), method_getTypeEncoding(method));

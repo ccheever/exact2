@@ -24,6 +24,14 @@ counters! {
     ServiceDraw => "service_draw",
     ServiceTotal => "service_total",
     PassesInPeriod => "service_passes_in_period",
+    WheelInPeriod => "period_wheel",
+    LinkInPeriod => "period_link",
+    WorkerInPeriod => "period_worker",
+    TimerInPeriod => "period_timer",
+    AgentInPeriod => "period_agent",
+    WindowInPeriod => "period_window",
+    DispatchInPeriod => "period_dispatch",
+    DrawInPeriod => "period_draw",
     DisplayPeriods => "display_periods",
     RowsReplayed => "rows_replayed",
     RowsRecorded => "rows_recorded_whole",
@@ -134,6 +142,16 @@ pub const AGENT: u8 = 16;
 pub const WINDOW: u8 = 32;
 pub const DRAW: u8 = 64;
 
+const PERIOD_CAUSES: &[(u8, Counter, Counter)] = &[
+    (WHEEL, Counter::ServiceWheel, Counter::WheelInPeriod),
+    (LINK, Counter::ServiceLink, Counter::LinkInPeriod),
+    (WORKER, Counter::ServiceWorker, Counter::WorkerInPeriod),
+    (TIMER, Counter::ServiceTimer, Counter::TimerInPeriod),
+    (AGENT, Counter::ServiceAgent, Counter::AgentInPeriod),
+    (WINDOW, Counter::ServiceWindow, Counter::WindowInPeriod),
+    (DRAW, Counter::ServiceDraw, Counter::DrawInPeriod),
+];
+
 /// Nominal monitor periods also advance while the app's display link is stopped.
 pub fn refresh_rate(millihz: u32) {
     if enabled() {
@@ -157,6 +175,10 @@ fn advance_period() {
         if current != *previous {
             add(Counter::DisplayPeriods, current.saturating_sub(*previous));
             gauge(Counter::PassesInPeriod, 0);
+            gauge(Counter::DispatchInPeriod, 0);
+            for &(_, _, period) in PERIOD_CAUSES {
+                gauge(period, 0);
+            }
             *previous = current;
         }
     });
@@ -169,18 +191,12 @@ pub fn service(causes: u8) {
     add(Counter::PassesInPeriod, 1);
     if causes == 0 {
         add(Counter::ServiceDispatch, 1);
+        add(Counter::DispatchInPeriod, 1);
     }
-    for (bit, counter) in [
-        (WHEEL, Counter::ServiceWheel),
-        (LINK, Counter::ServiceLink),
-        (WORKER, Counter::ServiceWorker),
-        (TIMER, Counter::ServiceTimer),
-        (AGENT, Counter::ServiceAgent),
-        (WINDOW, Counter::ServiceWindow),
-        (DRAW, Counter::ServiceDraw),
-    ] {
+    for &(bit, counter, period) in PERIOD_CAUSES {
         if causes & bit != 0 {
             add(counter, 1);
+            add(period, 1);
         }
     }
 }

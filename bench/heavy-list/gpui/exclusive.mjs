@@ -90,13 +90,19 @@ function report(path, rest, duration) {
   });
   const service = events.filter(e => ['carrier service', 'draw service'].includes(e.name) && inWindow(e));
   const causes = {};
-  for (const e of service) {
+  const serviceCause = new Map();
+  for (const e of events.filter(e => ['carrier service', 'draw service'].includes(e.name))) {
     const mask = (e.args?.value ?? 0) - 1;
     const cause = e.args?.cause ?? (mask < 0 ? 'unmarked' : mask === 0 ? 'dispatch' :
       ['wheel', 'link', 'worker', 'timer', 'agent', 'window', 'draw']
         .filter((_, bit) => mask & (1 << bit)).join('+'));
-    causes[cause] = (causes[cause] ?? 0) + 1;
+    if (inWindow(e)) causes[cause] = (causes[cause] ?? 0) + 1;
+    serviceCause.set(e, cause);
   }
+  const causalElapsed = threads.flatMap(t => exclusive(events
+    .filter(e => e.tid === t.tid && !asyncNames.has(e.name))
+    .map(e => serviceCause.has(e) ? { ...e, name: `service cause: ${serviceCause.get(e)}` } : e), lo, hi))
+    .filter(r => r.phase.startsWith('service cause: '));
   const callbacks = events.filter(e => e.name === 'display callback' && inWindow(e));
   const shown = events.filter(e => e.name === 'presented' && e.ts > 0).map(e => e.ts).sort((a, b) => a - b);
   const period = 1e6 / (raw?.screenHz ?? 120);
@@ -118,9 +124,13 @@ function report(path, rest, duration) {
   const anchor = shown[0] ?? lo;
   const firstPeriod = Math.ceil((lo - anchor) / period), lastPeriod = Math.floor((hi - anchor) / period);
   const passes = Array.from({ length: Math.max(0, lastPeriod - firstPeriod) }, () => 0);
+  const passesByCause = Object.fromEntries(Object.keys(causes).map(c => [c, passes.map(() => 0)]));
   for (const e of service) {
     const index = Math.floor((e.ts - anchor) / period) - firstPeriod;
-    if (index >= 0 && index < passes.length) passes[index]++;
+    if (index >= 0 && index < passes.length) {
+      passes[index]++;
+      passesByCause[serviceCause.get(e)][index]++;
+    }
   }
   const histogram = {};
   for (const count of passes) histogram[count] = (histogram[count] ?? 0) + 1;
@@ -128,12 +138,19 @@ function report(path, rest, duration) {
   for (const e of events.filter(e => inWindow(e) && /wake|probe timer|probe display tick|window event/.test(e.name))) {
     wakes[e.name] = (wakes[e.name] ?? 0) + 1;
   }
+  const wakeCallers = {};
+  for (const e of events.filter(e => inWindow(e) && ['run loop wake request', 'run loop timer arm'].includes(e.name))) {
+    const callers = wakeCallers[e.name] ??= {};
+    const caller = e.args?.caller ?? 'unmarked';
+    callers[caller] = (callers[caller] ?? 0) + 1;
+  }
   const commands = new Set(events.filter(e => e.name === 'gpu command').map(e => `${e.ts}:${e.dur}`));
   const presents = events.filter(e => e.name === 'gpu present' && inWindow(e));
   const reread = { worker_reads: presents.length,
     identical_later_main_reads: presents.filter(e => commands.has(`${e.ts}:${e.dur}`)).length };
   const gaugeNames = new Set(['service_passes_in_period', 'targets_retained', 'target_bytes',
     'targets_incomplete', 'targets_reserved_this_frame', 'targets_idle', 'target_idle_bytes']);
+  for (const name of Object.keys(end.counters?.values ?? {})) if (name.startsWith('period_')) gaugeNames.add(name);
   const counters = start.counters && end.counters ? {
     delta: Object.fromEntries(Object.entries(end.counters.values).filter(([n]) => !gaugeNames.has(n))
       .map(([n, v]) => [n, v - start.counters.values[n]])),
@@ -145,10 +162,12 @@ function report(path, rest, duration) {
   return { path, sha256: createHash('sha256').update(bytes).digest('hex'), phase,
     start_seconds: start.time, end_seconds: hi / 1e6, seconds, dropped: trace.dropped,
     accepted: raw?.accepted ?? null, cpu_only: raw?.cpuOnly ?? false, cpu, threadCpu, threads, asynchronous,
-    service: { count: service.length, causes, callbacks: callbacks.length,
+    service: { count: service.length, causes, exclusive_elapsed_by_cause: causalElapsed, callbacks: callbacks.length,
       per_callback: callbacks.length ? service.length / callbacks.length : null,
-      complete_refresh_periods: { ...stats(passes), histogram, grid: shown.length ? 'presented-time anchor' : 'window-start nominal grid' } },
-    wakes, gpu_timestamp_reread: reread, counters,
+      complete_refresh_periods: { ...stats(passes), histogram,
+        by_cause: Object.fromEntries(Object.entries(passesByCause).map(([c, counts]) => [c, stats(counts)])),
+        grid: shown.length ? 'presented-time anchor' : 'window-start nominal grid' } },
+    wakes, wake_callers: wakeCallers, gpu_timestamp_reread: reread, counters,
     display_phase_ms: { period: period / 1000, ...stats(offsets) },
     main_cpu_minus_marked_elapsed_ms_per_s: duration === undefined ? cpu.main_ms_per_s
       - sum(threads.find(t => t.main)?.rows.map(r => r.ms_per_s) ?? []) : null,
@@ -171,6 +190,7 @@ function markdown(r) {
   for (const a of r.asynchronous) console.log(`| ${a.phase} | ${a.count} | ${a.elapsed_ms_per_s.toFixed(3)} | ${a.mean?.toFixed(3) ?? '—'} | ${a.p99?.toFixed(3) ?? '—'} |`);
   console.log(`\nService causes: ${JSON.stringify(r.service)}\nDisplay callback phase in refresh interval, ms: ${JSON.stringify(r.display_phase_ms)}`);
   console.log(`Wake marks: ${JSON.stringify(r.wakes)}\nGPU timestamps read after worker completion and again during main-thread retirement: ${JSON.stringify(r.gpu_timestamp_reread)}`);
+  if (Object.keys(r.wake_callers).length) console.log(`Wake and timer request callers: ${JSON.stringify(r.wake_callers)}`);
   if (r.counters) {
     console.log('\nCumulative counter deltas over the phase:\n| Counter | Delta |\n|---|---:|');
     for (const [name, value] of Object.entries(r.counters.delta).sort()) console.log(`| ${name} | ${value} |`);

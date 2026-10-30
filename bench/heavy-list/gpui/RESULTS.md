@@ -3577,7 +3577,8 @@ Mac fling waits for `target/s0/GO` newer than 2026-10-30T15:10:26Z.
 
 The exact ten-second control window reproduces every published count. The
 probe's complete fling window is 10.003495 seconds and includes two additional
-service, refinement and layout spans. `--seconds=10` makes the hand table's
+service, refinement and layout spans. The prediction of 3,579 passes over
+that full window misses: it has 3,581. `--seconds=10` makes the hand table's
 denominator explicit. All rates below are exclusive **elapsed** ms/s; counts
 are over ten seconds. GPU timestamps are excluded from CPU-thread nesting,
 even when their completion was observed on that thread.
@@ -3728,8 +3729,12 @@ count completed painter snapshots, including refused presents.
 The pool's process high water is **12 targets / 112.5 MiB**. At the process
 footprint peak of **869.314 MiB**, the probe records **8 targets / 75 MiB**:
 six reserved for the current frame, two idle (18.75 MiB), none held by
-incomplete work. The ≥16-target and ≥100 MiB idle-at-peak predictions both
-miss. The pool cannot account for this footprint; these logical bytes must
+incomplete work. The ≥16-target prediction misses. The ≥100 MiB idle-at-pool-high-water
+prediction is unresolved: the largest sampled idle value while all twelve
+targets are retained is 75 MiB; the separate idle high-water mark is
+103.125 MiB, without a retained coincident timestamp. The 18.75 MiB value
+at the footprint peak answers a different question. The pool cannot account
+for this footprint; these logical bytes must
 not be equated with physical footprint. The separate profiled run retains
 `marked-profile/vmmap.txt`: its 727.3 MiB snapshot precedes that run's
 861.783 MiB probe peak, so it is not a map taken at the exact peak.
@@ -3761,3 +3766,533 @@ end-of-rest traces. `G1_REST_TRACE=1` defers export until after the rest CPU
 endpoint. With this boundary, the marked counter run measures **3.499 ms/s
 process CPU** at rest, versus 84.609 ms/s in the earlier export-containing
 window. These are different observations, not a renderer optimization.
+
+### Observer-wakeup and GPU experiments: predictions
+
+Before the next runs, removing only the probe's display callbacks is
+predicted to reduce dispatcher-only service passes by at least half. Removing
+its one-second memory timer next should remove ten probe-timer marks from
+ten seconds of rest. The app's `producer` and `clock` tasks remain due at
+250 and 1,000 ms even with `BENCH_LIVE=0`; the initial agent state records
+both deadlines. Their work is not classified as redundant probe activity.
+
+For the GPU experiment, the same carrier uses integral one-point wheel
+steps, which avoid the continuous fractional clip-mask workload. Each arm
+retains its own trace and binary/probe hashes. Replacing the final texture
+sample with a clear is predicted to bring the mean GPU present interval
+below 0.35 ms. Keeping a second Metal queue busy is predicted to bring the
+sampled pass below 0.5 ms if low clock state explains the old ~1 ms. These
+are hypotheses, not assumed causes. The existing two timestamp read sites
+are compared too: the worker reads after completion; the main thread reads
+again when it retires that command.
+
+The first four GPU arms retain `gpu-{sample,clear,busy,busy-clear}-2/`.
+Their mean present intervals are 0.413, 0.030, 0.874 and 0.030 ms. The clear
+prediction is met; the busy-queue prediction misses. The second queue covers
+45–46% of wall time, so it does not establish a continuously busy GPU. A
+follow-up keeps four longer commands queued. Before that run: its interval
+coverage should exceed 90%; if clock state alone explains the sampled pass,
+that pass should still fall below 0.5 ms. A separate 30 Hz socket arm changes
+only request frequency from 120 Hz; a higher mean than 0.413 ms is predicted
+if the longer idle gap matters. These remain diagnostic experiments under
+machine load, not scorecard replacements.
+
+The longer queued workload covers 89.24% of the sampled arm and 94.89% of
+its clear arm: the >90% coverage prediction misses for the former and is met
+for the latter. Present means are 0.459 and 0.043 ms, meeting the <0.5 ms
+prediction but not improving on the 120 Hz control's 0.413 ms. At 30 Hz,
+with the second queue absent, the sampled pass rises to **1.078 ms**; the
+frequency prediction is met. Before pairing that arm: clear should remain
+below 0.35 ms and the continuously queued sample below 0.5 ms, on the same
+30 Hz requests. This separates the old interval's order of magnitude from
+the heavier 120 Hz socket workload.
+
+### Windows live counters and observer cost
+
+The NucBox mirror uses the direct-D3D11 G6e arm, its unchanged four-gesture
+`windows-measure.py` driver, PresentMon, and the matching executable/PDB.
+The retained wrapper is `target/s0/windows-run.py`; raw files are under
+`target/s0/windows/{off,on,sampled,off2,on2,off3,on3}/` on both machines.
+`normalize-windows.py` joins QPC endpoints, Unix-time counter samples and
+PresentMon's displayed times, then invokes `exclusive.mjs`. It records each
+counter endpoint's lag; counter and CPU denominators are not silently equated.
+The initial on-run counter window is 10.089016 seconds; its CPU window is
+10.096334 seconds, with 37.357/44.674 ms counter lags at the endpoints.
+
+| Windows observation | Counter-window delta |
+|---|---:|
+| Paint attempts / submitted frames | 245 / 245 |
+| Whole-row recordings / replay decisions | 1841 / 1038 |
+| Fractional-shift refusals | 1832 |
+| A2 eligible / zero-interval fallback / scaled fallback | 1796 / 36 / 0 |
+| New / stale / suspect / picture-invalid recordings | 9 / 9 / 0 / 7 |
+| Image-slot patches | 21 |
+| Pool allocations / retirements | 56 / 17 |
+| Allocations blocked / incomplete candidates inspected | 56 / 25338 |
+| Clip-mask targets built | 3530 |
+| Shaping-cache hits / misses | 8 / 7 |
+| Paragraph-measure cache hits / misses | 122 / 15 |
+
+PresentMon records 245 displayed fling frames and none at rest. Windows
+has no equivalent presented callback in the live observer: `displayedFrames`
+is null there; the normalized probe explicitly supplies the ETW count.
+It never substitutes successful `Present` calls for displayed frames.
+
+The process high water is **80 viewport targets / 182.075 MiB**; at the
+sample retaining all eighty, fourteen are reserved and sixty-six are idle
+(150.212 MiB), with none held by incomplete work. Elsewhere as many as
+72 are incomplete; 83 allocations over the process lifetime were blocked
+by incomplete matching targets. Both states occur. The working-set peak
+is 156.371 MiB, less than the logical pool bytes: those storage counts are
+not a physical-memory attribution. The <1,201-target and nonzero-fractional
+predictions are met. A2 eligibility is 98.03% on these observed refusals.
+
+| Observer pair | Disabled process CPU ms/s | Enabled process CPU ms/s |
+|---|---:|---:|
+| 1 | 82.044 | 94.403 |
+| 2 | 111.789 | 104.046 |
+| 3 | 86.955 | 96.313 |
+| Median | 86.955 | 96.313 |
+
+The median difference is **+10.76%**, missing the <5% prediction. Each run
+passed the driver's quiet check before launch, used the same trajectory and
+retained 245–248 displayed frames. Variation across three pairs prevents
+an exact causal overhead estimate; it does not establish the desired bound.
+These Windows observations include trace recording and gauge serialization.
+The Mac <5% agent comparison remains invalid because its disabled arm did
+not submit fling frames and the machine was busy.
+
+### Dispatch, service causes and rest
+
+`final-control/` uses the corrected nominal-period counter. Over 10.059203
+seconds it records 4,975 passes, including 1,170 draw passes. The other
+combinations are dispatch 1,388, agent 1,112, link 1,040, link+agent 121,
+link+worker+agent 23, worker 60, worker+agent 42, timer 16 and timer+agent 3.
+Complete refresh periods average 4.120 passes, p95 6, maximum 10.
+The agent's wheel is delivered through the socket, so it has an agent cause;
+it does not manufacture a native wheel-event cause.
+
+The new marks expose main-thread exclusive elapsed costs of 31.959 ms/s
+in probe display ticks, 4.444 in probe usage reads, 5.180 in run-loop
+dispatch, 0.992 in winit dispatch and 0.149 in winit window events.
+The display-link thread has its own wake span. AppKit event delivery is
+marked too, but this drive bypasses AppKit wheel delivery. These elapsed
+values include scheduling delays on a busy machine. They cannot be used
+as a CPU subtraction or applied retrospectively to S1.4's old trace.
+
+| Mac observer arm | Fling dispatcher-only passes | Rest dispatcher-only / timer passes | Rest process CPU ms/s |
+|---|---:|---:|---:|
+| Full probe | 1388 | 65 / 40 | 2.182 |
+| Probe display callbacks disabled | 808 | 63 / 40 | 1.975 |
+| Probe display callbacks and memory timer disabled | 701 | 52 / 40 | 1.397 |
+
+Disabling display callbacks removes all their marks and reduces
+fling dispatcher-only passes by **41.79%**, missing the predicted ≥50%.
+Removing the memory timer removes all ten rest probe-timer marks, meeting
+that prediction. Each rest trace is 10.054 seconds; neither arm removes
+an app timer. The latter trace still has 52 event-source wakes with no
+carrier cause and 40 deadline wakes. Thus it names and counts the remaining
+unknown source category; it does **not** claim to identify every AppKit
+or Core Foundation source behind it. `quiet.jsonl` rejects these as quiet
+performance runs: maximum one-minute loads are 121.30, 95.10 and 72.79,
+with compilers present throughout. Counts are diagnostic observations;
+the CPU differences are not accepted savings.
+
+Windows' on-run records 609 passes over 10.096334 seconds: draw 245,
+wheel 236, timer 50, dispatch 53, worker 10, worker+timer 10,
+wheel+worker 4 and wheel+timer 1. The 605 complete refresh periods average
+1.007 passes, p95 3, maximum 4. In 10.144496 seconds at rest, exactly fifty
+run-loop wakes produce fifty timer passes and fifty dispatcher passes,
+with no submitted or displayed frame. The 250 ms producer and 1,000 ms
+clock tasks explain the 40+10 scheduled deliveries; the counter preserves
+the second service pass rather than calling it another timer. This is the
+live window, not the headless `perf` presenter.
+
+The historical 3,579 passes had no cause tags. They cannot now be partitioned
+into 2,250 redundant passes by inference. The observed extra passes include
+probe callbacks, authored timers, image workers and dispatch-only turns.
+Stage 1 must retain the timer and worker work and measure the remainder
+with posted input before spending an 11 ms/s CPU budget.
+
+### Per-thread CPU profiles and memory
+
+`final-profile/` retains the ten-second 5 ms `sample` profile, the symbolized
+copy, Mach thread CPU endpoints, trace and `vmmap`. Its probe window is
+10.053222 seconds; process/main CPU is 588.038/365.217 ms/s. The endpoints
+name the present worker (41.525), image workers (17.492 and 13.769), agent
+socket (4.570) and CVDisplayLink (2.404). Unnamed dispatch workers total
+137.631 ms/s; endpoint thread sums leave 5.426 ms/s in exited threads or
+endpoint skew. The sample names Metal command/completion queues, ImageIO
+JPEG decoding, drawable acquisition and completion waits. Many dispatch
+worker stacks terminate at `start_wqthread` or `__workq_kernreturn`; their
+CPU cannot all be assigned to the Metal driver from this sample. Blocked
+stack samples are not CPU shares. This agent profile does not apportion
+the old posted G4 run's 42 ms/s off-main-thread budget.
+
+The footprint peak in that run is 967.611 MiB at +5.639 seconds. The
+`vmmap` launched at +5.8 seconds sees 812.6 MiB, with a lifetime peak of
+968.9 MiB: it is close in time but **not a map at the exact peak**. It
+reports 272.1 MiB resident IOAccelerator graphics, 28.5 MiB IOSurface and
+141.7 MiB resident malloc zones. The pool at the probe peak is 75 MiB,
+including 18.75 MiB idle. The map and counters establish that the pool is
+not the whole transient; they do not identify all of the difference.
+
+Windows' `sampled/` retains xperf's ETL, module reports, per-thread stack
+reports and matching PDB. Over 10.107471 seconds, process/main CPU is
+102.028/66.473 ms/s. Thread CPU endpoints and stack reports identify:
+
+| Windows thread | CPU ms/s | Sampled owner |
+|---|---:|---|
+| 40296 | 66.473 | main carrier |
+| 165220 | 13.913 | AMD user/kernel driver |
+| 443036 | 10.821 | AMD user/kernel driver |
+| 122656 | 6.184 | image worker, WindowsCodecs |
+| 532276 | 3.092 | image worker, WindowsCodecs |
+| 127956 | 1.546 | insufficient samples (two hits) |
+
+The 876 process samples include 668 main-thread samples. Exclusive module
+hits include Heavy list 357, WindowsCodecs 79, AMD user driver 76 and AMD
+kernel driver 19. These are sample counts, not elapsed spans. xperf's merge
+extended this run's rest phase to 29.295 seconds, so the separate unprofiled
+on-run supplies the ten-second rest result.
+
+### The GPU present interval and callback phase
+
+All these arms use the same retained `Final.app`, probe and integral one-point
+phased socket wheel. `gpu-sample-2/` is 120 Hz; `gpu-sample-30hz/` changes only
+the request rate. The clear hook is available only through the linked probe;
+normal carriers still encode the same sampled quad. The second queue is
+`target/s0/metal-busy-continuous.m`, with four queued compute commands and
+retained GPU intervals. It posts no events and acquires no window.
+
+| Request rate / present arm | Present intervals | Mean GPU ms | p99 GPU ms | Second-queue interval coverage |
+|---|---:|---:|---:|---:|
+| 120 Hz sample | 1185 | 0.413 | 1.401 | — |
+| 120 Hz clear | 1175 | 0.030 | 0.124 | — |
+| 120 Hz continuously queued sample | 1127 | 0.459 | 1.123 | 89.24% |
+| 120 Hz continuously queued clear | 1142 | 0.043 | 0.487 | 94.89% |
+| 30 Hz sample | 592 | 1.078 | 1.879 | — |
+| 30 Hz clear | 132 | 0.058 | 0.926 | — |
+| 30 Hz continuously queued sample | 302 | 0.654 | 1.496 | 99.62% |
+
+The 30 Hz clear prediction is met; the <0.5 ms busy-sample prediction misses.
+The old ~1 ms scale is reproducible, and removing the sampled draw removes
+most of it. Added GPU work changes it, but does not establish clock state
+as its sole cause. Submission counts and visibility vary, especially at
+30 Hz, and compiler load disqualifies a scorecard comparison. The supported
+cause is the work/dependencies of the draw that samples the compose target,
+with load-sensitive GPU execution; this experiment does not separate shader
+execution, resource dependencies and hardware clock changes inside it.
+No CPU drawable-acquisition or completion wait is included in these GPU
+timestamps. The clear keeps command submission, drawable presentation and
+completion handling.
+
+The worker reads `GPUStartTime`/`GPUEndTime` after command completion; the
+main thread reads them again during retirement. Every pair retained at both
+sites is identical, including all 592, 132 and 302 intervals in the 30 Hz
+arms. In some 120 Hz arms one final command lacks a later retirement mark;
+that is a missing second read, not a changed timestamp. Read timing does not
+explain the old interval. `exclusive.mjs` prints both counts.
+
+The historical callback phase p50 is 5.072/5.098 ms (control/normal) within
+an 8.333 ms refresh period. The fresh 120 Hz sample and clear arms give
+5.108/5.107 ms; this meets the approximately 5 ms prediction. An occluded
+arm with only a few displayed times cannot supply a current refresh grid;
+its callback-phase result is not used. The Windows carrier has no display
+link; the reducer reports that absence instead of supplying a nominal
+callback time.
+
+The `sample` capture leaves unnamed dispatch CPU. Before a Time Profiler
+follow-up on the agent drive: at least 90% of its weighted CPU samples are
+predicted to have a resolved stack naming an owner (carrier, probe, image,
+present worker or platform). That profile also covers the same ten-second
+rest interval. It remains a diagnostic under machine load; it cannot
+reconstruct G4's old thread distribution.
+
+For the third lead, Windows' 3,530 clip-mask targets across 245 submitted
+frames are 14.41 per frame. The sampled run has 54 inclusive path-coverage
+samples among 668 main-thread samples (8.08%). Clip work remains, but the
+G6b repaint churn is absent: this is 249 process-lifetime submissions,
+not thousands. The new counters distinguish whole-row recording from
+image-slot patching and make the remaining clip work measurable before a
+cache change.
+
+The final live schema also exposes `period_{wheel,link,worker,timer,agent,
+window,dispatch,draw}` gauges and their process high waters. Periods are
+nominal monitor intervals, advancing even while the link is stopped;
+`exclusive.mjs` independently bins trace passes on the observed refresh grid
+and prints combined-cause distributions. `period-counters/` reads the
+schema through both live state and the probe: 6,659 passes, 1,198 paints,
+1,196 submissions and 13,781 fractional refusals over 10.055500 seconds.
+Its complete-period maximum is 11. Cause high waters are wheel 0, link 2,
+worker 5, timer 1, agent 3, window 1, dispatch 8 and draw 2; they need not
+occur in the same period. Pool completion partitions describe the last
+`take` observation using its existing completion value, not an extra GPU
+poll made by a state read. This run is loaded and supplies schema validation,
+not a newer CPU score.
+
+`cpu-profiler/` adds Time Profiler, attached before the agent phase and
+aligned by the retained wall/monotonic clock pair. The XML export and
+`time-profile.py` resolve IDs, frame references and Rust symbols, then cut
+samples at the probe endpoints. All 6,338 fling samples are `Running`, with
+1 ms weights: 629.465 sampled ms/s over 10.068870 seconds, versus 627.858
+process CPU ms/s from the probe. The main thread has 3,908 samples
+(388.127 ms/s), versus its endpoint 390.121 ms/s. Fifty-four samples have
+an unresolved leaf: **99.15% are symbolized**, meeting the ≥90% prediction.
+A resolved platform entry symbol is not a recovered caller.
+
+Off the main thread, stack ownership identifies Metal driver work
+(76.076 sampled ms/s), the present worker (34.661), image work (30.689),
+the socket agent (3.476) and display link (1.688). Platform dispatch work
+accounts for 87.895; 535 process samples end at `start_wqthread` without a
+component caller. The named Metal stacks include `iokit_user_client_trap`
+and command/completion handling. These results explain much of the new
+agent run's off-main cost; they still do not assign G4's old 42 ms/s.
+
+On the main thread, stack classification places 16.983 sampled ms/s in the
+probe, 2.582 in winit dispatch and 11.024 in other AppKit/Core Foundation
+or platform work. Five counter-observer samples represent 0.497 ms/s;
+this excludes indirect allocation and eligibility costs. The remaining
+main samples have paint, Ink, device, service, encoding, glyph, path or
+layout owners. This is a CPU-sampled attribution of the **new run**, separate
+from the elapsed-phase reducer. `main-attribution.json` retains the exact
+classification and leaf examples; no old ~15 ms/s remainder is manufactured
+by subtracting elapsed spans from a different run's CPU.
+
+Time Profiler catches only eleven running samples in 10.046629 seconds at
+rest: three probe, three presenter service, one winit, two other main-thread
+platform, one Metal and one unresolved. The probe's rest CPU is 1.610 ms/s.
+That sample count names observed work but is too small for a precise CPU
+partition or for identifying every event-source wake. Raw rest wake marks
+remain the count instrument.
+
+The rest trace gives a narrower lead: forty of the fifty-two dispatcher-only
+passes in `no-probe-timers/` occur within 1 ms after a timer pass. Before
+tracing the requests themselves, forty app timer rearms are predicted, each
+followed by that second dispatch. Opt-in probe interposition records
+`CFRunLoopTimerSetNextFireDate` and `CFRunLoopWakeUp` while forwarding the
+original calls and deadlines unchanged. This tests whether timer maintenance
+explains those forty turns; the remaining twelve still require evidence.
+
+Windows' final schema run, `windows/period/`, retains per-period high waters
+of wheel 2, worker 3, timer 3, window 2, dispatch 2 and draw 2; agent and
+link are zero in this carrier. Its counter window is 9.834747 seconds
+(the end gauge precedes the CPU endpoint by 235.428 ms), so the 1,761
+fractional refusals and 1,728 A2-eligible refusals are not presented as an
+exact ten-second delta. PresentMon counts 248 displayed fling frames and
+none at rest. A final disabled/enabled pair on this schema measures
+93.172/94.800 process CPU ms/s (**+1.75%**), numerically meeting the <5%
+prediction for that pair. It does not erase the earlier three-pair miss
+or establish a tight overhead bound across runs.
+
+The wake-request experiment meets the forty-rearm prediction. In
+`wake-callers/`, 10.069326 seconds at rest contain forty deadline wakes,
+forty timer arms from `winit::ApplicationDelegate::cleared`, and forty
+additional dispatcher turns within 1 ms after those arms. Every arm sets
+the next deadline about 249 ms ahead. The remaining four dispatcher turns
+are two immediately after the probe changes phase and two following AppKit
+wake requests. The latter callers are
+`___NSCreateMainQueueHysteresisBlock_block_invoke` and
+`-[NSApplication(NSQuietSafeQuit) _updateCanQuitQuietlyAndSafely]`.
+These are observed caller symbols, not proposed dependencies on private APIs.
+The trace has no dropped events. `exclusive.mjs --rest` prints the callers;
+`wake-summary.py` retains the temporal join. The earlier fifty-two unknown
+turns are not retroactively assigned this run's counts.
+
+`wake-sources/` failed trace export because winit's extreme stopped-timer
+date overflowed a metadata conversion to milliseconds. Its log is retained.
+The observer now bounds only the recorded delay; it passes the original
+absolute deadline unchanged. `wake-sources-2/` and `wake-callers/` both
+complete, preserve all 1,200 requests and export without dropped events.
+
+The final probe also marks its phase-transition callback. `rest-final/`
+records 40 timer wakes and 45 dispatcher turns over 10.049548 seconds:
+40 follow winit timer arms, two follow the marked probe transition, and
+three follow AppKit wake requests. The additional observed AppKit caller
+is `-[NSApplication _copyPublicPersistentUIInfo]`. One final GPU completion
+crosses into this rest window; the earlier `wake-callers/` trace supplies
+the zero-GPU rest observation. The measured 2.063 process / 1.691 main CPU
+ms/s remains a loaded diagnostic, not M2 qualification.
+
+### Stage 0 verdicts
+
+**M1 — service budget.** The published control has 3,579 passes in exactly
+ten seconds, costing 12.717 **elapsed** ms/s; it has no cause tags. In the
+current agent trace, 2,902 dispatch-only passes cost 4.841 exclusive elapsed
+ms/s, while the other causes and draw passes remain separate. Those are
+not the old 2,250 passes and not a CPU saving. The probe itself creates
+turns; timer maintenance creates a second turn after due work; worker and
+agent deliveries carry useful work. M1's **44 → ~33 main-thread CPU ms/s**
+remains a conditional prediction for the quiet posted instrument. Stage 0
+does not establish its 11 ms/s saving or authorize dropping timer work.
+
+**M4a — pool policy.** Idle retained targets are real on both hosts. The
+Windows high-water sample has 66 idle targets, while other samples find
+72 incomplete; Mac's footprint peak has two idle and six frame-reserved
+targets. That meets the policy's idle-target precondition. It does not
+justify treating all retained targets as disposable or claiming the pool
+explains the transient: logical pool bytes and physical memory differ,
+and the Mac map was taken near, rather than exactly at, its peak. No pool
+retirement or reuse policy changes in this lane.
+
+**M6 — fractional row recordings.** The Mac agent run refuses 13,781 kept
+rows for fractional shifts and records 13,833 rows whole; Windows refuses
+1,832 and records 1,841 over its sampled counter window. Fractional
+re-recording is therefore real and frequent in these trajectories, with
+97.63%/98.03% classified A2-eligible. Stale, suspect and picture-invalid
+records are reported separately and may overlap a fractional refusal.
+Eligibility counters predict opportunity; they do not prove the proposed
+pixel-placement policy or change today's `Ink::reusable` result.
+
+**M7 — draw and encode.** The retained ten-second control separates 348
+carrier draws at **3.005 elapsed ms/s** from 348 scene encodes at **2.925**.
+The hand table's combined 5.9 is supported at that precision. The new
+socket trajectory has many more walks, clip targets and submissions, so
+its larger draw/encode rows cannot replace that budget. Windows' 54
+inclusive path-coverage CPU samples and 3,530 clip targets establish that
+clip work remains after G6e's repaint fix; neither number is a prediction
+of what an instance-patch implementation will save.
+
+**Unattributed work and M2.** The old ~15 ms/s was a cross-run CPU-minus-
+elapsed difference, not an unnamed CPU measurement. New dispatch/probe
+marks and CPU profiles provide actual owners, including the present,
+decode and driver threads; 54 of 6,338 Time Profiler fling samples have
+unresolved leaves, and dispatch-entry stacks still lack component callers.
+Rest traces expose due app timers, their following maintenance turns,
+probe activity and AppKit bookkeeping. M2's **≤0.4 process CPU ms/s**
+remains a future quiet-run target after removing avoidable wakes while
+preserving due work. Loaded Mac rest readings and Windows' coarse CPU
+counter quantization cannot certify it. The GPU experiments identify the
+sampled draw as the dominant part of the present interval, but do not
+separate every internal GPU dependency or clock-state contribution.
+
+### Reproduction and retained evidence
+
+The raw root is this worktree's `target/s0/`; all S1.4 inputs remain at their
+original paths. Copies of each Mac bundle preserve the executable and probe
+used by its named run. `provenance.json` stores their SHA-256 values and
+environment. Windows JSON stores executable hashes, QPC endpoints, focus
+losses and PresentMon loss counts; `release-symbols/` on the mirror retains
+the sampled build's executable/PDB. Source inputs are retained in
+`source.bundle`, `counters.patch`, `current-source.tar.gz` and
+`final-source.tar.gz`; the final commits and counter-source copy identify
+the later period-gauge build. No retained result directory was removed.
+
+```sh
+bun bench/heavy-list/gpui/exclusive.mjs --verify
+bun bench/heavy-list/gpui/exclusive.mjs target/s1-4/g3-control/ink-1.json.trace.json --seconds=10
+bun bench/heavy-list/gpui/exclusive.mjs target/s1-4/g3-before/ink-1.json.trace.json
+bun bench/heavy-list/gpui/exclusive.mjs target/s0/period-counters/ink.json.trace.json
+bun bench/heavy-list/gpui/exclusive.mjs target/s0/wake-callers/ink.json.trace.json --rest
+python3 target/s0/normalize-windows.py
+python3 target/s0/time-profile.py
+python3 target/s0/main-attribution.py
+python3 target/s0/wake-summary.py
+```
+
+`--json` retains all reducer fields; `--rest` selects the rest endpoints.
+The reducer rejects dropped events and keeps GPU command/present spans
+out of CPU-thread nesting. Service-cause elapsed rows use the same
+innermost-span accounting as the main table, not inclusive service time.
+Callback phase uses observed presented-time anchors; absent callbacks are
+reported as absent. Thread CPU endpoints cannot retain already-exited
+threads, and counter samples on Windows can precede CPU endpoints.
+
+Build the live Mac carrier with the command above under S1.1, omitting
+`--release` and using `CARGO_TARGET_DIR="$PWD/target"`; copy its bundle
+before the next build. Production trust intentionally refuses the live
+agent. The retained driver runs it without activation:
+
+```sh
+python3 target/s0/drive.py fresh-run --binary 'target/s0/Observed.app/Contents/MacOS/Heavy list' --cpu-only --dispatch --counters
+```
+
+The driver supplies `EXACT_AGENT=1 EXACT_AGENT_LIVE=1 G1_TRACE=1`, sends
+1,200 phased wheel requests, and reads compact state every twelve requests.
+`--delta 1 --hz 30` selects the integral GPU experiment; `--clear` replaces
+only its final sampled draw; `--busy --busy-binary metal-busy-continuous`
+runs the retained second-queue source. `--profile --vmmap --vmmap-at 5.8`
+selects `sample` and the map; `--time-profiler` selects the retained xctrace
+workflow. `--no-probe-display --no-probe-timer --wake-trace` selects the
+rest-source experiment. Use a new output name on every run. The driver
+records machine load continuously; a loaded run is diagnostic evidence,
+not a clean performance result.
+
+On the NucBox mirror, `windows-run.py` and `windows-pairs.py` call the
+existing G6e driver; `windows-period.py` and `windows-final-pair.py` read
+the final schema. `export-sampled.py` and `export-threads.py` retain xperf
+exports against matching PDBs. `native-build-period.py`,
+`native-tests-period.py` and `journey.py` run the S2.8b suites in fresh
+`native-period/` and `journeys/period-d3d11-dpi/` output directories. The
+fixtures' `EXACT_INK_TEST_OUTPUT` override preserves earlier S2 raw files.
+
+### Verification
+
+`target/s0/checks-final/results.json` records all commands, environment,
+exit codes and result lines before the final paint-attempt correction.
+That round's six checks pass, including both clippy
+and fmt, plus `cargo test -p exact-ink`, the Apple carrier tests and
+`cargo test -p exact-linux --lib --tests --no-fail-fast` with
+`RUST_TEST_THREADS=1`. All seven pinned Metal groups and the image suite
+pass with `EXACT_INK_DEVICE=metal EXACT_REQUIRED=1`. The reducer's nested,
+clipped, crossing, equal-start and empty-window checks pass. The final
+probe builds with `-Wall -Wextra -Werror` and completes live traces.
+
+The first parallel Linux run failed one long-poll test because the shared
+test executor could not obtain seven worker slots within thirty seconds.
+Its isolated rerun and full serial rerun passed; the final serial run
+passes too. No assertion or executor policy changed. The first Windows
+device-loss journey recovered Mica on retry two while the fixture expected
+retry one. Its isolated retry passed, and every `native-period/` suite passes:
+37 groups plus the 96→144→96→144→96 DPI journey, with required-device flags.
+The initial failures remain in `checks/linux.log` and
+`windows/native/d3d11-device_loss.log`.
+
+Verbatim stdout/stderr for that round is retained in `MAC-TEST-OUTPUT.txt` and
+`WINDOWS-TEST-OUTPUT.txt`; `TEST-RESULTS.txt` contains their unchanged result
+lines. The Mac originals are `checks-final/*.log`; Windows originals are
+`windows/native-period/*.log` and `windows/period-d3d11-dpi/test.log`.
+
+A final counter review found that `paint_attempts` was incremented only
+after successful painter completion. The final observer counts a
+non-geometry finish attempt before error handling, including a failed paint
+or a present refusal. Existing `snapshots` retain their completed-frame
+meaning. The historical tables above retain the old definition; their
+live runs had no reported paint errors. Before the failure-path check:
+the injected `allocation refused` paint must increase attempts by exactly
+one while still returning that error. The existing group-error test checks
+this with counters enabled; no rendering or error policy changes.
+
+The enabled failure-path assertion passes on both Metal and D3D11. The
+current-code Windows rerun (`windows/native-attempt/`) passes 37 of 38
+groups and the DPI journey. Its device-loss group fails: hardware painting
+recovers, but desktop composition stays unavailable through all three
+Mica retries. The earlier passing round does not make this final round
+green. No recovery policy or assertion changed; further retries stop,
+and `QUEUE.md` records the unresolved qualification.
+
+### Prediction ledger
+
+| Prediction written before its run | Result on the named instrument |
+|---|---|
+| Full control window: 3579 service / 358 walks / 348 draws | 3581 / 358 / 348: service-count miss; the explicit ten-second cut gives 3579 / 358 / 348 |
+| Hand-table elapsed rates round to 12.6 / 5.7 / 5.9 / 1.2 / 1.0 / 0.4 / 1.3 ms/s | Ten-second script: 12.717 / 5.598 / 5.931 / 1.300 / 1.041 / 0.511 / 1.339; service, walk, glyph and layout rounding miss |
+| Callback phase approximately 5 ms | Historical p50 5.072 / 5.098; fresh 5.108 ms: met |
+| Fresh release carrier exposes fractional refusals through the agent | Release trust refuses that agent; unexercised. The optimized development carrier supplies the live observation |
+| At least one fractional refusal; at least 50% A2-eligible | Mac 13781 / 97.63%; Windows 1832 / 98.03%: met |
+| Mac pool retains ≥16 targets | High water 12: miss |
+| ≥100 MiB idle at the pool's byte high water | Largest coincident sample 75 MiB; separate idle high water 103.125 MiB: unresolved, not a measured coincidence |
+| Dispatcher-only passes remain nonzero | 1388 in `final-control/`, 808 without probe display callbacks: met |
+| Enabled increment <1 µs | 1.265 ns per iteration in the retained optimized increment test: met for that instrument |
+| Full observer adds <5% CPU | Earlier Windows medians +10.76%: miss; final-schema pair +1.75%: met for one pair; Mac pair invalid; bound not established |
+| Windows pool <1201 targets and fractional refusals >0 | 80 targets and 1832 refusals: met |
+| Disabling probe display callbacks removes ≥50% of dispatcher-only passes | 41.79%: miss |
+| Disabling probe memory timer removes ten rest marks | Ten → zero: met |
+| Clear present mean <0.35 ms | 0.030 ms at 120 Hz; 0.058 at 30 Hz: met |
+| Busy-queue sampled present mean <0.5 ms if clock state is the sole cause | 0.874 ms with the short queue: miss; 0.459 with longer commands at 120 Hz: met; 0.654 at 30 Hz: miss |
+| Longer queue covers >90% of the interval | 89.24% sampled / 94.89% clear at 120 Hz: miss / met; 99.62% sampled at 30 Hz: met |
+| 30 Hz sampled mean exceeds the 120 Hz 0.413 ms | 1.078 ms: met |
+| ≥90% of Time Profiler weighted samples have resolved stacks | 99.15% have resolved leaf symbols: met at symbol level; some dispatch entries lack component callers |
+| Forty timer rearms each precede a second rest dispatch | Forty winit arms and forty following turns in both request traces: met |
+| A failed paint increases attempts exactly once and preserves its error | Enabled-counter `allocation refused` test passes its +1 assertion; error unchanged |
+| Stage 1 M1: 44 → ~33 main CPU ms/s; M2: ≤0.4 rest process CPU ms/s | Future conditional targets, not achieved or certified by these Stage 0 diagnostics |
