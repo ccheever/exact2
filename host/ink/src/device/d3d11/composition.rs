@@ -180,7 +180,7 @@ pub(super) struct Composition {
     visual_ms: f64,
     active: bool,
     reported_display: bool,
-    occluded_checks: u32,
+    refused_checks: u32,
 }
 impl Drop for Composition {
     fn drop(&mut self) {
@@ -276,7 +276,7 @@ impl Composition {
                 visual_ms,
                 active: false,
                 reported_display: false,
-                occluded_checks: 0,
+                refused_checks: 0,
             })
         }
     }
@@ -292,7 +292,7 @@ impl Composition {
     fn acquire(&mut self, timeout_ms: u32) -> Result<bool> {
         unsafe {
             if !window_drawable(self._window.hwnd) {
-                self.occluded_checks = self.occluded_checks.saturating_add(1);
+                self.refused_checks = self.refused_checks.saturating_add(1);
                 return Ok(false);
             }
             // A visual without its first picture can TEST as occluded. The
@@ -300,13 +300,13 @@ impl Composition {
             let activating =
                 !self.active || self.scene.content.get() != self.swap.as_raw() as usize;
             if !activating && !presented(self.swap.Present(0, DXGI_PRESENT_TEST))? {
-                self.occluded_checks = self.occluded_checks.saturating_add(1);
+                self.refused_checks = self.refused_checks.saturating_add(1);
                 return Ok(false);
             }
-            self.occluded_checks = 0;
             if !self.acquired {
                 self.acquired = latency_ready(WaitForSingleObject(self.latency, timeout_ms))?;
             }
+            record_capacity(&mut self.refused_checks, self.acquired);
         }
         Ok(self.acquired)
     }
@@ -469,7 +469,7 @@ impl D3d11 {
     pub fn reset_present_deadline(&mut self) {
         self.presentation_pending = false;
         if let Some(c) = &mut self.composition {
-            c.occluded_checks = 0;
+            c.refused_checks = 0;
         }
     }
     pub fn presentation_retry_delay(&self) -> Option<Duration> {
@@ -477,10 +477,10 @@ impl D3d11 {
             return None;
         }
         let c = self.composition.as_ref()?;
-        Some(retry_delay(c.refresh_period(), c.occluded_checks))
+        Some(retry_delay(c.refresh_period(), c.refused_checks))
     }
 
-    /// Reserve capacity before painting, waiting one display period rounded to ms.
+    /// Reserve capacity before painting, waiting at most half a display period.
     /// `present` consumes this reservation without polling the handle again.
     pub fn prepare_present(&mut self, size: [u32; 2]) -> Result<bool> {
         self.collect_presented_devices();
@@ -490,14 +490,14 @@ impl D3d11 {
             .as_mut()
             .ok_or(Error::Unsupported("no composition window"))?;
         if let Err(error) = c.resize(size) {
-            c.occluded_checks = 0;
+            c.refused_checks = 0;
             return Err(error);
         }
-        let timeout = c.refresh_period().as_nanos().div_ceil(1_000_000).min(100) as u32;
+        let timeout = reservation_wait_ms(c.refresh_period());
         let ready = match c.acquire(timeout) {
             Ok(ready) => ready,
             Err(error) => {
-                c.occluded_checks = 0;
+                c.refused_checks = 0;
                 return Err(error);
             }
         };
@@ -603,7 +603,7 @@ impl D3d11 {
         }
         if !did_present {
             let c = self.composition.as_mut().unwrap();
-            c.occluded_checks = c.occluded_checks.saturating_add(1);
+            c.refused_checks = c.refused_checks.saturating_add(1);
         }
         Ok(if did_present {
             start.elapsed().as_secs_f64() * 1000.
@@ -679,9 +679,21 @@ fn refresh_period(numerator: u32, denominator: u32) -> Option<Duration> {
         .then(|| Duration::from_secs_f64(f64::from(denominator) / f64::from(numerator)))
 }
 
-fn retry_delay(period: Duration, occluded_checks: u32) -> Duration {
+fn reservation_wait_ms(period: Duration) -> u32 {
+    (period / 2).as_millis().min(50) as u32
+}
+
+fn record_capacity(refused_checks: &mut u32, ready: bool) {
+    *refused_checks = if ready {
+        0
+    } else {
+        refused_checks.saturating_add(1)
+    };
+}
+
+fn retry_delay(period: Duration, refused_checks: u32) -> Duration {
     period
-        .saturating_mul(1 << occluded_checks.min(8))
+        .saturating_mul(1 << refused_checks.min(8))
         .min(Duration::from_secs(1))
 }
 
@@ -809,6 +821,25 @@ mod tests {
             assert!(retry_delay(period, 8) >= Duration::from_secs(1));
         }
         assert_eq!(refresh_period(0, 1), None);
+    }
+
+    #[test]
+    fn timeouts_back_off_without_a_full_period_ui_wait() {
+        for hz in [60, 120, 144] {
+            let period = refresh_period(hz, 1).unwrap();
+            assert!(Duration::from_millis(reservation_wait_ms(period) as u64) <= period / 2);
+            let mut refused = 0;
+            let mut previous = Duration::ZERO;
+            for _ in 0..12 {
+                record_capacity(&mut refused, false);
+                let delay = retry_delay(period, refused);
+                assert!(delay >= previous && delay <= Duration::from_secs(1));
+                previous = delay;
+            }
+            assert_eq!(previous, Duration::from_secs(1));
+            record_capacity(&mut refused, true);
+            assert_eq!(retry_delay(period, refused), period);
+        }
     }
 
     #[test]

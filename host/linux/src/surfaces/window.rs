@@ -483,6 +483,10 @@ impl DirectWindow {
             }
         }
         if !self.recovering {
+            if !p.dirty() && !p.wants_display_frames() && !p.host().motion() {
+                p.last_frame_succeeded = false;
+                return Ok(None);
+            }
             let ready = reserve_frame(p, size, &mut self.reservation_error_reported);
             let frame = if ready {
                 p.frame_for(FrameTarget::Window)
@@ -863,8 +867,17 @@ mod tests {
         let window =
             exact_ink::device::d3d11::Window::from_owner(std::rc::Rc::new(UnusedWindow)).unwrap();
         let mut p = cpu_presenter();
+        p.frame();
         p.brush.replace_backend(Box::new(Lost(false)));
         let mut direct = DirectWindow::new(window);
+        assert!(!p.dirty());
+        assert!(direct.frame(&mut p).unwrap().is_none());
+        assert!(
+            !direct.reservation_error_reported,
+            "a clean frame must not reserve"
+        );
+        assert_eq!(direct.present_due, None);
+        p.repaint();
         for _ in 0..2 {
             assert!(direct.frame(&mut p).unwrap().is_none());
             assert!(!direct.recovering);
