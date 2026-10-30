@@ -121,6 +121,30 @@ pub(super) extern "C" fn measure(_: *mut std::ffi::c_void, _: *const CRequest) -
 }
 
 fn host(terminal: bool) -> exact_apple::Host<Replies> {
+    if !terminal {
+        return host_with(&[]);
+    }
+    host_with(&[
+        (&["seq"], Value::Number(7.0)),
+        (&["open"], Value::Bool(true)),
+        (&["kind"], Value::str("terminal")),
+        (&["label"], Value::str("Terminal 2")),
+        (
+            &["title"],
+            Value::str("Terminal excerpt, Terminal 2 lines 1-3"),
+        ),
+        (&["lines"], Value::str("Lines 1–3")),
+        (&["description"], Value::str("$ ls\na.txt\nb.txt")),
+        (&["rows"], Value::Number(3.0)),
+        (&["x"], Value::Number(300.0)),
+        (&["y"], Value::Number(600.0)),
+        (&["width"], Value::Number(160.0)),
+        (&["height"], Value::Number(19.5)),
+    ])
+}
+
+/// The app with `chip` as the `composerChip` answer: one chip's open details (none when empty).
+fn host_with(chip: &[(&[&str], Value)]) -> exact_apple::Host<Replies> {
     let plan = Plan::decode(PLAN).unwrap();
     let mut replies = Replies::default();
     replies.fixture(
@@ -140,28 +164,8 @@ fn host(terminal: bool) -> exact_apple::Host<Replies> {
             ),
         ],
     );
-    if terminal {
-        replies.fixture(
-            &plan,
-            "chip",
-            &[
-                (&["seq"], Value::Number(7.0)),
-                (&["open"], Value::Bool(true)),
-                (&["kind"], Value::str("terminal")),
-                (&["label"], Value::str("Terminal 2")),
-                (
-                    &["title"],
-                    Value::str("Terminal excerpt, Terminal 2 lines 1-3"),
-                ),
-                (&["lines"], Value::str("Lines 1–3")),
-                (&["description"], Value::str("$ ls\na.txt\nb.txt")),
-                (&["rows"], Value::Number(3.0)),
-                (&["x"], Value::Number(300.0)),
-                (&["y"], Value::Number(600.0)),
-                (&["width"], Value::Number(160.0)),
-                (&["height"], Value::Number(19.5)),
-            ],
-        );
+    if !chip.is_empty() {
+        replies.fixture(&plan, "chip", chip);
     }
     let measurer = CallbackMeasurer::new(measure, std::ptr::null_mut(), None);
     let (mut host, _) =
@@ -283,4 +287,46 @@ fn terminal_chip_details_render_the_record_inside_its_named_dialog() {
         .kernel()
         .find_by_test_id("chip-popover-instructions")
         .is_empty());
+}
+
+/// The other details' focus targets (PopoverPopup's `initialFocus`): a skill with an instructions file focuses View
+/// instructions, its first tabbable; a skill without one, and a review comment, focus the popup itself.
+#[test]
+fn chip_details_take_the_focus_on_their_first_tabbable_else_the_popup() {
+    let chip = |kind: &str, path: &str, title: &str| -> Vec<(&'static [&'static str], Value)> {
+        vec![
+            (&["seq"], Value::Number(8.0)),
+            (&["open"], Value::Bool(true)),
+            (&["kind"], Value::str(kind)),
+            (&["label"], Value::str("Frontend Design")),
+            (&["title"], Value::str(title)),
+            (&["description"], Value::str("Build interfaces")),
+            (&["path"], Value::str(path)),
+            (&["x"], Value::Number(300.0)),
+            (&["y"], Value::Number(600.0)),
+            (&["width"], Value::Number(120.0)),
+            (&["height"], Value::Number(19.5)),
+        ]
+    };
+    for (fields, target) in [
+        (
+            chip("skill", "/skills/frontend-design/SKILL.md", "Skill Frontend Design"),
+            "chip-popover-instructions",
+        ),
+        (chip("skill", "", "Skill Frontend Design"), "chip-popover"),
+        (
+            chip("review-comment", "", "Review comment, outline.ts L3"),
+            "chip-popover",
+        ),
+    ] {
+        let mut host = host_with(&fields);
+        let focused: Vec<Vec<Value>> = host
+            .runner_mut()
+            .take_commands()
+            .into_iter()
+            .filter(|command| command.name == "focus")
+            .map(|command| command.args)
+            .collect();
+        assert_eq!(focused, vec![vec![Value::str(target)]], "{target}");
+    }
 }

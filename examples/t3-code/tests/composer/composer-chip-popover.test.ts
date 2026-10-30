@@ -116,6 +116,11 @@ describe('a skill chip\'s details popover', () => {
     const first = open();
     await chipPopoverLocal(client, native, 'chip-close', `${first.seq}`, 'escape');
     expect(chipPopoverView(client)).toMatchObject({ open: false, finish: { seq: first.seq, value, focus: 'select', start: chip.start, end: chip.end } });
+    // An outside press leaves the focus where it put it: the finish takes none (FloatingFocusManager returns it only to a
+    // tabbable trigger, and an editor chip is no tab stop).
+    const outside = open();
+    await chipPopoverLocal(client, native, 'chip-close', `${outside.seq}`, '');
+    expect(chipPopoverView(client)).toMatchObject({ open: false, finish: { seq: outside.seq, focus: 'none' } });
     const next = open();
     await chipPopoverLocal(client, native, 'chip-close', `${first.seq}`, 'escape');
     expect(chipPopoverView(client)).toMatchObject({ open: true, seq: next.seq });

@@ -139,9 +139,13 @@ export async function chipPopoverLocal(client: T3Client, native: Native, op: str
   if (op.startsWith('chip-image-')) return composerImageStep(client, op); // the expanded image preview's close and steps
   if (op === 'chip-file') return composerFileLocal(client, native, id, value); // a file chip's preview (composer-chip-file.ts)
   if (op !== 'chip-close' && op !== 'chip-instructions') throw new ClientError(`Unknown editor action: ${op}`);
-  // Escape gives the prompt the focus back with the chip selected (PopoverPopup's finalFocus: the chip, its trigger).
+  // Escape gives the prompt the focus back with the chip selected (PopoverPopup's finalFocus: the chip, its trigger). An
+  // outside press leaves the focus where the press put it, the page where that takes none: Base UI's FloatingFocusManager
+  // returns it on an outside press only to a tabbable trigger, and an editor chip is no tab stop. A citation's comment
+  // gives the prompt the focus when the press left it nowhere (citation-comment.ts).
   const press = composerChipCurrent(client);
-  if (!composerChipFinishNoEdit(client, Number(id) || 0, { send: false, focus: op === 'chip-close' && value === 'escape' ? 'select' : op === 'chip-instructions' ? 'none' : 'outside' })) return '';
+  const outside = press?.kind === 'citation' ? 'outside' : 'none';
+  if (!composerChipFinishNoEdit(client, Number(id) || 0, { send: false, focus: op === 'chip-close' && value === 'escape' ? 'select' : op === 'chip-instructions' ? 'none' : outside })) return '';
   if (op === 'chip-instructions' && value && press?.kind === 'skill' && press.seq === Number(id)) {
     const skill = workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills').find(candidate => str(candidate.name) === press.name);
     if (str(skill?.path) === value) await openFileSurface(client, native, value, 0);
