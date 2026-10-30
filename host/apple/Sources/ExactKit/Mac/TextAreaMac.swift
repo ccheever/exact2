@@ -228,8 +228,9 @@ package final class TextArea: NSTextView {
         guard let owner else { super.unmarkText(); return }
         owner.settlingComposition(self) { super.unmarkText() }
         // A commit that changes no text posts no change: paint held back
-        // while it was marked catches up here.
+        // while it was marked catches up here, and a `direction` that came meanwhile.
         owner.restyleDecorations()
+        owner.applyBaseDirection(to: self)
     }
 
     /// Tab and Shift-Tab move the focus, the Markdown editor's too, as the
@@ -336,9 +337,45 @@ package final class TextArea: NSTextView {
                 style.baseWritingDirection = direction
                 style.alignment = direction == .rightToLeft ? .right : .left
                 attributes[.paragraphStyle] = style
+            } else if let owner {
+                // A plain field's at its start, by its own direction (LLP 1001 §1).
+                let style = NSMutableParagraphStyle()
+                style.baseWritingDirection = owner.fieldBaseDirection
+                style.alignment = owner.fieldAlignment
+                attributes[.paragraphStyle] = style
             }
             (placeholder as NSString).draw(in: rect, withAttributes: attributes)
         }
+    }
+}
+
+extension NodeView {
+    /// The node's `direction` as the base of every paragraph of a plain
+    /// field's text, what is typed next and an empty field's, and its side
+    /// where it has one (native, or said), keeping each paragraph's other
+    /// attributes (LLP 1001 §1). Again after what can bring back another's:
+    /// an undo, a composition's end, `markup` going. A Markdown editor says
+    /// its own lines' (LLP 1045 D11). Attributes only: no edit, no event,
+    /// no undo step.
+    func applyBaseDirection(to tv: NSTextView) {
+        guard (tv as? TextArea)?.markup == nil, !tv.hasMarkedText(), let storage = tv.textStorage else { return }
+        let direction = fieldBaseDirection
+        // An input's editor has its field's side always; a text area's where it is native or said.
+        let alignment: NSTextAlignment? = tv !== textArea || isNativeTextControl || style["text_align"] != nil ? fieldAlignment : nil
+        let directed = { (style: NSParagraphStyle?) -> NSParagraphStyle? in
+            guard style?.baseWritingDirection != direction || (alignment != nil && style?.alignment != alignment) else { return nil }
+            let next = style?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            next.baseWritingDirection = direction
+            if let alignment { next.alignment = alignment }
+            return next
+        }
+        storage.beginEditing()
+        storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            if let next = directed(value as? NSParagraphStyle) { storage.addAttribute(.paragraphStyle, value: next, range: range) }
+        }
+        storage.endEditing()
+        if let next = directed(tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle) { tv.typingAttributes[.paragraphStyle] = next }
+        if let next = directed(tv.defaultParagraphStyle) { tv.defaultParagraphStyle = next }
     }
 }
 
@@ -438,6 +475,7 @@ extension NodeView {
             editor.detach(storage)
             f.typingAttributes = editor.plainAttributes
             f.markup = nil
+            applyBaseDirection(to: f) // the field's own, which the editor's plain look does not say
             f.atomsChanged()
         }
     }
@@ -479,8 +517,11 @@ extension NodeView {
             paragraph.maximumLineHeight = height
             if height == 0 { paragraph.lineHeightMultiple = .leastNormalMagnitude }
         }
+        if (f as? TextArea)?.markup == nil { paragraph.baseWritingDirection = fieldBaseDirection }
+        // A native one's unsaid alignment is `start`; one of `appearance: none` aligns each paragraph to the
+        // base's start (natural) unless the author says otherwise.
+        if isNativeTextControl || style["text_align"] != nil { paragraph.alignment = fieldAlignment }
         f.defaultParagraphStyle = paragraph
-        if isNativeTextControl { paragraph.alignment = fieldAlignment }
         var attributes: [NSAttributedString.Key: Any] = [.paragraphStyle: paragraph]
         if isNativeTextControl { attributes[.kern] = number("letter_spacing") }
         f.textStorage?.addAttributes(attributes, range: NSRange(location: 0, length: (f.string as NSString).length))
@@ -520,6 +561,7 @@ extension NodeView {
         if !writingValue { applyHeldValue(to: f) }
         configureMarkup()
         restyleMarkup()
+        applyBaseDirection(to: f) // an undo brings back the attributes of the text it restores
         publishMarkupSelection()
     }
     package func textDidBeginEditing(_ notification: Notification) {
@@ -668,8 +710,21 @@ final class FieldEditor: NSTextView {
     static func make() -> FieldEditor {
         let editor = FieldEditor(frame: .zero)
         editor.isFieldEditor = true
+        // An undo or redo restores the attributes of the text it brings back after
+        // the change it posts: the field's `direction` again once it is done (LLP 1001 §1).
+        for name in [NSNotification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
+            editor.undoObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak editor] note in
+                guard Thread.isMainThread else { return } // a text view's undo is on the main thread; another's is not this editor's
+                MainActor.assumeIsolated {
+                    guard let editor, let manager = note.object as? UndoManager, manager === editor.undoManager, let owner = editor.owner else { return }
+                    owner.applyBaseDirection(to: editor)
+                }
+            })
+        }
         return editor
     }
+    private var undoObservers: [NSObjectProtocol] = []
+    deinit { undoObservers.forEach(NotificationCenter.default.removeObserver) }
     var owner: NodeView? { (delegate as? NSTextField)?.delegate as? NodeView }
     override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard owner?.props["type"]?.lowercased() == "number" else {
@@ -704,6 +759,7 @@ final class FieldEditor: NSTextView {
     override func unmarkText() {
         guard let owner else { super.unmarkText(); return }
         owner.settlingComposition(self) { super.unmarkText() }
+        self.owner?.styleFieldEditor(self) // a `direction` that came while it composed, for whichever field has it now
     }
     override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
     override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }

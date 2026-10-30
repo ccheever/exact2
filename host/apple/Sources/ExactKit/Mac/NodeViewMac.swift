@@ -1219,6 +1219,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         styleTextArea()
+        styleLentFieldSide()
         if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),

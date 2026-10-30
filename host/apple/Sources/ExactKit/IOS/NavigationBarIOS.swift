@@ -369,6 +369,7 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
             if oldValue !== field { oldValue?.headerField = nil; acceptingDismissal = false }
             #if os(iOS)
             field?.headerField = controller.searchBar.searchTextField
+            field?.applyFieldDirection()
             controller.searchBar.searchTextField.pasteDelegate = field
             #endif
         }
@@ -433,6 +434,7 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
     func searchBar(_ bar: UISearchBar, textDidChange text: String) {
         guard let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
         field.typedText(text)
+        field.applyFieldDirection() // a `direction` that came while it composed (LLP 1001 §1)
     }
     func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
         guard field?.textField(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true else { return false }
@@ -445,6 +447,7 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
     func textFieldDidChangeSelection(_ textField: UITextField) {
         textDelegate?.textFieldDidChangeSelection?(textField)
         if let field { host?.presenter.fieldSelections.changed(field) }
+        field?.applyFieldDirection() // a `direction` that came while it composed (LLP 1001 §1)
     }
     // UISearchBar remains the recipient of UIKit's focus, return and private callbacks.
     override func responds(to selector: Selector!) -> Bool {

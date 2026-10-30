@@ -112,7 +112,30 @@ extension NodeView {
         applyPlaceholder(f)
         styleNativeField()
         updateNumberStepper() // `appearance` may have changed (LLP 1116.007 D4)
+        applyFieldDirection()
     }
+    }
+    /// The node's `direction` as the text's base, at its side (LLP 1001 §1),
+    /// in its field and in the one standing in for it (a search bar's, an
+    /// alert prompt's: `headerField`). UIKit sets default attributes over the
+    /// whole text, a composition's marked text too, so not while one is
+    /// marked: its end (`unmarkText`, `fieldChanged`) applies it.
+    func applyFieldDirection() {
+        let alignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
+        for f in [field, headerField].compactMap({ $0 }) where f.markedTextRange == nil {
+            if f.textAlignment != alignment { f.textAlignment = alignment } // a stand-in's too: CSS's side, not UIKit's
+            let paragraph = (f.defaultTextAttributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            guard paragraph.baseWritingDirection != fieldBaseDirection || paragraph.alignment != alignment else { continue }
+            paragraph.baseWritingDirection = fieldBaseDirection
+            paragraph.alignment = alignment
+            f.defaultTextAttributes[.paragraphStyle] = paragraph
+        }
+    }
+    /// A plain field's paragraph base direction: CSS `direction`, said either
+    /// way as Apple text's is (`TextEngine.setBaseDirection`), so no first
+    /// strong character picks it (LLP 1001 §1).
+    var fieldBaseDirection: NSWritingDirection {
+        style["direction"]?.string == "rtl" ? .rightToLeft : .leftToRight
     }
     /// A field's ground where it writes none: the design's `Field` where it
     /// overrides that role (LLP 1121 D9), else none, as before (the page
