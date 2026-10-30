@@ -3161,3 +3161,102 @@ captures are in `native/` and `journeys/`; Mac logs are in `checks/`.
 Egui, Ink/wgpu, driver-cache-cold startup, energy, input latency and isolated
 renderer cost were not remeasured. G6's fonts, whole-app paths and readiness
 non-comparables remain.
+
+## G5: the static screen and the GPU
+
+@ref LLP 1149 §4.1; preparation on 2026-10-29, `lane/g5-static`, based on
+`48653eb5cb` (includes G4 at `be5413a907`). The prepared series has three
+interleaved rounds each of fling, `bar` and `caret`, using G4's four arms,
+screen, data and quiet rule. That series has no cold-only launches or
+cold-start comparisons. Each measured phase begins after the complete-scene
+readiness handshake.
+
+**Run status: prepared.** The series ran on the development Mac on
+2026-10-30, 09:30–09:38 PDT, and was spoiled: only 44 of 91 monitor
+observations were quiet, load reached 170 as other lanes built, focus-loss
+sidecars accompanied nearly every fling and bar sample, and only 14 power
+samples were collected in eight minutes. The raw files remain under
+`target/g5/series` on that Mac. No row is taken from this run. G5 will be
+measured as **G5m** on the dedicated measurement Mac, the silver M5 Max,
+once it is set up.
+
+**Expectation, stated before measurement.** In `bar`, native main-thread
+CPU should be near zero because Core Animation runs the animation; here
+“near zero” means below 10 ms/s, including the shared display-link probe.
+Ink and GPUI should pay the frame's bookkeeping; egui should rebuild visible
+rows each frame. In `caret`, every arm should be near idle between the two
+visibility changes per second. Continuous frame submissions would falsify
+that idle expectation; CPU totals alone cannot identify the work's stacks.
+
+`BENCH_MOTION=bar` paints a #007AFF fill at the top of the title bar, 2 points
+high, advancing across 800 points in two seconds. Contract translates the
+fill inside a clipped box; GPUI requests animation frames; egui requests a
+repaint each frame. `BENCH_MOTION=caret` paints a 1×20-point #007AFF caret
+at (112, 10) in that bar. Contract uses `steps(2, jump-none)` so its two states
+are opaque and transparent; GPUI's timer and egui's `request_repaint_after`
+schedule the next 500 ms boundary. The list stays at row zero and receives no input.
+Plain `steps(2)` would produce a half-opacity state. Live mode is off.
+
+The linked probe discovers the concrete Metal queue class from a queue on
+the default device, hooks its three command-buffer creation methods, then
+hooks `commit` on the first returned buffer's concrete class. Each completion
+adds `GPUEndTime - GPUStartTime` and a count to the phase recorded at commit.
+Counts, missing timestamps and outstanding buffers are retained; a 250 ms
+grace after measurement lets boundary buffers finish. An offscreen three-buffer
+check matched the accumulated time to the buffers' own timestamps and kept
+all three in their commit phase after the phase changed. GPU times sum buffer
+spans, including possible overlaps; they are not a union of device occupancy.
+**The GPU runs at whatever clock the load earns: these are busy times under
+that clock, not work units.** Work in WindowServer is outside this process
+hook; no observed command buffers does not mean zero GPU cost for native
+Core Animation. Native's frames/s remains display-link cadence, not presented
+pixels. G4's whole-app and visual non-comparables still apply.
+
+The preparation’s power preflight,
+`sudo -n /usr/bin/powermetrics --samplers cpu_power,gpu_power -i 1000 -n 1`,
+returned “sudo: a password is required”.
+
+The original preparation passed all six repository checks, including clippy
+and fmt, and both GPUI's and egui's clippy (`-D warnings`) and fmt. Cargo used this
+worktree's `target/`; tests used `RUST_TEST_THREADS=2`. Commands, exits and
+logs are in `target/g5/checks/`. The probe's offscreen check and controlled
+aggregation fixture passed; G4's two published tables still reproduce exactly.
+All four signed bundle copies have probe SHA-256
+`9006af6aa4f59aeac785531ee8978e38b3569ce9538700e59b4fa8a650a8208f`;
+`target/g5/provenance.json` records the other hashes. All 105 data assets match
+the declared hashes and their copies. The plan and run script are
+`target/g5/plan.txt` and `run-series.py`. A startup readiness failure, as well
+as a focus loss, retains its attempt and permits one retry for that slot;
+a second failure skips the slot.
+
+CPU, frame cadence, footprint, GPU cost and power remain unmeasured by a
+qualified G5 run. The offscreen probe and aggregation checks validate the
+instruments; they provide no evidence for accepting or rejecting the
+workload expectations.
+
+Rebased onto `origin/main` at `f726d13124` on 2026-10-30. The RESULTS and
+§4.1 conflicts retain the Windows record before G5; the Windows driver,
+PresentMon summary and per-arm heights remain intact. All six repository
+checks passed: **7,373 tests passed, 83 ignored**, with root clippy and fmt;
+both benchmark workspaces also passed clippy (`-D warnings`) and fmt. Logs
+and command exits are in `target/g5/checks-rebased/`. The rebuilt probe's
+offscreen GPU accounting check and the aggregation fixture passed, and
+G4's two published tables reproduce exactly. The Exact app's ignored
+lockfile was refreshed offline for main's added Windows dependencies.
+
+All four release builds passed. Each arm launched in `bar` and `caret`,
+reached a complete scene at 800×800 outer points and 2× scale, and exited
+cleanly. Captures show the moving fill in all four arms and the caret's two
+states in native, GPUI and Ink. Egui's caret reached a complete scene in
+three attempts, but each capture sequence stayed in one state: the first
+launch was inactive, and the next two recorded focus loss before readiness.
+The third used the driver's normal app activation once. The three-attempt
+limit ends that check; **egui's blinking remains unverified**. G5m must
+verify it with the foreground held before measuring it. No app code was
+changed to accommodate the shared display.
+
+These were functional launches, with no posted input or measured workload
+phase. Builds, bundle hashes, startup metadata and captures are under
+`target/g5/rebased/`; `functional-results.json` separates complete scenes
+from verified motion. All 398 raw files under `target/g5/series` retain
+their hashes. No timing or resource row is taken from these launches.

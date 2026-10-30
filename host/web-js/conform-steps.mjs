@@ -83,3 +83,32 @@ export function parseStep(line) {
     }
   } };
 }
+
+/** A clock refusal's runner error, as each target words it: the wasm page's `clock: Poisoned`, the JS target's
+ * `clock: t=0 refused advance: Poisoned` (its journal line). */
+export const clockRefusal = message => message.split('\n')[0].replace(/^(clock: )+/, '').replace(/^t=\S+ refused advance: /, '');
+
+/** Every target's reply to one clock operation, `[who, { value } | { error }]`, as a step. All answered: the
+ * values. All refusing with the same `Poisoned`: that refusal, which the drive records as the step and goes past,
+ * as a poisoned runner refuses every forward advance (semantics/Contract/Axiomatic.lean `advance_poisoned`).
+ * Anything else: a failure naming what each did. */
+export function clockVerdict(replies) {
+  const refused = replies.filter(([, r]) => 'error' in r).map(([, r]) => clockRefusal(r.error));
+  if (!refused.length) return { answered: replies.map(([, r]) => r.value) };
+  if (refused.length === replies.length && refused.every(x => x === 'Poisoned')) return { refused: 'Poisoned' };
+  return { failure: replies.map(([who, r]) => `${who} ${'error' in r ? `refused «${clockRefusal(r.error)}»` : 'answered'}`).join(', ') };
+}
+
+/** One clock operation `arg` on the pages (`[[who, session], …]`) and, when the pages refuse, on Linux too (a
+ * session, or null where it does not run): `{ answered }` (Linux then runs as any step does), `{ refused, compared }`
+ * when every target refused alike with `Poisoned`, `{ refused, linux }` when the pages did and Linux did not (a
+ * failure), or `{ failure }` when the pages disagree. A malformed reply throws. */
+export async function clockOnAll(arg, pages, linux, pair) {
+  const reply = run => run().then(value => ({ value }), e => { if (e.malformed === true) throw e; return { error: e.message }; });
+  const replies = await pair(...pages.map(([, s]) => () => reply(() => s.clock(arg))));
+  const named = pages.map(([who], i) => [who, replies[i]]);
+  const verdict = clockVerdict(named);
+  if (!verdict.refused || !linux) return { ...verdict, compared: pages.map(([who]) => who) };
+  const all = clockVerdict([...named, ['linux', await reply(() => linux.clock(arg))]]);
+  return all.refused ? { ...all, compared: [...pages.map(([who]) => who), 'linux'] } : { refused: verdict.refused, linux: all.failure };
+}

@@ -32,6 +32,116 @@ function distribution(values) {
   };
 }
 
+if (existsSync(join(directory, 'series', 'bar')) || existsSync(join(directory, 'series', 'caret'))) {
+  staticReport();
+  process.exit(0);
+}
+
+function staticReport() {
+  const observations = readFileSync(join(directory, 'series', 'quiet.jsonl'), 'utf8')
+    .trim().split('\n').map(JSON.parse);
+  const retained = {}, excluded = [];
+  const header = '| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal | egui 0.37.0 |\n|---|---:|---:|---:|---:|';
+  const targets = ['native', 'gpui', 'ink', 'egui'];
+  const summary = {};
+  for (const phase of ['fling', 'bar', 'caret']) {
+    retained[phase] = Object.fromEntries(targets.map(arm => [arm, []]));
+    const folder = join(directory, 'series', phase);
+    for (const file of readdirSync(folder).sort()) {
+      if (/^(native|gpui|ink|egui)-\d+(-retry)?\.log$/.test(file)
+          && !existsSync(join(folder, file.replace(/\.log$/, '.json')))) {
+        excluded.push({ path: join(folder, file), reason: 'launch ended without a result' });
+      }
+      if (!/^(native|gpui|ink|egui)-\d+(-retry)?\.json$/.test(file)) continue;
+      const path = join(folder, file), raw = JSON.parse(readFileSync(path, 'utf8'));
+      if (!raw.accepted || raw.thermalStart !== raw.thermalEnd) {
+        excluded.push({ path, reason: raw.reason ?? 'focus or thermal state' });
+        continue;
+      }
+      assert.equal(raw.workload, phase, `${path}: workload`);
+      const { start, end, peak, displayLink } = raw[phase];
+      const seconds = end.time - start.time;
+      assert(Math.abs(seconds - 10) < 0.05, `${path}: duration ${seconds}`);
+      const before = observations.findLastIndex(row => row.time <= start.time);
+      const after = observations.findIndex(row => row.time >= end.time);
+      const observed = before >= 0 && after >= 0 ? observations.slice(before, after + 1) : [];
+      const covered = observed.length >= 2 && observed.every((row, i) => i === 0 || row.time - observed[i - 1].time < 6);
+      if (!covered || observed.some(row => !row.quiet)) {
+        excluded.push({ path, reason: covered ? 'loaded' : 'unmonitored' });
+        continue;
+      }
+      const arm = raw.arm;
+      assert(targets.includes(arm), `${path}: arm`);
+      assert.equal(raw.size[0], 800, `${path}: content width`);
+      assert.equal(raw.size[1], arm === 'native' ? 800 : 768, `${path}: content height`);
+      assert.equal(raw.scale, 2, `${path}: scale`);
+      const bounds = [start.time, end.time];
+      const frames = (arm === 'native' ? displayLink.map(row => row.timestamp) : raw.presented)
+        .filter(time => inside(time, bounds)).length;
+      const gpu = raw.gpu[phase];
+      assert.equal(gpu.committed, gpu.completed, `${path}: outstanding command buffers`);
+      assert.equal(gpu.invalid, 0, `${path}: invalid GPU timestamps`);
+      if (arm !== 'native') assert(gpu.committed > 0, `${path}: no observed GPU work`);
+      const sample = { path, seconds, frames, fps: frames / seconds,
+        cpu: (end.cpu - start.cpu) * 1000 / seconds,
+        main: (end.main - start.main) * 1000 / seconds,
+        peak_mib: mib(peak), end_mib: mib(end.footprint), buffers: gpu.committed,
+        ...(gpu.committed ? { gpu_ms_s: gpu.seconds * 1000 / seconds,
+          ...(frames ? { gpu_ms_frame: gpu.seconds * 1000 / frames } : {}) } : {}),
+      };
+      if (phase === 'fling') {
+        const driver = readFileSync(path.replace(/\.json$/, '.log'), 'utf8')
+          .split('\n').filter(line => line.startsWith('{"posted":')).map(JSON.parse);
+        assert.equal(driver.length, 4, `${path}: four flings`);
+        sample.posted = sum(driver.map(row => row.posted));
+        sample.received = raw.fling.wheelEvents;
+        sample.maxGapMs = Math.max(...driver.map(row => row.maxGapMs));
+        sample.rest_cpu = (raw.rest.end.cpu - raw.rest.start.cpu) * 1000 / (raw.rest.end.time - raw.rest.start.time);
+        sample.rest_main = (raw.rest.end.main - raw.rest.start.main) * 1000 / (raw.rest.end.time - raw.rest.start.time);
+      } else {
+        assert.equal(raw[phase].wheelEvents, 0, `${path}: unexpected input`);
+        const offset = arm === 'native' ? raw.nativeOffsetEnd : raw[`${arm}OffsetEnd`].withinItem;
+        assert.equal(offset, 0, `${path}: scrolled`);
+        if (arm !== 'native') assert.equal(raw[`${arm}OffsetEnd`].item, 0, `${path}: not row zero`);
+      }
+      retained[phase][arm].push(sample);
+    }
+    summary[phase] = {};
+    for (const arm of targets) {
+      const samples = retained[phase][arm];
+      const slots = samples.map(row => round(row.path));
+      assert(slots.every(slot => slot >= 1 && slot <= 3) && new Set(slots).size === slots.length, `${phase}/${arm}: slots`);
+      const keys = new Set(samples.flatMap(sample => Object.keys(sample)).filter(key => key !== 'path'));
+      summary[phase][arm] = Object.fromEntries([...keys].map(key => [key,
+        distribution(samples.filter(sample => key in sample).map(sample => sample[key])),
+      ]));
+    }
+  }
+  const cell = (phase, arm, key, digits) => {
+    const metric = summary[phase][arm][key];
+    return metric ? `${metric.median.toFixed(digits)} (${metric.min.toFixed(digits)}–${metric.max.toFixed(digits)})` : '—';
+  };
+  const tables = ['bar', 'caret', 'fling'].map(phase => {
+    const rows = [
+      ['Process CPU, ms/s', 'cpu', 3], ['Main-thread CPU, ms/s', 'main', 3],
+      ['Frames/s; native display link / painted drawables', 'fps', 2],
+      ['Peak footprint, MiB', 'peak_mib', 2], ['End footprint, MiB', 'end_mib', 2],
+      ['GPU busy time, ms/s; process command buffers', 'gpu_ms_s', 3],
+      ['GPU ms/frame; native cadence / painted drawables', 'gpu_ms_frame', 4],
+      ['Completed command buffers per sample', 'buffers', 0],
+    ];
+    return `${phase}\n\n${header}\n| Quiet samples | ${targets.map(arm => retained[phase][arm].length).join(' | ')} |\n`
+      + rows.map(([label, key, digits]) => `| ${label} | ${targets.map(arm => cell(phase, arm, key, digits)).join(' | ')} |`).join('\n');
+  });
+  if (mode === '--json') console.log(JSON.stringify({ samples: retained, metrics: summary, excluded }, null, 2));
+  else if (mode === '--verify') {
+    const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').split('## G5:')[1];
+    assert(record, 'missing G5 results');
+    for (const table of tables) assert(record.includes(table), `G5 table differs:\n${table}`);
+    console.log(`G5 reproduced exactly: three tables; ${excluded.length} excluded samples.`);
+  } else console.log(tables.join('\n\n'));
+}
+
 const phases = ['cold', 'fling'];
 if (existsSync(join(directory, 'series', 'cold2'))) phases.push('cold2');
 for (const phase of phases) {

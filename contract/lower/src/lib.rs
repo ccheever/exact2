@@ -1416,7 +1416,9 @@ impl<'a> Lowerer<'a> {
                 }
                 values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
                 // ARIA's word-valued states; a bool is written as `true`/`false`.
-                if values::aria_words(prop).is_some() && ty == Ty::Bool {
+                if values::aria_words(prop).is_some_and(|(_, w)| values::aria_takes_bool(w))
+                    && ty == Ty::Bool
+                {
                     asm.call(exact_plan::Stdlib::ToString);
                 }
                 // An enumerated attribute whose IDL attribute is a bool takes

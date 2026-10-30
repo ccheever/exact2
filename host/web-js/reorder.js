@@ -88,7 +88,7 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
     dropAnchor() {
       const p = this.preview, g = this.geometry;
       if (!p || !p.dropped || !g) return null;
-      return { source:p.source, before:p.before, anchor:this.index.anchor(this.anchorOffset(g.offset), g.port_main, this.follows(), p.source) };
+      return { source:p.source, before:p.before, anchor:this.index.anchor(this.anchorOffset(g.offset, g.port_main), g.port_main, this.follows(), p.source) };
     },
     committedAnchor(ordinary, drop) {
       if (!drop) return ordinary;

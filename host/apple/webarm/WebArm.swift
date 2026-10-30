@@ -244,8 +244,32 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var webView: WKWebView { built ?? build() }
     /// A local PDF's view, shown in place of the web view (@ref LLP 1020.002 D10).
     var pdf: FramePDF?
-    /// What the frame shows: the PDF view, or the web view.
-    var platformView: PlatformView { pdf?.view ?? webView }
+    /// What the frame shows: the PDF view, or the web view. A frame said to
+    /// show a local PDF (`pdf` in its configuration) shows the PDF's view
+    /// from the start, before its file comes: it makes no web view that
+    /// `showPDF` would drop at once (@ref LLP 1020.002 D10). A file that is
+    /// not one goes the way any does (`closePDF`, a new view at kind 7).
+    var platformView: PlatformView { pdf?.view ?? (startsAsPDF ? waitingPDF().view : webView) }
+    private var startsAsPDF: Bool { built == nil && options["pdf"] as? Bool == true && partition == nil && sandbox == nil }
+    /// The frame's dialogs, popups and external-scheme confirmations (D5):
+    /// a web view's delegate, and a PDF's links' confirmation without one.
+    @discardableResult func makeUI() -> FrameUI {
+        if let ui { return ui }
+        #if os(iOS)
+        let made = agent ? FrameUIAgent(arm: self) : FrameUI(arm: self)
+        #else
+        let made = FrameUI(arm: self)
+        #endif
+        ui = made
+        return made
+    }
+    private func waitingPDF() -> FramePDF {
+        makeUI() // a PDF's link to another app asks through it (D5), with no web view built
+        let shown = FramePDF(arm: self)
+        shown.view.zoom = CGFloat((options["zoom"] as? NSNumber)?.doubleValue ?? 1)
+        pdf = shown
+        return shown
+    }
     #if EXACT_DEVELOPMENT
     /// What the arm owns that the app's hatch changed, each said once (§9).
     var ownedSaid = Set<String>()
@@ -357,14 +381,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let web = partition == nil ? buildFrame() : buildPartitioned()
         built = web
         web.navigationDelegate = self
-        if ui == nil {
-            #if os(iOS)
-            ui = agent ? FrameUIAgent(arm: self) : FrameUI(arm: self)
-            #else
-            ui = FrameUI(arm: self)
-            #endif
-        }
-        web.uiDelegate = ui
+        web.uiDelegate = makeUI()
         #if EXACT_DEVELOPMENT
         // Safari's platform inspector sees only this guest, not Exact's
         // native tree. Production arms never compile this opt-in (#101).
@@ -566,8 +583,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         if replacing { teardown() }
         partition = name
         if replacing {
-            _ = build()
-            closePDF()
+            // A local PDF's frame losing its partition shows the PDF's view, and makes no web view for `serve` to drop.
+            if startsAsPDF { _ = waitingPDF() } else { _ = build(); closePDF() }
             markLoading()
             scheduleServe()
         }

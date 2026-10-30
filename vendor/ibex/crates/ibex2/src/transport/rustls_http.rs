@@ -36,6 +36,11 @@ impl std::fmt::Display for Roots {
 struct Current {
     generation: u64,
     signal: Option<AbortSignal>,
+    /// The lease's request went out on a pooled connection and none of its
+    /// response has arrived: cleared when it starts to open a connection of
+    /// its own (`CancellableConnector`, a proxy's hop's too) or some of the
+    /// response arrives above TLS (`Observed`).
+    resendable: bool,
 }
 type Context = Arc<Mutex<Current>>;
 struct Slot {
@@ -77,29 +82,31 @@ impl RustlsHttpTransport {
     pub fn roots(&self) -> Roots {
         tls_config().1
     }
-    fn lease(&self, signal: &AbortSignal, tls: bool) -> Lease {
-        let slot = self
-            .pool
-            .idle(tls)
-            .lock()
-            .unwrap()
-            .pop()
-            .unwrap_or_else(|| {
-                let context = Arc::new(Mutex::new(Current::default()));
-                let connector = ureq::unversioned::transport::ConnectProxyConnector::default()
-                    .chain(CancellableConnector(context.clone()))
-                    .chain(ureq::unversioned::transport::RustlsConnector::default());
-                let agent = ureq::Agent::with_parts(
-                    agent_config(tls, self.proxy.clone()),
-                    connector,
-                    Resolver(context.clone()),
-                );
-                Slot { agent, context }
-            });
+    /// An idle agent, or, when none is or `pooled` is false, a new one,
+    /// whose pool is empty.
+    fn lease(&self, signal: &AbortSignal, tls: bool, pooled: bool) -> Lease {
+        let idle = pooled.then(|| self.pool.idle(tls).lock().unwrap().pop());
+        let slot = idle.flatten().unwrap_or_else(|| {
+            let context = Arc::new(Mutex::new(Current::default()));
+            let connector = ureq::unversioned::transport::ConnectProxyConnector::default()
+                .chain(CancellableConnector(context.clone()))
+                .chain(ureq::unversioned::transport::RustlsConnector::default())
+                .chain(Observe {
+                    context: context.clone(),
+                    proxied: self.proxy.is_some(),
+                });
+            let agent = ureq::Agent::with_parts(
+                agent_config(tls, self.proxy.clone()),
+                connector,
+                Resolver(context.clone()),
+            );
+            Slot { agent, context }
+        });
         {
             let mut current = slot.context.lock().unwrap();
             current.generation = current.generation.wrapping_add(1);
             current.signal = Some(signal.clone());
+            current.resendable = true;
         }
         Lease {
             slot: Some(slot),
@@ -140,13 +147,17 @@ fn needs_tls(target_https: bool, proxy: Option<&ureq::Proxy>) -> bool {
     target_https || proxy.is_some_and(|proxy| proxy.protocol() == ureq::ProxyProtocol::Https)
 }
 
+/// The longest a request without a timeout of its own takes, its resend's
+/// included.
+const GLOBAL_TIMEOUT: Duration = Duration::from_secs(30);
+
 fn agent_config(tls: bool, proxy: Option<ureq::Proxy>) -> ureq::config::Config {
     let builder = ureq::Agent::config_builder()
         .proxy(proxy)
         .max_redirects(0)
         .max_redirects_will_error(false)
         .http_status_as_error(false)
-        .timeout_global(Some(Duration::from_secs(30)))
+        .timeout_global(Some(GLOBAL_TIMEOUT))
         .timeout_connect(Some(Duration::from_secs(10)))
         .timeout_recv_response(Some(Duration::from_secs(15)))
         .timeout_recv_body(Some(Duration::from_secs(15)));
@@ -201,6 +212,18 @@ struct Lease {
     slot: Option<Slot>,
     pool: Arc<Pool>,
     tls: bool,
+}
+impl Lease {
+    /// Its request went out on a pooled connection, and none of the response arrived.
+    fn resendable(&self) -> bool {
+        self.slot
+            .as_ref()
+            .unwrap()
+            .context
+            .lock()
+            .unwrap()
+            .resendable
+    }
 }
 impl Drop for Lease {
     fn drop(&mut self) {
@@ -280,7 +303,13 @@ impl<In: WireTransport> Connector<In> for CancellableConnector {
         if let Some(transport) = chained {
             return Ok(Some(Either::A(transport)));
         }
-        let signal = self.0.lock().unwrap().signal.clone().expect("active lease");
+        let signal = {
+            // A connection of the request's own: what goes out on it is not
+            // sent again.
+            let mut current = self.0.lock().unwrap();
+            current.resendable = false;
+            current.signal.clone().expect("active lease")
+        };
         signal.check().map_err(interrupted)?;
         let budget = details
             .timeout
@@ -326,6 +355,72 @@ impl<In: WireTransport> Connector<In> for CancellableConnector {
         }
         signal.check().map_err(interrupted)?;
         Err(last.into())
+    }
+}
+
+/// The top of each agent's connector chain: it notes whether any of the
+/// lease's response arrived above TLS. `proxied`: the agent's config names a
+/// proxy.
+struct Observe {
+    context: Context,
+    proxied: bool,
+}
+impl std::fmt::Debug for Observe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Observe")
+    }
+}
+impl<In: WireTransport> Connector<In> for Observe {
+    type Out = Observed<In>;
+    fn connect(
+        &self,
+        details: &ConnectionDetails,
+        chained: Option<In>,
+    ) -> Result<Option<Self::Out>, ureq::Error> {
+        let Some(inner) = chained else {
+            return Ok(None);
+        };
+        // A CONNECT proxy's hop runs the chain too, its config without the
+        // proxy. The target's connection above it counts the response; what
+        // crosses the hop may be the target's TLS records, so it counts none.
+        let hop = self.proxied && details.config.proxy().is_none();
+        Ok(Some(Observed {
+            inner,
+            context: self.context.clone(),
+            response: !hop,
+        }))
+    }
+}
+struct Observed<T> {
+    inner: T,
+    context: Context,
+    /// What arrives is the response's (not a proxy hop's).
+    response: bool,
+}
+impl<T> std::fmt::Debug for Observed<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Observed")
+    }
+}
+impl<T: WireTransport> WireTransport for Observed<T> {
+    fn buffers(&mut self) -> &mut dyn Buffers {
+        self.inner.buffers()
+    }
+    fn transmit_output(&mut self, amount: usize, timeout: NextTimeout) -> Result<(), ureq::Error> {
+        self.inner.transmit_output(amount, timeout)
+    }
+    fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, ureq::Error> {
+        let progress = self.inner.await_input(timeout)?;
+        if progress && self.response {
+            self.context.lock().unwrap().resendable = false;
+        }
+        Ok(progress)
+    }
+    fn is_open(&mut self) -> bool {
+        self.inner.is_open()
+    }
+    fn is_tls(&self) -> bool {
+        self.inner.is_tls()
     }
 }
 
@@ -471,28 +566,68 @@ fn failed(error: impl std::fmt::Display) -> HostError {
     HostError::Failed(format!("TypeError: Failed to fetch — {error}"))
 }
 
-/// Run `req` on `agent`, its body a slice or a counted reader.
+/// `req` on the lease's agent, its body a slice or a counted reader (Exact
+/// patch 23), within `left` of the request's time. A request's own `timeout`
+/// replaces every agent default: no shorter internal phase limit may win before
+/// it (LLP 0068.000 §4). Without one, the agent's phase limits stand, within
+/// `left` of its global limit.
 fn run<S: ureq::AsSendBody>(
-    agent: &ureq::Agent,
+    lease: &Lease,
     req: ureq::http::Request<S>,
     timeout: Option<Duration>,
+    left: Duration,
 ) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
-    // Replace all agent defaults: no shorter internal phase limit may win
-    // before the request's own timeout (LLP 0068.000 §4).
+    let agent = &lease.slot.as_ref().unwrap().agent;
+    let limit = Some(left);
+    let req = agent.configure_request(req).timeout_global(limit);
     let req = match timeout {
-        Some(limit) => agent
-            .configure_request(req)
-            .timeout_global(Some(limit))
-            .timeout_connect(Some(limit))
-            .timeout_send_request(Some(limit))
-            .timeout_send_body(Some(limit))
-            .timeout_await_100(Some(limit))
-            .timeout_recv_response(Some(limit))
-            .timeout_recv_body(Some(limit))
-            .build(),
+        Some(_) => req
+            .timeout_connect(limit)
+            .timeout_send_request(limit)
+            .timeout_send_body(limit)
+            .timeout_await_100(limit)
+            .timeout_recv_response(limit)
+            .timeout_recv_body(limit),
         None => req,
     };
-    agent.run(req)
+    agent.run(req.build())
+}
+
+/// `req` with `body`, through `reader` when its bytes sent are told (Exact
+/// patch 23), within `left` of the request's time (`run`).
+fn send(
+    lease: &Lease,
+    req: ureq::http::Request<()>,
+    body: &[u8],
+    reader: &mut Option<Counted<'_>>,
+    timeout: Option<Duration>,
+    left: Duration,
+) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+    let (parts, ()) = req.into_parts();
+    match reader.as_mut() {
+        Some(reader) => {
+            let counted = ureq::SendBody::from_reader(reader);
+            run(
+                lease,
+                ureq::http::Request::from_parts(parts, counted),
+                timeout,
+                left,
+            )
+        }
+        None => run(
+            lease,
+            ureq::http::Request::from_parts(parts, body),
+            timeout,
+            left,
+        ),
+    }
+}
+
+/// The connection ended under the request: reset, aborted, not connected, a
+/// write refused, or read to its end with nothing more (ureq's "Peer disconnected").
+fn closed(error: &ureq::Error) -> bool {
+    use std::io::ErrorKind::*;
+    matches!(error, ureq::Error::Io(e) if matches!(e.kind(), ConnectionReset | ConnectionAborted | NotConnected | BrokenPipe | UnexpectedEof))
 }
 
 /// A proxy as an error names it: scheme, host, and port, without credentials.
@@ -547,19 +682,22 @@ impl Transport for RustlsHttpTransport {
         signal: &AbortSignal,
     ) -> Result<StreamingResponse, HostError> {
         signal.check()?;
-        let mut builder = ureq::http::Request::builder()
-            .method(request.method.as_str())
-            .uri(&request.url);
-        for (name, value) in request.headers.entries() {
-            builder = builder.header(name, value);
-        }
         let body = request.body.as_deref().unwrap_or_default();
         let counted = request.sent.as_ref().filter(|_| !body.is_empty());
-        if counted.is_some() {
-            // A body read from a reader is otherwise sent chunked.
-            builder = builder.header("content-length", body.len());
-        }
-        let req = builder.body(()).map_err(failed)?;
+        let build = || {
+            let mut builder = ureq::http::Request::builder()
+                .method(request.method.as_str())
+                .uri(&request.url);
+            for (name, value) in request.headers.entries() {
+                builder = builder.header(name, value);
+            }
+            if counted.is_some() {
+                // A body read from a reader is otherwise sent chunked.
+                builder = builder.header("content-length", body.len());
+            }
+            builder.body(()).map_err(failed)
+        };
+        let req = build()?;
         // Plain HTTP agents stay separate so creating or using one does not
         // initialize the process TLS config. An HTTPS request initializes it
         // before constructing the first TLS-capable agent, and so does a plain
@@ -568,28 +706,34 @@ impl Transport for RustlsHttpTransport {
         // Validate the exact proxy snapshot installed in the leased agent.
         // This precedes leasing (and therefore TLS setup), DNS, and connection.
         let proxy = self.proxy_for(req.uri())?;
-        let lease = self.lease(
-            signal,
-            needs_tls(req.uri().scheme_str() == Some("https"), proxy),
-        );
-        let agent = &lease.slot.as_ref().unwrap().agent;
-        let (parts, ()) = req.into_parts();
+        let tls = needs_tls(req.uri().scheme_str() == Some("https"), proxy);
+        let started = Instant::now();
+        // The request's whole time, its own timeout or the agent's global limit
+        let limit = request.timeout.unwrap_or(GLOBAL_TIMEOUT);
+        let mut lease = self.lease(signal, tls, true);
         let mut reader = counted.map(|sent| Counted { body, at: 0, sent });
-        let result = match reader.as_mut() {
-            Some(reader) => {
-                let counted = ureq::SendBody::from_reader(reader);
-                run(
-                    agent,
-                    ureq::http::Request::from_parts(parts, counted),
-                    request.timeout,
-                )
+        let mut result = send(&lease, req, body, &mut reader, request.timeout, limit);
+        signal.check()?;
+        // A request whose pooled connection closed before any of its response
+        // arrived may never have reached the server, which can close an idle
+        // keep-alive connection after ureq's `is_open` probe: it is sent again,
+        // once, on a connection of its own, so a resend is never resent.
+        // Chrome (`HttpNetworkTransaction::ShouldResendRequest`) and libcurl
+        // (`Curl_retry_request`) resend on that condition, whatever the method.
+        if result.as_ref().is_err_and(closed) && lease.resendable() {
+            // The resend has what is left of the request's time, never a time of its own
+            let left = limit.saturating_sub(started.elapsed());
+            if !left.is_zero() {
+                lease = self.lease(signal, tls, false);
+                // The body goes out again from its start, its bytes sent
+                // counted from zero (Exact patch 23), as Chrome resets its
+                // upload stream to resend.
+                if let Some(reader) = reader.as_mut() {
+                    reader.at = 0;
+                }
+                result = send(&lease, build()?, body, &mut reader, request.timeout, left);
             }
-            None => run(
-                agent,
-                ureq::http::Request::from_parts(parts, body),
-                request.timeout,
-            ),
-        };
+        }
         signal.check()?;
         let response = result.map_err(failed)?;
         // The whole body was sent once the headers came.
@@ -702,17 +846,402 @@ mod tests {
     }
 
     fn request_head(socket: &mut TcpStream) -> String {
+        next_head(socket).expect("a request's head")
+    }
+
+    /// What a scripted server does with a request it has read.
+    enum Then {
+        /// Answers it and keeps the connection.
+        Answer(&'static str),
+        /// Sends the start of an answer.
+        Begin,
+        /// Answers nothing, and closes the connection when its steps end.
+        Close,
+        /// Resets the connection at once, unanswered.
+        Reset,
+        /// Waits, then answers it with this body and keeps the connection, or,
+        /// with none, closes the connection unanswered.
+        Late(Duration, Option<&'static str>),
+    }
+
+    /// A server that takes connections in turn, each served on a thread of its
+    /// own, and treats the requests on each as `script` says, then closes it;
+    /// a connection whose next request does not come ends its steps there, and
+    /// one that does not come within five seconds ends the script. It returns
+    /// each request's connection, request line and body, by connection and in
+    /// order.
+    #[allow(clippy::type_complexity)]
+    fn scripted(
+        script: Vec<Vec<Then>>,
+    ) -> (
+        String,
+        std::thread::JoinHandle<Vec<(usize, String, Vec<u8>)>>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let peer = std::thread::spawn(move || {
+            let served = (script.into_iter().enumerate())
+                .map_while(|(index, steps)| {
+                    let socket = accept_within(&listener, Duration::from_secs(5))?;
+                    Some(std::thread::spawn(move || serve(index, socket, steps)))
+                })
+                .collect::<Vec<_>>();
+            served
+                .into_iter()
+                .flat_map(|connection| connection.join().unwrap())
+                .collect()
+        });
+        (url, peer)
+    }
+
+    /// The listener's next connection, or none within `limit`.
+    fn accept_within(listener: &TcpListener, limit: Duration) -> Option<TcpStream> {
+        let end = Instant::now() + limit;
+        loop {
+            match listener.accept() {
+                Ok((socket, _)) => {
+                    socket.set_nonblocking(false).unwrap();
+                    return Some(socket);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < end => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return None,
+                Err(e) => panic!("accept: {e}"),
+            }
+        }
+    }
+
+    /// One scripted connection's requests (`scripted`).
+    fn serve(
+        index: usize,
+        mut socket: TcpStream,
+        steps: Vec<Then>,
+    ) -> Vec<(usize, String, Vec<u8>)> {
+        let answer = |socket: &mut TcpStream, body: &str| {
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            )
+        };
+        let mut seen = Vec::new();
+        for step in steps {
+            let Some(head) = next_head(&mut socket) else {
+                break;
+            };
+            let length = head
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|n| n.trim().parse().unwrap())
+                })
+                .unwrap_or(0);
+            let mut body = vec![0; length];
+            socket.read_exact(&mut body).unwrap();
+            seen.push((index, head.lines().next().unwrap().to_owned(), body));
+            match step {
+                Then::Answer(body) => answer(&mut socket, body).unwrap(),
+                Then::Begin => socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Le").unwrap(),
+                Then::Close => {}
+                Then::Reset => {
+                    socket2::SockRef::from(&socket)
+                        .set_linger(Some(Duration::ZERO))
+                        .unwrap();
+                    break;
+                }
+                Then::Late(wait, reply) => {
+                    std::thread::sleep(wait);
+                    match reply {
+                        // The client may have given up by now
+                        Some(body) => {
+                            let _ = answer(&mut socket, body);
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+        seen
+    }
+
+    /// The next request's head, or none once the connection ends or is quiet
+    /// for three seconds.
+    fn next_head(socket: &mut TcpStream) -> Option<String> {
         socket
             .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
         let mut head = Vec::new();
         while !head.ends_with(b"\r\n\r\n") {
             let mut byte = [0];
-            socket.read_exact(&mut byte).unwrap();
+            socket.read_exact(&mut byte).ok()?;
             head.push(byte[0]);
             assert!(head.len() < 64 * 1024);
         }
-        String::from_utf8(head).unwrap()
+        Some(String::from_utf8(head).unwrap())
+    }
+
+    fn post(url: &str) -> Request {
+        let mut request = Request::get(url);
+        request.method = "POST".into();
+        request.body = Some(b"{}".to_vec());
+        request
+    }
+
+    /// A server may close an idle keep-alive connection as the next request
+    /// goes out on it, cleanly or with a reset: unanswered, the request goes
+    /// again on a connection of its own, a POST too (Chrome's
+    /// `ShouldResendRequest`, libcurl's `Curl_retry_request`). An upload's
+    /// body goes again whole, its bytes sent told again from zero (Exact
+    /// patch 23).
+    #[test]
+    fn an_unanswered_request_on_a_kept_connection_is_sent_again_on_a_new_one() {
+        // Larger than ureq's output buffer, so each attempt sends it in several writes
+        let body: Vec<u8> = (0..300_000u32).map(|i| (i * 7 % 251) as u8).collect();
+        let total = body.len() as u64;
+        for (end, hooked) in [
+            (Then::Close, true),
+            (Then::Reset, true),
+            (Then::Close, false),
+            (Then::Reset, false),
+        ] {
+            let (url, peer) = scripted(vec![
+                vec![Then::Answer("first"), end],
+                vec![Then::Answer("again")],
+            ]);
+            let transport = RustlsHttpTransport::new();
+            assert_eq!(
+                transport
+                    .send(&Request::get(&format!("{url}/")))
+                    .unwrap()
+                    .body,
+                b"first"
+            );
+            let told = Arc::new(Mutex::new(Vec::new()));
+            let mut upload = post(&format!("{url}/"));
+            upload.body = Some(body.clone());
+            if hooked {
+                let seen_told = told.clone();
+                upload.sent = Some(crate::stdlib::fetch::Sent(
+                    Arc::new(move |loaded, total| seen_told.lock().unwrap().push((loaded, total))),
+                    None,
+                ));
+            }
+            // ureq waits for a body not read again past any request timeout,
+            // so the wait is bounded here.
+            let (done, answered) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = done.send(transport.send(&upload).map(|reply| reply.body));
+            });
+            let answer = answered
+                .recv_timeout(Duration::from_secs(5))
+                .expect("answered");
+            assert_eq!(answer.unwrap(), b"again");
+            if hooked {
+                // Each attempt's count rises to the whole body, and the
+                // resend's starts again below it.
+                let told = told.lock().unwrap();
+                let restarts = (1..told.len())
+                    .filter(|&i| told[i].0 < told[i - 1].0)
+                    .collect::<Vec<_>>();
+                assert_eq!(restarts.len(), 1, "{told:?}");
+                assert_eq!(told[restarts[0] - 1], (total, total));
+                assert_eq!(told.last(), Some(&(total, total)));
+                assert!(told.iter().all(|&(_, of)| of == total));
+            }
+            let seen = peer.join().unwrap();
+            let lines = seen
+                .iter()
+                .map(|(at, line, _)| (*at, line.as_str()))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                lines,
+                [
+                    (0, "GET / HTTP/1.1"),
+                    (0, "POST / HTTP/1.1"),
+                    (1, "POST / HTTP/1.1")
+                ]
+            );
+            assert!(
+                seen[1].2 == body && seen[2].2 == body,
+                "an attempt's body arrived short or changed"
+            );
+        }
+    }
+
+    /// A resend whose new connection closes unanswered too fails, and is not
+    /// sent a third time, as the next request's arrival on the next
+    /// connection shows.
+    #[test]
+    fn a_resend_that_fails_is_not_sent_again() {
+        let (url, peer) = scripted(vec![
+            vec![Then::Answer("first"), Then::Close],
+            vec![Then::Close],
+            vec![Then::Answer("next")],
+        ]);
+        let transport = RustlsHttpTransport::new();
+        assert_eq!(
+            transport
+                .send(&Request::get(&format!("{url}/")))
+                .unwrap()
+                .body,
+            b"first"
+        );
+        assert!(transport.send(&post(&format!("{url}/twice"))).is_err());
+        assert_eq!(
+            transport
+                .send(&Request::get(&format!("{url}/next")))
+                .unwrap()
+                .body,
+            b"next"
+        );
+        let seen = peer.join().unwrap();
+        let lines = seen
+            .iter()
+            .map(|(at, line, _)| (*at, line.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lines,
+            [
+                (0, "GET / HTTP/1.1"),
+                (0, "POST /twice HTTP/1.1"),
+                (1, "POST /twice HTTP/1.1"),
+                (2, "GET /next HTTP/1.1")
+            ]
+        );
+    }
+
+    /// A resend goes on a connection of its own while another agent is idle on
+    /// a kept connection, which the server may have closed as it closed the
+    /// first: the server sees the resend on a third connection.
+    #[test]
+    fn a_resend_takes_no_other_kept_connection() {
+        let (url, peer) = scripted(vec![
+            vec![Then::Answer("one"), Then::Close],
+            vec![Then::Answer("two"), Then::Answer("kept")],
+            vec![Then::Answer("again")],
+        ]);
+        let transport = RustlsHttpTransport::new();
+        let get = |path: &str| {
+            transport
+                .send(&Request::get(&format!("{url}{path}")))
+                .unwrap()
+                .body
+        };
+        // Two agents, each idle on a kept connection: the first is held while the second is made
+        assert_eq!(get("/one"), b"one");
+        let held = transport.lease(&AbortSignal::default(), false, true);
+        assert_eq!(get("/two"), b"two");
+        drop(held);
+        // The first agent's connection closes under the POST, unanswered
+        assert_eq!(
+            transport.send(&post(&format!("{url}/post"))).unwrap().body,
+            b"again"
+        );
+        drop(transport);
+        let seen = peer.join().unwrap();
+        let lines = seen
+            .iter()
+            .map(|(at, line, _)| (*at, line.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lines,
+            [
+                (0, "GET /one HTTP/1.1"),
+                (0, "POST /post HTTP/1.1"),
+                (1, "GET /two HTTP/1.1"),
+                (2, "POST /post HTTP/1.1")
+            ]
+        );
+    }
+
+    /// A resend has what is left of the request's time: the server closes the
+    /// kept connection two seconds into a 4 s timeout and answers the resend
+    /// three seconds later, which a resend with 4 s of its own would wait for:
+    /// it times out at the request's deadline.
+    #[test]
+    fn a_resend_has_only_what_is_left_of_the_request_s_time() {
+        let (url, peer) = scripted(vec![
+            vec![
+                Then::Answer("first"),
+                Then::Late(Duration::from_secs(2), None),
+            ],
+            vec![Then::Late(Duration::from_secs(3), Some("late"))],
+        ]);
+        let transport = RustlsHttpTransport::new();
+        assert_eq!(
+            transport
+                .send(&Request::get(&format!("{url}/")))
+                .unwrap()
+                .body,
+            b"first"
+        );
+        let mut timed = post(&format!("{url}/timed"));
+        timed.timeout = Some(Duration::from_secs(4));
+        let sent = Instant::now();
+        // The socket's read timeout surfaces as the platform's EAGAIN, not as ureq's timeout
+        assert!(transport.send(&timed).is_err());
+        let waited = sent.elapsed();
+        assert!(
+            (Duration::from_millis(3800)..Duration::from_millis(4800)).contains(&waited),
+            "{waited:?}"
+        );
+        drop(transport);
+        let seen = peer.join().unwrap();
+        assert_eq!(
+            seen.iter()
+                .map(|(at, line, _)| (*at, line.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (0, "GET / HTTP/1.1"),
+                (0, "POST /timed HTTP/1.1"),
+                (1, "POST /timed HTTP/1.1")
+            ]
+        );
+    }
+
+    /// A request on a connection of its own that closes unanswered, or one
+    /// whose answer began, may have reached the server: it fails and is not
+    /// sent again, as the next request's arrival on the next connection shows.
+    #[test]
+    fn a_request_on_a_new_connection_or_whose_answer_began_is_not_sent_again() {
+        let (url, peer) = scripted(vec![
+            vec![Then::Close],
+            vec![Then::Answer("first"), Then::Begin],
+            vec![Then::Answer("next")],
+        ]);
+        let transport = RustlsHttpTransport::new();
+        assert!(transport.send(&post(&format!("{url}/new"))).is_err());
+        assert_eq!(
+            transport
+                .send(&Request::get(&format!("{url}/")))
+                .unwrap()
+                .body,
+            b"first"
+        );
+        assert!(transport.send(&post(&format!("{url}/begun"))).is_err());
+        assert_eq!(
+            transport
+                .send(&Request::get(&format!("{url}/next")))
+                .unwrap()
+                .body,
+            b"next"
+        );
+        let seen = peer.join().unwrap();
+        let lines = [
+            "POST /new HTTP/1.1",
+            "GET / HTTP/1.1",
+            "POST /begun HTTP/1.1",
+            "GET /next HTTP/1.1",
+        ];
+        assert_eq!(
+            seen.iter()
+                .map(|(at, line, _)| (*at, line.as_str()))
+                .collect::<Vec<_>>(),
+            [0, 1, 1, 2].into_iter().zip(lines).collect::<Vec<_>>()
+        );
     }
 
     fn direct_target() -> (String, mpsc::Sender<()>, std::thread::JoinHandle<bool>) {

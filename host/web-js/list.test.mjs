@@ -719,3 +719,119 @@ test('vertical rubber-band travel does not trigger collection scroll corrections
     expect(arm.offsets).toEqual([...Array(7).fill(0), ...Array(7).fill(700)]);
   }
 }, 60000);
+
+// @ref runner/src/instance/collection/index_tests.rs `an_anchor_past_the_end_keeps_its_overshoot` (#1095,
+// 7b0352262f), case by case on the JS target's size index, with one more case for each other branch #1095 added.
+test('an anchor past the end keeps its overshoot, as the runner\'s does', async () => {
+  const result = await evaluate(`(async () => {
+    const port = document.createElement('div');
+    port.style.cssText = 'height:100px;width:200px;overflow:auto';
+    document.getElementById('exact-root').append(port);
+    const own = rt.scope(() => list.vl(port, () => [0, 1], i => i(), (w, i) => { const row = document.createElement('div'); row.style.height = '20px'; w.append(row); }, {est:20, pw:[], ph:[100]}));
+    rt.settled();
+    const C = port.$list.index.constructor;
+    rt.end(own); port.remove(); rt.settled();
+    // index_tests.rs \`index\`: rows k0… measured at these heights.
+    const index = hs => { const ix = new C(100); ix.replace(hs.map((_, i) => 'k' + i)); hs.forEach((h, i) => ix.setMeasured('k' + i, ix.token('k' + i), h)); return ix; };
+    const out = {};
+    const ix = index([100, 100, 100, 100]), viewport = 150, max = ix.maxOffset(viewport), pulled = max + 19;
+    const anchor = ix.anchor(pulled, viewport, false);
+    out.pulled = [ix.restoreAnchor(anchor, viewport), pulled, ix.keptRow(anchor, viewport)];
+    ix.setMeasured('k0', ix.token('k0'), 110);
+    out.grown = [ix.restoreAnchor(anchor, viewport), pulled + 10];
+    // An end it follows keeps it too, past the end the rows now have.
+    const following = ix.anchor(pulled + 10, viewport, true);
+    out.following = [following.follows, ix.restoreAnchor(following, viewport), pulled + 10];
+    ix.setMeasured('k3', ix.token('k3'), 125);
+    out.followingGrown = [ix.restoreAnchor(following, viewport), pulled + 35];
+    // With no row to anchor: a short list, a padded one, a port in the padding after the rows.
+    const short = index([100]), padded = index([100, 100, 100, 100, 100]), after = index([100, 100]);
+    padded.leading = 92; padded.trailing = 83; after.trailing = 300;
+    out.rowless = [[short, viewport, 19], [padded, 600, 0], [padded, 600, 19], [after, 100, 450], [after, 100, 300]].map(([l, p, at]) => [l.restoreAnchor(l.anchor(at, p, false), p), at]);
+    const shortAnchor = short.anchor(19, viewport, false);
+    short.setMeasured('k0', short.token('k0'), 400);
+    out.shortGrown = [short.restoreAnchor(shortAnchor, viewport), 19];
+    // anchor_at: a key's anchor carries no overshoot.
+    const keyed = index([100, 100, 100, 100]), at = keyed.anchorAt('k1', 5);
+    out.anchorAt = [at.beyond, at.raw, keyed.restoreAnchor(at, viewport), 105];
+    // A row anchor whose rows are all gone restores to the start, past the end or not.
+    const gone = index([100, 100, 100, 100]), past = gone.anchor(gone.maxOffset(viewport) + 19, viewport, false);
+    gone.replace(['n0', 'n1']);
+    out.gone = [gone.restoreAnchor(past, viewport), 0];
+    return out;
+  })()`);
+  expect(result.pulled).toEqual([result.pulled[1], result.pulled[1], true]);
+  expect(result.grown[0]).toBe(result.grown[1]);
+  expect(result.following).toEqual([true, result.following[2], result.following[2]]);
+  expect(result.followingGrown[0]).toBe(result.followingGrown[1]);
+  for (const [restored, at] of result.rowless) expect({ at, restored }).toEqual({ at, restored: at });
+  expect(result.shortGrown[0]).toBe(19);
+  expect(result.anchorAt).toEqual([0, 0, 105, 105]);
+  expect(result.gone[0]).toBe(0);
+}, 60_000);
+
+// @ref runner/src/instance/collection/start.rs `anchor_offset` (#1095): an opening list's anchor is taken at its
+// end in its port, `max_offset(port)`, so it carries no overshoot (once it has opened it no longer follows its end).
+test('a list opened at its end anchors at its end with no overshoot', async () => {
+  const result = await evaluate(`(async () => {
+    const port = document.createElement('div');
+    port.style.cssText = 'height:300px;width:200px;overflow:auto';
+    document.getElementById('exact-root').append(port);
+    const own = rt.scope(() => list.vl(port, () => Array.from({length:40}, (_, i) => i), i => i(), (w, i) => {
+      const row = document.createElement('div'); row.style.height = '50px'; w.append(row);
+    }, {est:50, pw:[], ph:[300], atEnd:true}));
+    rt.settled(); await exact.lists.pending(); await exact.lists.settle();
+    const c = port.$list, gap = port.scrollHeight - port.scrollTop - port.clientHeight;
+    // Its anchor while it opens (start.rs): the opening phase, as the collection is in it before its rows settle.
+    const was = c.atEnd; c.atEnd = true;
+    const g = c.geometry, a = c.anchor();
+    // An input past the end too (the extent), where an identity would not give the end.
+    const opening = { atEnd: c.atEnd, beyond: a.beyond, offset: c.anchorOffset(g.offset, g.port_main), offEnd: c.anchorOffset(c.index.extent, g.port_main), max: c.index.maxOffset(g.port_main), restored: c.index.restoreAnchor(a, g.port_main) };
+    c.atEnd = was;
+    const out = { opening, gap };
+    rt.end(own); port.remove(); rt.settled();
+    return out;
+  })()`);
+  expect(result.opening).not.toBeNull();
+  expect(result.opening.atEnd).toBe(true);
+  expect(result.opening.beyond).toBe(0);
+  expect(result.opening.offset).toBe(result.opening.max);
+  expect(result.opening.offEnd).toBe(result.opening.max);
+  expect(result.opening.restored).toBe(result.opening.max);
+  expect(result.gap).toBe(0);
+}, 60_000);
+
+// @ref index_tests.rs `twenty_25k_traversals_with_zero_samples_keep_selection_and_metadata_bounded`'s #1095 line:
+// an anchor taken anywhere, past the end included, restores to the clamped offset plus its overshoot. The formula
+// holds where max >= 0 (rows longer than the port, as here); a padded list shorter than its port (max < 0, raw 0) is
+// the rowless cases' in the test above.
+test('an anchor restores to its clamped offset plus its overshoot, anywhere', async () => {
+  const traversal = await evaluate(`(async () => {
+    const port = document.createElement('div');
+    port.style.cssText = 'height:100px;width:200px;overflow:auto';
+    document.getElementById('exact-root').append(port);
+    const own = rt.scope(() => list.vl(port, () => [0, 1], i => i(), (w, i) => { const row = document.createElement('div'); row.style.height = '20px'; w.append(row); }, {est:20, pw:[], ph:[100]}));
+    rt.settled(); await exact.lists.pending();
+    const C = port.$list.index.constructor;
+    rt.end(own); port.remove(); rt.settled();
+    // Rows of seeded heights, zeros among them, and offsets across the rows and past the end.
+    let seed = 7; const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const ix = new C(40), keys = Array.from({length:500}, (_, i) => 'r' + i);
+    ix.replace(keys);
+    for (const k of keys) ix.setMeasured(k, ix.token(k), next() < 0.2 ? 0 : Math.round(next() * 90));
+    const port100 = 100, max = ix.maxOffset(port100), misses = [];
+    let checked = 0, finite = 0;
+    for (let n = 0; n < 2000; n++) {
+      const offset = next() * (max + 300);
+      const restored = ix.restoreAnchor(ix.anchor(offset, port100, false), port100), want = ix.clamp(offset, port100) + Math.max(0, offset - max);
+      checked++;
+      // A NaN or an undefined is a miss, not a pass (|NaN - x| > e is false).
+      if (Number.isFinite(restored) && Number.isFinite(want)) finite++;
+      if (!(Number.isFinite(restored) && Math.abs(restored - want) <= 1e-6) && misses.length < 5) misses.push([offset, restored, want]);
+    }
+    return { max, checked, finite, misses };
+  })()`);
+  expect(traversal.max).toBeGreaterThanOrEqual(0);
+  expect([traversal.checked, traversal.finite]).toEqual([2000, 2000]);
+  expect(traversal.misses).toEqual([]);
+}, 60_000);

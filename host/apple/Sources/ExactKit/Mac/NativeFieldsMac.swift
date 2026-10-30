@@ -79,7 +79,7 @@ extension NodeView {
         field.backgroundColor = bezel ? standard.backgroundColor : .clear
         field.focusRingType = outlineNone || (native && fieldInCell) || themed ? .none : native ? .default : .exterior
         restyleFieldFocus()
-        field.alignment = fieldAlignment
+        syncFieldSide()
         if native, field.currentEditor() == nil {
             field.attributedStringValue = NSAttributedString(string: field.stringValue, attributes: fieldTextAttributes)
         }
@@ -87,19 +87,47 @@ extension NodeView {
         applyPlaceholder(field)
         layoutField()
     }
+    /// The field's own alignment and base direction, set once no editor has
+    /// it: the control's setters, its cell's too, end an editor's editing,
+    /// which a new `direction` (an unsaid `start` changing side) must not.
+    /// Its editor takes both meanwhile (`styleFieldEditor`), and the field
+    /// at the end of the editing.
+    func syncFieldSide() {
+        guard let field, field.currentEditor() == nil else { return }
+        if field.alignment != fieldAlignment { field.alignment = fieldAlignment }
+        if field.baseWritingDirection != fieldBaseDirection { field.baseWritingDirection = fieldBaseDirection }
+    }
+    /// A field lent to the toolbar or an alert, which no page chrome styles:
+    /// its side and base, its editor's text too (LLP 1001 §1).
+    func styleLentFieldSide() {
+        guard pageField != nil, let field else { return }
+        syncFieldSide()
+        if let editor = field.currentEditor() as? NSTextView, !editor.hasMarkedText() {
+            applyBaseDirection(to: editor)
+            if editor.alignment != fieldAlignment { editor.alignment = fieldAlignment }
+        }
+    }
+    /// A plain field's paragraph base direction: CSS `direction`, said either
+    /// way as Apple text's is (`TextEngine.setBaseDirection`), so no first
+    /// strong character picks it (LLP 1001 §1).
+    var fieldBaseDirection: NSWritingDirection {
+        style["direction"]?.string == "rtl" ? .rightToLeft : .leftToRight
+    }
     var fieldAlignment: NSTextAlignment {
         switch style["text_align"]?.string {
+        case "left": return .left
         case "center": return .center
         case "right": return .right
         case "end": return style["direction"]?.string == "rtl" ? .left : .right
         case "start": return style["direction"]?.string == "rtl" ? .right : .left
         case "justify": return .justified
-        default: return .left
+        default: return style["direction"]?.string == "rtl" ? .right : .left // `start`, as the web's
         }
     }
     var fieldTextAttributes: [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = fieldAlignment
+        paragraph.baseWritingDirection = fieldBaseDirection
         return [.font: field?.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .regular)),
                 .foregroundColor: field?.textColor ?? NSColor.controlTextColor,
                 .kern: number("letter_spacing"), .paragraphStyle: paragraph]
@@ -111,6 +139,10 @@ extension NodeView {
             editor.textStorage?.addAttributes(attributes, range: NSRange(location: 0, length: editor.string.utf16.count))
             editor.typingAttributes.merge(attributes) { _, next in next }
             editor.alignment = fieldAlignment
+        }
+        if !editor.hasMarkedText() {
+            applyBaseDirection(to: editor)
+            if editor.alignment != fieldAlignment { editor.alignment = fieldAlignment } // its cell's, set while it edits
         }
         applyTextChecking(editor)
     }
@@ -218,6 +250,7 @@ extension NodeView {
         bar.isEditable = page.isEditable
         pageField = page
         field = bar
+        syncFieldSide()
         return bar
     }
     /// A prompt's field for its alert's accessory view (AlertsMac.swift), lent
@@ -237,6 +270,7 @@ extension NodeView {
         lent.cell?.usesSingleLineMode = true
         pageField = page
         field = lent
+        syncFieldSide()
         syncBarField()
         return lent
     }

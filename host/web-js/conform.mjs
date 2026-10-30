@@ -86,7 +86,7 @@ import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { conformArgs } from './conform-args.mjs';
 import { withoutSlots } from './conform-linux.mjs';
-import { parseStep } from './conform-steps.mjs';
+import { clockOnAll, parseStep } from './conform-steps.mjs';
 import { open } from '../../scripts/agent.mjs';
 import { refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
 import { poolBrowsers, probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
@@ -499,7 +499,22 @@ async function drive(t, report, fail, dir, ws, js) {
     // media session action, LLP 1098 D10) — each compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
     // A page whose settle still owes a list's reader a scroll event is compared too soon: that fails the step.
-    const settle = async step => { const replies = await pair(() => W.clock('settle'), () => J.clock('settle')); for (const [side, r] of [[reference, replies[0]], [other, replies[1]]]) if (r?.reason === 'scroll-event') fail(step, `${side}: clock settle was not settled: a list's reader's scroll event still owed or still running`); await onLinux('settle', L => L.clock('settle')); };
+    // One clock operation on every target: answered, or refused alike with `Poisoned` (a poisoned runner refuses
+    // every forward advance), which is recorded as the step and passed; anything else fails it (conform-steps.mjs).
+    const clockAll = async (step, arg, linuxStep) => {
+      driveAt = step === `clock ${arg}` ? step : `${step} clock ${arg}`;
+      const apart = LINUX_APART[t.name]?.[0] === linuxStep;
+      const v = await clockOnAll(arg, [[reference, W], [other, J]], apart ? null : L, pair);
+      if (v.failure) throw new Error(`clock ${arg}: ${v.failure}`);
+      if (!v.refused || apart) { await onLinux(linuxStep, L => L.clock(arg)); if (!v.refused) return v; }
+      if (v.linux) {
+        fail(step, `clock ${arg}: ${v.linux}`);
+        report.steps.push({ target: t.name, step: linuxStep, linux: 'stopped', skipped: `linux: clock ${arg} did not refuse as the pages did` });
+        await L.close?.().catch(() => {}); L = null;
+      } else report.steps.push({ target: t.name, step: step === `clock ${arg}` ? step : `${step}: clock ${arg}`, refused: `${v.refused} on ${v.compared.join(', ')}`, differences: 0 });
+      return v;
+    };
+    const settle = async step => { const { answered } = await clockAll(step, 'settle', 'settle'); for (const [side, r] of [[reference, answered?.[0]], [other, answered?.[1]]]) if (r?.reason === 'scroll-event') fail(step, `${side}: clock settle was not settled: a list's reader's scroll event still owed or still running`); };
     driveAt = 'boot settle';
     await settle('boot');
     // Each step's bound refusals, on every target (the journals read from here on).
@@ -569,7 +584,7 @@ async function drive(t, report, fail, dir, ws, js) {
       tree = await compare(`tap ${id}`);
     }
     if (!diverged) {
-      await pair(() => W.clock('+60000'), () => J.clock('+60000')); await onLinux('clock +60000', L => L.clock('+60000'));
+      await clockAll('clock +60000', '+60000', 'clock +60000');
       await compare('clock +60000');
     }
   } catch (e) {
@@ -917,6 +932,12 @@ for (const t of targets) {
 }
 lines.push('', '## Failures', '');
 for (const [t, fs] of Object.entries(byTarget)) { lines.push(`### ${t}`); for (const f of fs) lines.push(`- **${f.step}** — ${f.what}`); lines.push(''); }
+const refusals = report.steps.filter(x => x.refused);
+if (refusals.length) {
+  lines.push('## Clock refusals compared', '');
+  for (const x of refusals) lines.push(`- **${x.target} / ${x.step}** — refused: ${x.refused}`);
+  lines.push('');
+}
 if (report.known.length) {
   lines.push('## Known engine differences', '');
   for (const item of report.known) lines.push(`- **${item.target} / ${item.step} / ${item.field}** — ${item.what}; ${item.reason}`);

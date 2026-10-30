@@ -1,5 +1,7 @@
 // A local PDF in a frame and a capture of it through the runner, driven by
-// IframeCaptureSessionTests (LLP 1020.002 D7, D10).
+// IframeCaptureSessionTests (LLP 1020.002 D7, D10); a frame whose PDF is
+// not there, which gets a web view in its place; and a sandboxed one, which
+// stays WebKit's from its mount.
 component App
   state shown = false
   state shot = ""
@@ -13,6 +15,8 @@ component App
     column
       if shown
         iframe id="doc" src="app:/tmp/b6.pdf#page=2" capture=captured width=300 height=240 testId="doc"
+        iframe id="gone" src="app:/tmp/no-such-b6.pdf" width=120 height=80 testId="gone"
+        iframe id="boxed" src="app:/tmp/b6.pdf" sandbox="" width=120 height=80 testId="boxed"
       button press=show testId="show"
         text "Show"
       button press=snap testId="snap"

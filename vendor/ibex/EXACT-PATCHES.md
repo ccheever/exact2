@@ -25,7 +25,7 @@ with substituted Security calls; signed Keychain access still needs profiles.
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `bbf47f380c138d1138581c299f298e3b1bd9cb9c` (2026-10-18).
+  `a0183568e8229b8243629cdb26cd4a88ac4e2abd` (2026-10-30).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
@@ -70,6 +70,23 @@ change. After replacement, the complete Exact delta apart from this ledger is
 ten files: the two locks, three workspace boundaries, two stub build seams,
 the app-facing storage declaration, Keychain group selection and read-only
 directory snapshots.
+
+The October 30 refresh compared `bbf47f3`, Exact `d16c84ee03`'s vendor tree, and
+the new `a018356` upstream tree (the merges of expo/ibex#3 and #4). Upstream now
+supplies `AbortSignal.any`'s Web IDL sequence conversion and the abort hooks'
+view of a composed signal's `sources`, so local patches 25 and 22 are retired;
+the portable transport's resend of a request whose kept connection closes
+unanswered (`transport/rustls_http.rs`, which exact2's Linux OAuth requests
+met); and Fetch's `Headers` guard, which a fetched response's headers take and
+an embedder may give its own through `InstallOptions::headers_hooks`. The nine
+changed upstream inputs are `include/ibex2_jsi.h`, `bindings/abort.js`,
+`bindings/fetch.js`, `bindings/headers.js`, `bindings/install.cc`,
+`secrets/mod.rs`, `transport/darwin_websocket.rs`, `transport/rustls_http.rs`
+and `transport/websocket_tests.rs`; five were also Exact's. `install.cc`,
+`ibex2_jsi.h` and the websocket tests merged without overlap, and `abort.js` is
+upstream's. `rustls_http.rs` sends patch 23's counted reader through the resend
+(`send`), the reader rewound so its bytes sent are told again from zero.
+Manifests, locks, data inputs and the bundle pin did not change.
 
 For another refresh, export the four named crate trees and all three data inputs
 from the selected commit into a temporary directory. Recover the current local
@@ -364,14 +381,6 @@ refuses a tool's, a wake's or a package event's reach to the local network
 while the person has not decided. Without a gate nothing changes. Replay on a
 refresh.
 
-## Local patch 22, a composed signal's sources
-
-`bindings/abort.js`'s view of a signal (`inspect`, the hooks' `own`) names the
-signals `AbortSignal.any` composed it of (`sources`, a copy; null for one not
-composed), so exact2's data runtime gives a fetch carrying a composed signal
-the earliest `AbortSignal.timeout` among them as its deadline (exact2 LLP 1146
-§2.1). Nothing else reads it. Replay on a refresh.
-
 ## Local patch 23, an upload's bytes sent
 
 `stdlib/fetch.rs` gives `Request` an optional `sent` hook (`Sent`), told
@@ -384,6 +393,11 @@ embedder's `exact:sending`). The hook answers whether the upload may go out:
 an embedder that has let it go answers `false`, which stops it as an abort
 does, and the loop checks the signal again after it. So an embedder that
 aborts an upload, then reads which uploads started, is never wrong about one.
+A request upstream's portable transport sends again, on a new connection,
+when a kept connection closes unanswered, rewinds the counted reader, so its
+bytes sent are told again from zero, as Chrome resets an upload stream to
+resend (`rustls_http.rs`'s `send`; tested in
+`an_unanswered_request_on_a_kept_connection_is_sent_again_on_a_new_one`).
 `transport/darwin_http.mm` records URLSession's `didSendBodyData` on the
 exchange, and `ibex2_darwin_http_headers` takes the bytes the caller last saw,
 returning 2 when they change before the headers, so `transport/darwin.rs`

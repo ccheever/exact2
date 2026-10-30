@@ -305,6 +305,9 @@ final class WebViews {
         // A hatched frame's web view has its own preferences (§9).
         if owner.props["hatch"] != nil { values["hatched"] = true }
         if let zoom = owner.style["zoom"]?.number, zoom > 0 { values["zoom"] = zoom }
+        // A local PDF, by its name: the arm shows a PDF's view from the start, and no web view (the file decides).
+        // Not a sandboxed or partitioned frame, which stays WebKit's from its mount (D10).
+        if owner.props["sandbox"] == nil, owner.props["partition"] == nil, Self.localPDF(owner.props["src"]) { values["pdf"] = true }
         for (prop, key) in WebViews.appleWords {
             guard let value = owner.props[prop] else { continue }
             values[key] = value == "true" ? true as Any : value == "false" ? false as Any : value as Any
@@ -488,6 +491,13 @@ final class WebViews {
         module.checkOwned(handle)
     }
 
+    /// Whether `src` names a local file (an `app:/` path, or the app's
+    /// bundled one, as `update` reads them) ending in `.pdf`.
+    static func localPDF(_ source: String?) -> Bool {
+        guard let source, source.hasPrefix("app:/") || (URL(string: source)?.scheme == nil && !source.hasPrefix("//")) else { return false }
+        let path = source.split(separator: "#", maxSplits: 1).first.map { $0.split(separator: "?", maxSplits: 1).first ?? $0 } ?? ""
+        return path.lowercased().hasSuffix(".pdf")
+    }
     private static func browserSource(_ source: String?) -> String? {
         guard let source, source.hasPrefix("//") else { return source }
         let scheme = ExactApp.shared.connectedPage?.scheme?.lowercased()
@@ -550,7 +560,8 @@ final class WebViews {
     }
 
     fileprivate func receivedEvent(id: UInt32, kind: UInt32, data: Data) {
-        guard let entry = entries[id], !entry.fileFailed, let owner = entry.owner else { return }
+        // A failed file says nothing more, but the view the arm shows in its place is still shown (kind 7).
+        guard let entry = entries[id], !entry.fileFailed || kind == 7, let owner = entry.owner else { return }
         switch kind {
         case 0:
             if owner.handlers.contains("load") { DispatchQueue.main.async { [weak owner] in owner?.presenter?.load(id) } }

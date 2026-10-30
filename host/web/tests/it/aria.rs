@@ -25,7 +25,7 @@ fn aria_modal_is_the_html_attribute() {
 #[test]
 fn form_states_and_haspopup_are_the_html_attributes() {
     let plan = contract::compile(
-        "component App\n  view\n    column\n      input aria-invalid=true aria-required=true aria-describedby=\"err\" testId=\"email\"\n      text \"Wrong\" id=\"err\"\n      button aria-haspopup=\"menu\" testId=\"menu\"\n        text \"File\"\n      button aria-current=\"page\" testId=\"home\"\n        text \"Home\"\n",
+        "component App\n  view\n    column\n      input aria-invalid=true aria-required=true aria-describedby=\"err\" testId=\"email\"\n      text \"Wrong\" id=\"err\"\n      button aria-haspopup=\"menu\" testId=\"menu\"\n        text \"File\"\n      button aria-current=\"page\" testId=\"home\"\n        text \"Home\"\n      text \"Name\" role=\"columnheader\" aria-sort=\"ascending\"\n",
     )
     .unwrap();
     let (_host, batch) = Host::boot(
@@ -41,6 +41,7 @@ fn form_states_and_haspopup_are_the_html_attributes() {
         "\"aria-describedby\":\"err\"",
         "\"aria-haspopup\":\"menu\"",
         "\"aria-current\":\"page\"",
+        "\"aria-sort\":\"ascending\"",
     ] {
         assert!(batch.contains(attr), "{attr} in {batch}");
     }

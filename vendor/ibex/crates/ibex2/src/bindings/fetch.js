@@ -27,8 +27,9 @@
   var URLSearchParams = global.URLSearchParams;
   var DOMException = global.DOMException;
   var freeHeaders = global.__ibex2_headers_free;
+  var guard = global.__ibex2_headers_hooks.guard;
   ["__ibex2_response_field", "__ibex2_response_read", "__ibex2_response_own", "__ibex2_fetch_control", "__ibex2_abort",
-   "__ibex2_headers_free", "__ibex2_text_encode", "__ibex2_text_decode", "__ibex2_text_encode_into",
+   "__ibex2_headers_free", "__ibex2_headers_hooks", "__ibex2_text_encode", "__ibex2_text_decode", "__ibex2_text_encode_into",
    "__ibex2_blob_helpers"]
     .forEach(function (name) { delete global[name]; });
   var responses = new WeakMap(), streams = new WeakMap(), readers = new WeakMap(), requests = new WeakMap();
@@ -146,7 +147,7 @@
     var state = { handle: handle, used: false, terminal: false, failed: false, reader: null,
       tail: Promise.resolve(), cleanup: cleanup, body: body,
       status: field(handle, 0), ok: field(handle, 1), url: field(handle, 2),
-      redirected: field(handle, 5), headers: new Headers(JSON.parse(field(handle, 7))) };
+      redirected: field(handle, 5), headers: guard(new Headers(JSON.parse(field(handle, 7))), "immutable") };
     responses.set(result, state);
     streams.set(body, state);
     brand(result, "Response");

@@ -21,6 +21,93 @@ static NSString *arm;
 static double tickSeconds;
 static atomic_size_t topItem;
 static _Atomic(float) topOffset;
+static NSString *workload;
+
+// Charge a buffer to its commit phase, even if completion arrives in the next one.
+static pthread_mutex_t gpuLock = PTHREAD_MUTEX_INITIALIZER;
+static struct { double seconds; uint64_t committed, completed, invalid; } gpu[3];
+static int gpuPhase;
+static NSString *queueClass, *bufferClass;
+static IMP originalCommit, originalBuffer, originalUnretainedBuffer, originalDescriptorBuffer;
+
+static void commitBuffer(id<MTLCommandBuffer> buffer, SEL selector) {
+    pthread_mutex_lock(&gpuLock);
+    int phase = gpuPhase;
+    gpu[phase].committed++;
+    pthread_mutex_unlock(&gpuLock);
+    [buffer addCompletedHandler:^(id<MTLCommandBuffer> done) {
+        double start = done.GPUStartTime, end = done.GPUEndTime;
+        pthread_mutex_lock(&gpuLock);
+        gpu[phase].completed++;
+        if (done.status == MTLCommandBufferStatusCompleted && start > 0 && end >= start)
+            gpu[phase].seconds += end - start;
+        else gpu[phase].invalid++;
+        pthread_mutex_unlock(&gpuLock);
+    }];
+    ((void (*)(id, SEL))originalCommit)(buffer, selector);
+}
+
+static id watchBuffer(id buffer) {
+    if (!buffer) return nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class concrete = object_getClass(buffer);
+        Method method = class_getInstanceMethod(concrete, @selector(commit));
+        originalCommit = method_getImplementation(method);
+        pthread_mutex_lock(&gpuLock);
+        bufferClass = NSStringFromClass(concrete);
+        pthread_mutex_unlock(&gpuLock);
+        class_replaceMethod(concrete, @selector(commit), (IMP)commitBuffer, method_getTypeEncoding(method));
+    });
+    if (![buffer isKindOfClass:NSClassFromString(bufferClass)]) {
+        fprintf(stderr, "probe: uninstrumented command-buffer class %s\n", object_getClassName(buffer));
+        abort();
+    }
+    return buffer;
+}
+
+static id commandBuffer(id queue, SEL selector) {
+    return watchBuffer(((id (*)(id, SEL))originalBuffer)(queue, selector));
+}
+static id unretainedCommandBuffer(id queue, SEL selector) {
+    return watchBuffer(((id (*)(id, SEL))originalUnretainedBuffer)(queue, selector));
+}
+static id descriptorCommandBuffer(id queue, SEL selector, id descriptor) {
+    return watchBuffer(((id (*)(id, SEL, id))originalDescriptorBuffer)(queue, selector, descriptor));
+}
+
+static void watchCommandQueues(void) {
+    // A queue discovers the device's concrete class without creating a buffer or submitting work.
+    id<MTLCommandQueue> queue = [MTLCreateSystemDefaultDevice() newCommandQueue];
+    if (!queue) { fprintf(stderr, "probe: no Metal queue\n"); abort(); }
+    Class concrete = object_getClass(queue);
+    queueClass = NSStringFromClass(concrete);
+    SEL selectors[] = {@selector(commandBuffer), @selector(commandBufferWithUnretainedReferences), @selector(commandBufferWithDescriptor:)};
+    IMP replacements[] = {(IMP)commandBuffer, (IMP)unretainedCommandBuffer, (IMP)descriptorCommandBuffer};
+    IMP *originals[] = {&originalBuffer, &originalUnretainedBuffer, &originalDescriptorBuffer};
+    for (int i = 0; i < 3; i++) {
+        Method method = class_getInstanceMethod(concrete, selectors[i]);
+        if (!method) { fprintf(stderr, "probe: missing queue method\n"); abort(); }
+        *originals[i] = method_getImplementation(method);
+        class_replaceMethod(concrete, selectors[i], replacements[i], method_getTypeEncoding(method));
+    }
+}
+
+static void setGPUPhase(int phase) {
+    pthread_mutex_lock(&gpuLock);
+    gpuPhase = phase;
+    pthread_mutex_unlock(&gpuLock);
+}
+
+static NSDictionary *gpuUsage(int phase) {
+    pthread_mutex_lock(&gpuLock);
+    typeof(gpu[0]) value = gpu[phase];
+    NSDictionary *result = @{ @"seconds": @(value.seconds), @"committed": @(value.committed),
+        @"completed": @(value.completed), @"invalid": @(value.invalid),
+        @"queueClass": queueClass ?: @"", @"bufferClass": bufferClass ?: @"" };
+    pthread_mutex_unlock(&gpuLock);
+    return result;
+}
 
 // Opt-in fixed storage; serializing a trace happens after the measured scroll.
 static struct { const char *name; double start, end, value; mach_port_t thread; } intervals[131072];
@@ -289,6 +376,7 @@ static NSData *signature(NSView *view) {
     self.result[@"preMainMs"] = @((loaded - processStart) * 1000);
     if (firstDrawable) self.result[@"firstDrawableMs"] = @((firstDrawable - processStart) * 1000);
     self.result[@"arm"] = arm;
+    self.result[@"workload"] = workload;
     self.result[@"imageRefusalsAllowed"] = @(getenv("G1_ALLOW_IMAGE_REFUSALS") != NULL);
     if (painted) {
         self.result[@"drawableCalls"] = @(atomic_load(&drawableCalls));
@@ -340,16 +428,14 @@ static NSData *signature(NSView *view) {
             self.peak = MAX(self.peak, [sample[@"footprint"] unsignedLongLongValue]);
         });
         dispatch_resume(self.memory);
-        self.phase = 1; self.link.paused = NO;
-        writeJSON(self.start, [output stringByAppendingString:@".fling"]);
+        self.phase = 1; self.link.paused = NO; setGPUPhase(1);
+        writeJSON(self.start, [output stringByAppendingFormat:@".%@", workload]);
     } else if (self.phase == 1) {
+        setGPUPhase(2);
         NSDictionary *end = usage();
-        self.result[@"fling"] = @{ @"start": self.start, @"end": end, @"peak": @(self.peak), @"displayLink": self.ticks,
+        self.result[workload] = @{ @"start": self.start, @"end": end, @"peak": @(MAX(self.peak, [end[@"footprint"] unsignedLongLongValue])), @"displayLink": self.ticks,
             @"wheelEvents": @(self.wheels), @"wheelDeltaY": @(self.wheelDelta), @"wheelPositions": self.wheelPositions,
             @"inactiveTicks": @(self.inactiveTicks), @"samples": self.samples };
-        pthread_mutex_lock(&lock);
-        self.result[@"presented"] = [presented copy];
-        pthread_mutex_unlock(&lock);
         if (tracing) writeJSON(self.result[@"fling"], [output stringByAppendingString:@".fling-data"]);
         self.ticks = nil; self.link.paused = YES;
         NSScrollView *scroll = scrollView(self.window.contentView);
@@ -361,12 +447,22 @@ static NSData *signature(NSView *view) {
         writeJSON(self.start, [output stringByAppendingString:@".rest"]);
         if (tracing) saveTrace();
     } else if (self.phase == 2) {
+        setGPUPhase(0);
         self.result[@"rest"] = @{ @"start": self.start, @"end": usage(), @"peak": @(self.peak), @"samples": self.samples };
         self.result[@"thermalEnd"] = @(NSProcessInfo.processInfo.thermalState);
         self.result[@"activeAtEnd"] = @(NSApp.active && self.window.keyWindow);
         self.result[@"focusLosses"] = self.focusLosses;
-        writeJSON(self.result, output);
-        exit(0);
+        self.phase = 3;
+        dispatch_source_cancel(self.memory);
+        // Retain completions and presentations for buffers committed at the phase boundary.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            self.result[@"gpu"] = @{workload: gpuUsage(1), @"rest": gpuUsage(2), @"outside": gpuUsage(0)};
+            pthread_mutex_lock(&lock);
+            self.result[@"presented"] = [presented copy];
+            pthread_mutex_unlock(&lock);
+            writeJSON(self.result, output);
+            exit(0);
+        });
     }
 }
 @end
@@ -382,6 +478,10 @@ __attribute__((constructor)) static void initialize(void) {
         tickSeconds = (double)timebase.numer / timebase.denom / 1e9;
         output = @(path);
         arm = @(getenv("G1_ARM") ?: "native");
+        workload = @(getenv("BENCH_MOTION") ?: "fling");
+        if (![@[@"fling", @"bar", @"caret"] containsObject:workload]) {
+            fprintf(stderr, "probe: BENCH_MOTION must be bar or caret\n"); exit(2);
+        }
         if (![@[@"native", @"gpui", @"ink", @"egui"] containsObject:arm]) {
             fprintf(stderr, "probe: unknown arm %s\n", arm.UTF8String); exit(2);
         }
@@ -391,7 +491,8 @@ __attribute__((constructor)) static void initialize(void) {
         if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&initial) || !initial.ri_proc_start_abstime) abort();
         processStart = initial.ri_proc_start_abstime * tickSeconds;
         presented = [NSMutableArray array];
-        if (painted) {
+        watchCommandQueues();
+        {
             Method method = class_getInstanceMethod(CAMetalLayer.class, @selector(nextDrawable));
             class_addMethod(CAMetalLayer.class, @selector(g1_originalDrawable), method_getImplementation(method), method_getTypeEncoding(method));
             method_setImplementation(method, (IMP)nextDrawable);

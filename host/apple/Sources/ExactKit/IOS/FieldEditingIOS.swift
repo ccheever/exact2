@@ -69,6 +69,7 @@ extension NodeView {
         if !disabled { typedText(field?.text ?? "") }
         if stepper != nil { updateNumberStepper() } // the stepper shows what the field holds (LLP 1116.007 D4)
         if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
+        applyFieldDirection() // a `direction` that came while it composed
         // The edit's `input` ran: the field and what follows it are shown
         // again, as a browser scrolls a field into view as it is typed into,
         // so a hint the edit put under the field is not left under the keys
