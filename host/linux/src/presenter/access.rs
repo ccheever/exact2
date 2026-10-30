@@ -1077,7 +1077,8 @@ impl<D: DataSource> Presenter<D> {
             item: (0, 0),
             limits: self.collection_scroll_limits(),
         };
-        if let Some(root) = self.alert_root() {
+        // A modal box is the whole tree; under a popover the page is live.
+        if let Some(root) = self.alert_root().filter(|_| self.alert_inert()) {
             let viewport = (0., 0., self.viewport.0, self.viewport.1);
             self.access_walk(
                 &mut b,
@@ -1093,7 +1094,7 @@ impl<D: DataSource> Presenter<D> {
             );
             return (b.out, 0, (0, String::new()));
         }
-        if self.top_open() {
+        if self.page_inert() {
             let serial = self.access_surface(&mut b);
             return (b.out, serial, (0, String::new()));
         }
