@@ -468,7 +468,8 @@ pub fn project(
     Ok(out)
 }
 
-pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-aligned,var(--exact-progress-justify,start))";
+pub const PROGRESS_JUSTIFY: &str =
+    "var(--exact-progress-aligned,var(--exact-progress-justify,start))";
 
 /// Whether image `i` draws a symbol in its author's `color` (LLP 1121 stage
 /// 9 B; `NodeRef::symbol_color_said`), as far as the static tree says:

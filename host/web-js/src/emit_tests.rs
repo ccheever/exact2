@@ -1020,10 +1020,22 @@ fn a_progress_follows_its_block_parents_justify_items() {
         format!("{}\n{}", out.css, out.js)
     };
     let written = program("\"center\"");
-    assert!(written.contains("--exact-progress-aligned:auto"), "{written}");
-    assert!(written.contains("var(--exact-progress-aligned,var(--exact-progress-justify,start))"), "{written}");
+    assert!(
+        written.contains("--exact-progress-aligned:auto"),
+        "{written}"
+    );
+    assert!(
+        written.contains("var(--exact-progress-aligned,var(--exact-progress-justify,start))"),
+        "{written}"
+    );
     let normal = program("\"normal\"");
-    assert!(!normal.contains("--exact-progress-aligned:auto"), "{normal}");
+    assert!(
+        !normal.contains("--exact-progress-aligned:auto"),
+        "{normal}"
+    );
     let bound = program("alignment");
-    assert!(bound.contains("--exact-progress-aligned"), "a bound justify-items writes the property: {bound}");
+    assert!(
+        bound.contains("--exact-progress-aligned"),
+        "a bound justify-items writes the property: {bound}"
+    );
 }

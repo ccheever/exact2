@@ -405,7 +405,10 @@ fn progress_css(node: &NodeFacts<'_>, parent: Option<&NodeFacts<'_>>, css: &mut 
         position,
         PositionType::Static | PositionType::Relative | PositionType::Sticky
     );
-    if in_flow && parent.is_none_or(|p| p.style.display == Display::Block) && !aligned_by_block_parent(parent) {
+    if in_flow
+        && parent.is_none_or(|p| p.style.display == Display::Block)
+        && !aligned_by_block_parent(parent)
+    {
         css.push_str("justify-self:start;");
     }
 }
@@ -418,7 +421,10 @@ fn aligned_by_block_parent(parent: Option<&NodeFacts<'_>>) -> bool {
     use exact_kernel::{Display, JustifyItems};
     parent.is_some_and(|p| {
         p.style.display == Display::Block
-            && !matches!(p.style.justify_items, JustifyItems::Normal | JustifyItems::Stretch)
+            && !matches!(
+                p.style.justify_items,
+                JustifyItems::Normal | JustifyItems::Stretch
+            )
     })
 }
 

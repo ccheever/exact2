@@ -205,14 +205,49 @@ fn a_progress_in_block_flow_follows_the_parents_justify_items() {
     props.set(PropId::Type, PropValue::Str("progress".into()));
     let parent_props = PropList::default();
     let style = StyleProps::default();
-    let node = |node_type, props| NodeFacts { id: 1, node_type, style: &style, props, is_root: false, inline_run: false, symbol_color: false };
-    for (items, forced) in [("normal", true), ("stretch", true), ("start", false), ("center", false), ("end", false)] {
+    let node = |node_type, props| NodeFacts {
+        id: 1,
+        node_type,
+        style: &style,
+        props,
+        is_root: false,
+        inline_run: false,
+        symbol_color: false,
+    };
+    for (items, forced) in [
+        ("normal", true),
+        ("stretch", true),
+        ("start", false),
+        ("center", false),
+        ("end", false),
+    ] {
         let mut parent_style = StyleProps::default();
-        parent_style.set_dynamic(StyleId::Display, &StyleValue::Text("block".into())).unwrap();
-        parent_style.set_dynamic(StyleId::JustifyItems, &StyleValue::Text(items.into())).unwrap();
-        let parent = NodeFacts { id: 2, node_type: NodeType::View, style: &parent_style, props: &parent_props, is_root: false, inline_run: false, symbol_color: false };
-        let css = super::host_css_of(&node(NodeType::Control, &props), Some(&parent), String::new(), "div");
-        assert_eq!(css.contains("justify-self:start;"), forced, "under justify-items {items}: {css}");
+        parent_style
+            .set_dynamic(StyleId::Display, &StyleValue::Text("block".into()))
+            .unwrap();
+        parent_style
+            .set_dynamic(StyleId::JustifyItems, &StyleValue::Text(items.into()))
+            .unwrap();
+        let parent = NodeFacts {
+            id: 2,
+            node_type: NodeType::View,
+            style: &parent_style,
+            props: &parent_props,
+            is_root: false,
+            inline_run: false,
+            symbol_color: false,
+        };
+        let css = super::host_css_of(
+            &node(NodeType::Control, &props),
+            Some(&parent),
+            String::new(),
+            "div",
+        );
+        assert_eq!(
+            css.contains("justify-self:start;"),
+            forced,
+            "under justify-items {items}: {css}"
+        );
     }
 }
 
