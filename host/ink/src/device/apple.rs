@@ -595,7 +595,7 @@ mod tests {
     }
 
     #[test]
-    fn two_unshown_frames_stop_retries_until_new_activity_or_a_shown_frame() {
+    fn callback_retry_allowance_resets_on_activity_or_a_shown_frame() {
         let retry = Retry::default();
         for _ in 0..3 {
             assert!(retry.failed());

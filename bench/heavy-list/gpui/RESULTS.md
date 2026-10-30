@@ -3263,20 +3263,17 @@ their hashes. No timing or resource row is taken from these launches.
 
 ## Stage 0b: direct Metal startup (2026-10-30)
 
-The quiet measurement-Mac cohort meets the original warm-phase gate:
-**5.497 ms** p50 for direct Metal against **6.117 ms** for wgpu, ten phase
-traces each. P3's phase prediction now passes against the original 6.581 ms;
-the earlier loaded **9.957 ms** remains a miss in its own cohort. Ten archive
-misses display CPU pixels at **172.746 ms**, a complete CPU screen at
-**176.912 ms**, and complete Ink at **336.596 ms** p50, with compilation off
-the boot thread. All thirty boot windows remain inactive and non-key.
-Four of ten retained Metal launches submit but produce no displayed timestamp
-before the probe exits; the six successes' **205.451 ms** complete-screen
-median is conditional. All ten wgpu controls display, at **232.820 ms** p50.
-The revised summed first-screen gate remains **unqualified**, and the 100 ms
-application obligation remains **unmet**. [The full record](../../../host/ink/MEASUREMENTS.md#predictions-beside-results)
-retains all attempts, per-painter timestamps, switch ordinals and the older
-loaded comparison. The headless D9 test's earlier pass remains unchanged.
+Chunk 4 fixes the retained-launch stall: a submitted but unshown window keeps
+its display link running until a positive presented timestamp, suspended while
+hidden. All **30/30** corrected silver Mac launches display: ten retained Metal,
+ten wgpu and ten archive misses. Complete-screen p50 is **202.050 ms** on Metal
+against **230.850 ms** on wgpu, meeting D15 part one's limit of at most 5 ms
+slower on the same carrier and probe. The warm phases are **5.715**
+and **6.069 ms**; P3 remains within 2 ms of the original 6.581 ms. Misses show
+CPU at **169.629 ms** and complete Ink at **343.322 ms**, with no boot-thread
+compilation. The **100 ms application budget remains unmet**. The first Metal
+launch's **669.576 ms** tail and every earlier failure remain in the record.
+[Cohorts, predictions and retained files](../../../host/ink/MEASUREMENTS.md#chunk-4--retained-launches-with-no-displayed-frame).
 
 ## G4m: the four arms on the measurement Mac
 

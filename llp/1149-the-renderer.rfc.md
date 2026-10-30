@@ -726,19 +726,18 @@ threshold; D15 is.
 The numbers land in this section as each chunk and stage does; a stage with no numbers has
 not landed.
 
-**Stage 0b, quiet measurement Mac, 2026-10-30.** Ten phase traces per arm give
-**5.497 ms** for direct Metal and **6.117 ms** for wgpu, meeting the original
-warm-phase gate and P3's within-2-ms prediction against the earlier 6.581 ms
-Metal phase. The earlier loaded 9.957 ms P3 miss remains in its own cohort.
-Ten archive misses display CPU at **172.746 ms**, a complete CPU screen at
-**176.912 ms**, then complete Ink at **336.596 ms** p50, while compilation runs
-on a worker. No boot window activates or becomes key. The prior headless D9
-comparison remains exact CPU, then Ink mean **0.023/255**, **0.000%** beyond 32.
-The revised summed first-screen comparison is **unqualified**: retained Metal
-launches 4, 5, 7 and 8 submit but yield no displayed timestamp before the probe's
-deadline. The six successes' **205.451 ms** complete-screen median is conditional;
-all ten wgpu controls display, at **232.820 ms** p50. The **100 ms** application
-budget remains unmet. [Cohorts, predictions, raw files and limits](../host/ink/MEASUREMENTS.md#predictions-beside-results).
+**Stage 0b, measurement Mac, 2026-10-30.** Chunk 4 fixes the retained-launch
+stall: a submitted but unshown window keeps
+its display link running until a positive presented timestamp, suspended while
+hidden. All **30/30** corrected silver Mac launches display: ten retained Metal,
+ten wgpu and ten archive misses. Complete-screen p50 is **202.050 ms** on Metal
+against **230.850 ms** on wgpu, meeting D15 part one's limit of at most 5 ms
+slower on the same carrier and probe. The warm phases are **5.715**
+and **6.069 ms**; P3 remains within 2 ms of the original 6.581 ms. Misses show
+CPU at **169.629 ms** and complete Ink at **343.322 ms**, with no boot-thread
+compilation. The **100 ms application budget remains unmet**. The first Metal
+launch's **669.576 ms** tail and every earlier failure remain in the record.
+[Cohorts, predictions and retained files](../host/ink/MEASUREMENTS.md#chunk-4--retained-launches-with-no-displayed-frame).
 
 ### 4.1 The GPUI arm
 
