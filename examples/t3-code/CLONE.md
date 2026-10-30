@@ -96,24 +96,39 @@ The same reserved Browser UUID survives navigation to owned A, its real link to 
 Back, Forward and settled Reload. Actual HTTP requests and a new response and
 document token prove Reload. Inspected WebKit-composited captures agree.
 
-Native tab retention and shared Markdown Browser entry remain open. Keyboard
-Add Surface and Files work, but the later HTML row tap, Browser-tab Enter and
-Markdown row tap produce no journaled press or navigation. Those paths stop
-without retries. Shared Markdown's action regressions pass before and after UUID
-reservation, including deferred alias and ID capture. All 6,921 desktop tests,
-strict application TypeScript and all six root checks pass. The regression and
-correction are separate commits. Independent review finds no introduced defect,
-passes 123 existing tests and 13 boundary probes, and verifies the actual signed
-bundle and native records. The comment audit is clear.
+Post-Browser file-row input now works in the named agent Mac flow. One native
+probe identifies the inactive Browser's inner wrapper as the HTML click receiver.
+The iframe is hidden, but its two boxes remain displayed with automatic pointer
+input. The row's press is absent. Moving the existing `shown or behind` display
+condition to the outer box hides ordinary inactive wrappers and preserves the
+held-frame layout policy. Both temporary Swift probes are restored byte for byte.
 
-Evidence, redacted native records, artifact identities and cleanup are under
-`target/t3-poc-evidence/desktop-draft-preview-implementation/`. The historical
-failure remains in `desktop-native-browser-shortcut-acceptance/`. All 156 corrected
-bundle files and 3,513 actual inputs verify; the old `cb2730639b` artifact is
-preserved byte for byte. Owned processes exit, and the original listener and
-window defaults remain unchanged. Header mouse input, primary-launcher parity,
-normal-app storage, physical keys and full desktop parity remain unqualified.
-Mobile and TestFlight are unchanged.
+The clean standard bundle from `19f33f164c` passes the same click at the same point.
+It journals the HTML row press and opens the file. Space on the real Browser title
+visibly returns with the exact memo, document, frame, partition and history intact.
+Browser-title Enter was an unsupported activation choice, not lost input. The
+owned Markdown row also opens by mouse. Its render toggle and actual file-link
+context menu open the HTML in a second Browser tab. Returning to the first tab
+retains the same memo and document. Both flows keep the exact unsent draft and an
+empty persisted thread ID. No provider conversation is used.
+
+All 540 Browser tests, 6,921 desktop tests, strict application TypeScript and all
+six root checks pass. This wrapper correction awaits root's independent review
+and push. The earlier asset correction's independent review found no introduced
+defect, passed 123 existing tests and 13 boundary probes, and verified its signed
+bundle and native records. Its comment audit was clear.
+
+The current receiver proof, red and green journals, captures and clean artifact
+identity are under `target/t3-poc-evidence/desktop-browser-wrapper-fix/`. All 156
+bundle files and 3,513 actual inputs verify. The prior `56f150341d` bundle is
+preserved byte for byte. Earlier asset evidence remains under
+`desktop-draft-preview-implementation/`, and its historical failure remains in
+`desktop-native-browser-shortcut-acceptance/`. Owned processes exit, the original
+listener and window defaults remain unchanged, and the isolated ports are free.
+Header mouse input, primary-launcher parity, normal-app storage and cookie
+restart, physical keys and full desktop parity remain unqualified. The held
+recording, separate-window and mini-frame paths are not requalified natively by
+this unit. Mobile and TestFlight are unchanged.
 
 The earlier standard desktop bundle from clean source `667c11267d` uses C ABI 18,
 runtime 5 and Apple native ABI 3. Its executable SHA-256 starts
