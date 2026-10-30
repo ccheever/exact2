@@ -687,10 +687,11 @@ pub fn open_read(
 /// A native operation (exact2 LLP 1133.007 D6a, Exact patch 24), admitted as
 /// spelt, then run below the directory a walk to each path starts from
 /// (`native_below`), every component below it opened `O_NOFOLLOW`
-/// (`app_fs::run_below`), as a `home:` path is. A link below a directory the
-/// app may write, one its own code made included, is refused rather than
-/// followed, so the operation reaches the file it was admitted for, never
-/// makes a dangling link's target, and needs no check of a realized path.
+/// (`app_fs::run_below`), as a `home:` path is. A link below that directory,
+/// or on the way to it one this user can have made (`reach`), is refused
+/// rather than followed, so the operation reaches the file it was admitted
+/// for, never makes a dangling link's target, and needs no check of a
+/// realized path.
 #[cfg(unix)]
 fn run_native(
     grants: &GrantSet,
@@ -718,9 +719,10 @@ fn run_native(
 
 /// `path` below the directory a walk to it starts from, and its native path.
 /// The deepest native `fs.write` (`write`) or `fs.read` line that admits
-/// `path` as spelt is reached (`reach`) without following a link below a
-/// directory the app may write; the walk starts where that stopped, and
-/// goes through the rest of the line's names and then `path`'s.
+/// `path` as spelt is reached (`reach`) without following a link this user
+/// can have made or one below a directory the app may write; the walk
+/// starts where that stopped, and goes through the rest of the line's names
+/// and then `path`'s.
 #[cfg(unix)]
 fn native_below(
     grants: &GrantSet,
@@ -796,8 +798,12 @@ fn written(
 /// one of `stops` is reached, compared by identity, so a spelling that
 /// differs (a link, case, Unicode normalization) still stops there. Returns
 /// that directory, its path, and the names below it to walk `O_NOFOLLOW`
-/// (none when no stop is on the way). Each link followed is in a directory
-/// below no stop, so not one the app can have made, whenever it ran.
+/// (none when no stop is on the way). A link on the way is followed only
+/// when this user can neither have made nor replace it
+/// (`made_by_this_user`), as a system link such as macOS's `/var`; any other
+/// is refused, naming it. So no grants the app held before, in this launch,
+/// an earlier one or another session, can have put a link on the way, and
+/// a line spelt through the person's own link (`~/Dropbox`) is refused.
 #[cfg(unix)]
 fn reach(
     line: &Path,
@@ -848,8 +854,20 @@ fn reach(
             }
             Err(error) => error,
         };
-        // A link: go on from where it points, as the kernel would.
+        // A link: go on from where it points, as the kernel would, unless
+        // this user can have made it.
         let target = super::app_fs::link_at(&dir, &part).map_err(|_| error)?;
+        if made_by_this_user(&dir, &part)? {
+            let link = at.join(&part);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "{} is a link this user could have made, not followed to a grant line; \
+                     grant the directory it points to",
+                    link.display()
+                ),
+            ));
+        }
         links += 1;
         if links > 40 {
             return Err(std::io::Error::from_raw_os_error(libc::ELOOP));
@@ -861,6 +879,53 @@ fn reach(
             todo.push_front(part);
         }
     }
+}
+
+/// Whether the link `name` in `dir` is one this process's user can have made
+/// or replaced: the user owns the link or the directory (an owner may make
+/// it writable), or may write the directory (`faccessat` with `AT_EACCESS`
+/// counts groups and ACLs). Root may write nearly everything, so it follows
+/// almost no link. Checked after `link_at`: a directory this user cannot
+/// write keeps the link that was read.
+#[cfg(unix)]
+fn made_by_this_user(dir: &std::fs::File, name: &std::ffi::OsStr) -> std::io::Result<bool> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: geteuid has no preconditions.
+    let user = unsafe { libc::geteuid() };
+    if dir.metadata()?.uid() == user {
+        return Ok(true);
+    }
+    // SAFETY: the descriptor and the terminated name are live for the call.
+    let writable =
+        unsafe { libc::faccessat(dir.as_raw_fd(), c".".as_ptr(), libc::W_OK, libc::AT_EACCESS) };
+    if writable == 0 {
+        return Ok(true);
+    }
+    // Only a refusal says the directory is closed to this user.
+    let refused = std::io::Error::last_os_error().raw_os_error();
+    if !matches!(refused, Some(libc::EACCES | libc::EROFS)) {
+        return Ok(true);
+    }
+    let name = std::ffi::CString::new(name.as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "NUL in path"))?;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: the descriptor, the terminated name and the buffer are live
+    // throughout fstatat, which fills `stat` when it returns 0.
+    let got = unsafe {
+        libc::fstatat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if got != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: fstatat returned 0, so it filled `stat`.
+    Ok(unsafe { stat.assume_init() }.st_uid == user)
 }
 
 /// Execute a filesystem operation with authority checked in its original namespace.

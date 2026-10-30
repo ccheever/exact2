@@ -1,11 +1,17 @@
 //! A native absolute path (Exact patch 24: exact2 LLP 1133.007 D6a): admitted
 //! as spelt, then walked from the directory its grant line reaches without
-//! following a link below a directory the app may write (`reach`), every
-//! component below that opened `O_NOFOLLOW`, so a link below a written
-//! directory, one the grant's holder made included, is refused rather than
-//! followed, whenever it was made.
+//! following a link this user can have made or one below a directory the
+//! app may write (`reach`), every component below that opened `O_NOFOLLOW`,
+//! so a link the grant's holder made is refused rather than followed,
+//! whenever it was made and under whichever grants.
 use super::*;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+/// Whether `got` is `reach`'s refusal of the link `link`.
+fn refused_at(got: &Result<FsResult, HostError>, link: &Path) -> bool {
+    let said = format!("{got:?}");
+    said.contains(&format!("{} is a link", link.display()))
+}
 
 /// A granted directory beside one outside it.
 fn granted(name: &str) -> (PathBuf, PathBuf, GrantSet) {
@@ -288,9 +294,14 @@ fn an_outer_write_line_spelt_through_a_link_still_covers_the_inner_line() {
         let (outer, deeper) = if real_inside != inside {
             (inside.clone(), real_inside.join("inner"))
         } else {
+            // No system link spells the temporary directory, and one of the
+            // test's own is this user's, so a line through it is refused.
             let spelt = inside.parent().unwrap().join("spelt");
             std::os::unix::fs::symlink(&inside, &spelt).unwrap();
-            (spelt, inner.clone())
+            let grants = GrantSet::parse(&format!("fs.read {}", spelt.display())).unwrap();
+            let got = call(&grants, FsOp::ReadDir, &spelt, None);
+            assert!(refused_at(&got, &spelt), "{name}: {got:?}");
+            continue;
         };
         let (outer, deeper) = match realized_outer {
             true => (outer, deeper),
@@ -366,13 +377,20 @@ fn a_line_granted_after_the_app_replaced_its_directory_is_not_followed() {
     assert!(!outside.join("made").exists());
 }
 
-/// Where the app's planting launch and its next one meet: the same grants,
-/// spelt the same way, in two processes (`launch`), with and without an
-/// `fs.write` line on the inner directory.
+/// Where the app's planting launch and its next one meet, in two processes
+/// (`launch`): the next launch has the same grants, spelt the same way,
+/// with and without an `fs.write` line on the inner directory, or only an
+/// `fs.read` or only an `fs.write` line on the inner directory, so that no
+/// directory on its walk is one its grants let it write.
 #[test]
 fn a_link_the_app_planted_in_an_earlier_launch_is_not_followed() {
-    for write in [false, true] {
-        let (inside, outside, _) = granted(if write { "launch-write" } else { "launch" });
+    for (name, then) in [
+        ("launch", "same"),
+        ("launch-write", "same-write"),
+        ("launch-read-inner", "read-inner"),
+        ("launch-write-inner", "write-inner"),
+    ] {
+        let (inside, outside, _) = granted(name);
         std::fs::create_dir_all(inside.join("inner")).unwrap();
         for phase in ["plant", "use"] {
             let ran = std::process::Command::new(std::env::current_exe().unwrap())
@@ -380,11 +398,11 @@ fn a_link_the_app_planted_in_an_earlier_launch_is_not_followed() {
                 .args(["--ignored", "--nocapture", "--test-threads=1"])
                 .env("IBEX2_LAUNCH", phase)
                 .env("IBEX2_LAUNCH_DIR", &inside)
-                .env("IBEX2_LAUNCH_WRITE", if write { "1" } else { "" })
+                .env("IBEX2_LAUNCH_THEN", then)
                 .output()
                 .unwrap();
             let said = String::from_utf8_lossy(&ran.stdout);
-            assert!(ran.status.success(), "{phase} (write {write}): {said}");
+            assert!(ran.status.success(), "{phase} ({then}): {said}");
             assert!(said.contains("1 passed"), "{phase} did not run: {said}");
         }
         assert!(!outside.join("planted").exists(), "wrote through the link");
@@ -392,30 +410,148 @@ fn a_link_the_app_planted_in_an_earlier_launch_is_not_followed() {
 }
 
 /// One launch of the test above: `plant` replaces the inner directory with
-/// a link to the outside one, `use` reads and writes through it.
+/// a link to the outside one, `use` reads and writes through it under the
+/// grants `IBEX2_LAUNCH_THEN` names.
 #[test]
 #[ignore = "a launch of a_link_the_app_planted_in_an_earlier_launch_is_not_followed"]
 fn launch() {
     let inside = PathBuf::from(std::env::var_os("IBEX2_LAUNCH_DIR").unwrap());
     let (inner, outside) = (inside.join("inner"), inside.with_file_name("outside"));
     let (at, deeper) = (inside.display(), inner.display());
+    let then = std::env::var("IBEX2_LAUNCH_THEN").unwrap();
     let mut lines = format!("fs.write {at}\nfs.read {at}\nfs.read {deeper}");
-    if std::env::var("IBEX2_LAUNCH_WRITE").is_ok_and(|w| !w.is_empty()) {
+    if then == "same-write" {
         lines.push_str(&format!("\nfs.write {deeper}"));
     }
-    let grants = GrantSet::parse(&lines).unwrap();
-    let _bindings = crate::host::Host::new().endow(grants.clone());
     if std::env::var("IBEX2_LAUNCH").unwrap() == "plant" {
+        let grants = GrantSet::parse(&lines).unwrap();
+        let _bindings = crate::host::Host::new().endow(grants.clone());
         assert!(call(&grants, FsOp::ReadDir, &inner, None).is_ok());
         call2(&grants, FsOp::Rename, &inner, &inside.join("moved")).unwrap();
         let target = outside.display().to_string();
         call(&grants, FsOp::Symlink, &inner, Some(target.as_bytes())).unwrap();
         return;
     }
+    match then.as_str() {
+        "read-inner" => lines = format!("fs.read {deeper}"),
+        "write-inner" => lines = format!("fs.write {deeper}"),
+        _ => {}
+    }
+    let grants = GrantSet::parse(&lines).unwrap();
+    let _bindings = crate::host::Host::new().endow(grants.clone());
     let got = call(&grants, FsOp::ReadFile, &inner.join("secret"), None);
     assert!(got.is_err(), "read outside through the link: {got:?}");
     let made = call(&grants, FsOp::WriteFile, &inner.join("planted"), Some(b"x"));
     assert!(made.is_err(), "wrote through the link: {made:?}");
+    // With only the inner line, no stop is on the walk: the link is refused
+    // as this user's.
+    let link = std::fs::canonicalize(&inside).unwrap().join("inner");
+    match then.as_str() {
+        "read-inner" => assert!(refused_at(&got, &link), "{got:?}"),
+        "write-inner" => assert!(refused_at(&made, &link), "{made:?}"),
+        _ => {}
+    }
+}
+
+/// Two sessions in one process: one may write the outer directory and
+/// replaces the inner one with a link; the other, granted only to read the
+/// inner directory, does not follow it, so the two together do no more than
+/// their grants combined.
+#[test]
+fn a_link_one_session_planted_is_not_followed_by_another() {
+    let (inside, outside, a) = granted("session");
+    let inner = inside.join("inner");
+    std::fs::create_dir_all(&inner).unwrap();
+    let b = GrantSet::parse(&format!("fs.read {}", inner.display())).unwrap();
+    let _a = crate::host::Host::new().endow(a.clone());
+    let _b = crate::host::Host::new().endow(b.clone());
+    assert!(call(&b, FsOp::ReadDir, &inner, None).is_ok());
+    call2(&a, FsOp::Rename, &inner, &inside.join("moved")).unwrap();
+    let target = outside.display().to_string();
+    call(&a, FsOp::Symlink, &inner, Some(target.as_bytes())).unwrap();
+    let got = call(&b, FsOp::ReadFile, &inner.join("secret"), None);
+    let link = std::fs::canonicalize(&inside).unwrap().join("inner");
+    assert!(
+        refused_at(&got, &link),
+        "read outside through the link: {got:?}"
+    );
+}
+
+/// A write line spelt through the person's own link (`A/X` to `B`) does
+/// not reach through it, and a link below `B` made while it did is not
+/// followed once the person points `A/X` elsewhere.
+#[test]
+fn a_line_spelt_through_the_persons_link_is_refused_and_a_retargeted_one_follows_nothing() {
+    let (inside, outside, _) = granted("retarget");
+    let real = std::fs::canonicalize(&inside).unwrap();
+    let (b, c, x) = (real.join("B"), real.join("C"), real.join("A/X"));
+    std::fs::create_dir_all(b.join("inner")).unwrap();
+    std::fs::create_dir_all(&c).unwrap();
+    std::fs::create_dir_all(real.join("A")).unwrap();
+    std::os::unix::fs::symlink(&b, &x).unwrap();
+    let grants = GrantSet::parse(&format!(
+        "fs.write {0}\nfs.read {0}\nfs.read {1}",
+        x.display(),
+        b.join("inner").display()
+    ))
+    .unwrap();
+    let moved = call2(&grants, FsOp::Rename, &x.join("inner"), &x.join("moved"));
+    assert!(
+        refused_at(&moved, &x),
+        "renamed through the person's link: {moved:?}"
+    );
+    assert!(b.join("inner").is_dir());
+    // Planted as the app could while `A/X` reached `B`.
+    std::fs::rename(b.join("inner"), b.join("moved")).unwrap();
+    std::os::unix::fs::symlink(&outside, b.join("inner")).unwrap();
+    let secret = b.join("inner/secret");
+    // While `A/X` names `B`, `B` stops the walk.
+    let got = call(&grants, FsOp::ReadFile, &secret, None);
+    assert!(got.is_err(), "{got:?}");
+    std::fs::remove_file(&x).unwrap();
+    std::os::unix::fs::symlink(&c, &x).unwrap();
+    let got = call(&grants, FsOp::ReadFile, &secret, None);
+    assert!(
+        refused_at(&got, &b.join("inner")),
+        "read after X -> C: {got:?}"
+    );
+}
+
+/// A line spelt through a link root owns in `/` (macOS's `/tmp`, `/var` and
+/// `/etc`; `/bin` where `/usr` is merged) is reached, to read and to write.
+#[test]
+fn a_line_spelt_through_a_system_link_is_reached() {
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } == 0 {
+        return; // Root may write `/`, so it follows no link there.
+    }
+    let mut reached = 0;
+    for link in ["/tmp", "/var", "/etc", "/bin", "/lib", "/sbin"] {
+        let path = Path::new(link);
+        let Ok(meta) = std::fs::symlink_metadata(path) else {
+            continue;
+        };
+        if !meta.file_type().is_symlink() || meta.uid() != 0 || !path.is_dir() {
+            continue;
+        }
+        let grants = GrantSet::parse(&format!("fs.read {link}")).unwrap();
+        let got = call(&grants, FsOp::ReadDir, path, None);
+        assert!(matches!(got, Ok(FsResult::Names(_))), "{link}: {got:?}");
+        reached += 1;
+    }
+    if cfg!(target_os = "macos") {
+        assert_eq!(reached, 3, "macOS's /tmp, /var and /etc");
+    }
+    let at = Path::new("/tmp").join(format!("ibex2-native-system-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&at);
+    std::fs::create_dir(&at).unwrap();
+    let grants = GrantSet::parse(&format!("fs.write {0}\nfs.read {0}", at.display())).unwrap();
+    call(&grants, FsOp::WriteFile, &at.join("f"), Some(b"through")).unwrap();
+    assert_eq!(
+        call(&grants, FsOp::ReadFile, &at.join("f"), None).unwrap(),
+        FsResult::Bytes(b"through".to_vec())
+    );
+    std::fs::remove_dir_all(&at).unwrap();
 }
 
 /// A write line naming a directory that does not exist yet, a read line

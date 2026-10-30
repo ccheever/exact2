@@ -428,7 +428,10 @@ absolute path is run the same way, admitted as spelt by the deepest grant
 line that admits it, that line reached from `/` at each operation, its
 links followed only until a directory an `fs.write` line (native or
 `home:`) or an app directory names, compared by device and inode
-(`reach`), and every name below that opened `O_NOFOLLOW`; `access` checks its leaf with `AT_SYMLINK_NOFOLLOW`;
+(`reach`), and every name below that opened `O_NOFOLLOW`; a link on the
+way that the running user owns, or that sits in a directory the user
+owns or can write, is refused, naming it (`made_by_this_user`), so only
+links such as macOS's `/var` and `/tmp` are followed; `access` checks its leaf with `AT_SYMLINK_NOFOLLOW`;
 `open_read` opens a path to read it the same way, for a child's stdin; and `stat`
 reads `mode` and `isSymbolicLink`; `fs_more.rs` adds `lstat`, `readlink`,
 `access`, `chmod`, `symlink`, `digest` and `flock`/`unlock`, host opcodes
