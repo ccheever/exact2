@@ -107,6 +107,7 @@ impl Wgpu {
 
     /// Browser callers await this without blocking the event loop.
     pub async fn open() -> Result<Self> {
+        crate::counters::initialize();
         #[cfg(target_os = "macos")]
         let _trace = super::apple::Trace::new(c"boot wgpu constructor");
         let started = Instant::now();

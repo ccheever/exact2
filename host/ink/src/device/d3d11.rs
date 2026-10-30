@@ -255,6 +255,7 @@ impl D3d11 {
 
     /// Force WARP for the software-device qualification (LLP 1149 S0 C6).
     pub fn open(force_warp: bool) -> Result<Self> {
+        crate::counters::initialize();
         Self::from_prepared(Prepared::open(force_warp)?)
     }
 

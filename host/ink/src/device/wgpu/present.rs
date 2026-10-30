@@ -118,6 +118,7 @@ impl Wgpu {
                 None,
             )
         });
+        crate::counters::presentation_support(false, false);
         self.window = Some(Window {
             thread: Thread::new()?,
             renderer: Arc::new(Mutex::new(Renderer {

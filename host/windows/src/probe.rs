@@ -3,7 +3,7 @@ use exact_ink::counters;
 use serde_json::{json, Value};
 use std::{
     cell::RefCell,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 #[derive(Default)]
@@ -15,26 +15,19 @@ struct Recording {
 }
 thread_local! { static RECORDING: RefCell<Recording> = RefCell::default(); }
 
-fn now() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64()
-        * 1e6
-}
-
-pub(crate) struct Span(Option<(f64, Instant, &'static str, u8)>);
+pub(crate) struct Span(Option<(Instant, &'static str, u8)>);
 impl Span {
     pub(crate) fn new(name: &'static str, cause: u8) -> Self {
-        Self(counters::enabled().then(|| (now(), Instant::now(), name, cause)))
+        Self(counters::enabled().then(|| (Instant::now(), name, cause)))
     }
 }
 impl Drop for Span {
     fn drop(&mut self) {
-        let Some((start, elapsed, name, cause)) = self.0 else {
+        let Some((start, name, cause)) = self.0 else {
             return;
         };
-        let duration = elapsed.elapsed().as_secs_f64() * 1e6;
+        let duration = start.elapsed().as_secs_f64() * 1e6;
+        let start = counters::timestamp(start);
         RECORDING.with_borrow_mut(|r| {
             if r.events.len() < 131_072 {
                 r.events
@@ -73,7 +66,7 @@ pub(crate) fn save() {
     };
     sample();
     let data = RECORDING.with_borrow(|r| {
-        json!({"mainThread":1,"clock":"Unix microseconds",
+        json!({"mainThread":1,"clock":"monotonic microseconds anchored once to Unix time",
         "traceEvents":r.events,"samples":r.samples,"dropped":r.dropped,
         "final":exact_linux::ink::counter_state()})
     });

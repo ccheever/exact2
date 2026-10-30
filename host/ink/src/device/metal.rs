@@ -84,6 +84,7 @@ pub struct Metal {
 
 impl Metal {
     pub fn new() -> Result<Self> {
+        crate::counters::initialize();
         autoreleasepool(|_| {
             #[cfg(target_os = "macos")]
             let _boot = Trace::new(c"boot Metal constructor");

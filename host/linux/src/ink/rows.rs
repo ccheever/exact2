@@ -312,8 +312,8 @@ impl Ink {
             let reusable = dx.fract() == 0. && dy.fract() == 0.;
             if !reusable {
                 use exact_ink::counters::{self, Counter};
-                counters::add(Counter::RowFractional, 1);
-                if counters::enabled() {
+                counters::observe(|s| {
+                    s.add(Counter::RowFractional, 1);
                     let scroll = self.rows.scrolls.last().copied().unwrap_or_default();
                     let reason = if row.scaled {
                         Counter::A2Scaled
@@ -325,40 +325,39 @@ impl Ink {
                     } else {
                         Counter::A2Eligible
                     };
-                    counters::add(reason, 1);
-                }
+                    s.add(reason, 1);
+                });
             }
             reusable
         })
     }
 
     pub(super) fn observe_glyph(&mut self, x: f32, y: f32, transform: Transform) {
-        self.observe_transform(transform);
-        if exact_ink::counters::enabled() {
-            if let Some(c) = self
-                .rows
-                .capture
-                .iter_mut()
-                .find(|c| matches!(c.kind, CaptureKind::Row(_)))
-            {
-                c.glyphs.push((x, y));
-            }
+        if !exact_ink::counters::enabled() {
+            return;
+        }
+        if let Some(c) = self
+            .rows
+            .capture
+            .iter_mut()
+            .find(|c| matches!(c.kind, CaptureKind::Row(_)))
+        {
+            c.scaled |= scaled(transform);
+            c.glyphs.push((x, y));
         }
     }
 
     pub(super) fn observe_transform(&mut self, transform: Transform) {
-        if exact_ink::counters::enabled() {
-            if let Some(c) = self
-                .rows
-                .capture
-                .iter_mut()
-                .find(|c| matches!(c.kind, CaptureKind::Row(_)))
-            {
-                c.scaled |= transform.sx != 1.
-                    || transform.sy != 1.
-                    || transform.kx != 0.
-                    || transform.ky != 0.;
-            }
+        if !exact_ink::counters::enabled() {
+            return;
+        }
+        if let Some(c) = self
+            .rows
+            .capture
+            .iter_mut()
+            .find(|c| matches!(c.kind, CaptureKind::Row(_)))
+        {
+            c.scaled |= scaled(transform);
         }
     }
 
@@ -494,4 +493,8 @@ impl Ink {
         }
         Ok(())
     }
+}
+
+fn scaled(transform: Transform) -> bool {
+    transform.sx != 1. || transform.sy != 1. || transform.kx != 0. || transform.ky != 0.
 }

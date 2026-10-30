@@ -3859,6 +3859,11 @@ passed the driver's quiet check before launch, used the same trajectory and
 retained 245–248 displayed frames. Variation across three pairs prevents
 an exact causal overhead estimate; it does not establish the desired bound.
 These Windows observations include trace recording and gauge serialization.
+Enabled observation also retains an eight-byte coordinate pair per captured glyph
+on each kept row, grows the capture vectors, scans pool entries, and allocates
+Windows span JSON and sample maps. These costs are included in process memory
+and CPU; the increment microbenchmark does not measure them. Monitor queries
+now run at attach, move and scale change, rather than every wake.
 The Mac <5% agent comparison remains invalid because its disabled arm did
 not submit fling frames and the machine was busy.
 
@@ -4187,10 +4192,10 @@ bun bench/heavy-list/gpui/exclusive.mjs target/s1-4/g3-control/ink-1.json.trace.
 bun bench/heavy-list/gpui/exclusive.mjs target/s1-4/g3-before/ink-1.json.trace.json
 bun bench/heavy-list/gpui/exclusive.mjs target/s0/period-counters/ink.json.trace.json
 bun bench/heavy-list/gpui/exclusive.mjs target/s0/wake-callers/ink.json.trace.json --rest
-python3 target/s0/normalize-windows.py
-python3 target/s0/time-profile.py
-python3 target/s0/main-attribution.py
-python3 target/s0/wake-summary.py
+python3 bench/heavy-list/gpui/normalize-windows.py
+python3 bench/heavy-list/gpui/time-profile.py
+python3 bench/heavy-list/gpui/main-attribution.py
+python3 bench/heavy-list/gpui/wake-summary.py
 ```
 
 `--json` retains all reducer fields; `--rest` selects the rest endpoints.
@@ -4207,7 +4212,7 @@ before the next build. Production trust intentionally refuses the live
 agent. The retained driver runs it without activation:
 
 ```sh
-python3 target/s0/drive.py fresh-run --binary 'target/s0/Observed.app/Contents/MacOS/Heavy list' --cpu-only --dispatch --counters
+python3 bench/heavy-list/gpui/drive.py fresh-run --binary 'target/s0/Observed.app/Contents/MacOS/Heavy list' --cpu-only --dispatch --counters
 ```
 
 The driver supplies `EXACT_AGENT=1 EXACT_AGENT_LIVE=1 G1_TRACE=1`, sends
@@ -4220,6 +4225,14 @@ workflow. `--no-probe-display --no-probe-timer --wake-trace` selects the
 rest-source experiment. Use a new output name on every run. The driver
 records machine load continuously; a loaded run is diagnostic evidence,
 not a clean performance result.
+
+The Python drivers and reducers named above, plus `windows-*.py`, are
+published under `bench/heavy-list/gpui/`. Run them from the repository root;
+the historical defaults read retained inputs under `target/s0/`. The Windows
+drivers refuse existing output directories. Profile reduction requires
+`rustfilt`; Windows collection requires the existing G6 driver, PresentMon
+and xperf. The other build, export and journey helpers below remain retained
+in `target/s0/`, rather than published; they are not independent number reducers.
 
 On the NucBox mirror, `windows-run.py` and `windows-pairs.py` call the
 existing G6e driver; `windows-period.py` and `windows-final-pair.py` read
@@ -4264,7 +4277,9 @@ meaning. The historical tables above retain the old definition; their
 live runs had no reported paint errors. Before the failure-path check:
 the injected `allocation refused` paint must increase attempts by exactly
 one while still returning that error. The existing group-error test checks
-this with counters enabled; no rendering or error policy changes.
+this with counters enabled in a hand run; the ordinary gate leaves counters
+disabled and does not exercise that conditional assertion. No rendering or error
+policy changes.
 
 The enabled failure-path assertion passes on both Metal and D3D11. The
 current-code Windows rerun (`windows/native-attempt/`) passes 37 of 38
@@ -4437,3 +4452,24 @@ Complete output is retained in `MAC-TEST-OUTPUT.txt` and
 the failed SSH launches as well as the passing desktop runs. The rebase's
 range comparison is `rebase-range-diff.txt`; `verified-source.bundle`
 and `verified-source-sha256.json` identify the code that passed.
+
+### Stage 0 review fixes: predictions before the runs
+
+The two reviews of `e4ead5ae81` are retained in
+`target/review-{sol,claude}-s0.md`. This continuation corrects observations
+and their cost without changing rendering, reuse or scheduling policy.
+Evidence goes in `target/s0/review-fixes/`; earlier raw files stay intact.
+
+- The same 1,200-request Mac socket fling, with the full probe, will record
+  more than zero and fewer than 1,388 dispatch-only passes after redraw
+  turns carry `DRAW`. `exclusive.mjs` is the count instrument; the new
+  elapsed rate is not a CPU saving or a quiet posted-input qualification.
+- The optimized million-iteration counter test will cost less than 5 ns
+  per disabled iteration and less than 1 µs enabled. This tests increments,
+  not a bound on the complete observer.
+- The NucBox forced-device-loss journey will exit zero and recover Mica
+  within the existing pixel band. The other display journeys and native
+  suites will exit zero in its interactive desktop session, without a GO
+  file. Lock/unlock remains outside the existing journeys.
+- The six checks, Ink, Linux, carrier and pinned Metal suites will exit
+  zero with `RUST_TEST_THREADS=2`.

@@ -27,32 +27,53 @@ impl Pool {
     }
 
     pub fn begin(&mut self, device: &mut impl Device, size: [u32; 2]) -> Result<()> {
-        self.frame += 1;
-        for (target, _, _) in self
-            .targets
-            .extract_if(.., |(_, seen, _)| self.frame.saturating_sub(*seen) > 120)
-        {
-            device.retire_texture(target)?;
-            counters::add(Counter::TargetsRetired, 1);
-        }
-        if self.size != size {
+        let result = (|| {
+            self.frame += 1;
+            for (target, _, _) in self
+                .targets
+                .extract_if(.., |(_, seen, _)| self.frame.saturating_sub(*seen) > 120)
+            {
+                device.retire_texture(target)?;
+                counters::add(Counter::TargetsRetired, 1);
+            }
+            if self.size != size {
+                for (target, _, _) in self.targets.drain(..) {
+                    device.retire_texture(target)?;
+                    counters::add(Counter::TargetsRetired, 1);
+                }
+                self.size = size;
+            }
+            self.used = 0;
+            Ok(())
+        })();
+        self.observe_ownership();
+        result
+    }
+
+    pub fn trim(&mut self, device: &mut impl Device) -> Result<()> {
+        let result = (|| {
             for (target, _, _) in self.targets.drain(..) {
                 device.retire_texture(target)?;
                 counters::add(Counter::TargetsRetired, 1);
             }
-            self.size = size;
-        }
-        self.used = 0;
-        Ok(())
+            self.used = 0;
+            device.trim()
+        })();
+        self.observe_ownership();
+        result
     }
 
-    pub fn trim(&mut self, device: &mut impl Device) -> Result<()> {
-        for (target, _, _) in self.targets.drain(..) {
-            device.retire_texture(target)?;
-            counters::add(Counter::TargetsRetired, 1);
-        }
-        self.used = 0;
-        device.trim()
+    fn observe_ownership(&self) {
+        counters::observe(|s| self.ownership(s));
+    }
+
+    fn ownership(&self, s: &mut counters::Snapshot) {
+        s.gauge(Counter::TargetsRetained, self.retained() as u64);
+        s.gauge(Counter::TargetBytes, self.bytes());
+        s.gauge(
+            Counter::TargetsReserved,
+            self.used.min(self.retained()) as u64,
+        );
     }
 
     pub fn take(&mut self, device: &mut impl Device) -> Result<TextureId> {
@@ -60,6 +81,7 @@ impl Pool {
     }
 
     pub fn take_sized(&mut self, device: &mut impl Device, size: [u32; 2]) -> Result<TextureId> {
+        let observing = counters::enabled();
         let completed = device.completed()?;
         let mut available = None;
         let mut blocked = false;
@@ -69,8 +91,10 @@ impl Pool {
                     available = Some(i);
                     break;
                 }
-                blocked = true;
-                counters::add(Counter::TargetCandidatesBlocked, 1);
+                if observing {
+                    blocked = true;
+                    counters::add(Counter::TargetCandidatesBlocked, 1);
+                }
             }
         }
         if let Some(i) = available {
@@ -81,14 +105,18 @@ impl Pool {
             }
             self.targets
                 .push((device.create_target(size[0], size[1])?, self.frame, size));
-            counters::add(Counter::TargetsAllocated, 1);
+            if observing {
+                counters::add(Counter::TargetsAllocated, 1);
+            }
             let last = self.targets.len() - 1;
             self.targets.swap(self.used, last);
         }
         self.targets[self.used].1 = self.frame;
         let target = self.targets[self.used].0;
         self.used += 1;
-        self.observe(device, completed)?;
+        if observing {
+            self.observe(device, completed)?;
+        }
         Ok(target)
     }
 
@@ -98,7 +126,8 @@ impl Pool {
         device: &impl Device,
         completed: crate::device::Submission,
     ) -> Result<()> {
-        if counters::enabled() {
+        counters::observe(|s| {
+            self.ownership(s);
             let mut busy = 0;
             let mut idle_bytes = 0;
             for &(target, _, size) in &self.targets[self.used..] {
@@ -108,17 +137,20 @@ impl Pool {
                     idle_bytes += u64::from(size[0]) * u64::from(size[1]) * 4;
                 }
             }
-            counters::gauge(Counter::TargetsRetained, self.retained() as u64);
-            counters::gauge(Counter::TargetBytes, self.bytes());
-            counters::gauge(Counter::TargetsBusy, busy);
-            counters::gauge(Counter::TargetsReserved, self.used as u64);
-            counters::gauge(
+            s.gauge(Counter::TargetsBusy, busy);
+            s.gauge(
                 Counter::TargetsIdle,
                 (self.retained() - self.used) as u64 - busy,
             );
-            counters::gauge(Counter::TargetIdleBytes, idle_bytes);
-        }
-        Ok(())
+            s.gauge(Counter::TargetIdleBytes, idle_bytes);
+            s.gauge(Counter::TargetPartitionCompleted, completed.0);
+            s.gauge(
+                Counter::TargetPartitionAt,
+                counters::timestamp(std::time::Instant::now()) as u64,
+            );
+            Ok(())
+        })
+        .unwrap_or(Ok(()))
     }
 }
 
@@ -131,9 +163,32 @@ mod tests {
         let mut pool = Pool::default();
         pool.begin(&mut d, [16, 16]).unwrap();
         pool.take(&mut d).unwrap();
+        assert_gauges(&pool, 1);
+        pool.begin(&mut d, [16, 16]).unwrap();
+        assert_gauges(&pool, 0);
         for _ in 0..121 {
             pool.begin(&mut d, [16, 16]).unwrap();
         }
         assert_eq!(pool.retained(), 0);
+        assert_gauges(&pool, 0);
+        pool.take(&mut d).unwrap();
+        pool.begin(&mut d, [32, 32]).unwrap();
+        assert_eq!(pool.retained(), 0);
+        assert_gauges(&pool, 0);
+        pool.take(&mut d).unwrap();
+        pool.trim(&mut d).unwrap();
+        assert_eq!(pool.retained(), 0);
+        assert_gauges(&pool, 0);
+    }
+
+    fn assert_gauges(pool: &Pool, reserved: u64) {
+        if let Some(s) = counters::snapshot() {
+            assert_eq!(
+                s.values[Counter::TargetsRetained as usize],
+                pool.retained() as u64
+            );
+            assert_eq!(s.values[Counter::TargetBytes as usize], pool.bytes());
+            assert_eq!(s.values[Counter::TargetsReserved as usize], reserved);
+        }
     }
 }

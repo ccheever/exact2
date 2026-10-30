@@ -186,6 +186,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
 ) -> i32 {
     let started = Instant::now();
     app::prepare_environment(compat);
+    counters::initialize();
     boot_phase("host-entered");
     if app::print_baked_receipt(compat) {
         return 0;
@@ -883,18 +884,11 @@ impl<D: DataSource + Default + 'static> App<D> {
 impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility::Event> for App<D> {
     fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
         if matches!(cause, StartCause::ResumeTimeReached { .. }) {
-            self.service_causes |= counters::TIMER;
+            if counters::enabled() {
+                self.service_causes |= counters::TIMER;
+            }
         }
         let _span = crate::probe::Span::new("run loop wake", self.service_causes);
-        if counters::enabled() {
-            let hz = self
-                .window
-                .as_ref()
-                .and_then(|w| w.current_monitor())
-                .and_then(|m| m.refresh_rate_millihertz())
-                .unwrap_or(60_000);
-            counters::refresh_rate(hz);
-        }
     }
     fn resumed(&mut self, events: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -1031,20 +1025,30 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         boot_phase("visible");
         window.request_redraw();
         self.window = Some(window);
+        self.observe_monitor();
     }
     fn user_event(&mut self, events: &ActiveEventLoop, event: crate::accessibility::Event) {
         let _span = crate::probe::Span::new("user event", 0);
         if let crate::accessibility::Event::Timer(fired) = event {
-            self.service_causes |= counters::TIMER;
+            if counters::enabled() {
+                self.service_causes |= counters::TIMER;
+            }
             self.deliver_timer(fired, self.now());
             self.about_to_wait(events);
             return;
         }
         if matches!(event, crate::accessibility::Event::ModalWake) {
-            self.service_causes |= counters::TIMER;
+            if counters::enabled() {
+                self.service_causes |= counters::TIMER;
+            }
             // Requesting another WM_PAINT is insufficient inside a native
             // modal loop. Consume its deadline in this dispatched callback.
-            if let Err(error) = self.draw(events) {
+            let result = self.draw(events);
+            if counters::enabled() {
+                self.service_causes &= !counters::TIMER;
+                self.service_causes |= counters::DRAW;
+            }
+            if let Err(error) = result {
                 self.fail(events, error);
                 return;
             }
@@ -1054,7 +1058,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         // Executor, image and hatch wakes need a display turn; polling the
         // executor alone does not service all three. Timers take the branch above.
         if matches!(event, crate::accessibility::Event::Wake) {
-            self.service_causes |= counters::WORKER;
+            if counters::enabled() {
+                self.service_causes |= counters::WORKER;
+            }
             if let Some(window) = &self.window {
                 window.request_redraw();
             }
@@ -1074,13 +1080,13 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
     }
     fn window_event(&mut self, events: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         let _span = crate::probe::Span::new("window event", 0);
-        self.service_causes |= if matches!(event, WindowEvent::MouseWheel { .. }) {
-            counters::WHEEL
-        } else if !matches!(event, WindowEvent::RedrawRequested) {
-            counters::WINDOW
-        } else {
-            0
-        };
+        if counters::enabled() {
+            self.service_causes |= match event {
+                WindowEvent::MouseWheel { .. } => counters::WHEEL,
+                WindowEvent::RedrawRequested => counters::DRAW,
+                _ => counters::WINDOW,
+            };
+        }
         if let (Some(access), Some(window)) = (&mut self.accessibility, &self.window) {
             access.process_event(window, &event);
         }
@@ -1097,6 +1103,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             }
             events.exit();
             return;
+        }
+        if matches!(
+            event,
+            WindowEvent::Moved(_) | WindowEvent::ScaleFactorChanged { .. }
+        ) {
+            self.observe_monitor();
         }
         if matches!(event, WindowEvent::ScaleFactorChanged { .. }) {
             // Winit applies the new pixel extent after this callback. Pairing
@@ -1303,12 +1315,28 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
 }
 
 impl<D: DataSource + Default + 'static> App<D> {
+    fn observe_monitor(&self) {
+        if counters::enabled() {
+            let hz = self
+                .window
+                .as_ref()
+                .and_then(|w| w.current_monitor())
+                .and_then(|m| m.refresh_rate_millihertz())
+                .unwrap_or(60_000);
+            counters::refresh_rate(hz);
+        }
+    }
+
     fn wait(
         &mut self,
         events: &ActiveEventLoop,
         deadlines: impl FnOnce(&Presenter<D>) -> (Option<Instant>, Option<Instant>),
     ) {
-        let causes = std::mem::take(&mut self.service_causes);
+        let causes = if counters::enabled() {
+            std::mem::take(&mut self.service_causes)
+        } else {
+            0
+        };
         counters::service(causes);
         let _span = crate::probe::Span::new("carrier service", causes);
         crate::probe::sample();

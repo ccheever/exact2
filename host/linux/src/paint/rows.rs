@@ -580,8 +580,8 @@ impl Painter {
             }
             return;
         }
-        if counters::enabled() {
-            counters::add(Counter::RowsRecorded, 1);
+        counters::observe(|s| {
+            s.add(Counter::RowsRecorded, 1);
             if let Some(row) = self.rows.kept.get(&node.key) {
                 let reason = if row.stale {
                     Some(Counter::RowsStale)
@@ -601,12 +601,12 @@ impl Painter {
                     None
                 };
                 if let Some(reason) = reason {
-                    counters::add(reason, 1);
+                    s.add(reason, 1);
                 }
             } else {
-                counters::add(Counter::RowsNew, 1);
+                s.add(Counter::RowsNew, 1);
             }
-        }
+        });
         let old = self.rows.kept.remove(&node.key);
         // Potentials found this epoch, else the old recording's when its
         // subtree is unchanged (recorded again for its size or a picture).

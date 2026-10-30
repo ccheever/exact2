@@ -128,6 +128,7 @@ static NSDictionary *gpuUsage(int phase) {
 // Opt-in fixed storage; serializing a trace happens after the measured scroll.
 static struct { const char *name, *caller; double start, end, value; mach_port_t thread; } intervals[131072];
 static size_t intervalCount, intervalDropped;
+static unsigned traceSaves;
 static BOOL tracing;
 static BOOL dispatchTracing;
 static BOOL wakeTracing;
@@ -302,9 +303,11 @@ static NSDictionary *usage(void) {
         size_t i = 0;
         for (; counterName(i); i++) {
             NSString *name = @(counterName(i));
-            values[name] = @(counterValue(i, false)); high[name] = @(counterValue(i, true));
+            uint64_t value = counterValue(i, false), peak = counterValue(i, true);
+            values[name] = value == UINT64_MAX ? NSNull.null : @(value);
+            high[name] = peak == UINT64_MAX ? NSNull.null : @(peak);
         }
-        sample[@"counters"] = @{@"values": values, @"highWater": high, @"displayedFrames": @(counterValue(i, false))};
+        sample[@"counters"] = @{@"values": values, @"highWater": high, @"displayedFrames": values[@"displayed_frames"] ?: NSNull.null};
     }
     if (dispatchTracing) g1_interval("probe usage", began, CACurrentMediaTime(), 0);
     return sample;
@@ -362,6 +365,7 @@ static void saveTrace(void) {
             @"pid": @(getpid()), @"tid": @(e.thread), @"args": args}];
     }
     size_t dropped = intervalDropped;
+    intervalCount = intervalDropped = 0;
     pthread_mutex_unlock(&traceLock);
     pthread_mutex_lock(&lock);
     NSArray *times = [presented copy];
@@ -371,7 +375,8 @@ static void saveTrace(void) {
         @"proxies": @{@"interval": @"MTLDrawable.presentedTime", @"phases": @"inclusive spans on CACurrentMediaTime; overlaps are not additive"},
         @"traceEvents": events, @"presented": times, @"mainThread": @(mainThread), @"dropped": @(dropped)};
     writeJSON(trace, [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"trace-pid-%d.json", getpid()]]);
-    writeJSON(trace, [output stringByAppendingString:@".trace.json"]);
+    NSString *suffix = traceSaves++ == 0 ? @".trace.json" : [NSString stringWithFormat:@".trace-%u.json", traceSaves];
+    writeJSON(trace, [output stringByAppendingString:suffix]);
     if (dispatchTracing) g1_interval("probe export", began, CACurrentMediaTime(), 0);
 }
 

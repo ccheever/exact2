@@ -148,12 +148,12 @@ function report(path, rest, duration) {
   const presents = events.filter(e => e.name === 'gpu present' && inWindow(e));
   const reread = { worker_reads: presents.length,
     identical_later_main_reads: presents.filter(e => commands.has(`${e.ts}:${e.dur}`)).length };
-  const gaugeNames = new Set(['service_passes_in_period', 'targets_retained', 'target_bytes',
+  const gaugeNames = new Set(['service_passes_in_period', 'targets_retained', 'target_bytes', 'target_partition_unix_us', 'target_partition_completed',
     'targets_incomplete', 'targets_reserved_this_frame', 'targets_idle', 'target_idle_bytes']);
   for (const name of Object.keys(end.counters?.values ?? {})) if (name.startsWith('period_')) gaugeNames.add(name);
   const counters = start.counters && end.counters ? {
     delta: Object.fromEntries(Object.entries(end.counters.values).filter(([n]) => !gaugeNames.has(n))
-      .map(([n, v]) => [n, v - start.counters.values[n]])),
+      .map(([n, v]) => [n, v == null || start.counters.values[n] == null ? null : v - start.counters.values[n]])),
     gauges: Object.fromEntries([...gaugeNames].map(n => [n, { start: start.counters.values[n],
       end: end.counters.values[n], process_high_water: end.counters.highWater[n] }])),
     displayed: end.counters.displayedFrames === null ? null : end.counters.displayedFrames - start.counters.displayedFrames,

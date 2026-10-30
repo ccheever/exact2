@@ -12,20 +12,49 @@ pub fn counter_state() -> serde_json::Value {
     let values: serde_json::Map<_, _> = names
         .iter()
         .zip(s.values)
-        .map(|(n, v)| ((*n).into(), v.into()))
+        .map(|(n, v)| {
+            (
+                (*n).into(),
+                observed_frame_value(n, v, s.submitted_available, s.displayed_available),
+            )
+        })
         .collect();
     let high: serde_json::Map<_, _> = names
         .iter()
         .zip(s.high_water)
-        .map(|(n, v)| ((*n).into(), v.into()))
+        .map(|(n, v)| {
+            (
+                (*n).into(),
+                observed_frame_value(n, v, s.submitted_available, s.displayed_available),
+            )
+        })
         .collect();
-    let displayed = if cfg!(target_os = "macos") {
-        serde_json::json!(s.displayed)
-    } else {
+    let displayed = observed_frame_value(
+        "displayed_frames",
+        s.displayed,
+        s.submitted_available,
+        s.displayed_available,
+    );
+    serde_json::json!({"timeUnixMs": exact_ink::counters::timestamp(std::time::Instant::now()) / 1000.,
+    "values": values, "highWater": high, "updates": s.updates, "displayedFrames": displayed,
+    "poolGauges": {
+        "ownership": "targets_retained, target_bytes, targets_reserved_this_frame: after each pool mutation; bytes are logical RGBA storage",
+        "completion": "targets_incomplete, targets_idle, target_idle_bytes: last take partition, excluding targets reserved in that frame",
+        "completionSample": "target_partition_unix_us: anchored timestamp; target_partition_completed: existing completion serial used by that take"
+    }})
+}
+
+fn observed_frame_value(
+    name: &str,
+    value: u64,
+    submitted: bool,
+    displayed: bool,
+) -> serde_json::Value {
+    if (name == "submitted_frames" && !submitted) || (name == "displayed_frames" && !displayed) {
         serde_json::Value::Null
-    };
-    serde_json::json!({"timeUnixMs": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64() * 1000.,
-        "values": values, "highWater": high, "updates": s.updates, "displayedFrames": displayed})
+    } else {
+        value.into()
+    }
 }
 
 /// Retained atlas storage and work performed in the last completed frame.
@@ -89,5 +118,24 @@ impl Drop for Ink {
                 self.statistics.read().snapshots
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_path_without_present_hooks_reports_unavailable() {
+        for name in ["submitted_frames", "displayed_frames"] {
+            assert!(super::observed_frame_value(name, 0, false, false).is_null());
+        }
+        assert_eq!(
+            super::observed_frame_value("submitted_frames", 3, true, false),
+            3
+        );
+        assert!(super::observed_frame_value("displayed_frames", 0, true, false).is_null());
+        assert_eq!(
+            super::observed_frame_value("displayed_frames", 0, true, true),
+            0
+        );
     }
 }

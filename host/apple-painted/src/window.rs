@@ -68,6 +68,7 @@ impl<D: DataSource> Drop for App<D> {
 pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &str) -> i32 {
     let started = Instant::now();
     app::prepare_environment(compat);
+    counters::initialize();
     if app::print_baked_receipt(compat) {
         return 0;
     }
@@ -281,11 +282,13 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             StartCause::ResumeTimeReached { .. } => c"winit timer wake",
             StartCause::WaitCancelled { .. } => c"winit event wake",
         });
-        self.service_causes = if matches!(cause, StartCause::ResumeTimeReached { .. }) {
-            counters::TIMER
-        } else {
-            0
-        };
+        if counters::enabled() {
+            self.service_causes = if matches!(cause, StartCause::ResumeTimeReached { .. }) {
+                counters::TIMER
+            } else {
+                0
+            };
+        }
     }
     fn resumed(&mut self, events: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -383,7 +386,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     fn user_event(&mut self, events: &ActiveEventLoop, event: Event) {
         match event {
             Event::Tick => {
-                self.service_causes |= counters::LINK;
+                if counters::enabled() {
+                    self.service_causes |= counters::LINK;
+                }
                 trace_mark(c"display wake", || 0.);
                 self.tick_pending.store(false, Ordering::Release);
                 let unshown = self.awaiting_first_present();
@@ -404,7 +409,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 }
             }
             Event::Wake => {
-                self.service_causes |= counters::WORKER;
+                if counters::enabled() {
+                    self.service_causes |= counters::WORKER;
+                }
                 if self
                     .presenter
                     .as_ref()
@@ -417,7 +424,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             }
             Event::Closed => events.exit(),
             Event::Request(line, reply) => {
-                self.service_causes |= counters::AGENT;
+                if counters::enabled() {
+                    self.service_causes |= counters::AGENT;
+                }
                 let _trace = Trace::new(c"agent request");
                 if let Some(p) = &mut self.presenter {
                     let request: serde_json::Value =
@@ -462,10 +471,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     }
     fn window_event(&mut self, events: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         let _trace = Trace::new(c"winit window event");
-        if matches!(event, WindowEvent::MouseWheel { .. }) {
-            self.service_causes |= counters::WHEEL;
-        } else if !matches!(event, WindowEvent::RedrawRequested) {
-            self.service_causes |= counters::WINDOW;
+        if counters::enabled() {
+            self.service_causes |= match event {
+                WindowEvent::MouseWheel { .. } => counters::WHEEL,
+                WindowEvent::RedrawRequested => counters::DRAW,
+                _ => counters::WINDOW,
+            };
         }
         if matches!(
             event,
@@ -643,7 +654,12 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         } else {
             self.started.elapsed().as_secs_f64() * 1000.
         };
-        service(p, now, self.live, D::default, self.service_causes);
+        let causes = if counters::enabled() {
+            std::mem::take(&mut self.service_causes)
+        } else {
+            0
+        };
+        service(p, now, self.live, D::default, causes);
         if p.apple_painter_retry_deadline()
             .is_some_and(|due| Instant::now() >= due)
         {

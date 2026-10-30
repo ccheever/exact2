@@ -229,6 +229,7 @@ impl Metal {
         let render_layer = layer.render_layer();
         render_layer.raw.setDevice(Some(&self.device));
         self.thread = Some(thread.clone());
+        crate::counters::presentation_support(true, true);
         self.window = Some(Window {
             thread,
             uploads: std::sync::Arc::new(std::sync::Mutex::new(Uploads {
