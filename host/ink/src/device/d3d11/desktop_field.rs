@@ -47,6 +47,9 @@ fn type_text(text: &str) {
 #[test]
 #[ignore = "Stage 1w visual record; DPI operator and INK_SHELF required"]
 fn shelf_native_field_visual() {
+    unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
     let exe = std::env::var("INK_SHELF").unwrap();
     let mut app = Shelf::launch("field-visual", &exe, "richedit", "1024x720", None, true);
     app.place(1024, 720);
