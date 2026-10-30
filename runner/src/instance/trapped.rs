@@ -2,38 +2,58 @@
 //! computed-value time, as a value its row's grammar refuses is (CSS Custom
 //! Properties §3.1). Its row is unset, one journal line names the binding's
 //! site and the trap, and the update goes on. The trap stays inside the one
-//! evaluation, so nothing else needs undoing. A trap in a region's subject,
-//! a key or a row initializer still fails the update.
+//! evaluation, so nothing else needs undoing. The traps that still fail the
+//! update are LLP 1017.003 D3's.
 use super::*;
 use exact_plan::{BindingsId, BindingsRow};
 
-impl Update<'_> {
-    /// Binding `b` of node `node` (view `view`), or `None` when it trapped,
-    /// journaled. `Pending` is not the binding's: the settlement retries it.
-    pub(super) fn eval_row(
-        &mut self,
-        view: ViewId,
-        node: NodesId,
-        b: BindingsId,
-        frames: &[Frame],
-    ) -> Result<Option<Value>, InstanceError> {
-        let binding = self.env.plan.binding(b);
-        match self.eval_binding(b, binding.expr, frames) {
-            Ok(value) => Ok(Some(value)),
-            Err(trap @ Trap::Pending { .. }) => Err(InstanceError::Trap(trap)),
-            Err(trap) => {
-                let row = row_name(&binding);
-                self.notes.push(format!(
-                    "view {view} (site {}): {row} trapped Trap({trap:?}); unset",
-                    node.0
-                ));
-                Ok(None)
-            }
-        }
-    }
+/// A binding's evaluation as its row takes it.
+pub(super) enum Evaluated {
+    Value(Value),
+    /// It trapped. `first`: its last evaluation did not, so the trap was
+    /// journaled now and its row is to be unset; a binding that goes on
+    /// trapping is neither journaled nor unset again until it evaluates to
+    /// a value.
+    Trapped {
+        first: bool,
+    },
 }
 
 impl NodeInst {
+    /// Binding `b` of this node. `Pending` is not the binding's: the
+    /// settlement retries it.
+    pub(super) fn eval_row(
+        &mut self,
+        u: &mut Update<'_>,
+        b: BindingsId,
+        frames: &[Frame],
+    ) -> Result<Evaluated, InstanceError> {
+        let binding = u.env.plan.binding(b);
+        match u.eval_binding(b, binding.expr, frames) {
+            Ok(value) => {
+                if let Some(rare) = self.rare.as_mut() {
+                    rare.trapped.retain(|t| *t != b.0);
+                }
+                Ok(Evaluated::Value(value))
+            }
+            Err(trap @ Trap::Pending { .. }) => Err(InstanceError::Trap(trap)),
+            Err(trap) => {
+                let trapped = &mut self.rare().trapped;
+                let first = !trapped.contains(&b.0);
+                if first {
+                    trapped.push(b.0);
+                    u.notes.push(format!(
+                        "view {} (site {}): {} trapped Trap({trap:?}); unset",
+                        self.view,
+                        self.node.0,
+                        row_name(&binding)
+                    ));
+                }
+                Ok(Evaluated::Trapped { first })
+            }
+        }
+    }
+
     /// Unset binding `i`'s row, which trapped.
     pub(super) fn unset_trapped(&mut self, u: &mut Update<'_>, i: usize, binding: &BindingsRow) {
         let id = self.view;

@@ -198,7 +198,7 @@ fn development_derive_checks_name_the_authored_derive() {
 #[test]
 fn a_binding_that_can_trap_unsets_its_row() {
     let (_, js) = js("component App\n  state n = 1\n  view\n    column\n      text range(n).map(i => \"x\").join(\",\") opacity=range(n).length / 2\n      text `${n}`\n");
-    assert!(js.contains("tg(1,\"text\",()=>"), "{js}");
-    assert!(js.contains("tg(1,\"opacity\",()=>"), "{js}");
-    assert!(!js.contains("tg(2,"), "{js}");
+    assert!(js.contains("tg(e1,1,\"text\",()=>"), "{js}");
+    assert!(js.contains("tg(e1,1,\"opacity\",()=>"), "{js}");
+    assert!(!js.contains("tg(e2,"), "{js}");
 }

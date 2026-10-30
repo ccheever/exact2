@@ -156,7 +156,7 @@ fn a_row_that_walks_its_own_list_is_named() {
     // Through a `fn` that walks its parameter, as a prefix's length does.
     let through = "shape Token\n  id: string\n  text: string\nfn before(ts: Token[], id: string): number = ts.slice(0, max(0, ts.map(t => t.id).indexOf(id))).map(t => t.text).join(\"\").length\ncomponent App\n  state tokens = [Token(id=\"a\", text=\"x\")]\n  view\n    column\n      for t in tokens key=t.id\n        text `${before(tokens, t.id)}`\n";
     assert_eq!(own(through), [10]);
-    // Through a component's prop, as the clone's code block passed its offsets.
+    // Through a component's prop.
     let prop = "shape Token\n  id: string\n  text: string\nfn before(ts: Token[], id: string): number = ts.map(t => t.id).indexOf(id)\ncomponent App\n  state tokens = [Token(id=\"a\", text=\"x\")]\n  view\n    column\n      for t in tokens key=t.id\n        Marked(value=t.text, at=before(tokens, t.id))\ncomponent Marked\n  props\n    value: string\n    at: number\n  view\n    text `${value} ${at}`\n";
     assert_eq!(own(prop).len(), 1, "{prop}");
     // A row's own lists, another list (`lower-row-lookup`'s) and the walk outside any row are not.

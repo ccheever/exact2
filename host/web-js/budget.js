@@ -9,9 +9,13 @@ const MAX = 67108864, NODES = 16777216;
 export class Trap extends Refusal { constructor(kind, pc) { super(`Trap(${kind} { pc: ${pc} })`); this.kind = kind; this.pc = pc; } }
 /** Throw a trap, where an expression stands. */
 export function $T(kind, pc) { throw new Trap(kind, pc); }
-/** Prop or style binding `f` of plan node `site`, whose trap unsets its row `row` with one journal line, and the commit
- * goes on (LLP 1017.003 D3; the runner's `instance/trapped.rs`). */
-export const tg = (site, row, f) => () => { try { return f(); } catch (e) { if (!(e instanceof Trap)) throw e; say(`site ${site}: ${row} trapped ${e.message}; unset`); return null; } };
+/** Prop or style binding `f` of plan node `site` on element `e`, whose trap unsets its row `row` and the commit goes on
+ * (LLP 1017.003 D3; the runner's `instance/trapped.rs`). One journal line when it starts trapping, however many writes
+ * read it: the element keeps which of its rows' bindings trapped last, until one evaluates to a value. */
+export const tg = (e, site, row, f) => () => {
+  try { const v = f(); e.$tg?.delete(row); return v; }
+  catch (x) { if (!(x instanceof Trap)) throw x; const t = (e.$tg ??= new Set); if (!t.has(row)) { t.add(row); say(`site ${site}: ${row} trapped ${x.message}; unset`); } return null; }
+};
 /** A string's UTF-8 bytes, as Rust's `str::len`; a lone surrogate is U+FFFD's 3 (LLP 1088 D2). */
 export function utf8(s, limit = Infinity) {
   let n = s.length;

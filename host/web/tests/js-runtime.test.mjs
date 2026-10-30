@@ -1309,14 +1309,24 @@ test('an argument or a write past MAX_STRING is refused by name, and a trapping 
   expect(t()).toBe('');
   put.t(() => { throw new Trap('IterationLimit', 17); })();
   expect(last()).toBe('refused action: Trap(IterationLimit { pc: 17 })');
-  // A prop or style binding's trap unsets its row and the commit goes on (LLP 1017.003 D3).
+  // A prop or style binding's trap unsets its row and the commit goes on (LLP 1017.003 D3), with one journal line however
+  // many writes read it (here two, as a painted flag and its row), until it evaluates to a value again.
   const m = sig(0, 'm');
-  let shown = 'x';
-  effect(() => { shown = tg(4, 'text', () => { if (m() > 0) throw new Trap('IterationLimit', 5); return 'x'; })(); });
-  act(() => W(m, 1))();
-  globalThis.heldTail?.();
-  expect(journal.some(l => l.endsWith('site 4: text trapped Trap(IterationLimit { pc: 5 }); unset'))).toBe(true);
-  expect(shown).toBe(null);
+  const el = {}, text = () => { if (m() > 0) throw new Trap('IterationLimit', 5); return 'x'; };
+  const lines = () => journal.filter(l => l.endsWith('site 4: text trapped Trap(IterationLimit { pc: 5 }); unset')).length;
+  let shown = 'x', painted = 'x';
+  effect(() => { shown = tg(el, 4, 'text', text)(); });
+  effect(() => { painted = tg(el, 4, 'text', text)(); });
+  const set = v => { act(() => W(m, v))(); globalThis.heldTail?.(); };
+  set(1);
+  expect(lines()).toBe(1);
+  expect([shown, painted]).toEqual([null, null]);
+  set(2);
+  expect(lines()).toBe(1);
+  set(0);
+  expect([shown, painted]).toEqual(['x', 'x']);
+  set(1);
+  expect(lines()).toBe(2);
   // Any other trap while the tree updates (a subject's, a key's) poisons, as the runner's InstanceError; an argument still traps first.
   const n = sig(0, 'n');
   effect(() => { if (n() > 0) throw new Trap('IterationLimit', 9); });

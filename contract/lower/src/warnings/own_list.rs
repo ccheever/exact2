@@ -3,9 +3,8 @@
 //! tokens`), directly or through a `fn` that walks its parameter. Each row's
 //! work grows with the list, so an update walks rows × items, and the list
 //! step bound is per evaluation: such a binding passes every list the app
-//! was tried with and is unset on a longer one (in the T3 Code clone, a
-//! 1,500-line code block's token offsets). `lower-row-lookup` names a row
-//! that searches another list. As there, only a list of the file's records
+//! was tried with and is unset on a longer one. `lower-row-lookup` names a
+//! row that searches another list. As there, only a list of the file's records
 //! is named: a list of strings is most often a short set of choices.
 
 use super::{path, WALKS};

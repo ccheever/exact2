@@ -208,7 +208,8 @@ fn an_invalid_value_from_data_unsets_its_row_and_is_journaled() {
 /// A prop or style binding that traps is invalid at computed-value time, as
 /// a refused value is: its row is unset, one journal line names its site and
 /// the trap, and the runner goes on (LLP 1017.003 D3). Here a text and a
-/// style binding pass the list-step bound once `n` grows.
+/// style binding pass the list-step bound once `n` grows. One that goes on
+/// trapping is journaled once, until it evaluates to a value again.
 #[test]
 fn a_binding_that_traps_unsets_its_row_and_the_runner_goes_on() {
     const SOURCE: &str = "component App
@@ -216,6 +217,8 @@ fn a_binding_that_traps_unsets_its_row_and_the_runner_goes_on() {
   state ticks = 0
   action grow
     n = 65537
+  action regrow
+    n = n + 1
   action shrink
     n = 2
   action tick
@@ -269,6 +272,16 @@ fn a_binding_that_traps_unsets_its_row_and_the_runner_goes_on() {
         "{trapped:?}"
     );
     assert!(trapped[1].contains(": opacity trapped Trap(IterationLimit { pc: "));
+    let trapping = |r: &Runner<Schedule>, from: usize| {
+        r.journal()
+            .skip(from)
+            .filter(|l| l.contains("trapped"))
+            .count()
+    };
+    let before = r.journal().count();
+    r.act("regrow", vec![]).unwrap();
+    assert_eq!(trapping(&r, before), 0, "still trapping: no new line");
+    assert_eq!(text(&r, "names"), None);
     // Its next timer fires, and the row comes back when the binding does.
     r.advance(1_000.0).unwrap();
     assert_eq!(text(&r, "ticks"), Some(exact_kernel::PropValue::from("1")));
@@ -278,4 +291,7 @@ fn a_binding_that_traps_unsets_its_row_and_the_runner_goes_on() {
         Some(exact_kernel::PropValue::from("x,x"))
     );
     assert!(opacity(&r));
+    let before = r.journal().count();
+    r.act("grow", vec![]).unwrap();
+    assert_eq!(trapping(&r, before), 2, "trapping again after a value");
 }

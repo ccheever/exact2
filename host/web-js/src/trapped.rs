@@ -1,6 +1,8 @@
 //! A prop or style binding that traps (LLP 1017.003 D3): its row is unset,
 //! one journal line names its plan site and the trap, and the commit goes
-//! on, as the runner's `instance/trapped.rs` has it (budget.js `tg`).
+//! on, as the runner's `instance/trapped.rs` has it (budget.js `tg`). The
+//! guard keeps its state on the element, so the several writes one binding
+//! feeds (a painted flag, a motion value) journal it once.
 
 use super::Em;
 use crate::code::Scope;
@@ -8,11 +10,12 @@ use exact_kernel::{PropId, StyleId};
 use exact_plan::{BindingKind, BindingsRow};
 
 impl Em<'_> {
-    /// Binding `b` of node `i` as a function. A body that names none of
-    /// budget.js's cannot trap and is left as it is.
+    /// Binding `b` of node `i` (element `e`) as a function. A body that
+    /// names none of budget.js's cannot trap and is left as it is.
     pub(super) fn bound(
         &mut self,
         i: u32,
+        e: &str,
         b: &BindingsRow,
         scope: &Scope,
     ) -> Result<String, String> {
@@ -29,7 +32,7 @@ impl Em<'_> {
         };
         let tg = self.uses.budget("tg");
         Ok(format!(
-            "{tg}({i},{},{f})",
+            "{tg}({e},{i},{},{f})",
             serde_json::to_string(&row).unwrap()
         ))
     }

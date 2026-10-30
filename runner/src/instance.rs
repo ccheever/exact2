@@ -26,6 +26,7 @@ pub mod tabs;
 mod text;
 pub mod theme;
 mod trapped;
+use trapped::Evaluated;
 
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
@@ -960,11 +961,11 @@ impl NodeInst {
             let value = if reads.is_constant() {
                 let known = u.sites.constants.borrow().get(&b.0).cloned();
                 match known {
-                    Some(value) => Some(value),
+                    Some(value) => Evaluated::Value(value),
                     None => {
                         u.work.bindings_evaluated += 1;
-                        let value = u.eval_row(self.view, self.node, b, frames)?;
-                        if let Some(value) = &value {
+                        let value = self.eval_row(u, b, frames)?;
+                        if let Evaluated::Value(value) = &value {
                             u.sites.constants.borrow_mut().insert(b.0, value.clone());
                         }
                         value
@@ -972,18 +973,21 @@ impl NodeInst {
                 }
             } else {
                 u.work.bindings_evaluated += 1;
-                u.eval_row(self.view, self.node, b, frames)?
+                self.eval_row(u, b, frames)?
             };
             // A trap unsets the row (`trapped`); the next value is new.
-            let Some(value) = value else {
-                u.ids.evaluated(self.node, false);
-                if let Some(slot) = slot {
-                    self.last[slot] = None;
+            let value = match value {
+                Evaluated::Value(value) => value,
+                Evaluated::Trapped { first } => {
+                    u.ids.evaluated(self.node, !first);
+                    if let Some(slot) = slot {
+                        self.last[slot] = None;
+                    }
+                    if first && !u.discard {
+                        self.unset_trapped(u, i, &binding);
+                    }
+                    continue;
                 }
-                if !u.discard {
-                    self.unset_trapped(u, i, &binding);
-                }
-                continue;
             };
             let unchanged = match slot {
                 None => !fresh,

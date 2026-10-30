@@ -98,7 +98,7 @@ impl NodeInst {
             for b in look.bindings.iter() {
                 // A row that trapped is left out, as one that does not parse is.
                 let binding = plan.binding(b);
-                if let Some(value) = u.eval_row(self.view, self.node, b, frames)? {
+                if let super::Evaluated::Value(value) = self.eval_row(u, b, frames)? {
                     written.push((binding.id, value, binding.written));
                 }
             }

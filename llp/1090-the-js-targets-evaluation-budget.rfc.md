@@ -321,8 +321,8 @@ after three rounds and reports. Parity is not traded for speed.
   | Where | Runner outcome | Reason text |
   |---|---|---|
   | Action body, derive, resource argument, handler or edge argument, root initializer | Commit (or boot) refused, rolled back | `Trap(IterationLimit { pc: 17 })` |
-  | Prop or style binding while the tree updates | Its row unset, one journal line, the update goes on (LLP 1017.003 D3) | `Trap(IterationLimit { pc: 17 })` in `view 3 (site 1): text trapped …; unset` (the JS target: `site 1: text trapped …; unset`) |
-  | Surface argument, subject, key or row initializer while the tree updates | Runner poisoned; writes kept, store restored (`commit.rs:64`) | `Instance(Trap(IterationLimit { pc: 17 }))` (`lists.rs:94–98`, `runner.rs:203–208`) |
+  | Prop or style binding while the tree updates | Its row unset, one journal line when it starts trapping, the update goes on (LLP 1017.003 D3) | `Trap(IterationLimit { pc: 17 })` in `view 3 (site 1): text trapped …; unset` (the JS target: `site 1: text trapped …; unset`) |
+  | Subject, key, row initializer, surface argument or a virtualized list's own options (LLP 1017.003 D3's five) while the tree updates | Runner poisoned; writes kept, store restored (`commit.rs:64`) | `Instance(Trap(IterationLimit { pc: 17 }))` (`lists.rs:94–98`, `runner.rs:203–208`) |
   | A string action argument or slot write past `MAX_STRING` | Commit refused | `StringTooLong { name: "text" }` |
 
   - The JS `flush` catch already poisons. It now journals the `Instance(…)`
@@ -410,7 +410,9 @@ after three rounds and reports. Parity is not traded for speed.
       targets (LLP 1005 §6).
   20. A text binding over `cards(65537)` traps `IterationLimit`: its row is
       unset with the same reason journaled on every target, and the next
-      step runs (c 47; LLP 1017.003 D3).
+      step runs (c 47; LLP 1017.003 D3). A painted `z-index` row past the
+      bound is journaled once (c 48), and not again on a step that
+      evaluates it again and it still traps (c 49).
 - **State size.** The harness compares state, so cases 9 and 10 hold a
   64 MiB slot for one step. The step after them resets it.
 

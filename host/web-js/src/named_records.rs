@@ -31,7 +31,7 @@ impl Em<'_> {
             return Ok(false);
         };
         let (value, p, record) = (
-            self.bound(i, b, scope)?,
+            self.bound(i, e, b, scope)?,
             self.uses.rt("P"),
             self.uses.rt(record),
         );

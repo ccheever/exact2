@@ -930,7 +930,7 @@ impl Em<'_> {
                         serde_json::to_string(text.text()).unwrap()
                     )),
                     _ => {
-                        let f = self.bound(i, &b, scope)?;
+                        let f = self.bound(i, parent, &b, scope)?;
                         fields.push(format!(
                             "{}:{f}",
                             serde_json::to_string(prop.name()).unwrap()
@@ -1223,7 +1223,7 @@ impl Em<'_> {
                 continue;
             }
             let f = self
-                .bound(i, &b, scope)
+                .bound(i, &e, &b, scope)
                 .map_err(|x| format!("node {i}: {x}"))?;
             let at = self.out.len();
             let f = self.counted(i, k, f);

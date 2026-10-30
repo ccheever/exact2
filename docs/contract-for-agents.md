@@ -366,9 +366,11 @@ what to write. Nothing runs because a value changed (no `useEffect` or watch).
   `indexOf` scans), builds strings of at most 64 MiB of UTF-8, and values of at
   most 2²⁴ values and 64 MiB of string bytes. Every target refuses the same
   step with the same reason: an action is refused with nothing changed; a prop
-  or style binding's row is unset, with a journal line naming its site and the
-  trap, and the app goes on; an `if`, `match` or `for` subject, a key or a row's
-  state initializer stops the runner (LLP 1090, LLP 1017.003 D3).
+  or style binding's row is unset, with one journal line naming its site and
+  the trap until it evaluates to a value again, and the app goes on; an `if`,
+  `match` or `for` subject, a key, a row's state initializer, a surface
+  argument or a virtualized list's own options stops the runner (LLP 1090,
+  LLP 1017.003 D3).
 - A state's initializer runs before any resource answers and before any derive:
   it reads props, injects and the states declared above it, nothing else
   (`type-initializer-scope`). Derive a value from a resource instead, or keep
