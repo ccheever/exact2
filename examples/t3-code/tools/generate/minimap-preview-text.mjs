@@ -244,41 +244,41 @@ function paragraphBreaks(source, node, range) {
   return breaks;
 }
 
-function certifiedBreaks(source, text, fragments, plan) {
+function certifiedFolds(source, text, fragments, plan) {
   if (/[\t\u2028\u2029]|^[ \t]+\S/m.test(text) || plan.nodes.some(hasFileTableContext)) return null;
-  const paragraphs = [], breaks = [];
-  let cursor = plan.start;
+  const folds = new Map();
+  for (const fragment of fragments) {
+    if (fragment.kind === 'markdown') folds.set(fragment, { coveredUntil: fragment.start, breaks: [] });
+  }
+  let cursor = plan.start, fragmentIndex = 0, breakEnd = 0;
   for (const node of plan.nodes) {
     const range = fileNodeRange(node, cursor, plan.end);
     if (!range || source.slice(cursor, range.start).trim()) return null;
     const start = range.start - plan.start, end = range.end - plan.start;
+    while (fragmentIndex < fragments.length && fragments[fragmentIndex].end <= start) fragmentIndex++;
+    const fragment = fragments[fragmentIndex];
+    if (!fragment || start < fragment.start || end > fragment.end) return null;
     if (node.type === 'paragraph') {
-      if (!fragments.some(fragment => fragment.kind === 'markdown' && start >= fragment.start && end <= fragment.end)) return null;
+      if (fragment.kind !== 'markdown') return null;
+      const fold = folds.get(fragment);
+      if (text.slice(fold.coveredUntil, start).trim()) return null;
       const admitted = paragraphBreaks(source, node, range);
       if (!admitted) return null;
-      paragraphs.push({ start, end });
-      breaks.push(...admitted.map(span => ({ start: span.start - plan.start, end: span.end - plan.start })));
-    } else if (!fragments.some(fragment => fragment.kind === node.type && fragment.start === start && end <= fragment.end)) return null;
+      for (const span of admitted) {
+        const local = { start: span.start - plan.start, end: span.end - plan.start };
+        if (local.start < breakEnd || local.start < fragment.start || local.end > fragment.end) return null;
+        fold.breaks.push(local);
+        breakEnd = local.end;
+      }
+      fold.coveredUntil = end;
+    } else if (fragment.kind !== node.type || fragment.start !== start) return null;
     cursor = range.end;
   }
   if (source.slice(cursor, plan.end).trim()) return null;
-  for (const fragment of fragments) {
-    if (fragment.kind !== 'markdown') continue;
-    let end = fragment.start;
-    for (const paragraph of paragraphs) {
-      if (paragraph.start < fragment.start || paragraph.end > fragment.end) continue;
-      if (text.slice(end, paragraph.start).trim()) return null;
-      end = paragraph.end;
-    }
-    if (text.slice(end, fragment.end).trim()) return null;
+  for (const [fragment, fold] of folds) {
+    if (text.slice(fold.coveredUntil, fragment.end).trim()) return null;
   }
-  let end = 0;
-  for (const span of breaks) {
-    if (span.start < end || !fragments.some(fragment => fragment.kind === 'markdown'
-      && span.start >= fragment.start && span.end <= fragment.end)) return null;
-    end = span.end;
-  }
-  return breaks;
+  return folds;
 }
 
 function foldedSlice(text, fragment, breaks) {
@@ -288,7 +288,6 @@ function foldedSlice(text, fragment, breaks) {
   }
   let result = '', cursor = fragment.start;
   for (const span of breaks) {
-    if (span.start < fragment.start || span.end > fragment.end) continue;
     result += text.slice(cursor, span.start) + ' ';
     cursor = span.end;
   }
@@ -303,13 +302,13 @@ export function fileMarkdownPlan(source, blocks) {
     let fragments = proseFragments(block.text);
     const plan = plans.get(blockIndex);
     if (plan?.tables.length) fragments = insertTables(block.text, fragments, plan);
-    const breaks = plan ? certifiedBreaks(source, block.text, fragments, plan) : null;
+    const folds = plan ? certifiedFolds(source, block.text, fragments, plan) : null;
     for (const fragment of fragments) {
       const { kind, idSuffix } = fragment;
       if (kind === 'table') result.push({ kind, blockIndex, idSuffix, columns: fragment.columns, rows: fragment.rows });
       else if (kind === 'heading') result.push({ kind, blockIndex, idSuffix, text: fragment.text, level: fragment.level });
       else {
-        result.push({ kind, blockIndex, idSuffix, text: foldedSlice(block.text, fragment, breaks) });
+        result.push({ kind, blockIndex, idSuffix, text: foldedSlice(block.text, fragment, folds === null ? null : folds.get(fragment).breaks) });
       }
     }
   }
