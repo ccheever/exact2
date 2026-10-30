@@ -14,6 +14,9 @@ pub(super) struct Rare {
     pub(super) last_surface: Option<Vec<Value>>,
     /// A mode boundary's implied rows, by [`super::theme::INHERITED`] (D7).
     pub(super) implied: Option<[Option<Value>; 8]>,
+    /// The bindings, by `BindingsId`, whose last evaluation trapped
+    /// (`trapped.rs`): unset and journaled once.
+    pub(super) trapped: Vec<u32>,
 }
 
 /// A node's list engine, borrowing only its [`Rare`].

@@ -358,8 +358,9 @@ def elementText (fuel : Nat) (env : Env) (ls : Locals) (tag : String) (pos : Lis
   match pos with
   | e :: _ =>
     if tag == "text" || tag == "tspan" || tag == "option" then do
-      let v ← eval fuel env false ls e
-      pure (Option.some (← v.display))
+      match ← unsetRefused (eval fuel env false ls e) with
+      | .some v => pure (Option.some (← v.display))
+      | .none => pure Option.none
     else pure Option.none
   | [] => pure Option.none
 
@@ -367,7 +368,10 @@ def elementText (fuel : Nat) (env : Env) (ls : Locals) (tag : String) (pos : Lis
 def elementTestId (fuel : Nat) (env : Env) (ls : Locals) (props : List (String × Expr)) :
     Result (Option String) :=
   match lookupField "testId" props with
-  | .some e => do pure (Option.some (← (← eval fuel env false ls e).display))
+  | .some e => do
+    match ← unsetRefused (eval fuel env false ls e) with
+    | .some v => pure (Option.some (← v.display))
+    | .none => pure Option.none
   | .none => pure Option.none
 
 /-- The form control an element is, when not a text field. -/
@@ -392,8 +396,8 @@ def render : Nat → RenderCx → Locals → List Node → RowStore → Result (
         let text ← elementText fuel cx.env ls tag pos
         let testId ← elementTestId fuel cx.env ls props
         let values ← (tabProps props).mapM fun (name, e) => do
-          pure (name, ← eval fuel cx.env false ls e)
-        let navigation := cx.tabs.element props values
+          pure (name, ← unsetRefused (eval fuel cx.env false ls e))
+        let navigation := cx.tabs.element props (values.filterMap fun (n, v) => v.map (n, ·))
         let (kids, live) ← (if navigation.opened then
           render fuel { cx with tabs := cx.tabs.children props } ls children live
           else pure ([], live))

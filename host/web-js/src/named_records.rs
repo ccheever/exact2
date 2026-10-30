@@ -19,6 +19,7 @@ impl Em<'_> {
     /// Write `b` as its named record when it is one of [`NAMED`].
     pub(super) fn named_record(
         &mut self,
+        i: u32,
         b: &BindingsRow,
         e: &str,
         scope: &Scope,
@@ -30,7 +31,7 @@ impl Em<'_> {
             return Ok(false);
         };
         let (value, p, record) = (
-            self.f(b.expr, scope)?,
+            self.bound(i, e, b, scope)?,
             self.uses.rt("P"),
             self.uses.rt(record),
         );

@@ -70,7 +70,7 @@ impl Em<'_> {
                 None => initial.to_string(),
                 Some(b) => match style::literal(plan, plan.code(b.expr)) {
                     Some(v) => value_js(&v),
-                    None => format!("({})()", self.f(b.expr, scope)?),
+                    None => format!("(({})()??{initial})", self.bound(i, e, &b, scope)?),
                 },
             });
         }
@@ -151,7 +151,7 @@ impl Em<'_> {
                 None => initial.to_string(),
                 Some(b) => match style::literal(plan, plan.code(b.expr)) {
                     Some(v) => value_js(&v),
-                    None => format!("({})()", self.f(b.expr, scope)?),
+                    None => format!("(({})()??{initial})", self.bound(i, e, &b, scope)?),
                 },
             });
         }

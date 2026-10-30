@@ -848,10 +848,10 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
 - `render_good` (`RenderSound.lean`): a well-typed view (`NodesTy`)
   rendered in a well-typed environment and row store fails only
   legitimately (a non-finite row key or row slot initializer, an
-  expression's refusal), keeps every live row's slots of their types
-  (`StoreOK`), and records only handlers naming an existing action with
-  curried arguments typed, in the element's own scope, at most the
-  action's leading parameters (`VNodeOK`).
+  expression's refusal other than an attribute's), keeps every live row's
+  slots of their types (`StoreOK`), and records only handlers naming an
+  existing action with curried arguments typed, in the element's own
+  scope, at most the action's leading parameters (`VNodeOK`).
 - `reachable_configOK` (`StepSound.lean`): every configuration a
   well-typed program reaches is `ConfigOK` — root slots present and of
   their types, settled values of theirs, live rows' slots of theirs, every
@@ -1067,15 +1067,21 @@ has no reload.
 Presentation attributes are carried in the embedding but not evaluated,
 except the six attributes tab selection reads (`role`, `id`,
 `navigationKey`, `navigationBack`, `aria-controls`, `aria-selected`).
-Only a `text`'s text and an element's `testId` are observed, and nothing
-inside a virtualized `list`: the runner builds only the rows its window lays
-out, which is layout, so both sides leave a virtualized list's descendants
-out of the observation (the list's own line stays). The
-runner's evaluation bounds (list steps, string length, value size and depth)
-are a refinement the semantics doesn't model (LLP 1090 D8): a step the runner
-refuses for one (`IterationLimit`, `StringTooLong` as a trap or an argument's
-or write's refusal, `ValueTooLarge`, `ValueTooDeep`) is `UNSUPPORTED`, outside
-the semantics, not a divergence. The web's JS target refuses the same steps
+An attribute whose expression is refused (other than for fuel) has no
+value and the render goes on (`unsetRefused`), as the runner unsets a prop
+or style binding that traps (LLP 1017.003 D3); a refused subject, key or
+row initializer still fails the render. Only a `text`'s text and an
+element's `testId` are observed, and nothing inside a virtualized `list`:
+the runner builds only the rows its window lays out, which is layout, so
+both sides leave a virtualized list's descendants out of the observation
+(the list's own line stays). The runner's evaluation bounds (list steps,
+string length, value size and depth) are a refinement the semantics
+doesn't model (LLP 1090 D8): a step the runner refuses for one
+(`IterationLimit`, `StringTooLong` as a trap or an argument's or write's
+refusal, `ValueTooLarge`, `ValueTooDeep`) is `UNSUPPORTED`, outside the
+semantics, not a divergence, and so is a step after the runner unset a
+binding for one (its journal line is a `#` note in the runner's
+observation). The web's JS target refuses the same steps
 (`host/web-js/conform.mjs`). The checker's two type refusals that bound a value
 (`type-option-option`, `type-too-deep`) are in `Contract.check` too
 (`checkBounds`, and where `infer` grows a type: `some`, `map`, the roster).

@@ -323,6 +323,14 @@ def lookupField (f : String) : List (String × Expr) → Option Expr
 program the compiler accepts at the fuel `run` gives (`Contract.fuel`). -/
 def outOfFuel : Err := .refused "out of fuel"
 
+/-- A prop binding's value, or `none` when its evaluation is refused (other
+than for fuel): the runner unsets a prop or style binding that traps and
+goes on (LLP 1017.003 D3). -/
+def unsetRefused {α} : Result α → Result (Option α)
+  | .ok a => .ok (.some a)
+  | .error (.refused w) => if w == "out of fuel" then .error (.refused w) else .ok .none
+  | .error e => .error e
+
 /-- Enough fuel for any evaluation the runner's own bounds admit. -/
 def fuel : Nat := 1 <<< 24
 

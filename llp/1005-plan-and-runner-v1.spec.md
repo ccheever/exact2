@@ -416,10 +416,13 @@ web's JS target reads it as no value before a row's map does), so a component's 
 data's error too (Charlie, 2026-09-22, a separate decision): the later
 rows take the identities `d1:<key>`, `d2:<key>` in order — no canonical key
 text starts with `d` — and each such row's creation writes one journal
-line. With values conforming at every boundary, what remains is a plan
-defect or a trap while the tree changes; for a type-checked plan, a string
-past `MAX_STRING` built by a binding, or a route segment a binding asks
-`encodeRouteSegment` to encode and it refuses.
+line. A prop or style binding that traps is invalid at computed-value time
+in the same way: its row is unset and one journal line names the trap,
+once until the binding evaluates to a value again (LLP 1017.003 D3). With
+values conforming at every boundary, what remains is a plan defect or a
+trap, while the tree changes, at one of the five sites D3 names: a region's
+subject, a row key, a row's state initializer, a surface argument, or a
+virtualized list's reads of its own options at creation.
 
 **The clock.** `advance(now_ms)` fires every due timer in order (earliest
 first, plan index on ties), each at its own due time, then moves the clock.

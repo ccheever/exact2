@@ -31,6 +31,8 @@ mod regions;
 mod rows;
 #[path = "timers.rs"]
 mod timers;
+#[path = "trapped.rs"]
+mod trapped;
 #[path = "type_descriptors.rs"]
 mod type_descriptors;
 use regions::root_slot;
@@ -928,7 +930,7 @@ impl Em<'_> {
                         serde_json::to_string(text.text()).unwrap()
                     )),
                     _ => {
-                        let f = self.f(b.expr, scope)?;
+                        let f = self.bound(i, parent, &b, scope)?;
                         fields.push(format!(
                             "{}:{f}",
                             serde_json::to_string(prop.name()).unwrap()
@@ -1197,7 +1199,7 @@ impl Em<'_> {
         self.editor(i, element, &e)?;
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
-            if self.named_record(&b, &e, scope)? {
+            if self.named_record(i, &b, &e, scope)? {
                 continue;
             }
             // tvOS's focus guide has no DOM property, whether literal or bound.
@@ -1221,7 +1223,7 @@ impl Em<'_> {
                 continue;
             }
             let f = self
-                .f(b.expr, scope)
+                .bound(i, &e, &b, scope)
                 .map_err(|x| format!("node {i}: {x}"))?;
             let at = self.out.len();
             let f = self.counted(i, k, f);
@@ -1237,7 +1239,7 @@ impl Em<'_> {
                     // The plan stores editable; HTML exposes the inverse, readonly.
                     // `glassGroup`'s reserved `-1` is `auto` (LLP 1053.000.000.000 D3).
                     let f = if prop == PropId::Editable {
-                        format!("()=>!({f})()")
+                        format!("()=>{{const v=({f})();return v==null?v:!v}}")
                     } else if prop == PropId::GlassGroup {
                         format!("()=>{{const v=({f})();return v===-1?\"auto\":v}}")
                     } else if matches!(prop, PropId::Wakelock | PropId::Orientationlock) {

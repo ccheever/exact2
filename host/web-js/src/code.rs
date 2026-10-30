@@ -51,6 +51,9 @@ pub struct Uses {
     pub names: BTreeSet<String>,
     /// budget.js's (LLP 1090 D3).
     pub budget: BTreeSet<String>,
+    /// How many times generated code named one of budget.js's: a body
+    /// that named none cannot trap.
+    pub metered: usize,
     /// Module-scope constants, by name: JavaScript built once from the plan
     /// that many sites share (LLP 1071 §7, generated code at scale).
     pub consts: BTreeMap<String, String>,
@@ -65,6 +68,7 @@ impl Uses {
     }
 
     pub fn budget(&mut self, name: &str) -> String {
+        self.metered += 1;
         self.budget.insert(name.to_string());
         name.to_string()
     }
