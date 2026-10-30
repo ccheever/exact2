@@ -303,6 +303,7 @@ function failureOutcome(error) {
 }
 function recoverDevice() {
   if (recoveringDevice || recoveryTimer || recoveryFailures >= RECOVERY_LIMIT || !loaded) return recoveringDevice;
+  flush();
   lossDuringRecovery = false;
   const module = gpu, entries = [...surfaces.values()].filter(e => e.id);
   const staged = pendingCutover?.module === module ? pendingCutover.staged : entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, unlisten:null}]);

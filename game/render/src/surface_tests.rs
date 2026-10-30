@@ -1,6 +1,8 @@
 use super::*;
 #[path = "surface_tests/quality.rs"]
 mod quality;
+#[path = "surface_tests/readiness.rs"]
+mod readiness;
 #[path = "surface_tests/trace.rs"]
 mod trace;
 use exact_game::{Camera, Input, Mesh, Transform, Vec3};
@@ -411,7 +413,10 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
     assert!(restored.sim().unwrap().generation() > generation);
     assert!(!restored.sim().unwrap().args().r#move);
     assert_eq!(restored.sim().unwrap().args().run, 9);
-    assert_eq!(restored.published().as_deref(), Some(r#"{"score":7}"#));
+    assert_eq!(
+        restored.published().as_deref(),
+        Some(r#"{"frame_ready":false,"score":7}"#)
+    );
     assert!(restored
         .agent(r#"{"op":"state"}"#)
         .unwrap()

@@ -515,6 +515,18 @@ named, with its size and the limit, in the app's log and the agent's
 `state.surfaceRefusals`.
 Only the first live canvas owns a given surface's public record.
 
+`WorldSurface` also publishes the reserved boolean `frame_ready`. It starts false
+and becomes true after submission of a complete frame for the current world
+generation. Restore and device loss make it false again. A same-world resource
+replacement that still draws valid retained imagery remains available. The field
+is host state; it does not enter simulation publications, saves, hashes or journal. The
+host overwrites a game publication named `frame_ready` in the outgoing record.
+
+An app can add `frame_ready: bool` to its `exactSurface` shape and keep a loading
+cover over the mounted canvas while it is false. The app owns its pause policy.
+If simulation ticks build terrain or accept bootstrap data, finish those steps
+before arming the pause. `PENDING` still permits ordinary simulation ticks.
+
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.
 Undelivered events save in order but stay outside the simulation hash.
 
