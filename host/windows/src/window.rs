@@ -43,6 +43,7 @@ struct App<D: DataSource> {
     scale: f64,
     refit_after_scale: bool,
     next_frame: Instant,
+    redraw_pending: bool,
     failed: bool,
     minimized: bool,
     occluded: bool,
@@ -139,8 +140,13 @@ impl FrameSchedule {
             .fold(now, Instant::max)
     }
 
-    fn redraw(&self, now: Instant, dirty: bool) -> Option<Instant> {
-        let requested = if dirty { Some(now) } else { self.retry }?;
+    fn defer(&self, now: Instant, pending: &mut bool) -> bool {
+        *pending = self.admit(now) > now;
+        *pending
+    }
+
+    fn redraw(&self, now: Instant, requested: bool) -> Option<Instant> {
+        let requested = if requested { Some(now) } else { self.retry }?;
         Some(requested.max(self.admit(now)))
     }
 }
@@ -303,6 +309,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         buttons: 0,
         scale: 1.,
         next_frame: started,
+        redraw_pending: false,
         failed: false,
         minimized: false,
         occluded: false,
@@ -458,7 +465,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         };
         // Input may change the picture while DXGI is full. Coalesce those changes
         // into the next display period before rebuilding the painter's targets.
-        if schedule.admit(frame_started) > frame_started {
+        if schedule.defer(frame_started, &mut self.redraw_pending) {
             return Ok(());
         }
         let now = self.now();
@@ -1319,7 +1326,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         };
         let now = Instant::now();
         let redraw = (!self.minimized && !self.occluded)
-            .then(|| schedule.redraw(now, p.dirty() || continuous))
+            .then(|| schedule.redraw(now, p.dirty() || continuous || self.redraw_pending))
             .flatten();
         if let Some(due) = redraw {
             if now >= due {

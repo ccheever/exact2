@@ -51,6 +51,24 @@ fn recovery_backoff_keeps_idle_wakes_without_stalling_changed_content() {
     assert_eq!(schedule.redraw(now, true), Some(tick));
     assert_eq!(schedule.redraw(now, false), Some(recovery));
 }
+
+#[test]
+fn an_early_image_or_window_redraw_survives_until_the_next_tick() {
+    let now = Instant::now();
+    let tick = now + Duration::from_millis(16);
+    let schedule = FrameSchedule {
+        cadence: Some(tick),
+        retry: None,
+        present: None,
+    };
+    let mut pending = false;
+    // Image completion requests a redraw before poll_images marks the picture
+    // dirty. Deferring that event must preserve the request, not just damage.
+    assert!(schedule.defer(now, &mut pending));
+    assert_eq!(schedule.redraw(now, pending), Some(tick));
+    assert!(!schedule.defer(tick, &mut pending));
+    assert_eq!(schedule.redraw(tick, pending), None);
+}
 #[test]
 fn only_direct_ink_devices_prepare_asynchronously() {
     use exact_linux::presenter::PainterChoice::*;
@@ -146,6 +164,7 @@ fn direct_window_blinks_without_a_softbuffer_surface() {
         scale: 1.,
         refit_after_scale: false,
         next_frame: started,
+        redraw_pending: false,
         failed: false,
         minimized: false,
         occluded: false,

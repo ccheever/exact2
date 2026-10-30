@@ -2623,3 +2623,13 @@ gesture second**. Completed painter snapshots should approximately equal
 successful frames. The ten-launch startup series should remain within G6's
 retained-driver distribution. These predictions are checked against the five
 quiet fling/rest samples and ten fresh-process launches below.
+
+The first carrier revision (`a13a063ba1`) had one successful diagnostic:
+**79.44/60.75 ms/s** process/main CPU, **58.28 displays/s**, **16.75 ms** p95
+and **246 snapshots / 246 successful frames**. Its first quiet launch then
+timed out after one frame: a redraw from image completion arrived before
+the cadence deadline, and deferring it lost the request because image polling
+had not yet marked the picture dirty. The carrier now retains an early redraw
+request through the deadline, independently of the dirty flag. A windowless
+scheduling test covers that wake. Both attempts remain under `target/g6c/round1/`;
+neither enters the final series.
