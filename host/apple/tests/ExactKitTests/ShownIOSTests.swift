@@ -20,9 +20,9 @@ final class ShownIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    private func presenter(_ label: String) throws -> Presenter {
-        // A scene's window: only it reaches the screen, and a commit held back is waited for only there (`Presenter.committed`).
-        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+    /// A scene's window: only it reaches the screen, and a commit held back is waited for only there
+    /// (`Presenter.committed`). Each test asks for the scene itself, so it runs hosted.
+    private func presenter(_ label: String, in scene: UIWindowScene) -> Presenter {
         let session = ExactApp.shared.makeSession(label: label)
         self.session = session
         let p = session.presenter
@@ -60,7 +60,8 @@ final class ShownIOSTests: XCTestCase {
     }
 
     func testAViewMadeInsideAnAnimationTakesItsPlaceWhileOneThatShowedMoves() throws {
-        let p = try presenter("shown-made")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-made", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Shown"], "style": ["font_size": 20.0]],
@@ -94,7 +95,8 @@ final class ShownIOSTests: XCTestCase {
     /// A route laid out in one turn, then again inside an animation before
     /// any frame showed it (the Landmarks port's Collections grid).
     func testAViewLaidOutAgainInsideAnAnimationBeforeAFrameShowedItTakesItsPlace() throws {
-        let p = try presenter("shown-again")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-again", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Favorites"], "style": ["font_size": 20.0]],
@@ -116,7 +118,8 @@ final class ShownIOSTests: XCTestCase {
     /// made under it is not shown after a turn of the run loop, and takes its
     /// place at once inside an animation.
     func testAViewACommitHeldBackHasNotShown() throws {
-        let p = try presenter("shown-held")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-held", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "roots", "ids": [1]],
@@ -145,7 +148,8 @@ final class ShownIOSTests: XCTestCase {
     /// a new place: what Core Animation has of it is its old place, so it has
     /// not shown again until the commit, and takes its new place at once.
     func testAViewPutBackUnderAHeldCommitHasNotShownAgain() throws {
-        let p = try presenter("shown-back")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-back", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Back"], "style": ["font_size": 20.0]],
@@ -175,7 +179,8 @@ final class ShownIOSTests: XCTestCase {
     /// commit: what Core Animation has of it is hidden, so it has not shown
     /// again until the commit, and takes its place at once.
     func testAViewShownAgainInPlaceUnderAHeldCommitHasNotShown() throws {
-        let p = try presenter("shown-unhidden")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-unhidden", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Again"], "style": ["font_size": 20.0]],
@@ -206,7 +211,8 @@ final class ShownIOSTests: XCTestCase {
     /// drawn frame (`Presenter.regridChildren`): a text no frame has shown
     /// takes its place at once there too.
     func testATextsBoxPlacedByARegridOfItsParentTakesItsPlace() throws {
-        let p = try presenter("shown-regrid")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-regrid", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view"],
@@ -242,7 +248,8 @@ final class ShownIOSTests: XCTestCase {
     /// child appear where they are laid out, as CSS starts no transition for
     /// a box that was not rendered.
     func testABoxShownAgainInsideAnAnimationTakesItsPlace() throws {
-        let p = try presenter("shown-display")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-display", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view", "style": ["background_color": [255, 0, 0, 255]]],
@@ -280,7 +287,8 @@ final class ShownIOSTests: XCTestCase {
     /// it was, and the box, made inside the animation, is drawn a pixel on.
     /// One no frame has shown takes its place at once there too.
     func testABoxPlacedByARegridOfItsParentTakesItsPlace() throws {
-        let p = try presenter("shown-regrid-frame")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-regrid-frame", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view"],
@@ -313,7 +321,8 @@ final class ShownIOSTests: XCTestCase {
     /// boxes and shows them in one turn): no frame showed it hidden, so it
     /// still moves with an animation (`Presenter.shownAgain`).
     func testAViewHiddenAndShownInOneTurnStillMoves() throws {
-        let p = try presenter("shown-capture")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-capture", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Kept"], "style": ["font_size": 20.0]],
@@ -335,7 +344,8 @@ final class ShownIOSTests: XCTestCase {
     /// there at once: the last frame showed it elsewhere. One moved among its
     /// own parent's children moves with the animation.
     func testAViewMovedToAnotherParentTakesItsPlaceWhileOneReorderedMoves() throws {
-        let p = try presenter("shown-reparent")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-reparent", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view"],
@@ -376,7 +386,8 @@ final class ShownIOSTests: XCTestCase {
     /// an animation (`FlatLeaves.promote`, a leaf moved into a scroller):
     /// the view is new and takes its place at once.
     func testALeafPromotedInsideAnAnimationTakesItsPlace() throws {
-        let p = try presenter("shown-promote")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-promote", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view", "style": ["background_color": [255, 0, 0, 255]]],
@@ -410,7 +421,8 @@ final class ShownIOSTests: XCTestCase {
     /// group's container for a box that showed and is made a group in it.
     func testTheViewsTheHostMakesInsideAnAnimationTakeTheirPlace() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("glass groups are iOS 26's") }
-        let p = try presenter("shown-host-views")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-host-views", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 20, "kind": "view", "style": ["border_radius": 20.0, "text_color": [0, 0, 0, 255]]],
@@ -450,7 +462,8 @@ final class ShownIOSTests: XCTestCase {
     /// which the batch gives no frame (`NodePool.end`): the fresh view's
     /// frame, at once, as the view is another node's.
     func testAViewLentToANewRowTakesAFreshFrameAtOnce() throws {
-        let p = try presenter("shown-pool")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-pool", in: scene)
         func collections(_ rows: [Int]) -> [String: Any] {
             ["op": "collections", "items": [["view": 1, "revision": 1, "scrollSequence": 0, "count": 50, "totalExtent": 2000,
                 "rows": rows.map { ["view": $0, "root": $0, "epoch": 1] }, "correction": NSNull()]]]
@@ -483,7 +496,8 @@ final class ShownIOSTests: XCTestCase {
     /// A context preview made inside an animation (`Presenter.positionContexts`):
     /// its panel is moved over its source at once, as a new view is placed.
     func testAContextPreviewMadeInsideAnAnimationTakesItsPlace() throws {
-        let p = try presenter("shown-context")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-context", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "style": ["position_type": "relative"]],
             ["op": "create", "id": 5, "kind": "view", "props": ["id": "source"]],
@@ -516,7 +530,8 @@ final class ShownIOSTests: XCTestCase {
     /// no frame has shown is at its start under the inset at once, and one
     /// that showed moves with the animation (`ScrollView.bounds`).
     func testAnOffsetUIKitSetsInsideAnAnimationMovesOnlyIfItsScrollerShowed() throws {
-        let p = try presenter("shown-offset")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-offset", in: scene)
         let host = UIViewController()
         let window = try XCTUnwrap(self.window)
         window.rootViewController = host
@@ -557,7 +572,8 @@ final class ShownIOSTests: XCTestCase {
     /// A node's parts its layout places (a symbol's image view) take their
     /// place with it when UIKit lays it out inside the animation.
     func testANewViewsPartsAreLaidOutWhereTheyEnd() throws {
-        let p = try presenter("shown-parts")
+        guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
+        let p = presenter("shown-parts", in: scene)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "roots", "ids": [1]],
