@@ -4,8 +4,10 @@
 // (measured at 1x: a 7 px and a 3 px stroke, 2 px in from the corner, in a
 // mid grey that `secondaryLabel` is on a light ground); under `rtl` it is
 // the bottom left corner. A drag hands the border box the pointer reached to
-// the runner (`Runner::resize_box`), which writes `width` and `height` as
-// Chrome's inline style does. Each platform's view is
+// the runner (`Runner::resize_box`) once a display frame at most, and the
+// runner writes `width` and `height` as Chrome's inline style does. On the
+// Mac the textarea's vertical scroller ends above the grip, as Chrome's
+// scrollbar ends above its scroll corner. Each platform's view is
 // `Mac/ResizeGripMac.swift` and `IOS/ResizeGripIOS.swift`; tvOS's textarea
 // is read-only and has none.
 import CoreGraphics
@@ -28,6 +30,23 @@ enum ResizeGripShape {
         return [(2, 9), (2, 5)].map { near, far in
             (CGPoint(x: x(near), y: y(far)), CGPoint(x: x(far), y: y(near)))
         }
+    }
+
+    /// The border box a drag of the grip asks for, or nil when `resize`
+    /// gives it no axis; nil keeps an axis (`Runner::resize_box`).
+    /// `pointer` is where the drag is now in the box, `start` where it went
+    /// down, `size` the border box then, and `movedX` how far it has moved
+    /// across the box's parent. The corner follows the pointer from the
+    /// box's top left, as Chrome measures it, so a box that moves as it grows
+    /// (centred in its parent) reaches the pointer over a few moves. Under
+    /// `rtl` the width grows by the pointer's move to the left: measured from
+    /// the box's own edge it would grow without end where that edge stays put.
+    static func dragged(axes: (width: Bool, height: Bool), rtl: Bool, pointer: CGPoint, start: CGPoint, size: CGSize,
+                        movedX: CGFloat) -> (width: CGFloat?, height: CGFloat?)? {
+        guard axes.width || axes.height else { return nil }
+        let width = axes.width ? max(0, rtl ? size.width - movedX : pointer.x + size.width - start.x) : nil
+        let height = axes.height ? max(0, pointer.y + size.height - start.y) : nil
+        return (width, height)
     }
 }
 
@@ -61,19 +80,13 @@ extension NodeView {
         return CGRect(x: x, y: padding.maxY - side, width: side, height: side)
     }
 
-    /// A drag of the grip: `pointer` is where it is now in this box,
-    /// `start` where it went down, `size` the border box then, and `movedX`
-    /// how far it has moved across the superview. The corner follows the
-    /// pointer from the box's top left, as Chrome measures it, so a box that
-    /// moves as it grows (centred in its parent) reaches the pointer over a
-    /// few moves. Under `rtl` the width grows by the pointer's move to the
-    /// left: measured from the box's own edge it would grow without end
-    /// where that edge stays put.
-    func resizeGripDragged(pointer: CGPoint, start: CGPoint, size: CGSize, movedX: CGFloat) {
-        let axes = resizeAxes
-        guard axes.width || axes.height else { return }
-        let width = axes.width ? max(0, resizeGripRTL ? size.width - movedX : pointer.x + size.width - start.x) : nil
-        let height = axes.height ? max(0, pointer.y + size.height - start.y) : nil
-        presenter?.onResizeBox?(id, width, height)
+    /// The border box a drag of this box's grip asks for (`ResizeGripShape.dragged`).
+    func resizeGripSize(pointer: CGPoint, start: CGPoint, size: CGSize, movedX: CGFloat) -> (width: CGFloat?, height: CGFloat?)? {
+        ResizeGripShape.dragged(axes: resizeAxes, rtl: resizeGripRTL, pointer: pointer, start: start, size: size, movedX: movedX)
+    }
+
+    /// Hands the runner the border box a drag reached, under one layout.
+    func resizeGripSend(_ size: (width: CGFloat?, height: CGFloat?)) {
+        presenter?.onResizeBox?(id, size.width, size.height)
     }
 }

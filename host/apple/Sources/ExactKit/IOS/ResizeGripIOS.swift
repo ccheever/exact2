@@ -32,16 +32,34 @@ final class ResizeGrip: UIView {
         path.stroke()
     }
 
+    /// The size the last move asked for, sent at the display's next frame:
+    /// each send is a commit and a layout, and a ProMotion screen's touches
+    /// come at 120 Hz.
+    private var pending: (width: CGFloat?, height: CGFloat?)?
+
     @objc private func pan(_ recognizer: UIPanGestureRecognizer) {
         guard let owner else { return }
         switch recognizer.state {
         case .began: start = (recognizer.location(in: owner), owner.laidOutFrame.size)
         case .changed:
             guard let start else { return }
-            owner.resizeGripDragged(pointer: recognizer.location(in: owner), start: start.local, size: start.size,
-                                    movedX: recognizer.translation(in: owner.superview).x)
-        default: start = nil
+            pending = owner.resizeGripSize(pointer: recognizer.location(in: owner), start: start.local, size: start.size,
+                                           movedX: recognizer.translation(in: owner.superview).x)
+            if pending != nil {
+                FrameClock.shared.want(self, .resizeGrip, rate: FrameClock.full(on: window?.screen)) { [weak self] _ in self?.send() }
+            }
+        default:
+            // The last move's size goes at once.
+            send()
+            start = nil
         }
+    }
+
+    private func send() {
+        FrameClock.shared.drop(self)
+        guard let owner, let size = pending else { return }
+        pending = nil
+        owner.resizeGripSend(size)
     }
 }
 

@@ -25,9 +25,12 @@ The compiler admits every keyword. On the Mac and iOS a textarea with `resize` d
 Chrome's two strokes in its padding box's bottom end corner (`ResizeGrip.swift`); a drag
 sends the border box the pointer reached (`covers` kind 16), and `Runner::resize_box`
 writes `width` and `height` in the box's `box-sizing`, as Chrome's inline style does.
-The web writes the CSS and the browser does the rest.
+A drag sends at most once a display frame. On the Mac the textarea's vertical scroller
+ends above the grip, as Chrome's scrollbar ends above its scroll corner. The web writes
+the CSS and the browser does the rest.
 
 ## Acceptance
 
-`cargo test -p exact-apple --test it box_resize`; a drag of the grip on the web and the
+`cargo test -p exact-apple --test it box_resize`; `ResizeGripTests` and
+`ResizeGripMacTests` (`host/apple/build.mjs --test`); a drag of the grip on the web and the
 Mac grows the box by the drag, within `min-height` and `max-height`.

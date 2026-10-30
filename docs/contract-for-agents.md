@@ -4133,9 +4133,9 @@ Container queries and live-position feedback are still deferred.
 
 `resize` is CSS's: `vertical` (or `block`), `horizontal` (`inline`) and `both`
 give a textarea the grip a person drags to size it, on the web and on the Mac
-and iOS (no other native host draws one, and on them only a textarea has it);
-the drag writes `width` and `height` as the browser's inline style does, inside
-`min-*` and `max-*`. Tailwind's preflight says `textarea { resize: vertical }`;
+and iOS. Only a textarea has a grip on a native host, and no native host other
+than the Mac and iOS draws one. The drag writes `width` and `height` as the
+browser's inline style does, inside `min-*` and `max-*`. Tailwind's preflight says `textarea { resize: vertical }`;
 here a textarea's default is `none`. Given an action instead,
 `resize=fit` is the element resize event, `ResizeObserver`'s: `fit` hears the
 content box's width and height after the first layout and whenever they change

@@ -136,6 +136,21 @@ final class TextAreaScroll: NSScrollView {
     override func drawFocusRingMask() {
         if !focusRingMaskBounds.isEmpty { NSBezierPath(rect: bounds).fill() }
     }
+    /// With a `resize` grip the vertical scroller ends above the grip's
+    /// corner, as Chrome's scrollbar ends above its scroll corner.
+    override func tile() {
+        super.tile()
+        guard let owner, let vertical = verticalScroller, owner.subviews.contains(where: { $0 is ResizeGrip }) else { return }
+        let corner = convert(owner.resizeGripFrame, from: owner)
+        var frame = vertical.frame
+        if isFlipped {
+            frame.size.height = max(0, min(frame.maxY, corner.minY) - frame.minY)
+        } else {
+            let bottom = max(frame.minY, corner.maxY)
+            (frame.size.height, frame.origin.y) = (max(0, frame.maxY - bottom), bottom)
+        }
+        if frame != vertical.frame { vertical.frame = frame }
+    }
 }
 enum FieldClass {
     case plain, secure, search
