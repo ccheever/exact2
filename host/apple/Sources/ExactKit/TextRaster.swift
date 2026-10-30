@@ -57,8 +57,6 @@ struct TextRasterKey: Hashable {
         spec == key.spec && size == key.size && box == key.box && scale == key.scale
     }
 
-    /// A reservation already owns its allowance. A later budget change alone
-    /// must not cancel a window that is still being painted for this demand.
     func containsWindow(_ key: TextRasterKey) -> Bool {
         guard sameContent(as: key), room == key.room, clip == key.clip else { return false }
         switch (retention, key.retention) {
@@ -71,7 +69,6 @@ struct TextRasterKey: Hashable {
 
     func serves(_ key: TextRasterKey, coverage: TextRasterCoverage, demand: CGRect) -> Bool {
         guard sameContent(as: key), coverage.covers(demand) else { return false }
-        // Vertical ink and shadow caps follow the allocation, even when x follows the viewport.
         if case .viewport = retention, case .viewport = key.retention {
             let was = room ?? box, will = key.room ?? key.box
             return was.minY == will.minY && was.maxY == will.maxY
@@ -248,9 +245,9 @@ struct TextRasterJob {
             return Admission(frame: full, coverage: TextRasterCoverage(support: support, answered: full.rect,
                                                                        ink: painted, shadows: shadowed), bytes: bytes)
         }
-        // The halo supplies off-window shadow casters. Only its interior answers the request.
         func window(_ answer: CGRect) -> Admission? {
-            guard let frame = extent(answer.insetBy(dx: -guardSize.width, dy: -guardSize.height).intersection(support)),
+            guard guardSize.width <= Self.maxShadowReach, guardSize.height <= Self.maxShadowReach,
+                  let frame = extent(answer.insetBy(dx: -guardSize.width, dy: -guardSize.height).intersection(support)),
                   let bytes = cost(frame, pixelBytes: pixelBytes, cast: cast) else { return nil }
             return Admission(frame: frame, coverage: TextRasterCoverage(support: support, answered: answer,
                                                                        ink: painted, shadows: shadowed), bytes: bytes)
@@ -259,7 +256,6 @@ struct TextRasterJob {
         let wanted = preferred.union(required).intersection(support)
         guard let minimum = window(needed) else { return nil }
         if let lead = window(wanted), lead.bytes <= maximumBytes { return lead }
-        // Preserve the existing visible-port floor. Optional lead never displaces demand.
         guard minimum.bytes < maximumBytes, !needed.isNull, !wanted.isNull else { return minimum }
         var low: CGFloat = 0, high: CGFloat = 1, best = minimum
         for _ in 0..<12 {
@@ -500,8 +496,9 @@ struct TextRasterJob {
         for s in runs.filter({ (CTRunGetAttributes($0) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool != true })
             .compactMap(TextRunShadow.of) + [shadow, layerShadow].compactMap({ $0 }) {
             let spread = s.blur * 1.5 + 1
-            guardSize.width = max(guardSize.width, min(Self.maxShadowReach, abs(s.offset.width) + spread))
-            guardSize.height = max(guardSize.height, min(Self.maxShadowReach, abs(s.offset.height) + spread))
+            let offset = ColorRange.isHDR(s.color) ? CGSize.zero : s.offset
+            guardSize.width = max(guardSize.width, abs(offset.width) + spread)
+            guardSize.height = max(guardSize.height, abs(offset.height) + spread)
             if ColorRange.isHDR(s.color), s !== shadow, s !== layerShadow, !casters.contains(s) { casters.append(s) }
         }
         guard let admitted = admission(painted: painted, shadowed: shadowed, limit: limit, ink: glyphPaint,
@@ -510,6 +507,8 @@ struct TextRasterJob {
         let frameExtent = admitted.frame, coverage = admitted.coverage, frame = admitted.frame.rect
         let width = Int(frameExtent.pixels?.width ?? ceil(frame.width * scale))
         let height = Int(frameExtent.pixels?.height ?? ceil(frame.height * scale))
+        let shiftedCasters: Bool
+        if case .viewport = retention { shiftedCasters = !coverage.whole } else { shiftedCasters = false }
         if let tint {
             guard let mask = bitmap(width: width, height: height, space: Self.srgb, headroom: 0, deep: false, alphaOnly: true, paint: {
                 paint(lines, positions, frame: frame, height: height, scale: scale, pass: .ink, into: $0)
@@ -519,21 +518,29 @@ struct TextRasterJob {
             out.tint = tint.copy(alpha: 1)
             return out
         }
-        guard let ink = bitmap(width: width, height: height, space: space, headroom: headroom, deep: deep, keepsImage: shadow != nil, paint: {
+        guard let ink = bitmap(width: width, height: height, space: space, headroom: headroom, deep: deep, keepsImage: shadow != nil && !shiftedCasters, paint: {
             paint(lines, positions, frame: frame, height: height, scale: scale, pass: .ink, into: $0)
         }) else { return nil }
         var out = TextRasterImage(ink.pixels, frame: frame, coverage: coverage, headroom: headroom)
         // What casts each HDR shadow: the ink itself for the paragraph's,
         // the glyphs of its runs for a run's own.
-        var casts: [(CGImage, TextRunShadow)] = []
-        if let shadow, let image = ink.image { casts.append((image, shadow)) }
-        for s in casters {
+        var casts: [(CGImage, TextRunShadow, CGSize)] = []
+        var passes = casters.map { ($0, TextLinePaint.Pass.caster($0)) }
+        if let shadow {
+            if shiftedCasters { passes.append((shadow, .ink)) }
+            else if let image = ink.image { casts.append((image, shadow, shadow.offset)) }
+        }
+        for (s, pass) in passes {
             let glyphs = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: Self.srgb,
                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             guard let glyphs else { return nil }
-            paint(lines, positions, frame: frame, height: height, scale: scale, pass: .caster(s), into: glyphs)
+            let shift = shiftedCasters ? CGSize(width: (s.offset.width * scale).rounded() / scale,
+                                                height: (s.offset.height * scale).rounded() / scale) : .zero
+            let casterFrame = frame.offsetBy(dx: -shift.width, dy: -shift.height)
+            guard Self.finite(casterFrame) else { return nil }
+            paint(lines, positions, frame: casterFrame, height: height, scale: scale, pass: pass, into: glyphs)
             guard let image = glyphs.makeImage() else { return nil }
-            casts.append((image, s))
+            casts.append((image, s, CGSize(width: s.offset.width - shift.width, height: s.offset.height - shift.height)))
         }
         if !casts.isEmpty {
             let castHeadroom = casts.reduce(Float(1)) { max($0, ColorRange.headroom($1.1.color)) }
@@ -541,9 +548,9 @@ struct TextRasterJob {
             // shadow moved back in: one shadow under all its glyphs, and none
             // of its ink. Pixels, y up.
             out.cast = bitmap(width: width, height: height, space: Self.extended, headroom: castHeadroom, deep: true, paint: { ctx in
-                for (image, s) in casts {
+                for (image, s, offset) in casts {
                     ctx.saveGState()
-                    ctx.setShadow(offset: CGSize(width: s.offset.width * scale + CGFloat(width), height: -s.offset.height * scale),
+                    ctx.setShadow(offset: CGSize(width: offset.width * scale + CGFloat(width), height: -offset.height * scale),
                                   blur: s.blur * scale, color: s.color)
                     ctx.draw(image, in: CGRect(x: -width, y: 0, width: width, height: height))
                     ctx.restoreGState()

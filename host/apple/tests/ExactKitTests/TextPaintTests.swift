@@ -642,7 +642,54 @@ final class TextPaintTests: XCTestCase {
         }
     }
 
+    func testPartialViewportPreservesDistantHDRShadowCasters() throws {
+        for (offset, blur) in [(-400.0, 0.0), (-900.0, 0.0), (-900.25, 2.0), (900.25, 2.0)] {
+            for scale in [CGFloat(1), 3] { for paragraphWide in [false, true] {
+                var shaded = Run(text: String(repeating: "MMMM ", count: 180), size: 20, weight: 400, family: 6,
+                                 italic: false, lineHeight: 26, letterSpacing: 0)
+                let shadow = [offset, 24, blur, 255, 0, 0, 255, 0, 2, 0, 0, 1]
+                shaded.shadow = paragraphWide ? nil : shadow
+                var spec = Spec(runs: [run("plain "), shaded], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+                spec.whiteSpace = 4
+                if paragraphWide { spec.shadow = shadow }
+                let paragraph = engine.paragraph(spec, width: 800)
+                let box = CGRect(x: 0, y: 0, width: 800, height: 80)
+                let port = CGRect(x: max(0, offset.rounded()), y: 0, width: 300, height: 80)
+                var job = TextRasterJob(source: engine.attributed(spec), ranges: paragraph.lines.map(CTLineGetStringRange),
+                                        baselines: paragraph.baselines, flush: 0, box: box, size: box.size, scale: scale,
+                                        room: box, crop: true, shadow: paragraphWide ? TextRunShadow(shadow) : nil, antialiased: true)
+                let room = try XCTUnwrap(job.render())
+                XCTAssertNotNil(room.cast)
+                try assertNativeWindow(room, paragraph: paragraph, port: port, scale: scale, linePainter: true, shadow: job.shadow)
+                job.retention = .viewport(required: port, preferred: port, maximumBytes: TextRasterJob.maximumBytes)
+                let window = try XCTUnwrap(job.render())
+                XCTAssertFalse(window.coverage.whole)
+                XCTAssertTrue(window.coverage.covers(port))
+                XCTAssertNotNil(window.cast)
+                XCTAssertLessThan(window.frame.width, 400, "the distant caster does not require a full-line bitmap")
+                try assertNativeWindow(window, paragraph: paragraph, port: port, scale: scale, linePainter: true, shadow: job.shadow)
+            } }
+        }
+    }
+
+    func testPartialViewportDeclinesAnOversizedShadowBlur() throws {
+        var shaded = run(String(repeating: "blurred code ", count: 180))
+        shaded.shadow = [0, 24, 400, 255, 0, 0, 255, 0, 2, 0, 0, 1]
+        var spec = Spec(runs: [run("plain "), shaded], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        spec.whiteSpace = 4
+        let paragraph = engine.paragraph(spec, width: 800)
+        let box = CGRect(x: 0, y: 0, width: 800, height: 80)
+        let port = CGRect(x: 0, y: 0, width: 300, height: 80)
+        var job = TextRasterJob(source: engine.attributed(spec), ranges: paragraph.lines.map(CTLineGetStringRange),
+                                baselines: paragraph.baselines, flush: 0, box: box, size: box.size, scale: 1,
+                                room: box, crop: true, antialiased: true)
+        XCTAssertNotNil(job.render(), "the default room path remains available")
+        job.retention = .viewport(required: port, preferred: port, maximumBytes: TextRasterJob.maximumBytes)
+        XCTAssertNil(job.render(), "a window cannot certify dependencies beyond its bounded halo")
+    }
+
     private func assertNativeWindow(_ raster: TextRasterImage, paragraph: Paragraph, port: CGRect, scale: CGFloat, linePainter: Bool = false,
+                                    shadow: TextRunShadow? = nil,
                                     file: StaticString = #filePath, line: UInt = #line) throws {
         let width = Int((port.width * scale).rounded()), height = Int((port.height * scale).rounded(.up))
         let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
@@ -651,6 +698,7 @@ final class TextPaintTests: XCTestCase {
         context.translateBy(x: 0, y: CGFloat(height)); context.scaleBy(x: scale, y: -scale)
         context.translateBy(x: -port.minX, y: -port.minY)
         context.setShouldSmoothFonts(false)
+        if let shadow { shadow.set(on: context, scale: scale); context.beginTransparencyLayer(auxiliaryInfo: nil) }
         for (text, baseline) in zip(paragraph.lines, paragraph.baselines) {
             if linePainter {
                 TextLinePaint.draw(text, at: CGPoint(x: 0, y: TextEngine.paintedBaseline(baseline, scale: scale)), in: context, scale: scale)
@@ -663,6 +711,7 @@ final class TextPaintTests: XCTestCase {
             CTLineDraw(text, context)
             context.restoreGState()
         }
+        if shadow != nil { context.endTransparencyLayer() }
         let expected = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
         let pixels = rasterPixels(raster)
         let cast = raster.cast.map { rasterPixels(TextRasterImage($0, frame: raster.frame, coverage: raster.coverage, headroom: raster.castHeadroom)) }
