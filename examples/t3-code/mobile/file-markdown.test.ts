@@ -145,6 +145,21 @@ test('strong table projection keeps CRLF input, fence records and partition fall
   }
 });
 
+test.each(['*', '_'])('emphasis tables retain UTF-16 suffixes and complete CRLF fence records: %s', delimiter => {
+  const raw = `😀 Intro\r\n\r\n| ${delimiter}Header${delimiter} |\r\n| --- |\r\n| before ${delimiter}ready${delimiter} **bold** \`code\` |\r\n\r\n\`\`\`sh\r\npwd\r\n\r\n\`\`\`\r\n`;
+  for (const dark of [false, true]) {
+    const blocks = mobileFileMarkdownBlocks(raw, dark);
+    expect(blocks.find(block => block.kind === 'table')).toMatchObject({ id: '0:table:10',
+      rows: [{ header: true, cells: [{ runs: [{ kind: 'emphasis', text: 'Header' }] }] },
+        { header: false, cells: [{ runs: [{ kind: 'text', text: 'before ' }, { kind: 'emphasis', text: 'ready' },
+          { kind: 'text', text: ' ' }, { kind: 'strong', text: 'bold' }, { kind: 'text', text: ' ' }, { kind: 'code', text: 'code' }] }] }] });
+    const codes = blocks.filter(block => block.kind === 'code');
+    expect(codes).toEqual(mobileMarkdownBlocks(raw, dark).filter(block => block.kind === 'code')
+      .map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
+    expect(codes[0]).toMatchObject({ id: '1', language: 'sh', text: 'pwd\n' });
+  }
+});
+
 
 test.each([
   ['Before **ready**\nafter text', 'Before **ready** after text'],
@@ -183,7 +198,7 @@ test.each([
   'Setext\n===', '# **Unsupported heading**', '# Adjacent\nparagraph',
   '    indented', 'A\n indented', 'A\tB', 'A\u2028B', 'A\u2029B',
   '[unresolved]', 'A $math', 'A @mention', 'A #fragment', 'Text\n1.',
-  '| A |\n| --- |\n| *refused* |',
+  '| A |\n| --- |\n| *a **nested** b* |',
 ])('unsupported siblings veto new folding throughout the complete prose chunk: %s', sibling => {
   const source = `Before **ready**\nafter text\n\n${sibling}\n\nLast *ready*\nafter text`;
   expect(mobileFileMarkdownBlocks(source, false))

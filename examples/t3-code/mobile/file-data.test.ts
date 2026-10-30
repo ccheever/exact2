@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
-import { obj, type Obj } from './shared/domain';
+import { arr, obj, type Obj } from './shared/domain';
+import { attachmentDocumentProjection, type AttachmentDocumentCache } from './attachment-document';
+import { decodeFilePreviewText } from './attachment-document-kind';
+import { mobileMarkdownBlocks } from './markdown-blocks';
 import type { Native } from './shared/protocol';
 import { mobileFilesRead, mobileFilesAction, mobileFileRead, mobileFileSnapshot, mobileFilesSnapshot, mobileFileMenu, mobileFilePresentation } from './file-data';
 import { buildFileTree, flattenFileTree } from './file-tree-model';
@@ -282,6 +285,32 @@ test('source presentation keeps current visit metadata when the same read is reu
   expect(next).toMatchObject({ owner: 'next', revision: 2, subtitle: 'Next · src', loading: true, error: 'Reconnecting',
     truncated: true, copyContents: '', contents: 'const count = 1;\n', rows: first.rows });
   expect(next.notice).toContain('truncated');
+});
+
+test('both emphasis preview owners retain Source, returned Copy inputs, fences and appearance refresh', () => {
+  const raw = '😀 File\r\n\r\n| *Header* | _Value_ |\r\n| --- | --- |\r\n| pre _ready_ **bold** `code` post | *&#49;&#50;* ms |\r\n\r\n```sh\r\npwd\r\n\r\n```\r\n';
+  const read = { contents: raw, error: '' };
+  const input = { owner: 'owner', revision: 1, projectName: 'Project', loading: false, error: '', read };
+  const bytes = new TextEncoder().encode(raw);
+  const entry: AttachmentDocumentCache = { name: 'format.md', kind: 'markdown', mimeType: 'text/markdown', sizeBytes: bytes.length,
+    content: decodeFilePreviewText(bytes), contentError: '', sourceJSON: '', uri: '', authorizedAt: 0, dark: null, rows: [], previewBlocks: [] };
+  for (const dark of [false, true, false]) {
+    const workspace = mobileFilePresentation(input, 'format.md', dark);
+    const attachment = attachmentDocumentProjection('file', entry, 'transcript', true, dark, true);
+    expect(workspace.previewBlocks).toEqual(attachment.previewBlocks);
+    expect(workspace.previewBlocks.find(block => block.kind === 'table')?.rows[1]?.cells[0]?.runs.map(run => run.kind))
+      .toEqual(['text', 'emphasis', 'text', 'strong', 'text', 'code', 'text']);
+    expect(workspace.copyContents).toBe(raw);
+    expect(attachment.text).toBe(raw);
+    const menu = obj(JSON.parse(mobileFileMenu(workspace, true, false, 'visit', true).configuration));
+    expect(arr(menu.actions).map(obj).find(action => action.id === 'copy-contents')?.copyValue).toBe(raw);
+    expect(workspace.previewBlocks.filter(block => block.kind === 'code'))
+      .toEqual(mobileMarkdownBlocks(raw, dark).filter(block => block.kind === 'code').map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
+    expect(mobileFilePresentation(input, 'format.md', dark).previewBlocks).toBe(workspace.previewBlocks);
+    expect(attachmentDocumentProjection('file', entry, 'transcript', true, dark, true).previewBlocks).toBe(attachment.previewBlocks);
+    expect(attachmentDocumentProjection('file', entry, 'transcript', false, dark, true)).toMatchObject({ activeMode: 'source', text: raw });
+    expect(attachmentDocumentProjection('file', entry, 'transcript', true, dark, false)).toMatchObject({ activeMode: 'source', text: raw });
+  }
 });
 
 test('source rows follow changed bytes, read failures, language, theme and selected line', () => {

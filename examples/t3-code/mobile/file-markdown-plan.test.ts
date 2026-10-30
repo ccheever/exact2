@@ -132,10 +132,11 @@ test('a mismatch anywhere disables all parser projection but retains legacy plai
 });
 
 test.each([
-  '**bold *nested***', '_emphasis_', '~~struck~~', '[link](/docs)', '![alt](/image)', '<em>html</em>',
+  '**bold *nested***', '*a _nested_ b*', '~~struck~~', '[link](/docs)', '![alt](/image)', '<em>html</em>',
   'https://example.test', '<https://example.test>', '**a __nested__ b**', '**a `code` b**',
   '**[link](/x)**', '**<br>**', '**~~deleted~~**', '**![image](/x)**', '***ready***',
-  '___ready___', '**ready** *later*', '**ready** ~~later~~',
+  '___ready___', '**ready** *a `nested` b*', '**ready** ~~later~~',
+  '*a **nested** b*', '*[link](/x)*', '*![image](/x)*', '*~~deleted~~*', '*<br>*',
 ])('unsupported cells retain all tables in the chunk and independent headings: %s', cell => {
   const original = `# Heading\n\n${table}\n\n| A |\n| --- |\n| ${cell} |`;
   const barrier = '\n\n```\nbarrier\n```\n\n';
@@ -166,4 +167,54 @@ test('nested tables remain Markdown while a top-level table is independently ext
   const parts = planFor(nested + table);
   expect(parts[0]).toEqual({ kind: 'markdown', blockIndex: 0, idSuffix: '', text: nested });
   expect(tablesFor(nested + table).map(part => part.idSuffix)).toEqual([`:table:${nested.length}`]);
+});
+
+test.each(['*', '_'])('text-only emphasis retains decoded header/body runs with %s delimiters', delimiter => {
+  const source = `😀 Intro\n\n| ${delimiter}Header${delimiter} | Value |\n| --- | --- |\n| ${delimiter}ready${delimiter} | ${delimiter}&#49;&#50;${delimiter} ms |`;
+  const [parsed] = tablesFor(source);
+  expect(parsed?.idSuffix).toBe(':table:10');
+  expect(parsed?.rows[0]?.cells[0]?.runs).toEqual([{ id: '0:0:0', kind: 'emphasis', text: 'Header' }]);
+  expect(parsed?.rows[1]?.cells[0]?.runs).toEqual([{ id: '1:0:0', kind: 'emphasis', text: 'ready' }]);
+  expect(parsed?.rows[1]?.cells[1]).toEqual({ id: '1:1', numeric: true, runs: [
+    { id: '1:1:0', kind: 'emphasis', text: '12' }, { id: '1:1:1', kind: 'text', text: ' ms' },
+  ] });
+});
+
+test('adjacent emphasis, strong, plain and code retain their outer-child identities', () => {
+  const [parsed] = tablesFor('| A | B |\n| --- | --- |\n| pre *one*_two_ **bold** `code` post | v*2* |');
+  expect(parsed?.rows[1]?.cells[0]?.runs).toEqual([
+    { id: '1:0:0', kind: 'text', text: 'pre ' },
+    { id: '1:0:1', kind: 'emphasis', text: 'one' },
+    { id: '1:0:2', kind: 'emphasis', text: 'two' },
+    { id: '1:0:3', kind: 'text', text: ' ' },
+    { id: '1:0:4', kind: 'strong', text: 'bold' },
+    { id: '1:0:5', kind: 'text', text: ' ' },
+    { id: '1:0:6', kind: 'code', text: 'code' },
+    { id: '1:0:7', kind: 'text', text: ' post' },
+  ]);
+  expect(parsed?.rows[1]?.cells[1]?.numeric).toBe(false);
+});
+
+test.each([
+  ['*a \\* b &amp; 😀 \\| c*', 'emphasis', 'a * b & 😀 | c'],
+  ['_世界 &#x1F44B;_', 'emphasis', '世界 👋'],
+  ['\\*ready\\*', 'text', '*ready*'], ['*ready', 'text', '*ready'], ['* ready *', 'text', '* ready *'],
+])('emphasis follows authoritative decoded text: %s', (cell, kind, text) => {
+  expect(tablesFor(`| A |\n| --- |\n| ${cell} |`)[0]?.rows[1]?.cells[0]?.runs)
+    .toEqual([{ id: '1:0:0', kind, text }]);
+});
+
+test('emphasis validates excess cells before truncation and retains whole-segment fallback', () => {
+  const valid = '| *A* |\n| --- |\n| *kept* | _extra_ |';
+  expect(tablesFor(valid).map(values)).toEqual([[['A'], ['kept']]]);
+  const refused = valid + '\n\n| A |\n| --- |\n| *kept* | *a **nested** b* |';
+  expect(tablesFor(refused)).toEqual([]);
+  const parts = planFor(refused + '\n\n```sh\npwd\n\n```\n\n' + valid);
+  expect(parts.filter(part => part.kind === 'table').map(part => part.blockIndex)).toEqual([2]);
+  expect(parts[0]).toEqual({ kind: 'markdown', blockIndex: 0, idSuffix: '', text: refused + '\n\n' });
+  for (const context of ['[ref]: /docs', '[label][ref]\n\n[ref]: /docs', '![alt][ref]\n\n[ref]: /docs', 'Footnote[^note].\n\n[^note]: Note']) {
+    const source = valid + '\n\n' + context;
+    expect(tablesFor(source)).toEqual([]);
+  }
+  expect(tablesFor(valid + '\n\n```js\nopen')).toEqual([]);
 });

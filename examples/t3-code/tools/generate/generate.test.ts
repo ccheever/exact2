@@ -2,6 +2,9 @@ import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
 
 // The generated sources are built, not committed: the ones on disk are what the generator makes from
 // the pinned packages and the committed inputs (`generate.mjs` writes them; this fails until it has).
@@ -43,6 +46,33 @@ test('the generator pins its packages at the integrity values the reference lock
     const entry = lock.split('\n').find(line => line.includes(`["${name}"`)) ?? '';
     expect(entry).toContain(`sha512-${integrity}`);
   }
+});
+
+test.each(['**', '*'])('table admission rejects malformed positioned children within %s', delimiter => {
+  const source = `| A |\n| --- |\n| ${delimiter}ready${delimiter} |`;
+  const parsed = unified().use(remarkParse).use(remarkGfm).parse(source);
+  const adapter = readFileSync(join(import.meta.dir, 'minimap-preview-text.mjs'), 'utf8');
+  const boundary: (node: unknown, start: number, end: number) => unknown = new Function(
+    adapter.slice(adapter.indexOf('function fileNodeRange('), adapter.indexOf('function fileSegments(')) + '\nreturn fileTableSlice;')();
+  const table = parsed.children[0];
+  if (table?.type !== 'table') throw new Error('Expected a parsed table');
+  expect(boundary(table, 0, source.length)).not.toBeNull();
+  for (const [start, end] of [[-1, 1], [source.length, source.length + 1], [20, 19], [NaN, 23], [1.5, 23]]) {
+    const changed = structuredClone(table), run = changed.children[1]?.children[0]?.children[0];
+    if (run?.type !== 'strong' && run?.type !== 'emphasis') throw new Error('Expected a formatted run');
+    const child = run.children[0];
+    if (!child?.position) throw new Error('Expected a positioned child');
+    child.position.start.offset = start; child.position.end.offset = end;
+    expect(boundary(changed, 0, source.length)).toBeNull();
+  }
+  const changed = structuredClone(table), run = changed.children[1]?.children[0]?.children[0];
+  if (run?.type !== 'strong' && run?.type !== 'emphasis') throw new Error('Expected a formatted run');
+  const child = run.children[0];
+  if (child?.type !== 'text') throw new Error('Expected a text child');
+  child.value = '';
+  expect(boundary(changed, 0, source.length)).toBeNull();
+  run.children = [];
+  expect(boundary(changed, 0, source.length)).toBeNull();
 });
 
 // The Mermaid page's pele (assets/mermaid/vendor/) draws the diagram kinds the Mermaid build it replaced drew, the

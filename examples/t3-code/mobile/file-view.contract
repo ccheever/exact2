@@ -220,6 +220,8 @@ component MobileFileMarkdown
                           for run in cell.runs key=run.id
                             if run.kind == "strong"
                               text run.text font-family="DM Sans" font-size=bodySize font-weight=700 color=colors.markdownStrong
+                            else if run.kind == "emphasis"
+                              text run.text font-style="italic"
                             else
                               text run.text font-family=(run.kind == "code" ? "monospace" : "DM Sans") font-size=(run.kind == "code" ? max(12, bodySize - 2) : bodySize) color=(run.kind == "code" ? colors.codeForeground : item.header ? colors.markdownStrong : colors.markdownBody)
           else

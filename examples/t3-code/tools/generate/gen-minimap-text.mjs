@@ -10,7 +10,7 @@ export async function generate() {
     { file: join(here, '../../src/timeline/minimap-text.js'), text },
     { file: join(here, '../../src/timeline/minimap-text.d.ts'), text: 'export function minimapPreviewText(markdown: string): string;\n' },
     { file: join(here, '../../mobile/shared/file-markdown-parser.js'), text },
-    { file: join(here, '../../mobile/shared/file-markdown-parser.d.ts'), text: `export interface FileTableRun { id: string; kind: 'text' | 'code' | 'strong'; text: string }
+    { file: join(here, '../../mobile/shared/file-markdown-parser.d.ts'), text: `export interface FileTableRun { id: string; kind: 'text' | 'code' | 'strong' | 'emphasis'; text: string }
 export interface FileTableCell { id: string; numeric: boolean; runs: FileTableRun[] }
 export interface FileTableRow { id: string; header: boolean; cells: FileTableCell[] }
 export interface FileMarkdownInput { readonly kind: 'markdown' | 'code'; readonly text: string; readonly language: string }
