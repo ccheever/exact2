@@ -218,6 +218,48 @@ fn a_held_fetch_marks_its_request_and_refuses_a_stream_or_a_non_boolean() {
 }
 
 #[test]
+fn a_head_s_reply_has_no_body() {
+    let mut m = module();
+    m.bind(
+        &contract::compile(
+            "component App\n  resource result = head() as shape string\n  view\n    text result\n",
+        )
+        .unwrap(),
+    );
+    let mut s = store();
+    assert_eq!(later(m.answer(&mut s, "head", &[]).unwrap()).method, "HEAD");
+    assert_eq!(
+        now(m
+            .parse(&mut s, "head", &[], response(200, "ignored"))
+            .unwrap()),
+        Value::str("\"\"/\"\"/false")
+    );
+}
+
+/// A reply whose status has no body (a 204's, a 205's, a 304's) reads empty
+/// as often as asked, and is never used (Fetch, "HTTP-network fetch").
+#[test]
+fn a_reply_whose_status_has_no_body_reads_empty_as_often_as_asked() {
+    for status in [204, 205, 304] {
+        let mut m = module();
+        m.bind(
+            &contract::compile(
+                "component App\n  resource result = noBody() as shape string\n  view\n    text result\n",
+            )
+            .unwrap(),
+        );
+        let mut s = store();
+        later(m.answer(&mut s, "noBody", &[]).unwrap());
+        assert_eq!(
+            now(m
+                .parse(&mut s, "noBody", &[], response(status, "ignored"))
+                .unwrap()),
+            Value::str(&format!("{status}/\"\"/\"\"/false"))
+        );
+    }
+}
+
+#[test]
 fn a_fetch_deadline_reaches_the_request_and_its_timeout_rejects_with_its_kind() {
     let mut m = module();
     m.bind(&contract::compile("component App\n  resource result = timed(250) as shape string\n  view\n    text result\n").unwrap());
@@ -289,11 +331,11 @@ fn a_body_fetch_refuses_is_refused_before_any_request() {
         ("head", "a HEAD request cannot have a body"),
         (
             "shared",
-            "a body on a SharedArrayBuffer is not a BufferSource",
+            "data on a SharedArrayBuffer is not a BufferSource",
         ),
         (
             "resizable",
-            "a body on a resizable ArrayBuffer is not a BufferSource",
+            "data on a resizable ArrayBuffer is not a BufferSource",
         ),
     ] {
         let refused = match m.answer(&mut s, "oddUpload", &[Value::str(kind)]).unwrap() {
@@ -635,7 +677,7 @@ fn parallel_fetches_keep_every_request_and_binary_response() {
             .parse(&mut s, "parallel", &[], response(200, "ok"))
             .unwrap()))
         .2,
-        "0,255/ok"
+        "0,255/ok/\"\"/TypeError/TypeError/TypeError/true/TypeError"
     );
 }
 

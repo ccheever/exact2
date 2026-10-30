@@ -19,7 +19,7 @@
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
   var binary = global.__exact_binary;
   delete global.__exact_binary;
-  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, bodyWritten = binary.bodyWritten, uploadOf = binary.uploadOf;
+  var toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, uploadOf = binary.uploadOf, bufferSourceBytes = binary.bufferSourceBytes, copyBytes = binary.copyBytes;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -211,12 +211,6 @@
     var bytes = new Uint8Array(hex.length / 2);
     for (var i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
     return bytes.buffer;
-  }
-  // A BufferSource's bytes, copied now: later writes to it change nothing.
-  function copyBytes(data, api) {
-    if (data instanceof ArrayBuffer) return data.slice(0);
-    if (ArrayBuffer.isView(data)) return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-    throw new TypeError(api + ": the data is not an ArrayBuffer or ArrayBufferView");
   }
   function algorithmName(algorithm) {
     var name = typeof algorithm === "string" ? algorithm : algorithm && algorithm.name;
@@ -520,19 +514,7 @@
     ys.forEach(function (y) { if (error) y[1](error); else y[0](); }); return ys.length;
   }
   fixed(global, "scheduler", Object.freeze({ yield: yieldTurn, postTask: function () { throw new Error("scheduler.postTask() is unavailable in data sources; split long work with await scheduler.yield()"); } }));
-  // `to`: the fetch's `exactBodyTo`; `exactBodyTo` is `{path, bytes}` once the host wrote the body there.
-  function Response(r, to) {
-    var written = to === undefined ? undefined : bodyWritten(r);
-    this.status = r.status;
-    this.ok = r.status >= 200 && r.status < 300;
-    this.headers = new global.Headers(r.headers);
-    this.exactBodyTo = written === undefined ? null : { path: to, bytes: written };
-    this._text = r.body;
-    this._b64 = r.bodyBase64;
-  }
-  Response.prototype.text = function () { return Promise.resolve(this._text); };
-  Response.prototype.json = function () { var t = this._text; return new Promise(function (res) { res(JSON.parse(t)); }); };
-  Response.prototype.arrayBuffer = function () { return Promise.resolve(fromBase64(this._b64).buffer); };
+  var responses = binary.responses(), Response = responses.Response, hostReply = responses.reply;
 
   function FetchError(f) {
     // Storage hardens Error.prototype. Define own fields instead of assigning
@@ -549,7 +531,7 @@
   // comes second refuses, and the mutation with it, before either leaves.
   var SOCKET_AND_FETCH = "a mutation cannot both send on a socket and fetch";
   // A resource's two-way socket (LLP 1016.000 D7) and a listener's connections (LLP 1133.005 D6): their handles (binary.js `sockets`).
-  var sockets = binary.sockets({ host: host, copyBytes: copyBytes, current: function () { return currentCall; }, mapping: function () { return mapping; }, inMapper: function () { return inMapper; }, conflict: SOCKET_AND_FETCH });
+  var sockets = binary.sockets({ host: host, current: function () { return currentCall; }, mapping: function () { return mapping; }, inMapper: function () { return inMapper; }, conflict: SOCKET_AND_FETCH });
   var socketOwner = sockets.socketOwner, listenOwner = sockets.listenOwner, handSocketOps = sockets.hand;
   // An aborted fetch's request, as a browser cancels one: a request its answer
   // awaits (handed out, `claimed`) is cancelled by the host, which resumes the
@@ -612,16 +594,7 @@
     // Fetch's Request refuses a body on a GET or HEAD, an empty one too.
     if (raw != null && (method === "GET" || method === "HEAD"))
       return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
-    // Web IDL's BufferSource: a view on a SharedArrayBuffer and a resizable
-    // buffer are refused; a detached buffer is a copy of no bytes.
-    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
-      var backing = ArrayBuffer.isView(raw) ? raw.buffer : raw;
-      if (typeof SharedArrayBuffer !== "undefined" && backing instanceof SharedArrayBuffer)
-        return Promise.reject(new TypeError("fetch: a body on a SharedArrayBuffer is not a BufferSource"));
-      if (backing.resizable === true)
-        return Promise.reject(new TypeError("fetch: a body on a resizable ArrayBuffer is not a BufferSource"));
-      bytes = raw.byteLength === 0 ? new Uint8Array(0) : new Uint8Array(copyBytes(raw, "fetch"));
-    }
+    try { bytes = bufferSourceBytes(raw, "fetch"); } catch (e) { return Promise.reject(e); }
     var body = bytes || raw == null ? "" : String(raw);
     // A body from an app file (LLP 1108 D6 R2): only the path goes to the
     // host, which reads the file when it runs the request, under `fs.read`,
@@ -695,7 +668,7 @@
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
-      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, timed: timed, release: function () {}, early: call.status === "pending", bodyTo: bodyTo };
+      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, timed: timed, release: function () {}, early: call.status === "pending", bodyTo: bodyTo, head: method === "HEAD" };
       pending.set(ticket, p);
       // The caller's abort also makes its socket handle stale (D7); the
       // stream itself runs until the runner lets its ticket go.
@@ -1487,6 +1460,6 @@
     // the signal itself still says so.
     if (p.signal && p.signal.aborted) p.reject(p.signal.reason);
     else if (o.failed) p.reject(new FetchError(o.failed));
-    else p.resolve(new Response(o.response, p.bodyTo));
+    else p.resolve(hostReply(o.response, p.bodyTo, p.head));
   };
 })(globalThis);
