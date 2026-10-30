@@ -134,10 +134,10 @@ describe('a chip\'s face is its pill', () => {
   };
   const atomFace = (chip: Env, upload = '') => fns.composerAtomFace(chip, upload);
   const face = (patch: Env) => ({kind: 'mention', label: 'README.md', suffix: '', icon: 'at-sign', fileToken: '', imageId: '', available: true,
-    interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ...patch});
+    interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ariaLabel: 'Preview README.md', ...patch});
   test('label and suffix, the kind\'s SF Symbol, and the tooltip', () => {
     expect(atomFace({kind: 'mention', source: '@README.md', path: 'README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc',
-      title: 'README.md', color: '', backgroundColor: '', direction: 'ltr'});
+      title: 'README.md', color: '', backgroundColor: '', direction: 'ltr', ariaLabel: 'Preview README.md'});
     expect(atomFace({source: '[x](t3-context://v1/terminal/a)', face: face({kind: 'terminal', label: 'Terminal', suffix: 'lines 1-4', icon: 'square-terminal', tip: ''})}))
       .toMatchObject({label: 'Terminal lines 1-4', icon: 'symbol:sf/apple.terminal', title: ''});
     // A citation's tooltip says how its comment opens; the preview's citation has no comment.
@@ -149,6 +149,9 @@ describe('a chip\'s face is its pill', () => {
       face: face({kind: 'image', label: 'sunset.png', suffix: '8.0 MB', icon: 'image', imageId: 'img-0', tip: ''})};
     expect([atomFace(image).label, atomFace(image, '25%').label, atomFace(image, 'upload failed').label])
       .toEqual(['sunset.png 8.0 MB', 'sunset.png 8.0 MB 25%', 'sunset.png 8.0 MB upload failed']);
+    // Its accessible name stays ImageChipButton's aria-label while the drawn label follows the upload.
+    image.face.ariaLabel = 'Image attachment, sunset.png, 8.0 MB';
+    expect(atomFace(image, '25%').ariaLabel).toBe('Image attachment, sunset.png, 8.0 MB');
   });
   test('a file mention keeps its icon before its path in a right-to-left line; the other chips follow their line', () => {
     expect(atomFace({kind: 'mention', source: '[plan.md](docs/plan.md)', path: 'docs/plan.md', face: face({label: 'plan.md'})}).direction).toBe('ltr');

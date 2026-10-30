@@ -67,3 +67,16 @@ test("an attached SVG's chip draws as an image chip and its press opens the file
   await performChipAct(client, {} as Native, composerChipTake(client, press!.seq)!);
   expect((await composerFileView(client, { available: true } as Native, 1)).file).toMatchObject({ id: 's', name: 'logo.svg', origin: 'Draft' });
 });
+
+test("each chip's accessible name is the reference chip's aria-label (contextChipParts, 7c3b3b3605ef)", () => {
+  const client = new T3Client();
+  Object.assign(client, { environmentId: 'env', threadId: 't1' });
+  setDraftFiles(client.local, [{ id: 'n', contextId: 'file_n', draftKey: client.draftKey, environmentId: 'env', name: 'notes.txt', mimeType: 'text/plain',
+    sizeBytes: 2048, source: 'attached', attachmentId: '', status: 'staged' as const }]);
+  Object.assign(client.local, { reviewComments: {
+    'review-comment_p': { kind: 'review-comment', contextId: 'review-comment_p', pullRequest: { state: 'open', isDraft: false, number: 7, title: 'Fix tabs', url: 'https://gitlab.com/g/p/-/merge_requests/7' } },
+  } });
+  const value = '[plan.md](docs/plan.md) [PR #7](t3-context://v1/review-comment/review-comment_p) [notes.txt](t3-context://v1/file/file_n) [gone](t3-context://v1/terminal/terminal_missing) ';
+  expect(composerChipFaces(client, value, composerChips(value)).map(face => face.ariaLabel)).toEqual([
+    'Preview docs/plan.md', 'Open Open merge request PR #7: Fix tabs', 'File attachment, notes.txt, 2 KB', 'Unavailable context, gone']);
+});
