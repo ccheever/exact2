@@ -389,6 +389,30 @@ for (const [name, report, code] of [
   assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,1);
 });
 
+test('lost-device publications arrive before asynchronous recovery finishes', async () => {
+  const f=await fixture(); f.create(1);
+  let finish, started, polls=0, renders=0;
+  const began=new Promise(resolve=>{started=resolve;});
+  f.gpu.gpu_assets=()=>{polls++;return '{"requests":[],"retired":[]}';};
+  f.gpu.gpu_render=()=>{renders++;return 0;};
+  f.gpu.gpu_flush=()=>{f.publish(1,{frame_ready:false});return true;};
+  f.gpu.gpu_recover=()=>{
+    const pending=new Promise(resolve=>{finish=resolve;});
+    started();
+    return pending;
+  };
+  f.exact.gpu.deviceLost();
+  try {
+    await began;
+    assert.equal(f.records.at(-1),'world\0{"frame_ready":false}');
+    assert.equal(renders,0);
+    assert.equal(polls,0);
+  } finally {
+    finish?.('{"status":"no device","instances":[]}');
+    await f.exact.gpu.settled();
+  }
+});
+
 test('settled reports a recovery that is still pending at its deadline', async () => {
   let now=0, finish;
   const f=await fixture({performance:{now:()=>now},setTimeout:(fn)=>{now=2500;queueMicrotask(fn);return 1;}});

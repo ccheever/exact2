@@ -92,7 +92,65 @@ impl Module {
 #[cfg(test)]
 mod tests {
     use super::RecoveryFailure;
-    use crate::{DeviceFailure, DeviceFailureKind};
+    use crate::{
+        wgpu, DeviceFailure, DeviceFailureKind, Frame, Module, Registry, Surface, SurfaceError,
+        Value,
+    };
+
+    struct Available(Option<bool>);
+    impl Surface for Available {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &mut wgpu::CommandEncoder,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            unreachable!("the device-loss publication needs no frame")
+        }
+        fn device_lost(&mut self) {
+            self.0 = Some(false);
+        }
+        fn published(&mut self) -> Option<String> {
+            self.0
+                .take()
+                .map(|ready| format!("{{\"frame_ready\":{ready}}}"))
+        }
+    }
+
+    fn available() -> Box<dyn Surface> {
+        Box::new(Available(Some(true)))
+    }
+
+    #[test]
+    fn lost_device_drains_publications_without_a_future_frame_or_adapter() {
+        static REGISTRY: Registry = Registry {
+            surfaces: &[("available", 0, available)],
+            shaders: &[],
+        };
+        let mut module = Module::new(&REGISTRY);
+        let first = module.create_headless("available").unwrap();
+        let second = module.create_headless("available").unwrap();
+        assert!(module.bind(first, &[], None));
+        assert!(module.bind(second, &[], None));
+        assert_eq!(
+            module.take_published(first).as_deref(),
+            Some(r#"{"frame_ready":true}"#)
+        );
+        module.lose_device();
+        for id in [first, second] {
+            assert_eq!(
+                module.take_published(id).as_deref(),
+                Some(r#"{"frame_ready":false}"#)
+            );
+            assert!(module.take_published(id).is_none());
+        }
+    }
 
     #[test]
     fn device_failures_keep_their_typed_host_json() {

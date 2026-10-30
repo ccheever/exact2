@@ -44,6 +44,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
             dirty: true,
             output_opaque: false,
             frame_ready: false,
+            publication: Default::default(),
             assets_dirty: false,
             asset_check: None,
             reported: false,
@@ -77,6 +78,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         format: wgpu::TextureFormat,
     ) -> bool {
         self.frame_ready = false;
+        self.publication.discard_encoded();
         if !self.storage_fits(device) {
             return false;
         }
@@ -152,6 +154,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             self.hook_clock.reset();
             self.hooks.device_lost();
             self.ready_work = None;
+            self.publication.invalidate();
             self.render = Some((
                 crate::renderer::RendererWithAssets::<ASSETS>::configured(
                     device,
@@ -354,6 +357,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         }
         // Timed once submitted (`submitted`): the module submits the frame.
         self.encoded = Some(renderer.timed.get());
+        self.publication.encode(
+            sim.world(),
+            self.hooks.drawable(),
+            self.frame_ready && self.hooks.drawable(),
+        );
         if self.perf.armed() {
             self.perf.culled = renderer.culled();
             self.perf.culled_triangles = renderer.culled_triangles();
@@ -424,6 +432,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             return;
         };
         renderer.submitted();
+        if let Some(sim) = &self.sim {
+            self.publication.submitted(sim.world());
+        }
         let frame = self.sim.as_mut().map_or(0, Sim::trace_frame);
         if let Some(timing) = &mut self.gpu_timing {
             timing.submitted(&renderer.queue, timed, frame);

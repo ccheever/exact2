@@ -1,6 +1,7 @@
 mod args;
 mod input;
 mod look;
+mod publication;
 mod render;
 mod textures;
 
@@ -74,6 +75,7 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     dirty: bool,
     output_opaque: bool,
     frame_ready: bool,
+    publication: publication::Publication,
     assets_dirty: bool,
     asset_check: Option<(exact_game::WorldId, u64, u64)>,
     reported: bool,
@@ -153,6 +155,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         self.presentation.before_restore(sim.world(), mode);
         sim.restore_bound(bytes).map_err(|e| e.to_string())?;
         self.presentation.after_restore(sim.world_mut(), mode);
+        self.publication.invalidate();
         self.placed
             .attachments
             .diagnostics
@@ -440,6 +443,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             self.hook_clock.reset();
             self.hooks.device_lost();
             self.ready_work = None;
+            self.publication.invalidate();
             self.render = Some((
                 crate::renderer::RendererWithAssets::<ASSETS>::configured(
                     device,
@@ -519,6 +523,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     fn restore(&mut self, bytes: &[u8], mode: Restore) -> Result<(), String> {
         if self.sim.as_ref().is_some_and(Sim::is_loading) {
             self.pending_restore = Some((bytes.to_vec(), mode));
+            self.publication.invalidate();
             return Ok(());
         }
         self.commit_restore(bytes, mode)
@@ -547,6 +552,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         self.device = true;
     }
     fn device_lost(&mut self) {
+        self.publication.invalidate();
         self.hooks.device_lost();
         self.hook_clock.reset();
         self.gpu_timing = None;
@@ -658,7 +664,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
         sim.input(e);
     }
     fn published(&mut self) -> Option<String> {
-        self.sim.as_mut().and_then(Sim::take_published)
+        let sim = self.sim.as_mut()?;
+        let ready = self.publication.ready(sim.world()) && self.error.is_none();
+        self.publication.record(sim.take_published(), ready)
     }
     fn messages(&mut self) -> Vec<String> {
         let mut messages = self.sim.as_mut().map_or_else(Vec::new, Sim::take_messages);

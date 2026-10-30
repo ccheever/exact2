@@ -952,6 +952,7 @@ impl Module {
         for inst in self.instances.values_mut() {
             self.retired.extend(inst.release());
             inst.surface.device_lost();
+            inst.drain();
             inst.answered.clear();
             inst.outstanding.clear();
             inst.dirty = true;
