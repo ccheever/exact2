@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test';
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from '../../src/sidebar/worktree-cleanup';
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete, type DeleteResult } from '../../src/sidebar/sidebar-delete-logic';
-import { resolveThreadReferenceCopyTarget } from '../../src/sidebar/thread-reference';
+import { resolveThreadReferenceCopyTarget, threadChipCopyTarget } from '../../src/sidebar/thread-reference';
 import type { Obj } from '../../src/client/domain';
 
 const thread = (overrides: Obj = {}): Obj => ({ id: 'thread-1', projectId: 'project-1', title: 'Thread', createdAt: '2026-02-13T00:00:00.000Z', updatedAt: '2026-02-13T00:00:00.000Z',
@@ -138,15 +138,15 @@ describe('resolveThreadReferenceCopyTarget', () => {
   const crossRepositoryPullRequest: Obj = { host: 'github.com', repository: 'other/repo', number: 42, url: 'https://github.com/other/repo/pull/42', source: 'manual',
     linkedAt: '2026-01-01T00:00:00.000Z', snapshot: null, stack: null };
   test('does not copy another reference while the open panel URL is unavailable', () => {
-    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', openPanelPullRequestUrl: null, pullRequests: [crossRepositoryPullRequest], linkedPullRequestUrl: 'https://github.com/t3/pr/12' })).toBeNull();
+    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', title: 'Fix login', openPanelPullRequestUrl: null, pullRequests: [crossRepositoryPullRequest], linkedPullRequestUrl: 'https://github.com/t3/pr/12' })).toBeNull();
   });
   test('prefers the open panel pull request over the thread pull request', () => {
-    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', openPanelPullRequestUrl: 'https://github.com/t3/pr/14', pullRequests: [crossRepositoryPullRequest], linkedPullRequestUrl: 'https://github.com/t3/pr/12' }))
+    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', title: 'Fix login', openPanelPullRequestUrl: 'https://github.com/t3/pr/14', pullRequests: [crossRepositoryPullRequest], linkedPullRequestUrl: 'https://github.com/t3/pr/12' }))
       .toMatchObject({ kind: 'pull-request', value: 'https://github.com/t3/pr/14', successTitle: 'PR link copied' });
   });
   for (const linkedPullRequestUrl of [null, 'https://github.com/t3/pr/12']) {
     test(`copies a native cross-repository link before the fallback URL ${linkedPullRequestUrl}`, () => {
-      expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', pullRequests: [crossRepositoryPullRequest], linkedPullRequestUrl }))
+      expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', title: 'Fix login', pullRequests: [crossRepositoryPullRequest], linkedPullRequestUrl }))
         .toMatchObject({ kind: 'pull-request', value: crossRepositoryPullRequest.url });
     });
   }
@@ -154,17 +154,18 @@ describe('resolveThreadReferenceCopyTarget', () => {
     const stack = { kind: 'native', id: 'stack-1', number: 1, url: 'https://github.com/other/repo/stacks/1', base: 'main',
       layers: [{ number: 42, headBranch: 'first', state: 'open' }, { number: 43, headBranch: 'second', state: 'open' }] };
     const top = { ...crossRepositoryPullRequest, number: 43, url: 'https://github.com/other/repo/pull/43', stack };
-    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', pullRequests: [{ ...crossRepositoryPullRequest, stack }, top] })).toMatchObject({ kind: 'pull-request', value: top.url });
+    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', title: 'Fix login', pullRequests: [{ ...crossRepositoryPullRequest, stack }, top] })).toMatchObject({ kind: 'pull-request', value: top.url });
   });
   test('uses the fallback URL when native links are dismissed', () => {
-    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', pullRequests: [{ ...crossRepositoryPullRequest, source: 'stack-dismissed' }], linkedPullRequestUrl: 'https://github.com/t3/pr/12' }))
+    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', title: 'Fix login', pullRequests: [{ ...crossRepositoryPullRequest, source: 'stack-dismissed' }], linkedPullRequestUrl: 'https://github.com/t3/pr/12' }))
       .toMatchObject({ kind: 'pull-request', value: 'https://github.com/t3/pr/12' });
   });
   test('uses the thread pull request when no panel is open', () => {
-    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', linkedPullRequestUrl: 'https://github.com/t3/pr/12' }))
+    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', title: 'Fix login', linkedPullRequestUrl: 'https://github.com/t3/pr/12' }))
       .toMatchObject({ kind: 'pull-request', value: 'https://github.com/t3/pr/12', successTitle: 'PR link copied' });
   });
-  test('falls back to the thread ID', () => {
-    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1' })).toEqual({ kind: 'thread', value: 'thread-1', clipboardTarget: 'thread ID', successTitle: 'Thread ID copied', failureTitle: 'Failed to copy thread ID' });
+  test('falls back to the thread chip, which pastes back as a thread reference', () => {
+    expect(resolveThreadReferenceCopyTarget({ threadId: 'thread-1', title: 'Fix [login]' })).toEqual({ kind: 'thread', value: '[Fix login](t3-context://v1/thread/thread_thread-1)',
+      description: 'Fix login', clipboardTarget: 'thread', successTitle: 'Thread copied', failureTitle: 'Failed to copy thread' });
   });
 });

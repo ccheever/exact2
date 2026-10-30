@@ -87,16 +87,31 @@ describe('sidebar row actions', () => {
 });
 
 describe('snooze', () => {
-  test('presets follow the shared rules: evening only with an hour left, next week unless it is tomorrow', () => {
-    const { snoozePresets } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
+  test('presets follow the shared rules: soonest first, a passed today left out, one row per wake minute', () => {
+    const { snoozePresets, pickSnoozePreset, snoozePresetSettings } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
     const sundayMorning = new Date(2026, 9, 4, 0, 9).getTime();
-    expect(snoozePresets(sundayMorning, '12-hour').map(preset => preset.id)).toEqual(['hour', 'three-hours', 'evening', 'tomorrow']);
+    // Monday 9:00 is tomorrow: the same wake minute as Tomorrow, which comes first in the settings.
+    expect(snoozePresets(sundayMorning, '12-hour').map(preset => preset.id)).toEqual(['after:60', 'after:180', 'at:today:18:00', 'at:tomorrow:09:00']);
     const wednesdayEvening = new Date(2026, 9, 7, 17, 30).getTime();
     const late = snoozePresets(wednesdayEvening, '24-hour');
-    expect(late.map(preset => preset.id)).toEqual(['hour', 'three-hours', 'tomorrow', 'next-week']);
-    expect(new Date(late[2]!.until).getHours()).toBe(9);
-    expect(new Date(late[3]!.until).getDay()).toBe(1);
-    expect(late[0]!.until).toBe(new Date(wednesdayEvening + 3_600_000).toISOString());
+    expect(late.map(preset => [preset.id, preset.label])).toEqual([['at:today:18:00', 'This evening'], ['after:60', 'In 1 hour'], ['after:180', 'In 3 hours'],
+      ['at:tomorrow:09:00', 'Tomorrow'], ['at:monday:09:00', 'Next week']]);
+    expect(new Date(late[3]!.until).getHours()).toBe(9);
+    expect(new Date(late[4]!.until).getDay()).toBe(1);
+    expect(late[1]!.until).toBe(new Date(wednesdayEvening + 3_600_000).toISOString());
+    expect(snoozePresets(new Date(2026, 9, 7, 18, 0).getTime(), '24-hour').map(preset => preset.id)).not.toContain('at:today:18:00');
+    // The environment's own options, with labels by the day gap and the largest even unit.
+    const settings = snoozePresetSettings({ settings: { snoozePresets: [{ kind: 'at', day: 'friday', time: '09:00' }, { kind: 'after', minutes: 90 },
+      { kind: 'after', minutes: 2880 }, { kind: 'at', day: 'wednesday', time: '08:00' }, { kind: 'at', day: 'today', time: '09:30' }] } });
+    // 09:30 twice: the first in the settings stays.
+    expect(snoozePresets(new Date(2026, 9, 7, 8, 0).getTime(), '24-hour', settings).map(preset => [preset.label, preset.wakeLabel])).toEqual([
+      ['In 90 minutes', '09:30'], ['In 2 days', 'Fri 08:00'], ['Friday', '09:00'], ['Next Wednesday', '08:00']]);
+    // A list the server would refuse falls back to the defaults.
+    expect(snoozePresetSettings({ settings: { snoozePresets: [{ kind: 'after', minutes: 0 }] } })).toHaveLength(5);
+    expect(snoozePresetSettings({ settings: { snoozePresets: [] } })).toEqual([]);
+    // A duration starts when picked; a passed set time is refused.
+    expect(pickSnoozePreset('after:60', wednesdayEvening + 60_000, '24-hour')?.until).toBe(new Date(wednesdayEvening + 3_660_000).toISOString());
+    expect(pickSnoozePreset('at:today:18:00', new Date(2026, 9, 7, 18, 1).getTime(), '24-hour')).toBeUndefined();
     expect(snoozePresets(0, 'locale')).toEqual([]);
   });
 

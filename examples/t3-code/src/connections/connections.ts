@@ -371,7 +371,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
             throw new ClientError(outdated instanceof Error ? outdated.message : String(outdated), 'Protocol');
           }
         });
-        // Pairing a saved machine at another address adds a route, placed by kind.
+        // Pairing a saved machine again, at an address it already has, refreshes its credential.
         const added = obj(paired?.value);
         if (str(added.environmentId) && added.primary !== true) {
           await placeRoute(native, str(added.environmentId), str(added.origin)).catch(() => {});

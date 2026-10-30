@@ -1,5 +1,5 @@
 // A delegated subagent waiting on the user shows on the threads above it,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9:
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 6d450a4284:
 // packages/client-runtime/src/state/threadShell.ts (isChildRunLive,
 // subagentRequest, pendingSubagentRequestsByThread, childThreadInputsAtom,
 // childThreadInputsTitle). Subagent rows are hidden in the sidebar, so their
@@ -28,8 +28,9 @@ export function subagentRequest(thread: Obj): PendingSubagentRequest | null {
 
 const byArray = new WeakMap<Obj[], Map<string, PendingSubagentRequest>>();
 /**
- * Threads above a subagent that waits on the user, by what it waits on. Every
- * thread up to the visible one carries it; an approval outranks a question.
+ * Threads above a subagent that waits on the user for an approval. Every
+ * thread up to the visible one carries it. The coordinator answers a child's
+ * question, so a question flags no thread above it.
  */
 export function pendingSubagentRequestsByThread(threads: Obj[]): Map<string, PendingSubagentRequest> {
   const cached = byArray.get(threads);
@@ -38,7 +39,7 @@ export function pendingSubagentRequestsByThread(threads: Obj[]): Map<string, Pen
   let byId: Map<string, Obj> | undefined;
   for (const child of threads) {
     const request = subagentRequest(child);
-    if (request === null) continue;
+    if (request !== 'approval') continue;
     byId ??= new Map(threads.map(thread => [str(thread.id), thread]));
     const seen = new Set<string>([str(child.id)]);
     let current: Obj | undefined = child;
@@ -46,7 +47,7 @@ export function pendingSubagentRequestsByThread(threads: Obj[]): Map<string, Pen
       const parentId = str(obj(current.lineage).parentThreadId);
       if (!parentId || seen.has(parentId)) break;
       seen.add(parentId);
-      if (requests.get(parentId) !== 'approval') requests.set(parentId, request);
+      requests.set(parentId, request);
       current = byId.get(parentId);
     }
   }

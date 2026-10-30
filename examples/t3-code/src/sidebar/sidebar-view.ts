@@ -13,9 +13,9 @@ import type { T3Client } from '../client/client';
 import { knownSessions } from '../terminal/terminal-drawer-view';
 import { selectRunningSubprocessTerminalIds } from '../terminal/terminal-session';
 import { terminalFocused } from '../terminal/terminal-focus';
-import { snoozePresets, type SnoozePreset } from './sidebar-presentation';
+import { snoozePresets, snoozePresetSettings, type SnoozePreset } from './sidebar-presentation';
 import { searchMatch, searchRows, threadSearchPending, type SearchPart } from './sidebar-search';
-import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, noteSnapshotTime, sidebarPrefs, sidebarSession, undoLive, undoSummary } from './sidebar-state';
+import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, noteSnapshotTime, sidebarPrefs, sidebarSession, undoLive, undoShortSummary, undoSummary } from './sidebar-state';
 import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from './snooze-calendar';
 import { sidebarProviderPill } from './sidebar-provider-pill';
 import { grayIdentity, projectGlyph, type ProjectGlyph } from './sidebar-glyph';
@@ -39,6 +39,7 @@ import { replaceContextReferences } from '../composer/composer-editor-menu'; // 
 import { renameHeld } from './sidebar-rename-wait';
 import { rowPullRequestLinks, searchPullRequest } from './search-pull-request';
 import { routeRowThreadId } from './sidebar-lineage';
+import { updateEverythingDialog } from './update-everything';
 import { isScratch, scratchRootOf } from '../composer/scratch-machine';
 import { triggerDisplayModelName } from './model-short-name';
 import { inboxReturns } from './thread-inbox';
@@ -78,6 +79,8 @@ export interface SidebarThread {
   searchPr: string; searchPrIcon: string; searchPrState: string; searchPrLabel: string; // a search result's pull request badge (its row's)
   menu: MenuRow[]; // handleThreadContextMenu's items (the bulk menu's on a selected row), for the row's context popover
 }
+/** A row of the sidebar's tree (lib/sidebarTree.ts), by its element id: a shelf header's rows name it as their parent. */
+export interface SidebarTreeRow { id: string; parent: string; expanded: string }
 export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph }
 export interface SidebarDraft { id: string; projectName: string; mark: string; ink: string; surface: string; preview: string; glyph: ProjectGlyph; menu: MenuRow[] }
 export interface SidebarView {
@@ -90,14 +93,19 @@ export interface SidebarView {
   graceOwed: number;
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean; showMore: number;
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; dragEnabled: boolean;
-  scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopes: SidebarScope[];
+  /** The chosen projects' keys, newline-joined ('' for all), and their names, comma-joined. */
+  scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopeGlyphSecond: ProjectGlyph; scopeCount: number; scopes: SidebarScope[];
   scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
-  renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number; undoHost: string;
+  renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoText: string; undoShort: string; undoLabel: string; undoUntil: number;
   dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpModifiers: string[];
   calendar: SnoozeCalendar;
   pillKey: string; pillTone: string; pillTitle: string; pillDescription: string; pillDismissible: boolean; sweepEpoch: number;
   /** A timed provider pill's end (window time; its countdown bar runs to it), 0 for one that stays. */
   pillUntil: number;
+  /** The tree's rows in list order, and the open row's id, which holds the Tab stop until a row takes the focus. */
+  tree: SidebarTreeRow[]; treeCurrent: string;
+  /** Update everything's confirmation (UpdateEverythingDialog), which SidebarOverlays draws. */
+  updateDialog: ReturnType<typeof updateEverythingDialog>;
   /** The open row, while it is listed (each mount of the view scrolls to it), and again while a route change owes it. */
   revealRow: string; revealPending: string;
 }
@@ -144,12 +152,23 @@ export function projectScopes(client: T3Client): { key: string; name: string; id
     return { key: group.key, name: group.key === NO_PROJECT_SCOPE ? 'No project' : groupLabel(group.members) || group.name, ids, time, members: group.members };
   });
   // A saved physical scratch filter may precede the config that identifies its No project group.
-  const saved = sidebarPrefs(client).scope, scratch = groups.find(group => group.key === NO_PROJECT_SCOPE);
-  if (saved && scratch?.members.some(member => saved === logicalKey(client, str(member.environmentId), member) || saved === `${str(member.environmentId)}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`)) sidebarPrefs(client).scope = NO_PROJECT_SCOPE;
+  const prefs = sidebarPrefs(client), scratch = groups.find(group => group.key === NO_PROJECT_SCOPE);
+  const scratchKey = (saved: string) => scratch?.members.some(member => saved === logicalKey(client, str(member.environmentId), member) || saved === `${str(member.environmentId)}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) === true;
+  if (scratch && prefs.scopes.some(scratchKey)) prefs.scopes = [...new Set(prefs.scopes.map(saved => scratchKey(saved) ? NO_PROJECT_SCOPE : saved))];
   // Manual follows the persisted project order (orderItemsByPreferredIds over physical keys), as the legacy sidebar arranges it.
   if (order === 'manual') return orderItemsByPreferredIds({ items: groups, preferredIds: sidebarPrefs(client).projectOrder, getId: group => group.key,
     getPreferenceIds: group => group.members.map(member => `${str(member.environmentId)}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) });
   return groups.sort((left, right) => (right.time === left.time ? 0 : right.time > left.time ? 1 : -1) || left.name.localeCompare(right.name) || left.key.localeCompare(right.key));
+}
+type ProjectScope = ReturnType<typeof projectScopes>[number];
+/** resolveSidebarProjectScopeKeys: the chosen project groups in list order; a stored key whose group is not loaded is skipped. */
+export function chosenScopes(client: T3Client, scopes: ProjectScope[] = projectScopes(client)): ProjectScope[] {
+  const keys = sidebarPrefs(client).scopes;
+  return keys.length ? scopes.filter(group => keys.includes(group.key)) : [];
+}
+/** The project ids the chosen groups hold, or null when the list shows every project. */
+export function scopedProjectIds(chosen: readonly ProjectScope[]): Set<string> | null {
+  return chosen.length ? new Set(chosen.flatMap(group => [...group.ids])) : null;
 }
 /** clientSettings.sidebarProjectSortOrder: updated_at (default), created_at or manual. */
 export function projectSortOrder(client: T3Client): 'updated_at' | 'created_at' | 'manual' {
@@ -170,14 +189,13 @@ export interface Partition { pinned: Obj[]; active: Obj[]; working: Obj[]; snooz
 export const workingInbox = (client: T3Client) => inboxReturns(client, thread => scopedRowKey(client, str(thread.id)));
 /** The five shelves for the current scope, each in its reference order. */
 export function partition(client: T3Client, now: number): Partition {
-  const caps = capabilities(client.config), prefs = sidebarPrefs(client);
-  const scope = projectScopes(client).find(group => group.key === prefs.scope);
+  const caps = capabilities(client.config), scope = scopedProjectIds(chosenScopes(client));
   const working = client.local.clientSettings?.sidebarWorkingShelfEnabled === true;
   const threads = [...client.shell.threads, ...fleetThreads()];
   const inbox = workingInbox(client).observe(working ? threads : null, now);
   const result: Partition = { pinned: [], active: [], working: [], snoozed: [], settled: [] };
   for (const thread of threads) {
-    if (!sidebarVisible(thread) || scope && !scope.ids.has(str(thread.projectId))) continue;
+    if (!sidebarVisible(thread) || scope && !scope.has(str(thread.projectId))) continue;
     result[sectionOf(thread, caps, now, working, inbox.isWorking)].push(thread);
   }
   return { pinned: sortPinned(result.pinned), active: working ? sortByReturn(result.active, inbox.returnedAt) : sortActive(result.active),
@@ -188,7 +206,8 @@ export function partition(client: T3Client, now: number): Partition {
 export function renderedRows(client: T3Client, parts: Partition): { thread: Obj; section: SidebarSection }[] {
   const prefs = sidebarPrefs(client), session = sidebarSession(client);
   const route = routeRowThreadId(client), open = (list: Obj[]) => list.filter(thread => thread.id === route);
-  if (session.settledScope !== prefs.scope) { session.settledScope = prefs.scope; session.settledVisible = SETTLED_TAIL_INITIAL_COUNT; }
+  const scopeKey = prefs.scopes.join('\n');
+  if (session.settledScope !== scopeKey) { session.settledScope = scopeKey; session.settledVisible = SETTLED_TAIL_INITIAL_COUNT; }
   let settled = parts.settled.slice(0, session.settledVisible);
   const deep = parts.settled.slice(session.settledVisible).find(thread => thread.id === route);
   if (deep) settled = [...settled, deep];
@@ -372,13 +391,13 @@ function jumpLabels(client: T3Client, count: number): string[] {
  */
 function revealRoute(client: T3Client, searching: boolean): void {
   const prefs = sidebarPrefs(client), session = sidebarSession(client), route = routeRowThreadId(client);
-  const scope = prefs.scope ? projectScopes(client).find(group => group.key === prefs.scope) : undefined;
+  const scope = prefs.scopes.length ? scopedProjectIds(chosenScopes(client)) : null;
   const { widensScope } = resolveRouteReveal({ reveal: session.reveal, routeKey: route ? scopedRowKey(client, route) : '', searching, scoped: !!scope,
     hidden: key => {
       const thread = [...client.shell.threads, ...fleetThreads()].find(candidate => scopedRowKey(client, str(candidate.id)) === key);
-      return thread && sidebarVisible(thread) ? !scope?.ids.has(str(thread.projectId)) : undefined;
+      return thread && sidebarVisible(thread) ? !scope?.has(str(thread.projectId)) : undefined;
     } });
-  if (widensScope) { prefs.scope = ''; session.selection = []; session.anchor = ''; }
+  if (widensScope) { prefs.scopes = []; session.selection = []; session.anchor = ''; }
 }
 /** The open row to scroll to: once for the route (revealPending), once for each mount of the view (revealRow). */
 function revealRows(client: T3Client, rows: { thread: Obj }[], searching: boolean): { revealRow: string; revealPending: string } {
@@ -393,7 +412,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   noteSnapshotTime(client, now);
   if (reveals) revealRoute(client, searching);
   const prefs = sidebarPrefs(client), session = sidebarSession(client), parts = partition(client, now);
-  const scopes = projectScopes(client), scope = scopes.find(group => group.key === prefs.scope);
+  const scopes = projectScopes(client), chosen = chosenScopes(client, scopes), scope = chosen[0];
   notePlaces(client, parts); // a row's moves count while its shelf is collapsed too
   const rows: { thread: Obj; section: SidebarSection; match?: Obj }[] = searching ? searchRows(client, parts, now) : renderedRows(client, parts);
   if (session.searchQuery !== client.query) { session.searchQuery = client.query; session.searchKey = ''; }
@@ -419,7 +438,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const inbox = workingInbox(client), graceUntil = inbox.nextDeadline(), graceOwed = inbox.owed();
   return {
     threads, searchFirstId: searching ? str(rows[searchIndex]?.thread.id) : '',
-    snoozePresets: snoozePresets(now, client.local.deviceSettings.timestampFormat),
+    snoozePresets: snoozePresets(now, client.local.deviceSettings.timestampFormat, snoozePresetSettings(client.config)),
     sidebar: {
       drafts: searching ? [] : draftRows(client, helpers.projectIdentity),
       searching, searchPending: searching && rows.length === 0 && threadSearchPending(client), searchIndex,
@@ -430,21 +449,24 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       ticking: threads.some(thread => thread.workingSince > 0) || (pill?.until ?? 0) > 0, graceUntil, graceOwed,
       settledExpanded: prefs.settledExpanded, snoozedExpanded: prefs.snoozedExpanded, workingExpanded: prefs.workingExpanded,
       showMore: prefs.settledExpanded && hidden > 0 ? Math.min(hidden, SETTLED_TAIL_PAGE_COUNT) : 0,
-      emptyText: searching || total > 0 || draftRows(client, helpers.projectIdentity).length > 0 ? '' : client.shell.projects.length === 0 ? 'No projects yet' : scope ? `No threads in ${scope.name} yet` : 'No threads yet',
+      emptyText: searching || total > 0 || draftRows(client, helpers.projectIdentity).length > 0 ? '' : client.shell.projects.length === 0 ? 'No projects yet'
+        : chosen.length > 1 ? 'No threads in these projects yet' : scope ? `No threads in ${scope.name} yet` : 'No threads yet',
       emptyAddProject: !searching && total === 0 && client.shell.projects.length === 0,
       hasProjects: client.shell.projects.length > 0, projectGroupCount: scopes.length,
       dragEnabled: !searching && capabilities(client.config).pinning && capabilities(client.config).pinReorder && session.renameId === '',
-      scopeKey: scope?.key ?? '', scopeLabel: scope?.name ?? '', scopeMark: scope ? identity.projectMark : '', scopeInk: scope ? identity.projectInk : '', scopeSurface: scope ? identity.projectSurface : '',
+      scopeKey: chosen.map(group => group.key).join('\n'), scopeLabel: chosen.map(group => group.name).join(', '),
+      scopeMark: scope ? identity.projectMark : '', scopeInk: scope ? identity.projectInk : '', scopeSurface: scope ? identity.projectSurface : '',
       scopeGlyph: groupGlyph(client, scope, helpers.projectIdentity),
-      scopes: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity),
+      // Several projects: the trigger overlaps the first two glyphs.
+      scopeGlyphSecond: groupGlyph(client, chosen[1], helpers.projectIdentity), scopeCount: chosen.length,
+      scopes: scopeItems(client, session.scopeQuery, prefs.scopes, scopes, helpers.projectIdentity),
       scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
-      scopeFirst: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity)[0]?.key ?? '',
+      scopeFirst: scopeItems(client, session.scopeQuery, prefs.scopes, scopes, helpers.projectIdentity)[0]?.key ?? '',
       renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
       undoText: undo && live ? `${undoSummary(undo)},` : '', // drafts (upstream 95edeb753b)
+      undoShort: undo && live ? `${undoShortSummary(undo)},` : '',
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
       undoLabel: undoLabel(client),
-      // The first bottom shelf header hosts the notice; while searching or with no rows it heads the footer.
-      undoHost: searching || total === 0 ? '' : parts.working.length > 0 ? 'working' : parts.snoozed.length > 0 ? 'snoozed' : 'settled',
       dialog: session.dialog.kind, dialogTitle: dialogTitle(session.dialog), dialogDescription: dialogDescription(session.dialog),
       dialogMode: session.dialogMode, dialogDate: session.dialogDate, dialogTime: session.dialogTime, dialogAmount: session.dialogAmount, dialogUnit: session.dialogUnit, dialogError: session.dialogError,
       // The date button's text and its calendar popover.
@@ -454,9 +476,33 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       jumpModifiers: jumping ? threadJumpModifiers(client) : [],
       pillKey: pill?.key ?? '', pillTone: pill?.tone ?? '', pillTitle: pill?.title ?? '', pillDescription: pill?.description ?? '', pillDismissible: pill?.dismissible ?? false, pillUntil: pill?.until ?? 0,
       sweepEpoch: session.sweepEpoch, // upstream 1826fb55cc
+      updateDialog: updateEverythingDialog(client),
+      tree: searching ? [] : sidebarTree(threads, parts, prefs, total, draftRows(client, helpers.projectIdentity), prefs.settledExpanded && hidden > 0),
+      treeCurrent: !searching && threads.some(thread => thread.id === routeRowThreadId(client)) ? `thread-${routeRowThreadId(client)}` : '',
       ...(reveals ? revealRows(client, rows, searching) : { revealRow: '', revealPending: '' }),
     },
   };
+}
+
+/**
+ * The tree's rows as sidebar.contract lists them: drafts, the pinned and active rows, then each bottom shelf's header
+ * with its rows and Settled's "Show more". The headers show unless the empty state does; Working and Snoozed only with
+ * threads of their own.
+ */
+function sidebarTree(threads: SidebarThread[], parts: Partition, prefs: { settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean },
+  total: number, drafts: SidebarDraft[], more: boolean): SidebarTreeRow[] {
+  const rows: SidebarTreeRow[] = drafts.map(draft => ({ id: `draft-${draft.id}`, parent: '', expanded: '' }));
+  const section = (name: string, parent: string) => threads.filter(thread => thread.section === name).forEach(thread => rows.push({ id: `thread-${thread.id}`, parent, expanded: '' }));
+  section('pinned', ''); section('active', '');
+  if (total === 0 && drafts.length === 0) return rows; // the empty state stands in for the shelves
+  const shelf = (name: 'working' | 'snoozed' | 'settled', count: number, expanded: boolean) => {
+    if (name !== 'settled' && count === 0) return;
+    rows.push({ id: `shelf-${name}`, parent: '', expanded: expanded ? 'true' : 'false' });
+    section(name, `shelf-${name}`);
+  };
+  shelf('working', parts.working.length, prefs.workingExpanded); shelf('snoozed', parts.snoozed.length, prefs.snoozedExpanded); shelf('settled', parts.settled.length, prefs.settledExpanded);
+  if (more) rows.push({ id: 'settled-more', parent: 'shelf-settled', expanded: '' });
+  return rows;
 }
 
 function dialogTitle(dialog: { kind: string; threadIds: string[]; title: string }): string {
@@ -490,22 +536,22 @@ function groupGlyph(client: T3Client, group: { key?: string; name: string; membe
 /** The representative member's title, which names the group's monogram; the group's name for No project or a member without one. */
 const groupTitle = (group: { key?: string; name: string; members: Obj[] }): string => group.key === NO_PROJECT_SCOPE ? group.name : str(group.members[0]?.title) || group.name;
 
-/** filterSidebarProjectScopeItems: a query hides "All projects" and keeps matching groups. */
-function scopeItems(client: T3Client, query: string, selected: string, scopes: { key: string; name: string; members: Obj[] }[], identity: Identity): SidebarScope[] {
+/** filterSidebarProjectScopeItems: a query hides "All projects" and keeps matching groups. "All projects" is selected with no project. */
+function scopeItems(client: T3Client, query: string, selected: readonly string[], scopes: { key: string; name: string; members: Obj[] }[], identity: Identity): SidebarScope[] {
   const needle = query.trim().toLowerCase();
-  const items: SidebarScope[] = [{ key: '', label: 'All projects', mark: '', ink: '', surface: '', selected: selected === '', all: true, glyph: groupGlyph(client, undefined, identity) },
-    ...scopes.map(group => { const mark = identity(groupTitle(group)); return { key: group.key, label: group.name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, selected: group.key === selected, all: false, glyph: groupGlyph(client, group, identity) }; })];
+  const items: SidebarScope[] = [{ key: '', label: 'All projects', mark: '', ink: '', surface: '', selected: selected.length === 0, all: true, glyph: groupGlyph(client, undefined, identity) },
+    ...scopes.map(group => { const mark = identity(groupTitle(group)); return { key: group.key, label: group.name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, selected: selected.includes(group.key), all: false, glyph: groupGlyph(client, group, identity) }; })];
   return needle ? items.filter(item => !item.all && item.label.toLowerCase().includes(needle)) : items;
 }
 
 /** SidebarDraftBlock: new-thread drafts with text or attachments, other than the one on screen, newest project first. */
 export function draftRows(client: T3Client, identity: Identity): SidebarDraft[] {
-  const prefix = `${client.environmentId}:new:`, scope = projectScopes(client).find(group => group.key === sidebarPrefs(client).scope);
+  const prefix = `${client.environmentId}:new:`, scope = scopedProjectIds(chosenScopes(client));
   const rows: SidebarDraft[] = [];
   for (const project of client.shell.projects) {
     const id = str(project.id), key = `${prefix}${id}`;
     if (!client.threadId && client.projectId === id) continue;
-    if (scope && !scope.ids.has(id)) continue;
+    if (scope && !scope.has(id)) continue;
     const text = (client.local.drafts[key] ?? '').trim(), attachments = (client.local.snapshotDrafts?.[key] ?? []).length;
     if (!text && !attachments) continue;
     const name = str(project.title), mark = identity(name);

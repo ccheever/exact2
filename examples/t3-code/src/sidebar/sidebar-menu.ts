@@ -5,12 +5,13 @@
 // right-click shows them as the sidebar's context popover (`menuRows`,
 // sidebar-row.contract RowMenu), which macOS presents as an NSMenu with its
 // submenus (exact2 #223).
-import { arr, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { canSnooze, capabilities, effectiveSnoozed, sectionOf, type Caps } from './sidebar-model';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
-import { snoozePresets } from './sidebar-presentation';
+import { snoozePresets, snoozePresetSettings } from './sidebar-presentation';
 import { fleet, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { isScratch, scratchRootOf } from '../composer/scratch-machine';
 
 export interface MenuItem {
   id: string; label: string;
@@ -24,6 +25,8 @@ export interface ThreadMenuState {
   projectFilter: { label: string; isActive: boolean } | null;
   isPinned: boolean; isSettled: boolean; autoSettleEnabled: boolean; isSnoozed: boolean; canSnoozeNow: boolean;
   isRegeneratingTitle: boolean; isRunning: boolean; caps: Caps; presets: MenuPreset[];
+  /** A No project thread with its own folder, on a server that can promote it. */
+  canTurnIntoProject?: boolean;
 }
 
 /**
@@ -37,6 +40,16 @@ export function rowConfig(client: T3Client, thread: Obj, source: EnvironmentFlee
   return [...source.entries.values()].find(entry => entry.environmentId === ref.environmentId)?.config ?? {};
 }
 
+/** canTurnThreadIntoProject (useThreadActions.ts): a No project thread that already has its own folder, on a server that can promote it. */
+export function canTurnIntoProject(client: T3Client, thread: Obj, source: EnvironmentFleet = fleet): boolean {
+  const config = rowConfig(client, thread, source);
+  if (!str(thread.worktreePath) || obj(obj(config.environment).capabilities).threadProjectFromScratch !== true) return false;
+  const ref = parseFleetThreadId(str(thread.id)), background = ref && ref.environmentId !== client.environmentId;
+  const projects = background ? [...source.entries.values()].find(entry => entry.environmentId === ref.environmentId)?.shell.projects ?? [] : client.shell.projects;
+  const projectId = background ? str(thread.projectId).replace(`fleet:${ref.environmentId}:`, '') : str(thread.projectId);
+  return isScratch(projects.find(project => str(project.id) === projectId), scratchRootOf(true, config));
+}
+
 type Scope = { key: string; name: string; ids: Set<string> };
 /** handleThreadContextMenu's state for one thread; `scopes` are the sidebar's project groups (projectScopes). */
 export function threadMenuState(client: T3Client, thread: Obj, header: boolean, scopes: Scope[], now: number): ThreadMenuState & { scope: Scope | undefined } {
@@ -44,11 +57,12 @@ export function threadMenuState(client: T3Client, thread: Obj, header: boolean, 
   const scope = scopes.find(group => group.ids.has(str(thread.projectId)));
   const section = sectionOf(thread, caps, now, client.local.clientSettings?.sidebarWorkingShelfEnabled === true);
   return {
-    branch: str(thread.branch), projectFilter: header || !scope ? null : { label: scope.name, isActive: prefs.scope === scope.key },
+    branch: str(thread.branch), projectFilter: header || !scope ? null : { label: scope.name, isActive: prefs.scopes.includes(scope.key) },
     isPinned: thread.pinnedAt != null, isSettled: caps.settlement && thread.settledOverride === 'settled' && section === 'settled',
     autoSettleEnabled: thread.autoSettleDisabledAt == null, isSnoozed: caps.snooze && effectiveSnoozed(thread, now),
     canSnoozeNow: canSnooze(thread, now), isRegeneratingTitle: thread.titleRegeneration != null || sidebarSession(client).regenerating.has(str(thread.id)),
-    isRunning: !canArchive(thread), caps, presets: snoozePresets(now, client.local.deviceSettings.timestampFormat), scope,
+    isRunning: !canArchive(thread), caps, presets: snoozePresets(now, client.local.deviceSettings.timestampFormat, snoozePresetSettings(rowConfig(client, thread))), scope,
+    canTurnIntoProject: canTurnIntoProject(client, thread),
   };
 }
 
@@ -61,7 +75,7 @@ export function threadMenuItems(state: ThreadMenuState): MenuItem[] {
     items.push(state.isSnoozed ? { id: 'unsnooze', label: 'Wake thread' } : {
       id: 'snooze', label: 'Snooze', disabled: !state.canSnoozeNow,
       children: [...state.presets.map(preset => ({ id: `snooze:${preset.id}`, label: `${preset.label} (${preset.wakeLabel})` })),
-        { id: 'snooze:custom', label: 'Custom…', separatorBefore: true }],
+        { id: 'snooze:custom', label: 'Custom…', separatorBefore: state.presets.length > 0 }],
     });
   }
   items.push({ id: 'rename', label: 'Rename thread', separatorBefore: true });
@@ -72,6 +86,7 @@ export function threadMenuItems(state: ThreadMenuState): MenuItem[] {
   if (state.projectFilter) {
     items.push({ id: 'filter-by-project', label: state.projectFilter.isActive ? 'Show all projects' : `Filter by ${state.projectFilter.label}` });
   }
+  if (state.canTurnIntoProject) items.push({ id: 'turn-into-project', label: 'Turn into project', disabled: state.isRunning });
   if (state.caps.autoSettleOptOut) {
     items.push({ id: 'auto-settle', label: 'Auto-settle behavior', children: [
       { id: 'auto-settle:enabled', label: 'Enabled', checked: state.autoSettleEnabled },
@@ -81,6 +96,7 @@ export function threadMenuItems(state: ThreadMenuState): MenuItem[] {
   items.push({ id: 'copy', label: 'Copy', separatorBefore: true, children: [
     { id: 'copy-path', label: 'Path' },
     ...(state.branch ? [{ id: 'copy-branch', label: 'Branch' }] : []),
+    { id: 'copy-thread', label: 'Thread' },
     { id: 'copy-thread-id', label: 'Thread ID' },
   ] });
   items.push({ id: 'project-settings', label: 'Project settings' });
@@ -99,7 +115,7 @@ export function bulkMenuItems(state: BulkMenuState): MenuItem[] {
   if (state.canSnooze) {
     items.push({ id: 'snooze', label: `Snooze (${state.count})`, children: [
       ...state.presets.map(preset => ({ id: `snooze:${preset.id}`, label: `${preset.label} (${preset.wakeLabel})` })),
-      { id: 'snooze:custom', label: 'Custom…', separatorBefore: true },
+      { id: 'snooze:custom', label: 'Custom…', separatorBefore: state.presets.length > 0 },
     ] });
   }
   if (state.regenerationSupported > 0) {
@@ -115,7 +131,8 @@ export function bulkMenuItems(state: BulkMenuState): MenuItem[] {
 /** handleMultiSelectContextMenu over the selected rows painted now (`threads`), each by its own environment's capabilities. */
 export function bulkMenuState(client: T3Client, threads: Obj[], now: number) {
   const session = sidebarSession(client), caps = (thread: Obj) => capabilities(rowConfig(client, thread));
-  const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat);
+  // Presets sync across environments, so the first selected thread's stand for all.
+  const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat, snoozePresetSettings(threads[0] ? rowConfig(client, threads[0]) : client.config));
   const pinned = threads.filter(thread => caps(thread).pinning && thread.pinnedAt != null);
   const supported = threads.filter(thread => caps(thread).titleRegeneration);
   const regeneratable = supported.filter(thread => thread.titleRegeneration == null && !session.regenerating.has(str(thread.id)));

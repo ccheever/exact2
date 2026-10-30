@@ -383,51 +383,76 @@ describe("update everything summary", () => {
   });
 });
 
+describe("collectServerUpdateTargets npm wait", () => {
+  it("waits for npm only for hosts that install from it or when the release may lack archives", () => {
+    const hosts = [
+      machine("archive-service", "0.1.4", "boot-service"),
+      machine("npm-service", "0.0.40", "boot-service"),
+      machine("legacy-respawn", "0.1.4", "respawn"),
+      machine("desktop", "0.1.4", "desktop-managed"),
+    ];
+    const waits = (releaseArchivesPublished: boolean) =>
+      collectServerUpdateTargets(hosts, "0.1.5", releaseArchivesPublished).waitForNpm.map(
+        (target) => target.serverLabel,
+      );
+
+    expect(waits(true)).toEqual(["npm-service", "legacy-respawn"]);
+    // This app has no desktop update feed, so its archives never count as published.
+    expect(waits(false)).toEqual(["archive-service", "npm-service", "legacy-respawn"]);
+  });
+});
+
 describe("describeUpdateEverything", () => {
-  it("summarizes the run and lists each machine once", () => {
+  it("lists one row per machine: this app's machines first, then servers, provider-only, and skipped", () => {
     const alvin = EnvironmentId.make("alvin");
     expect(
       describeUpdateEverything({
         localVersion: "0.0.50",
+        localMachines: [{ environmentId: EnvironmentId.make("local"), label: "This Mac" }],
         servers: [
-          {
-            environmentId: alvin,
-            serverLabel: "alvin",
-            selfUpdate: "boot-service",
-            targetVersion: "0.0.50",
-          },
-          {
-            environmentId: EnvironmentId.make("studio"),
-            serverLabel: "studio",
-            selfUpdate: "desktop-managed",
-            targetVersion: "0.0.50",
-          },
+          { environmentId: alvin, serverLabel: "alvin", selfUpdate: "boot-service", targetVersion: "0.0.50" },
+          { environmentId: EnvironmentId.make("studio"), serverLabel: "studio", selfUpdate: "desktop-managed", targetVersion: "0.0.50" },
         ],
         providerMachines: [
           { environmentId: alvin, label: "alvin", providers: ["Codex", "Claude"] },
           { environmentId: EnvironmentId.make("box"), label: "box", providers: ["Cursor"] },
         ],
+        skipped: [{ environmentId: EnvironmentId.make("old"), label: "old", reason: "needs a manual update" }],
       }),
     ).toEqual({
       summary: "Update this app, 2 servers, and 3 providers",
-      lines: [
-        "This app: 0.0.50, restarts last",
-        "alvin: server to 0.0.50, Codex, Claude",
-        "studio: desktop app update",
-        "box: Cursor",
+      version: "0.0.50",
+      providerCount: 3,
+      rows: [
+        { environmentId: "local", label: "This Mac", app: "this-app", skipped: null, providers: [] },
+        { environmentId: "alvin", label: "alvin", app: "server", skipped: null, providers: ["Codex", "Claude"] },
+        { environmentId: "studio", label: "studio", app: "desktop-app", skipped: null, providers: [] },
+        { environmentId: "box", label: "box", app: null, skipped: null, providers: ["Cursor"] },
+        { environmentId: "old", label: "old", app: null, skipped: "needs a manual update", providers: [] },
       ],
     });
   });
 
-  it("reads naturally with one kind of update", () => {
+  it("reads naturally with one kind of update; the version is the first npm server's without this app", () => {
+    const view = describeUpdateEverything({
+      localVersion: null,
+      localMachines: [],
+      servers: [{ environmentId: EnvironmentId.make("alvin"), serverLabel: "alvin", selfUpdate: "boot-service", targetVersion: "0.1.5" }],
+      providerMachines: [],
+      skipped: [],
+    });
+    expect([view.summary, view.version, view.rows.map((row) => row.app)]).toEqual(["Update 1 server", "0.1.5", ["server"]]);
     expect(
       describeUpdateEverything({
         localVersion: null,
+        localMachines: [],
         servers: [],
         providerMachines: [
           { environmentId: EnvironmentId.make("alvin"), label: "alvin", providers: ["Codex"] },
         ],
+        skipped: [],
       }).summary,
     ).toBe("Update 1 provider");
   });
 });
+

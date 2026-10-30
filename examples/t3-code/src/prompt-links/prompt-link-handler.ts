@@ -1,5 +1,5 @@
-// T3 Code 74541bab17 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx, and
-// components/desktop/DesktopWebLinkCoordinator.tsx for a web link or an HTML file the system hands the app.
+// T3 Code 6d450a4284 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx, and
+// components/desktop/DesktopWebLinkCoordinator.tsx for a web link, an HTML file or a `t3code://pair` link the system hands the app.
 // The connection fleet supplies the reference's environment registry; draft and checkout operations are shared with the app.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -27,18 +27,55 @@ import { surfaceStore } from '../panel/panel-surfaces';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import { prLinksOpenInApp } from '../panel/pr-surface';
 import { pullRequestPageSelection } from '../sidebar/legacy-sidebar-links';
+import { readPairingAppLink, resolveRemotePairingTarget } from '../connections/remote';
+import { runConnectionOp } from '../connections/connections';
 
 type Project = Obj & { environmentId: string };
 type Pending = { link: NewThreadLink; repository: PromptLinkRepository; project?: Project };
 type State = { status: 'missing-repository' | 'pull-request-checkout' | 'failed' | 'opening'; title: string; description: string; pending: Pending | null; busy?: boolean };
 const states = new WeakMap<T3Client, State>();
+/** A `t3code://pair` link waiting on its confirmation, and the links already paired (a second click would spend nothing). */
+const pairings = new WeakMap<T3Client, { pairingUrl: string; title: string; busy: boolean }>();
+const paired = new WeakMap<T3Client, Set<string>>();
 export const promptLinksReady = (client: T3Client): boolean => client.ready && backgroundShellsBootstrapped(client);
 export const dismissPromptLink = (client: T3Client): void => { states.delete(client); };
 export function promptLinkView(client: T3Client) {
-  const state = states.get(client);
+  const state = states.get(client), pairing = pairings.get(client);
   return { show: !!state, title: state?.title ?? '', description: state?.description ?? '', busy: state?.busy === true || state?.status === 'opening',
     clone: state?.status === 'missing-repository', cloneLabel: state?.pending ? `Clone ${state.pending.repository.owner}/${state.pending.repository.name}` : '',
-    withoutProject: state?.status === 'missing-repository', checkout: state?.status === 'pull-request-checkout' };
+    withoutProject: state?.status === 'missing-repository', checkout: state?.status === 'pull-request-checkout',
+    pairing: pairing?.title ?? '', pairingBusy: pairing?.busy === true };
+}
+
+const reportPairingFailure = (client: T3Client, error: unknown) =>
+  pushToast(client, { kind: 'error', title: 'Could not add backend', description: error instanceof Error ? error.message : 'Failed to add backend.', stacked: true });
+/** pairFromLink: any page can open a pairing link, so the user confirms the host before its one-time token is spent. */
+function askPairing(client: T3Client, pairingUrl: string): void {
+  if (paired.get(client)?.has(pairingUrl)) return;
+  let origin: string;
+  // The origin keeps the scheme visible, so a plain HTTP backend is not mistaken for HTTPS.
+  try { origin = new URL(resolveRemotePairingTarget({ pairingUrl }).origin).origin; }
+  catch (error) { reportPairingFailure(client, error); return; }
+  pairings.set(client, { pairingUrl, title: `Add the backend at ${origin}?`, busy: false });
+}
+async function answerPairing(client: T3Client, native: Native, confirmed: boolean): Promise<string> {
+  const pairing = pairings.get(client);
+  if (!pairing || pairing.busy) return '';
+  if (!confirmed) { pairings.delete(client); return ''; }
+  pairing.busy = true;
+  try {
+    // The welcome wizard's pairing: no toast of its own, so this one names the link's outcome.
+    await runConnectionOp(native, 'welcome-pair', '', pairing.pairingUrl, client.connection === 'connected', client);
+  } catch (error) {
+    if (letGo(error)) { pairing.busy = false; throw error; }
+    pairings.delete(client);
+    reportPairingFailure(client, error);
+    return '';
+  }
+  pairings.delete(client);
+  paired.set(client, (paired.get(client) ?? new Set()).add(pairing.pairingUrl));
+  pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
+  return '';
 }
 
 function environments(client: T3Client): PrEnvironment[] { return prEnvironments(client).filter(environment => environment.connected); }
@@ -79,11 +116,13 @@ function placeDraft(client: T3Client, link: NewThreadLink, key: string, extraPro
   const text = [link.prompt?.text, extraPrompt].filter(Boolean).join('\n\n');
   if (text) placeLinkedPrompt(client, key, { text, hiddenCharacters: link.prompt?.hiddenCharacters ?? 0 }, notes);
 }
+/** scratchEnvironmentId: this machine's environment wins; the last active one only when it offers no folder for a thread
+ *  without a project; else the one environment that does. */
 async function openScratch(client: T3Client, native: Native, storage: Files, link: NewThreadLink): Promise<void> {
-  const latest = lastActiveEnvironment(client), list = environments(client);
-  const available = (environment: PrEnvironment | null) => environment && str(environment.config.scratchWorkspaceRoot) ? environment : null;
+  const list = environments(client), primary = primaryEnvironmentId();
+  const available = (environment: PrEnvironment | null | undefined) => environment && str(environment.config.scratchWorkspaceRoot) ? environment : null;
   const offering = list.filter(candidate => !!available(candidate));
-  const environment = available(latest) ?? (offering.length === 1 ? offering[0] : null);
+  const environment = available(list.find(candidate => candidate.id === primary)) ?? available(lastActiveEnvironment(client)) ?? (offering.length === 1 ? offering[0] : null);
   if (!environment) throw new ClientError('None of your machines can start a thread without a project right now.');
   let id: string;
   if (environment.id === client.environmentId) id = await openScratchProject(client, native);
@@ -166,6 +205,8 @@ async function openWebLink(client: T3Client, native: Native, storage: Files, url
 }
 
 export async function openPromptLink(client: T3Client, native: Native, storage: Files, value: string): Promise<string> {
+  const pairingUrl = readPairingAppLink(value);
+  if (pairingUrl !== null) { askPairing(client, pairingUrl); return ''; }
   if (!promptLinkAppPath(value) && isWebUrl(value) && prLinksOpenInApp(client)) {
     // A pull request link a connected project reads opens the pull request view (openLink tries useOpenChangeRequestLink
     // with a plain click first). promptLinksReady already waits for the environments' projects.
@@ -225,6 +266,7 @@ export async function openPromptLink(client: T3Client, native: Native, storage: 
 }
 
 export async function promptLinkAction(client: T3Client, native: Native, storage: Files, action: string): Promise<string> {
+  if (action === 'pair-confirm' || action === 'pair-cancel') return await answerPairing(client, native, action === 'pair-confirm');
   const state = states.get(client), pending = state?.pending;
   if (!state || !pending || state.status === 'opening' || state.busy) return '';
   states.set(client, action === 'checkout' ? { ...state, busy: true } : { ...state, status: 'opening', title: 'Opening the link...' });

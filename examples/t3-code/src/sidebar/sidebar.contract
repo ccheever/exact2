@@ -25,7 +25,7 @@ use DraftMenu from "./sidebar-row.contract"
 use ShellView from "../shell/shell-shapes.contract"
 use SidebarTip from "./sidebar-row.contract"
 use ProviderPill from "./sidebar-control-tips.contract"
-use UndoNotice from "./undo-notice.contract"
+use FooterUndoNotice from "./undo-notice.contract"
 
 component Sidebar
   props
@@ -73,6 +73,39 @@ component Sidebar
     scrolled: action
     // The list's scroll offset, which a row-action sweep clamps the pointer to.
     scrollY: number
+  // The thread list is a tree (lib/sidebarTree.ts): one Tab stop, the focused row's, which ArrowUp and ArrowDown, Home
+  // and End move; ArrowRight opens a closed shelf or enters an open one, ArrowLeft closes an open shelf or goes to a
+  // row's shelf. The rows' own handlers keep Enter, Space and the context menu. Before a row takes the focus the open
+  // one holds the stop; a focused row that leaves the list hands it to the row now at its place.
+  state treeFocus = ""
+  state treeIndex = 0
+  derive treeIds = data.sidebar.tree.map((r) => r.id)
+  derive treeAt = min(treeIndex, max(0, treeIds.length - 1))
+  derive treeStop = treeIds.includes(treeFocus) ? treeFocus : (treeFocus == "" and data.sidebar.treeCurrent != "" ? data.sidebar.treeCurrent : treeIds.slice(treeAt, treeAt + 1).join(""))
+  action treeFocused(id: string)
+    treeFocus = id
+    treeIndex = max(0, treeIds.indexOf(id))
+  action treeKey(id: string, k: string, e: KeyboardEvent)
+    let index = treeIds.indexOf(id)
+    if index >= 0 and not e.isComposing and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and ["ArrowDown", "ArrowUp", "Home", "End", "ArrowRight", "ArrowLeft"].includes(k)
+      preventDefault()
+      stopPropagation()
+      let expanded = data.sidebar.tree.filter((r) => r.id == id).map((r) => r.expanded).join("")
+      let parent = data.sidebar.tree.filter((r) => r.id == id).map((r) => r.parent).join("")
+      let child = data.sidebar.tree.filter((r) => r.parent == id).map((r) => r.id).slice(0, 1).join("")
+      let target = k == "ArrowDown" ? treeIds.slice(min(index + 1, treeIds.length - 1), min(index + 1, treeIds.length - 1) + 1).join("") : (k == "ArrowUp" ? treeIds.slice(max(index - 1, 0), max(index - 1, 0) + 1).join("") : (k == "Home" ? treeIds.slice(0, 1).join("") : (k == "End" ? treeIds.slice(-1).join("") : (k == "ArrowRight" ? (expanded == "false" ? "" : child) : (expanded == "true" ? "" : parent)))))
+      if (k == "ArrowRight" and expanded == "false") or (k == "ArrowLeft" and expanded == "true")
+        local("shelf", id.slice(6), "")
+      if target != ""
+        // Revealing before focusing; the focus itself does not scroll (a settled row moves to the bottom shelf).
+        scrollIntoView(target, block="nearest", behavior="instant")
+        treeFocus = target
+        treeIndex = max(0, treeIds.indexOf(target))
+        focus(target)
+  provide
+    sidebarTreeStop = treeStop
+    treeFocused
+    treeKey
   // The row a right-click named, for its context popover (ThreadMenu, DraftMenu): the row's `contextmenu` runs first.
   // `target` is what the press landed on: the row, or a focusable control in it (Unpin, Snooze, Discard draft), which
   // answers the press itself and opens the same popover, as Chromium focuses the control and its event reaches the row.
@@ -144,6 +177,12 @@ component Sidebar
               button cursor="pointer" press=local("scope-open", "", "") width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(data.sidebar.scopeOpen ? "light-dark(#f4f4f5, #ffffff0a)" : hoverId == "sidebar-filter" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) aria-expanded=data.sidebar.scopeOpen testId="filter-project" title=""
                 if data.sidebar.scopeKey == ""
                   SidebarIcon(name="list-filter", size=16, color=(data.sidebar.scopeOpen or hoverId == "sidebar-filter" ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#86868e, #8b8b8b)"))
+                else if data.sidebar.scopeCount > 1
+                  // Several projects: the first two glyphs overlap (-space-x-1.5).
+                  row flex-shrink=0
+                    SidebarProjectGlyph(g=data.sidebar.scopeGlyph, size=14, dim=false)
+                    box margin-left="-0.375rem"
+                      SidebarProjectGlyph(g=data.sidebar.scopeGlyphSecond, size=14, dim=false)
                 else
                   SidebarProjectGlyph(g=data.sidebar.scopeGlyph, size=16, dim=false)
             SidebarTip(tip="sidebar-add-project", hoverCard=hoverCard)
@@ -155,7 +194,7 @@ component Sidebar
               Icon(name="compose", size=16, color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#86868e, #8b8b8b)"))
       scroll id="thread-list" flex=1 min-height=0 padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" scroll=scrolled testId="thread-list"
         if not data.sidebar.searching
-          column min-height="100%" width="100%" gap=1
+          column min-height="100%" width="100%" gap=1 role="tree" aria-label="Threads"
             for d in data.sidebar.drafts key=d.id
               DraftCard(d=d, run=run, menu=draftMenu, hoverCard=hoverCard, hoverId=hoverId)
             if data.sidebar.drafts.length > 0
@@ -184,7 +223,7 @@ component Sidebar
                 ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="snoozed", label="Snoozed", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="settled", label="Settled", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               if data.sidebar.showMore > 0
-                button cursor="pointer" press=local("more", "", "") width="100%" height="2.25rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-show-more"
+                button cursor="pointer" id="settled-more" press=local("more", "", "") role="treeitem" aria-level=2 tabindex=(treeStop == "settled-more" ? 0 : -1) focus=treeFocused("settled-more") key=treeKey("settled-more") width="100%" height="2.25rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-show-more"
                   // Plus means "add", so revealing more uses a chevron.
                   SidebarIcon(name="chevron-down", size=16, color="light-dark(#71717b, #a3a3a3)")
                   text `Show ${data.sidebar.showMore} more` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a3a3a3)"
@@ -194,9 +233,6 @@ component Sidebar
               SearchResult(t=t, open=open, hoverCard=hoverCard, hoverId=hoverId)
             if data.threads.length == 0
               text (data.sidebar.searchPending ? "Searching thread messages…" : "No threads found") role="status" font-size="0.75rem" line-height="1rem" text-align="center" padding-top="1.5rem" padding-bottom="1.5rem" padding-left="0.5rem" padding-right="0.5rem" color="light-dark(#71717b, #a3a3a3)"
-      // The undo notice heads the footer while the list searches or holds no rows; else its first bottom shelf header hosts it.
-      if data.sidebar.undoHost == "" and data.sidebar.undoText != "" and now < data.sidebar.undoUntil
-        UndoNotice(text=data.sidebar.undoText, label=data.sidebar.undoLabel, over=false, surface="", muted=(data.look.themed ? data.look.sidebarMuted : "light-dark(#71717b, #a3a3a3)"), ink=(data.look.themed ? data.look.sidebarText : "light-dark(#18181b, #f1f3f7)"), run=run)
       // SidebarProviderUpdatePill (sidebar-control-tips.contract: with its two tooltips).
       // One pill a view, so a changed view leaves as the reference's does; a timed one leaves when its time is up.
       if data.sidebar.pillKey != "" and (data.sidebar.pillUntil == 0 or now < data.sidebar.pillUntil)
@@ -221,6 +257,9 @@ component Sidebar
           button cursor="pointer" press=navigate("") testId="sidebar-back" flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" aria-label="Back"
             PgIcon(name="arrow-left", size=16, color="light-dark(#86868e, #8b8b8b)")
             text "Back" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#70707acc, #a2a2a2cc)"
+        // SidebarThreadUndoNotice fills the row's free space, before the update pill.
+        if data.sidebar.undoShort != "" and now < data.sidebar.undoUntil
+          FooterUndoNotice(text=data.sidebar.undoShort, label=data.sidebar.undoLabel, muted=(data.look.themed ? data.look.sidebarMuted : "light-dark(#71717b, #a3a3a3)"), ink=(data.look.themed ? data.look.sidebarText : "light-dark(#18181b, #f1f3f7)"), run=run)
         if data.updateEverything.running or data.updateEverything.available
           UpdateEverything(v=data.updateEverything, run=run)
         else
@@ -242,6 +281,10 @@ fn sidebarTipRow(id: string): string = id.includes("#") ? id.slice(0, id.indexOf
 // (CollapsibleSectionHeader: muted, its count trailing, the rule hidden so the count does not read as a leader's);
 // a collapsed shelf still paints the open thread, which the projection already decided.
 component ThreadSection
+  inject
+    sidebarTreeStop: string
+    treeFocused: action
+    treeKey: action
   props
     reduced: bool
     threads: Thread[]
@@ -345,19 +388,26 @@ component ThreadSection
   derive tone = "light-dark(#71717b, #a3a3a3)"
   // The drop target's accent and the lifted row's emphasis (tones accent and emphasized).
   derive ink = section == "settled" and dragTarget == "settled" ? "light-dark(#1b4ed8, #346bf1)" : section == "settled" and dragId != "" ? "light-dark(#18181bcc, #f3f3f3cc)" : tone
+  derive dragFrom = threads.filter((t) => t.id == dragId).map((t) => t.section).join("")
+  derive settledHint = dragId != "" and (rows.length == 0 or (dragFrom == "settled" and rows.length == 1 and dragTarget != "" and dragTarget != "settled"))
+  action revealSettledHint(w: number, h: number)
+    scrollIntoView("sidebar-settled-placeholder", block="nearest", behavior="instant")
   view
     // An empty pinned or active block takes no gap (the reference's markers are 0pt tall with a -1pt margin).
     column gap=1 width="100%" margin-bottom=(label == "" and rows.length == 0 ? "-1px" : "0px")
       if label != ""
-        // The first bottom shelf header lays the undo notice just above itself (SidebarSectionHeader hostsUndoNotice).
         box position="relative" width="calc(100% - 4px)" margin-left="0.125rem" height="2rem" flex-shrink=0
-          if data.sidebar.undoHost == section and data.sidebar.undoText != "" and now < data.sidebar.undoUntil
-            UndoNotice(text=data.sidebar.undoText, label=data.sidebar.undoLabel, over=true, surface=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)"), muted=(data.look.themed ? data.look.sidebarMuted : "light-dark(#71717b, #a3a3a3)"), ink=(data.look.themed ? data.look.sidebarText : "light-dark(#18181b, #f1f3f7)"), run=run)
-          button cursor="pointer" id=`shelf-${section}` press=local("shelf", section, "") width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem" aria-label=`Toggle ${label}` aria-expanded=expanded testId=`toggle-${section}`
+          button cursor="pointer" id=`shelf-${section}` press=local("shelf", section, "") role="treeitem" aria-level=1 tabindex=(sidebarTreeStop == `shelf-${section}` ? 0 : -1) focus=treeFocused(`shelf-${section}`) key=treeKey(`shelf-${section}`) width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem" aria-label=`Toggle ${label}` aria-expanded=expanded testId=`toggle-${section}`
             text label font-size="0.75rem" font-weight=500 line-height="1rem" color=ink flex-shrink=0
             box flex=1 min-width="0.5rem"
             text `${count}` font-size="0.75rem" font-weight=400 line-height="1rem" font-variant-numeric="tabular-nums" color=ink flex-shrink=0
             SidebarIcon(name=(expanded ? "chevron-down" : "chevron-right"), size=12, color=ink) // CollapsibleSectionHeader: -rotate-90 while collapsed
+      // SidebarSectionPlaceholder: while a row is lifted and Settled lists none (or only the lifted row, headed elsewhere),
+      // a dashed "Settled" box hangs below the header; it scrolls into the list's viewport as it shows (revealOverflow).
+      if section == "settled" and settledHint
+        box position="relative" height=0 margin-left="0.125rem" margin-right="0.125rem" margin-bottom="-1px" flex-shrink=0
+          row id="sidebar-settled-placeholder" position="absolute" left=0 right=0 top=0 height="2.25rem" box-sizing="border-box" align-items="center" justify-content="center" border-radius="0.375rem" border-width=1 border-style="dashed" border-color=(dragTarget == "settled" ? "light-dark(#1b4ed866, #346bf166)" : "light-dark(#18181b40, #f3f3f340)") background-color=(dragTarget == "settled" ? "light-dark(#1b4ed80d, #346bf10d)" : "#00000000") resize=revealSettledHint testId="sidebar-settled-placeholder"
+            text "Settled" font-size="0.75rem" line-height="1rem" color=(dragTarget == "settled" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#18181bcc, #f3f3f3cc)")
       for t in rows key=t.rowKey // kept while an open moves the window to the row's environment (scopedRowKey)
         ThreadRow(reduced=reduced, t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, menu=menu, open=open, hoverCard=hoverCard, pressDown=pressDown, hoverId=sweepRowHover(sweepLive, sweepRest, sweepRestSeq, hoverSeq, hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
       // The sweep owns Escape while it is armed (a window shortcut: the pan's section gets no keys).
