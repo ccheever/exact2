@@ -251,6 +251,7 @@ def main():
     parser.add_argument('--out',required=True)
     parser.add_argument('--diagnostic',action='store_true')
     parser.add_argument('--cold',action='store_true')
+    parser.add_argument('--startup-only',action='store_true')
     parser.add_argument('--arm',choices=['d3d11','wgpu','egui'])
     args=parser.parse_args()
     out=Path(args.out).resolve(); out.mkdir(parents=True,exist_ok=True)
@@ -274,9 +275,12 @@ def main():
                         subprocess.run(['powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',
                             str(Path(__file__).with_name('windows-reset-cache.ps1'))],
                             stdout=reset_log,stderr=subprocess.STDOUT,check=True,timeout=30)
-                result=run(arm,number,out,number<=5 and not args.cold,True)
+                result=run(arm,number,out,number<=5 and not (args.cold or args.startup_only),True)
                 print(arm,number,result['dwmMs'],flush=True)
                 if result.get('focusLosses'): raise RuntimeError('focus lost')
+                if args.cold or args.startup_only:
+                    # Keep startup bursts apart and observe the final launch's quiet interval.
+                    time.sleep(5)
     finally:
         stop.set(); observer.join()
 

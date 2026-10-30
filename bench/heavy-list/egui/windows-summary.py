@@ -12,8 +12,17 @@ def metric(values):
     return dict(median=S.median(values),min=min(values),max=max(values),n=len(values)) if values else None
 
 
-def rate(before,after,key):
-    return (after[key]-before[key])*10_000_000/(after['qpc']-before['qpc'])
+def rate(before,after,key,frequency):
+    return (after[key]-before[key])*frequency/(after['qpc']-before['qpc'])
+
+
+def input_metrics(sample):
+    gaps=[]
+    for gesture in range(4):
+        ticks=[r['qpc'] for r in sample['posts'] if r['gesture']==gesture]
+        gaps.extend((b-a)*1000/sample['qpcFrequency'] for a,b in zip(ticks,ticks[1:]))
+    return dict(posts=len(sample['posts']),maxPostGapMs=max(gaps),
+                latePostGaps=sum(gap>25 for gap in gaps))
 
 
 def frames(sample,path):
@@ -34,17 +43,13 @@ def frames(sample,path):
         intervals.extend((y-x)*1000/frequency for x,y in zip(t,t[1:]))
     intervals.sort()
     seconds=sum(b-a for a,b in spans)/frequency
-    gaps=[]
-    for gesture in range(4):
-        ticks=[r['qpc'] for r in sample['posts'] if r['gesture']==gesture]
-        gaps.extend((b-a)*1000/frequency for a,b in zip(ticks,ticks[1:]))
+    if not intervals: return {}
     return dict(p50=intervals[min(int(.5*len(intervals)),len(intervals)-1)],
                 p95=intervals[min(int(.95*len(intervals)),len(intervals)-1)],
                 p99=intervals[min(int(.99*len(intervals)),len(intervals)-1)],
                 latePerSecond=sum(x>25 for x in intervals)/seconds,
                 gestureFps=count/seconds,phaseFps=sum(start<=v<=end for v in times)*frequency/(end-start),
                 restPresents=sum(end<v<=sample['restEnd']['qpc'] for v in times),
-                posts=len(sample['posts']),maxPostGapMs=max(gaps),
                 displayedFrames=len(times),csvRows=len(rows),
                 modes=sorted(set(r['PresentMode'] for r in rows)))
 
@@ -67,10 +72,12 @@ for phase in ['warm','cold']:
                 f=(frames(x,directory/f'{arm}-{x["number"]}-presents.csv')
                    if x.get('presentmonEventsLost',0)==0 and x.get('presentmonExit')==0 else {})
                 f['eventsLost']=x.get('presentmonEventsLost',0)
-                f.update(flingCpu=rate(x['flingStart'],x['flingEnd'],'processCpuMs'),
-                         flingMain=rate(x['flingStart'],x['flingEnd'],'mainCpuMs'),
-                         restCpu=rate(x['flingEnd'],x['restEnd'],'processCpuMs'),
-                         restMain=rate(x['flingEnd'],x['restEnd'],'mainCpuMs'),
+                f.update(input_metrics(x))
+                frequency=x['qpcFrequency']
+                f.update(flingCpu=rate(x['flingStart'],x['flingEnd'],'processCpuMs',frequency),
+                         flingMain=rate(x['flingStart'],x['flingEnd'],'mainCpuMs',frequency),
+                         restCpu=rate(x['flingEnd'],x['restEnd'],'processCpuMs',frequency),
+                         restMain=rate(x['flingEnd'],x['restEnd'],'mainCpuMs',frequency),
                          peakWS=x['restEnd']['peakWorkingSet']/2**20,
                          sampledFlingPeakWS=x['sampledPeakFling']/2**20,
                          flingEndWS=x['flingEnd']['workingSet']/2**20,
