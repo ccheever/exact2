@@ -3280,6 +3280,12 @@ limits, checks and retained files under `target/stage-0b/`.
 
 ## G4m: the four arms on the measurement Mac
 
+**Resumed, 2026-10-30.** The silver Mac's session is unlocked. The arms are
+being rebuilt from fetched `origin/main` `42d5066572` in
+`target/g0/run-42d5066572/`; the earlier attempts below remain retained.
+`plan.txt` restates the predictions below before any launch on this revision.
+G4m's ranges, G5's workload expectations and Stage 0b's P1–P5 are unchanged.
+
 Arms refreshed on 2026-10-30 from `origin/main`
 `ae835f960c04534e2c489c3888dbe6d017ae419e`, including G5's static modes and GPU
 hook and Stage 0b's boot path. The dedicated silver M5 Max's
