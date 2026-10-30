@@ -92,7 +92,7 @@ extension TextArea {
         window?.invalidateCursorRects(for: self)
         observeAtomLook(!frames.isEmpty)
         if frames.isEmpty { Self.atomFields.remove(self) } else { Self.atomFields.add(self) }
-        if changed { NSAccessibility.post(element: owner.map { $0.atomHost ?? $0 } ?? self, notification: .layoutChanged) }
+        if changed { NSAccessibility.post(element: owner?.atomParent ?? self, notification: .layoutChanged) }
         for element in renamed { NSAccessibility.post(element: element, notification: .titleChanged) }
         #else
         installAtomTap(!frames.isEmpty)
@@ -129,6 +129,13 @@ extension TextArea: NSViewToolTipOwner {
                            center.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: restyle)]
     }
 
+    /// The atom's element at a point in screen coordinates, where assistive
+    /// technology points: VoiceOver's cursor following the mouse, the
+    /// trackpad commander, Accessibility Inspector.
+    func atomElement(atScreen point: NSPoint) -> AtomElement? {
+        guard !atomElements.isEmpty, let window, let hit = atom(at: convert(window.convertPoint(fromScreen: point), from: nil)) else { return nil }
+        return atomElements.first { $0.range == hit.range }
+    }
     /// The arrow over a pill, as over a token; the I-beam elsewhere.
     func addAtomCursorRects() {
         for (_, _, frame) in atomFrames() { addCursorRect(frame, cursor: .arrow) }
@@ -159,37 +166,64 @@ extension TextArea {
 
 extension NodeView {
     /// The node whose elements list this field's atoms, after the field (LLP
-    /// 1045.000 D8, §10 Q10): its nearest ancestor holding more than the field,
-    /// or that is an element. VoiceOver's next-item command passes over a text
-    /// view's own children, and reads a scroll area that holds more than one
-    /// item only when the person interacts with it; one that holds a single
-    /// item it passes through, so the atoms go past every wrapper, scrolling
-    /// or not, that holds the field alone. Nil for a field with no such
-    /// ancestor: its own node lists them.
+    /// 1045.000 D8, §10 Q10): its nearest ancestor that holds more than the
+    /// field, or that is an element. VoiceOver's next-item command passes over
+    /// a text view's own children, and reads a scroll area that holds more
+    /// than one item only when the person interacts with it; one that holds a
+    /// single item it passes through, so the atoms go past every wrapper,
+    /// scrolling or not, that holds the field alone. An image or a range is a
+    /// leaf, which lists nothing, and is passed too. Nil for a field with no
+    /// such ancestor: its own node lists them.
     var atomHost: NodeView? {
         var view = superview
         while let v = view {
-            if let node = v as? NodeView, node.isAccessibilityElement() || Self.nodeChildren(of: node).count != 1 { return node }
+            if let node = v as? NodeView, node.props["accessibilityRole"] != "img", node.rangeRole == nil,
+               node.isAccessibilityElement() || Self.holdsMoreThanOneNode(node) { return node }
             view = v.superview
         }
         return nil
     }
-    private static func nodeChildren(of view: NSView) -> [NodeView] {
-        view.subviews.flatMap { $0 is NodeView ? [$0 as! NodeView] : nodeChildren(of: $0) }
-    }
-    /// The atoms of the fields this node hosts, each run after the child that
-    /// holds its field, in text order.
-    func withAtoms(_ children: [Any]?) -> [Any]? {
-        guard var children, TextArea.atomFields.count > 0 else { return children }
-        for field in TextArea.atomFields.allObjects where !field.atomElements.isEmpty {
-            guard let node = field.owner, (node.atomHost ?? node) === self,
-                  let at = children.lastIndex(where: { child in
-                      guard let view = child as? NSView else { return false }
-                      return view === node || node.isDescendant(of: view) || view.isDescendant(of: node)
-                  }) else { continue }
-            children.insert(contentsOf: field.atomElements as [Any], at: at + 1)
+    /// Whether `view` holds a second node below it, scroll and clip views
+    /// passed through; it stops at the second.
+    private static func holdsMoreThanOneNode(_ view: NSView) -> Bool {
+        var found = 0
+        func walk(_ v: NSView) -> Bool {
+            for sub in v.subviews {
+                if sub is NodeView { found += 1; if found > 1 { return true } } else if walk(sub) { return true }
+            }
+            return false
         }
-        return children
+        return walk(view)
+    }
+    /// The element that lists this field's atoms: a scrolling host's scroll
+    /// view (the atoms are its children, beside the field, not after the
+    /// scroll area), the host, or the element that lists the host's children.
+    var atomParent: Any? {
+        let host = atomHost ?? self
+        if let scroll = host.scroll { return scroll }
+        return host.isAccessibilityElement() ? host : NSAccessibility.unignoredAncestor(of: host)
+    }
+    /// The atoms of the fields this node hosts, each run after the element
+    /// that holds its field, in text order. The children are taken unignored,
+    /// as VoiceOver reads them, so a view that holds the field among siblings
+    /// (a scroll view's document) is passed into. A scrolling node's scroll
+    /// view lists them (`inScroll`), as its children hold the field.
+    func withAtoms(_ children: [Any]?, inScroll: Bool = false) -> [Any]? {
+        guard let children, scroll == nil || inScroll, let window, TextArea.atomFields.count > 0 else { return children }
+        let hosted = TextArea.atomFields.allObjects.filter { field in
+            guard field.window === window, !field.atomElements.isEmpty, let node = field.owner else { return false }
+            return (node.atomHost ?? node) === self
+        }
+        guard !hosted.isEmpty else { return children }
+        var listed = NSAccessibility.unignoredChildren(from: children)
+        for field in hosted {
+            guard let node = field.owner, let at = listed.lastIndex(where: { child in
+                guard let view = child as? NSView else { return false }
+                return view === node || node.isDescendant(of: view) || view.isDescendant(of: node)
+            }) else { continue }
+            listed.insert(contentsOf: field.atomElements as [Any], at: at + 1)
+        }
+        return listed
     }
 }
 
@@ -205,14 +239,16 @@ final class AtomCatcher: NSView {
     override func mouseDown(with event: NSEvent) { field?.owner?.pointerPressed(event); _ = field?.pressAtom(with: event) }
     override func mouseUp(with event: NSEvent) { field?.owner?.pointerReleased(event) }
     override func isAccessibilityElement() -> Bool { false }
+    // The window's hit test lands here, on the pill (`TextArea.atomHit`): the atom's element, not the text view above.
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? { field?.atomElement(atScreen: point) ?? super.accessibilityHitTest(point) }
 }
 
 /// An atom as assistive technology sees it: a button (or link, as
 /// declared) named by its face's `ariaLabel` or else its label, described
 /// by its title, at its pill. The field's host lists it after the field
-/// (`NodeView.withAtoms`), so its parent is the host or, where the host is
-/// no element, the element that lists the host's children. The agent joins
-/// it to the field's node, as iOS's container does.
+/// (`NodeView.withAtoms`), and its parent is the element that lists it
+/// (`NodeView.atomParent`). The agent joins it to the field's node, as iOS's
+/// container does.
 package final class AtomElement: NSAccessibilityElement, AgentOwned {
     weak var field: TextArea?
     let range: NSRange
@@ -222,15 +258,15 @@ package final class AtomElement: NSAccessibilityElement, AgentOwned {
         (self.field, self.range, self.atom) = (field, range, atom)
         super.init()
     }
-    package override func accessibilityParent() -> Any? {
-        guard let field, let node = field.owner else { return field }
-        let host = node.atomHost ?? node
-        return host.isAccessibilityElement() ? host : NSAccessibility.unignoredAncestor(of: host)
-    }
+    package override func accessibilityParent() -> Any? { field?.owner?.atomParent ?? field }
     package override func accessibilityRole() -> NSAccessibility.Role? { atom.role == "link" ? .link : .button }
     package override func accessibilityLabel() -> String? { atom.spokenName }
     package override func accessibilityHelp() -> String? { atom.title.isEmpty ? nil : atom.title }
-    package override func isAccessibilityElement() -> Bool { true }
+    /// Not under a host whose elements are hidden, which lists none.
+    package override func isAccessibilityElement() -> Bool {
+        guard let host = field?.owner.map({ $0.atomHost ?? $0 }) else { return true }
+        return host.props["accessibilityElementsHidden"] != "true" && !host.accessibilityHiddenWritten
+    }
     package override func accessibilityFrame() -> NSRect {
         guard let field, let window = field.window, let frame = field.atomFrames().first(where: { $0.range == range })?.frame else { return .zero }
         return window.convertToScreen(field.convert(frame, to: nil))

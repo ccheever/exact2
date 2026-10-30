@@ -242,8 +242,9 @@ final class InlineAtomEditorMacTests: XCTestCase {
         let text = try XCTUnwrap(flat.firstIndex { ($0 as AnyObject) === node.textAreaScroll || ($0 as AnyObject) === f }, "\(flat)")
         XCTAssertTrue(flat.count >= text + 3 && flat[text + 1] as AnyObject === f.atomElements[0] && flat[text + 2] as AnyObject === f.atomElements[1], "after the field, in text order: \(flat)")
         XCTAssertEqual(f.atomElements.map(\.range.location), [a, (source + " and " as NSString).length])
+        // Its parent's own children hold it (`accessibilityChildren`, which AppKit serves as AXChildren).
         let parent = try XCTUnwrap(f.atomElements[0].accessibilityParent() as? NSObject)
-        let listed = NSAccessibility.unignoredChildren(from: (parent as? NSView)?.accessibilityChildren() ?? (parent as? NSWindow)?.accessibilityChildren() ?? [])
+        let listed = (parent as? NSView)?.accessibilityChildren() ?? (parent as? NSWindow)?.accessibilityChildren() ?? []
         XCTAssertTrue(listed.contains { $0 as AnyObject === f.atomElements[0] }, "its parent lists it: \(parent)")
         XCTAssertTrue(f.atomElements[1].accessibilityPerformPress())
         XCTAssertEqual(f.selectedRange(), f.atomElements[1].range, "VO-Space presses the atom VoiceOver is on")
@@ -251,6 +252,114 @@ final class InlineAtomEditorMacTests: XCTestCase {
         let beside = NodeView(id: 5, kind: "view", presenter: presenter)
         wrapper.addSubview(beside)
         XCTAssertTrue(node.atomHost === wrapper)
+    }
+
+    /// A Markdown field under `presenter`, as `editor` makes one, without a window.
+    private func field(_ id: UInt32, _ text: String) -> (NodeView, TextArea) {
+        let node = NodeView(id: id, kind: "textarea", presenter: presenter)
+        node.frame = NSRect(x: 0, y: 0, width: 400, height: 60)
+        node.makeTextArea()
+        node.props["markup"] = "markdown"
+        node.props["value"] = text
+        node.props["atoms"] = kinds
+        node.props["atomFaces"] = faces
+        node.handlers = ["input", "atompress"]
+        node.applyTextArea()
+        node.layoutTextArea()
+        let f = node.textArea as! TextArea
+        node.restyleMarkup()
+        f.atomsChanged()
+        return (node, f)
+    }
+    /// A box that is an element (a button), as a node's control child.
+    private func button(_ id: UInt32, _ title: String, _ y: CGFloat) -> NodeView {
+        let node = NodeView(id: id, kind: "view", presenter: presenter)
+        node.frame = NSRect(x: 0, y: y, width: 200, height: 30)
+        node.addSubview(NSButton(title: title, target: nil, action: nil))
+        return node
+    }
+
+    /// Two fields under one host each have their atoms after them, and a field
+    /// moved to another host, or out of the window, leaves its old host's list.
+    func testTwoFieldsUnderOneHostAndAMovedField() throws {
+        let (_, first, window) = editor()
+        defer { window.close() }
+        let page = NodeView(id: 1, kind: "view", presenter: presenter)
+        page.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        window.contentView = page
+        let one = try XCTUnwrap(first.owner)
+        one.removeFromSuperview()
+        let (two, second) = field(4, "Then " + cite + " again")
+        page.addSubview(one)
+        page.addSubview(button(5, "Between", 70))
+        page.addSubview(two)
+        two.frame.origin.y = 110
+        let flat = page.accessibilityChildren() ?? []
+        func at(_ object: AnyObject) -> Int? { flat.firstIndex { $0 as AnyObject === object } }
+        func text(_ node: NodeView) -> Int? { flat.lastIndex { ($0 as? NSView)?.isDescendant(of: node) == true } }
+        let firstAtom = try XCTUnwrap(at(first.atomElements[0])), secondAtom = try XCTUnwrap(at(second.atomElements[0]))
+        let firstText = try XCTUnwrap(text(one)), secondText = try XCTUnwrap(text(two))
+        XCTAssertEqual(firstAtom, firstText + 1, "\(flat)")
+        XCTAssertEqual(secondAtom, secondText + 1, "\(flat)")
+        XCTAssertLessThan(firstAtom, secondText)
+        // Moved into a wrapper of its own beside a button, the second field's atoms are that wrapper's.
+        let box = NodeView(id: 6, kind: "view", presenter: presenter)
+        box.frame = NSRect(x: 0, y: 150, width: 400, height: 140)
+        page.addSubview(box)
+        two.removeFromSuperview()
+        box.addSubview(two)
+        box.addSubview(button(7, "After", 100))
+        XCTAssertTrue(two.atomHost === box)
+        let pageAtoms = page.accessibilityChildren() ?? []
+        XCTAssertEqual(pageAtoms.filter { $0 as AnyObject === second.atomElements[0] }.count, 1, "listed once, by the box")
+        XCTAssertTrue((box.accessibilityChildren() ?? []).contains { $0 as AnyObject === second.atomElements[0] })
+        // Out of the window, it is listed nowhere.
+        box.removeFromSuperview()
+        XCTAssertFalse((page.accessibilityChildren() ?? []).contains { $0 as AnyObject === second.atomElements[0] })
+        XCTAssertFalse((box.accessibilityChildren() ?? []).contains { $0 as AnyObject === second.atomElements[0] })
+    }
+
+    /// A field among siblings in a scrolling node (`overflow: auto`): its atoms
+    /// are the scroll area's children right after it, before the next sibling,
+    /// and the scroll area is their parent.
+    func testInAScrollingHostTheAtomsFollowTheFieldBeforeItsNextSibling() throws {
+        let (node, f, window) = editor()
+        defer { window.close() }
+        let scroller = NodeView(id: 1, kind: "view", presenter: presenter)
+        scroller.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        let sv = ChainingScrollView(frame: scroller.bounds)
+        sv.pointerOwner = scroller
+        let document = FlippedView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        sv.documentView = document
+        scroller.addSubview(sv)
+        scroller.scroll = sv
+        window.contentView = scroller
+        node.removeFromSuperview()
+        document.addSubview(button(2, "Heading", 0))
+        node.frame.origin.y = 40
+        document.addSubview(node)
+        document.addSubview(button(4, "Send", 350))
+        XCTAssertTrue(node.atomHost === scroller)
+        XCTAssertFalse((scroller.accessibilityChildren() ?? []).contains { $0 is AtomElement }, "not after the whole scroll area")
+        let children = sv.accessibilityChildren() ?? []
+        let text = try XCTUnwrap(children.lastIndex { ($0 as? NSView)?.isDescendant(of: node) == true }, "\(children)")
+        let send = try XCTUnwrap(children.firstIndex { ($0 as? NSButtonCell)?.title == "Send" || ($0 as? NSButton)?.title == "Send" }, "\(children)")
+        XCTAssertTrue(children[text + 1] as AnyObject === f.atomElements[0], "\(children)")
+        XCTAssertLessThan(text + 1, send)
+        XCTAssertTrue(f.atomElements[0].accessibilityParent() as AnyObject === sv)
+    }
+
+    /// A pill is its atom's element where assistive technology points: the
+    /// window's hit test at the pill answers the element, beside it the text.
+    func testTheWindowsHitTestAtAPillIsItsElement() throws {
+        let (_, f, window) = editor()
+        defer { window.close() }
+        let hit = try XCTUnwrap(f.atomFrames().first)
+        let onScreen = { (p: CGPoint) in window.convertPoint(toScreen: f.convert(p, to: nil)) }
+        let pill = window.accessibilityHitTest(onScreen(CGPoint(x: hit.frame.midX, y: hit.frame.midY)))
+        XCTAssertTrue(pill as AnyObject === f.atomElements[0], "\(String(describing: pill))")
+        let beside = window.accessibilityHitTest(onScreen(CGPoint(x: hit.frame.maxX + 30, y: hit.frame.midY)))
+        XCTAssertFalse(beside is AtomElement, "\(String(describing: beside))")
     }
 
     /// D8: a face's `ariaLabel` names its element and stands for it in the

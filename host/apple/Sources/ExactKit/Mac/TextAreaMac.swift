@@ -38,6 +38,8 @@ package final class TextArea: NSTextView {
     /// drawn again for (FieldAtoms.swift, LLP 1045.000 D8).
     var atomElements: [AtomElement] = []
     var atomLook: (window: ObjectIdentifier?, tokens: [NSObjectProtocol]) = (nil, [])
+    // A pill is its atom's element where assistive technology points (`atomElement(atScreen:)`).
+    package override func accessibilityHitTest(_ point: NSPoint) -> Any? { atomElement(atScreen: point) ?? super.accessibilityHitTest(point) }
     // A press on a pill is the atom's (D7); the arrow over one, as over a token.
     package override func hitTest(_ point: NSPoint) -> NSView? { atomHit(point) ?? super.hitTest(point) }
     package override func resetCursorRects() { super.resetCursorRects(); addAtomCursorRects() }

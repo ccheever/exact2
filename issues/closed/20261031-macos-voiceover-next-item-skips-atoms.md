@@ -27,12 +27,17 @@ The field's host lists the atom elements right after the child that holds the fi
 (`NodeView.atomHost`, `withAtoms`, `FieldAtoms.swift`). The host is the nearest ancestor that
 holds more than the field, or that is an element itself, because VoiceOver passes through a
 scroll area of one item, but enters one of several only when the person interacts with it.
-An atom's parent is that host. iOS is unchanged.
+A scrolling host's scroll area lists them beside the field, before its next sibling. An
+atom's parent is the element that lists it, and the text view's hit test at a pill answers the
+atom's element, as VoiceOver's cursor following the mouse asks. iOS is unchanged.
 
 ## Acceptance
 
 `InlineAtomEditorMacTests` (`host/apple/build.mjs --test`):
-`testTheAtomsFollowTheFieldInTextOrderPastItsWrappers` and
+`testTheAtomsFollowTheFieldInTextOrderPastItsWrappers`,
+`testTwoFieldsUnderOneHostAndAMovedField`,
+`testInAScrollingHostTheAtomsFollowTheFieldBeforeItsNextSibling`,
+`testTheWindowsHitTestAtAPillIsItsElement` and
 `testAPressSelectsTheAtomAndAnAccessibilityElementNamesIt`. In the T3 Code clone with
 VoiceOver, VO-Right from the prompt reads each chip in text order and then the next control,
 and VO-Space on a chip opens it.
