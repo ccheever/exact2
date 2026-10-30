@@ -4038,8 +4038,11 @@ samples at the probe endpoints. All 6,338 fling samples are `Running`, with
 1 ms weights: 629.465 sampled ms/s over 10.068870 seconds, versus 627.858
 process CPU ms/s from the probe. The main thread has 3,908 samples
 (388.127 ms/s), versus its endpoint 390.121 ms/s. Fifty-four samples have
-an unresolved leaf: **99.15% are symbolized**, meeting the ≥90% prediction.
-A resolved platform entry symbol is not a recovered caller.
+an unresolved leaf: **99.15% are symbolized**. Excluding those 54 samples
+and all 535 bare `start_wqthread` leaves leaves **90.71%**, meeting the
+≥90% broad-owner prediction (`resolution-bound.json`). A resolved platform
+entry symbol is not a recovered caller; the excluded entries remain unassigned
+to a component.
 
 Off the main thread, stack ownership identifies Metal driver work
 (76.076 sampled ms/s), the present worker (34.661), image work (30.689),
@@ -4271,6 +4274,59 @@ Mica retries. The earlier passing round does not make this final round
 green. No recovery policy or assertion changed; further retries stop,
 and `QUEUE.md` records the unresolved qualification.
 
+Fresh captures after that correction use `Attempts.app` on the Mac and
+the `build-attempt/` release on Windows. `attempts-final/` measures
+10.078251 seconds, with 913 paint attempts, 912 submissions and 909
+displayed callbacks; it observes 13,777 fractional refusals, 13,450
+A2-eligible. Its pool high water remains twelve targets. Process/main CPU
+is 705.693/453.397 ms/s, at a maximum one-minute load of 154.26 with
+compilers present: diagnostic only. Windows' `windows/attempt/` measures
+10.066911 seconds, with 248 attempts/submissions in its 10.058003-second
+counter window and 248 displayed frames from PresentMon. It observes
+1,820 fractional refusals, 1,782 eligible. The process-lifetime pool high
+water is 104 targets; at the sampled byte maximum, 94 are idle, ten are
+frame-reserved and none incomplete. Its ten-second rest has fifty timer
+wakes, fifty following dispatch passes and no displayed frame. These
+captures verify the final observer in live carriers; they do not replace
+the earlier prediction arms or improve their qualification.
+
+The current-source six-check round is `checks-attempt/`. Its initial root
+test run fails two wall-clock assertions: the Apple upload-stream test
+times out waiting five seconds for an outcome, and the SVG expansion-limit
+test takes 8.074 seconds against five. Build, clippy, fmt, caps, boot,
+workspace, Ink, serial Linux, carrier and all required Metal groups pass.
+The first final release link fails with `No space left on device`; only
+this worktree's disposable `target/debug/incremental/` cache is removed.
+All measurement files, test logs and retained bundles remain intact.
+The release retry succeeds and is retained as `PostedFinal.app`.
+Both isolated root-test reruns pass (upload 0.83 s; SVG 3.96 s), but the
+serial root rerun reproduces the upload timeout inside the asynchronous-core
+sub-suite. This is the third round on that problem; retries stop without
+changing its code or assertions. `QUEUE.md` records it. The root test
+check remains failing, independently of the Windows device-loss failure.
+The serial run finishes with only `exact-apple --lib` failing; SVG and the
+other targets pass. Current-source stdout/stderr is retained verbatim in
+`target/s0/MAC-TEST-OUTPUT-FINAL.txt` and
+`target/s0/WINDOWS-TEST-OUTPUT-FINAL.txt`, with unchanged result lines in
+`target/s0/TEST-RESULTS-FINAL.txt`. The originals are
+`checks-attempt/*.log`, `windows/native-attempt/*.log` and
+`windows/attempt-d3d11-dpi/test.log`; `checks-attempt/retry-results.json`
+records both isolated runs and the serial root run. This qualification is
+not green: five of the six checks pass, and Windows has the separate
+device-loss failure. The enabled paint-error counter checks and all named
+pinned Metal/D3D11/wgpu suites pass.
+
+The GO wait expires at **2026-10-30T18:10:26Z**, three hours after the lane
+start, with no `target/s0/GO`. `go-poll.jsonl` retains every bounded poll;
+`go-expired.txt` records expiry. `PostedFinal.app` and `posted-profile.py`
+are prepared, but no posted Mac fling or profile is run. The agent-driven
+`sample` and Time Profiler captures are the delivered profiles. Stage 0
+remains unmet: there is no quiet posted qualification, the historical
+untagged CPU budgets cannot be reconstructed, and the final root and
+Windows device-loss checks fail as detailed above. Work stops at this
+boundary. `evidence.sha256`, `final-source-sha256.json` and
+`final-source.patch` identify the retained evidence and final sources.
+
 ### Prediction ledger
 
 | Prediction written before its run | Result on the named instrument |
@@ -4292,7 +4348,7 @@ and `QUEUE.md` records the unresolved qualification.
 | Busy-queue sampled present mean <0.5 ms if clock state is the sole cause | 0.874 ms with the short queue: miss; 0.459 with longer commands at 120 Hz: met; 0.654 at 30 Hz: miss |
 | Longer queue covers >90% of the interval | 89.24% sampled / 94.89% clear at 120 Hz: miss / met; 99.62% sampled at 30 Hz: met |
 | 30 Hz sampled mean exceeds the 120 Hz 0.413 ms | 1.078 ms: met |
-| ≥90% of Time Profiler weighted samples have resolved stacks | 99.15% have resolved leaf symbols: met at symbol level; some dispatch entries lack component callers |
+| ≥90% of Time Profiler weighted samples name a carrier, probe, image, present or platform owner | 99.15% have resolved leaf symbols; 90.71% after excluding unresolved leaves and bare dispatch entries: met at that broad level; dispatch component callers remain unknown |
 | Forty timer rearms each precede a second rest dispatch | Forty winit arms and forty following turns in both request traces: met |
 | A failed paint increases attempts exactly once and preserves its error | Enabled-counter `allocation refused` test passes its +1 assertion; error unchanged |
 | Stage 1 M1: 44 → ~33 main CPU ms/s; M2: ≤0.4 rest process CPU ms/s | Future conditional targets, not achieved or certified by these Stage 0 diagnostics |
