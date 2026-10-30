@@ -48,9 +48,9 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         // @ref LLP 1103 D3 — the driver's fetch faults, a form of `prefer`:
         // the network is the environment, as `online` is (LLP 1012 §1).
         Some("prefer") if after_key(request, "faults").is_some() => faults(runner, request),
-        // The module's storage still to land (LLP 1097 D10): what a host's
-        // quit or suspension waits for, cheaper than `state`.
-        Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),
+        // Whether the app must finish work an answer started (`must_finish`):
+        // what a host's quit waits for, cheaper than `state`.
+        Some("background") => format!("{{\"mustFinish\":{}}}", runner.must_finish()),
         // A polled module source's ask in flight (LLP 1133.009 D10 item 7):
         // what a jump waits for before it replies.
         Some("polls") => format!("{{\"asking\":{}}}", runner.polls_asking()),

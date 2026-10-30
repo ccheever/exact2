@@ -393,6 +393,8 @@ public final class ExactSession {
     var timerDue: Double?
     /// A data module's timer continuation an advance released is still out (the batch's `landing`).
     var timerLanding = false
+    /// The background task while the batches say the app must finish work an answer started (`mustFinish`).
+    let finishHold = FinishHold.platform()
     /// The view presenting this session, while one is mounted (D1).
     weak package var view: ExactView? { didSet { if view !== oldValue { natives.sessionViewChanged() } } }
     #if os(iOS) || os(tvOS)
@@ -1004,11 +1006,11 @@ public final class ExactSession {
     /// A batch that changes nothing the presenter shows: no ops, no error,
     /// no control's viewless contents (`controls`, LLP 1069.011 §9), no
     /// page facts the app moved (`setMode`, `setRootFontSize`), wake or orientation lock,
-    /// and the motion, spatial, frame-task, canvas and owed-draw state as
-    /// they stand. Its timer deadline is the caller's to compare.
+    /// or word on work the app must finish, and the motion, spatial, frame-task, canvas and
+    /// owed-draw state as they stand. Its timer deadline is the caller's to compare.
     func changesNothing(_ batch: Batch) -> Bool {
         batch.ops.isEmpty && !batch.controls && batch.error == nil && batch.canvasImages.isEmpty
-            && !batch.facts && batch.wakelock == nil && batch.orientation == nil
+            && !batch.facts && batch.wakelock == nil && batch.orientation == nil && batch.mustFinish == nil
             && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.canvasOwed == canvasOwed
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
@@ -1089,6 +1091,7 @@ public final class ExactSession {
         defer { if let timed, timed === sampler { timed.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0) }; if let q = batch.seq { natives.hatchClock.seq = q.1 }; logAlerts(batch.alerts); logJournal(batch.journal) }
         defer { if outermost, frameHealth.enabled { frameHealth.applied(batch, began: began, flags: frameHealth.frameFlags(frames, session: self)) } }
         if batch.facts { app.scheduleStatus() } // the app's own `setMode` or `setRootFontSize` (LLP 1122 D4)
+        if let must = batch.mustFinish { finishHold.moved(must) }
         // Each batch says what its turn left owed; batches apply in the owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
         if canvasOwed { askCanvasDraw() }
@@ -1470,6 +1473,7 @@ public final class ExactSession {
         frames.run(false)
         sampler?.stop(); releaseSampler()
         frameHealth.destroy()
+        finishHold.moved(false) // its work ends with the runtime
         DisplayPreferences.forget(preferenceObservers)
         PageFacts.forget(pageObservers)
         #if os(macOS)

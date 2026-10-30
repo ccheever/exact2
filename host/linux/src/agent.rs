@@ -112,7 +112,7 @@ pub fn serve<D: DataSource + Default>(
         true
     });
     let _ = p.pointer_cancel(p.host().now());
-    crate::teardown::finish(p, crate::teardown::EXIT_BOUND);
+    crate::teardown::finish(p, crate::teardown::AGENT_EXIT_BOUND);
     0
 }
 

@@ -90,8 +90,12 @@ extension ExactSession {
     /// LLP 1133.025 D6).
     public static let dataActivated = Notification.Name("ExactSessionDataActivated")
 
-    /// The scene became active (iOS): the canvases follow.
-    public func becameActive() { frames.run(frames.hasWork) }
+    /// The scene became active (iOS): the canvases follow, and a background
+    /// task the system took back is begun again while there is work to finish.
+    public func becameActive() {
+        frames.run(frames.hasWork)
+        finishHold.becameActive()
+    }
 
     /// How many module events the session holds before its runner can (the
     /// runner then holds each event to its own bound).
