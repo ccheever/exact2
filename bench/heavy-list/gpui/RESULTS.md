@@ -2837,8 +2837,9 @@ Release executable SHA-256:
 **Finding:** the lifecycle fixes pass native qualification. CPU, working set
 and p95 remain close to G6c, but cadence is not fully preserved: displays fall
 from 58.25 to 56.41 per gesture second, late intervals rise from zero to
-0.993/s, and p99 rises from 17.17 to 33.33 ms. G6d stops after its third
-performance revision; `QUEUE.md` retains this remaining regression.
+0.993/s, and p99 rises from 17.17 to 33.33 ms. G6d stopped after its third
+performance revision. G6e below restores cadence and records the remaining
+CPU gate miss.
 
 The reservation path keeps a non-device-lost error as a refused frame, logs once
 per failure streak, and retries one refresh period later. Restore, focus, resize
@@ -3109,7 +3110,46 @@ All six Mac checks pass on the measured source: all-target build, root tests,
 clippy plus fmt, staged caps, boot and full-workspace all-target check. Root
 tests pass **7,331**, with **83 ignored**, using `RUST_TEST_THREADS=2`.
 The separate exact-linux library and integration suites pass **2,066**, with
-**38 ignored**. Native qualification is still running.
+**38 ignored**.
+
+All six D3D11 desktop journeys pass on the measured source and an unmodified
+`gpu-dev` Shelf build. Pixel errors use S2's fixed band against a fresh launch;
+mean channel error is out of 255.
+
+| Journey | G6c | G6d | G6e |
+| --- | --- | --- | --- |
+| Resize | Pass | Pass | Pass; mean 0.020690, 0.0301% over 32 |
+| Minimize/restore | Pass | Pass | Pass; identical pixels |
+| DPI 100→150→100→150→100% | Pass | Pass | Pass; final 1024×720 at 96 DPI, identical pixels |
+| Idle caret | Pass | Pass | Pass; three transitions, 20 changed pixels; fresh comparison identical |
+| Forced device loss | Pass; recovery interval 453.445 ms | Pass; 398.810 ms | Pass; 1,850.191 ms; identical pixels and Mica restored |
+| Sleep/wake | Pass; 75.607 s | Pass; 76.606 s | Pass; 75.692 s, mean 0.000403, no pixels over 32 |
+
+The device-loss fixture subtracts the first CPU and recovered Ink **frame-start**
+timestamps. G6e's longer interval includes a **1,446.210 ms** first fallback
+paint; WARP's composition setup takes **255.336 ms**, and its three Mica
+retries are refused. Hardware's injected Mica refusal then recovers on the
+first post-present retry. The final capture was inspected: material and content
+are present. This single qualification run establishes recovery, not unchanged
+recovery latency; no cause of the long first fallback paint was isolated.
+Both 150% DPI captures pass, with means 0.001830 and 0.001849 and 0.002713%
+of pixels over 32. Sleep/wake retains S2's wake-source limitation.
+
+On each of D3D11 and wgpu, the native suites pass Ink **44** (27 ignored),
+Windows **39** (one ignored), pinned paint **56** (one ignored), borders **6**,
+tint **2**, backdrop **5**, gradients **1**, visual **8**, materials **1** and
+image **3**. The **10** shared-window tests, **14** composition tests and all
+**10** startup/fallback fault journeys pass with ignored tests explicitly
+enabled. Builds use native SDK `fxc`, required GPU flags and one test thread;
+only the exact-linux test crate uses optimization level zero. The timeout
+unit test covers the full-period bound and growing backoff at 60/120/144 Hz;
+physical qualification remains 60 Hz.
+
+The final branch is rebased onto `origin/main` **`4b06e7e4f5`**. The reservation
+patches are unchanged. All six Mac checks pass again, with **7,362 tests passed
+and 83 ignored**; logs are in `checks-rebased/`. The timed series and native
+qualification above ran on `0b34fe1cb1`, before this final rebase, and were not
+repeated afterward. The source bundle retains that revision.
 
 Raw evidence is retained in both worktrees under `target/g6e/`: `final/`
 holds the quiet fling and startup series; `skip-trial/` holds the earlier

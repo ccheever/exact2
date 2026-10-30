@@ -1053,8 +1053,12 @@ and **1,247 snapshots / 1,247 successful frames**. Peak/ending working set
 are **153.18/153.16 MiB**, with zero median rest CPU and zero rest displays.
 The cadence thresholds pass; the strict CPU range gate fails against G6c's
 **84.05 ms/s** upper bound (G6e maximum **93.39 ms/s**). No third policy is
-tried. Ten quiet startups give **160.78 ms DWM / 177.66 ms DXGI**. G6d's
-readiness-order correction prevents these historical series from isolating
+tried. All six D3D11 desktop journeys and both-device native suites pass on
+the measured source; the device-loss fixture's frame-start recovery interval
+is **1,850 ms**, including a **1,446 ms** first fallback paint, with identical
+recovered pixels and Mica restored. Ten quiet startups give **160.78 ms DWM /
+177.66 ms DXGI**. G6d's readiness-order correction prevents these historical
+series from isolating
 a scheduling gain; G6c's paired-startup question remains open. The unchanged
 Ink/wgpu and egui controls used **121.41/24.91 ms/s** fling CPU,
 **324.75/181.74 MiB** peak and **322.48/170.00 MiB** ending working set;
@@ -1079,7 +1083,8 @@ process/main CPU, **153.85 MiB** peak/end working set and **16.75 ms** display p
 **1,166 snapshots / 1,166 frames** preserve the paint invariant, but G6c’s cadence
 is not fully preserved: **56.41 versus 58.25 displays/s**, **0.993 versus zero**
 late intervals/s, and **33.33 versus 17.17 ms** p99. After three performance
-revisions, this remaining regression is queued. Ten quiet startup launches give
+revisions, the cadence regression was queued; G6e above restores it. Ten quiet
+startup launches give
 **161.84 ms DWM / 176.85 ms DXGI**; readiness now follows data activation in the
 same draw, so these historical distributions do not isolate a startup gain.
 Egui and Ink/wgpu were not remeasured. The paired-control scripts are committed
