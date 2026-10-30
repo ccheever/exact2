@@ -975,7 +975,9 @@ component ComposerStrip
   view
     row padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" gap="0.25rem" box-sizing="border-box" align-items="center" id="frame-strip" resize=frameMoved testId="composer-context-strip"
       if strip.gitless and not strip.envShow
-        box flex=1 min-width=0
+        // A new thread's Permissions take the free space (ms-auto), so its controls stay together at the start.
+        if not composer.permissionsInStrip
+          box flex=1 min-width=0
       else if strip.gitless
         // A non-Git project offers only where it runs (BranchToolbarEnvironmentSelector): the
         // "Run on" Select for a draft, the static machine row (h-6 px-1.75 gap-1, text-xs /70) for a started thread.
@@ -986,7 +988,9 @@ component ComposerStrip
               text strip.envMachineLabel font-size="0.75rem" line-height="1rem" color="light-dark(#18181bb3, #a1a1a1)" line-clamp=1 hatch="t3-anchor" data-anchor="sl:locked"
         else
           StripControl(icon="", label=strip.envMachineLabel, testId="workspace-mode", aria="Run on", open=(open == "workspace"), disabled=busy, press=openOptions("workspace"), context=command("cclocal:noop", "", "", 0), menu="", tip=(strip.keyHost == "" ? strip.envMachineLabel : `${strip.envMachineLabel} · ${strip.keyHost}`), tipIcon=false, machine=strip.envMachine, compact=compact, anchor="workspace")
-        box flex=1 min-width=0
+        // A new thread's Permissions take the free space (ms-auto), so its controls stay together at the start.
+        if not composer.permissionsInStrip
+          box flex=1 min-width=0
       else
         if strip.envLocked
           row height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" align-items="center" min-width=0 max-width="48%" testId="workspace-locked" hatch="t3-anchor" data-anchor="sc:locked"
@@ -996,7 +1000,9 @@ component ComposerStrip
               text strip.envLabel font-size="0.75rem" line-height="1rem" color="light-dark(#18181bb3, #a1a1a1)" line-clamp=1 hatch="t3-anchor" data-anchor="sl:locked"
         else
           StripControl(icon=strip.envIcon, label=(strip.envShow ? strip.envMachineLabel : strip.envLabel), testId="workspace-mode", aria=(wide ? "Workspace" : `Workspace: ${strip.envLabel}`), open=(open == "workspace"), disabled=busy, press=openOptions("workspace"), context=command("cclocal:noop", "", "", 0), menu="", tip=(wide and strip.keyWorkspace != "" ? `${strip.envLabel} · ${strip.keyWorkspace}` : strip.envLabel), tipIcon=(not wide), machine=(strip.envShow ? strip.envMachine : ""), compact=compact, anchor="workspace")
-        box flex=1 min-width=0
+        // A new thread's Permissions take the free space (ms-auto), so its controls stay together at the start.
+        if not composer.permissionsInStrip
+          box flex=1 min-width=0
         if strip.prShow
           StripPrBadge(text=strip.prText, icon=strip.prIcon, tone=strip.prState, label=strip.prLabel, list=strip.prList, url=strip.prUrl, target=strip.prTarget, tips=strip.prTips, disabled=busy, command=command)
         BranchNameMenu(menuId="branch-name-menu", name=strip.branch, command=command)
