@@ -17,6 +17,8 @@ use std::{
 };
 
 mod mips;
+#[cfg(target_os = "macos")]
+mod present;
 mod setup;
 #[cfg(test)]
 mod tests;
@@ -25,6 +27,12 @@ struct Texture {
     raw: Retained<ProtocolObject<dyn MTLTexture>>,
     desc: TextureDesc,
     last: Submission,
+}
+
+struct Pending {
+    command: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+    #[cfg(target_os = "macos")]
+    receipt: Option<std::sync::mpsc::Receiver<Result<()>>>,
 }
 
 #[derive(Clone)]
@@ -49,12 +57,16 @@ pub struct Metal {
     next_texture: u64,
     submitted: Submission,
     done: Submission,
-    pending: BTreeMap<u64, Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>>,
+    pending: BTreeMap<u64, Pending>,
     retired_textures: Vec<Texture>,
     retired_buffers: Vec<Buffer>,
     owner: Rc<()>,
-    error: Option<String>,
+    error: Option<Error>,
     info: Info,
+    #[cfg(target_os = "macos")]
+    thread: Option<Rc<crate::present::Thread>>,
+    #[cfg(target_os = "macos")]
+    window: Option<present::Window>,
 }
 
 impl Metal {
@@ -69,7 +81,7 @@ impl Metal {
             let adapter = device.name().to_string();
             let device_ms = start.elapsed().as_secs_f64() * 1000.;
             let start = Instant::now();
-            let pipelines = setup::pipelines(&device)?;
+            let pipelines = setup::pipelines(&device, MTLPixelFormat::RGBA8Unorm)?;
             let shaders_ms = start.elapsed().as_secs_f64() * 1000.;
             pipelines.save();
             let sampler = setup::sampler(&device, false)?;
@@ -119,6 +131,10 @@ impl Metal {
                     shaders_ms,
                     cached: pipelines.cached,
                 },
+                #[cfg(target_os = "macos")]
+                thread: None,
+                #[cfg(target_os = "macos")]
+                window: None,
             })
         })
     }
@@ -163,7 +179,7 @@ impl Metal {
 
     fn commands(&self) -> Result<Retained<ProtocolObject<dyn MTLCommandBuffer>>> {
         if let Some(e) = &self.error {
-            return Err(Error::Device(e.clone()));
+            return Err(e.clone());
         }
         self.queue
             .commandBuffer()
@@ -174,12 +190,65 @@ impl Metal {
         &mut self,
         commands: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
     ) -> Submission {
+        #[cfg(target_os = "macos")]
+        let mut receipt = None;
         if let Some(commands) = &commands {
+            #[cfg(target_os = "macos")]
+            if let Some(thread) = &self.thread {
+                let command = present::Command(commands.clone());
+                match thread.send(move || {
+                    command.commit();
+                    Ok(())
+                }) {
+                    Ok(sent) => receipt = Some(sent),
+                    Err(e) => self.error = Some(e),
+                }
+            } else {
+                commands.commit();
+            }
+            #[cfg(not(target_os = "macos"))]
             commands.commit();
         }
         self.submitted.0 += 1;
-        self.pending.insert(self.submitted.0, commands);
+        self.pending.insert(
+            self.submitted.0,
+            Pending {
+                command: commands,
+                #[cfg(target_os = "macos")]
+                receipt,
+            },
+        );
         self.submitted
+    }
+
+    #[cfg(target_os = "macos")]
+    fn committed(&mut self, id: u64, wait: bool) -> Result<bool> {
+        use std::sync::mpsc::TryRecvError;
+        let pending = self.pending.get_mut(&id).expect("pending submission");
+        let Some(receipt) = &pending.receipt else {
+            return Ok(true);
+        };
+        let result = if wait {
+            receipt
+                .recv()
+                .unwrap_or_else(|_| Err(Error::DeviceLost("Metal worker stopped".into())))
+        } else {
+            match receipt.try_recv() {
+                Ok(result) => result,
+                Err(TryRecvError::Empty) => return Ok(false),
+                Err(TryRecvError::Disconnected) => {
+                    Err(Error::DeviceLost("Metal worker stopped".into()))
+                }
+            }
+        };
+        // Consume the receipt before reporting its error; later polls retain the
+        // original failure rather than replacing it with a disconnected channel.
+        pending.receipt = None;
+        if let Err(error) = result {
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        Ok(true)
     }
 
     /// CPU access follows GPU completion, including managed-memory synchronization.
@@ -269,6 +338,8 @@ impl Device for Metal {
         Ok(s)
     }
     fn create_texture(&mut self, desc: TextureDesc) -> Result<TextureId> {
+        #[cfg(target_os = "macos")]
+        let _trace = super::apple::Trace::new(c"texture allocate");
         if desc.width == 0 || desc.height == 0 || desc.width > 16384 || desc.height > 16384 {
             return Err(Error::Invalid("texture dimensions".into()));
         }
@@ -278,6 +349,10 @@ impl Device for Metal {
         let texture = autoreleasepool(|_| texture(&self.device, desc))?;
         let id = TextureId(self.next_texture);
         self.next_texture += 1;
+        #[cfg(target_os = "macos")]
+        super::apple::trace_mark(c"texture bytes", || {
+            MTLResource::allocatedSize(&*texture.raw) as f64
+        });
         self.textures.insert(id, texture);
         Ok(id)
     }
@@ -295,6 +370,33 @@ impl Device for Metal {
         {
             return Err(Error::Invalid("texture upload length".into()));
         }
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &mut self.window {
+            if let Some(error) = &self.error {
+                return Err(error.clone());
+            }
+            let command = self
+                .queue
+                .commandBuffer()
+                .ok_or_else(|| Error::Device("upload command buffer allocation".into()))?;
+            let receipt = window.upload(
+                self.textures.get(&id).unwrap(),
+                command.clone(),
+                origin,
+                size,
+                data,
+            )?;
+            self.submitted.0 += 1;
+            self.pending.insert(
+                self.submitted.0,
+                Pending {
+                    command: Some(command),
+                    receipt: Some(receipt),
+                },
+            );
+            self.textures.get_mut(&id).unwrap().last = self.submitted;
+            return Ok(self.submitted);
+        }
         self.wait(self.last_use(id)?)?;
         upload(self.texture(id)?, origin, size, data);
         let s = self.submit(None);
@@ -305,6 +407,8 @@ impl Device for Metal {
         Ok(self.texture(id)?.last)
     }
     fn generate_mips(&mut self, id: TextureId) -> Result<Submission> {
+        #[cfg(target_os = "macos")]
+        let _trace = super::apple::Trace::new(c"mips encode");
         autoreleasepool(|_| {
             self.completed()?;
             let t = self.texture(id)?;
@@ -383,6 +487,8 @@ impl Device for Metal {
         autoreleasepool(|_| {
             self.completed()?;
             let desc = self.texture(target)?.desc;
+            #[cfg(target_os = "macos")]
+            let _trace = super::apple::Trace::new(c"scene encode");
             if desc.format != Format::Rgba || desc.mipmapped {
                 return Err(Error::Invalid(
                     "render target must be single-level RGBA".into(),
@@ -526,37 +632,61 @@ impl Device for Metal {
         self.readback_level(id, 0)
     }
     fn wait(&mut self, s: Submission) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        let _trace = super::apple::Trace::new(c"main resource wait");
         if s > self.submitted {
             return Err(Error::Invalid("unknown submission".into()));
         }
-        if s > self.done {
+        if s <= self.completed()? {
+            return Ok(());
+        }
+        while s > self.done {
+            #[cfg(target_os = "macos")]
+            for id in self
+                .pending
+                .range(..=s.0)
+                .map(|(&id, _)| id)
+                .collect::<Vec<_>>()
+            {
+                self.committed(id, true)?;
+            }
             // A CPU upload has no command buffer. Waiting on the latest earlier
             // command still covers it because uploads waited on their resource.
             if let Some(command) = self
                 .pending
                 .range(..=s.0)
                 .rev()
-                .find_map(|(_, c)| c.as_ref())
+                .find_map(|(_, pending)| pending.command.as_ref())
             {
                 command.waitUntilCompleted();
             }
+            self.completed()?;
         }
-        self.completed().map(|_| ())
+        Ok(())
     }
     fn completed(&mut self) -> Result<Submission> {
         if let Some(e) = &self.error {
-            return Err(Error::Device(e.clone()));
+            return Err(e.clone());
         }
-        while let Some((&id, command)) = self.pending.first_key_value() {
-            if let Some(command) = command {
+        while let Some((&id, _)) = self.pending.first_key_value() {
+            #[cfg(target_os = "macos")]
+            if !self.committed(id, false)? {
+                break;
+            }
+            if let Some(command) = &self.pending[&id].command {
                 match command.status() {
-                    MTLCommandBufferStatus::Completed => {}
+                    MTLCommandBufferStatus::Completed => {
+                        #[cfg(target_os = "macos")]
+                        super::apple::trace_interval(c"gpu command", || {
+                            (command.GPUStartTime(), command.GPUEndTime(), id as f64)
+                        });
+                    }
                     MTLCommandBufferStatus::Error => {
                         let message = command
                             .error()
                             .map(|e| e.to_string())
                             .unwrap_or_else(|| "Metal command failed".into());
-                        self.error = Some(message.clone());
+                        self.error = Some(Error::Device(message.clone()));
                         return Err(Error::Device(message));
                     }
                     _ => break,
@@ -574,6 +704,10 @@ impl Device for Metal {
             .textures
             .remove(&id)
             .ok_or_else(|| Error::Invalid("retired texture".into()))?;
+        #[cfg(target_os = "macos")]
+        super::apple::trace_mark(c"texture retired bytes", || {
+            MTLResource::allocatedSize(&*t.raw) as f64
+        });
         self.retired_textures.push(t);
         self.completed().map(|_| ())
     }

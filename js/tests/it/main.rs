@@ -17,6 +17,7 @@ mod forget;
 mod heap;
 mod inputs;
 mod interrupt;
+mod kept_json;
 mod listen;
 mod native_later;
 mod no_store;

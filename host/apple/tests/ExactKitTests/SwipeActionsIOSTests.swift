@@ -92,6 +92,25 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertTrue(p.swipeActions.ownsAction(4), "an unprojected row's controls are still its actions")
     }
 
+    /// A row projected inside an animation UIKit has open: the table made
+    /// for it and the content moved into its cell take their place at once,
+    /// as views made or put in a new parent do (`NodeView.moveOrPlace`).
+    func testARowProjectedInsideAnAnimationTakesItsPlace() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1])
+        var open = false
+        UIView.animate(withDuration: 0.5) {
+            open = UIView.inheritedAnimationDuration > 0
+            p.swipeActions.touch(owner)
+        }
+        XCTAssertTrue(open, "UIKit had an animation open")
+        let cell = try XCTUnwrap(p.swipeActions.cell(of: owner))
+        let table = try XCTUnwrap(owner.subviews.first { $0 is UITableView })
+        XCTAssertEqual(table.layer.animationKeys() ?? [], [], "the table where it goes at once")
+        let content = try XCTUnwrap(cell.contentView.subviews.first)
+        XCTAssertEqual(content.layer.animationKeys() ?? [], [], "the content in its cell at once")
+    }
+
     /// The projection restores what the host had said of a control, not
     /// CSS's `display: none` (review B1): shown again, it is visible.
     func testAProjectionRestoresTheHostsWordNotDisplay() throws {

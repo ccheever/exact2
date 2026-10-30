@@ -24,7 +24,7 @@ mod svg;
 mod tests;
 mod text;
 
-/// Headless instanced painter; its premultiplied pixels use the presenter's ordinary path.
+/// Instanced painter with window presentation and premultiplied pixel readback.
 pub struct Ink {
     device: Selected,
     encoder: Encoder,
@@ -277,6 +277,14 @@ impl Ink {
 }
 
 impl Backend for Ink {
+    #[cfg(target_os = "macos")]
+    fn attach_apple_layer(
+        &mut self,
+        layer: exact_ink::device::apple::Layer,
+    ) -> std::result::Result<Info, String> {
+        self.device.attach_layer(layer).map_err(|e| e.to_string())?;
+        Ok(self.info().clone())
+    }
     #[cfg(windows)]
     fn displayed_process_ms(&self) -> std::result::Result<Option<f64>, String> {
         if let Selected::D3d11(device) = &self.device {
@@ -658,9 +666,30 @@ impl Backend for Ink {
         Ok(pixels)
     }
     fn finish_for(&mut self, target: FrameTarget) -> std::result::Result<Option<Pixmap>, String> {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"ink finish");
         if target == FrameTarget::Geometry {
             Ok(None)
         } else {
+            #[cfg(target_os = "macos")]
+            if target == FrameTarget::Window && self.device.has_layer() {
+                if let Some(e) = &self.error {
+                    return Err(e.clone());
+                }
+                let result = (|| {
+                    while !self.groups.is_empty() {
+                        self.close_group()?;
+                    }
+                    let texture = self.flush()?;
+                    self.last_ms = (self.layer_ms, self.device.present(texture)?);
+                    Ok(())
+                })();
+                if self.accept(result).is_none() {
+                    return Err(self.error.clone().unwrap());
+                }
+                self.update_statistics();
+                return Ok(None);
+            }
             #[cfg(windows)]
             if target == FrameTarget::Window
                 && matches!(&self.device, Selected::D3d11(d) if d.has_window())
@@ -723,6 +752,8 @@ impl Backend for Ink {
         self.keep_slot();
     }
     fn slot_again(&mut self, row: u32, id: exact_kernel::ViewId) -> bool {
+        #[cfg(target_os = "macos")]
+        exact_ink::device::apple::trace_mark(c"image slot again", || id as f64);
         self.replace_slot(row, id)
     }
     fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {

@@ -2,3 +2,4 @@
 
 mod decode;
 mod json;
+mod rows;

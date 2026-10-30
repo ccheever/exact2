@@ -1176,9 +1176,14 @@ each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https:/
 whole scheme, `net.fetch https:` (any host and port, for a server the person names
 at run time; `net.websocket` takes `wss:` or `ws:` the same way); on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
-`host.ios.localNetworking` set; a device on the local network the person names or
-the app finds is `net.fetch local-network` with `device.local-network purpose.<key>`,
-whose text is the platform's prompt on macOS and iOS ([recipe](recipes/local-network.md));
+`host.ios.localNetworking` set, unless ATS is off (below); a device on the local
+network the person names or the app finds is `net.fetch local-network` with
+`device.local-network purpose.<key>`, whose text is the platform's prompt on macOS
+and iOS ([recipe](recipes/local-network.md)); the app's own `http` to any other
+host, such as a server the person types in, needs each Apple platform's
+`appTransportSecurity` (`host.macos`, `host.ios`) set to
+`{ "allowsArbitraryLoads": true }`, which turns ATS off for every connection the
+app makes, frames included, and which App Store review asks the app to justify;
 an `iframe` of `http://` from a named host, or such a sub-resource of the app's
 own `assets/` page, needs `host.macos.appTransportSecurity` or
 `host.ios.appTransportSecurity` set to `{ "allowsArbitraryLoadsInWebContent": true }`,
@@ -1189,6 +1194,15 @@ bundle, so its ATS policy also applies during drives. A path grant covers its pa
 it, by whole names: `sqlite.open app:/data` covers `app:/data/inbox-amy.sqlite`,
 `sqlite.open app:/data/inbox` does not. A refused open names the file it wanted
 and the grant line that would admit it.
+A line of `app.ts`'s grants that begins with the word `development` is a development
+build's only: a production bake (`EXACT_UPDATE_TRUST=production`, which an Apple
+`--archive` or `--release` and a deploy set) leaves it out, and any other keeps it
+without the word (`development device.calls purpose.calls`, Harmony's test call,
+LLP 1133.033 §13 question 4). Only the build's copy of `app.ts` changes, so the
+module's own `grants` constant is the build's, and the app can hide what the line
+serves (Harmony's `testCallBuild` source). A Rust data crate's `grants()` can't mark
+a line yet: the bake refuses one (`grant-development`). The bake's own trailing word
+on a development build's `local-network` line (LLP 1133.036 D5) is another thing.
 A token, a password or a key the module keeps is a secret, not a file: grant
 `secret.keep <name>` (one line per name, `secret.keep signal.token`) and use
 `store.set(name, value)`, `store.get(name)` (a string, or `null`) and
@@ -3190,6 +3204,56 @@ audited journey; these clock changes do not certify every agent workload. Plain 
 reads under platform timing use the bounded metrics path. Plan-site `perf <target>`
 can enable its requested counters without starting the old frame sampler.
 
+### A scroller's offset per frame: `perf frames track`
+
+`perf frames track start <node> [1–120000 ms]` leases a scroll track on one node's native scroller (default
+30000 ms). `perf frames track read` returns what it recorded, and `perf frames track stop` reads the rest and
+releases it. The format is `exact.frame-health.track/1`. A fling's top hits and prepends are counted from it, which
+the bounded metrics and reports don't carry.
+
+- **Where its rows come from:** each row is one committed offset change, recorded in the host's existing scroll
+  callback: iOS `scrollViewDidScroll`, or the Mac clip's bounds change. The track adds no display link, timer or
+  observer, so a tracked fling is scheduled as an untracked one is.
+- **At rest:** a still scroller writes no rows. On the Mac, a bounds change that leaves the origin where it was (a
+  resize at rest, including the first after `start`, whose origin is the baseline) writes none either.
+- **A bounded read:** like `perf frames health`, `report` and `capture`, a track request never waits for a slice in
+  flight to land. `perf frames track start <view id>` sends only the track request. A testId is resolved with one
+  `tree` first, which does land slices in flight, so resolve it before the glide, or start with the id `tree`
+  lists to start or replace a track mid-glide.
+- **Several rows in one frame:** a frame can write more than one row when the host also moves the offset in it (a
+  prepend's anchor correction). These are separate offsets, and their short intervals aren't frames.
+- **Leases:** one track a session. A second `start` replaces the first (its unread rows go, and the reply says
+  `replaced: true`). A `start` that fails (`no-scroller`, a bad lease) leaves the current track as it was.
+- **Where it may be leased:** exactly where `perf frames capture` may: frame health enabled (`frame_health` mode
+  `core`; development builds by default, production bakes only when `app.json` says so) and no virtual clock.
+  Elsewhere it answers `available: false` with capture's reason.
+- **Memory:** 4096 rows of 16 bytes, allocated at `start` and freed by the read that ends a stopped track, a
+  replacing `start`, a reload or clock change, the session's teardown, or, once the lease ends, the next track
+  request (or, while the track is still recording, the next feed). No timer ends it.
+- **Reads:** each reply fits 4000 bytes with the carrier's newline. It holds the oldest unread rows that fit; `more`
+  says there are others, and `cursor` (a row count, as a decimal string) continues from where it stopped. A read
+  with no cursor is from row 0, the track's first. The driver keeps each session's cursor, so consecutive `read`s
+  don't repeat rows, and starts again from 0 after a successful `start`.
+- **Cursors:** the driver keeps one cursor per app session it drives (`s.session`), so switching sessions doesn't
+  carry a cursor across.
+- **Stop and ends:** `stop` freezes the track: no row is written after it. Its reply is the first page of what is
+  left (`stopped: true`, `more` if there is more), the rest is read by cursor, and the read that answers
+  `more: false` releases the ring. A frozen track nobody reads to the end is released when its lease ends or a new
+  `start` replaces it. The driver's `stop` reads to the end and joins every page. A
+  read after the lease ended answers `track: false, reason: no-track`; the driver says so instead of returning a
+  partial page.
+- **Malformed nodes:** a node id that names no view (negative, too large, not an integer) is refused as
+  `no-scroller` and leaves the current track.
+- **`dropped`:** the rows the ring overwrote before the read reached them, which happens past 4096 unread rows.
+
+| Field | Meaning |
+|---|---|
+| `t_us` | Arrival of the scroll callback, `CACurrentMediaTime`, microseconds since `start` |
+| `interval_us` | Spacing from the previous row. 0 (a new run, no comparable predecessor) for the first retained row, after a gap of 0.5 s or more, and after a gap of more than two periods following a `t` or `-` row: a held finger or a scroller at rest moves nothing and writes no row, so that gap is a pause, not lost frames |
+| `missed` | A **proxy**: `max(0, round(interval / period) − 1)`, with `period_us` = 1 / the screen's `maximumFramesPerSecond` at `start`. It counts callback spacing, not presentation: a display running below its maximum rate reads as missed frames, and an unchanged offset in a frame writes no row |
+| `offset_cpt` | The scroller's committed offset along its scrolling axis (y unless it scrolls only sideways: on the Mac, its overflow says so when only one axis scrolls, whatever its content's height; otherwise, as on iOS, content wider than the scroller that fits its height), in hundredths of a point, clamped to JSON's safe integers (±(2^53 − 1)) |
+| `phase` | `t` a finger dragging, `d` decelerating, `b` past its range, `-` neither. On the Mac, `t`/`d` come from the event the scroller's own wheel handler moved it with (`phase` or `momentumPhase` began or changed; an ended phase is `-`), a plain wheel is `-`, and a move outside a wheel event (a layout's) is `-` |
+
 On macOS, phased trackpad replay (`tap … wheel … gesture`) is refused under platform
 timing with `platform-trackpad-replay-unqualified`. AppKit has no validated completion
 acknowledgement for this synthetic sequence, so an immediate layout read may see
@@ -4125,8 +4189,8 @@ the tint on iOS and the web, the secondary label colour on the Mac),
 `color="#8e8e93"`; `border-color="-exact-separator"`, not a grey hex. Surfaces come
 in pairs: a card on a plain page (`-exact-background`, or unsaid) is
 `-exact-secondary-background`; on a `-exact-grouped-background` page it is
-`-exact-secondary-grouped-background` (white in light mode, so on a plain white page
-it vanishes); a surface inside either card is its pair's tertiary role. A route whose
+`-exact-secondary-grouped-background` (white in light mode on iOS and the web, so on a plain white page
+it vanishes there; on the Mac both card roles are AppKit's under-page grey); a surface inside either card is its pair's tertiary role. A route whose
 scroll is a grouped list (`list appearance="auto"`, `inset-grouped` or `grouped`) is a
 `-exact-grouped-background` page with nothing written, bar to bottom edge, so a switcher
 or summary between its `header` and the list sits on the list's grey (LLP 1116.007 D5); a

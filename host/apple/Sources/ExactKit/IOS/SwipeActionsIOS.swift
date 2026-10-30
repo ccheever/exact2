@@ -462,6 +462,12 @@ package final class SwipeActionsHost {
         }
         private func project() -> (UITableView, Cell) {
             if let table, let cell { return (table, cell) }
+            // Made with no animation inside one UIKit has open: a new view takes its place and its look at once
+            var made: (UITableView, Cell)!
+            owner.moveOrPlace(new: true) { made = makeTable() }
+            return made
+        }
+        private func makeTable() -> (UITableView, Cell) {
             let table = SwipeTable(frame: owner.bounds, style: .plain)
             let cell = Cell(style: .default, reuseIdentifier: nil)
             table.dataSource = self; table.delegate = self
@@ -495,7 +501,7 @@ package final class SwipeActionsHost {
             // Home is where the owner keeps its content now: a scroll view
             // released while the row was projected left its children to the owner.
             if let carrier, let parent = logicalParent ?? (carrier.superview === cell?.contentView ? owner.scroll ?? owner : nil) {
-                parent.addSubview(carrier); carrier.frame = logicalFrame
+                parent.addSubview(carrier); owner.moveOrPlace(new: true) { carrier.frame = logicalFrame }
                 if let node = carrier as? NodeView { owner.presenter?.regrid(node) } // placed from the cell while projected
             }
             for (control, hidden) in hiddenControls { control.isHidden = hidden }
@@ -579,7 +585,9 @@ package final class SwipeActionsHost {
             carrier = content; logicalParent = scroll; logicalFrame = content.frame
             let origin = body.convert(CGPoint.zero, to: content)
             let (table, cell) = project()
-            if table.superview !== owner { owner.addSubview(table) }
+            // Made or put under the row since the last frame, the table and the content in its cell take their place at once
+            let tableNew = table.superview !== owner, contentNew = content.superview !== cell.contentView
+            if tableNew { owner.addSubview(table) }
             owner.scroll?.isHidden = true
             // What the hidden scroll would hide: the content's siblings.
             if owner.scroll == nil {
@@ -589,13 +597,13 @@ package final class SwipeActionsHost {
                 table.setEditing(false, animated: false)
             }
             priorSize = owner.bounds.size
-            table.frame = owner.bounds
+            owner.moveOrPlace(new: tableNew) { table.frame = owner.bounds }
             // The cell follows the row: UIKit keeps a row's height until it reloads.
             if table.rowHeight != body.bounds.height { table.rowHeight = body.bounds.height; table.reloadData() }
             if content.superview !== cell.contentView { cell.contentView.addSubview(content) }
             // Keep the original ancestors between content and the row. Their
             // opacity, clips, inherited semantics and input restrictions apply.
-            content.frame = CGRect(origin: CGPoint(x: -origin.x, y: -origin.y), size: logicalFrame.size)
+            owner.moveOrPlace(new: contentNew) { content.frame = CGRect(origin: CGPoint(x: -origin.x, y: -origin.y), size: logicalFrame.size) }
             for control in leading + trailing { hide(control) }
             // UIKit derives its cell label from native text controls; an
             // authored button paints its own text. Preserve that button's

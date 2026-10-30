@@ -13,6 +13,9 @@ mod selected;
 pub mod wgpu;
 pub use selected::Selected;
 
+#[cfg(target_os = "macos")]
+pub mod apple;
+
 /// Windows' default and explicit direct-device choices; `Some(true)` forces WARP.
 pub fn direct_d3d11(value: Option<&str>) -> Option<bool> {
     match value {

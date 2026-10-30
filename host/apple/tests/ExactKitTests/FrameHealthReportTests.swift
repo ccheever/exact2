@@ -38,7 +38,10 @@ final class FrameHealthReportTests: XCTestCase {
         XCTAssertGreaterThan(events.count, 0)
         XCTAssertEqual(events.last?[0] as? String, "39")
         XCTAssertEqual((decoded["retention"] as? [String: Any])?["omittedForBudget"] as? Int, 16 - events.count)
-        XCTAssertEqual(events.first?[columns.firstIndex(of: "gap_ns")!] as? UInt64, 24_000_000)
+        // 24 ms between arrivals that are CACurrentMediaTime() plus multiples of 0.024 s: the doubles' difference lands
+        // a nanosecond either side of it, depending on the clock's magnitude when the test starts
+        let gap = try XCTUnwrap(events.first?[columns.firstIndex(of: "gap_ns")!] as? UInt64)
+        XCTAssertEqual(Double(gap), 24_000_000, accuracy: 1)
         XCTAssertEqual(events.first?[columns.firstIndex(of: "requested_period_ns")!] as? UInt64, 8_333_333)
         XCTAssertTrue(events.first?[columns.firstIndex(of: "owner_queued_offset_ns")!] is NSNull)
         XCTAssertEqual((decoded["retention"] as? [String: Any])?["overwrittenSinceClear"] as? String, "23")

@@ -447,7 +447,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   // alone, is what WidgetContainer.configure reads); the activity keys are ActivityKit's (LLP 1126.001 §1).
   if (!tv && id === app.id && hasEntries(app)) Object.assign(dict, { ExactAppGroup: widgetGroup(app), ExactAppIdentifier: app.id, ExactWidgetKinds: platformWidgetEntries(app).map(e => e.kind),
     ...(activityEntries(app).length ? { NSSupportsLiveActivities: true, ...(activityEntries(app).some(e => e.frequent === true) ? { NSSupportsLiveActivitiesFrequentUpdates: true } : {}) } : {}) });
-  Object.assign(dict, transportSecurity(tv ? {} : ios, localNetworking(ios, reach)));
+  Object.assign(dict, transportSecurity(ios, localNetworking(ios, reach), { web: !tv }));
   if (ios.localNetworking) dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
   Object.assign(dict, backgroundKeys(ios, reach, id, tv || clip), nfcKeys(ios, tv), startLocation(app));
   // The schemes `canOpenURL` may ask about; iOS answers false for any other (`UIApplication.canOpenURL(_:)`)
@@ -608,7 +608,6 @@ export function copyAppleGpuProducts(capture, destination, artifacts, archive = 
   }
 }
 
-// ---------------------------------------------------------------- the build
 async function main(args, lockHeld = false) {
   let launchEnv;
   try { launchEnv = developmentLaunchEnvironment(args); }
@@ -643,6 +642,9 @@ async function main(args, lockHeld = false) {
     process.exitCode = 1; return;
   }
   const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link', '--watch-sim'].includes(args[i - 1]))), root);
+  if (!ios && !args.includes('--watchos') && (args.includes('--painted-benchmark') || app.manifest.host?.macos?.presenter === 'painted')) {
+    return (await import('../apple-painted/build.mjs')).buildPainted(app, args, { macInfoPlist });
+  }
   if (args.includes('--watchos')) return (await import('./watch.mjs')).buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent: args => main(args, true) });
   // An app with an update store ships into a stream: the bake refuses a production build without its receipt. Said before Cargo.
   const store = `deploy.store.${ios ? 'ios' : 'macos'}`, streamed = app.manifest.deploy?.store?.[ios ? 'ios' : 'macos'] !== '0';

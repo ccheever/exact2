@@ -51,7 +51,7 @@ the code and proposes:
 |---|---|---|
 | D1 | A late frame names no cause | The time each named main-thread host phase spent inside the late frame's interval, charged to the innermost phase, with the rest stated as unattributed |
 | D2 | A trace from another machine reads as bare site numbers | The trace names the build it came from (commit, host, bundle). `trace --plan` names a map, and `trace --out` writes a copy with the map joined in by the driver |
-| D3 | The macOS driver cannot fling or hold a rubber band, and has no live frames | `wheel … fling` and `wheel … hold`, routed to AppKit and paced on the main run loop; `perf frames live` on Apple. Each starts with a probe |
+| D3 | The macOS driver cannot fling or hold a rubber band, and has no live frames | `wheel … fling` and `wheel … hold`, routed to AppKit and paced by a `CVDisplayLink` on the target display; `perf frames live` on Apple. Each starts with a probe |
 | D4 | A failed resource is visible only in the journal | Counts beside `state.failed`; failure lines carried to the host in the batch and written to the unified log and stderr; a line in App Info |
 | D5 | Only a person can save a macOS trace | `SIGUSR1` on macOS and the iOS simulator; `agent.mjs trace --pid` finds the file it asked for |
 | D6 | Nothing flags work at frame rate | Dispatches and commits by handler site in `perf`; a lowering warning for a key that reads the row's position |
@@ -210,7 +210,7 @@ All three are forms of `tap … wheel` and `perf`. None is a new operation.
 
 **Routing.** A `fling` or `hold` gesture sets `ChainingScrollView.appliesAtOnce` false from its `began` until its end, so the latched owner routes it `.appKit` and AppKit runs its scrolling, momentum and band. Plain `wheel` and `wheel … gesture` are unchanged.
 
-**Pacing.** The events are posted with `NSApp.postEvent(_:atStart: false)` from a timer on the main run loop, one per display period. They are not sent from one call, because AppKit applies one event of a gesture handed over whole (`ChainingScrollView.swift:103-105`).
+**Pacing.** The driver posts events with `CGEvent.postToPid`, one per output callback of a `CVDisplayLink` on the display under the target point. They are not sent from one call, because AppKit applies one event of a gesture handed over whole (`ChainingScrollView.swift:103-105`).
 
 - **`tap <s> wheel dx dy fling`** takes `(dx, dy)` as the finger's total travel. The driver sends:
   - began;
@@ -419,7 +419,7 @@ This matches what `ChainingScrollView`'s comment and the fill-policy entry in `Q
 
 The window need not be active. A plain `NSScrollView` and Caltrain's page both glide on the posted momentum, band past their end and spring back. A pull held past the end stays stretched across a separate `layout` and `screenshot` until `release`.
 
-As built, `tap <s> wheel dx dy fling`, `… hold` and `tap <s> wheel 0 0 release` are §5's forms. The driver asks the app where to post (`platform: true` on the `tap`, which synthesizes nothing), and `host/apple/wheel.swift` posts the events one display period apart. It is compiled once per source and Xcode into `target/wheel-helper/`. A fling's reply waits up to 4 s for the scroller to rest and gives its `offset`. A drive that ends with a hold open releases it. The other carriers answer `unsupported`. `fling.mjs macos` flings this way unless `--person` asks for a person's flings. The session's clock does not move during AppKit's motion, as §5 has it.
+As built, `tap <s> wheel dx dy fling`, `… hold` and `tap <s> wheel 0 0 release` are §5's forms. The driver asks the app where to post (`platform: true` on the `tap`, which synthesizes nothing), and `host/apple/wheel.swift` posts one event per `CVDisplayLink` output callback on the display under that point. It is compiled once per source and Xcode into `target/wheel-helper/`. A fling's reply waits up to 4 s for the scroller to rest and gives its `offset`. A drive that ends with a hold open releases it. The other carriers answer `unsupported`. `fling.mjs macos` flings this way unless `--person` asks for a person's flings. The session's clock does not move during AppKit's motion, as §5 has it.
 
 Two limits remain:
 

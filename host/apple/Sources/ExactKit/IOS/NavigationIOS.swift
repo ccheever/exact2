@@ -270,6 +270,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         presenter.videoVisibility?.changed()
         presenter.scrollPump.scrolled(nil)
         FrameSampler.scrolled(scrollView, in: presenter.session, person: false)
+        presenter.session?.frameHealth.trackScrolled(scrollView)
         node.repaintThrough()
     }
 

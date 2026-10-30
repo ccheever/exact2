@@ -158,7 +158,7 @@ public final class Agent {
         // (LLP 1072 T9); under the agent slices are synchronous, so this is
         // for a carrier attached to an ordinary run.
         let boundedFrameRead = op == "perf" && req["frames"] as? Bool == true
-            && (req["report"] as? Bool == true || req["health"] as? Bool == true || req["capture"] is String)
+            && (req["report"] as? Bool == true || req["health"] as? Bool == true || req["capture"] is String || req["track"] is String)
         if !boundedFrameRead { ExactSession.drainAll() }
         let wanted = req["session"] as? String
         var target: ExactSession? = nil
@@ -189,6 +189,19 @@ public final class Agent {
             let selected = req["source"] as? String == "scroll" ? session.frameHealth.nativeHealth : session.frameHealth
             if req["source"] as? String == "scroll", selected == nil {
                 Agent.reply(["format": FrameHealthMetrics.format, "available": false, "error": "native-scroll-unobserved", "reason": FrameHealth.nativeObserverAllowed ? "No native scroll has been observed. Reproduce a native drag on iOS/tvOS 18 or later." : "Native-scroll observation is experimental and disabled in release builds. Use a development build with iOS/tvOS 18 or later."])
+                return
+            }
+            // `perf frames track` (exact.frame-health.track/1): one node's scroller, per committed offset, leased.
+            if let action = req["track"] as? String {
+                let node = req["node"] as? Int
+                #if canImport(UIKit)
+                let hertz = presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60
+                #else
+                let hertz = presenter.viewport.window?.screen?.maximumFramesPerSecond ?? 60
+                #endif
+                let reply = session.frameHealth.trackRequest(action, node: node, scroller: node.flatMap(trackedScroller),
+                    durationMs: req["durationMs"] as? Double, cursor: req["cursor"] as? String, maximumFramesPerSecond: hertz)
+                if let raw = reply["raw"] as? String { Agent.raw(raw) } else { Agent.reply(reply) }
                 return
             }
             if req["report"] as? Bool == true {

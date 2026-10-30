@@ -5,6 +5,8 @@ use crate::json::{self, Json, Object};
 use crate::parse::{Error, Items, Members, Parser, Tree, Visit};
 use crate::{describe, from_lean, Shape};
 use exact_plan::Value;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 type Answer = Result<Value, String>;
@@ -13,7 +15,7 @@ type Answer = Result<Value, String>;
 /// JSON syntax and recursion limits are serde_json's (`crate::parse`).
 pub fn from_json_text(text: &str, shape: &Shape) -> Result<Value, String> {
     let mut parser = Parser::new(text.as_bytes());
-    let value = Node(Some(shape), unique_records(shape, text.len()))
+    let value = Node(Some(shape), unique_records(shape, text.len()), None)
         .decode(&mut parser)
         .map_err(|e| e.to_string())?;
     parser.end().map_err(|e| e.to_string())?;
@@ -44,10 +46,123 @@ pub fn reply_from_json_slice(bytes: &[u8], shape: &Shape) -> Result<Reply, Error
     })
 }
 
+/// [`reply_from_json_text`], reusing the values of list elements whose
+/// bytes are the ones `rows` kept from this source's last reply: those are
+/// the records a module answers again unchanged (a transcript's window
+/// holds its last page's rows). The same bytes under the same shape decode
+/// to the same value, so the answer is exactly a full decode's.
+pub fn reply_reusing(text: &str, shape: &Shape, rows: &RefCell<Rows>) -> Result<Reply, Error> {
+    let bytes = text.as_bytes();
+    let mut parser = Parser::new(bytes);
+    let decoded = parser
+        .value(Envelope(
+            shape,
+            unique_records(shape, bytes.len()),
+            Some(rows),
+        ))
+        .and_then(|reply| parser.end().map(|()| reply));
+    // Only an envelope with a value replaces what was kept: an answer's other envelopes
+    // (a call begun, a fetch asked for) pass between its replies and keep nothing.
+    match &decoded {
+        Ok(json::Reply { value: None, .. }) => rows.borrow_mut().next.clear(),
+        _ => rows.borrow_mut().settle(decoded.is_ok()),
+    }
+    let json::Reply { fields, value } = decoded?;
+    Ok(Reply {
+        fields: fields.into(),
+        value: value.unwrap_or_else(|| from_lean(&Json::Null, shape)),
+    })
+}
+
+/// A source's list elements of a record shape from its last reply: each
+/// one's bytes and decoded value, by a hash of its first bytes and its shape.
+/// What one reply's value decodes replaces what the last one kept, so it
+/// never holds more than the elements decoded from one reply (and while a
+/// reply decodes, the last one's too). An element under 64 bytes isn't kept.
+#[derive(Default)]
+pub struct Rows {
+    held: Kept,
+    next: Kept,
+}
+
+/// Elements by their shape's address and their first bytes' hash: each one's bytes and value.
+type Kept = HashMap<(usize, u64), Vec<(Box<[u8]>, Value)>>;
+
+/// Elements kept under one key at most: elements alike in their first bytes
+/// are looked through in turn, so a shape whose elements all begin alike
+/// keeps a few rather than paying a long search per element.
+const BUCKET: usize = 8;
+
+impl Rows {
+    /// The elements kept, for tests and memory reports.
+    pub fn len(&self) -> usize {
+        self.held.values().map(Vec::len).sum()
+    }
+
+    /// No element kept.
+    pub fn is_empty(&self) -> bool {
+        self.held.is_empty()
+    }
+
+    fn key(shape: &Shape, bytes: &[u8]) -> (usize, u64) {
+        // FNV-1a over the first 64 bytes: a record's leading field (an id) tells most apart.
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for &b in &bytes[..bytes.len().min(64)] {
+            hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+        #[cfg(test)]
+        if COLLIDE.with(|c| c.get()) {
+            hash = 0; // every element under one key: only the byte compare tells them apart
+        }
+        (shape as *const Shape as usize, hash)
+    }
+
+    /// The value of a kept element the input `rest` begins with, and its
+    /// length. A kept element is a whole JSON value, so input that begins with
+    /// its bytes holds exactly that value there.
+    fn get(&mut self, shape: &Shape, rest: &[u8]) -> Option<(Value, usize)> {
+        let key = Self::key(shape, rest);
+        let bucket = self.held.get_mut(&key)?;
+        let i = bucket.iter().position(|(kept, _)| rest.starts_with(kept))?;
+        // Moved to this reply's, not copied: an element answered twice in one reply decodes again.
+        let (kept, value) = bucket.swap_remove(i);
+        let len = kept.len();
+        self.put(key, kept, value.clone());
+        Some((value, len))
+    }
+
+    fn keep(&mut self, shape: &Shape, bytes: &[u8], value: &Value) {
+        // A lookup hashes the input's next 64 bytes, so an element shorter than that is never found:
+        // it isn't kept (decoding one costs about what looking it up would).
+        if bytes.len() >= 64 {
+            self.put(Self::key(shape, bytes), bytes.into(), value.clone());
+        }
+    }
+
+    fn put(&mut self, key: (usize, u64), bytes: Box<[u8]>, value: Value) {
+        let bucket = self.next.entry(key).or_default();
+        if bucket.len() < BUCKET {
+            bucket.push((bytes, value));
+        }
+    }
+
+    /// The reply decoded: what it kept replaces the last reply's (a failed
+    /// decode keeps nothing of its own and drops the last reply's too).
+    fn settle(&mut self, ok: bool) {
+        self.held = std::mem::take(&mut self.next);
+        if !ok {
+            self.held.clear();
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local!(static COLLIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
+
 impl json::Reply {
     pub(crate) fn decode(bytes: &[u8], shape: &Shape) -> Result<json::Reply, Error> {
         let mut parser = Parser::new(bytes);
-        let reply = parser.value(Envelope(shape, unique_records(shape, bytes.len())))?;
+        let reply = parser.value(Envelope(shape, unique_records(shape, bytes.len()), None))?;
         parser.end()?;
         Ok(reply)
     }
@@ -78,8 +193,9 @@ fn unique_records(shape: &Shape, bytes: usize) -> bool {
 }
 
 // None validates and discards a subtree, including numeric overflow and depth.
+// The third field is the source's kept rows, when its reply reuses them.
 #[derive(Clone, Copy)]
-struct Node<'a>(Option<&'a Shape>, bool);
+struct Node<'a>(Option<&'a Shape>, bool, Option<&'a RefCell<Rows>>);
 
 impl Node<'_> {
     /// Hand-built shapes may repeat a field name: those decode through the
@@ -112,7 +228,7 @@ impl Node<'_> {
             shape = Some(inner);
             options += 1;
         }
-        let mut value = f(Node(shape, self.1))?;
+        let mut value = f(Node(shape, self.1, self.2))?;
         for _ in 0..options {
             value = Value::Option(Some(Rc::new(value)));
         }
@@ -176,9 +292,38 @@ impl Visit for Node<'_> {
         };
         let mut values = Vec::new();
         let mut error = None;
-        let node = Node(inner, self.1);
+        // An element of a record shape is looked up by its bytes; one decoded
+        // is kept for the next reply, and decoded without the rows, so what it
+        // holds isn't kept twice.
+        let node = Node(inner, self.1, None);
+        let rows = match (self.2, inner) {
+            (Some(rows), Some(shape @ Shape::Record(_))) if !node.needs_tree() => {
+                Some((rows, shape))
+            }
+            _ => None,
+        };
         loop {
-            let item = if node.needs_tree() {
+            let item = if let Some((rows, shape)) = rows {
+                let Some(start) = items.next_start()? else {
+                    break;
+                };
+                let hit = rows.borrow_mut().get(shape, items.rest(start));
+                match hit {
+                    Some((value, len)) => {
+                        items.skip_to(start + len);
+                        Ok(value)
+                    }
+                    None => {
+                        let item = items.visit_at(start, node)?;
+                        if let Ok(value) = &item {
+                            let end = items.at();
+                            rows.borrow_mut()
+                                .keep(shape, &items.rest(start)[..end - start], value);
+                        }
+                        item
+                    }
+                }
+            } else if node.needs_tree() {
                 match items.next(Tree)? {
                     Some(tree) => from_lean(&tree, node.0.unwrap_or(&Shape::Unit)),
                     None => break,
@@ -214,12 +359,12 @@ impl Visit for Node<'_> {
         while let Some(key) = members.key()? {
             match fields.iter().position(|(name, _)| name == key) {
                 Some(i) => {
-                    let node = Node(Some(&fields[i].1), self.1);
+                    let node = Node(Some(&fields[i].1), self.1, self.2);
                     slots[i] = Some(node_value(members, node)?);
                 }
                 None => {
                     let name = key.to_owned();
-                    let _ = node_value(members, Node(None, self.1))?;
+                    let _ = node_value(members, Node(None, self.1, None))?;
                     if extra.as_ref().is_none_or(|old| name < *old) {
                         extra = Some(name);
                     }
@@ -253,7 +398,7 @@ fn node_value(members: &mut Members<'_, '_>, node: Node<'_>) -> Result<Answer, E
     members.value(node)
 }
 
-struct Envelope<'a>(&'a Shape, bool);
+struct Envelope<'a>(&'a Shape, bool, Option<&'a RefCell<Rows>>);
 
 impl Envelope<'_> {
     fn other(self, fields: Json) -> json::Reply {
@@ -290,7 +435,7 @@ impl Visit for Envelope<'_> {
         let mut value = None;
         while let Some(key) = members.key()? {
             if key == "value" {
-                value = Some(node_value(members, Node(Some(self.0), self.1))?);
+                value = Some(node_value(members, Node(Some(self.0), self.1, self.2))?);
             } else {
                 let key = key.to_owned();
                 let member = members.value(Tree)?;
@@ -301,5 +446,46 @@ impl Visit for Envelope<'_> {
             fields: Json::Object(fields),
             value,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hash_collision_is_caught_by_comparing_the_bytes() {
+        let row = Shape::Record(vec![
+            ("id".into(), Shape::String),
+            ("n".into(), Shape::Number),
+        ]);
+        let shape = Shape::List(Box::new(row));
+        let rows = RefCell::new(Rows::default());
+        let text = |n: u32| {
+            format!(
+                r#"{{"tag":0,"value":[{}]}}"#,
+                (0..20)
+                    .map(|i| format!(
+                        r#"{{"id":"r{i} a row long enough to be kept, well past the 64 bytes","n":{}}}"#,
+                        i + n
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        };
+        COLLIDE.with(|c| c.set(true));
+        reply_reusing(&text(0), &shape, &rows).unwrap();
+        assert_eq!(rows.borrow().len(), 8, "one bucket, its first 8");
+        // Every row under one key, so the bucket keeps the first 8: each row of the next reply finds
+        // the bucket by key, and the byte compare tells its own entry from the others.
+        for n in [0, 100, 0] {
+            let cached = reply_reusing(&text(n), &shape, &rows).unwrap();
+            let full = reply_from_json_text(&text(n), &shape).unwrap();
+            assert_eq!(
+                cached.value.map(|v| v.to_bytes()),
+                full.value.map(|v| v.to_bytes())
+            );
+        }
+        COLLIDE.with(|c| c.set(false));
     }
 }

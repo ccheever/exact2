@@ -145,7 +145,7 @@ final class NodePool {
             parked[shape] = kept.isEmpty ? nil : kept
         }
         // A reused view the batch gave no frame has a fresh view's.
-        for view in unframed.values { if view.frame != .zero { view.frame = .zero }; view.grid = nil }
+        for view in unframed.values { if view.frame != .zero { presenter.moveOrPlace(view) { view.frame = .zero } }; view.grid = nil }
         unframed.removeAll()
     }
     /// Reused views, until the batch frames them.

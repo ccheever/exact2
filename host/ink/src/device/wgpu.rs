@@ -15,6 +15,8 @@ use std::time::Instant;
 use web_time::Instant;
 
 mod cache;
+#[cfg(target_os = "macos")]
+mod present;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
 
@@ -45,6 +47,12 @@ struct BufferSlot {
 }
 
 pub struct Wgpu {
+    #[cfg(target_os = "macos")]
+    instance: ::wgpu::Instance,
+    #[cfg(target_os = "macos")]
+    adapter: ::wgpu::Adapter,
+    #[cfg(target_os = "macos")]
+    window: Option<present::Window>,
     device: ::wgpu::Device,
     queue: ::wgpu::Queue,
     pipeline: ::wgpu::RenderPipeline,
@@ -60,11 +68,35 @@ pub struct Wgpu {
     next_texture: u64,
     submitted: Submission,
     done: Arc<AtomicU64>,
-    pending: BTreeMap<u64, ::wgpu::SubmissionIndex>,
+    pending: BTreeMap<u64, Pending>,
     retired_textures: Vec<(Submission, Texture)>,
     retired_buffers: Vec<(Submission, ::wgpu::Buffer)>,
     info: Info,
     errors: Arc<Mutex<Option<Error>>>,
+}
+
+enum Pending {
+    Submitted(::wgpu::SubmissionIndex),
+    #[cfg(target_os = "macos")]
+    Present(std::sync::mpsc::Receiver<Result<::wgpu::SubmissionIndex>>),
+}
+
+impl Pending {
+    fn index(&mut self) -> Result<::wgpu::SubmissionIndex> {
+        #[cfg(target_os = "macos")]
+        if let Self::Present(receiver) = self {
+            *self = Self::Submitted(
+                receiver
+                    .recv()
+                    .map_err(|_| Error::DeviceLost("wgpu presentation stopped".into()))??,
+            );
+        }
+        match self {
+            Self::Submitted(index) => Ok(index.clone()),
+            #[cfg(target_os = "macos")]
+            Self::Present(_) => unreachable!(),
+        }
+    }
 }
 
 impl Wgpu {
@@ -271,6 +303,12 @@ impl Wgpu {
         upload(&queue, &white_alpha, [0, 0], [1, 1], &[255]);
         upload(&queue, &white_color, [0, 0], [1, 1], &[255; 4]);
         Ok(Self {
+            #[cfg(target_os = "macos")]
+            instance,
+            #[cfg(target_os = "macos")]
+            adapter,
+            #[cfg(target_os = "macos")]
+            window: None,
             device,
             queue,
             pipeline,
@@ -377,16 +415,42 @@ impl Wgpu {
 
     fn submit(&mut self, commands: ::wgpu::CommandBuffer) -> Result<Submission> {
         failure(&self.errors)?;
-        let index = self.queue.submit([commands]);
-        failure(&self.errors)?;
         self.submitted.0 += 1;
         let id = self.submitted;
-        self.pending.insert(id.0, index);
         let done = self.done.clone();
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &self.window {
+            let queue = self.queue.clone();
+            let receipt = window.thread.send(move || {
+                let index = queue.submit([commands]);
+                queue.on_submitted_work_done(move || {
+                    done.fetch_max(id.0, Ordering::Release);
+                });
+                Ok(index)
+            })?;
+            self.pending.insert(id.0, Pending::Present(receipt));
+            return Ok(id);
+        }
+        let index = self.queue.submit([commands]);
+        failure(&self.errors)?;
+        self.pending.insert(id.0, Pending::Submitted(index));
         self.queue.on_submitted_work_done(move || {
             done.fetch_max(id.0, Ordering::Release);
         });
         Ok(id)
+    }
+
+    fn write_buffer(&self, buffer: &::wgpu::Buffer, offset: u64, bytes: &[u8]) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &self.window {
+            let (queue, buffer, bytes) = (self.queue.clone(), buffer.clone(), bytes.to_vec());
+            window
+                .thread
+                .send(move || queue.write_buffer(&buffer, offset, &bytes))?;
+            return Ok(());
+        }
+        self.queue.write_buffer(buffer, offset, bytes);
+        Ok(())
     }
 
     fn encode_pass(
@@ -472,8 +536,6 @@ impl Wgpu {
             },
             extent([width, height]),
         );
-        let submitted = self.submit(encoder.finish())?;
-        self.textures.get_mut(&id).unwrap().last = submitted;
         #[derive(Default)]
         struct Mapped {
             result: Option<std::result::Result<(), ::wgpu::BufferAsyncError>>,
@@ -481,18 +543,20 @@ impl Wgpu {
         }
         let state = Arc::new(Mutex::new(Mapped::default()));
         let callback = state.clone();
-        buffer
-            .slice(..)
-            .map_async(::wgpu::MapMode::Read, move |result| {
-                let waker = {
-                    let mut s = callback.lock().unwrap();
-                    s.result = Some(result);
-                    s.waker.take()
-                };
-                if let Some(waker) = waker {
-                    waker.wake();
-                }
-            });
+        // The worker may not have submitted this copy when the main thread
+        // returns. Mapping belongs to that submission, after its copy.
+        encoder.map_buffer_on_submit(&buffer, ::wgpu::MapMode::Read, .., move |result| {
+            let waker = {
+                let mut s = callback.lock().unwrap();
+                s.result = Some(result);
+                s.waker.take()
+            };
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        });
+        let submitted = self.submit(encoder.finish())?;
+        self.textures.get_mut(&id).unwrap().last = submitted;
         #[cfg(not(target_arch = "wasm32"))]
         self.wait(submitted)?;
         #[cfg(target_arch = "wasm32")]
@@ -557,7 +621,7 @@ impl Device for Wgpu {
             ));
         }
         self.wait(Submission(buffer.last.load(Ordering::Acquire)))?;
-        self.queue.write_buffer(&buffer.raw, offset, data);
+        self.write_buffer(&buffer.raw, offset, data)?;
         let submission = self.submit(
             self.device
                 .create_command_encoder(&Default::default())
@@ -600,6 +664,21 @@ impl Device for Wgpu {
         if data.len() as u64 != bytes {
             return Err(Error::Invalid("texture upload length".into()));
         }
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &self.window {
+            let (queue, raw, desc, data) = (
+                self.queue.clone(),
+                texture.raw.clone(),
+                texture.desc,
+                data.to_vec(),
+            );
+            window.thread.send(move || {
+                upload_raw(&queue, &raw, desc, origin, size, &data);
+            })?;
+        } else {
+            upload(&self.queue, texture, origin, size, data);
+        }
+        #[cfg(not(target_os = "macos"))]
         upload(&self.queue, texture, origin, size, data);
         let submission = self.submit(
             self.device
@@ -786,14 +865,13 @@ impl Device for Wgpu {
             self.retired_buffers.push((self.submitted, old.raw));
         }
         if !bytes.is_empty() {
-            self.queue
-                .write_buffer(&self.buffers[slot].buffer.raw, 0, bytes);
+            self.write_buffer(&self.buffers[slot].buffer.raw, 0, bytes)?;
         }
-        self.queue.write_buffer(
+        self.write_buffer(
             &self.buffers[slot].viewport,
             0,
             bytemuck::cast_slice(&[desc.width as f32, desc.height as f32, 0., 0.]),
-        );
+        )?;
         let groups = frame
             .batches
             .iter()
@@ -854,7 +932,11 @@ impl Device for Wgpu {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let polled = self.device.poll(::wgpu::PollType::Wait {
-                submission_index: self.pending.get(&submission.0).cloned(),
+                submission_index: self
+                    .pending
+                    .get_mut(&submission.0)
+                    .map(Pending::index)
+                    .transpose()?,
                 timeout: Some(std::time::Duration::from_secs(30)),
             });
             failure(&self.errors)?;
@@ -969,15 +1051,25 @@ fn point([x, y]: [u32; 2]) -> ::wgpu::Origin3d {
     ::wgpu::Origin3d { x, y, z: 0 }
 }
 fn upload(queue: &::wgpu::Queue, texture: &Texture, origin: [u32; 2], size: [u32; 2], data: &[u8]) {
+    upload_raw(queue, &texture.raw, texture.desc, origin, size, data);
+}
+fn upload_raw(
+    queue: &::wgpu::Queue,
+    texture: &::wgpu::Texture,
+    desc: TextureDesc,
+    origin: [u32; 2],
+    size: [u32; 2],
+    data: &[u8],
+) {
     queue.write_texture(
         ::wgpu::TexelCopyTextureInfo {
             origin: point(origin),
-            ..texture.raw.as_image_copy()
+            ..texture.as_image_copy()
         },
         data,
         ::wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(size[0] * texture.desc.format.channels()),
+            bytes_per_row: Some(size[0] * desc.format.channels()),
             rows_per_image: None,
         },
         extent(size),

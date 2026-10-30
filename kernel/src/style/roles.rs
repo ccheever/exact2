@@ -837,6 +837,47 @@ impl ColorValue {
 mod tests {
     use super::*;
 
+    /// The Mac's surface pairs: on current macOS windowBackgroundColor and controlBackgroundColor are one colour
+    /// (#ffffff / #1e1e1e), so each card role names an AppKit colour apart from its page's, the under-page grey; the
+    /// grouped page keeps the window's name, which SheetsMac and SplitMac read; the Apple and neutral columns are as
+    /// they were.
+    #[test]
+    fn the_macs_card_roles_name_a_colour_apart_from_their_pages() {
+        let by = |name: &str| COLOR_ROLES.iter().find(|r| r.name == name).unwrap();
+        for (page, card) in [
+            ("background", "secondary-background"),
+            ("grouped-background", "secondary-grouped-background"),
+        ] {
+            assert_ne!(by(page).macos, by(card).macos, "{card} on {page}");
+            assert_eq!(by(card).macos, "underPageBackgroundColor", "{card}");
+        }
+        assert_eq!(by("grouped-background").macos, "windowBackgroundColor");
+        let columns = |name: &str| {
+            let r = by(name);
+            (r.ios, r.light, r.dark, r.neutral_light, r.neutral_dark)
+        };
+        assert_eq!(
+            columns("secondary-background"),
+            (
+                "secondarySystemBackgroundColor",
+                0xf2f2_f7ff,
+                0x1c1c_1eff,
+                0xf5f5_f5ff,
+                0x1e1e_1eff
+            )
+        );
+        assert_eq!(
+            columns("secondary-grouped-background"),
+            (
+                "secondarySystemGroupedBackgroundColor",
+                0xffff_ffff,
+                0x1c1c_1eff,
+                0xffff_ffff,
+                0x1e1e_1eff
+            )
+        );
+    }
+
     #[test]
     fn a_themes_accent_and_highlight_reach_the_ring_and_the_selection() {
         let pair = |l: u32, d: u32| ColorValue::LightDark(Color(l), Color(d));

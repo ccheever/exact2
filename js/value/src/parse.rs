@@ -543,12 +543,48 @@ impl<'a> Parser<'a> {
 impl Items<'_, '_> {
     /// The next element, visited; `None` at the closing bracket.
     pub(crate) fn next<V: Visit>(&mut self, visit: V) -> Result<Option<V::Out>, Error> {
+        if !self.separator()? {
+            return Ok(None);
+        }
+        self.parser.value(visit).map(Some)
+    }
+
+    /// The next element's first byte, with the parser at it; `None` at the
+    /// closing bracket. The caller visits it (`visit_at`) or, holding bytes
+    /// a full decode accepted that it begins with, moves past them (`skip_to`).
+    pub(crate) fn next_start(&mut self) -> Result<Option<usize>, Error> {
+        Ok(self.separator()?.then_some(self.parser.at))
+    }
+
+    /// The input from `start` to its end.
+    pub(crate) fn rest(&self, start: usize) -> &[u8] {
+        &self.parser.bytes[start..]
+    }
+
+    /// The parser's place, just past what it last read.
+    pub(crate) fn at(&self) -> usize {
+        self.parser.at
+    }
+
+    /// Past an element the caller knows ends at `end`.
+    pub(crate) fn skip_to(&mut self, end: usize) {
+        self.parser.at = end;
+    }
+
+    /// Visit the element `next_start` found at `start`, from its first byte.
+    pub(crate) fn visit_at<V: Visit>(&mut self, start: usize, visit: V) -> Result<V::Out, Error> {
+        self.parser.at = start;
+        self.parser.value(visit)
+    }
+
+    /// Past the separator before the next element: false at the closing bracket.
+    fn separator(&mut self) -> Result<bool, Error> {
         let parser = &mut *self.parser;
         let Some(peek) = parser.whitespace() else {
             return Err(parser.peek_error(Code::EofWhileParsingList));
         };
         if peek == b']' {
-            return Ok(None);
+            return Ok(false);
         }
         if self.first {
             self.first = false;
@@ -562,7 +598,7 @@ impl Items<'_, '_> {
         } else {
             return Err(parser.peek_error(Code::ExpectedListCommaOrEnd));
         }
-        parser.value(visit).map(Some)
+        Ok(true)
     }
 }
 

@@ -60,6 +60,8 @@ struct View {
     request: Option<(RequestId, PixelSize)>,
     accepted: Option<RequestId>,
     requested_for: (f32, f32),
+    requested_fit: exact_kernel::ObjectFit,
+    requested_scale: f32,
     lease: Option<RasterLease>,
     desired: (f32, f32),
     /// Asked for: in the viewport, or mounted where a host asks pictures at
@@ -302,6 +304,10 @@ impl Images {
     pub fn stats(&self) -> Stats {
         self.backend.session.stats()
     }
+    /// Whether a current image assignment was refused, including decode failure.
+    pub fn has_refusals(&self) -> bool {
+        self.views.values().any(|view| view.refusal.is_some())
+    }
     /// Where an embedded relative source resolves; selected assets expose bytes.
     pub fn resolve(&self, source: &str) -> Option<PathBuf> {
         self.assets.path(source)
@@ -376,6 +382,8 @@ impl Images {
                 request: None,
                 accepted: None,
                 requested_for: (0., 0.),
+                requested_fit: node.style.object_fit,
+                requested_scale: scale,
                 lease: None,
                 desired: (0., 0.),
                 visible: true,
@@ -393,7 +401,12 @@ impl Images {
                 rejected: None,
                 assignment: 0,
             });
-            view.desired = (node.frame.width * scale, node.frame.height * scale);
+            let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+            let border = node.style.border_widths();
+            view.desired = (
+                (node.frame.width - left - right - border[1] - border[3]).max(0.) * scale,
+                (node.frame.height - top - bottom - border[0] - border[2]).max(0.) * scale,
+            );
             view.fit = plain_box(node.style).then_some(node.style.object_fit);
             view.object_fit = node.style.object_fit;
             // LLP 1035.004.000: a symbol is an em square no file fills (the
@@ -811,6 +824,8 @@ impl Images {
                     Ok(request) => {
                         view.request = Some((request, decode.full()));
                         view.requested_for = view.desired;
+                        view.requested_fit = view.object_fit;
+                        view.requested_scale = scale;
                         view.part = !decode.crop.whole();
                         view.refusal = None;
                         // A picture the cache holds is ready as it is asked
@@ -1043,7 +1058,28 @@ fn plan_view(
     if header.is_svg() {
         return svg_picture::plan(header, view.desired, svg_ask(view, scale), available);
     }
-    plan(header, view.desired, available)
+    plan(
+        header,
+        drawn_size(header, view.desired, view.object_fit, scale),
+        available,
+    )
+}
+
+// Resolve in points: object-fit:none and scale-down compare intrinsic CSS
+// dimensions, then the device scale determines the raster's pixel demand.
+fn drawn_size(
+    header: png_decode::Header,
+    desired: (f32, f32),
+    fit: exact_kernel::ObjectFit,
+    scale: f32,
+) -> (f32, f32) {
+    let natural = header.metadata.natural;
+    crate::paint::object_fit(
+        (natural.width, natural.height),
+        fit,
+        (0., 0., desired.0 / scale, desired.1 / scale),
+    )
+    .map_or(desired, |(_, _, w, h)| (w * scale, h * scale))
 }
 
 fn svg_ask(view: &View, scale: f32) -> svg_picture::Ask {
@@ -1115,7 +1151,11 @@ fn resize_changes_view(header: png_decode::Header, view: &View, scale: f32) -> b
     if header.is_svg() {
         return svg_picture::resize_changes(header, svg_ask(view, scale), previous, next);
     }
-    resize_changes_decode(header, previous, next)
+    resize_changes_decode(
+        header,
+        drawn_size(header, previous, view.requested_fit, view.requested_scale),
+        drawn_size(header, next, view.object_fit, scale),
+    )
 }
 
 fn resize_changes_decode(

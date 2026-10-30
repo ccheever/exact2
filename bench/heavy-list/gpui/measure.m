@@ -77,7 +77,11 @@ static BOOL lostFocus(NSString *output) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc < 5 || argc > 8) fail(@"measure <result-dir> <native-executable> <gpui-executable> <exact-wheel> [rounds=5] [first-round=1] [cold-only]");
+        if (argc < 5 || argc > 8) fail(@"measure <result-dir> <native-executable> <gpui-executable> <exact-wheel> [rounds=5] [first-round=1] [cold-only]; G3_PAINTED_BIN adds ink; G4_EGUI_BIN adds egui; G3_ONLY_INK=1 runs only ink");
+        NSString *ink = NSProcessInfo.processInfo.environment[@"G3_PAINTED_BIN"];
+        NSString *egui = NSProcessInfo.processInfo.environment[@"G4_EGUI_BIN"];
+        BOOL onlyInk = [NSProcessInfo.processInfo.environment[@"G3_ONLY_INK"] boolValue];
+        if (onlyInk && !ink.length) fail(@"G3_ONLY_INK needs G3_PAINTED_BIN");
         if (!CGPreflightPostEventAccess()) fail(@"this terminal lacks Accessibility permission for CGEvent.postToPid");
         NSString *directory = [@(argv[1]) stringByStandardizingPath];
         NSFileManager *files = NSFileManager.defaultManager;
@@ -87,7 +91,12 @@ int main(int argc, const char **argv) {
         BOOL coldOnly = argc == 8 && strcmp(argv[7], "cold-only") == 0;
         if (rounds < 1 || first < 1 || (argc == 8 && !coldOnly)) fail(@"invalid rounds, first round or cold-only argument");
         for (int round = first; round < first + rounds; round++) {
-            NSArray *arms = round % 2 ? @[@"native", @"gpui"] : @[@"gpui", @"native"];
+            NSMutableArray *targets = [NSMutableArray arrayWithArray:@[@"native", @"gpui"]];
+            if (ink.length) [targets addObject:@"ink"];
+            if (egui.length) [targets addObject:@"egui"];
+            if (onlyInk) targets = [NSMutableArray arrayWithObject:@"ink"];
+            NSMutableArray *arms = [NSMutableArray array];
+            for (NSUInteger i = 0; i < targets.count; i++) [arms addObject:targets[(round - 1 + i) % targets.count]];
             for (NSString *arm in arms) {
               for (int attempt = 0; attempt < 2; attempt++) {
                 NSString *name = [NSString stringWithFormat:@"%@-%d%@", arm, round, attempt ? @"-retry" : @""];
@@ -95,15 +104,21 @@ int main(int argc, const char **argv) {
                 if ([files fileExistsAtPath:output] || [files fileExistsAtPath:[output stringByAppendingString:@".ready"]]) fail(@"use a fresh results directory");
                 NSMutableDictionary *env = [NSProcessInfo.processInfo.environment mutableCopy];
                 env[@"G1_OUTPUT"] = output; env[@"G1_ARM"] = arm; env[@"BENCH_LIVE"] = @"0";
-                env[@"EXACT_WINDOW_WIDTH"] = @"800"; env[@"EXACT_WINDOW_HEIGHT"] = @"800";
+                env[@"EXACT_WINDOW_WIDTH"] = @"800";
+                env[@"EXACT_WINDOW_HEIGHT"] = [arm isEqual:@"ink"] ? @"768" : @"800";
                 [env removeObjectForKey:@"EXACT_AGENT"];
                 [env removeObjectForKey:@"DYLD_INSERT_LIBRARIES"];
                 [env removeObjectForKey:@"G1_COLD_ONLY"];
+                for (NSString *key in @[@"EXACT_AGENT_SOCKET", @"BENCH_START_INDEX", @"EXACT_FONT",
+                        @"EXACT_ROWS", @"EXACT_ASSETS", @"G1_TRACE", @"G4_DIAGNOSTICS", @"G1_ALLOW_IMAGE_REFUSALS"])
+                    [env removeObjectForKey:key];
                 if (coldOnly) env[@"G1_COLD_ONLY"] = @"1";
                 NSString *logPath = [directory stringByAppendingPathComponent:[name stringByAppendingString:@".log"]];
                 [files createFileAtPath:logPath contents:nil attributes:nil];
                 NSFileHandle *log = [NSFileHandle fileHandleForWritingAtPath:logPath];
-                NSTask *app = launch([arm isEqual:@"native"] ? @(argv[2]) : @(argv[3]), @[], env, log);
+                NSString *executable = [arm isEqual:@"egui"] ? egui : [arm isEqual:@"ink"] ? ink
+                    : [arm isEqual:@"native"] ? @(argv[2]) : @(argv[3]);
+                NSTask *app = launch(executable, @[], env, log);
                 runningApp = app;
                 fprintf(stdout, "%s pid=%d\n", name.UTF8String, app.processIdentifier); fflush(stdout);
                 activate(app);
@@ -167,7 +182,10 @@ int main(int argc, const char **argv) {
                     continue;
                 }
                 if (!coldOnly && [arm isEqual:@"native"] && [result[@"nativeOffsetEnd"] doubleValue] < 500) fail(@"native list did not scroll");
-                if (!coldOnly && [arm isEqual:@"gpui"] && [result[@"gpuiOffsetEnd"][@"item"] intValue] == 0) fail(@"GPUI list did not scroll");
+                if (!coldOnly && ([@[@"gpui", @"egui"] containsObject:arm])
+                    && [result[[arm stringByAppendingString:@"OffsetEnd"]][@"item"] intValue] == 0)
+                    fail([arm stringByAppendingString:@" list did not scroll"]);
+                if (!coldOnly && [arm isEqual:@"ink"] && [result[@"inkOffsetEnd"][@"withinItem"] doubleValue] < 500) fail(@"ink list did not scroll");
                 if ([result[@"thermalStart"] intValue] != [result[@"thermalEnd"] intValue]) fail(@"thermal state changed; retain this run but do not compare it");
                 fprintf(stdout, "%s cold=%.3f ms\n", name.UTF8String, [result[@"coldMs"] doubleValue]); fflush(stdout);
                 break;

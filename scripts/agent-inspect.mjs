@@ -425,6 +425,8 @@ function renderNode(n) {
   if (n.visible) out.push(`  visible ${sorted(n.visible).map(([k, v]) => `${k}=${v}`).join(' ')}`);
   if (n.native) out.push(`  native ${sorted(n.native).filter(([k]) => k !== 'subviews').map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
   if (n.browser) out.push(`  browser ${sorted(n.browser).map(([k, v]) => `${k}=${q(v)}`).join(' ')}`);
+  // A pressed paint, on the page's images, which the computed opacity and background don't show (LLP 1061 D7).
+  if (n.press_shown) out.push(`  press shows opacity=${n.press_shown.opacity} background=${q(n.press_shown.backgroundColor)} color=${q(n.press_shown.color)} (paint ${n.press_shown.paint})`);
   if (n.native?.subviews) out.push(...renderSubviews(n.native.subviews));
   return out;
 }
@@ -459,6 +461,36 @@ export async function partTap({ s, host, touch }, target, opts = {}) {
   return { ...landed, target, at: aim.aimed.at };
 }
 
+/** Where each app session's scroll track was last read to (`perf frames track`), per driver and session label (a
+ *  driver can switch `s.session`), so consecutive reads don't repeat rows; cleared when a start succeeds (a new or
+ *  replacing track counts from row 0) and at stop or a track's end. */
+const trackCursorMaps = new WeakMap();
+const trackCursors = {
+  map: s => { let m = trackCursorMaps.get(s); if (!m) trackCursorMaps.set(s, m = new Map()); return m; },
+  get: s => trackCursors.map(s).get(s.session ?? ''),
+  set: (s, cursor) => trackCursors.map(s).set(s.session ?? '', cursor),
+  delete: s => trackCursors.map(s).delete(s.session ?? ''),
+};
+
+/** Every unread page of a scroll track (`perf frames track read`), joined: its rows, the rows the ring overwrote first
+ *  (`dropped`), and the cursor to read on from (kept for the session). A track no longer leased when a later page is
+ *  asked answers its `no-track` refusal, with the rows read before it as `rowsBeforeEnd`, never a page saying more. */
+export async function readTrack(s, cursor = trackCursors.get(s)) {
+  let out = null;
+  for (let i = 0; i < 1000; i++) {
+    const page = await s.op({ op: 'perf', frames: true, track: 'read', ...(cursor !== undefined ? { cursor } : {}) });
+    if (page.error || page.track === false) {
+      trackCursors.delete(s);
+      return out ? { ...page, rowsBeforeEnd: out.rows, droppedBeforeEnd: out.dropped } : page;
+    }
+    out = out ? { ...page, rows: out.rows.concat(page.rows), dropped: out.dropped + page.dropped } : page;
+    cursor = page.cursor;
+    trackCursors.set(s, cursor);
+    if (!page.more) break;
+  }
+  return out;
+}
+
 export async function perfOp(s, args, line, step) {
   if (args[0] === 'frames') {
     if (args[1] === 'health') {
@@ -484,6 +516,34 @@ export async function perfOp(s, args, line, step) {
     if (args[1] === 'report') {
       if (args.length > 3 || (args[2] !== undefined && !['app', 'scroll'].includes(args[2]))) throw new MalformedOperation('perf frames report [app|scroll]');
       return s.op({ op: 'perf', frames: true, report: true, ...(args[2] ? { source: args[2] } : {}) });
+    }
+    if (args[1] === 'track') {
+      // `perf frames track start <node> [ms] | read | stop` (exact.frame-health.track/1): one node's scroller, each
+      // committed offset, in a bounded ring under a lease. A read gathers every page; stop reads the rest, then releases.
+      const action = args[2], durationMs = args[4] === undefined ? 30000 : Number(args[4]);
+      if (action === 'start') {
+        if (args.length < 4 || args.length > 5 || !Number.isInteger(durationMs) || durationMs < 1 || durationMs > 120000) throw new MalformedOperation('perf frames track start <node> [1–120000 ms] | read | stop');
+        // A view id goes straight to the host: the start is a bounded frame read and drains nothing, so it can start or
+        // replace a track mid-glide. A testId is resolved first with one `tree`, which lands slices in flight: resolve
+        // it before the glide (or pass the id `tree` lists).
+        const id = /^\d+$/.test(args[3]) ? Number(args[3]) : (await s.target(args[3])).id;
+        const started = await s.op({ op: 'perf', frames: true, track: 'start', node: id, durationMs });
+        if (started.track === true) trackCursors.delete(s);
+        return started;
+      }
+      if (!['read', 'stop'].includes(action) || args.length !== 3) throw new MalformedOperation('perf frames track start <node> [1–120000 ms] | read | stop');
+      const read = await readTrack(s);
+      if (action === 'read' || read.track === false || read.error) return read;
+      // Rows can land between the last read and the stop. The stop freezes the track (no more feeds) and answers its
+      // first page; the rest is read to the end, and the read that answers `more: false` releases the ring.
+      const tail = await s.op({ op: 'perf', frames: true, track: 'stop', cursor: read.cursor });
+      if (tail.error || tail.track === false) { trackCursors.delete(s); return { ...tail, rowsBeforeEnd: read.rows, droppedBeforeEnd: read.dropped }; }
+      trackCursors.set(s, tail.cursor);
+      const rest = tail.more ? await readTrack(s, tail.cursor) : { rows: [], dropped: 0, more: false };
+      trackCursors.delete(s);
+      if (rest.error || rest.track === false) return { ...rest, rowsBeforeEnd: read.rows.concat(tail.rows ?? [], rest.rowsBeforeEnd ?? []), droppedBeforeEnd: read.dropped + (tail.dropped ?? 0) + (rest.droppedBeforeEnd ?? 0) };
+      return { ...tail, ...(tail.more ? { cursor: rest.cursor } : {}), stopped: true, rows: read.rows.concat(tail.rows ?? [], rest.rows ?? []),
+        dropped: read.dropped + (tail.dropped ?? 0) + (rest.dropped ?? 0), more: rest.more === true };
     }
     if (args[1] === 'capture') {
       const action = args[2], durationMs = args[3] === undefined ? 60000 : Number(args[3]);
@@ -622,7 +682,32 @@ function renderStreamTiming(t) {
 /** Events a gesture sends on every frame, and how many make a fling's worth to judge (LLP 1144 D3). */
 const CONTINUOUS = new Set(['scroll', 'pointermove', 'wheel', 'drag']), CONTINUOUS_FROM = 20;
 
-function renderPerf(r) {
+/** A scroll track's reply (`exact.frame-health.track/1`): a start, a read or stop's rows summarized, or a refusal. */
+function renderTrack(r) {
+  if (r.error) return `scroll track: ${r.error}${r.reason ? ` (${r.reason})` : ''}`;
+  if (r.track === false) {
+    const why = r.reason === 'no-track' ? 'no track is leased (never started, stopped, replaced, or its lease ended)' : r.reason ?? 'refused';
+    const before = r.rowsBeforeEnd ? ` · ${r.rowsBeforeEnd.length} rows read before it ended` : '';
+    return `scroll track: ${r.available === false ? 'unavailable' : 'none'}: ${why}${before}`;
+  }
+  if (r.track === true) return `scroll track on node ${r.node} · lease ${r.leaseMs} ms · ${r.capacity} rows${r.replaced ? ' · replaced the previous track' : ''}`;
+  const rows = r.rows ?? [], at = name => (r.columns ?? []).indexOf(name);
+  const [ti, ii, mi, oi, pi] = ['t_us', 'interval_us', 'missed', 'offset_cpt', 'phase'].map(at);
+  const intervals = rows.map(x => x[ii]).filter(v => v > 0).sort((a, b) => a - b);
+  const q = f => intervals.length ? `${(intervals[Math.min(intervals.length - 1, Math.floor(f * intervals.length))] / 1000).toFixed(2)} ms` : '—';
+  const phases = {};
+  for (const x of rows) phases[x[pi]] = (phases[x[pi]] ?? 0) + 1;
+  const head = `scroll track node ${r.node}${r.stopped ? ' · stopped' : ''} · ${rows.length} rows · dropped ${r.dropped ?? 0}${r.more ? ' · more unread' : ''} · period ${(r.period_us / 1000).toFixed(2)} ms` +
+    (r.leaseRemainingMs != null && !r.stopped ? ` · lease ${r.leaseRemainingMs} ms left` : '');
+  if (!rows.length) return head;
+  const first = rows[0], last = rows.at(-1);
+  return [head,
+    `  t ${(first[ti] / 1000).toFixed(1)}..${(last[ti] / 1000).toFixed(1)} ms · offset ${first[oi] / 100}..${last[oi] / 100} pt · interval p50 ${q(0.5)} p99 ${q(0.99)} · missed ${rows.reduce((n, x) => n + x[mi], 0)} (proxy)`,
+    `  phases ${Object.entries(phases).map(([k, v]) => `${k} ${v}`).join(' · ')}`].join('\n');
+}
+
+export function renderPerf(r) {
+  if (r.format === 'exact.frame-health.track/1' || ((r.track === false || r.track === true) && r.sites === undefined)) return renderTrack(r);
   if (r.format === 'exact.frame-health.metrics/1') return renderFrameHealthMetrics(r);
   if (r.format === 'exact.frame-health/1') return renderFrameHealthReport(r);
   if (typeof r.capture === 'boolean') return `frame capture ${r.capture ? 'armed' : 'paused'}${r.reason ? `: ${r.reason}` : ''}${r.agentLeaseRemainingMs ? ` · agent lease ${r.agentLeaseRemainingMs} ms` : ''}`;
@@ -831,9 +916,23 @@ export function renderTrace(t) {
     }
   } else if (t.frames) out.push('', renderPerf(t.frames));
   if (Array.isArray(t.traceEvents)) {
+    const ink = t.traceEvents.filter(e => e.cat === 'ink');
+    if (ink.length) {
+      out.push(`ink trace: ${t.presented?.length ?? 0} presented timestamps, ${ink.length} intervals/marks, ${t.dropped ?? 0} dropped; inclusive phases, not additive; idle gaps are not classified as late`);
+      const phases = new Map();
+      for (const e of ink) {
+        if (!(e.dur > 0)) continue;
+        const values = phases.get(e.name) ?? [];
+        values.push(e.dur / 1000); phases.set(e.name, values);
+      }
+      for (const [name, values] of phases) {
+        values.sort((a, b) => a - b);
+        out.push(`  ${name}: ${values.length} spans · total ${values.reduce((a, b) => a + b, 0).toFixed(3)} ms · p99 ${values[Math.floor(values.length * .99)].toFixed(3)} ms`);
+      }
+    }
     const cpu = t.traceEvents.filter(e => e.cat === 'world.cpu'), gpu = t.traceEvents.filter(e => e.cat === 'world.gpu');
     const frames = new Set(cpu.filter(e => e.name === 'frame').map(e => `${e.pid}:${e.args?.frame}`));
-    out.push(`world trace: ${cpu.filter(e=>e.name==='tick').length} ticks, ${cpu.length} CPU intervals under ${frames.size} submitted frames, ${gpu.length} GPU passes (independent GPU clock; joined by frame)`);
+    if (!ink.length || cpu.length || gpu.length) out.push(`world trace: ${cpu.filter(e=>e.name==='tick').length} ticks, ${cpu.length} CPU intervals under ${frames.size} submitted frames, ${gpu.length} GPU passes (independent GPU clock; joined by frame)`);
   }
   if (t.perf) out.push('', renderPerf(t.perf));
   if (t.hatches?.perf?.calls) out.push('', renderHatchPerf(t.hatches.perf));

@@ -959,8 +959,86 @@ F2 named); peak fling footprint 398 against 224 MiB; cold milestones 338 against
 two different instruments (GPUI's first presented drawable; the native host's first settled
 layer snapshot), so not a comparison; frame smoothness not rankable (display-link cadence on
 the native arm). The driver now activates its target and verifies the key window before
-each sample. The full series (five pairs, ten cold launches each) needs three minutes of an
-untouched desktop and is run on Charlie's word; ink joins at G3.
+each sample. The full series ran on 2026-10-28 evening on Charlie's word (`222cbbb54a`, landed with the
+bench): five pairs and ten launches per app, three pairs fully quiet. GPUI against the native
+Apple host, medians: fling CPU 94 against 124 ms/s; rest CPU 5.1 against 1.1; peak fling
+footprint 398 against 219 MiB; cold milestones 373 against 464 ms by different instruments.
+G1x (`bdbed84d73`) split the native host's 143 ms/s fling CPU: Core Animation 46.6, native
+view setup 22.6, image processing 21.0, native drawing and text 8.8, the runner and rows
+5.9, the kernel's layout and text 3.0, binding 0.4, no data-source queries during the
+fling: the kernel, runner and data path are six percent; the native view layer, Core
+Animation and the image pipeline are what GPUI's app does not pay and what ink's carrier
+replaces.
+
+**S1.1 and G3, 2026-10-29** (`lane/ink-s1` at `52e617043c`, `34e5e524ef`): the Mac benchmark
+carrier (`host/apple-painted`, a winit window over the shared presenter, a `CAMetalLayer` ink
+presents into on direct Metal and on wgpu, `CVDisplayLink` pacing, the agent's socket, no
+IME, menus or accessibility yet), the heavy list in it with ImageIO decoding its JPEGs, and
+G1's driver and probe taking it as the third target. G3 ran clean, every arm quiet, five
+pairs and ten launches each, ink and GPUI on the same presented-drawable instrument. Ink's
+cold start to its first presented drawable, 375 ms, is GPUI's 386 and better than the native
+host's 459 by its other instrument, but with three timeouts in fourteen launches waiting for
+the complete frame; and the rest of the ink column is the carrier, not the renderer: 860 ms/s
+of main-thread CPU **at rest** (the native host 0.6, GPUI 3.6), 569 ms/s of process CPU during the fling
+(119, 92), presented intervals at a p95 of 16.67 ms against GPUI's 8.33 with twelve late
+intervals a second, and a transient 576 MiB footprint during the fling (226 at its end). A
+renderer that paints this screen in 0.5 to 1.4 ms headless and encodes in 0.065 ms does not
+cost 860 ms/s doing nothing; the carrier never sleeps, reads back or redraws per tick, and
+decodes the JPEGs at full size. S1.2 fixes that (an idle app submits nothing, D7; one frame
+per frame, D11; the complete frame's present; the decode at the drawn size), and G3 is run
+again before any ink number is cited against GPUI.
+
+**S1.2 to S1.5 and G3c, 2026-10-29**: S1.2–S1.3 removed the carrier's idle
+timer spin, overlapped the next frame's walk with rendering, repaired the complete-frame
+retry and decoded thumbnails at their drawn size. S1.4–S1.5 attributed much of G3's cadence
+difference to gaps in the driver's input and GPUI's re-presentation between inputs, then paced the
+driver by the display. G3c reused G3b's three release arms, with five quiet interleaved
+fling/rest samples and ten fresh-process launches each. Medians for Ink on direct Metal,
+GPUI and the native host, respectively: cold to first complete frame **343.83, 312.17,
+370.26 ms** (presented drawable for Ink/GPUI, layer snapshot for native); fling process
+CPU **82.02, 87.31, 133.41 ms/s**, with **2.540 and 0.965 ms per presented frame**
+for Ink and GPUI over the same ten-second phase (GPUI includes unchanged re-presentations;
+native presented frames are unmeasured); rest CPU **1.393, 4.917, 1.200 ms/s**.
+Ink and GPUI both have **8.33 ms p95 and 1.249 late intervals/gesture second**;
+Ink's late range is 0.250–2.247/s and GPUI's 0.750–1.720/s. Native's different,
+display-link instrument gives 8.33 ms p95 and 0.800 late intervals/s. Ink received
+**420/424** posted inputs (406–424), GPUI **416/424** (412–421); native's local monitor
+records 8/424 because AppKit tracking bypasses it. Driver maximum posting gaps have
+medians **17.017, 16.849, 17.212 ms**, so neither posting nor delivery is uniformly
+one event per refresh; raw cadence retains those effects. Peak / end-of-fling /
+end-of-rest footprint is **591.52 / 245.97 / 238.59 MiB** for Ink,
+**409.20 / 389.34 / 208.95 MiB** for GPUI and **228.70 / 212.03 / 211.35 MiB**
+for native. Ink's CPU/s is lower than GPUI's with overlapping ranges, while its
+peak and rest footprint remain higher; cold medians all exceed D15's 100 ms budget,
+and this retained-cache series does not test the empty-cache requirement. Without
+improved vello or the wgpu Ink arm, G3c cannot decide D15's C-over-B or D-over-C
+comparisons or qualify D12's carrier. S1.4's roughly 340 MiB graphics transient
+remains open (`bench/heavy-list/gpui/RESULTS.md`, “G3c”).
+
+**G4, egui, 2026-10-29**: Charlie asked for egui beside GPUI. The arm is
+published egui/eframe **0.37.0**, eframe's wgpu **30.0.1** backend over Metal,
+with the same screen, data, probe and complete-scene ready signal, and SF
+loaded from the system. Five quiet interleaved fling/rest rounds put
+native/GPUI/Ink/egui process CPU at **131.91/84.92/86.41/66.84 ms/s**;
+CPU per presented frame is **unmeasured/0.961/2.615/1.642 ms** (GPUI counts
+unchanged re-presentations), rest CPU **1.288/5.631/1.469/0.359 ms/s**,
+peak footprint **228.39/406.42/591.56/507.81 MiB**, and end-of-rest footprint
+**215.85/208.55/238.64/178.28 MiB**. All have **8.33 ms p95**; painted-arm
+late intervals are **1.248/0.749/0.738 per gesture second** for GPUI/Ink/egui,
+with posting gaps and receive deficits. Egui presents **101.02 frames/s**
+inside gesture windows but **40.90** across the full fling phase, without
+GPUI's sustained re-presentation between gestures. Ten successful cold
+launches per arm give **354.14/313.13/352.13/337.45 ms**; seven per arm were
+monitored quiet and three unmonitored, with caches retained. Egui also failed
+to reach a complete scene within 30 seconds in **one of thirteen attempts**,
+unexplained and intermittent after G4a's 14.7-second functional launch and
+G4b's successful readiness probes; `QUEUE.md` tracks the benchmark's hang.
+The non-comparables are whole-app layout, virtualization, caches and startup
+paths, native's snapshot/display-link instruments, GPUI's re-presentations,
+Ink's unqualified carrier and text, egui's text metrics, emoji, code face,
+color and accessibility gaps, and unequal scroll work; the run cannot rank
+renderers or decide D15's unmeasured arms (`bench/heavy-list/gpui/RESULTS.md`,
+“G4”).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and

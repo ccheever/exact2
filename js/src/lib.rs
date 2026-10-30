@@ -154,6 +154,7 @@ pub const ENGINE_INPUTS: Option<&str> = hermes_lean_sys::LEAN_ENGINE_DIGEST;
 struct Sig {
     params: Vec<Shape>,
     result: Shape,
+    rows: std::cell::RefCell<exact_js_value::Rows>, // its last reply's list elements, reused when repeated
 }
 
 /// A parked answer's key: the runner's target when it named one, then the
@@ -831,7 +832,7 @@ impl Module {
                 })
                 .map_err(|e| e.to_string())
         } else {
-            exact_js_value::reply_from_json_text(text, &sig.result).map_err(|e| e.to_string())
+            exact_js_value::reply_reusing(text, &sig.result, &sig.rows).map_err(|e| e.to_string())
         };
         decoded.map_err(|e| {
             engine.clear_reply();

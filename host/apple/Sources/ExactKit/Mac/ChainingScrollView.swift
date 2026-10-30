@@ -276,7 +276,15 @@ package final class ChainingScrollView: NSScrollView {
         return routing
     }
 
+    /// The phase a scroll track records for a move this scroller's wheel handler makes (`FrameHealth.trackScrolled`):
+    /// `d` momentum, `t` a finger's phased scroll, `-` a plain wheel or a phase's end. The clip's bounds change is
+    /// posted inside the handler, so it is set for that move alone and is `-` for any other (a layout's).
+    var trackPhase: Character = "-"
+
     package override func scrollWheel(with event: NSEvent) {
+        let moving: NSEvent.Phase = [.began, .changed]
+        trackPhase = !event.momentumPhase.intersection(moving).isEmpty ? "d" : !event.phase.intersection(moving).isEmpty ? "t" : "-"
+        defer { trackPhase = "-" }
         (superview as? NodeView)?.cancelElementScroll()
         // Precise deltas (a trackpad) are in points; a wheel's are in lines,
         // of the height AppKit scrolls a line by (10 points unless set; it

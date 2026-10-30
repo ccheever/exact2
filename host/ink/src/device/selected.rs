@@ -18,6 +18,32 @@ pub enum Buffer {
 }
 
 impl Selected {
+    #[cfg(target_os = "macos")]
+    pub fn attach_layer(&mut self, layer: apple::Layer) -> Result<()> {
+        match self {
+            Self::Wgpu(device) => device.attach_layer(layer),
+            #[cfg(exact_ink_metal)]
+            Self::Metal(device) => device.attach_layer(layer),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn has_layer(&self) -> bool {
+        match self {
+            Self::Wgpu(device) => device.has_layer(),
+            #[cfg(exact_ink_metal)]
+            Self::Metal(device) => device.has_layer(),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn present(&mut self, texture: TextureId) -> Result<f64> {
+        match self {
+            Self::Wgpu(device) => device.present(texture),
+            #[cfg(exact_ink_metal)]
+            Self::Metal(device) => device.present(texture),
+        }
+    }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn from_env() -> Result<Self> {
         let value = std::env::var("EXACT_INK_DEVICE").ok();

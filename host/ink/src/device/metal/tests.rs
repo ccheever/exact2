@@ -1,6 +1,74 @@
 use super::*;
 use crate::instance::Encoder;
 
+#[cfg(target_os = "macos")]
+#[test]
+fn readback_waits_for_a_render_queued_behind_a_blocked_worker() {
+    use std::sync::mpsc;
+    let (release, blocked) = mpsc::channel();
+    let (queued, ready) = mpsc::channel();
+    let (finished, result) = mpsc::channel();
+    let owner = std::thread::spawn(move || {
+        let mut d = Metal::new().unwrap();
+        let target = d.create_target(4, 4).unwrap();
+        d.render(&Frame::default(), target, Some([1., 0., 0., 1.]))
+            .unwrap();
+        assert_eq!(d.readback(target).unwrap(), [255, 0, 0, 255].repeat(16));
+        let worker = Rc::new(crate::present::Thread::new().unwrap());
+        worker.send(move || blocked.recv().unwrap()).unwrap();
+        d.thread = Some(worker);
+        let submission = d
+            .render(&Frame::default(), target, Some([0., 1., 0., 1.]))
+            .unwrap();
+        queued.send(()).unwrap();
+        let pixels = d.readback(target).unwrap();
+        finished
+            .send((pixels, d.completed().unwrap(), submission))
+            .unwrap();
+    });
+    ready.recv().unwrap();
+    // The worker cannot commit until released. Bound this observation so a
+    // regression returns stale pixels instead of hanging the test's owner.
+    let early = result
+        .recv_timeout(std::time::Duration::from_millis(100))
+        .ok();
+    release.send(()).unwrap();
+    owner.join().unwrap();
+    assert!(
+        early.is_none(),
+        "readback returned before its command was committed"
+    );
+    let (pixels, done, submission) = result.recv().unwrap();
+    assert_eq!(pixels, [0, 255, 0, 255].repeat(16));
+    assert!(done >= submission);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_failed_worker_receipt_keeps_its_original_error() {
+    let mut d = Metal::new().unwrap();
+    let (sender, receipt) = std::sync::mpsc::channel();
+    sender
+        .send(Err(Error::DeviceLost("upload refused".into())))
+        .unwrap();
+    d.submitted = Submission(1);
+    d.pending.insert(
+        1,
+        Pending {
+            command: None,
+            receipt: Some(receipt),
+        },
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            d.wait(Submission(1)).unwrap_err().to_string(),
+            "device lost: upload refused"
+        );
+    }
+    assert!(d.pending[&1].receipt.is_none());
+    assert_eq!(d.done, Submission(0));
+}
+
 #[test]
 fn readback_scissors_uploads_mips_and_retirement() {
     let mut d = Metal::new().unwrap();
