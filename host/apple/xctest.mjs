@@ -28,6 +28,7 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/async-advance.contract'), '-o', env[`${prefix}_ASYNC_ADVANCE_PLAN`] = resolve(dir, 'async-advance.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/timer-admission.contract'), '-o', env[`${prefix}_TIMER_ADMISSION_PLAN`] = resolve(dir, 'timer-admission.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/reset-gate.contract'), '-o', env[`${prefix}_RESET_GATE_PLAN`] = resolve(dir, 'reset-gate.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/reset-gate-admission.contract'), '-o', env[`${prefix}_RESET_GATE_ADMISSION_PLAN`] = resolve(dir, 'reset-gate-admission.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/native-retry.contract'), '-o', env[`${prefix}_NATIVE_RETRY_PLAN`] = resolve(dir, 'native-retry.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/reset-hold.contract'), '-o', env[`${prefix}_RESET_HOLD_PLAN`] = resolve(dir, 'reset-hold.plan')]);
   // NavigationBarIOSTests': a header whose controls share and add a control.

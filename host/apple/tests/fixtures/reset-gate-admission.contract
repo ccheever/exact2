@@ -1,0 +1,14 @@
+// ResetGateTests' held admission check: two update-waiting tasks due a minute after boot, so no real update
+// callback admits one before the test's own checks, which name a cutoff past it (a minute's margin for a slow boot).
+component App
+  state count = 0
+  state enabled = true
+  action tick
+    count = count + 1
+    enabled = false
+  task first when enabled
+    every(60000, tick, wait=update)
+  task second when enabled
+    every(60000, tick, wait=update)
+  view
+    text `${count}`
