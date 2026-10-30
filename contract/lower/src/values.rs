@@ -898,8 +898,8 @@ fn computed_string_arm<'a>(
 /// HTML's enumerated attributes whose IDL attributes are bools, as the words
 /// a bool is written: `spellcheck`'s `true`/`false`, `autocorrect`'s
 /// `on`/`off`.
-/// An ARIA state whose value is a word, a bool among them (`true`/`false`):
-/// the words it takes, a bool expression written as one of the first two.
+/// An ARIA state whose value is a word: the words it takes. When the first
+/// two are `true` and `false` it also takes a bool, written as one of them.
 pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'static str])> {
     Some(match prop {
         PropId::AccessibilityPressed => ("aria-pressed", &["true", "false", "mixed"]),
@@ -912,8 +912,12 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
             "aria-current",
             &["true", "false", "page", "step", "location", "date", "time"],
         ),
+        PropId::AccessibilitySort => ("aria-sort", &["ascending", "descending", "none", "other"]),
         _ => return None,
     })
+}
+pub(crate) fn aria_takes_bool(words: &[&str]) -> bool {
+    words.starts_with(&["true", "false"])
 }
 pub(crate) fn aria_disabled_literal(prop: PropId, value: &Expr) -> Option<Expr> {
     match (prop, value) {
@@ -1099,16 +1103,18 @@ pub(crate) fn check_prop_value(
     }
     // ARIA's word-valued states (`aria-pressed`'s `mixed`), or a bool.
     if let Some((attr, words)) = aria_words(prop) {
+        let takes_bool = aria_takes_bool(words);
         if matches!(value, Expr::Str(s, _) if !words.contains(&s.as_str())) {
             let (last, rest) = words.split_last().unwrap();
             let rest: Vec<String> = rest.iter().map(|w| format!("\"{w}\"")).collect();
+            let bool = if takes_bool { "a bool or " } else { "" };
             return err(
                 "lower-attr-value",
-                format!("`{attr}` takes a bool or {} or \"{last}\"", rest.join(", ")),
+                format!("`{attr}` takes {bool}{} or \"{last}\"", rest.join(", ")),
                 span,
             );
         }
-        if matches!(ty, Ty::Bool) {
+        if takes_bool && matches!(ty, Ty::Bool) {
             return Ok(());
         }
     }

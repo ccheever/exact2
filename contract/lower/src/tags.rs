@@ -745,6 +745,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
+        "aria-sort" => AttrTarget::Prop(p("accessibilitySort")),
         // @ref LLP 1116 D8 — a range role's value (`progressbar`, `slider`,
         // `meter`, …), numbers written as HTML writes them (`aria_values`).
         "aria-valuenow" => AttrTarget::Prop(p("accessibilityValueNow")),
