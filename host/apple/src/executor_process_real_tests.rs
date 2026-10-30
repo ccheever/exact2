@@ -9,6 +9,11 @@ use ibex2::process as os;
 use std::sync::mpsc::{channel, Receiver};
 use std::time::{Duration, Instant};
 
+/// A wall-clock wait's limit, which only stops a hanging test (docs/testing.md,
+/// "Waiting"). A child a test waits to see ended sleeps longer than this, so
+/// one that is never ended fails the wait.
+const BOUND: Duration = Duration::from_secs(30);
+
 fn core(grants: &str) -> (Core, Receiver<()>, std::path::PathBuf) {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -46,9 +51,9 @@ fn request(ticket: u64, body: serde_json::Value, stream: bool) -> RequestOut {
     }
 }
 
-/// Outcomes, on the wall, until `until` says they are enough (or 10 s).
+/// Outcomes, on the wall, until `until` says they are enough.
 fn collect(core: &Core, woke: &Receiver<()>, until: impl Fn(&[Outcome]) -> bool) -> Vec<Outcome> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + BOUND;
     let mut out = Vec::new();
     while !until(&out) {
         core.begin_pump();
@@ -145,7 +150,7 @@ fn a_real_child_reads_its_stdin_and_streams_its_output_in_order() {
 #[test]
 fn release_ends_the_group_a_grandchild_included() {
     let (core, woke, _) = core("process.spawn /bin/sh");
-    core.run(request(1, sh("sleep 30 & echo $!; wait"), true), None)
+    core.run(request(1, sh("sleep 120 & echo $!; wait"), true), None)
         .unwrap();
     let out = collect(&core, &woke, |o| o.len() >= 2);
     let leader = spawned_pid(&out);
@@ -156,11 +161,7 @@ fn release_ends_the_group_a_grandchild_included() {
         .unwrap();
     assert!(os::group_members(leader).contains(&grandchild));
     core.forget(|_| false);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while os::group_alive(leader) {
-        assert!(Instant::now() < deadline, "the group outlived its release");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    until_gone(leader, "the group outlived its release");
 }
 
 #[test]
@@ -168,7 +169,7 @@ fn a_leader_that_exits_first_leaves_no_group_behind() {
     let (core, woke, _) = core("process.spawn /bin/sh");
     // The grandchild keeps the pipe after its leader exits: the drain runs
     // out, the incarnation closes undrained, and the group is ended.
-    core.run(request(1, sh("sleep 30 & echo $!; exit 0"), true), None)
+    core.run(request(1, sh("sleep 120 & echo $!; exit 0"), true), None)
         .unwrap();
     let out = collect(&core, &woke, ended);
     let leader = spawned_pid(&out);
@@ -198,7 +199,7 @@ fn dead_pid() -> i64 {
 }
 
 fn until_gone(pgid: i32, what: &str) {
-    let deadline = Instant::now() + Duration::from_secs(6);
+    let deadline = Instant::now() + BOUND;
     while os::group_alive(pgid) {
         assert!(Instant::now() < deadline, "{what}");
         std::thread::sleep(Duration::from_millis(10));
@@ -208,7 +209,7 @@ fn until_gone(pgid: i32, what: &str) {
 #[test]
 fn a_crash_leaves_a_record_that_the_next_launch_reaps() {
     let (core, woke, dir) = core("process.spawn /bin/sh");
-    core.run(request(1, sh("sleep 30 & wait"), true), None)
+    core.run(request(1, sh("sleep 120 & wait"), true), None)
         .unwrap();
     let out = collect(&core, &woke, |o| !o.is_empty());
     let leader = spawned_pid(&out);
@@ -293,19 +294,17 @@ fn a_stale_record_ends_no_group_that_is_not_the_apps() {
 #[test]
 fn a_quit_ends_every_group() {
     let (core, woke, _) = core("process.spawn /bin/sh\nfs.read /");
-    core.run(request(1, sh("trap '' TERM; sleep 30 & wait"), true), None)
-        .unwrap();
+    // A grace past the quit's 5 s: the quit's limit is what ends it.
+    let mut body = sh("trap '' TERM; sleep 120 & wait");
+    body["forceKillAfter"] = 60_000.into();
+    core.run(request(1, body, true), None).unwrap();
     let out = collect(&core, &woke, |o| !o.is_empty());
     let leader = spawned_pid(&out);
-    let quit = Instant::now();
     drop(core);
-    // The caller's thread does not wait: the escalation runs off it.
-    assert!(
-        quit.elapsed() < Duration::from_millis(500),
-        "{:?}",
-        quit.elapsed()
-    );
-    until_gone(leader, "the quit ended the group within 5 s");
+    // The caller's thread does not wait: the escalation runs off it, and
+    // the group, which ignores the quit's signal, is alive when it returns.
+    assert!(os::group_alive(leader), "the quit waited out the grace");
+    until_gone(leader, "the quit left the group past its 5 s limit");
 }
 
 #[test]
@@ -449,18 +448,15 @@ fn the_login_shell_answers_the_named_variables_between_markers() {
     );
     assert!(found.contains_key("PATH") && !found.contains_key(bad.as_str()));
     assert!(!marker.exists(), "the name ran as a command");
-    // A background job holding the pipe: the answer comes at the exit.
+    // A background job holding the pipe: the answer comes at the exit,
+    // not at the job's end or the limit.
     let started = Instant::now();
     let out = super::run(
         std::path::Path::new("/bin/sh"),
-        &["-c".into(), "echo hi; sleep 30 &".into()],
+        &["-c".into(), "echo hi; sleep 120 &".into()],
         std::path::Path::new("/"),
-        Duration::from_secs(5),
+        Duration::from_secs(60),
     );
     assert_eq!(out.as_deref(), Some("hi\n"));
-    assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "{:?}",
-        started.elapsed()
-    );
+    assert!(started.elapsed() < BOUND, "{:?}", started.elapsed());
 }
