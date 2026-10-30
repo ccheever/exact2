@@ -180,7 +180,7 @@ describe('follow-up dispatch', () => {
     client.local.clientSettings.followUpBehavior = 'queue';
     await command('send', '', 'Queued two');
     expect(native.committed.at(-1)).toMatchObject({ dispatchMode: { type: 'queue_after_active' } });
-    expect(snapshot(client).composer).toMatchObject({ sendLabel: 'Queue message', sendIcon: 'list-plus', sendTooltip: 'Click to queue, Ctrl/⌘-click or ⌘Enter to steer' });
+    expect(snapshot(client).composer).toMatchObject({ sendLabel: 'Queue message', sendIcon: 'list-plus', sendTooltip: 'Click to queue, ⌘-click or ⌘Enter to steer' });
     // ⌘ or Control held (the window's shortcutModifiers): the alternate's label and icon.
     expect(snapshot(client).composer).toMatchObject({ sendHeldLabel: 'Steer message', sendHeldIcon: 'corner-up-right' });
   });

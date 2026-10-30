@@ -28,6 +28,7 @@ import { labelWidth, type Measure, type ProbeKind } from './composer-measure';
 import { resolveRestingComposerControlsLayout } from './composer-resting-layout';
 import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real terminalOpen
 import { pendingThreadImports } from './composer-thread-import';
+import { PLATFORM } from '../settings/desktop-shell-favicon'; // the send tooltip's modifier (isMacPlatform)
 
 // SF Pro advances (AppKit, ASCII 32–126) for the toolbar's two label styles:
 // 14pt medium (an upper bound for the "sm" labels, which are drawn regular) and 12pt regular (the resting "xs" ones).
@@ -128,7 +129,7 @@ export function primaryAction(client: T3Client, phase: string) {
     sendHeldLabel: queueingHeld ? 'Queue message' : running ? 'Steer message' : 'Submit message',
     sendHeldIcon: queueingHeld ? 'list-plus' : running ? 'corner-up-right' : 'arrow',
     sendStatus: status, sendSpinner: connecting || sending,
-    sendTooltip: status || (running && canSteer ? `Click to ${followUp}, Ctrl/⌘-click${alternateKey ? ` or ${alternateKey}` : ''} to ${alternate}` : queueing ? 'Queue message' : 'Submit message'),
+    sendTooltip: status || (running && canSteer ? `Click to ${followUp}, ${/mac/i.test(PLATFORM) ? '⌘' : 'Ctrl'}-click${alternateKey ? ` or ${alternateKey}` : ''} to ${alternate}` : queueing ? 'Queue message' : 'Submit message'),
     canResume: !!resume.runId || resume.heldQueue,
     planReady: !!plan, planTitle: plan?.title ?? '',
   };

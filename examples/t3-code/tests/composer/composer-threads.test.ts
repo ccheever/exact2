@@ -88,7 +88,15 @@ describe('linked pull request suggestions', () => {
     expect(rows.map(row => [row.label, row.description])).toEqual([['#4', 'owner/other · Linked'], ['#4', 'Exact'], ['#24', 'Current']]);
     expect(pullRequestRows([entry], 'p', 'owner/repo', '', [], [{ ...link, repository: 'OWNER/REPO', number: 24 }])).toHaveLength(1);
     expect(pullRequestRows([], 'p', 'owner/repo', '', [], [{ ...link, snapshot: null }, { ...link, source: 'stack-dismissed' }])).toEqual([]);
-    expect(pullRequestRows([], 'p', 'owner/repo', 'Linked', [], [link])).toEqual([]);
+    expect(pullRequestRows([], 'p', 'owner/repo', 'Linked', [], [link]).map(row => row.label)).toEqual(['#4']);
+  });
+  test('a text query puts the matching linked pull requests first, before and after the search returns (#26269)', () => {
+    const fix = { ...link, repository: 'owner/repo', number: 7, snapshot: { title: 'Fix login', state: 'open', updatedAt: '2026-01-02' } };
+    const other = { ...link, repository: 'owner/repo', number: 8, snapshot: { title: 'Other', state: 'open', updatedAt: '2026-01-02' } };
+    expect(pullRequestRows([], 'p', 'owner/repo', 'fix', [], [fix, other]).map(row => row.label)).toEqual(['#7']);
+    const searched = [{ ...entry, number: 9, title: 'Search hit', updatedAt: '2026-01-05' }, { ...entry, number: 8, title: 'Other', updatedAt: '2026-01-03' }];
+    const hosts = [{ host: '', searchesOnHost: true }];
+    expect(pullRequestRows(searched, 'p', 'owner/repo', 'fix', hosts, [fix, other]).map(row => row.label)).toEqual(['#7', '#8', '#9']);
   });
 });
 
