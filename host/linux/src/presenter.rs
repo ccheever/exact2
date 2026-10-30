@@ -1391,12 +1391,12 @@ impl<D: DataSource> Presenter<D> {
 
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
-        let animating = self.host.motion()
-            || self.arrange.is_some()
+        let animating = self.arrange.is_some()
             || self.group.is_some()
             || self.focus.is_some()
             || self.brush.moving();
-        if self.host.tick(now_ms) {
+        let (layout, paint) = self.host.tick_effects(now_ms);
+        if layout {
             self.hatches.stale = true;
             self.dirty = true;
             self.clamp_scroll();
@@ -1409,7 +1409,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = self.deliver_scroll_ends() {
             self.host.log(error);
         }
-        self.dirty |= animating;
+        self.dirty |= paint || animating;
     }
 
     /// The box of a node, if painted.

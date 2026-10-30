@@ -395,7 +395,9 @@ impl<D: DataSource> Presenter<D> {
     /// the pointer's edge zone can advance this actual clamped scrollport; a
     /// frame task wants every frame (LLP 1073 D5).
     pub fn needs_animation_frame(&self) -> bool {
-        self.host.motion()
+        self.host
+            .motion_due_ms()
+            .is_some_and(|due| due <= self.host.now())
             || self.host.canvas_wants_frame()
             || self.wants_frames()
             || self.arrange_edge().is_some()

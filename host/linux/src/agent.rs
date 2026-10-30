@@ -1230,7 +1230,19 @@ fn clock_hatched<D: DataSource>(
     to: f64,
     deadline: std::time::Instant,
 ) -> (f64, Option<String>) {
-    while let Some(instant) = p.hatch_instant(to) {
+    for _ in 0..4096 {
+        let motion = p
+            .host()
+            .motion_due_ms()
+            .filter(|due| *due > p.host().now() && *due <= to);
+        let Some(instant) = p
+            .hatch_instant(to)
+            .into_iter()
+            .chain(motion)
+            .reduce(f64::min)
+        else {
+            break;
+        };
         let (landed, e) = clock_stepped(p, instant.max(p.host().now()), deadline);
         if e.is_some() || landed < instant {
             return (landed, e);

@@ -150,7 +150,10 @@ impl<D: DataSource> Presenter<D> {
         loop {
             let scrolling = !self.timers_hidden && self.scroll_activity();
             let demand = !self.timers_hidden
-                && (self.host.motion()
+                && (self
+                    .host
+                    .motion_due_ms()
+                    .is_some_and(|due| due <= self.host.now())
                     || self.host.canvas_wants_frame()
                     || self.wants_frames()
                     || scrolling
@@ -194,7 +197,10 @@ impl<D: DataSource> Presenter<D> {
         let idle = exact_runner::IdleObservation {
             scrolling: !self.timers_hidden && self.scroll_activity(),
             demand: !self.timers_hidden
-                && (self.host.motion()
+                && (self
+                    .host
+                    .motion_due_ms()
+                    .is_some_and(|due| due <= self.host.now())
                     || self.host.canvas_wants_frame()
                     || self.wants_frames()
                     || self
@@ -209,6 +215,7 @@ impl<D: DataSource> Presenter<D> {
                 .runner()
                 .timer_due_ms()
                 .into_iter()
+                .chain(self.host.motion_due_ms())
                 .chain(
                     self.host
                         .runner()
