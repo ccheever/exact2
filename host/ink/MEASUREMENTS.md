@@ -3145,3 +3145,5 @@ G6 measures the heavy list on this NucBox through direct D3D11, Ink/wgpu and egu
 G6b traces the heavy-list D3D11 fling's repeated paints under composition
 backpressure and fixes the recovery material and DPI fixture failures; see
 [the attribution and qualification results](../../bench/heavy-list/gpui/RESULTS.md#g6b-the-d3d11-fling-traced).
+
+G6c honors the Windows carrier's presentation deadline: [the D3D11 fling, startup and desktop journeys remeasured](../../bench/heavy-list/gpui/RESULTS.md#g6c-one-paint-per-refresh).

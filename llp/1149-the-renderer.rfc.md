@@ -1040,38 +1040,35 @@ color and accessibility gaps, and unequal scroll work; the run cannot rank
 renderers or decide D15's unmeasured arms (`bench/heavy-list/gpui/RESULTS.md`,
 “G4”).
 
-**G6, Windows, 2026-10-29**: the heavy list on the NucBox, release,
-800×800 outer window, 100% scale, 60 Hz. Ten quiet interleaved fresh
-processes per arm give DWM complete-screen proxies of **175.98/716.21/248.76
-ms** for Ink D3D11 / Ink wgpu / egui; ten more after a supported AMD shader
-cache reset give **249.30/1007.25/348.00 ms**. Both wgpu arms select the Radeon
-8060S's **DX12** backend; egui explicitly requests it. D3D11's DXGI display
-medians are **187.14/261.69 ms** retained/reset. Eframe exposes no DXGI swap
-chain to the app, so egui has only the DWM proxy plus next-dispatch delay;
-Ink/wgpu uses readback/softbuffer. Five quiet fling/rest samples give process
-CPU **553.92/121.41/24.91 ms/s**, rest CPU **4.66/1.55/0.00 ms/s**, peak working
-set **220.88/324.75/181.74 MiB**, and ending working set
-**220.88/322.48/170.00 MiB**. PresentMon records D3D11/egui display p95
-**83.35/16.77 ms**, with no lost ETW events; Ink/wgpu presents are unavailable.
-S2's Shelf **142/859 ms** first screens and **48/139 ms** device creation,
-with **457 ms** wgpu pipelines, do not predict egui's whole-app startup.
-Egui owns layout, text and virtualization without the kernel or runner;
-Windows uses Segoe UI, with Consolas in egui's code runs. Scroll work,
-geometry, images, readiness and presentation differ. One loaded observation
-in the original rapid startup tail led to a complete spaced startup series;
-all attempts are retained. G6b attributes about **174 ms/s** to main-thread
-clipping and **146 ms/s** to AMD driver workers: the Windows carrier retries
-a dirty picture before composition's retry deadline, rebuilding masks for
-refused presents (6,337 paint attempts for 145 successful host frames in a
-diagnostic). Flushing the post-present query did not fix it and was removed;
-no performance fix is claimed. Five quiet flings after the qualification fixes
-still use **540.41 ms/s** process CPU, **362.61 ms/s** main CPU and display
-**25.88/s**, with **83.36 ms** p95. The needed carrier
-pacing change is outside the brief's named `host/ink` scope. Both qualification
-failures reproduce at `d1fa3c00dd`, so the proposed S1 bisect has no passing
-low endpoint. Reapplying Mica on recovery fixes the tint; activating the DPI
-fixture through its client margin fixes accidental title-bar double-click
-maximization. See [G6b's attribution and qualification record](../bench/heavy-list/gpui/RESULTS.md#g6b-the-d3d11-fling-traced).
+**G6, Windows, 2026-10-29**: the release heavy list on the NucBox,
+800×800 outer window, 100% scale, 60 Hz. Ten quiet interleaved launches
+originally gave DWM complete-screen proxies of **175.98/716.21/248.76 ms**
+for Ink D3D11 / Ink wgpu / egui; supported AMD shader-cache resets raised
+them to **249.30/1007.25/348.00 ms**. Both wgpu arms select Radeon 8060S
+**DX12**; egui explicitly requests it. G6c corrects the Windows carrier's
+redraw scheduling and reserves waitable capacity before painting: five quiet
+D3D11 flings reduce process CPU from G6b's **540.41 to 82.46 ms/s**, main
+CPU from **362.61 to 66.89**, and display p95 from **83.36 to 16.77 ms**.
+Cadence rises from **25.88 to 58.25 displays/s**, with no late intervals and
+**1,251 painter snapshots / 1,251 successful frames**. D3D11 peak and ending
+working set are **153.04 MiB**, rest CPU **1.55 ms/s**. The unchanged
+Ink/wgpu and egui controls used **121.41/24.91 ms/s** fling CPU,
+**324.75/181.74 MiB** peak and **322.48/170.00 MiB** ending working set;
+egui's p95 was **16.77 ms**, while Ink/wgpu's readback/softbuffer cadence
+is unavailable. G6c's ten startup launches give **182.25 ms** DWM and
+**194.67 ms** DXGI, with a wider range than G6; a separate quiet alternating
+control gives **184.29/188.43 ms** before/after DWM, median paired increase
+**3.28 ms**. The startup prediction is missed; unchanged startup is not
+established after three performance revisions. All six final D3D11 desktop
+journeys and native suites pass. A transient DWM refusal to reapply Mica during an earlier
+TDR remains queued. S2's Shelf **142/859 ms** first screens and **48/139 ms**
+device creation, with **457 ms** wgpu pipelines, do not predict egui's
+whole-app startup. Egui owns layout, text and virtualization without the
+kernel or runner; Windows uses Segoe UI, with Consolas in egui's code runs.
+Eframe exposes no DXGI swap chain, so its readiness is a DWM proxy plus
+next-dispatch delay. These whole-app paths retain unequal scroll work,
+geometry, images and readiness. See [G6c's before/after tables, prediction
+and qualification](../bench/heavy-list/gpui/RESULTS.md#g6c-one-paint-per-refresh).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and

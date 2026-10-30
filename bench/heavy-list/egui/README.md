@@ -232,3 +232,9 @@ after the final launch. G6 uses `warm-startup/` for retained-driver startup and
 the first five `warm/` rounds for fling/rest. The original rapid startup tail
 in `warm/` remains in the raw record: one CPU observation exceeded the quiet
 limit. Its startup values are excluded from the reported startup distribution.
+
+G6c's Ink runs also record `painterSnapshots` and `successfulFrames` from the
+exit log. These count the whole process, including startup; they are written
+after the fling/rest CPU endpoints. The snapshot count includes a completed
+paint whose present was refused. See [G6c](../gpui/RESULTS.md#g6c-one-paint-per-refresh)
+for the carrier's pacing change and remeasurement.
