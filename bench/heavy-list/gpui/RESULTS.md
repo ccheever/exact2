@@ -2176,10 +2176,10 @@ chunk opened no windows and posted no input.
 
 ## G6: egui against ink on Windows
 
-**2026-10-29, NucBox; corrected by G6c below.** Direct D3D11 starts fastest;
-egui uses the least fling CPU. G6c removes D3D11's repeated painting during
-backpressure, bringing its displayed cadence close to egui's and its working
-set below egui's. Three release applications
+**2026-10-29, NucBox; updated through G6e below.** Direct D3D11 starts fastest;
+egui uses the least fling CPU. G6e restores G6c's cadence while keeping the
+G6d lifecycle fixes, but misses the declared CPU range. D3D11's displayed
+cadence is close to egui's and its working set is below egui's. Three release applications
 render the heavy list:
 Ink through direct DirectX 11 composition; the same executable with
 `EXACT_INK_DEVICE=wgpu`, using DX12, readback and softbuffer; and published
@@ -2303,30 +2303,32 @@ includes pauses between gestures. Rest counts cover the following ten seconds.
 | Largest within-gesture posting gap, ms | 19.11 [18.17–22.42] | 18.94 [17.79–21.81] | 20.31 [19.08–27.22] |
 | Posting gaps over 25 ms, count | 0 [0–0] | 0 [0–0] | 0 [0–1] |
 
-**Finding, corrected by G6c.** Direct D3D11 reaches the complete heavy-list
-screen first: G6c's ten-launch series is **182.25 ms**; egui and Ink/wgpu
-were not remeasured, and egui's DWM proxy includes another event dispatch.
-G6's original D3D11/egui/Ink-wgpu medians were **175.98/248.76/716.21 ms**, rising to
-**249.30/348.00/1007.25 ms** after supported driver-cache resets. The final
-D3D11 range is wider than G6's; [G6c's paired startup control](#g6c-one-paint-per-refresh)
-finds a **+3.28 ms** median paired increase; unchanged startup is not
-established. [S2](../../../llp/1149-the-renderer.rfc.md#d12--where-it-is-the-presenter-and-what-the-same-everywhere-promises)
+**Finding, updated through G6e.** Direct D3D11's complete-screen proxy is
+**160.78 ms** in G6e's ten quiet launches; egui and Ink/wgpu were not
+remeasured, and egui's proxy includes another event dispatch. G6's original
+D3D11/egui/Ink-wgpu medians were **175.98/248.76/716.21 ms**, rising to
+**249.30/348.00/1007.25 ms** after supported driver-cache resets. G6d corrected
+readiness ordering; the historical startup distributions do not isolate a
+scheduling gain or close [G6c's paired-startup question](#g6c-one-paint-per-refresh).
+[S2](../../../llp/1149-the-renderer.rfc.md#d12--where-it-is-the-presenter-and-what-the-same-everywhere-promises)
 records Shelf first screens of **142 ms D3D11 versus 859 ms wgpu**;
 [C6](../../../host/ink/MEASUREMENTS.md#device-startup-host-dev) measured
 **48 versus 139 ms** device creation and **457 ms** wgpu pipelines. Those
-`gpu-dev` Shelf costs do not predict egui's release whole-app startup. G6b
-traced D3D11's fling loss to repeated painting before composition could
-present; G6c waits before painting and honors retry deadlines. Process CPU
-falls from G6b's **540.41 to 82.46 ms/s**, main-thread CPU from **362.61 to
-66.89 ms/s**, and p95 from **83.36 to 16.77 ms**. Cadence rises from **25.88
-to 58.25 displays/s**, with **1,251 snapshots for 1,251 successful frames**.
-The unchanged Ink/wgpu and egui controls used **121.41/24.91 ms/s**;
-egui's p95 was **16.77 ms**. Egui retains the lowest fling CPU; corrected
-D3D11 has the lowest peak and ending working-set medians, **153.04 MiB**
-against egui's **181.74/170.00** and Ink/wgpu's **324.75/322.48 MiB**.
-All six final D3D11 desktop journeys pass; an earlier transient Mica refusal
-remains queued. These whole-application measurements retain unequal layout,
-scrolling, text, image and presentation paths.
+`gpu-dev` Shelf costs do not predict egui's release whole-app startup.
+G6e's full-period reservation and removal of the clean-frame skip restore
+**58.15 displays/s**, **zero late intervals/s** and **16.85 ms p99**, with
+**1,247 snapshots / 1,247 successful frames**. Process/main CPU are
+**84.08/62.31 ms/s**, display p95 **16.74 ms**, and peak/ending working set
+**153.18/153.16 MiB**. The strict CPU gate misses G6c's **84.05 ms/s** upper
+bound; the final five-run maximum is **93.39 ms/s**, so the full G6e gate
+is not passed. The unchanged Ink/wgpu and egui controls used
+**121.41/24.91 ms/s**, with egui's **16.77 ms** p95. Egui retains the lowest
+fling CPU; D3D11 retains the lowest peak and ending working-set medians,
+against egui's **181.74/170.00 MiB** and Ink/wgpu's **324.75/322.48 MiB**.
+G6d's Mica recovery fix remains; [G6e](#g6e-the-full-period-reservation-wait-restored)
+records qualification and the stop at the CPU gate. These whole-application
+measurements retain unequal layout, scrolling, text, image and presentation
+paths.
 
 ### Parity and non-comparables
 
@@ -3015,3 +3017,107 @@ python bench/heavy-list/egui/windows-summary.py target/g6d/final
 Use a new directory for another attempt. Egui and Ink/wgpu, driver-cache-cold
 startup, live mode, energy, input-to-photon latency and isolated renderer cost
 were not remeasured. G6's whole-app and readiness non-comparables still apply.
+
+
+## G6e: the full-period reservation wait restored
+
+**Cadence is restored; the strict CPU gate is missed.** All five quiet flings
+have zero late intervals, p99 below 20 ms and at least 58 displays per gesture
+second. Process CPU is **84.08 [74.70–93.39] ms/s**: the median exceeds G6c's
+84.05 ms/s upper bound by 0.03 ms/s, and two runs reach 91.85 and 93.39 ms/s.
+The declared gate therefore fails. No third pacing policy was tried.
+
+Source **`0b34fe1cb1`**, rebased onto `origin/main` **`4cebb42abe`** before
+measurement. Release executable SHA-256:
+`18fcfefe4f610cce038cea3b4076e5abf5281fe02c32c78d824e2331e208d251`.
+The build retains PDB line tables as G6c and G6d did.
+
+The waitable reservation again waits one refresh period rounded up to
+milliseconds, as `77ab0960ee` did: 17 ms at this desktop's 60 Hz. Consecutive
+timeouts still grow the retry period to one second, subtracting time already
+spent waiting. The clean-frame reservation skip is removed after the trial
+below. Reservation errors remain refusals; lifecycle deadline resets, idle
+device-loss detection, damage retention, readiness ordering and bounded Mica
+recovery remain. The carrier still submits no frames during rest.
+
+Five fresh-process fling/rest samples and ten separate fresh-process startup
+launches use the unchanged DWM-paced driver, 800×800 outer / 784×761 client
+window, 96 DPI, 5120×1440 desktop at 60 Hz, Radeon 8060S and driver
+32.0.23033.1002. Application, driver and OS caches are retained. No build or
+test overlaps collection. All **24** fling quiet observations pass (maximum
+**6.7%** CPU), as do all **11** startup observations (maximum **6.9%**).
+There are no compiler processes, focus losses or lost ETW events.
+
+Medians [minimum–maximum]. G6c and G6d are historical series. Startup uses ten
+launches; the other distributions use five.
+
+| Metric | G6c | G6d | G6e |
+| --- | --- | --- | --- |
+| Fling process CPU, ms/s | 82.46 [73.11–84.05] | 84.07 [74.78–87.22] | 84.08 [74.70–93.39] |
+| Fling main-thread CPU, ms/s | 66.89 [59.11–70.01] | 63.89 [51.41–68.56] | 62.31 [57.58–70.07] |
+| Rest process CPU, ms/s | 1.55 [0.00–4.66] | 1.55 [0.00–3.11] | 0.00 [0.00–6.22] |
+| Rest main-thread CPU, ms/s | 1.55 [0.00–3.11] | 0.00 [0.00–1.55] | 0.00 [0.00–6.22] |
+| Displays / gesture second | 58.25 [58.08–58.46] | 56.41 [56.04–56.46] | 58.15 [58.07–58.53] |
+| Display interval p95, ms | 16.77 [16.74–16.93] | 16.75 [16.74–16.75] | 16.74 [16.74–16.75] |
+| Display interval p99, ms | 17.17 [16.78–17.30] | 33.33 [33.28–33.35] | 16.85 [16.77–16.93] |
+| Late intervals / gesture second | 0.000 [0.000–0.000] | 0.993 [0.742–0.995] | 0.00 [0.00–0.00] |
+| Lifetime peak working set, MiB | 153.04 [152.35–153.66] | 153.85 [152.94–153.91] | 153.18 [152.79–153.39] |
+| End-of-rest working set, MiB | 153.04 [152.35–153.66] | 153.85 [152.94–153.91] | 153.16 [152.79–153.39] |
+| DWM complete-screen proxy, ms | 182.25 [171.22–211.84] | 161.84 [155.63–181.27] | 160.78 [151.81–171.37] |
+| DXGI displayed complete screen, ms | 194.67 [182.68–223.86] | 176.85 [167.07–192.07] | 177.66 [170.41–182.54] |
+| Painter snapshots / successful frames, total | 1,251 / 1,251 | 1,166 / 1,166 | 1,247 / 1,247 |
+
+PresentMon 2.6.0 reports `Composed: Flip`. Display p50 is
+16.67 [16.67–16.68] ms; the full ten-second phase, including pauses, displays
+24.51 [24.40–24.61]/s. Every rest has zero displays. The driver posts
+242 [241–243] wheel events; the largest within-gesture posting gap is
+19.19 [18.83–19.91] ms, with none above 25 ms. Painter snapshots and successful
+frames are equal in every run: **250, 250, 248, 250, 249**.
+
+The CPU median is independently reproduced from run 1's endpoints:
+843.75 process CPU ms / 10.0353022 wall seconds = 84.0781855 ms/s.
+The restored presentation cadence meets all three cadence thresholds in every
+run. These timestamps count presented frames, including redraws after zero
+wheel deltas; they do not establish distinct content changes or input latency.
+The retained PresentMon trace has no CPU stacks to attribute the remaining CPU
+range miss. Further performance changes stop here.
+
+### The clean-frame skip trial
+
+The first restoration (`b61c1cdd4d`) kept G6d's clean-frame skip. It produced
+56.11 [55.86–56.21] displays/s, p99 33.29 [16.90–33.37] ms, and
+0.993 [0.247–0.998] late intervals/s. Joining PresentMon display timestamps
+to the posted input places all **15** long intervals near the gesture tails:
+33.18–33.41 ms gaps starting 946.30–979.48 ms after gesture start, while wheel
+deltas alternate between zero and −1. There are no lost ETW events or focus
+losses. This retained trial is **not quiet**: one of 24 observations is
+10.1% CPU. Its five-run process CPU is 99.63 [77.89–102.78] ms/s, and its
+1,165 snapshots equal its 1,165 successful frames.
+
+The trial's ten startup launches are quiet (maximum 6.8% CPU): DWM
+165.86 [150.89–179.68] ms and DXGI 179.06 [167.53–191.25] ms. Removing the
+skip is the second and final configuration, authorized by G6e's condition
+that the skip remain only if measurement preserves the row. Its complete
+quiet series is the G6e column above; no sample is selected from the first
+trial. G6d's corrected readiness ordering still applies, so these historical
+startup distributions do not isolate a scheduling gain or close G6c's
+separate paired-startup question.
+
+### Native qualification and checks
+
+All six Mac checks pass on the measured source: all-target build, root tests,
+clippy plus fmt, staged caps, boot and full-workspace all-target check. Root
+tests pass **7,331**, with **83 ignored**, using `RUST_TEST_THREADS=2`.
+The separate exact-linux library and integration suites pass **2,066**, with
+**38 ignored**. Native qualification is still running.
+
+Raw evidence is retained in both worktrees under `target/g6e/`: `final/`
+holds the quiet fling and startup series; `skip-trial/` holds the earlier
+configuration, including its loaded observation. `skip-trace.json` joins that
+trial's display gaps to input. `summary.json` records the final aggregation;
+`measured-source.bundle` preserves the measured source. Native logs and
+captures are in `native/` and `journeys/`; Mac logs are in `checks/`.
+
+Egui, Ink/wgpu, driver-cache-cold startup, energy, input latency and isolated
+renderer cost were not remeasured. G6's fonts, whole-app paths and readiness
+non-comparables remain.

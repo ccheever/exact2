@@ -3149,3 +3149,5 @@ backpressure and fixes the recovery material and DPI fixture failures; see
 G6c honors the Windows carrier's presentation deadline: [the D3D11 fling, startup and desktop journeys remeasured](../../bench/heavy-list/gpui/RESULTS.md#g6c-one-paint-per-refresh).
 
 G6d fixes the Windows review findings and rechecks the NucBox: [lifecycle qualification, three pacing trials and the remaining cadence regression](../../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
+
+G6e restores the full-period reservation wait and removes the clean-frame skip: [cadence restored, the strict CPU gate missed, and native qualification](../../bench/heavy-list/gpui/RESULTS.md#g6e-the-full-period-reservation-wait-restored).
