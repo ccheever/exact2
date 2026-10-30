@@ -137,12 +137,6 @@ worktrees alone. Every Cargo invocation uses this worktree's `target/`,
 including `--target-dir target` for the separate benchmark workspaces.
 Nothing else may build there; no other work may run during a series.
 
-SSH's non-interactive PATH needs the Rust shims as well as Bun and Homebrew:
-
-```sh
-export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:$PATH"
-```
-
 The G4 driver and its four signed bundles are prepared under `target/g0/`.
 `build.sh`, `bundle.py` and the build logs retain the commands; the data must pass
 `data.sha256` before any run. Keep all raw attempts, quiet observations,
@@ -156,7 +150,8 @@ Metal unavailable. It was installed and both Exact arms rebuilt on 2026-10-30.
 GUI runs must join the signed-in user's Aqua session. `launchctl asuser`
 needs privilege over SSH; it changes the bootstrap session, not the Unix
 user. Enter that session with sudo, then drop back to `ccheever` before
-running the driver. Start the one-arm qualification from the development Mac:
+running the driver. Every SSH command needs the PATH below, including the
+Homebrew Rust shims. Start the one-arm qualification from the development Mac:
 
 ```sh
 ssh ccheever@100.76.94.78 '
@@ -187,10 +182,12 @@ programs. Power collection needs passwordless sudo for `/usr/bin/powermetrics`:
 `--samplers cpu_power,gpu_power,tasks --show-process-energy --show-process-gpu
 -i 1000`. Do not work around a missing TCC grant.
 
-On 2026-10-30, the Aqua-session preflight returned UID 501 and all three
-permission checks passed: Accessibility, event posting and Screen Recording.
-Passwordless `powermetrics` produced a sample. The first GUI launch and window
-capture remain pending GO. See
+On 2026-10-30, the Aqua-session preflight returned UID 501; Accessibility,
+event posting and Screen Recording checks passed. Passwordless `powermetrics`
+sampled and stopped cleanly. The three-hour GO wait expired without a file,
+so window qualification and the series remain unrun. AC display sleep is
+still ten minutes; automatic locking is unverified. Charlie must finish those
+settings, unlock the session and create a fresh GO before the GUI run. See
 [G4m](gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac) for status.
 
 ## Last standings

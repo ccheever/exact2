@@ -3285,19 +3285,25 @@ Preparation, 2026-10-30, `lane/measure-mac`. The silver M5 Max's isolated
 `d16c84ee034ba9ab75df011786620164abf3387c`. Builds use its own `target/`;
 the retained preparation and eventual series live in `target/g0/`.
 G4's driver, probe, four-arm order, gestures and two-table aggregation remain
-the instruments. This is a current-source baseline on a second machine,
-not a same-binary paired comparison with G4.
+the instruments. A completed series will establish a current-source baseline
+on the silver Mac. G4 used earlier source, so the comparison will not isolate
+the hardware difference.
 
-**Predictions, written before any GUI run.** With the same model and display,
-the median fling process CPU should remain inside G4's ranges: native
-112.39–143.12, GPUI 82.05–89.05, Ink 84.98–87.07 and egui 64.93–71.54 ms/s.
-Each arm's median interval p95 should remain 8.33 ms at the table's precision.
-Peak-footprint medians should remain inside G4's ranges: native
-211.35–232.45, GPUI 391.64–413.84, Ink 587.67–593.42 and egui
-504.14–515.89 MiB. The required collection is five quiet fling/rest samples
-and ten quiet successful fresh-process launches per arm, with every failed
-attempt retained. Caches stay retained. Power is a first observation, with
-no previous power row or predicted saving.
+**Predictions, written before any GUI run.** G4's probe and driver are the
+instrument. CPU and peak-footprint medians should fall within G4's observed
+ranges; median interval p95 should remain 8.33 ms at the table's precision.
+
+| Arm | Predicted median fling CPU, ms/s | Predicted median p95, ms | Predicted median peak footprint, MiB | Result |
+| --- | ---: | ---: | ---: | --- |
+| Native | 112.39–143.12 | 8.33 | 211.35–232.45 | All unmeasured |
+| GPUI | 82.05–89.05 | 8.33 | 391.64–413.84 | All unmeasured |
+| Ink | 84.98–87.07 | 8.33 | 587.67–593.42 | All unmeasured |
+| egui | 64.93–71.54 | 8.33 | 504.14–515.89 | All unmeasured |
+
+The required collection is five quiet fling/rest samples and ten quiet
+successful fresh-process launches per arm, with every failed attempt retained.
+**Collected: zero of five and zero of ten for each arm.** Caches stay retained.
+Power has no previous row or predicted saving; no benchmark power was measured.
 
 All four release arms, the driver, wheel helper and probe build. The data's
 105 SHA-256 checks pass. `Native.app`, `GPUI.app`, `Ink.app` and `Egui.app`
@@ -3316,6 +3322,9 @@ and Screen Recording checks. Passwordless `powermetrics` produces a plist
 sample with the requested CPU, GPU and task samplers. That setup sample is
 not benchmark power evidence. Its process-path and underflow warnings are
 retained in `power-preflight-granted.log` beside the raw plist.
+The collector also samples and stops on SIGINT with exit code 0 through the
+same Aqua launch chain (`power-stop-preflight.json`). The final permission
+preflight still passes all three checks (`permissions-final.txt`).
 
 All six checks pass in the development worktree: build, tests, Clippy plus
 fmt, caps, boot and the workspace all-target check. The first build failed
@@ -3327,7 +3336,18 @@ The remote build and preparation logs are retained in
 `target/g0/silver/`. The prepared launch commands are in the benchmark
 [README](../README.md#the-measurement-mac).
 
-**Status:** waiting for GO at `~/projects/exact2-measure/GO`. No benchmark
-window has opened and no gesture has been posted. The cold-only window
-qualification, four-arm series, power rows and all prediction results remain
-unmeasured. G4m does not yet replace G4 as §4's baseline.
+**Status: stopped after the required GO wait.** The file
+`~/projects/exact2-measure/GO` remained absent from 09:51:40 to 12:51:40 PDT
+on 2026-10-30. The bounded polling loops retained 288 observations in
+`go-polls.jsonl`; `go-wait-result.json` records the three-hour timeout.
+This lane opened no benchmark window, posted no gesture and attempted no
+window capture. The cold-only qualification, both G4m tables and the power
+rows remain unmeasured. Agreement with G4 is unknown; G4m does not replace
+G4 as §4's baseline.
+
+Charlie still needs to finish the display settings, unlock the session and
+create a fresh GO. `power-settings-final.txt` reports AC system sleep off
+but display sleep at ten minutes; automatic locking was not verified.
+The prepared wrapper holds display and idle sleep off with `caffeinate`
+during a run. The GUI paths remain unqualified until the cold-only launch,
+probe readiness and window capture succeed.
