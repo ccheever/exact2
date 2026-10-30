@@ -196,7 +196,8 @@ describe('outdated hosts (outdatedHostUpdate.ts)', () => {
     // The bare socket: no protocol gate, and an unheadered request.
     const socket = old.sockets.at(-1)!;
     expect(new URL(socket.url).searchParams.has('orchestrationProtocol')).toBe(false);
-    expect(socket.sent[0]).toMatchObject({ _tag: 'Request', tag: 'server.updateServerWithProgress', headers: [] });
+    expect(socket.sent[0]).toMatchObject({ _tag: 'Request', tag: 'server.updateServerWithProgress', payload: { targetVersion: '0.0.46' }, headers: [] });
+    expect(Object.keys(socket.sent[0]!.payload as Obj)).toEqual(['targetVersion']);
     expect(value(await drive.op({ op: 'fleetOutdatedJobs', fleet: '\n' })).jobs).toMatchObject({ [key]: { status: 'running', stage: 'resuming' } });
     old.descriptor.orchestrationProtocolVersion = 2; old.descriptor.serverVersion = '0.0.46';
     await drive.advance(1_500);

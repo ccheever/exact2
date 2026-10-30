@@ -22,7 +22,6 @@ private final class AccessServer: URLProtocol, @unchecked Sendable {
         let status = path == "/api/auth/clients/revoke" ? 403 : 200
         let answer: Any = path == "/oauth/token" ? ["access_token": "local-bearer", "token_type": "Bearer"] as Any
             : path == "/api/auth/pairing-token" ? ["id": "link-1", "credential": "SECRET", "expiresAt": "2036-04-07T00:05:00.000Z"] as Any
-            : path == "/api/auth/pairing-links" ? [[String: Any]]() as Any
             : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.5"] as Any
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["content-type": "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: answer))

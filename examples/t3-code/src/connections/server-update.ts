@@ -206,7 +206,7 @@ export async function updateEnvironment(target: ServerUpdateTarget, deps: Update
   try {
     const reply = await deps.start(target.environmentKey, {
       mode: 'connected', label: target.serverLabel, fromVersion: target.fromVersion || target.targetVersion, targetVersion: target.targetVersion,
-      capabilities: target.capabilities ?? {}, extras: {},
+      capabilities: target.capabilities ?? {},
     });
     if (reply.started !== true) return 'busy';
     if (!facts.outcome) attempts.set(str(reply.attempt), facts);

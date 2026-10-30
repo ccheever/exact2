@@ -1,9 +1,9 @@
 // Settings pages read the connection's subscribed server config. Every
 // `data.revision` change (any t3.status/t3.events wake: a thread list change, a provider status) asks each open
 // settings page again, as app.contract keys them. Source control, Storage and Keybindings then sent server.getConfig
-// and server.getSettings (Keybindings getConfig) again; Archive re-read its archived shell snapshot; Diagnostics
-// re-read the resource timeline at each minute tick; the scheduled-task editor re-read every project's refs. The
-// reference reads the server config and settings from the environment's subscribed config (useScopedSettings,
+// again; Archive re-read its archived shell snapshot; Diagnostics re-read the resource timeline at each minute tick;
+// the scheduled-task editor re-read every project's refs. The reference reads the server config and settings from
+// the environment's subscribed config (useScopedSettings,
 // serverConfig: server.getConfig when the connection starts, then subscribeServerConfig) and its page queries once per
 // mount and on Refresh or its own actions (client-runtime state/runtime.ts createEnvironmentQueryAtomFamily: Atom.swr
 // revalidates on mount only; no refreshIntervalMs on these). These tests go through the app's own answer(), as the
@@ -43,7 +43,7 @@ class PageServer extends Backend {
     }
     if (request.op === 'request' && method === 'vcs.listRefs') { this.calls.push(request); return this.good({ refs: [{ name: 'main', current: true, isDefault: true }] }); }
     if (request.op === 'request' && method === 'server.discoverSourceControl') { this.calls.push(request); return this.good({ versionControlSystems: [], sourceControlProviders: [] }); }
-    if (request.op === 'request' && method.startsWith('server.get') && !['server.getConfig', 'server.getSettings'].includes(method)) { this.calls.push(request); return this.good({ readAt: '2026-10-10T07:59:00.000Z' }); }
+    if (request.op === 'request' && method.startsWith('server.get') && method !== 'server.getConfig') { this.calls.push(request); return this.good({ readAt: '2026-10-10T07:59:00.000Z' }); }
     return super.later(input);
   }
   /** The server requests sent since `from`, by method. */

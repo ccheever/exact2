@@ -119,9 +119,9 @@ describe("ServerUpdatesAction", () => {
   it("updates both supported machines and skips the manual machine", async () => {
     const state = harness(), owner = {};
     expect(await updateServers(owner, targets, state.deps, async () => true)).toBe('started');
-    expect(state.started.map(call => [String(call.key).split('\n')[1], call.targetVersion, call.extras])).toEqual([
-      ['batch-a', '0.0.31', {}],
-      ['batch-b', '0.0.31', {}],
+    expect(state.started.map(call => [String(call.key).split('\n')[1], call.targetVersion])).toEqual([
+      ['batch-a', '0.0.31'],
+      ['batch-b', '0.0.31'],
     ]);
     // Each job's "<label> updated" toast follows its reconnect (server-update.test.ts, announceServerUpdates).
     expect(state.toasted).toEqual([]);

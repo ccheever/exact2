@@ -117,7 +117,6 @@ test('provider updates pop no toast at launch; Update all still offers them', as
 test('Copy update command copies and toasts; the custom model editor saves through the instance upsert', async () => {
   const fake = new Fake([codex({ models: [{ slug: 'gpt-5', name: 'GPT-5', isCustom: false, capabilities: { optionDescriptors: [{ id: 'reasoningEffort', label: 'Reasoning', type: 'select', options: [{ id: 'high', label: 'High' }] }] } }] })],
     { providerInstances: { codex: { driver: 'codex', enabled: true, config: { customModels: ['gpt-x'] } } }, providers: {} });
-  fake.handlers['server.getSettings'] = () => fake.config.settings as Obj;
   fake.handlers['server.getConfig'] = () => fake.config;
   fake.handlers['server.updateSettings'] = payload => { const mutation = obj(payload.providerInstanceMutation); fake.config.settings = { ...obj(fake.config.settings), providerInstances: { codex: mutation.instance as Obj } }; return {}; };
   await providerUpkeepOp(fake, fake, 'upkeep:copy-command', 'codex', '', '');
@@ -151,7 +150,6 @@ test('provider update rows expose live progress and keep a terminal problem in t
 test('configured secret fields render blank and clear with an explicit empty value', async () => {
   const settings: Obj = { providerInstances: { opencode: { driver: 'opencode', enabled: true, config: { serverPassword: 'private-fixture-secret' } } } };
   const fake = new Fake([], settings);
-  fake.handlers['server.getSettings'] = () => settings;
   const page = providerPage(fake, 'opencode', 1), field = page.editors[0]?.fields.find(field => field.key === 'serverPassword');
   expect(field).toMatchObject({ value: '', placeholder: 'Configured', redacted: true, clearable: true });
   expect(JSON.stringify(page)).not.toContain('private-fixture-secret');
@@ -162,7 +160,6 @@ test('configured secret fields render blank and clear with an explicit empty val
 test('saving a built-in rename adds an override without turning it into a duplicate custom row', async () => {
   const settings: Obj = { providerInstances: { codex: { driver: 'codex', enabled: true, config: { customModels: [] } } } };
   const fake = new Fake([codex({ models: [{ slug: 'gpt-5', name: 'GPT 5', isCustom: false }] })], settings);
-  fake.handlers['server.getSettings'] = () => settings;
   await providerUpkeepOp(fake, fake, 'upkeep:cm-open', 'codex', 'gpt-5', '');
   await providerUpkeepOp(fake, fake, 'upkeep:cm-text', 'codex', 'name', 'My GPT');
   await providerUpkeepOp(fake, fake, 'upkeep:cm-save', 'codex', '', '');

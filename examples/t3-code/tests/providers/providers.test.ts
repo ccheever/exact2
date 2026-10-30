@@ -42,7 +42,6 @@ class FakeServer implements ProviderHost {
   snapshot(): Obj { return { environment: { label: 'Fixture Mac' }, settings: JSON.parse(JSON.stringify(this.settings)), providers: this.live }; }
   async rpc(_native: Native, method: string, payload: Obj): Promise<Obj> {
     this.calls.push({ method, payload });
-    if (method === 'server.getSettings') return JSON.parse(JSON.stringify(this.settings));
     if (method === 'server.getConfig') return this.snapshot();
     if (method === 'server.refreshProviders') return { providers: this.live };
     if (method === 'server.searchAcpRegistry') return { agents: this.registry };

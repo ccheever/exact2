@@ -16,6 +16,7 @@ import { readPreviewEvent } from '../../src/browser/browser-automation';
 import { applyTerminalAttachStreamEvent, EMPTY_TERMINAL_BUFFER_STATE, type TerminalAttachStreamEvent } from '../../src/terminal/terminal-session';
 import { resolveServerConfigVersionMismatch } from '../../src/connections/version-skew';
 import { decodeClientPrefs } from '../../src/settings/settings-core';
+import { advancedBackgroundValue, profileOption, resolveBackground } from '../../src/settings/settings-a-background';
 
 const at = '2026-10-21T00:00:00.000Z';
 const usage = { usedTokens: 10, updatedAt: at, autoCompactThreshold: 200_000, promptCacheExpiresAt: at };
@@ -139,8 +140,21 @@ describe('what a 0.1.5 server adds', () => {
   });
 
   test('the new client settings, and the removed ones a saved file may hold, decode', () => {
-    const prefs = decodeClientPrefs({ effortDisplay: 'bars', threadDetailsItems: { usage: true }, composerCollapseOnScroll: false, sidebarThreadPreviewCount: 9, chatWidth: 'wide' });
+    const prefs = decodeClientPrefs({ effortDisplay: 'bars', threadDetailsItems: { usage: true }, composerCollapseOnScroll: false, sidebarThreadPreviewCount: 9,
+      dismissedProviderUpdateNotificationKeys: ['codex:0.42.0'], chatWidth: 'wide' });
     expect(prefs.chatWidth).toBe('wide');
+  });
+
+  // BackgroundActivityOverrides has no idleClientTtl at 6d450a4284, so the server drops the key an Advanced write
+  // still carries. No control sets it, so it only ever holds the preset's value, which the read falls back to.
+  test('an Advanced write reads back the same once the server drops its idleClientTtl', () => {
+    const settings: Obj = { backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} } };
+    const written = obj(advancedBackgroundValue(settings, 'git', '60'));
+    const { idleClientTtl, ...kept } = obj(written.overrides);
+    expect(idleClientTtl).toBe(45_000);
+    const stored = { backgroundActivity: { ...written, overrides: kept } };
+    expect(resolveBackground(stored)).toEqual(resolveBackground({ backgroundActivity: written }));
+    expect([resolveBackground(stored).automaticGitFetchInterval, profileOption(stored)]).toEqual([60, 'advanced']);
   });
 });
 

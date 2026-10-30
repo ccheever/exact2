@@ -299,7 +299,6 @@ describe('managed Codex setup (CodexSetupSection)', () => {
   test('the welcome card: Continue with ChatGPT switches to managed and starts on its own; Use existing CLI switches back', async () => {
     const fake = new Fake([provider({ installed: true, status: 'warning' })]);
     fake.config.settings = { providers: { codex: { enabled: true, binaryPath: 'codex' } }, providerInstances: {} };
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.getConfig'] = () => fake.config;
     const existing = codexSetupView(fake, instanceId, provider({ installed: true }), { presentation: 'onboarding', mode: 'existing', enabled: true, readOnly: false, allowExistingCli: true });
     expect([existing.kind, existing.control, existing.secondary]).toEqual(['existing', 'connect', 'existing']);
@@ -326,7 +325,6 @@ describe('managed Codex setup (CodexSetupSection)', () => {
   test('the Add ChatGPT account dialog carries the created account\'s setup, starts it, and reports when the plan is shared', async () => {
     const fake = new Fake([]);
     fake.ids = async (_native: Native, count: number) => ['8f9e', '0000'].slice(0, count);
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.getConfig'] = () => fake.config;
     providerWizard(fake, true, 3, 'codex', false, '', false, '', 'chatgpt');
     await runProviderOp(fake, fake, 'provider-chatgpt', '', JSON.stringify({ key: 'Work', value: '' }));
@@ -348,7 +346,6 @@ describe('managed Codex setup (CodexSetupSection)', () => {
   test('the Add ChatGPT account dialog and the Settings editor behind it name no element id alike', async () => {
     const fake = new Fake([provider({ installed: true, setup: { canInstall: true, canAuthenticate: true } })]);
     fake.ids = async (_native: Native, count: number) => ['7d1c', '0000'].slice(0, count);
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.getConfig'] = () => fake.config;
     providerWizard(fake, true, 5, 'codex', false, '', false, '', 'chatgpt');
     await runProviderOp(fake, fake, 'provider-chatgpt', '', JSON.stringify({ key: 'Work', value: '' }));

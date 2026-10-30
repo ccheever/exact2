@@ -49,7 +49,7 @@ function nativeOf(entry: FleetEntry, ops: Obj[]): Native {
     if (op.op === 'ids') return { ok: true, generation: 0, value: Array.from({ length: Number(op.count) }, () => `00000000-0000-4000-8000-${String(ids++).padStart(12, '0')}`) };
     if (op.fleet !== 'remote') return { ok: true, generation: 0, value: {} };
     const value = op.op === 'http' ? { projects: entry.shell.projects, threads: entry.shell.threads, snapshotSequence: 1 }
-      : op.method === 'server.getConfig' ? entry.config : op.method === 'server.getSettings' ? entry.config.settings
+      : op.method === 'server.getConfig' ? entry.config
         : op.method === 'server.updateSettings' ? { ...obj(entry.config.settings), ...obj(obj(op.payload).patch) } : {};
     return { ok: true, generation: 3, value };
   } };

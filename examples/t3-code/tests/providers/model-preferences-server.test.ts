@@ -15,7 +15,7 @@ test('favorite and visibility commands send atomic desired-state server patches'
   const calls: { method: string; payload: Obj }[] = [];
   const config: Obj = { environment: { environmentId: 'a' }, settings: { favorites: [], providerModelPreferences: {} } };
   const host = { config, local, async rpc(_native: Native, method: string, payload: Obj) {
-    calls.push({ method, payload }); return method === 'server.getSettings' ? config.settings as Obj : method === 'server.getConfig' ? config : {};
+    calls.push({ method, payload }); return method === 'server.getConfig' ? config : {};
   } };
   await toggleModelFavorite(host, native, 'codex', 'm');
   await toggleModelFavorite(host, native, 'codex', 'm');
@@ -39,7 +39,7 @@ test.each(['succeeds', 'fails'])('the migration waits for a connection and retri
         writes.push(environmentId);
         if (outcome === 'fails' && writes.length === 1) throw new Error('save failed');
       }
-      return method === 'server.getSettings' ? settings : method === 'server.getConfig' ? { environment: { environmentId }, settings } : {};
+      return method === 'server.getConfig' ? { environment: { environmentId }, settings } : {};
     } });
   const run = (target: ReturnType<typeof host>) => migrateModelPreferences(target, native).catch(() => {});
   const mine = host(`migration-${outcome}`), other = host(`other-${outcome}`);

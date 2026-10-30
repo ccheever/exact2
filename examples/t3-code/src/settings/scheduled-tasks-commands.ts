@@ -27,7 +27,7 @@ function environmentFor(client: T3Client, native: Native, environmentId: string)
 export async function scheduledTaskCommand(client: T3Client, native: Native, scope: string, input: Record<string, string>): Promise<string> {
   const [, scopeProject = ''] = scope.split(':');
   const environment = environmentFor(client, native, str(input.environmentId));
-  const tasks = await currentTasks(environment);
+  const tasks = currentTasks(environment);
   const task = input.id ? tasks.find(entry => entry.id === input.id) : undefined;
   const scoped = (projectId: string) => !scopeProject || !environment.focused || projectId === scopeProject;
   if (input.id && (!task || !scoped(str(task.projectId)))) throw new ClientError('This scheduled task no longer exists.');
@@ -77,7 +77,7 @@ export async function automationCommand(client: T3Client, native: Native, op: st
   busy.set(client, id);
   try {
     const environment = environmentFor(client, native, environmentId);
-    const task = (await currentTasks(environment)).find(entry => entry.id === id);
+    const task = currentTasks(environment).find(entry => entry.id === id);
     if (!task) throw new ClientError('This automation no longer exists.');
     if (op === 'run') {
       if (str(task.lastRunStatus) === 'running') return '';

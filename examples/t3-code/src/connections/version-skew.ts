@@ -78,7 +78,6 @@ export function resolveServerSelfUpdateCapability(config: unknown): string | nul
 }
 /** The desktop app supervising this server can be told to update itself over RPC. */
 export function supportsDesktopAppUpdate(config: unknown): boolean { return capabilitiesOf(config).desktopAppUpdate === true; }
-/** The server can recover opted-in running turns after its self-update restart. */
 
 export function buildVersionMismatchDismissalKey(environmentId: string, mismatch: Pick<VersionMismatch, 'clientVersion' | 'serverVersion'>): string {
   return `${environmentId}:${mismatch.clientVersion}:${mismatch.serverVersion}`;

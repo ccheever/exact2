@@ -75,7 +75,7 @@ describe('abandon-safe reads and traces', () => {
   test('a request whose reply was dropped stops counting as slow once the transport no longer lists it', () => {
     const client = new T3Client();
     const lost = traceRpc(client, { op: 'request', method: 'server.getConfig', payload: {} });
-    const live = traceRpc(client, { op: 'request', method: 'server.getSettings', payload: {} });
+    const live = traceRpc(client, { op: 'request', method: 'device.list', payload: {} });
     const http = traceRpc(client, { op: 'http', path: '/x' });
     expect(lost.request.trace).toBe(1); expect(live.request.trace).toBe(2); expect(http.request.trace).toBeUndefined();
     expect(tracking(client)).toBe(true);

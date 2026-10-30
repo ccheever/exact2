@@ -406,7 +406,6 @@ describe('provider setup in the clone', () => {
   test('the wizard follows its created ACP instance into the Sign in step', async () => {
     const id = 'acpRegistry_kilo';
     const fake = new Fake([], {});
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.updateSettings'] = payload => { const mutation = obj(payload.providerInstanceMutation); obj(fake.config.settings).providerInstances = { [str(mutation.instanceId)]: mutation.instance }; return {}; };
     fake.handlers['server.getConfig'] = () => ({ ...fake.config, providers: [{ ...provider(), instanceId: id, driver: 'acpRegistry', setup: { canAuthenticate: true, canInstall: false } }] });
     providerWizard(fake, true, 7, 'acpRegistry', true, 'Kilo', true, id);
@@ -428,7 +427,6 @@ describe('provider setup in the clone', () => {
     const methods = [{ id: 'oauth-personal', name: 'Log in with Google' }, { id: 'gemini-api-key', name: 'Gemini API key' }];
     const live = { ...provider(), instanceId: id, driver: 'acpRegistry', installed: true, setup: { canAuthenticate: true, canInstall: false } };
     const fake = new Fake([live], {});
-    fake.handlers['server.getSettings'] = () => obj(fake.config.settings);
     fake.handlers['server.updateSettings'] = payload => { const mutation = obj(payload.providerInstanceMutation); obj(fake.config.settings).providerInstances = { [str(mutation.instanceId)]: mutation.instance }; return {}; };
     fake.handlers['server.getConfig'] = () => fake.config;
     providerWizard(fake, true, 9, 'acpRegistry', true, 'Gemini CLI', true, id);

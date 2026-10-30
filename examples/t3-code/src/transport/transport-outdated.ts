@@ -35,7 +35,7 @@ type Reply = { ok: true; generation: 0; value: unknown } | { ok: false; generati
 
 interface Run {
   key: string; origin: string; environment: string; target: string; connected: boolean;
-  capabilities: Obj; extras: Obj;
+  capabilities: Obj;
   phase: 'socket' | 'resume' | 'waiting';
   slot: number; step: number; url: string; openDeadline: number;
   /** The progress result (`complete`), which wins over a socket lost after it. */
@@ -159,10 +159,7 @@ export class OutdatedHosts {
     this.jobs[key] = { status: 'running', stage: 'downloading', fromVersion: str(request.fromVersion) || target, targetVersion: target, message: '', resultVersion: '',
       label: str(request.label), mode: connected ? 'connected' : 'outdated', attempt: String(this.attempts) };
     this.hooks.changed();
-    const extras: Obj = {};
-    const given = obj(request.extras);
-    if (typeof given.continueRunningThreads === 'boolean') extras.continueRunningThreads = given.continueRunningThreads;
-    this.runs.set(key, { key, origin, environment, target, connected, capabilities: obj(request.capabilities), extras, phase: 'waiting', slot: -1, step: 0, url: '',
+    this.runs.set(key, { key, origin, environment, target, connected, capabilities: obj(request.capabilities), phase: 'waiting', slot: -1, step: 0, url: '',
       openDeadline: 0, terminal: null, commitSent: false, label: '', selfUpdate: '', deadline: 0, nextPollAt: 0, stepRunning: false });
     this.assign();
     return { started: true, attempt: String(this.attempts) };
@@ -263,8 +260,7 @@ export class OutdatedHosts {
     const request = (id: string, method: string, payload: Obj) => send(run.connected ? wireRequest(id, method, payload) : { _tag: 'Request', id, tag: method, payload, headers: [] });
     if (event.type === 'open') {
       run.openDeadline = 0;
-      const input: Obj = { targetVersion: run.target, ...run.extras };
-      request('1', run.capabilities.serverSelfUpdateProgress === true ? 'server.updateServerWithProgress' : 'server.updateServer', input);
+      request('1', run.capabilities.serverSelfUpdateProgress === true ? 'server.updateServerWithProgress' : 'server.updateServer', { targetVersion: run.target });
       return;
     }
     if (event.type === 'close' || event.type === 'error') { this.outcome(run, { dropped: event.message || `The server connection closed (${event.code ?? 1006}).` }, request); return; }
