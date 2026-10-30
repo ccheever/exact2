@@ -90,9 +90,11 @@ verify. Only MouseEventsMac.swift differs in the baseline and final input
 manifests. No temporary production probes were added. Normal Quit stops the app
 and backend before controller close. Owned processes exit; the original listener
 and window defaults remain exact. Evidence is under
-`target/t3-poc-evidence/desktop-header-drag-fix/`. Root review is pending; the
-implementation remains local. The earlier natural-query experiment remains under
-`desktop-header-drag-policy/`.
+`target/t3-poc-evidence/desktop-header-drag-fix/`. Independent review of
+`cee72da49c` finds no introduced P1 or P2 issue and reruns all 96 native tests.
+It verifies the actual signed bytes, complete journals, seven captures and
+cleanup. Its comment and suppression audits are clear. The earlier natural-query
+experiment remains under `desktop-header-drag-policy/`.
 
 This qualifies named agent Mac input with `context.agent=true`. Ordinary mouse,
 physical window dragging, normal-app Keychain restart and full desktop parity
