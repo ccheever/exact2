@@ -679,8 +679,9 @@ pub fn open_read(
 }
 
 /// A native operation (exact2 LLP 1133.007 D6a, Exact patch 24), admitted as
-/// spelt: run below the realized directory of the deepest grant line that
-/// admits each path, every component below it opened `O_NOFOLLOW`
+/// spelt: run below the realized directory of the grant line a walk to each
+/// path starts from (`GrantSet::fs_root`), every component below it opened
+/// `O_NOFOLLOW`
 /// (`app_fs::run_below`), as a `home:` path is. A link below a granted
 /// directory, one the app's own code made included, is refused rather than
 /// followed, so the operation reaches the file it was admitted for, never
@@ -709,10 +710,10 @@ fn run_native(
     super::app_fs::run_below(op, source, target, data.unwrap_or(&[]))
 }
 
-/// `path` below the realized directory of the deepest `fs.write` (`write`)
-/// or `fs.read` line that admits it, and its native path. The granted
-/// directory is the person's, opened as realized; nothing below it is
-/// followed.
+/// `path` below the realized directory a walk to it starts from
+/// (`GrantSet::fs_root`), and its native path. That directory is the
+/// person's, which the app cannot replace, opened as realized; nothing below
+/// it is followed.
 #[cfg(unix)]
 fn native_below(
     grants: &GrantSet,
@@ -720,8 +721,15 @@ fn native_below(
     write: bool,
 ) -> Result<(super::app_fs::Below, PathBuf), HostError> {
     let capability = if write { "fs.write" } else { "fs.read" };
-    let root =
-        (grants.fs_root(&path.to_string_lossy(), write)).ok_or(HostError::Denied { capability })?;
+    // The host's home as named and as realized: a `home:` line above a
+    // native one is matched in either spelling.
+    let home = ROOTS.read().unwrap_or_else(|e| e.into_inner()).home.clone();
+    let homes: Vec<PathBuf> = (home.into_iter())
+        .flat_map(|home| [std::fs::canonicalize(&home).ok(), Some(home)])
+        .flatten()
+        .collect();
+    let root = (grants.fs_root(&path.to_string_lossy(), write, &homes))
+        .ok_or(HostError::Denied { capability })?;
     let parts: Vec<String> = (path
         .strip_prefix(&root)
         .map_err(|_| HostError::Denied { capability })?)

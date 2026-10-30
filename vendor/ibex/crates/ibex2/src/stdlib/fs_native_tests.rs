@@ -1,6 +1,6 @@
 //! A native absolute path (Exact patch 24: exact2 LLP 1133.007 D6a): admitted
-//! as spelt and as realized, then run below the realized directory of the
-//! deepest grant line that admits it, every component opened `O_NOFOLLOW`,
+//! as spelt, then run below the realized directory of the grant line a walk
+//! to it starts from (`GrantSet::fs_root`), every component opened `O_NOFOLLOW`,
 //! so a link below a granted directory, one the grant's holder made
 //! included, is refused rather than followed.
 use super::*;
@@ -144,12 +144,37 @@ fn a_link_below_a_native_grant_to_an_outside_file_is_not_followed() {
     }
     let copied = inside.join("copied");
     assert!(call2(&grants, FsOp::CopyFile, &link, &copied).is_err());
-    // Through a linked directory, any operation is refused.
+    // Through a linked directory, every operation is refused.
     let through = inside.join("d/inner");
-    assert!(call(&grants, FsOp::ReadFile, &through, None).is_err());
-    assert!(call(&grants, FsOp::WriteFile, &through, Some(b"x")).is_err());
+    for (op, data) in [
+        (FsOp::ReadFile, None),
+        (FsOp::WriteFile, Some(&b"x"[..])),
+        (FsOp::AppendFile, Some(&b"x"[..])),
+        (FsOp::AtomicWriteFile, Some(&b"x"[..])),
+        (FsOp::Remove, None),
+        (FsOp::Stat, None),
+        (FsOp::Lstat, None),
+        (FsOp::Readlink, None),
+        (FsOp::Access, Some(&b"4"[..])),
+        (FsOp::Chmod, Some(&b"511"[..])),
+        (FsOp::Digest, Some(&b"SHA-256"[..])),
+        (FsOp::Flock, Some(&b"0"[..])),
+        (FsOp::Realpath, None),
+    ] {
+        assert!(
+            call(&grants, op, &through, data).is_err(),
+            "{op:?} through a link"
+        );
+    }
+    let made = inside.join("d/made");
+    assert!(call(&grants, FsOp::Symlink, &made, Some(b"inner")).is_err());
     assert!(call(&grants, FsOp::Mkdir, &inside.join("d/m"), None).is_err());
     assert!(call(&grants, FsOp::ReadDir, &inside.join("d"), None).is_err());
+    std::fs::write(inside.join("src"), b"src").unwrap();
+    assert!(call2(&grants, FsOp::CopyFile, &inside.join("src"), &through).is_err());
+    assert!(call2(&grants, FsOp::Rename, &inside.join("src"), &through).is_err());
+    assert!(call2(&grants, FsOp::Rename, &through, &inside.join("taken")).is_err());
+    assert!(!outside.join("made").exists() && !inside.join("taken").exists());
     assert_eq!(std::fs::read(&secret).unwrap(), b"outside");
     assert_eq!(std::fs::read(outside.join("dir/inner")).unwrap(), b"inner");
     let mode = std::fs::metadata(&secret).unwrap().permissions().mode() & 0o777;
@@ -176,4 +201,72 @@ fn a_path_outside_every_native_grant_is_denied_before_any_walk() {
         Ok(FsResult::Names(_))
     ));
     assert!(call(&grants, FsOp::WriteFile, &inside, Some(b"x")).is_err());
+}
+
+#[test]
+fn a_granted_directory_the_app_replaced_with_a_link_is_not_followed() {
+    // An `fs.read` line below an `fs.write` one: the outer line lets the app
+    // move the inner granted directory away and put a link in its place.
+    let (inside, outside, _) = granted("nested");
+    let inner = inside.join("inner");
+    std::fs::create_dir_all(&inner).unwrap();
+    let (at, deeper) = (inside.display(), inner.display());
+    let grants = GrantSet::parse(&format!("fs.write {at}\nfs.read {deeper}")).unwrap();
+    call(&grants, FsOp::WriteFile, &inner.join("own"), Some(b"own")).unwrap();
+    call2(&grants, FsOp::Rename, &inner, &inside.join("moved")).unwrap();
+    let target = outside.display().to_string();
+    call(&grants, FsOp::Symlink, &inner, Some(target.as_bytes())).unwrap();
+    let made = inner.join("made");
+    assert!(call(&grants, FsOp::WriteFile, &made, Some(b"x")).is_err());
+    assert!(!outside.join("made").exists(), "wrote through the link");
+    assert!(call(&grants, FsOp::ReadFile, &inner.join("secret"), None).is_err());
+    let mode = Some(&b"511"[..]);
+    assert!(call(&grants, FsOp::Chmod, &inner.join("secret"), mode).is_err());
+    let secret = std::fs::metadata(outside.join("secret")).unwrap();
+    assert_eq!(secret.permissions().mode() & 0o777, 0o600);
+    // Put back, the directory reads through the outer line's walk.
+    call(&grants, FsOp::Remove, &inner, None).unwrap();
+    std::fs::rename(inside.join("moved"), &inner).unwrap();
+    assert_eq!(
+        call(&grants, FsOp::ReadFile, &inner.join("own"), None).unwrap(),
+        FsResult::Bytes(b"own".to_vec())
+    );
+}
+
+#[test]
+fn a_native_grant_below_a_home_line_the_app_replaced_is_not_followed() {
+    // A `home:` line covers a native one: the app may replace the native
+    // line's directory through the home line.
+    let _rooted = (super::namespaces_tests::ROOTED.lock()).unwrap_or_else(|e| e.into_inner());
+    let (inside, outside, _) = granted("home");
+    let inner = inside.join("inner");
+    std::fs::create_dir_all(&inner).unwrap();
+    let base = inside.parent().unwrap().to_path_buf();
+    set_roots(Roots {
+        home: Some(base.clone()),
+        bundle: None,
+    });
+    let deeper = inner.display();
+    let grants = GrantSet::parse(&format!(
+        "fs.write home:/granted\nfs.read home:/granted\nfs.read {deeper}"
+    ))
+    .unwrap();
+    let moved = "home:/granted/moved";
+    run(
+        &grants,
+        None,
+        FsOp::Rename,
+        "home:/granted/inner",
+        Some(moved),
+        None,
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&outside, &inner).unwrap();
+    assert!(call(&grants, FsOp::ReadFile, &inner.join("secret"), None).is_err());
+    std::fs::remove_file(&inner).unwrap();
+    std::fs::rename(base.join("granted/moved"), &inner).unwrap();
+    assert!(matches!(
+        call(&grants, FsOp::ReadDir, &inner, None),
+        Ok(FsResult::Names(_))
+    ));
 }

@@ -560,7 +560,8 @@ pub(super) fn exec(
 
 /// The `fs.write` line of the app's grants `app` under which it may write
 /// `path`, its directory entry or what it names, compared by realized whole
-/// names: a native line, or a `home:` or `app:` one.
+/// names: a native line, or a `home:` or `app:` one. Grants that do not
+/// parse answer as if one did.
 fn writable(shared: &Shared, app: &str, path: &Path) -> Option<String> {
     let realize = ibex2::stdlib::fs::realize;
     let entry = match (path.parent(), path.file_name()) {
@@ -568,17 +569,21 @@ fn writable(shared: &Shared, app: &str, path: &Path) -> Option<String> {
         _ => path.to_path_buf(),
     };
     let reached = [entry, realize(path)];
-    (app.lines().map(str::trim)).find_map(|line| {
-        let mut words = line.split_whitespace();
-        let target = (words.next() == Some("fs.write"))
-            .then(|| words.next())
-            .flatten()?;
-        let dir = realize(&native(shared, target).ok()?);
-        reached
-            .iter()
-            .any(|p| p.starts_with(&dir))
-            .then(|| line.to_string())
-    })
+    let set = match ibex2::grant::GrantSet::parse(&exact_runner::io_grants(app)) {
+        Ok(set) => set,
+        Err(e) => return Some(format!("the app's grants did not parse: {e}")),
+    };
+    let line = set.iter().find_map(|grant| {
+        let ibex2::grant::Grant::FsWrite(prefix) = grant else {
+            return None;
+        };
+        // Parsed, so a quoted path with spaces is one path.
+        let (namespace, parts) = prefix.components().split_first()?;
+        let spelt = format!("{namespace}/{}", parts.join("/"));
+        let dir = realize(&native(shared, &spelt).ok()?);
+        (reached.iter().any(|p| p.starts_with(&dir))).then(|| format!("fs.write {prefix}"))
+    });
+    line
 }
 
 /// `execPath` (D7): the native path a spawn of `program` would run, or `None`.

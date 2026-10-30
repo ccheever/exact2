@@ -310,18 +310,55 @@ impl GrantSet {
         }
     }
 
-    /// The deepest native `fs.write` (`write`) or `fs.read` directory that
-    /// covers `path` as written: where a walk below the grant starts (Exact
-    /// patch 24: exact2 LLP 1133.007 D6a).
-    pub fn fs_root(&self, path: &str, write: bool) -> Option<std::path::PathBuf> {
-        (self.grants.iter())
+    /// Where a walk below the grant to native `path`, as written, starts
+    /// (Exact patch 24: exact2 LLP 1133.007 D6a): the deepest native
+    /// `fs.write` (`write`) or `fs.read` directory that covers it; or, where
+    /// an `fs.write` line covers that directory from above, the shallowest
+    /// such line, since the app may replace any directory below it with a
+    /// link. `homes` spells the host's `home:/` as native paths, so a `home:`
+    /// line counts where it covers a native one.
+    pub fn fs_root(
+        &self,
+        path: &str,
+        write: bool,
+        homes: &[std::path::PathBuf],
+    ) -> Option<std::path::PathBuf> {
+        let native = |prefix: &PathPrefix| -> Vec<Vec<String>> {
+            let below = prefix.0[1..].iter().cloned();
+            match prefix.0.first().map(String::as_str) {
+                Some("") => vec![below.collect()],
+                Some("home:") => (homes.iter())
+                    .map(|home| {
+                        let home = home.iter().filter_map(|part| match part.to_str() {
+                            Some("/") | None => None,
+                            Some(part) => Some(part.to_string()),
+                        });
+                        home.chain(below.clone()).collect()
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            }
+        };
+        let target = PathPrefix::new(path).filter(|p| p.0.first().is_some_and(String::is_empty))?;
+        let deepest = (self.grants.iter())
             .filter_map(|grant| match (grant, write) {
                 (Grant::FsWrite(prefix), true) | (Grant::FsRead(prefix), false) => Some(prefix),
                 _ => None,
             })
-            .filter(|prefix| prefix.0.first().is_some_and(String::is_empty) && prefix.covers(path))
-            .max_by_key(|prefix| prefix.0.len())
-            .map(|prefix| std::path::PathBuf::from(format!("/{}", prefix.0[1..].join("/"))))
+            .filter(|prefix| prefix.0.first().is_some_and(String::is_empty))
+            .map(|prefix| prefix.0[1..].to_vec())
+            .filter(|root| target.0[1..].starts_with(root))
+            .max_by_key(Vec::len)?;
+        let root = (self.grants.iter())
+            .filter_map(|grant| match grant {
+                Grant::FsWrite(prefix) => Some(native(prefix)),
+                _ => None,
+            })
+            .flatten()
+            .filter(|above| deepest.starts_with(above))
+            .min_by_key(Vec::len)
+            .unwrap_or(deepest);
+        Some(std::path::PathBuf::from(format!("/{}", root.join("/"))))
     }
 
     /// The kv scopes this set may use, in a stable order (LLP 0070 §1).

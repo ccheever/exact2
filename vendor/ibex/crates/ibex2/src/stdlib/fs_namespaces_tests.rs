@@ -4,7 +4,7 @@
 use super::*;
 
 /// The roots are the process's: one test names them at a time.
-static ROOTED: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(super) static ROOTED: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// A home with `.t3` granted and a bundle with `Resources`, beside a
 /// directory outside both; their roots named for this process.

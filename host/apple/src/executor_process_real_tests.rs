@@ -421,18 +421,30 @@ fn a_path_name_found_where_the_app_may_write_does_not_run() {
     // An `fs.write` line over that directory lets the app write what the
     // name finds, so the name runs nothing there and resolves to nothing.
     let grants = format!("process.spawn path:sh\nfs.write {}", dir.display());
-    let (core, woke, _) = core(&grants);
+    let (covered, woke, _) = core(&grants);
     let call =
         serde_json::json!({ "kind": "execFile", "program": "path:sh", "args": ["-c", "exit 7"] });
-    core.run(request(1, call, false), None).unwrap();
-    let out = collect(&core, &woke, |o| !o.is_empty());
+    covered.run(request(1, call, false), None).unwrap();
+    let out = collect(&covered, &woke, |o| !o.is_empty());
     assert!(
         matches!(&out[0], Outcome::Failed { message, .. } if message.contains("where the app may write")),
         "{out:?}"
     );
-    core.run(request(2, ask, false), None).unwrap();
-    let out = collect(&core, &woke, |o| !o.is_empty());
+    covered.run(request(2, ask.clone(), false), None).unwrap();
+    let out = collect(&covered, &woke, |o| !o.is_empty());
     assert_eq!(path(&out)["path"], serde_json::Value::Null);
+    // A quoted line, its path with a space: here a link to that directory.
+    let spaced = std::env::temp_dir().join(format!("exact real {}", std::process::id()));
+    std::fs::create_dir_all(&spaced).unwrap();
+    let link = spaced.join("bin dir");
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(&dir, &link).unwrap();
+    let grants = format!("process.spawn path:sh\nfs.write \"{}\"", link.display());
+    let (quoted, woke, _) = core(&grants);
+    quoted.run(request(1, ask, false), None).unwrap();
+    let out = collect(&quoted, &woke, |o| !o.is_empty());
+    assert_eq!(path(&out)["path"], serde_json::Value::Null);
+    std::fs::remove_dir_all(&spaced).unwrap();
 }
 
 #[test]
