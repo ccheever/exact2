@@ -1059,9 +1059,19 @@ Egui owns layout, text and virtualization without the kernel or runner;
 Windows uses Segoe UI, with Consolas in egui's code runs. Scroll work,
 geometry, images, readiness and presentation differ. One loaded observation
 in the original rapid startup tail led to a complete spaced startup series;
-all attempts are retained. Mac checks pass; native qualification retains a
-D3D11 background tint mismatch after recovery and a wgpu DPI image size failure. See
-[the G6 tables and limits](../bench/heavy-list/gpui/RESULTS.md#g6-egui-against-ink-on-windows).
+all attempts are retained. G6b attributes about **174 ms/s** to main-thread
+clipping and **146 ms/s** to AMD driver workers: the Windows carrier retries
+a dirty picture before composition's retry deadline, rebuilding masks for
+refused presents (6,337 paint attempts for 145 successful host frames in a
+diagnostic). Flushing the post-present query did not fix it and was removed;
+no performance fix is claimed. Five quiet flings after the qualification fixes
+still use **540.41 ms/s** process CPU, **362.61 ms/s** main CPU and display
+**25.88/s**, with **83.36 ms** p95. The needed carrier
+pacing change is outside the brief's named `host/ink` scope. Both qualification
+failures reproduce at `d1fa3c00dd`, so the proposed S1 bisect has no passing
+low endpoint. Reapplying Mica on recovery fixes the tint; activating the DPI
+fixture through its client margin fixes accidental title-bar double-click
+maximization. See [G6b's attribution and qualification record](../bench/heavy-list/gpui/RESULTS.md#g6b-the-d3d11-fling-traced).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and

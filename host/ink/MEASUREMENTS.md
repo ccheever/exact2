@@ -3141,3 +3141,7 @@ The code builds and the recovery/bound changes are qualified, but the tail requi
 branch's configured default; this report does not approve landing it.
 
 G6 measures the heavy list on this NucBox through direct D3D11, Ink/wgpu and egui/DX12, with retained and reset driver caches: [tables, instruments and native qualification limits](../../bench/heavy-list/gpui/RESULTS.md#g6-egui-against-ink-on-windows).
+
+G6b traces the heavy-list D3D11 fling's repeated paints under composition
+backpressure and fixes the recovery material and DPI fixture failures; see
+[the attribution and qualification results](../../bench/heavy-list/gpui/RESULTS.md#g6b-the-d3d11-fling-traced).

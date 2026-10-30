@@ -2319,7 +2319,8 @@ medians and no accounted CPU tick during rest. D3D11's first fling presents
 216 frames versus 113–115 in the other four; its wide range is retained,
 with no cause established here. These are whole-application results on
 unequal layout, scrolling, text, image and presentation paths, not isolated
-renderer costs.
+renderer costs. [G6b](#g6b-the-d3d11-fling-traced) attributes the D3D11 loss
+to repeated painting while composition is backpressured.
 
 ### Parity and non-comparables
 
@@ -2435,8 +2436,8 @@ not elapsed GPU time. The five unprofiled G6 medians remain the before series.
 
 | CPU attribution, ms/s | Ink D3D11 | Ink wgpu/DX12 |
 | --- | ---: | ---: |
-| Main: clipping, including mask targets and device calls | 173.71 | 28.44 |
-| Main: remaining paint-frame work | 135.53 | 61.73 |
+| Main: clipping, including mask targets and device calls | 173.71 | 28.43 |
+| Main: remaining paint-frame work | 135.54 | 61.73 |
 | Main: outside paint-frame work | 56.69 | 24.92 |
 | Other threads, total | 166.62 | 14.00 |
 
@@ -2452,7 +2453,8 @@ creation is about **58 ms/s**, completion polling **18**, rendering device
 calls **78**, texture uploads **3**, and DXGI `Present` **3**. Wgpu texture
 creation is about **1 ms/s** and synchronous readback **13**. The D3D11
 instance/constant-buffer `UpdateSubresource` path is about **3 ms/s**;
-texture uploads pass a bounded region and its row pitch. There is no ordinary
+texture uploads pass a bounded region and its row pitch. These CPU stacks
+do not reveal the driver's internal copy extent. There is no ordinary
 D3D11 frame readback in the stacks. The DXGI display probe reads statistics,
 not pixels; its DWM synchronization runs at readiness. The latency handle is
 polled with zero timeout. Composition commits occur at content attachment,
@@ -2480,8 +2482,132 @@ rise above **45 displays/s**. This changes neither resource retirement nor
 completion requirements. It adds no completion wait. The result below must
 confirm or reject that hypothesis.
 
+**The flush hypothesis is rejected.** With the same counter probe, the trial
+still uses **543.29/372.05 ms/s** process/main CPU and retains **1,320
+targets / 3,150,174,720 bytes**. The flush is removed. These are diagnostic
+observations, not a five-sample after series.
+
+| D3D11 measure | G6: five quiet samples, median [range] | Predicted | Flush trial: one diagnostic |
+| --- | ---: | ---: | ---: |
+| Process CPU, ms/s | 553.92 [504.33–583.87] | <250 | 543.29 |
+| Main CPU, ms/s | 358.13 [347.11–370.30] | Lower | 372.05 |
+| Gesture displays/s | 26.05 [25.73–50.51] | >45 | 34.24 |
+| Display interval p95, ms | 83.35 [33.35–83.37] | Lower | 50.04 |
+
+The diagnostic has counter logging and no quiet-series qualification; its
+numbers do not establish improvement over G6. PresentMon loses no events.
+The [asynchronous flush](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-flush)
+submits work without waiting for completion, but submission was not the cause.
+
+The decisive counter is paint attempts: **6,337** completed painter snapshots
+for **145** successful host frames before the trial, **6,408/152** with the
+flush. A refused present still finishes the painter's work. The direct-window
+presenter marks that picture dirty and records a refresh-period retry deadline;
+`App::about_to_wait` immediately requests another redraw for the dirty flag,
+and `App::draw` does not check that deadline. It rebuilds and submits the
+clip masks before polling the latency handle again. Failed presents do not
+increment the host's successful-frame counter. This explains the repeated
+painter work, the unreusable targets and the driver's extra queue work.
+The composition commit, image uploads and kernel are not the dominant cause.
+
+#### Current build: five quiet flings
+
+After removing the probes and flush, the release executable includes the two
+qualification fixes below and the original carrier pacing. Its SHA-256 is
+`94693e70bce45d7ae14d1926e68bb62ae1e888af7cc0a5bb0e6c334dcf2dfcb6`;
+it retains the same PDB build settings as the sampled executable. Five runs
+use `windows-measure.py --fling-only --arm d3d11 --out target/g6b/final/warm`.
+All 24 quiet observations pass (maximum total CPU 9.6%, no compiler), every
+window is 800×800 outer at 96 DPI on the 60 Hz display, and PresentMon loses
+no events. No focus is lost and no within-gesture posting gap exceeds 25 ms.
+These measure the current build, not an accepted performance fix.
+
+| D3D11 measure, median [range] | G6 before | G6b current build |
+| --- | ---: | ---: |
+| Fling process CPU, ms/s | 553.92 [504.33–583.87] | 540.41 [484.16–583.85] |
+| Fling main CPU, ms/s | 358.13 [347.11–370.30] | 362.61 [354.95–365.88] |
+| Rest process CPU, ms/s | 4.66 [1.55–6.21] | 0.00 [0.00–3.11] |
+| Rest main CPU, ms/s | 3.11 [1.55–6.21] | 0.00 [0.00–3.11] |
+| Gesture displays/s | 26.05 [25.73–50.51] | 25.88 [25.23–26.66] |
+| Display interval p95, ms | 83.35 [33.35–83.37] | 83.36 [83.35–83.36] |
+| Late intervals/gesture second | 12.41 [7.39–12.84] | 12.86 [12.63–13.37] |
+| Peak working set, MiB | 220.88 [176.90–223.93] | 219.53 [212.16–226.40] |
+| Ending working set, MiB | 220.88 [176.65–223.93] | 219.28 [211.91–226.22] |
+
+The fling loss remains: process CPU is 13.51 ms/s lower, main CPU 4.48 ms/s
+higher, and cadence 0.17 displays/s lower, with p95 unchanged at 83 ms.
+The qualification fixes do not close the performance issue. No improvement
+is attributed to them.
+
 Artifacts are in `target/g6b/` on the NucBox mirror: `profile/` (WPR),
 `sampled/{d3d11,wgpu}/` (fling-only ETLs, xperf exports and CPU endpoints),
-`release-symbols/`, `perf-plain/`, and `instrument/`. They are local artifacts,
+`release-symbols/`, `perf-plain/`, `instrument/`, `trial1/`, and `final/warm/`. They are local artifacts,
 not checked-in results. The mirror remains the S2.8b mirror; no other
 checkout is used.
+
+#### Qualification failures and the requested bisect range
+
+The preserved G6 test executable drives a freshly built Shelf at the low endpoint
+`d1fa3c00dd`, in the same mirror, then the mirror returns to the lane. Both
+failures reproduce there. The journey source is identical between that
+endpoint and G6. There is no passing low endpoint for a bisect over
+`d1fa3c00dd..48653eb5cb`; neither failure can be assigned to S1's
+`270e56d396`, `0312b493fc` or `09c9086896` from this evidence.
+
+| Failure | Low endpoint `d1fa3c00dd` | G6 source rerun | Fixed, at 100% scale |
+| --- | --- | --- | --- |
+| D3D11 recovery tint | Fail: mean 5.24/255, 0% over 32 | Fail: 5.62/255, 0% over 32 | Pass: 2.39/255, 0% over 32 |
+| Wgpu DPI final comparison | Fail: 5120×1369 vs 1024×720 | Same failure | Pass: 1024×720; mean 0.000126/255, 0% over 32 |
+
+The device-loss fix is `b7c35de450`: reapply the HWND's Mica settings when
+recovery reuses the composition visual, and retain the new availability
+result for opaque fallback. The shared-visual path comes from `8c2ed78cc1`,
+before the requested range; this is code provenance, not a measured first-bad
+commit. The retained visual had skipped `set_backdrop`. The recovery journey
+now passes after a real `dxcap -forcetdr`, through CPU/WARP and back to
+hardware. The recovered sidebar is tinted in the inspected capture.
+
+The DPI failure is the fixture's: an independent HWND observer records
+`IsZoomed=true`, outer bounds −8,−8..5128,1400 and client 5120×1369. `BitBlt`
+was capturing the requested window, not the desktop. The repeated activation
+clicks used the same title-bar point, allowing a double-click to maximize
+Shelf. That click was introduced in `0c39c9e8c5`, before the requested range.
+`cc87abf43d` clicks Shelf's empty lower-right client margin instead. The fixed
+observer sees no maximized window and the final capture is 1024×720.
+
+The first fixed DPI attempt lost its Settings UI Automation control reference
+on the fourth transition. The operator now reacquires the window and control
+for each selection. The final attempt passes 96→144→96→144→96 DPI. An initial
+recovery check after that operator failure ran at 150% and passed, but is
+excluded from the table; the table uses the subsequent 100% native suite.
+The original failure artifacts, rejected trial and operator failure remain
+under `target/g6b/`; no attempt is removed from the record.
+
+#### Validation and remaining work
+
+The final native `gpu-dev` build passes the S2.8b/G6 suites: on each device,
+42 Ink tests (27 ignored), 35 Windows tests (one ignored), pinned paint 56
+(one ignored), borders 6, tint 2, backdrop 5, gradients 1, visual 8, materials 1,
+and image 3. All six desktop journeys pass on both devices, including the
+Settings-operated DPI round trip, real TDR and sleep/wake. The nine shared
+window tests, twelve composition tests and all ten startup/fallback fault
+journeys pass.
+
+The first composition suite failed the retirement fixture's second length
+assertion: its three-check missing-statistics fallback could release the
+first device before the assertion when WARP completed quickly. `af1627ea29`
+holds the display condition at an unpresented count, independently of GPU
+completion, then releases it explicitly. The unchanged product retirement
+code passes all twelve composition tests with that deterministic fixture.
+The first failure remains in `native/results.json`; the passing rerun is
+`native/composition-fixed.log`.
+
+Mac build, tests, clippy, formatting, staged caps, boot and full-workspace
+check pass. Temporary clip/target logging and the flush trial are removed.
+The accepted product change restores recovery material; the accepted journey
+change prevents accidental maximization. No D3D11 fling fix is claimed.
+Honoring the existing retry deadline requires a Windows carrier change,
+outside the brief's named `host/ink` performance scope. That scope question
+is pending. The five current-build flings above retain the original pacing;
+there is no measured carrier fix.
+The carrier work and required remeasurement remain in `QUEUE.md`.
