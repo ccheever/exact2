@@ -8,6 +8,8 @@
 mod button_css;
 #[path = "sized_css.rs"]
 mod sized;
+#[path = "element_semantic.rs"]
+mod semantic;
 #[path = "element_symbol.rs"]
 mod symbol;
 use exact_kernel::svg::Paint;
@@ -135,6 +137,10 @@ pub(super) fn holds_folded(
     let children = node.children();
     let outer = node.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
     children.len() == 1
+        && !node
+            .props
+            .str(PropId::SemanticTag)
+            .is_some_and(semantic::not_block)
         && kernel.node(children[0]).is_some_and(|c| {
             c.node_type == NodeType::Text
                 && c.looks().is_empty()
@@ -423,22 +429,12 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
     {
         return "a";
     }
-    if let Some(t) = node.props.str(PropId::SemanticTag) {
-        match t {
-            "time" => return "time",
-            "main" => return "main",
-            "header" => return "header",
-            "nav" => return "nav",
-            "section" => return "section",
-            "footer" => return "footer",
-            "article" => return "article",
-            "aside" => return "aside",
-            "dialog" => return "dialog",
-            // @ref LLP 1021 D1 — HTML's separator, void: the kernel gives it
-            // no children, and its UA rows are the node's own.
-            "hr" => return "hr",
-            _ => {}
-        }
+    if let Some(t) = node
+        .props
+        .str(PropId::SemanticTag)
+        .and_then(semantic::element)
+    {
+        return t;
     }
     match node.node_type {
         NodeType::View | NodeType::List | NodeType::NativeView => "div",
@@ -1050,6 +1046,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityHasPopup => "aria-haspopup",
             PropId::AccessibilityCurrent => "aria-current",
             PropId::AccessibilitySort => "aria-sort",
+            // @ref LLP 1153 D7 — a table cell's own attributes.
+            PropId::ColSpan => "colspan",
+            PropId::RowSpan => "rowspan",
+            PropId::Scope => "scope",
             // HTML's global `title`: the browser's own tooltip (studio diary R24).
             PropId::Title => "title",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).

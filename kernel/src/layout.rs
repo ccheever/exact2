@@ -29,10 +29,11 @@ mod memo_tests;
 mod order;
 mod publication;
 mod rebuild;
+mod table;
 pub use publication::compute;
 
 use crate::id::{IdMap, IdSet};
-use crate::shared_style::Interner;
+use crate::shared_style::{engine_hash, Interner};
 use std::rc::Rc;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::{Baselines, LayoutInput, RequestedAxis};
@@ -182,6 +183,8 @@ pub struct LayoutTree {
     hoist_paths_prior: IdSet<NodeId>,
     // The fitted paragraphs measured since they last stopped fitting (`fit`).
     fitting: IdSet<u32>,
+    // @ref LLP 1153 D7.3 — the tables laid out as grids.
+    tables: table::Tables,
 }
 
 // A non-visible overflow on both axes establishes a formatting context and
@@ -204,33 +207,6 @@ fn boundary_style(s: &taffy::Style) -> bool {
 /// and a positioned one's, which contains absolutely positioned boxes.
 fn replayable(s: &taffy::Style) -> bool {
     boundary_style(s) || s.position != taffy::Position::Static
-}
-
-/// A hash of the rows most styles differ in; equality decides the rest.
-fn engine_hash(s: &taffy::Style) -> u64 {
-    use std::hash::Hasher;
-    let mut h = crate::id::IdHasher::default();
-    let mut len = |l: taffy::CompactLength| {
-        h.write_u64(((l.tag() as u64) << 32) | u64::from(l.value().to_bits()));
-    };
-    len(s.size.width.into_raw());
-    len(s.size.height.into_raw());
-    len(s.min_size.width.into_raw());
-    len(s.min_size.height.into_raw());
-    len(s.flex_basis.into_raw());
-    len(s.margin.left.into_raw());
-    len(s.margin.top.into_raw());
-    len(s.padding.left.into_raw());
-    len(s.padding.top.into_raw());
-    len(s.gap.width.into_raw());
-    h.write_u64(u64::from(s.flex_grow.to_bits()) << 32 | u64::from(s.flex_shrink.to_bits()));
-    h.write_u64(
-        (s.display as u64)
-            | (s.position as u64) << 8
-            | (s.flex_direction as u64) << 16
-            | (s.box_sizing as u64) << 24,
-    );
-    h.finish()
 }
 
 impl Default for LayoutTree {
@@ -289,7 +265,7 @@ impl LayoutMirror for LayoutTree {
     }
 
     fn restyle(&mut self, arena: &NodeArena, slot: u32, node: NodeId) {
-        self.set_style(node, taffy_style(arena, slot));
+        self.restyle_with(arena, slot, node);
         // The title's box follows its alert's grouping (layout/alert.rs)
         if let Some(prefix) = self.alert_prefixes.get(&slot).copied() {
             self.write_style(prefix, alert::prefix_style(arena.grouped_alert(slot)));
@@ -297,6 +273,9 @@ impl LayoutMirror for LayoutTree {
     }
 
     fn sync_children(&mut self, arena: &NodeArena, parent: u32, node: NodeId) -> usize {
+        if self.tables.holds(arena, parent) {
+            return 0; // made before the next layout (`table.rs`)
+        }
         if !arena.node_type(parent).lays_out_children() {
             LayoutTree::set_children(self, node, &[]);
             return 0;
@@ -421,6 +400,7 @@ impl LayoutTree {
             hoist_paths: IdSet::default(),
             hoist_paths_prior: IdSet::default(),
             fitting: IdSet::default(),
+            tables: table::Tables::default(),
         }
     }
 
@@ -520,6 +500,7 @@ impl LayoutTree {
         self.deferred.remove(&node);
         self.walks.remove(&node);
         if let Some(slot) = self.slots.remove(&node) {
+            self.tables.forget(slot);
             self.flowing.remove(&slot);
             if let Some(prefix) = self.alert_prefixes.remove(&slot) {
                 self.remove(prefix);
@@ -908,6 +889,7 @@ impl LayoutTree {
     ) -> Result<(), LayoutError> {
         // Resolve percentage trees under this layout's environment.
         let _env = crate::style::LayoutEnv::set(arena.env());
+        self.refresh_tables(arena, node_for);
         self.prepare_fields(root, arena, measurer)?;
         let buttons = self.prepare_buttons(root, arena, measurer)?;
         // Percentage padding uses the containing block's final width. Settle

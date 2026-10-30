@@ -364,10 +364,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set { super.isAccessibilityElement = newValue }
     }
     /// A native module's box whose view has elements of its own, named by
-    /// the Contract (`aria-label`): VoiceOver says the name entering them.
+    /// the Contract (`aria-label`): VoiceOver says the name entering them. A table and a `dl` are `tableContainerType`.
     package override var accessibilityContainerType: UIAccessibilityContainerType {
         get {
-            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return super.accessibilityContainerType }
+            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return tableContainerType ?? super.accessibilityContainerType }
             return .semanticGroup
         }
         set { super.accessibilityContainerType = newValue }

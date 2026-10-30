@@ -53,6 +53,7 @@ pub mod sides;
 pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;
+pub(crate) mod table;
 pub mod theme;
 mod variations;
 pub mod wide;
@@ -1457,6 +1458,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     crate::grouped::apply_margins(arena, slot, &mut s);
     crate::rows::apply_margins(arena, slot, &mut s);
     crate::replaced::apply_zoom(arena, slot, &mut s);
+    table::apply(arena, slot, &mut s);
     if direction == Direction::Rtl {
         sides::mirror_unsaid(arena.style(slot), &mut s);
     }

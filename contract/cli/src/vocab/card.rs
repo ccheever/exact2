@@ -193,7 +193,7 @@ pub fn card() -> String {
         out += &format!("  {l}\n");
     }
     out += &format!("  {intrinsics}\n\n");
-    out += "tags: attributes; on events. Every tag takes CSS style attributes (flex gap padding …) and colour roles (-exact-label); `contract vocab <style>` lists its values\n";
+    out += "tags: attributes; on events. Every tag also takes CSS style attributes and colour roles (`contract vocab <style>`)\n";
     for t in tag_lines() {
         // A tag with a positional value (`text "…"`, `image "…"`) is written with it.
         let names: Vec<String> = t

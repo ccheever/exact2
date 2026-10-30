@@ -223,6 +223,13 @@ pub(super) fn publish(
         {
             updated.push(arena.key(slot));
         }
+        // A table's row group or row holds its children only in the arena:
+        // the engine laid them out in the table's grid (`table.rs`).
+        let (fx, fy) = if tree.tables.flat(slot) {
+            (ox, oy)
+        } else {
+            (fx, fy)
+        };
         if descend_all {
             for &child in arena.children(slot).iter().rev() {
                 if arena.blocks.holds(child) {

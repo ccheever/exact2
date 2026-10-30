@@ -30,6 +30,7 @@ mod request_refusal;
 mod spacing;
 mod springs;
 mod surface_record;
+mod tables;
 mod tint;
 mod transform_drag;
 mod video;

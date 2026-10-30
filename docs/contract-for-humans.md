@@ -1053,10 +1053,21 @@ this one) and `aria-description` are its description. `aria-invalid`,
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
 property for those four, so iOS exposes the first three not at all and a
 pressable's (a button's, a link's) `aria-current` other than `false` as its
-selected trait, as `aria-selected` is. A data table is ARIA's roles on
-boxes (`role="table"`, `"row"`, `"columnheader"`, `"rowheader"`, `"cell"`), and
-a sortable column's header takes `aria-sort` (`"ascending"`, `"descending"`,
-`"none"` or `"other"`; no bool), which only the web exposes. A drawn range —
+selected trait, as `aria-selected` is. A data table is HTML's `table`: an
+optional `caption`, then `thead`, `tbody` and `tfoot` row groups of `tr`s (or
+`tr`s alone), each `tr` holding `th` header cells (`scope="col"` or `"row"`)
+and `td` cells, any cell with `colspan` and `rowspan`. Rows may come from a
+`for`; a row's cells are written out, so its columns line up. A sortable
+column's `th` takes `aria-sort` (`"ascending"`, `"descending"`, `"none"` or
+`"other"`; no bool), which only the web exposes. Terms and their descriptions
+are a `dl` of `dt` terms each followed by its `dd` descriptions. On the web
+these are the elements, laid out by the browser; on the native hosts the
+kernel lays a table out as a grid of `auto` columns as wide as its content.
+Where columns share width (a span wider than the columns it covers, a table
+narrower than its content), the grid shares it equally and the browser in
+proportion to the columns' widths, so unequal columns can differ by a few
+points (LLP 1153 D7.3). The Apple and Linux hosts expose a table's, a row's
+and a cell's roles. A drawn range —
 `role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
 takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
 and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its

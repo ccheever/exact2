@@ -122,6 +122,10 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
         "an `audio` or `video` with `metadata=`",
     ),
     // @ref LLP 1020.002 D1, D2, D5, D6, D7, D9, §9 — a browser shell's (`frames.rs`).
+    // @ref LLP 1153 D7 — a table cell's (`tables::check`).
+    ("colspan", "`th` or `td`, a whole number from 1 to 1000"),
+    ("rowspan", "`th` or `td`, a whole number from 1 to 65534"),
+    ("scope", "`th`: \"col\" or \"row\""),
     ("partition", "`iframe`"),
     ("zoom", "`iframe`"),
     ("currententrychange", "`iframe`"),
@@ -164,6 +168,9 @@ pub const TAG_NOTES: &[(&str, &str)] = &[
     ("time", "HTML time: `datetime` is an instant in epoch milliseconds, as `date(...)` returns. `format` is a literal named presentation: relative, timer, countdown, date-short, date-medium (default), date-long, date-full, time-short or time-medium. The platform formats it in the viewer locale and time zone. Relative time advances on minute boundaries; timer and countdown advance each second on the runner clock, with no app task. Apple timers use SwiftUI’s unpadded first field (`0:05`, `1:00:00`). A timer counts away from either side of its instant; countdown stops at zero. On snapshots, timer uses `Text(date, style: .timer)`, countdown uses `Text(timerInterval: entryDate...instant, countsDown: true)` to stop at zero, and calendar formats draw the kernel’s formatted string without ticking. Children are fallback content when the host cannot format the instant. A standalone live time reserves its box at its font: two localized units for relative time, one extra hour digit for timer, and the first displayed shape for countdown. An inline time among other runs in a text reflows as on the web. Ticking formats use tabular digits by default."),
     ("section", "In a `list`, a group of rows. In a grouped list (`listStyle=\"inset-grouped\"`) a `header` child holding one `text` is the section's title, drawn in the list's header style, and a `footer` child holding one `text` the note under its rows: `section` / `header` / `text \"Results\"`, then its `row`s, then `footer` / `text \"Tap an option to vote.\"`. A `header` in a section is never the navigation bar. Outside a list it is HTML's section. docs/recipes/grouped-form.md"),
     ("progress", "HTML progress: `value` and optional `max` (1 by default) make a determinate bar; with neither it is the platform activity indicator. `start` and `end` instead name epoch millisecond instants: the runner advances the bar from 0 to 1 over that interval, clamps before and after it, and executes no app task. Write both, with end after start; do not combine them with value or max. It remains a native control with no children; name it with aria-label."),
+    // @ref LLP 1153 D7
+    ("table", "HTML table: a `table` holds an optional `caption`, then `thead`, `tbody` and `tfoot` row groups or `tr`s directly; a `tr` holds `th` (a header cell, bold and centred; `scope=\"col\"` or `\"row\"`, and `aria-sort` on a sortable column's) and `td` cells, each with `colspan` and `rowspan`. Rows may come from a `for`; a row's cells are written out, so its columns line up. On the web these are the elements themselves, laid out by the browser's table algorithm. On iOS, macOS, Linux and Android the kernel places the cells as HTML's table algorithm does and lays them out as a grid of `auto` columns, the table as wide as its columns. Where columns share width (a span wider than the columns it covers, a table narrower than its content) a grid shares it equally and the browser in proportion to the columns' widths, so unequal columns can differ from the web's by a few points (LLP 1153 D7.3). The Apple and Linux hosts expose the table, its rows and its cells by their roles. docs/contract-for-humans.md"),
+    ("dl", "HTML description list: groups of one or more `dt` (the terms) then one or more `dd` (their descriptions). Laid out as HTML's UA sheet lays it out on every host: each a block, a `dd` indented 40px at its start, the list 1em from what is above and below it."),
     (
         "header",
         // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —

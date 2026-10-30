@@ -48,7 +48,7 @@ toFixed: (literal digits)
 toString: x.toString() -> string
 
 ## tags
-view box row column main nav article aside section header footer hr | id testId role title tabindex | press hover key keyup focus blur contextmenu dblclick
+view box row column main nav article aside section header footer hr table caption thead tbody tfoot tr th td dl dt dd | id testId role title tabindex | press hover key keyup focus blur contextmenu dblclick
 text | markup | selectionchange
 image | alt | load
 button | disabled buttonStyle destructive | press

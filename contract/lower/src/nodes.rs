@@ -233,6 +233,7 @@ impl Lowerer<'_> {
         let authored_children = children;
         let children: &[Node] = face.as_deref().unwrap_or(authored_children.as_slice());
         controls::check_nesting(tag, parent_tag, *span)?;
+        crate::tables::check(tag, parent_tag, expanded, children, *span)?;
         controls::check_progress(tag, expanded, children)?;
         crate::live_time::check(tag, expanded, *span)?;
         let alert = self.check_menu_shapes(tag, expanded, children, *span)?;

@@ -1173,6 +1173,7 @@ Several tags share a kernel node type with different fixed properties.
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
+| Tables / description lists | `table`, `caption`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`; `dl`, `dt`, `dd` |
 | Text and controls | `text`, `h1`–`h6`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |

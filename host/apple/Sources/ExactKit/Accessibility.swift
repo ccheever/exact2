@@ -436,6 +436,11 @@ extension NodeView {
             if (accessibilityMaxValue() as? NSNumber) != high { setAccessibilityMaxValue(high) }
             let text = props["accessibilityValueText"].flatMap { $0.isEmpty ? nil : $0 }
             if accessibilityValueDescription() != text { setAccessibilityValueDescription(text) }
+        } else if let table = tableRole {
+            // A table's or a description list's element (`TableAccessibility`).
+            setAccessibilityElement(true)
+            if accessibilityRole() != table.role { setAccessibilityRole(table.role) }
+            if accessibilitySubrole() != table.subrole { setAccessibilitySubrole(table.subrole) }
         } else if !isParagraph, super.isAccessibilityElement() {
             // None of these roles now (one removed at runtime): a plain view
             // again, as a new one is, without the role's subrole or values.

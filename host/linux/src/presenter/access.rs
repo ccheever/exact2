@@ -17,8 +17,8 @@
 //! control is its platform kind with its state; a text outside any of them
 //! is itself, a heading where its role says so; an image is one only where
 //! it is named; a scroll container that scrolls holds what is in it; a
-//! `tablist` holds its tabs; a live region is kept so that its change is
-//! spoken. Everything else is no node, and its children stand under the
+//! `tablist` holds its tabs; a table holds its rows and a row its cells;
+//! a live region is kept so that its change is spoken. Everything else is no node, and its children stand under the
 //! node above. What is hidden, inert, `aria-hidden`, under a route that
 //! does not show, or out of what its scrollers show is left out.
 //!
@@ -88,6 +88,32 @@ pub mod role {
     pub const TOGGLE: i32 = 17;
     /// The top app bar's Up arrow, which the platform names.
     pub const UP: i32 = 18;
+    /// A `table` (LLP 1153 D7.3): ARIA's `table`.
+    pub const TABLE: i32 = 19;
+    /// A table's `tr`: ARIA's `row`. A row group is no node.
+    pub const ROW: i32 = 20;
+    /// A `td`: ARIA's `cell`.
+    pub const CELL: i32 = 21;
+    /// A `th` heading its column (`scope="col"`, or none): `columnheader`.
+    pub const COLUMN_HEADER: i32 = 22;
+    /// A `th` heading its row (`scope="row"`): `rowheader`.
+    pub const ROW_HEADER: i32 = 23;
+}
+
+/// A table's element as its ARIA role (HTML-AAM): a node that holds what
+/// it heads or holds, named by its author, if at all.
+fn table_role(node: &NodeRef<'_>) -> Option<i32> {
+    if node.node_type != exact_kernel::NodeType::View {
+        return None;
+    }
+    Some(match node.props.str(PropId::SemanticTag)? {
+        "table" => role::TABLE,
+        "tr" => role::ROW,
+        "td" => role::CELL,
+        "th" if node.props.str(PropId::Scope) == Some("row") => role::ROW_HEADER,
+        "th" => role::COLUMN_HEADER,
+        _ => return None,
+    })
 }
 
 /// A node's flags.
@@ -865,6 +891,13 @@ impl<D: DataSource> Presenter<D> {
                     scope.shift.1 += was.1 - s.offset.1;
                 }
                 scope.parent = own;
+            } else if let Some(role) = table_role(&node).filter(|_| aria.is_none()) {
+                let words = (label.unwrap_or_default(), String::new());
+                if let Some(own) =
+                    self.access_emit(b, &scope, &node, role, 0, [0.0; 3], || Some(words))
+                {
+                    scope.parent = own;
+                }
             } else if aria == Some("tablist")
                 || Self::access_live(&node) != 0
                 || (label.is_some()

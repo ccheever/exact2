@@ -65,6 +65,21 @@ pub(crate) fn prop_changed(
     touched: &mut Vec<crate::NodeKey>,
 ) -> bool {
     let rows: Vec<u32> = match prop {
+        // A cell's spans move its table's grid (`layout/table.rs`), and a
+        // table's or a description list's tag brings its UA sheet's layout
+        // (`style/table.rs`).
+        PropId::ColSpan | PropId::RowSpan => {
+            if let Some(node) = arena.taffy(slot) {
+                layout.restyle(arena, slot, node);
+            }
+            return true;
+        }
+        PropId::SemanticTag if crate::style::table::styled(arena, slot) => {
+            if let Some(node) = arena.taffy(slot) {
+                layout.restyle(arena, slot, node);
+            }
+            return true;
+        }
         PropId::ListRows => arena.children(slot).to_vec(),
         PropId::ListItemKey | PropId::SwipeContent | PropId::SwipeLeading => vec![slot],
         _ => return false,

@@ -64,8 +64,8 @@ functions: call -> result
   text.trim() -> string
   pending(resourceOrMutationName)  failed(resourceOrMutationName)  failure(resourceOrMutationName)  path("routeName", args…)  empty(field=constant, …)  some(expr)  DeclaredShape(field=value, …)
 
-tags: attributes; on events. Every tag takes CSS style attributes (flex gap padding …) and colour roles (-exact-label); `contract vocab <style>` lists its values
-  view box row column main nav article aside section header footer hr: id testId role title tabindex; on press hover key keyup focus blur contextmenu dblclick
+tags: attributes; on events. Every tag also takes CSS style attributes and colour roles (`contract vocab <style>`)
+  view box row column main nav article aside section header footer hr table caption thead tbody tfoot tr th td dl dt dd: id testId role title tabindex; on press hover key keyup focus blur contextmenu dblclick
   text "…": markup; on selectionchange
   image "…": alt; on load
   button: disabled buttonStyle destructive; on press

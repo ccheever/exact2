@@ -201,6 +201,7 @@ mod svg_use_foreign_object;
 mod symbol_ink;
 mod symbol_tint;
 mod symbols;
+mod tables;
 mod tamber;
 mod tamber_base_expression;
 mod tamber_base_scale;

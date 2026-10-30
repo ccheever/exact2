@@ -1160,4 +1160,34 @@ fn a_bound_appearance_marks_a_header_while_it_reads_none() {
         write.contains("[\"justify-content\"]") && write.contains("w.push(\"appearance\")"),
         "{write}"
     );
+
+/// @ref LLP 1153 D7.2 — a table and a description list are HTML's own
+/// elements, a cell's `colspan`, `rowspan` and `scope` their attributes, and
+/// `aria-sort` the attribute it is; the browser lays them out.
+#[test]
+fn a_table_and_a_description_list_are_their_elements() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      table\n        caption\n          text \"Moves\"\n        thead\n          tr\n            th scope=\"col\" aria-sort=\"ascending\"\n              text \"Name\"\n            th scope=\"col\"\n              text \"Power\"\n        tbody\n          tr\n            td colspan=2\n              text \"Tackle\"\n          tr\n            td rowspan=2\n              text \"a\"\n            td\n              text \"b\"\n        tfoot\n          tr\n            td\n              text \"2\"\n      dl\n        dt\n          text \"Type\"\n        dd\n          text \"Electric\"\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    for tag in [
+        "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "dl", "dt", "dd",
+    ] {
+        assert!(
+            out.js.contains(&format!("\"{tag}\",")),
+            "<{tag}> in {}",
+            out.js
+        );
+    }
+    for attr in [
+        "\"scope\":\"col\"",
+        "\"aria-sort\":\"ascending\"",
+        "\"colspan\":\"2\"",
+        "\"rowspan\":\"2\"",
+    ] {
+        assert!(out.js.contains(attr), "{attr} in {}", out.js);
+    }
+    // No grid of the host's: the browser's UA sheet gives each its display.
+    assert!(!out.css.contains("display:grid"), "{}", out.css);
 }

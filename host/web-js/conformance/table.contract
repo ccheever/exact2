@@ -1,0 +1,70 @@
+// linux: layout
+// HTML's table and description list (LLP 1153 D7): the browser's table
+// algorithm on the web, a grid of `auto` columns in the kernel, whose boxes
+// conform.mjs compares. Every cell holds sized boxes, so no font decides a
+// width, and the spanned columns are equally wide, where a grid and CSS 2.1
+// §17.5 share a span's extra width alike; `table-widths` holds the cases
+// where they do not. Here: a caption, a `colspan` (made 3 by the step, which
+// moves its row's last cell to a fourth column), a `rowspan` whose next row
+// starts in the second column, a short row, a `tfoot` placed last, a table
+// stretched in a flex column, and a `dl`'s margins and indent.
+component Tables
+  state wide = false
+  action widen
+    wide = not wide
+  view
+    column testId="root" width=420 box-sizing="border-box" padding=16 gap=12 font-size=16
+      button testId="widen" press=widen width=80 height=24
+        text "widen"
+      view testId="flow"
+        table testId="spans"
+          caption testId="caption"
+            box width=40 height=12
+          thead testId="head"
+            tr testId="head-row"
+              th scope="col" testId="h1"
+                box width=30 height=12
+              th scope="col" testId="h2"
+                box width=30 height=12
+              th scope="col" testId="h3"
+                box width=30 height=12
+          tfoot testId="foot"
+            tr testId="foot-row"
+              td colspan=3 testId="f1"
+                box width=60 height=12
+          tbody testId="body"
+            tr testId="r1"
+              td colspan=(wide ? 3 : 2) testId="c11"
+                box width=90 height=12
+              td testId="c12"
+                box width=20 height=12
+            tr testId="r2"
+              td rowspan=2 testId="c21"
+                box width=20 height=40
+              td testId="c22"
+                box width=30 height=12
+              td testId="c23"
+                box width=30 height=12
+            tr testId="r3"
+              td testId="c31"
+                box width=30 height=12
+              td testId="c32"
+                box width=30 height=12
+            tr testId="r4"
+              td testId="c41"
+                box width=20 height=12
+      table testId="stretched"
+        tr testId="s1"
+          td testId="s11"
+            box width=30 height=12
+          td testId="s12"
+            box width=30 height=12
+      dl testId="dl"
+        dt testId="dt1"
+          box width=40 height=12
+        dd testId="dd1"
+          box width=40 height=12
+        dt testId="dt2"
+          box width=40 height=12
+        dd testId="dd2"
+          box width=40 height=12

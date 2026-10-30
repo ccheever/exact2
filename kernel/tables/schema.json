@@ -1768,6 +1768,24 @@
       "name": "accessibilitySort",
       "kind": "str",
       "_comment": "ARIA `aria-sort` on a `columnheader` or `rowheader`: `ascending`, `descending`, `none` or `other`, the order its table's rows are sorted by that column (WAI-ARIA 1.2 §6.7). The DOM attribute on the web; AppKit and UIKit have no such property on a view, so the Apple hosts expose none."
+    },
+    {
+      "id": 295,
+      "name": "colSpan",
+      "kind": "int",
+      "_comment": "@ref LLP 1153 D7: HTML's `colspan` on a `th` or `td` (`semanticTag`), the columns the cell covers; unset is 1, and the kernel reads a value below 1 as 1 and above 1000 as 1000, as HTML's parser does. The DOM attribute on the web; a native host's kernel places the cell by HTML's table-forming algorithm (`layout/table.rs`)."
+    },
+    {
+      "id": 296,
+      "name": "rowSpan",
+      "kind": "int",
+      "_comment": "@ref LLP 1153 D7: HTML's `rowspan` on a `th` or `td`, the rows the cell covers; unset is 1, a value below 1 is 1 and above 65534 is 65534. As `colSpan`."
+    },
+    {
+      "id": 297,
+      "name": "scope",
+      "kind": "str",
+      "_comment": "@ref LLP 1153 D7: HTML's `scope` on a `th`: `col` makes it its column's header (ARIA `columnheader`), `row` its row's (`rowheader`). The DOM attribute on the web; the native hosts' role."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

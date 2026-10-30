@@ -873,3 +873,32 @@ fn inline_controls_keep_their_labels_geometry_and_native_actions() {
         .journal()
         .any(|line| line.contains("openURL https://example.com/docs")));
 }
+
+/// LLP 1153 D7.3: a table is ARIA's table of rows of cells, a `th` its
+/// column's or its row's header by its `scope`; each holds its words.
+#[test]
+fn a_table_is_its_rows_and_its_cells() {
+    let source = "component App\n  view\n    column\n      table\n        thead\n          tr\n            th scope=\"col\"\n              text \"Move\"\n            th\n              text \"Power\"\n        tbody\n          tr\n            th scope=\"row\"\n              text \"Tackle\"\n            td\n              text \"40\"\n";
+    let mut p = boot(source, (320., 600.), 0);
+    let nodes = read(&mut p);
+    let said: Vec<_> = nodes.iter().map(|n| (n.role, n.name.as_str())).collect();
+    assert_eq!(
+        said,
+        [
+            (role::TABLE, ""),
+            (role::ROW, ""),
+            (role::COLUMN_HEADER, ""),
+            (role::TEXT, "Move"),
+            (role::COLUMN_HEADER, ""),
+            (role::TEXT, "Power"),
+            (role::ROW, ""),
+            (role::ROW_HEADER, ""),
+            (role::TEXT, "Tackle"),
+            (role::CELL, ""),
+            (role::TEXT, "40"),
+        ]
+    );
+    let parent = |name: &str| nodes.iter().find(|n| n.id == named(&nodes, name).parent);
+    assert_eq!(parent("Tackle").map(|n| n.role), Some(role::ROW_HEADER));
+    assert_eq!(parent("40").map(|n| n.role), Some(role::CELL));
+}

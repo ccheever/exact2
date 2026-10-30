@@ -1,0 +1,36 @@
+// linux: a table's column widths are the kernel's grid tracks, not CSS 2.1 §17.5's (LLP 1153 D7.3)
+// The declared deviation, compared between the web's two targets only. On
+// 2026-10-30 the Linux host's boxes against Chrome 156's: a `colspan=2` cell
+// 92 px wide over columns of 52 and 32 shares its extra 6 px equally in the
+// grid (55 and 35) and in proportion to the columns' widths in Chrome (55.70
+// and 34.30); a table 120 px wide over columns of 22 to 62 and 22 to 82 px
+// shares what is above their least equally in the grid (57 and 57) and in
+// proportion to what each could grow in Chrome (50 and 64). The kernel's
+// `a_narrow_tables_columns_share_the_rest_equally` holds the grid's.
+component TableWidths
+  view
+    column testId="root" width=420 box-sizing="border-box" padding=16 gap=12 font-size=16
+      view
+        table testId="spans"
+          tr
+            th scope="col" testId="h1"
+              box width=50 height=12
+            th scope="col" testId="h2"
+              box width=30 height=12
+          tr
+            td colspan=2 testId="c11"
+              box width=90 height=12
+      view
+        table testId="narrow" width=120
+          tr
+            td testId="n11"
+              row flex-wrap="wrap"
+                box width=20 height=10
+                box width=20 height=10
+                box width=20 height=10
+            td testId="n12"
+              row flex-wrap="wrap"
+                box width=20 height=10
+                box width=20 height=10
+                box width=20 height=10
+                box width=20 height=10
