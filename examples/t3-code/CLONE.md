@@ -62,29 +62,30 @@ review finds no introduced issue, verifies the genuine reply, streaming, active
 Stop and exact recovery, and passes 373 read-only artifact comparisons. Its
 comment audit is clear.
 
-The bounded native Browser attempt stops before Files entry. The actual palette
-creates a fresh isolated project, but two right-panel toggle taps report platform
-delivery while state, tree and native captures retain a closed panel. No Files
-chooser, file preview or Browser iframe is reached. Browser navigation, reload
-and tab retention remain unqualified. The app quits normally and all owned
-processes exit. Product sources, the standard bundle, window defaults and the
-original server listener remain exact. Commands, the limited key probe and
-cleanup evidence are under
-`target/t3-poc-evidence/desktop-native-browser-acceptance/`. The primary-launcher
-runtime difference remains source-inferred. No release checkpoint is reached.
+The remaining header mouse failure is bounded inside AppKit window dispatch in
+the named agent Mac flow. One live toggle at `[1253,26]` targets SVG 57 and resolves
+button 56. Event `-7` passes both observed local monitors and enters the existing
+`ExactWindow.sendEvent`. Node 57 returns true from `acceptsFirstMouse`; the window
+call returns without a NodeView mouse callback or `MouseChain.receivedDown`.
+The complete journal interval is empty. Epoch, mutation count and closed-panel
+state stay unchanged, and the before/after captures are byte-identical.
 
-The header-input probe narrows the missing press to native handling between
-`NSApp.sendEvent` and runner dispatch. For one live toggle at `[1253,26]`, both
-content and frame hit tests return child node 57; `pressReach` resolves button 56.
-The complete journal interval is empty, with unchanged epoch and panel state.
-No chrome interceptor is captured. A correctly encoded `Alt+Meta+B` control
-records held modifiers and the shortcut press, then opens the chooser through
-Root. Files and Browser navigation remain untested. The instrumented source is
-restored byte for byte. A clean standard rebuild starts and opens the palette
-without the receipt. Both owned launches quit normally; the original listener
-and window defaults remain unchanged. Evidence and the unresolved native boundary
-are under `target/t3-poc-evidence/desktop-panel-input-forensics/`. No ordinary-app
-defect or full parity is established.
+The following Add Project control, event `-8`, reaches NodeView and MouseChain,
+journals its press and opens the palette in the same inactive, non-key window.
+The failure persists under observation. AppKit's handling after first-mouse
+acceptance and before the NodeView callbacks remains unobserved; no consuming
+responder or product cause is proved. The earlier `Alt+Meta+B` route works.
+`chrome: 'platform'` does not project this custom styled header into native
+toolbar buttons. Neither a header fix nor a delivery workaround is applied.
+
+All eight temporary source edits and the original index are restored exactly.
+The standard clean rebuild verifies 156 bundle files, 3,513 inputs and its
+signature, then connects and opens the palette without instrumentation. The
+contact and clean-smoke launches quit normally before controller close. All
+owned processes exit; the original listener and window defaults remain exact.
+Evidence and limits are under
+`target/t3-poc-evidence/desktop-header-contact-forensics/`. Ordinary-app input,
+native OS chrome and full parity remain unqualified.
 
 Draft Browser file assets now retain captured workspace provenance separately from
 Browser ownership. The clean standard bundle from `56f150341d` passes the original
