@@ -421,10 +421,16 @@
      view controller's content inside its layout margins (16 pt); the browser has none of its own. In `rem`, so it is
      one value across the page that follows the reader's text size, not the popover's font. */
   :where(#exact-root [popover]:not([role="menu"], [role="alertdialog"], [data-exact-chooser])) { padding: 1rem; }
+  /* Placed at its invoker, a popover keeps clear of the window's edge it extends toward, as UIKit keeps one off the
+     screen's edges: its margin box stays in the window, and a flipped placement swaps the margin to the side it then
+     extends toward. That side is the window's inline end, which is the root's direction, not the popover's own, so the
+     margin is physical (`margin-inline` follows the popover). One placed at a point, a context menu's or an inset's,
+     takes none. */
   @supports (position-area: block-end) {
-    :where(#exact-root [popover]:is(:not([role="alertdialog"]), [data-exact-chooser])) { inset: auto; margin: 4px 0; position-area: block-end span-inline-end; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; }
+    :where(#exact-root [popover]:is(:not([role="alertdialog"]), [data-exact-chooser])) { inset: auto; margin: 4px 16px 4px 0; position-area: block-end span-inline-end; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; }
+    :where(:root:dir(rtl)) :where(#exact-root [popover]:is(:not([role="alertdialog"]), [data-exact-chooser])) { margin-left: 16px; margin-right: 0; }
     :where(#exact-root [popover][style*="--exact-context-x"]) { margin: 0; position-area: none; left: var(--exact-context-x); top: var(--exact-context-y); position-try-fallbacks: --exact-context-start, --exact-context-up, --exact-context-up-start; }
-    :where(#exact-root [popover][style*="--exact-inset-x"]) { position-area: none; position-try-fallbacks: --exact-inset-start, --exact-inset-up, --exact-inset-up-start; }
+    :where(#exact-root [popover][style*="--exact-inset-x"]) { margin-inline: 0; position-area: none; position-try-fallbacks: --exact-inset-start, --exact-inset-up, --exact-inset-up-start; }
   }
   #exact-root [data-exact-chooser]:not([popover="manual" i]) > button:not([data-exact-on~="press"]) { display: none !important; }
   :where(#exact-root [data-exact-chooser][aria-label])::before { content: attr(aria-label) / ""; display: block; padding: .25em .625em; color: var(--exact-secondary-label); font-size: smaller; }

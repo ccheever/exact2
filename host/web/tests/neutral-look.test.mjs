@@ -79,7 +79,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'back-padding-start': ['padding'], 'back-padding-end': ['padding'], 'bar-symbol-size': ['font-size'],
     'alert-width': ['width'], 'alert-margin': ['width'], 'alert-padding': ['padding'], 'alert-gap': ['gap'], 'alert-action-gap': ['gap'],
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
-    'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'], 'popover-padding': ['padding'],
+    'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'], 'popover-padding': ['padding'], 'popover-margin': ['margin', 'margin-left'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
     'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height'], 'sheet-margin': ['width', 'height'], 'sheet-top': ['inset'],
     'list-row-inset': ['padding-left', 'padding-right'],
@@ -499,6 +499,38 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<div popover id="content-popover">Plain</div><div popover id="padded-popover" style="padding: 8px">Padded</div>');
         return ['content-popover', 'padded-popover', 'menu'].map(id => css(id, 'paddingTop'));
       })]).toEqual([at('popover margin'), ['16px', '8px', '4px']]);
+      // Placed at a button as wide as the window, a long popover starts at the button, clear of it (below, or above
+      // where there is no room), and keeps 16 px off the window's edge it extends toward, whatever its own direction;
+      // one placed at an inset point takes no inline margin. Each is what it measured, or why it could not.
+      const edge = await page.evaluate(() => {
+        if (!CSS.supports('position-area', 'block-end')) return 'no anchor positioning';
+        document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<button id="wide-invoker" style="display: block; width: 100%">Open</button>' + ['ltr', 'rtl'].map(dir => `<div popover id="long-${dir}" dir="${dir}">` + 'A popover long enough to fill the line. '.repeat(6) + '</div>').join('') + '<div popover id="inset-popover" style="--exact-inset-x: 40px; --exact-inset-y: 40px">Inset</div>');
+        const invoker = document.getElementById('wide-invoker').getBoundingClientRect();
+        const placed = ['ltr', 'rtl'].map(dir => {
+          const pop = document.getElementById(`long-${dir}`);
+          pop.showPopover({ source: document.getElementById('wide-invoker') });
+          const r = pop.getBoundingClientRect();
+          pop.hidePopover();
+          return [dir, Math.round(r.left - invoker.left) || 0, r.top >= invoker.bottom - 0.5 || r.bottom <= invoker.top + 0.5, innerWidth - r.right >= 15.5];
+        });
+        const inset = getComputedStyle(document.getElementById('inset-popover'));
+        // Toward the window's left: in a right-to-left window, and flipped from a narrow button at the right end of a
+        // left-to-right one. Each ends at its button's right edge.
+        const leftward = (name, invoker) => {
+          const pop = document.getElementById('long-ltr');
+          pop.showPopover({ source: invoker });
+          const r = pop.getBoundingClientRect(), b = invoker.getBoundingClientRect();
+          pop.hidePopover();
+          return [name, Math.round(b.right - r.right) || 0, r.left >= 15.5];
+        };
+        document.documentElement.dir = 'rtl';
+        const rtl = leftward('rtl window', document.getElementById('wide-invoker'));
+        document.documentElement.removeAttribute('dir');
+        document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<button id="right-invoker" style="display: block; margin-left: auto">More</button>');
+        const flipped = leftward('flipped', document.getElementById('right-invoker'));
+        return [...placed, ['inset', inset.marginLeft, inset.marginRight], rtl, flipped];
+      });
+      expect([at('popover edge'), edge]).toEqual([at('popover edge'), edge === 'no anchor positioning' ? edge : [['ltr', 0, true, true], ['rtl', 0, true, true], ['inset', '0px', '0px'], ['rtl window', 0, true], ['flipped', 0, true]]]);
       await page.click('#invoker-end');
       [menu, invoker] = await page.evaluate(() => [box('menu'), box('invoker-end')]);
       expect([at('menu at the end'), Math.abs(menu[0] + menu[2] - invoker[0] - invoker[2]) <= 1, menu[1] - invoker[1] - invoker[3]]).toEqual([at('menu at the end'), true, 4]);
