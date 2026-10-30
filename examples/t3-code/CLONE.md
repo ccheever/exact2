@@ -1,6 +1,6 @@
 # T3 Code clone handoff
 
-Updated October 29, 2026, Toronto time. Finish the one-to-one clone with pstack
+Updated October 30, 2026, Toronto time. Finish the one-to-one clone with pstack
 handling routine execution and review. The legacy scheduled coordinator stays
 disabled. Use this handoff when taking over the work.
 
@@ -93,6 +93,12 @@ as in the accepted baseline; its cause remains unestablished. Evidence is under
 `target/t3-poc-evidence/phone-rich-table-final/`. Connected file reads, auth, cache
 lifecycle, persistence and full phone parity remain unqualified by this fixture.
 This change is outside the delivered TestFlight build.
+
+Independent strong-table review finds no introduced P1 or P2 issue. It repeats
+218 focused tests, 40 source probes and eight production snapshot comparisons,
+and verifies artifact and restoration hashes. The input-only assertion and two
+redundant comments identified by review are removed. Source and Copy checks
+continue to assert returned production values.
 
 These earlier implementation checkpoints are available on GitHub:
 

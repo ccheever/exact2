@@ -1,4 +1,3 @@
-// SourceFileSurface365aa87982, over shared reads and mobile syntax colors.
 // @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#mobile-presentation
 use ReviewColors from "./review-shapes.contract"
 use ThreadCodeToken from "./thread-shapes.contract"

@@ -1,5 +1,4 @@
 // timelineMinimapItems.ts's markdown preview text at T3 Code 74541bab17 (MIT, see LICENSE-T3).
-// Bundled for the app by gen-minimap-text.mjs.
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';

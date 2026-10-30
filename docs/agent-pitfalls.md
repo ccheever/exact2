@@ -1177,6 +1177,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   compile its plan into private output, and remove the entry in `finally`.
   [Source boundary](../contract/cli/src/lib.rs), `app_root`.
 
+- **Restored app sources still report implicit `any` in callbacks.**
+  A temporary Contract entry can replace the ignored `app.contract.d.ts` with
+  fixture signatures. Restore the original entry and data files, then regenerate
+  declarations with `target/debug/contract types <app>/app.contract -o
+  <app>/app.contract.d.ts` before strict TypeScript checking. Restoring tracked
+  bytes alone does not restore these generated signatures. (T3 preview fixture,
+  2026-10-29.)
+
 - **A timer has fired before the next assertion although the test has no clock line.**
   The test driver advances one millisecond per mutation request after each step,
   including requests answered synchronously and those issued by an automatic advance.

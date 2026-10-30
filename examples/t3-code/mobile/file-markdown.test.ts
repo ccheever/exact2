@@ -143,5 +143,4 @@ test('strong table projection keeps CRLF input, fence records and partition fall
       .toEqual(mobileMarkdownBlocks(input, false).map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
     else expect(mobileFileMarkdownBlocks(input, false)[0]?.text).toBe(source);
   }
-  expect(raw).toContain('\r\n');
 });
