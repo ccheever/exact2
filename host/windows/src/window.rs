@@ -662,6 +662,10 @@ impl<D: DataSource + Default + 'static> App<D> {
                 self.started.elapsed().as_secs_f64() * 1000.
             );
         }
+        // Activation can leave the baked picture unchanged. A clean frame need
+        // not present again just to acknowledge that its data source is ready.
+        p.first_pixel();
+        let activated_at = frame_started.elapsed().as_secs_f64() * 1000.;
         // A screen's ready marker can exclude background requests that do not
         // contribute to it. Shelf's library-count appears with its seeded books.
         let screen_ready = std::env::var("EXACT_AGENT_WINDOW_READY").map_or_else(
@@ -673,6 +677,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             || std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() == Ok("on"))
             && !self.measured_first_screen
             && p.last_frame_succeeded()
+            && !p.dirty()
             && !p.data_activating()
             && screen_ready
         {
@@ -737,12 +742,10 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
         }
         let logged_at = frame_started.elapsed().as_secs_f64() * 1000.;
-        p.first_pixel();
         if !self.jump_list_started && p.last_frame_succeeded() {
             self.jump_list_started = true;
             crate::jump_list::start(self.config.compat.clone());
         }
-        let activated_at = frame_started.elapsed().as_secs_f64() * 1000.;
         if let Some(access) = &mut self.accessibility {
             access.sync(p, window, &self.name);
         }
