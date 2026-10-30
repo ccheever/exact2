@@ -697,5 +697,9 @@ impl<D: DataSource> Presenter<D> {
 mod input_tests;
 
 #[cfg(test)]
+#[path = "alert_popover_tests.rs"]
+mod popover_tests;
+
+#[cfg(test)]
 #[path = "press_point_tests.rs"]
 mod press_point_tests;
