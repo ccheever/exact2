@@ -1046,4 +1046,11 @@ fn a_progress_follows_its_block_parents_justify_items() {
         "the bound writer: {bound}"
     );
     assert!(!normal.contains("?\"initial\":\"auto\""), "{normal}");
+    // A server render's DOM keeps the bound string unparsed (dom.js): spaces are collapsed first.
+    let mapper = bound
+        .split("\"--exact-progress-aligned\"")
+        .nth(1)
+        .unwrap_or_default();
+    let mapper = &mapper[..mapper.find("\"initial\":\"auto\"").unwrap_or(0)];
+    assert!(mapper.contains(".trim()"), "{mapper}");
 }
