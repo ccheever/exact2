@@ -210,15 +210,54 @@ their hashes enter the bake receipt and asset cache, and packaging refuses
 changed sources. tvOS keeps asset catalogs and never inherits this selection.
 The web keeps `icons`, also the Apple raster fallback without a selection.
 
-**App Transport Security (2026-10-06, issue #106):** `host.macos.appTransportSecurity`
-and `host.ios.appTransportSecurity` are typed, not a pass-through: one key,
-`allowsArbitraryLoadsInWebContent`, baked as `NSAppTransportSecurity ›
-NSAllowsArbitraryLoadsInWebContent`, so an `iframe` loads `http://` from a named
-host as a browser does while a module's `URLSession` stays under ATS. Absent, no
-key; iOS merges it with `localNetworking`'s `NSAllowsLocalNetworking`. ATS reads
-only a bundle's `Info.plist`, so the agent's bare executable is not under it either
-way: a drive loads such a frame with or without the field, and one with
-`EXACT_MAC_BIN` naming the `.app`'s `Contents/MacOS/ExactMac` shows what a user sees.
+**App Transport Security (2026-10-06, issue #106; `allowsArbitraryLoads`
+2026-10-30):** `host.macos.appTransportSecurity` and
+`host.ios.appTransportSecurity` are typed, not a pass-through. Each key is off
+when absent.
+
+- `allowsArbitraryLoadsInWebContent`, baked as `NSAppTransportSecurity ›
+  NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from a named
+  host as a browser does, while the app's own `fetch` (`URLSession`) stays
+  under ATS. iOS merges it with `localNetworking`'s `NSAllowsLocalNetworking`;
+  tvOS, which has no WebKit, leaves it out.
+- `allowsArbitraryLoads`, baked as `NSAllowsArbitraryLoads`: ATS is off for
+  every connection the app makes. Its own `fetch` reaches `http:` at any host
+  its grants admit, for a server the person names at run time (T3 Code pairs
+  with an environment at `http://<any host>`), and its frames load as with the
+  key above. It is written alone: ATS ignores it when
+  `NSAllowsArbitraryLoadsInWebContent`, `NSAllowsLocalNetworking` or
+  `NSAllowsArbitraryLoadsForMedia` is present
+  ([Apple](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowsarbitraryloads)),
+  and it already allows what each of them would. tvOS takes it from
+  `host.ios`.
+
+On macOS 27.2 (2026-10-30, an app bundle that fetches, frames and opens a
+WebSocket to `localtest.me`, a public name for 127.0.0.1): with no key the
+`fetch` and the frame fail with ATS's error and the `ws:` WebSocket opens;
+with `allowsArbitraryLoads` all three succeed. A bundle edited to hold
+`NSAllowsArbitraryLoads` beside `NSAllowsArbitraryLoadsInWebContent` refuses
+the `fetch` and loads the frame; beside `NSAllowsLocalNetworking` it refuses
+both.
+
+Either key is in every build, store builds too, and App Store review asks the
+app to justify each
+([Apple](https://developer.apple.com/documentation/security/preventing-insecure-network-connections),
+"Provide justification for exceptions"). ATS reads only a bundle's
+`Info.plist`, so it governs an executable inside a `.app` and not one outside:
+a macOS drive launches the assembled bundle and is under the app's policy as a
+user is.
+
+No other host reads either key. Linux and Windows have no such policy: the
+app's `fetch` and WebSocket are the Rust transport's own sockets, which reach
+any host the grants admit. Android's shell has the same transport and sets no
+cleartext policy, because Android's
+[`usesCleartextTraffic`](https://developer.android.com/guide/topics/manifest/application-element#usesCleartextTraffic)
+binds the platform's own stacks, not these sockets. Its WebView, an `iframe`
+there, does follow that attribute, which is false by default at the shell's
+targetSdk 36, so a frame of `http:` is refused; no app asks for one yet. On the
+web the browser decides: mixed content refuses `http:` and `ws:` from an
+`https:` page (Chrome and Firefox let loopback through; WebKit does not, LLP
+1020).
 
 **The macOS design (2026-10-02):** AppKit draws its macOS 26 design (Liquid
 Glass bezels, new control metrics) by the SDK the executable records in

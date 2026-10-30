@@ -249,9 +249,9 @@ CSS's deprecated system colours (`Background`, `Window`, …) are refused too.
 | `placeholder` | `placeholderTextColor` | `placeholderTextColor` | `-apple-system-placeholder-text` | `#3c3c434d` / `#ebebf54d` |
 | `separator` | `separatorColor` | `separatorColor` | `-apple-system-separator` | `#3c3c434a` / `#54545899` |
 | `background` | `systemBackgroundColor` | `windowBackgroundColor` | `-apple-system-background` | `#ffffff` / `#000000` |
-| `secondary-background` | `secondarySystemBackgroundColor` | `controlBackgroundColor` (lighter than the window in light mode: declared) | `-apple-system-secondary-background` | `#f2f2f7` / `#1c1c1e` |
+| `secondary-background` | `secondarySystemBackgroundColor` | `underPageBackgroundColor` (since 2026-10-30: on current macOS, measured on 27, the window's and a control's backgrounds are one colour, so a control background no longer stands apart; it was `controlBackgroundColor`, lighter than the window in light mode) | `-apple-system-secondary-background` | `#f2f2f7` / `#1c1c1e` |
 | `grouped-background` | `systemGroupedBackgroundColor` | `windowBackgroundColor` | `-apple-system-grouped-background` | `#f2f2f7` / `#000000` |
-| `secondary-grouped-background` | `secondarySystemGroupedBackgroundColor` | `controlBackgroundColor` | `-apple-system-secondary-grouped-background` | `#ffffff` / `#1c1c1e` |
+| `secondary-grouped-background` | `secondarySystemGroupedBackgroundColor` | `underPageBackgroundColor` (since 2026-10-30, as `secondary-background`; `grouped-background` stays the window's, which the Mac's sheet and split grounds recognise) | `-apple-system-secondary-grouped-background` | `#ffffff` / `#1c1c1e` |
 | `fill` | `systemFillColor` | `systemFillColor` | `-apple-system-fill` | `#78788033` / `#7878805c` |
 | `secondary-fill` | `secondarySystemFillColor` | `secondarySystemFillColor` | none (WebKit has no such keyword; §12) | `#78788029` / `#78788052` |
 | `system-red`, `-orange`, `-yellow`, `-green`, `-mint`, `-teal`, `-cyan`, `-blue`, `-indigo`, `-purple`, `-pink`, `-brown`, `-gray` | `systemRedColor`, … | `systemRedColor`, … | `-apple-system-red`, … | Apple's published light / dark values |

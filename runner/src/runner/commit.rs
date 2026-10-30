@@ -883,7 +883,6 @@ impl<D: DataSource> Runner<D> {
                 return;
             }
         }
-        // A child this commit may not let go stays (LLP 1133.007 D13).
         if self.holds_child(target) {
             return self.discard_request(&request);
         }
@@ -905,8 +904,6 @@ impl<D: DataSource> Runner<D> {
         self.number_data_call(&mut request);
         request.reach = self.reach_of(self.origin_for(Some(target)));
         self.log(super::lines::enqueued(ticket, &name, &request));
-        // A program starts only from the app's origin (LLP 1133.007 D13):
-        // otherwise the ticket is refused here and never reaches the host.
         let refusal = self.process_refusal(&request);
         self.note_asked(target, ticket);
         self.note_handles(ticket, &source, &request.body);
@@ -931,13 +928,7 @@ impl<D: DataSource> Runner<D> {
             sent: false,
             grant: request
                 .stream
-                .then(|| {
-                    crate::grants::admitting_request(
-                        self.data.grants(),
-                        request.grants.as_deref(),
-                        &request,
-                    )
-                })
+                .then(|| crate::grants::admitting_request(self.data.grants(), &request))
                 .flatten()
                 .map(str::to_string),
             ask_again: false,
@@ -1281,15 +1272,19 @@ impl<D: DataSource> Runner<D> {
             sockets::socket_message(count, m);
         }
         let p = p.clone();
-        if let Outcome::Message(m) = &outcome {
-            self.note_child_message(p.ticket, m);
-        }
+        self.note_child_outcome(p.ticket, &outcome);
         self.sync_pending_flags();
         let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
         let what = super::lines::fulfilling(ticket, &name, summary);
         let before = self.sockets.len();
         crate::stream_timing::entered(ticket);
-        let result = self.fulfill_inner(p, outcome);
+        // A frame lands as a commit of its stream's origin (LLP 1133.002
+        // D12), with every cause its request has (LLP 1133.035 D16 item 6),
+        // as a one-shot's reply does: a stream a tool asked answers as the
+        // tool's, frame after frame.
+        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
+        let causes = self.ticket_causes(ticket);
+        let result = self.as_invocation_caused(origin, id, causes, |r| r.fulfill_inner(p, outcome));
         // What the mapper staged answering this frame (LLP 1016.000 D7):
         // addressed for the commit, or left staged by a frame that failed.
         // The commit's answers may have sent too (its amendment of
@@ -1299,7 +1294,7 @@ impl<D: DataSource> Runner<D> {
         let replied = left || self.sockets[before..].iter().any(mapper);
         self.conclude(checkpoint, &result, was_poisoned);
         crate::stream_timing::committed(result.is_ok());
-        self.arm_then(result.is_ok());
+        self.as_invocation_caused(origin, id, causes, |r| r.arm_then(result.is_ok()));
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         // Or by one whose answer reopened the stream, which sends none.

@@ -124,14 +124,11 @@ pub fn admitting<'a>(spec: &'a str, scope: Option<&'a str>, url: &str) -> Option
     })
 }
 
-/// The line that admits a stream `request`, as [`admitting`] for a URL; for
-/// a child process, the first `process.spawn` line that names its program
-/// (LLP 1133.007 D2's `state.streams`).
-pub fn admitting_request<'a>(
-    spec: &'a str,
-    scope: Option<&'a str>,
-    request: &crate::Request,
-) -> Option<&'a str> {
+/// The line that admits a stream `request` under its scope, as
+/// [`admitting`] for a URL; for a child process, the first `process.spawn`
+/// line that names its program (LLP 1133.007 D2's `state.streams`).
+pub fn admitting_request<'a>(spec: &'a str, request: &'a crate::Request) -> Option<&'a str> {
+    let scope = request.grants.as_deref();
     if !request.is_process() {
         return admitting(spec, scope, &request.url);
     }

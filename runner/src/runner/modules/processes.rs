@@ -215,9 +215,11 @@ impl<D: DataSource> Runner<D> {
         );
     }
 
-    /// What one message of a child stream tells of it.
-    pub(in crate::runner) fn note_child_message(&mut self, ticket: u64, message: &crate::Message) {
-        let Some(child) = self.extensions.processes.children.get_mut(&ticket) else {
+    /// What one outcome of a child stream tells of it: its messages.
+    pub(in crate::runner) fn note_child_outcome(&mut self, ticket: u64, outcome: &crate::Outcome) {
+        let children = &mut self.extensions.processes.children;
+        let (crate::Outcome::Message(message), Some(child)) = (outcome, children.get_mut(&ticket))
+        else {
             return;
         };
         let data: serde_json::Value = serde_json::from_str(&message.data).unwrap_or_default();

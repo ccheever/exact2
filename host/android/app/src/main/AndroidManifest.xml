@@ -7,6 +7,12 @@
          remote picture fail at the name lookup. What an app may reach is still its own grants' to say (`net.fetch`),
          which exact2 enforces; this is only the platform's door. A normal permission: nothing is asked of the person. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- No usesCleartextTraffic and no Network Security Config, for any app: its `fetch` and WebSocket are the Rust
+         transport's own sockets, which Android's cleartext policy does not govern ("there's no expectation that the
+         Socket API honors this flag"), so `http:` and `ws:` reach any host the grants admit with no key (on Apple,
+         `http:` to a named host needs app.json's `appTransportSecurity.allowsArbitraryLoads`, LLP 1030). A WebView (an
+         `iframe`) follows the policy, which at targetSdk 36 refuses cleartext; no app asks for an `http:` frame here
+         yet, so nothing in app.json changes it. -->
     <!-- One APK for phones and TVs (LLP 1115.001.003 D1, D5): neither a touch screen nor the TV's leanback UI is
          required, so it installs on both. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
