@@ -167,3 +167,17 @@ test('a Markdown list marker paints punctuation grey; the heading keeps its ink,
   expect(rowsOf(['diff --git a/README.md b/README.md', '--- a/README.md', '+++ b/README.md', '@@ -0,0 +1,3 @@', '+```sh', '+# install the tools', '+```', ''])[1])
     .toEqual([['# install the tools', 'com']]);
 });
+
+test('Hide test files leaves the tests out of the list, the tree and Collapse all, and is offered only when the diff has tests (DiffPanel 6d450a4284)', async () => {
+  const withTests = `${treePatch}diff --git a/src/a.test.ts b/src/a.test.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/a.test.ts\n@@ -0,0 +1 @@\n+test()\n`;
+  const { client, command } = harness(withTests);
+  await command('diff'); await command('diff-scope', '', 'latest');
+  let view = diffSnapshot(client, 0);
+  expect([view.diffTestFiles, view.diffHideTests, view.diffItems.some(item => item.path === 'src/a.test.ts')]).toEqual([1, false, true]);
+  await command('diff-view', 'hide-tests');
+  view = diffSnapshot(client, 0);
+  expect([view.diffHideTests, view.diffItems.some(item => item.path === 'src/a.test.ts'), view.diffTreeRows.some(row => row.path === 'src/a.test.ts'), view.diffFiles.length]).toEqual([true, false, false, 4]);
+  await command('diff-view', 'expand-all');
+  expect(Object.keys(client.diffState.expanded).some(key => key.endsWith('src/a.test.ts'))).toBe(false);
+  expect((client.local as { diffHideTestFiles?: boolean }).diffHideTestFiles).toBe(true);
+});

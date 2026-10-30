@@ -2,7 +2,7 @@
 // "diff tree reading order" reads the rows diffTreeRows lays out instead of Pierre's shadow HTML.
 // "buildDiffFileTreeUpdates" is n/a: the clone keeps collapsed folders by path (diff-tree.ts header).
 import { describe, expect, it } from 'bun:test';
-import { allDirectoriesExpanded, collectDirectoryPaths, diffFileTreeEntries, diffTreeRows } from '../../src/diff/diff-tree';
+import { allDirectoriesExpanded, collectDirectoryPaths, diffFileTreeEntries, diffTreeRows, orderDiffFilesLikeTree } from '../../src/diff/diff-tree';
 
 describe('diffFileTreeEntries', () => {
   it("maps each change type to its git status under the file's current path", () => {
@@ -45,5 +45,13 @@ describe('diff tree reading order', () => {
     expect(diffTreeRows(entries, closed, '').map(row => [row.path, row.expanded])).toEqual([['README.md', false], ['src/', true], ['src/a.ts', false], ['src/ui/', false]]);
     expect(allDirectoriesExpanded(entries.map(entry => entry.path), closed)).toBe(false);
     expect(allDirectoriesExpanded(entries.map(entry => entry.path), new Set())).toBe(true);
+  });
+});
+
+// 6d450a4284 diffFileTree.logic.test.ts.
+describe('orderDiffFilesLikeTree', () => {
+  it('pulls a test listed last into its directory, keeping the first-seen order', () => {
+    expect(orderDiffFilesLikeTree(['server/device/Host.ts', 'web/settings.ts', 'server/ws.ts', 'server/device/Host.test.ts', 'web/settings.test.ts'], path => path))
+      .toEqual(['server/device/Host.ts', 'server/device/Host.test.ts', 'server/ws.ts', 'web/settings.ts', 'web/settings.test.ts']);
   });
 });

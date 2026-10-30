@@ -170,6 +170,18 @@ describe('rightPanelStore browser surfaces', () => {
     expect(state.surfaces.map(surface => surface.id)).toEqual(['files']);
     expect(state.active).toBe('files');
   });
+  // d0b81ceb6e rightPanelStore.test.ts: "hides the panel when browser reconciliation removes its last session tab".
+  it('hides the panel when reconciliation removes its last tab, and keeps it open on another surface', () => {
+    const state = emptyPanel();
+    openBrowserIn(state, 'tab-a', 'local:thread-1');
+    reconcileBrowserSurfaces(state, [], 'local:thread-1');
+    expect([state.visible, state.active, state.surfaces]).toEqual([false, '', []]);
+    openBrowserIn(state, 'tab-b', 'local:thread-1');
+    state.surfaces.push({ id: 'files', kind: 'files', path: '', line: 0, reveal: 0 });
+    state.active = 'files';
+    reconcileBrowserSurfaces(state, [], 'local:thread-1');
+    expect([state.visible, state.active]).toEqual([true, 'files']);
+  });
 });
 
 describe('RightPanelTabs: a browser tab', () => {

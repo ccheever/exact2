@@ -1,4 +1,5 @@
-// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: packages/client-runtime/src/state/terminalSession.ts).
+// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: packages/client-runtime/src/state/terminalSession.ts),
+// with 6d450a4284's shared PTY grid (`grid`, from snapshots and activity).
 // Changes from the reference:
 // - The `@t3tools/contracts` types are declared here (packages/contracts/src/terminal.ts shapes);
 //   `EnvironmentId` and `ThreadId` are plain strings.
@@ -19,6 +20,9 @@ export interface TerminalSessionSnapshot {
   readonly label: string;
   readonly updatedAt: string;
   readonly sequence?: number;
+  // The PTY grid every renderer of this terminal should draw; absent from older servers.
+  readonly cols?: number;
+  readonly rows?: number;
 }
 export interface TerminalSummary {
   readonly threadId: string;
@@ -46,7 +50,8 @@ export type TerminalAttachStreamEvent =
   | (TerminalEventBase & { readonly type: "error"; readonly message: string })
   | (TerminalEventBase & { readonly type: "cleared" })
   | (TerminalEventBase & { readonly type: "restarted"; readonly snapshot: TerminalSessionSnapshot })
-  | (TerminalEventBase & { readonly type: "activity"; readonly hasRunningSubprocess: boolean; readonly label: string });
+  // Shared PTY grid changes ride on activity because older clients reject unknown event types.
+  | (TerminalEventBase & { readonly type: "activity"; readonly hasRunningSubprocess: boolean; readonly label: string; readonly cols?: number; readonly rows?: number });
 type EnvironmentId = string;
 type ThreadId = string;
 
@@ -68,6 +73,12 @@ export {
   type TerminalOutputUpdate,
 } from "./terminal-output";
 
+/** The PTY grid every renderer of a shared terminal draws. */
+export interface TerminalGrid {
+  readonly cols: number;
+  readonly rows: number;
+}
+
 export interface TerminalSessionState {
   readonly summary: TerminalSummary | null;
   readonly output: TerminalOutputState;
@@ -77,6 +88,8 @@ export interface TerminalSessionState {
   readonly updatedAt: string | null;
   readonly version: number;
   readonly lifecycleVersion: number;
+  /** Null when the server predates shared terminal geometry. */
+  readonly grid: TerminalGrid | null;
 }
 
 export interface TerminalBufferState {
@@ -86,6 +99,7 @@ export interface TerminalBufferState {
   readonly updatedAt: string | null;
   readonly version: number;
   readonly lifecycleVersion: number;
+  readonly grid: TerminalGrid | null;
 }
 
 export interface KnownTerminalSessionTarget {
@@ -114,6 +128,7 @@ export const EMPTY_TERMINAL_BUFFER_STATE = Object.freeze<TerminalBufferState>({
   updatedAt: null,
   version: 0,
   lifecycleVersion: 0,
+  grid: null,
 });
 
 export const EMPTY_TERMINAL_SESSION_STATE = Object.freeze<TerminalSessionState>({
@@ -125,6 +140,7 @@ export const EMPTY_TERMINAL_SESSION_STATE = Object.freeze<TerminalSessionState>(
   updatedAt: null,
   version: 0,
   lifecycleVersion: 0,
+  grid: null,
 });
 
 let terminalAttachGeneration = 0;
@@ -152,7 +168,18 @@ function terminalBufferStateFromSnapshot(
     updatedAt: snapshot.updatedAt,
     version: current.version + 1,
     lifecycleVersion: current.lifecycleVersion,
+    grid: nextGrid(current.grid, snapshot),
   };
+}
+
+export function nextGrid(
+  current: TerminalGrid | null,
+  source: { readonly cols?: number | undefined; readonly rows?: number | undefined },
+): TerminalGrid | null {
+  if (source.cols === undefined || source.rows === undefined) return current;
+  return current?.cols === source.cols && current.rows === source.rows
+    ? current
+    : { cols: source.cols, rows: source.rows };
 }
 
 function latestTimestamp(left: string | null, right: string | null): string | null {
@@ -174,6 +201,7 @@ export function combineTerminalSessionState(
     updatedAt: latestTimestamp(summary?.updatedAt ?? null, buffer.updatedAt),
     version: buffer.version,
     lifecycleVersion: buffer.lifecycleVersion,
+    grid: buffer.grid,
   };
 }
 
@@ -230,8 +258,10 @@ export function applyTerminalAttachStreamEvent(
         error: event.message,
         version: current.version + 1,
       };
-    case "activity":
-      return current;
+    case "activity": {
+      const grid = nextGrid(current.grid, event);
+      return grid === current.grid ? current : { ...current, grid };
+    }
   }
 }
 

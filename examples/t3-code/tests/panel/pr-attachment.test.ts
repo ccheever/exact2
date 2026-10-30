@@ -308,6 +308,18 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
   });
 });
 
+describe('a preview\'s wrap button changes only that preview (48a292364a)', () => {
+  test('one file unwraps; another file, and an attachment, still follow Settings', async () => {
+    const { client } = fakeClient();
+    await filesLocal(client, native, 'wrap', 'src/a.ts', '');
+    const { filesState } = await import('../../src/panel/files-surface');
+    expect([...filesState(client).wraps]).toEqual([['src/a.ts', false]]);
+    expect((client.local as { clientSettings: { wordWrap: boolean } }).clientSettings.wordWrap).toBe(true);
+    await filesLocal(client, native, 'wrap', 'src/a.ts', '');
+    expect([...filesState(client).wraps]).toEqual([['src/a.ts', true]]);
+  });
+});
+
 describe('Files preferences persist (FilePreviewPanel localStorage keys)', () => {
   test('defaults: explorer open, Markdown as source, tables rendered; toggles land in the saved record', async () => {
     const { client } = fakeClient();
@@ -315,10 +327,11 @@ describe('Files preferences persist (FilePreviewPanel localStorage keys)', () =>
     await filesLocal(client, native, 'explorer', '', '');
     await filesLocal(client, native, 'render', 'README.md', '');
     await filesLocal(client, native, 'render', 'data.csv', '');
-    await filesLocal(client, native, 'wrap', '', '');
+    await filesLocal(client, native, 'wrap', 'README.md', '');
     const saved = JSON.parse(JSON.stringify({ version: 1, ...(client.local as object) }));
     expect(saved.files).toEqual({ explorer: false, renderMarkdown: true, renderTable: false });
-    expect(saved.clientSettings.wordWrap).toBe(false);
+    // A preview's wrap button is its own (48a292364a): Settings' word wrap stays on.
+    expect(saved.clientSettings.wordWrap).toBe(true);
     const next = {};
     adoptFilesPrefs(next, saved);
     expect(next).toEqual({ files: { explorer: false, renderMarkdown: true, renderTable: false } });

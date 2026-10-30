@@ -68,13 +68,15 @@ export type FilesViewerRequest = {
   text: string;
   delimiter: ',' | '\t' | null;
   revealLine: number | null; revealRequestId: number;
+  /** The preview's word wrap: its own toggle's, else Settings' (files-surface.ts). */
+  wrap: boolean;
 };
 
 /** The viewer's frame for what Files shows, the Full file subheader's controls, and why it cannot load. */
 export async function filesViewer(client: T3Client, native: Native | null | undefined, request: FilesViewerRequest, now: number): Promise<{ viewer: ViewerFrameView; full: FullFileView; error: string }> {
   const state = stateOf(client);
-  const settings = client.local.clientSettings as { wordWrap?: boolean; fontSmoothing?: boolean };
-  const base = { name: request.path, src: '', text: null, sizeBytes: -1, kind: '', delimiter: null, wrap: settings.wordWrap !== false, revealLine: null, revealRequestId: 0, smoothing: settings.fontSmoothing !== false };
+  const settings = client.local.clientSettings as { fontSmoothing?: boolean };
+  const base = { name: request.path, src: '', text: null, sizeBytes: -1, kind: '', delimiter: null, wrap: request.wrap, revealLine: null, revealRequestId: 0, smoothing: settings.fontSmoothing !== false };
   let config: ViewerConfig;
   let full = closedFullFile();
   if (request.kind === 'pdf') {

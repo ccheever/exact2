@@ -1,4 +1,4 @@
-// The pull request Code tab's pure logic, ported from T3 Code 7c3b3b3605ef
+// The pull request Code tab's pure logic, ported from T3 Code 6d450a4284
 // (MIT, see LICENSE-T3): apps/web/src/components/pullRequest/{pullRequestDiff.logic,
 // pullRequestFilesViewed.logic,pullRequestFileOrder.logic}.ts, pullRequestDetail.logic.ts (the
 // thread comment pages), apps/web/src/reviewCommentContext.ts resolveDiffReviewPosition and resolveDiffReviewAnchor,
@@ -117,6 +117,14 @@ export function toggleFileDiffFoldForViewed(fileKey: string, viewed: boolean, fo
   const next = new Set(toggledFileKeys);
   if (next.has(fileKey)) next.delete(fileKey); else next.add(fileKey);
   return next;
+}
+/** getFileViewedRange (6d450a4284): the pressed file and, with an anchor still listed, every file between them in shown order. */
+export function getFileViewedRange<T extends { readonly fileKey: string }>(files: readonly T[], fileKey: string, anchorFileKey: string | null): readonly T[] {
+  const index = files.findIndex(file => file.fileKey === fileKey);
+  if (index === -1) return [];
+  const anchorIndex = files.findIndex(file => file.fileKey === anchorFileKey);
+  if (anchorIndex === -1) return files.slice(index, index + 1);
+  return files.slice(Math.min(index, anchorIndex), Math.max(index, anchorIndex) + 1);
 }
 /** lib/diffCollapse.ts areAllDiffFilesCollapsed. */
 export function areAllDiffFilesCollapsed(fileKeys: readonly string[], collapsedFileKeys: ReadonlySet<string>): boolean {

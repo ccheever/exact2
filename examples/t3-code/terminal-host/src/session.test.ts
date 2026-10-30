@@ -31,6 +31,7 @@ function harness(target: ConstructorParameters<typeof TerminalSocket>[2]) {
     authFailed: (failed) => log.push(`authFailed ${failed}`),
     received: () => undefined,
     answered: () => log.push("answered"),
+    grid: (grid) => log.push(`grid ${grid ? `${grid.cols}x${grid.rows}` : "none"}`),
   };
   const session = new TerminalSocket(sink, (url) => { const socket = new FakeSocket(url); sockets.push(socket); return socket; }, target);
   return { session, sockets, log };
@@ -42,6 +43,19 @@ const snapshot = (history: string, status = "running") => ({ type: "snapshot", s
 const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
 
 describe("the page's attach stream", () => {
+  test("the server's shared PTY grid reaches the surface from the snapshot and activity, once per change", () => {
+    const { session, sockets, log } = harness({ attach, readOnly: false });
+    session.start("ws://host/ws?wsTicket=a");
+    const socket = sockets[0]!;
+    socket.open();
+    const sized = snapshot("");
+    socket.frame({ _tag: "Chunk", requestId: "1", values: [{ ...sized, snapshot: { ...sized.snapshot, cols: 130, rows: 15 } }] });
+    const activity = { type: "activity", threadId: "thread-1", terminalId: "term-1", hasRunningSubprocess: false, label: "zsh" };
+    socket.frame({ _tag: "Chunk", requestId: "1", values: [{ ...activity, cols: 54, rows: 15 }] });
+    socket.frame({ _tag: "Chunk", requestId: "1", values: [activity, { ...activity, cols: 54, rows: 15 }] });
+    expect(log.filter((entry) => entry.startsWith("grid"))).toEqual(["grid 130x15", "grid 54x15"]);
+  });
+
   test("attaches on open, writes the snapshot then the output, and acknowledges each chunk", () => {
     const { session, sockets, log } = harness({ attach, readOnly: false });
     session.start("ws://host/ws?wsTicket=a");

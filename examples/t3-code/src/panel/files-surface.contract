@@ -121,7 +121,7 @@ component FileHeader
         FilesToggle(id="render", label=files.renderLabel, icon=files.renderIcon, pressed=files.rendered, hovered=hovered, hover=hover, press=local("surface-files-render", files.path, ""))
       // Word wrap reaches only the text bodies: an image, a video, a rendered document or page has none (showsRawText).
       if files.rawText
-        FilesToggle(id="wrap", label=(files.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", pressed=files.wrap, hovered=hovered, hover=hover, press=local("surface-files-wrap", "", ""))
+        FilesToggle(id="wrap", label=(files.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", pressed=files.wrap, hovered=hovered, hover=hover, press=local("surface-files-wrap", files.path, ""))
       if files.openInBrowser
         FilesToggle(id="open-browser", label="Open file in preview browser", icon="earth", pressed=false, hovered=hovered, hover=hover, press=local("surface-files-open-browser", files.path, ""))
       if files.explorerToggle

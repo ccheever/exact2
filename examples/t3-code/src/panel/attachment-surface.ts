@@ -79,7 +79,9 @@ type State = { url: string; urlAt: number; urlError: string; content: Content | 
   /** The viewer page's frame, and the Try again count that mounts its viewer afresh (the reference's `revision`). */
   frame: FrameState; revision: number;
   /** Why a draft's bytes cannot reach the page. */
-  bytesError: string };
+  bytesError: string;
+  /** This preview's own word wrap (AttachmentFilePreview's wordWrapOverride, 6d450a4284); null follows Settings' word wrap. */
+  wrap: boolean | null };
 const states = new WeakMap<T3Client, Map<string, State>>();
 const STALE_URL_MS = 5 * 60_000; // AttachmentFilePreview: signed URLs live an hour; re-mint after five minutes
 
@@ -110,12 +112,13 @@ export function requireAttachment(client: T3Client, id: string): AttachmentMeta 
   return meta;
 }
 
+const wrapOf = (client: T3Client, state: State): boolean => state.wrap ?? client.local.clientSettings.wordWrap !== false;
 function stateOf(client: T3Client, id: string): State {
   let map = states.get(client);
   if (!map) { map = new Map(); states.set(client, map); }
   let state = map.get(id);
   // AttachmentFilePreview opens rendered.
-  if (!state) { state = { url: '', urlAt: 0, urlError: '', content: null, contentError: '', rendered: true, saving: false, copiedAt: 0, mediaError: '', fontError: '', frame: newFrame(), revision: 0, bytesError: '' }; map.set(id, state); }
+  if (!state) { state = { url: '', urlAt: 0, urlError: '', content: null, contentError: '', rendered: true, saving: false, copiedAt: 0, mediaError: '', fontError: '', frame: newFrame(), revision: 0, bytesError: '', wrap: null }; map.set(id, state); }
   return state;
 }
 /** AttachmentFilePreview's `resource`, or its `downloadResource` for Save file: a `media-file` saved as an attachment. */
@@ -265,7 +268,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     id: source.id, origin: source.origin, canRemove: source.dialog, canClose: source.dialog, name: meta.name, size: meta.sizeBytes > 0 ? formatAttachmentSize(meta.sizeBytes) : '', preview, error: failure,
     canRender: !!renderedMode, rendered, renderLabel: renderedToggleLabel(renderedMode, rendered),
     renderIcon: rendered ? 'code' : renderedMode === 'table' ? 'table' : 'eye',
-    showWrap: showsRawText, wrap: client.local.clientSettings.wordWrap !== false,
+    showWrap: showsRawText, wrap: wrapOf(client, state),
     canCopy: !!content || streamsText, copyLabel: copied ? 'Copied' : content?.truncated ? 'Copy preview' : 'Copy contents', copied,
     canSave: !!state.url, saving: state.saving, saveLabel: state.saving ? 'Preparing file…' : 'Save file',
     truncatedNote: content?.truncated ? `Preview limited to the first 1 MB${meta.sizeBytes > 0 ? ` of a ${meta.sizeBytes.toLocaleString('en-US')} byte file` : ''}. Save the file to read it in full.` : '',
@@ -285,7 +288,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
 function viewerConfig(client: T3Client, meta: AttachmentMeta, state: State, view: ViewerConfig['view'],
   how: { streams: boolean; table: boolean; delimiter: ',' | '\t' | null; office: string | null; kind: FilePreviewKind; local: boolean }): ViewerConfig {
   const url = state.url, revision = state.revision, settings = client.local.clientSettings as { wordWrap?: boolean; fontSmoothing?: boolean };
-  const base = { name: meta.name, src: how.local ? '' : url, text: null, sizeBytes: meta.sizeBytes, kind: '', delimiter: null, wrap: settings.wordWrap !== false, revealLine: null, revealRequestId: 0, smoothing: settings.fontSmoothing !== false };
+  const base = { name: meta.name, src: how.local ? '' : url, text: null, sizeBytes: meta.sizeBytes, kind: '', delimiter: null, wrap: wrapOf(client, state), revealLine: null, revealRequestId: 0, smoothing: settings.fontSmoothing !== false };
   // LargeTextViewer `${url}:${rendered}:${revision}`; DelimitedTablePreview by the name, with the text already read.
   if (how.streams) return { ...base, view, key: `text:${url}:${state.rendered}:${revision}`, delimiter: state.rendered ? how.delimiter : null };
   if (how.table) return { ...base, view, key: `table:${meta.name}:${revision}`, src: '', text: state.content?.text ?? '', sizeBytes: -1, delimiter: how.delimiter };
@@ -346,7 +349,8 @@ export async function attachmentOp(client: T3Client, native: Native, meta: Attac
   const state = stateOf(client, source.key);
   if (op.startsWith('viewer')) return viewerOp(client, native, meta, source, op, now);
   if (op === 'render') { state.rendered = !state.rendered; if (filePreviewKind(meta) === 'html') state.contentError = ''; return ''; }
-  if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
+  // The wrap button changes this preview only, not Settings' word wrap.
+  if (op === 'wrap') { state.wrap = !wrapOf(client, state); return ''; }
   if (op === 'retry') {
     forgetFontPage(source.key);
     state.url = source.local?.url ?? ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; state.fontError = '';

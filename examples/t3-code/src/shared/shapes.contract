@@ -357,6 +357,10 @@ shape SaveRequest
   from: string
   name: string
   nonce: number
+shape DiffRecordedContent
+  label: string
+  text: string
+
 shape SnapshotDraft
   id: string
   name: string
@@ -524,6 +528,11 @@ shape Snapshot
   diffWrap: bool
   diffIgnoreWhitespace: bool
   diffTree: bool
+  diffTestFiles: number
+  diffHideTests: bool
+  // A tool call's diff: the files its record names that the patch omits, and the content recorded without a diff.
+  diffToolCallNote: string
+  diffToolCallContent: DiffRecordedContent[]
   diffTruncated: bool
   diffEmpty: bool
   diffEmptyLabel: string

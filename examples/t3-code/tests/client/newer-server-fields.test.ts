@@ -104,9 +104,9 @@ describe('what a 0.1.4 server adds', () => {
 });
 
 describe('what a 0.1.5 server adds', () => {
-  test('a discovered server an agent started reads as before', () => {
+  test('a discovered server an agent started reads with its thread (the details card\'s Servers)', () => {
     const { servers } = readDiscoveredServers({ servers: [{ host: '127.0.0.1', port: 5173, url: 'http://127.0.0.1:5173', processName: 'vite', pid: 42, terminal: null, agent: { threadId: 't' } }], configuredUrlProbing: false });
-    expect(servers).toEqual([{ host: '127.0.0.1', port: 5173, url: 'http://127.0.0.1:5173', processName: 'vite', pid: 42, terminal: null }]);
+    expect(servers).toEqual([{ host: '127.0.0.1', port: 5173, url: 'http://127.0.0.1:5173', processName: 'vite', pid: 42, terminal: null, agent: { threadId: 't' } }]);
   });
 
   test('the new environment capabilities leave a matching server current', () => {
@@ -122,9 +122,9 @@ describe('what a 0.1.5 server adds', () => {
   test('a terminal snapshot and its activity carry the shared grid', () => {
     const snapshot = { threadId: 't', terminalId: 'term', cwd: '/repo', worktreePath: null, status: 'running', pid: 7, history: 'ready\n', exitCode: null, exitSignal: null, updatedAt: at, cols: 120, rows: 30 };
     const opened = applyTerminalAttachStreamEvent(EMPTY_TERMINAL_BUFFER_STATE, { type: 'snapshot', snapshot } as unknown as TerminalAttachStreamEvent);
-    expect(opened.status).toBe('running');
+    expect([opened.status, opened.grid]).toEqual(['running', { cols: 120, rows: 30 }]);
     const activity = { type: 'activity', threadId: 't', terminalId: 'term', createdAt: at, hasRunningSubprocess: false, cols: 100, rows: 40 } as unknown as TerminalAttachStreamEvent;
-    expect(applyTerminalAttachStreamEvent(opened, activity)).toBe(opened);
+    expect(applyTerminalAttachStreamEvent(opened, activity)).toEqual({ ...opened, grid: { cols: 100, rows: 40 } });
   });
 
   test('a pull request with maintainer edits reads as before', () => {

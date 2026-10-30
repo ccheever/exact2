@@ -1,6 +1,6 @@
 // The Diff panel's file tree, adapted from T3 Code 1e2ecbd975 (MIT; see LICENSE-T3):
 // apps/web/src/components/diffs/diffFileTree.logic.ts (diffFileTreeEntries, collectDirectoryPaths,
-// diffFileTreePositions, compareDiffFileTreeEntries) and DiffFileTree.tsx, which hands those to
+// diffFileTreePositions, compareDiffFileTreeEntries; orderDiffFilesLikeTree at 6d450a4284) and DiffFileTree.tsx, which hands those to
 // @pierre/trees with `initialExpansion: "open"`, `flattenEmptyDirectories: true` and the
 // reading-order comparator. Pierre draws the tree in the browser; here `diffTreeRows` lays the
 // same tree out as the flat rows Contract draws (diff-tree.contract). Changes from the reference:
@@ -47,6 +47,26 @@ export function diffFileTreePositions(paths: ReadonlyArray<string>): Map<string,
     }
   });
   return positions;
+}
+
+/**
+ * orderDiffFilesLikeTree (6d450a4284): a flat list in tree order. Each directory stays contiguous and siblings are
+ * ranked as compareDiffFileTreeEntries ranks them, so the list never disagrees with the tree.
+ */
+export function orderDiffFilesLikeTree<T>(files: readonly T[], pathOf: (file: T) => string): T[] {
+  const paths = files.map(pathOf), positions = diffFileTreePositions(paths);
+  const keys = paths.map(path => {
+    const key: number[] = [];
+    let directory = '';
+    for (const segment of path.split('/').slice(0, -1)) { directory += `${segment}/`; key.push(positions.get(directory)!); }
+    key.push(positions.get(path)!);
+    return key;
+  });
+  return files.map((file, index) => ({ file, key: keys[index]! })).sort((left, right) => {
+    const length = Math.min(left.key.length, right.key.length);
+    for (let index = 0; index < length; index++) { const difference = left.key[index]! - right.key[index]!; if (difference !== 0) return difference; }
+    return left.key.length - right.key.length;
+  }).map(({ file }) => file);
 }
 
 export function compareDiffFileTreeEntries(getPositions: () => ReadonlyMap<string, number>) {

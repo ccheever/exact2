@@ -111,12 +111,12 @@ export const SETTINGS_ICONS = [
   'trash-2', 'triangle-alert', 'undo-2', 'x', 'ellipsis', 'circle-x', 'laptop', 'cloud',
 ];
 
-/** diff-glyphs.contract DiffGlyph's 24-grid glyphs: the panel's controls, DiffFileStatus (RotateCw, Info),
+/** diff-glyphs.contract DiffGlyph's 24-grid glyphs: the panel's controls (Hide test files: FlaskConicalOff), DiffFileStatus (RotateCw, Info),
  *  the gutter's "+", DiffCommentAnnotation (MessageCircle, Trash2) and Cite (Quote). A glyph's rects keep
  *  their own elements and its other elements join into one path, but for those `apart` names (by index). */
 export const DIFF_GLYPHS = [
   ['file-diff', 'file-diff', { apart: [0] }], ['stacked', 'rows-3'], ['split', 'columns-2'], 'panel-right',
   ['fold', 'chevrons-down-up'], ['unfold', 'chevrons-up-down'], ['wrap', 'text-wrap'], 'pilcrow',
-  ['tree', 'folder-tree', { apart: [0, 1] }], 'copy', ['refresh', 'refresh-cw'], 'rotate-cw', 'info', 'plus', own('trash'),
+  ['tree', 'folder-tree', { apart: [0, 1] }], ['hide-tests', 'flask-conical-off'], 'copy', ['refresh', 'refresh-cw'], 'rotate-cw', 'info', 'plus', own('trash'),
   own('message-circle'), 'quote',
 ];

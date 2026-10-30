@@ -217,6 +217,11 @@ describe('the discovery stream (clone)', () => {
   });
   it('reads a list defensively', () => {
     expect(readDiscoveredServers({ servers: [{ host: ' localhost ', port: 70000, url: 'x' }, { host: 'localhost', port: 3000, url: 'http://localhost:3000/', processName: ' ', pid: -1, terminal: { threadId: 't', terminalId: 'term' } }], configuredUrlProbing: true }))
-      .toEqual({ servers: [{ host: 'localhost', port: 3000, url: 'http://localhost:3000/', processName: null, pid: null, terminal: { threadId: 't', terminalId: 'term' } }], configuredUrlProbing: true });
+      .toEqual({ servers: [{ host: 'localhost', port: 3000, url: 'http://localhost:3000/', processName: null, pid: null, terminal: { threadId: 't', terminalId: 'term' }, agent: null }], configuredUrlProbing: true });
+  });
+  it('reads the thread whose agent started a server (DiscoveredLocalServer.agent, 6d450a4284), absent on older servers', () => {
+    const server = { host: 'localhost', port: 5173, url: 'http://localhost:5173/', processName: 'bun', pid: 42, terminal: null };
+    expect(readDiscoveredServers({ servers: [{ ...server, agent: { threadId: 't1' } }, server, { ...server, port: 5174, agent: null }] }).servers.map(entry => entry.agent))
+      .toEqual([{ threadId: 't1' }, null, null]);
   });
 });

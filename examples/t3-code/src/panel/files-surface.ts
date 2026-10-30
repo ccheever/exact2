@@ -124,6 +124,8 @@ type FilesState = {
   refreshRevision: number;
   /** FilePreviewPanel's `handledReveal`: the line request the rendered toggle answered, after which it renders. */
   handledReveal: { path: string; requestId: number } | null;
+  /** Each file's own word wrap (FilePreviewPanel's wordWrapOverride, 6d450a4284); a file with none follows Settings' word wrap. */
+  wraps: Map<string, boolean>;
 };
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),
 // persisted in the client's preference file (files-prefs.ts).
@@ -141,11 +143,12 @@ export function filesState(client: T3Client): FilesState {
   if (!state || state.key !== key) {
     // Another environment or workspace: the body shown in the last one unmounts.
     if (state?.attachment) forgetPreview(client, state.attachment.source.key);
-    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null, mutation: undefined, readRevisions: new Map(), editorRevision: 0, audioFailed: new Set(), attachment: null, refreshRevision: 0, handledReveal: null };
+    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null, mutation: undefined, readRevisions: new Map(), editorRevision: 0, audioFailed: new Set(), attachment: null, refreshRevision: 0, handledReveal: null, wraps: new Map() };
     states.set(client, state);
   }
   return state;
 }
+const wrapOf = (client: T3Client, state: FilesState, path: string): boolean => state.wraps.get(path) ?? client.local.clientSettings.wordWrap !== false;
 const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 const message = (error: unknown) => error instanceof Error && error.message ? error.message : 'Unable to load folder.';
@@ -458,7 +461,8 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   if (op === 'audio-error') { if (id) state.audioFailed.add(id); return ''; }
   if (op === 'audio-retry') { state.audioFailed.clear(); forgetAudioPage(client, workspaceOf(client).cwd, id); return ''; }
   if (op === 'open-browser') { await openInPreviewBrowser(client, native, id); return ''; }
-  if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
+  // The wrap button changes this file's preview only, not Settings' word wrap.
+  if (op === 'wrap') { const state = filesState(client); state.wraps.set(id, !wrapOf(client, state, id)); return ''; }
   if (op === 'edit') { await editFile(client, native, id, value); return ''; }
   if (op === 'task') { await toggleTask(client, native, value); return ''; }
   // DirectoryBreadcrumb: a folder crumb opens its listing; folders navigate inside it, Back climbs toward the crumb.
@@ -828,6 +832,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const viewer = viewing ? await filesViewer(client, native, {
     kind: pdf ? 'pdf' : fullFile ? 'full' : 'table', path: previewPath, absolute, name: previewPath.split(/[\\/]/).pop() || previewPath, revision, url: page.url, text,
     delimiter: table && rendered ? (/\.tsv$/i.test(previewPath) ? '\t' : ',') : null, revealLine: active.line > 0 ? active.line : null, revealRequestId: active.reveal,
+    wrap: wrapOf(client, state, previewPath),
   }, now) : null;
   const preview = !previewPath ? '' : media.kind ? 'media' : audio ? (soundFailed ? 'audio-error' : sound?.url ? 'audio' : 'loading')
     : frame ? (page.error ? 'error' : page.url ? (pdf ? 'viewer' : 'html') : 'loading') : viewer ? (viewer.error ? (fullFile ? 'full-error' : 'error') : 'viewer') : document ? 'attachment' : read === undefined ? 'loading' : read.error ? 'error'
@@ -848,7 +853,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     previewError: frame ? page.error : viewer?.error ? viewer.error : read?.error && !folder && !document ? read.error : '',
     errorPath: readError ? read!.attempted : '', errorCwd: readError && !isHost(path) ? read!.errorCwd : '',
     crumbs: crumbPath !== null && trail !== null ? crumbs(projectName, crumbPath, trail) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
-    gutter: sourceGutter(lines.length), wrap: client.local.clientSettings.wordWrap !== false,
+    gutter: sourceGutter(lines.length), wrap: wrapOf(client, state, previewPath),
     // FilePreviewPanel: word wrap reaches only the text bodies (`showsRawText`), a full file's source among them; a page or
     // a PDF opens in the Browser (`canOpenInBrowser`).
     rawText: preview === 'code' || (fullFile && !(table && rendered)), openInBrowser: !!previewPath && client.available === true && media.kind !== 'video' && isBrowserPreviewFile(previewPath),

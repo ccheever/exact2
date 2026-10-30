@@ -2,8 +2,8 @@ use ThreadFindView from "../timeline/thread-find.contract"
 // ThreadDetailsPanel / ThreadDetailsCard (MIT reference, see LICENSE-T3:
 // chat/ThreadDetailsCard.tsx, threadDetailsCardLayout.ts, ThreadDetailsSection.tsx,
 // threadDetailsPanelStyles.ts, BranchToolbar panel rows, OpenInPicker,
-// ProjectScriptsControl, GitActionsControl, ThreadRelationshipsControl;
-// upstream 7c3b3b3605ef). One card, two
+// ProjectScriptsControl, GitActionsControl, ThreadRelationshipsControl, ThreadServersPanel,
+// ThreadDetailsUsage, ThreadDetailsItemsMenu; upstream 6d450a4284). One card, two
 // placements: docked inline at the canvas's top right (280pt, 12pt in, open by
 // default per thread) where a 640pt chat lane still fits beside it, else the
 // header's popover (264pt inside its 8pt viewport, 60pt down, 13pt in). The
@@ -37,6 +37,12 @@ use GitRows from "./git.contract"
 use AddMachineOption from "./git.contract"
 use ScriptRow from "./project-scripts.contract"
 use ThreadAutomationsSection from "./thread-automations.contract"
+use DetailsItemsMenu from "./thread-details-shapes.contract"
+use ThreadServersView from "./thread-details-shapes.contract"
+use ThreadServerRow from "./thread-details-shapes.contract"
+use UsageView from "./thread-details-shapes.contract"
+use UsageRow from "./thread-details-shapes.contract"
+use hoverTipAtFrame from "../shell/hover-layer.contract"
 use KmItem from "../shared/menu-keys.contract"
 use KeyMenu from "../shared/menu-keys.contract"
 use kmTriggerKey from "../shared/menu-keys.contract"
@@ -98,9 +104,11 @@ component ThreadDetailsInline
       DetailsBody(details=details, density=density, inline=true, maxHeight=maxHeight, act=act, local=local, still=still, busy=busy, stopping=stopping)
 
 // ThreadDetailsPanel's rows by density: `full` everything; `compact` without the Run on and workspace rows,
-// Automations and Lineage, Version Control unseparated and the Git action group only while an action runs or just
-// finished (GitActionsControl compact); `essential` also without Open in. The parts only `full` shows report their
-// frames, so the canvas knows the compact height from a full layout (thread-details-card-layout.ts).
+// Servers, Automations and Lineage, Version Control unseparated and the Git action group only while an action runs or
+// just finished (GitActionsControl compact); `essential` also without Open in. The parts only `full` shows report their
+// frames, so the canvas knows the compact height from a full layout (thread-details-card-layout.ts). Each item the
+// user hid (thread-details-items.ts) is left out; a section with nothing to show is left out with its hairline, and
+// with nothing left at all the card offers "Choose what to show". A right-click on the card opens the same menu.
 component DetailsBody
   inject
     frameMoved: action
@@ -121,59 +129,88 @@ component DetailsBody
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  // A right-click opens the card's items menu (the scroll's contextPopover); the row under the pointer lets go of its fill.
+  action menuOpened
+    hovered = ""
+  // The section flags follow the rows that will render, so no empty section draws a hairline.
+  derive showEnvironment = density == "full" and details.items.environment
+  derive showOpenIn = details.editorShow and density != "essential" and details.items.openIn
+  derive showWorkspace = showEnvironment or showOpenIn or details.items.scripts
+  derive showVcs = details.cwd != "" and ((details.items.branch and details.git.branch.show) or details.items.gitActions or (details.items.changes and details.git.repo))
+  derive showServers = density == "full" and details.items.servers and details.servers.show
+  derive showAutomations = density == "full" and details.items.automations and details.automations.show
+  derive showLineage = density == "full" and details.items.lineage and details.showLineage
+  derive showUsage = details.items.usage and details.usage.show
   view
-    scroll width="100%" min-height=0 max-height=(maxHeight - 2)
+    scroll width="100%" min-height=0 max-height=(maxHeight - 2) contextmenu=menuOpened contextPopover="details-items-menu"
       // The content's full height, scrolled or not: the canvas keeps a floating player below it and folds the rows by it
       // (ThreadDetailsCard: chat-canvas-view.ts measures the frames named here).
       column width="100%" position="relative" id="frame-details-content" resize=frameMoved
         if density == "compact"
           box position="absolute" left=0 top=0 width=0 height=0 pointer-events="none" aria-hidden=true id="frame-details-density-compact" resize=frameMoved
-        DetailsSection(title="Workspace", separated=false, heading=false)
-          if density == "full"
-            column width="100%" id="frame-details-full-top" resize=frameMoved
-              if details.envModeSelect or details.git.envPick
-                box position="relative" width="100%"
-                  button popovertarget="details-workspace-menu" hover=hover("workspace") aria-label="Run context" testId="details-workspace" width="100%" height="2rem" padding-left="0.6875rem" padding-right=0 box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "workspace" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" title=""
-                    RunContextLabel(details=details, locked=false)
-                    box width="2rem" height="2rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
-                      ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #a1a1a1)")
-                  WorkspaceMenu(details=details, act=act)
-              else
-                row width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-radius="0.5rem" aria-label="Run context" testId="details-folder"
-                  RunContextLabel(details=details, locked=true)
-          // OpenInPicker (panel form): shown for this machine, and for other machines unless they open locally (remote-open.ts);
-          // not in the essential rows.
-          if details.editorShow and density != "essential"
-            OpenInRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), act=act)
-          // A project with scripts shows its primary script as a split row (project-scripts.contract).
-          if details.scripts.length > 0
-            ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), run=act("terminallocal:run-script", "", ""), act=act)
-          else
-            // ProjectScriptsControl's openAddDialog: the Add Action dialog over the thread (ProjectDialogs, settings-b-actions.contract).
-            button id="details-add-script" press=act("ui:add-script", "", "") hover=hover("script") aria-label="Add project script" testId="details-add-script" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "script" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-              box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
-                ShellIcon(name="plus", size=14, color="light-dark(#18181bcc, #f5f5f5cc)")
-              text "Add project script" flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
-        if details.cwd != ""
+        if showWorkspace
+          DetailsSection(title="Workspace", separated=false, heading=false)
+            if density == "full"
+              column width="100%" id="frame-details-full-top" resize=frameMoved
+                if showEnvironment and (details.envModeSelect or details.git.envPick)
+                  box position="relative" width="100%"
+                    button popovertarget="details-workspace-menu" hover=hover("workspace") aria-label="Run context" testId="details-workspace" width="100%" height="2rem" padding-left="0.6875rem" padding-right=0 box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "workspace" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" title=""
+                      RunContextLabel(details=details, locked=false)
+                      box width="2rem" height="2rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+                        ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #a1a1a1)")
+                    WorkspaceMenu(details=details, act=act)
+                else if showEnvironment
+                  row width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-radius="0.5rem" aria-label="Run context" testId="details-folder"
+                    RunContextLabel(details=details, locked=true)
+            // OpenInPicker (panel form): shown for this machine, and for other machines unless they open locally (remote-open.ts);
+            // not in the essential rows.
+            if showOpenIn
+              OpenInRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), act=act)
+            // A project with scripts shows its primary script as a split row (project-scripts.contract).
+            if details.items.scripts and details.scripts.length > 0
+              ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), run=act("terminallocal:run-script", "", ""), act=act)
+            else if details.items.scripts
+              // ProjectScriptsControl's openAddDialog: the Add Action dialog over the thread (ProjectDialogs, settings-b-actions.contract).
+              button id="details-add-script" press=act("ui:add-script", "", "") hover=hover("script") aria-label="Add project script" testId="details-add-script" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "script" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+                box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+                  ShellIcon(name="plus", size=14, color="light-dark(#18181bcc, #f5f5f5cc)")
+                text "Add project script" flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+        else if density == "full"
+          // The full layout still names its top part, empty, so the canvas tells it from the compact one.
+          box width=0 height=0 aria-hidden=true id="frame-details-full-top" resize=frameMoved
+        if showVcs
           column width="100%" id="frame-details-vcs" resize=frameMoved
-            DetailsSection(title="Version Control", separated=(density == "full"), heading=false)
+            DetailsSection(title="Version Control", separated=(density == "full" and showWorkspace), heading=false)
               // The branch select, the split Git action (or Initialize Git) and Changes.
               GitRows(details=details, compact=(density != "full"), inline=inline, act=act, local=local)
               if details.error != ""
                 text details.error padding-left="0.6875rem" padding-right="0.6875rem" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="details-vcs-error"
-        // ThreadAutomationsPanel and ThreadRelationshipsPanel: `full` only.
+        // ThreadServersPanel, ThreadAutomationsPanel and ThreadRelationshipsPanel: `full` only.
         if density == "full"
           column width="100%" id="frame-details-full-tail" resize=frameMoved
-            if details.automations.show
-              ThreadAutomationsSection(automations=details.automations, still=still, act=act)
-            if details.showLineage
+            if showServers
+              ThreadServersSection(servers=details.servers, separated=(showWorkspace or showVcs), local=local)
+            if showAutomations
+              ThreadAutomationsSection(automations=details.automations, separated=(showWorkspace or showVcs or showServers), still=still, act=act)
+            if showLineage
               // Lineage scrolls as it expands, so the density leaves it out (ThreadDetailsCard's fitting height): more
               // rows do not fold away the workspace and Version Control rows.
               column width="100%" id="frame-details-lineage" resize=frameMoved
                 // A lone "Previous agents" row names itself; the heading returns for status or other rows.
-                DetailsSection(title=details.lineageTitle, separated=true, heading=(details.lineageTitle != "Lineage" or details.lineage.filter((r) => r.group != "previous").length > 0))
+                DetailsSection(title=details.lineageTitle, separated=(showWorkspace or showVcs or showServers or showAutomations), heading=(details.lineageTitle != "Lineage" or details.lineage.filter((r) => r.group != "previous").length > 0))
                   scroll width="100%" max-height=(details.lineage.filter((row) => row.kind == "workflow" and row.expanded).length > 0 ? `min(${28 * rem}px, 55dvh)` : "13.5rem") overflow-x="hidden" testId="details-lineage-scroll"
                     LineageGroups(details=details, busy=busy, stopping=stopping, act=act)
+        if showUsage
+          ThreadUsageSection(usage=details.usage, separated=(showWorkspace or showVcs or showServers or showAutomations or showLineage))
+        // Shown only when no section above has content, so an emptied card can be refilled.
+        if not (showWorkspace or showVcs or showServers or showAutomations or showLineage or showUsage)
+          box padding="0.5rem" box-sizing="border-box" width="100%"
+            button popovertarget="details-items-menu" hover=hover("choose") testId="details-choose-items" width="100%" height="1.75rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "choose" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              // SlidersHorizontalIcon (Lucide).
+              svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+                path d="M10 5H3M12 19H3M14 3v4M16 17v4M21 12h-9M21 19h-5M21 5h-7M8 10v4M8 12H3"
+              text "Choose what to show" flex=1 min-width=0 margin-left="0.125rem" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+      ItemsMenuPopover(menu=details.itemsMenu, local=local)
 
 // ThreadDetailsSection: px-2 pt-2 pb-2.5, a hairline above all but the first; the
 // heading row is hidden for Workspace and Version Control (upstream 429c625a85).
@@ -189,6 +226,124 @@ component DetailsSection
         row min-height="2rem" margin-bottom="0.25rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" align-items="center"
           text title font-size="0.6875rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)" role="heading" aria-level=3 testId="details-lineage-title"
       children
+
+// ThreadDetailsItemsMenuItems ("Show in thread details", a checkbox per item, then Reset to default): the card's context
+// menu and the "Choose what to show" row's. On macOS it is a native menu, which closes after a choice (Base UI's
+// checkbox items keep the menu open).
+component ItemsMenuPopover
+  props
+    menu: DetailsItemsMenu
+    local: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="details-items-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" role="menu" aria-label="Show in thread details" padding="0.25rem" box-sizing="border-box" min-width="13rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" testId="details-items-menu"
+        for item in menu.items key=item.id
+          button id=`details-items-${item.id}` press=local("surface-details-items", item.id, item.checked ? "false" : "true") popovertarget="details-items-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=item.checked testId=`details-items-${item.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            box width="1rem" height="1rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+              if item.checked
+                ShellIcon(name="check", size=14, color="light-dark(#18181b, #f5f5f5)")
+            text item.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+        hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff14)"
+        button id="details-items-reset" press=local("surface-details-items-reset", "", "") popovertarget="details-items-menu" popovertargetaction="hide" role="menuitem" disabled=menu.resetDisabled testId="details-items-reset" width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color="#00000000" opacity=(menu.resetDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+          text "Reset to default" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+
+// ThreadServersPanel: "Servers", then a row per server this thread's terminals and agent started. The row opens it in
+// the Browser panel (⌘-press: the system browser), its port and its source kept visible; Stop (destructive, an
+// icon-xs square) shows while the row is hovered or focused, and spins while that server stops.
+component ThreadServersSection
+  props
+    servers: ThreadServersView
+    separated: bool
+    local: action
+  view
+    DetailsSection(title="Servers", separated=separated, heading=true)
+      column width="100%" role="list" aria-label="Servers" testId="details-servers"
+        for server in servers.rows key=server.key
+          ServerRow(server=server, canOpen=servers.canOpen, busy=servers.busy, local=local)
+
+component ServerRow
+  inject
+    rem: number
+    hoverTipAt: action
+  props
+    server: ThreadServerRow
+    canOpen: bool
+    busy: bool
+    local: action
+  state hovered = ""
+  state focused = false
+  derive rowId = `details-server-${server.key}`
+  derive stopId = `details-server-stop-${server.key}`
+  derive lit = hovered != "" or focused
+  action tip(id: string, label: string, on: bool)
+    hoverTipAt(hoverTipAtFrame(id, "tooltip", label, [], "left", "center", frame(id), 1.625 * rem, `${id}-tooltip`), "trigger", on)
+  action rowHover(over: bool)
+    hovered = over ? "row" : (hovered == "row" ? "" : hovered)
+    tip(rowId, "Open in the browser panel. ⌘-click for your browser.", over)
+  action stopHover(over: bool)
+    hovered = over ? "stop" : (hovered == "stop" ? "" : hovered)
+    tip(stopId, "Stop server", over)
+  action focusMoved(on: bool)
+    focused = on
+  // Like links: a modified press goes to the system browser.
+  action open(e: MouseEvent)
+    tip(rowId, "", false)
+    local("surface-details-server", server.key, e.metaKey ? "external" : "open")
+  view
+    row position="relative" width="100%" align-items="center" border-radius="0.5rem" role="listitem"
+      button id=rowId press=open hover=rowHover focus=focusMoved(true) blur=focusMoved(false) disabled=(not canOpen) aria-label=`${server.label}, ${server.source}` testId=`details-server-${server.port}` width="100%" min-height="2.5rem" padding-left="0.6875rem" padding-right=(server.stoppable ? "2.1875rem" : "0.6875rem") padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" opacity=(canOpen ? 1 : 0.64) background-color=(hovered != "" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" title=""
+        // GlobeIcon (Lucide).
+        svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+          circle cx=12 cy=12 r=10
+          path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"
+        column flex=1 min-width=0 gap="0.125rem"
+          text server.label white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#18181bd9, #f5f5f5d9)"
+          text server.source white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      if server.stoppable
+        box position="absolute" right="0.25rem" top="50%" margin-top="-0.75rem" width="1.5rem" height="1.5rem" opacity=(lit or server.stopping ? 1 : 0) pointer-events=(lit ? "auto" : "none")
+          button id=stopId press=local("surface-details-server", server.key, "stop") hover=stopHover focus=focusMoved(true) blur=focusMoved(false) disabled=busy aria-label=`Stop ${server.label}` testId=`details-server-stop-${server.port}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" opacity=(busy and not server.stopping ? 0.64 : 1) background-color=(hovered == "stop" and not busy ? "light-dark(#fb2c3614, #fb414a1f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+            if server.stopping
+              box display="flex" animation="lineageSpin 1s linear infinite"
+                ShellIcon(name="loader", size=12, color="light-dark(#fb2c36, #fb414a)")
+            else
+              svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#fb2c36, #fb414a)" fill="currentColor" stroke="currentColor" stroke-width=2 stroke-linejoin="round" aria-hidden=true
+                rect x=3 y=3 width=18 height=18 rx=2
+
+// ThreadDetailsUsage: one grid of label, hairline bar and value rows with no heading; each row opens its details
+// tooltip on its left. Error tone at 10% left or less, warning at 20%; the context row's bar is muted.
+component ThreadUsageSection
+  props
+    usage: UsageView
+    separated: bool
+  view
+    DetailsSection(title="Usage", separated=separated, heading=false)
+      column width="100%" testId="details-usage"
+        for entry in usage.rows key=entry.id
+          UsageLine(entry=entry, labelWidth=usage.labelWidth, valueWidth=usage.valueWidth)
+
+component UsageLine
+  inject
+    rem: number
+    hoverTipAt: action
+  props
+    entry: UsageRow
+    labelWidth: number
+    valueWidth: number
+  state lit = false
+  derive rowId = `details-usage-${entry.id}`
+  action show(on: bool)
+    lit = on
+    hoverTipAt(hoverTipAtFrame(rowId, "tooltip", entry.tip, entry.tipLines, "left", "center", frame(rowId), (entry.tipLines.length + 1) * rem + 0.625 * rem, `${rowId}-tooltip`), "trigger", on)
+  view
+    row id=rowId hover=show focus=show(true) blur=show(false) tabindex=0 aria-label=entry.aria testId=rowId width="100%" height="1.5rem" margin-top=(entry.spaced ? "0.5rem" : 0) padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.75rem" align-items="center" border-radius="0.5rem" background-color=(lit ? "light-dark(#00000009, #ffffff14)" : "#00000000")
+      text entry.label width=`${labelWidth}rem` flex-shrink=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      if entry.left >= 0
+        box position="relative" flex=1 min-width="3rem" height=3 border-radius=2 background-color="light-dark(#71717b4d, #a1a1a133)"
+          if entry.left > 0
+            box position="absolute" left=0 top=0 bottom=0 width=`max(${entry.left}%, 6px)` border-radius=2 background-color=(entry.tone == "error" ? "light-dark(#fb2c36, #fb414a)" : entry.tone == "warning" ? "light-dark(#e17100, #fe9a00)" : entry.muted ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)")
+        text entry.value width=`${valueWidth}rem` flex-shrink=0 text-align="right" white-space="nowrap" font-size="0.75rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color=(entry.tone == "error" ? "light-dark(#c10007, #ff6467)" : entry.tone == "warning" ? "light-dark(#e17100, #ffb900e6)" : "light-dark(#18181bcc, #f5f5f5cc)")
+      else
+        text entry.value flex=1 min-width=0 text-align="right" white-space="nowrap" font-size="0.75rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
 
 // ThreadLineageGroup ×3: related threads and active agents expanded, "Previous
 // agents" folded behind a CollapsibleSectionHeader; each list shows 6 rows,

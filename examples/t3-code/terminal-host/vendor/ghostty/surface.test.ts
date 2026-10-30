@@ -1,7 +1,8 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.test.ts),
 // with 9c161462c9's tests of the history keys, Select all, the resize on release and the selection
 // autoscroll at the window edge, 74541bab17's of Kitty key releases, the single paste and a
-// wrapped quoted link, and 7c3b3b3605ef's of the autoscroll's speed past the edge.
+// wrapped quoted link, 7c3b3b3605ef's of the autoscroll's speed past the edge, and one of the clone's for the
+// shared PTY grid.
 // Changes from the reference:
 // - split for the 1,500-line cap: the key helper and browser harness are surfaceHarness.ts, and
 //   74541bab17's synchronized output tests are surfaceSynchronized.test.ts.
@@ -291,6 +292,26 @@ describe("GhosttyTerminalSurface visibility", () => {
     vi.advanceTimersByTime(150);
     window.dispatchEvent(new Event("pointerup"));
     expect(onResize).toHaveBeenCalledTimes(1);
+  });
+
+  // 6d450a4284 (49a9e80e0b): another client's PTY grid is drawn, clamped per axis to this surface's fit, while the
+  // PTY still hears this surface's own measured grid.
+  it("draws the shared PTY grid within its own fit and reports its measured grid", async () => {
+    const harness = createHarness();
+    const onResize = vi.fn<(cols: number, rows: number) => void>();
+    const surface = await harness.create({ onResize });
+    vi.advanceTimersByTime(150);
+    const measured = [surface.cols, surface.rows];
+    surface.setSharedGrid({ cols: 8, rows: 200 });
+    expect([surface.cols, surface.rows]).toEqual([8, measured[1]]);
+    onResize.mockClear();
+    harness.mount.clientWidth = 120;
+    harness.resize();
+    vi.advanceTimersByTime(150);
+    expect(surface.cols).toBe(8);
+    expect(onResize).toHaveBeenCalledWith(14, measured[1]);
+    surface.setSharedGrid(null);
+    expect([surface.cols, surface.rows]).toEqual([14, measured[1]]);
   });
 
   it("scrolls a selection drag held at the terminal edge, even when the window ends there", async () => {

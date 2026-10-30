@@ -1,3 +1,5 @@
+import { threadDetailsItemsLocal } from '../details/thread-details-items';
+import { threadServerLocal } from '../details/thread-servers';
 import { captureClosedView, rememberClosedView, reopenClosedView, rememberPagePullRequest } from './closed-views';
 import { can } from '../connections/command-permissions';
 import { parseScopedThreadKey } from '../terminal/terminal-ui-state';
@@ -286,6 +288,10 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   // panel: they run before its state, its userRevision and its cleanups (review of 2026-10-12: an agent's request before
   // the panel was restored made restoreRightPanel skip the saved one).
   if (op === 'remember-pr') { rememberPagePullRequest(client, id); return ''; }
+  // The thread details card's items menu and its Servers rows (thread-details-items.ts, thread-servers.ts).
+  if (op === 'details-items') return threadDetailsItemsLocal(client, 'item', id, value);
+  if (op === 'details-items-reset') return threadDetailsItemsLocal(client, 'reset', id, value);
+  if (op === 'details-server') return threadServerLocal(client, native, value, id);
   if (op === 'pr-breakdown') return requestChangeBreakdown(client, value, id === 'card' ? 'card' : 'linked'); // a linked row's +/- or the details card hovered
   if (op === 'browser-automation-recording') { await serveRecordingRequests(client, native, Number(id) || 0); return ''; }
   if (op.startsWith('browser-frame')) return frameLocal(client, native, op.slice(8), id, value); // a page's own records (browser-surface.ts)

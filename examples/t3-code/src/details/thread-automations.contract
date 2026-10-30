@@ -1,7 +1,7 @@
-// ThreadAutomationsPanel (MIT reference, see LICENSE-T3; T3 Code 74541bab17:
+// ThreadAutomationsPanel (MIT reference, see LICENSE-T3; T3 Code 6d450a4284:
 // components/chat/ThreadAutomationsPanel.tsx in ThreadDetailsSection): the 11pt "Automations"
-// heading with its "Manage scheduled tasks" icon button, the load error, and one row per task
-// bound to the thread: CalendarClock with its status dot (never muted, running sky and
+// heading with its "Manage scheduled tasks" icon button, one row per task bound to the thread,
+// then the load error. A row: CalendarClock with its status dot (never muted, running sky and
 // pulsing, succeeded emerald, failed destructive; static under reduced motion), the title and
 // the schedule line, then Edit, Run now and the Pause / Resume switch. Rows use the panel's
 // row content inset (11pt) and its 16pt muted glyph; the icon buttons are icon-xs (24pt), each with its TooltipPopup.
@@ -92,15 +92,15 @@ component AutomationSummary
 component ThreadAutomationsSection
   props
     automations: AutomationsView
+    // A hairline above it only where a section above has content (ThreadDetailsSection).
+    separated: bool
     still: bool
     act: action
   view
-    column width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7a6, #ffffff10)" role="region" aria-label="Automations" testId="details-automations"
+    column width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-style="solid" border-top-width=(separated ? 1 : 0) border-color="light-dark(#e4e4e7a6, #ffffff10)" role="region" aria-label="Automations" testId="details-automations"
       row min-height="2rem" margin-bottom="0.25rem" padding-left="0.375rem" padding-right="0.125rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.25rem"
         text "Automations" flex=1 min-width=0 font-size="0.6875rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)" role="heading" aria-level=3 testId="details-automations-title"
         AutomationButton(icon="settings-2", label="Manage scheduled tasks", tip="Manage scheduled tasks", align="end", disabled=false, testKey="details-automations-manage", press=act("ui:scheduled-tasks", "", automations.environmentId))
-      if automations.error != ""
-        text automations.error padding-left="0.625rem" padding-right="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.6875rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="details-automations-error"
       column width="100%" role="list"
         for task in automations.rows key=task.id
           row width="100%" min-height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.6875rem" padding-right="0.25rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-radius="0.5rem" role="listitem" testId=`details-automation-${task.id}`
@@ -111,3 +111,5 @@ component ThreadAutomationsSection
             AutomationButton(icon="pencil", label=task.editLabel, tip="Edit automation", align="center", disabled=false, testKey=`details-automation-edit-${task.id}`, press=act("ui:scheduled-tasks", task.id, automations.environmentId))
             AutomationButton(icon="play", label=task.runLabel, tip="Run now", align="center", disabled=task.runDisabled, testKey=`details-automation-run-${task.id}`, press=act("shell:automation-run", task.id, automations.environmentId))
             SettingsSwitch(checked=task.enabled, label=task.switchLabel, disabled=task.switchDisabled, switchId=`details-automation-switch-${task.id}`, toggle=act("shell:automation-toggle", task.id, `${automations.environmentId}|${task.enabled ? "false" : "true"}`))
+      if automations.error != ""
+        text automations.error padding-left="0.625rem" padding-right="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.6875rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="details-automations-error"
