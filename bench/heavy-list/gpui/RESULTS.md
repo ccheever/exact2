@@ -3277,3 +3277,30 @@ complete ten-launch display distributions. The separate 100 ms first-screen
 obligation remains unmet, now owned by M10 under Q6's ruling. [Stage 0b's full record](../../../host/ink/MEASUREMENTS.md#stage-0b--direct-metal-startup-2026-10-30)
 contains the predictions, phase breakdown, quiet-run and missing-timestamp
 limits, checks and retained files under `target/stage-0b/`.
+
+## G4m: the four arms on the measurement Mac
+
+Preparation, 2026-10-30, `lane/measure-mac`. The silver M5 Max's isolated
+`~/projects/exact2-measure` worktree is detached at fetched `origin/main`
+`d16c84ee034ba9ab75df011786620164abf3387c`. Builds use its own `target/`;
+the retained preparation and eventual series live in `target/g0/`.
+G4's driver, probe, four-arm order, gestures and two-table aggregation remain
+the instruments. This is a current-source baseline on a second machine,
+not a same-binary paired comparison with G4.
+
+**Predictions, written before any GUI run.** With the same model and display,
+the median fling process CPU should remain inside G4's ranges: native
+112.39–143.12, GPUI 82.05–89.05, Ink 84.98–87.07 and egui 64.93–71.54 ms/s.
+Each arm's median interval p95 should remain 8.33 ms at the table's precision.
+Peak-footprint medians should remain inside G4's ranges: native
+211.35–232.45, GPUI 391.64–413.84, Ink 587.67–593.42 and egui
+504.14–515.89 MiB. The required collection is five quiet fling/rest samples
+and ten quiet successful fresh-process launches per arm, with every failed
+attempt retained. Caches stay retained. Power is a first observation, with
+no previous power row or predicted saving.
+
+**Status:** no GUI run yet. Passwordless `powermetrics` returned `sudo: a
+password is required`; `launchctl asuser $(id -u) /usr/bin/true` returned
+`Could not switch to audit session … Operation not permitted`. These steps
+await the silver Mac's setup. Accessibility and Screen Recording have not
+been tested. No G4m baseline or prediction result is claimed yet.

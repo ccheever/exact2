@@ -126,6 +126,54 @@ and this checkout's toolchains for the exact2 app (Bun, Rust, `bun install --fro
 The Expo app also needs Node, npm and CocoaPods. No TCC permission is needed: the probe scrolls
 from inside the app, and devicectl only launches and copies files.
 
+## The measurement Mac
+
+Mac measurement series use the silver M5 Max at `ccheever@100.76.94.78`:
+Mac17,6, 18 CPU cores, 40 GPU cores, 128 GiB, built-in 3456×2234 display,
+macOS 27.0.1 (26A434), Xcode 27.2, Bun 1.4.2 and Rust 1.97.0.
+Build only the benchmark arms in `~/projects/exact2-measure`, a detached
+worktree made from fetched `origin/main`. Leave the main clone and the old
+worktrees alone. Every Cargo invocation uses this worktree's `target/`,
+including `--target-dir target` for the separate benchmark workspaces.
+Nothing else may build there; no other work may run during a series.
+
+SSH's non-interactive PATH needs the Rust shims as well as Bun and Homebrew:
+
+```sh
+export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:$PATH"
+```
+
+The G4 driver and its four bundles are prepared under `target/g0/`.
+`build.sh` and the build logs retain the commands; the data must pass
+`data.sha256` before any run. Keep all raw attempts, quiet observations,
+power samples and provenance in that directory. Use a fresh series directory
+for each later run; never replace evidence cited by `gpui/RESULTS.md`.
+
+GUI runs must join the signed-in user's Aqua session. The requested form,
+started over SSH from the development Mac, is:
+
+```sh
+ssh ccheever@100.76.94.78 '
+  export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:$PATH"
+  cd ~/projects/exact2-measure
+  launchctl asuser $(id -u) caffeinate -d -i <driver-and-arguments>
+'
+```
+
+Before using it, confirm the session is unlocked, display sleep and automatic
+locking are off, and Charlie has released the display with a GO file newer
+than the lane's start. Accessibility and Screen Recording must be granted
+to `/usr/libexec/sshd-keygen-wrapper`, the responsible process for SSH-launched
+programs. Power collection needs passwordless sudo for `/usr/bin/powermetrics`:
+`--samplers cpu_power,gpu_power,tasks --show-process-energy --show-process-gpu
+-i 1000`. Do not work around a missing TCC grant.
+
+Setup is not yet qualified: on 2026-10-30, `launchctl asuser $(id -u)
+/usr/bin/true` failed with `Operation not permitted`, and the power preflight
+failed with `sudo: a password is required`. The first GUI launch and window
+capture remain pending those setup steps and GO. See
+[G4m](gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac) for status.
+
 ## Last standings
 
 From the series of 2026-09-29 and 2026-09-30; the numbers come from `probe/summarize.py` and
