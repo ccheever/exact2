@@ -310,7 +310,11 @@ fn chip_details_take_the_focus_on_their_first_tabbable_else_the_popup() {
     };
     for (fields, target) in [
         (
-            chip("skill", "/skills/frontend-design/SKILL.md", "Skill Frontend Design"),
+            chip(
+                "skill",
+                "/skills/frontend-design/SKILL.md",
+                "Skill Frontend Design",
+            ),
             "chip-popover-instructions",
         ),
         (chip("skill", "", "Skill Frontend Design"), "chip-popover"),
