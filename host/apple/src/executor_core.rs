@@ -62,8 +62,14 @@ struct Running {
     limit: usize,
     /// A safe read's own abort, which forgetting fires; other work has none.
     abort: Option<AbortController>,
+    /// Any plain HTTP exchange's abort, whatever its method: what an app's
+    /// explicit abort fires ([`Core::cancel`]). None for work and streams.
+    exchange: Option<AbortController>,
     forgotten: bool,
     stream: bool,
+    /// An upload waiting for its start (`stream::Uploads`): it holds no
+    /// count or bytes of its lane until then.
+    waiting: bool,
     /// An ordered safe read: once complete it holds no effect slot.
     read: bool,
     /// The asynchronous core's (LLP 1120 D3, D5); workers leave them be.
@@ -183,6 +189,11 @@ struct Shared {
     /// Long polls waiting to ask again, by stream ticket (LLP 1016.000 D8;
     /// `executor_longpoll.rs`): the attempt, when it asks, and what failed.
     retrying: Mutex<std::collections::HashMap<u64, (u32, std::time::Instant, String)>>,
+    /// What upload streams hold in memory (LLP 1016.000 D10; `stream.rs`).
+    uploads: stream::Uploads,
+    /// This, for a path that frees room uploads wait for holding only a
+    /// reference (`complete`): it starts them (`stream::start_uploads`).
+    me: std::sync::Weak<Shared>,
     /// Child processes (LLP 1133.007; `process.rs`).
     processes: process::Processes,
 }
@@ -289,7 +300,7 @@ impl Core {
         host: StreamHost,
         lanes: Option<asynch::Lanes>,
     ) -> Self {
-        let shared = Arc::new(Shared {
+        let shared = Arc::new_cyclic(|me| Shared {
             state: Mutex::new(State {
                 wake: Some(wake),
                 ..State::default()
@@ -302,6 +313,8 @@ impl Core {
             roots: std::sync::OnceLock::new(),
             sockets: Mutex::default(),
             retrying: Mutex::default(),
+            uploads: stream::Uploads::default(),
+            me: me.clone(),
             processes: process::Processes::new(),
         });
         let count = if lanes.is_some() {
@@ -454,14 +467,15 @@ impl Core {
     ) -> Result<(), (&'static str, Option<OwnedWork>)> {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
-        // A deadline on work that cannot take one (a stream, a continuation, native work), or a long
-        // poll that is no stream's HTTP GET (LLP 1016.000 D8), is refused here, before any path.
+        // A deadline on work that cannot take one (a stream but an upload, a continuation, native work), or a
+        // long poll that is no stream's HTTP GET (LLP 1016.000 D8), is refused here, before any path.
         let checked = r
             .request
             .long_poll_refusal()
             .or(r.request.timeout_refusal())
             .or(r.request.body_from_refusal())
             .or(r.request.body_to_refusal())
+            .or(r.request.upload_progress_refusal())
             .map_or_else(|| reservation(&r.request), Err)
             .and_then(|charge| state.book.reserve_inline_copy(&r.request, charge));
         let lane = checked.as_ref().map_or(0, |(lane, _, _)| *lane);
@@ -505,12 +519,16 @@ impl Core {
             }
             return Ok(());
         }
+        // An upload waits for its start holding no count, bytes or place of
+        // its lane, so a queue of them refuses no other request; it takes
+        // them as it starts (`stream::start`).
+        let waits = r.request.stream && r.request.upload_progress;
         let admitted = (|| {
             let (lane, charge, limit) = checked?;
             // A stream starts at once, so it is charged its ceiling now; a
             // process request too, on a thread of its own (LLP 1133.007).
             let (full, charge) = if r.request.stream {
-                (state.streams >= STREAMS, limit)
+                (state.streams >= STREAMS && !waits, limit)
             } else {
                 let streams = if lane == 1 { state.streams } else { 0 };
                 // Plain reads may wait in a larger, still ordered backlog:
@@ -539,8 +557,11 @@ impl Core {
             // A parked upload's outstanding charge counts as taken, so a
             // later request can't crowd it out (LLP 1120 §6 question 8).
             let parked = state.book.parked(lane, &state.jobs[lane]);
-            if full || charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked) {
+            if full || (!waits && charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked)) {
                 return Err("native executor admission limit reached");
+            }
+            if waits && stream::uploads_full(&self.shared, r.request.body.len()) {
+                return Err("native executor upload queue limit reached");
             }
             if lane == 0 {
                 // Count every waiting request, including writes. Otherwise
@@ -568,23 +589,32 @@ impl Core {
         if ordered {
             state.ordered.push_back(r.ticket);
         }
-        state.counts[lane] += 1;
-        state.bytes[lane] += charge;
+        if !waits {
+            state.counts[lane] += 1;
+            state.bytes[lane] += charge;
+        }
         if r.request.stream || r.request.is_process() {
             // Never queued behind held replies: a stream opens on its own
             // thread with its own transport, and reads there (LLP 1067 D3).
-            let stream = r.request.stream;
+            // An upload takes its place and thread once its budget has room.
+            // A process request runs on a thread of its own, and only a
+            // child's stream takes a stream's place (LLP 1133.007).
+            let upload = r.request.upload_progress;
+            let stream = r.request.stream && !upload;
             state.streams += usize::from(stream);
             let abort = AbortController::new();
             state.running.push(Running {
                 started: std::time::Instant::now(),
                 ticket: r.ticket,
                 lane,
-                charge,
+                charge: if waits { 0 } else { charge },
                 limit,
                 abort: Some(abort.clone()),
+                // An app's abort ends a one-shot's child, as a forget does (LLP 1133.007 D3).
+                exchange: (r.request.is_process() && !r.request.stream).then(|| abort.clone()),
                 forgotten: false,
                 stream,
+                waiting: waits,
                 read: false,
                 terminal: false,
                 live: 0,
@@ -597,6 +627,10 @@ impl Core {
             let (shared, grants) = (self.shared.clone(), self.grants.clone());
             let (ticket, request, forced) = (r.ticket, r.request, r.forced);
             let host = self.stream_host.clone();
+            if upload {
+                stream::queue_upload(&shared, ticket, request, forced, grants, host, abort);
+                return Ok(());
+            }
             let spawned = std::thread::Builder::new()
                 .name(format!("exact-stream-{ticket}"))
                 .spawn({
@@ -676,107 +710,10 @@ impl Core {
         if has_ready(&state) {
             wake(&mut state);
         }
+        // The independent lane's bytes and perhaps a stream's place, which
+        // an upload waiting may take.
+        stream::place_freed(&self.shared, state, done.ticket, lane == 1 && !done.message);
         vec![(done.ticket, done.outcome, Some(done.elapsed_ms))]
-    }
-
-    /// Let go of the work for every ticket the runner no longer `held`
-    /// (LLP 1016 D5): its reply would only be dropped there. A completed
-    /// outcome is dropped undrained and a queued safe HTTP read unrun; a
-    /// running one is aborted. Other work (a write, a module turn) still runs,
-    /// since a write that was sent, or a turn that has begun, is not undone.
-    /// None of it holds a later ordered completion back, and each releases
-    /// its count and bytes when it ends.
-    pub(super) fn forget(&self, held: impl Fn(u64) -> bool) {
-        let mut aborts = Vec::new();
-        let mut cancels = Vec::new();
-        {
-            let mut guard = self.shared.state.lock().unwrap();
-            let state = &mut *guard;
-            let busy = state.counts[0] > 0;
-            for lane in 0..2 {
-                let (counts, bytes) = (&mut state.counts[lane], &mut state.bytes[lane]);
-                let (streams, light) = (&mut state.streams, &mut state.light);
-                let agains = &mut state.agains;
-                state.jobs[lane].retain_mut(|job| {
-                    if held(job.ticket) {
-                        return true;
-                    }
-                    if job.work.is_none() && safe(&job.request) {
-                        *counts -= 1;
-                        *streams -= usize::from(job.request.stream);
-                        *bytes -= job.charge;
-                        return false;
-                    }
-                    job.forgotten = true;
-                    true
-                });
-                let running = &mut state.running;
-                state.completed[lane].retain(|done| {
-                    if held(done.ticket) {
-                        return true;
-                    }
-                    // Its bytes held by a job still physically running go
-                    // when that ends (LLP 1120 D5).
-                    if let Some(run) = running.iter_mut().find(|r| r.ticket == done.ticket) {
-                        run.drained = true;
-                    }
-                    // A forgotten stream's message: the stream itself
-                    // releases the reservation when its reader ends.
-                    if !done.message {
-                        *counts -= 1;
-                        *light -= usize::from(done.light);
-                        *agains -= usize::from(done.again);
-                        *streams -= usize::from(done.stream);
-                        *bytes -= done.bytes;
-                    }
-                    false
-                });
-            }
-            for run in &mut state.running {
-                if !run.forgotten && !held(run.ticket) {
-                    run.forgotten = true;
-                    let stream = run.stream.then_some(run.ticket);
-                    aborts.extend(run.abort.clone().map(|abort| (stream, abort)));
-                    // On the machine, cancelling a safe read claims it now.
-                    if self.machine.is_some() && asynch::cancel(run) {
-                        cancels.push((run.lane, (run.ticket, run.generation)));
-                    }
-                }
-            }
-            state.ordered.retain(|ticket| held(*ticket));
-            // A parked upload let go unsent takes its size with it.
-            let queued: std::collections::HashSet<u64> =
-                state.jobs.iter().flatten().map(|job| job.ticket).collect();
-            state.book.sized.retain(|ticket, _| queued.contains(ticket));
-            // A re-ask let go before it found room: dropped, never settled.
-            state.waiting.retain(|ticket| held(*ticket));
-            state.waiting_set.retain(|ticket| held(*ticket));
-            // A held request has not begun: one let go is dropped unsent,
-            // its work destroyed by a worker.
-            let (kept, gone): (VecDeque<_>, VecDeque<_>) = std::mem::take(&mut state.fenced)
-                .into_iter()
-                .partition(|f| held(f.ticket()));
-            state.fenced = kept;
-            state.fenced_bytes = fenced_bytes(&state.fenced);
-            for f in gone {
-                if let Fenced::Held(_, work, _) = f {
-                    self.discard(state, work);
-                }
-            }
-            rouse(&self.shared, state);
-            place_waiting(state);
-            // As in `complete`: emptying the lane can let a refusal settle.
-            if has_ready(state) || (busy && state.counts[0] == 0) {
-                wake(state);
-            }
-        }
-        // Transport callbacks run outside the lock, as retirement's do.
-        if let Some(machine) = &self.machine {
-            for (lane, run) in cancels {
-                machine.cancelled(lane, run);
-            }
-        }
-        stream::release(&self.shared, aborts);
     }
 
     pub(super) fn ordered_idle(&self) -> bool {
@@ -1037,8 +974,10 @@ fn next_job(state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
         charge: job.charge,
         limit: job.limit,
         abort: safe(&job.request).then(|| abort.clone()),
+        exchange: (job.work.is_none() && !job.request.stream).then(|| abort.clone()),
         forgotten: job.forgotten,
         stream: job.request.stream,
+        waiting: false,
         read: lane == 0 && read(&job.request, job.work.is_some()),
         terminal: false,
         live: 0,
@@ -1064,7 +1003,7 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     // A completion frees ordered bytes a waiting job may need.
     rouse(shared, &state);
     if run.forgotten {
-        state.counts[lane] -= 1;
+        state.counts[lane] -= usize::from(!run.waiting);
         state.streams -= usize::from(run.stream);
         state.bytes[lane] -= run.charge;
         // The lane going idle can let a retained ordered refusal settle,
@@ -1072,8 +1011,17 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
         if lane == 0 && state.counts[0] == 0 {
             wake(&mut state);
         }
+        // The room it held, in its lane and among the streams, may start an
+        // upload waiting for it; one that held none frees none.
+        drop(state);
+        if lane == 1 && (run.charge > 0 || run.stream) {
+            stream::start_uploads(shared);
+        }
         return;
     }
+    // An upload that ends before it starts holds a count until drained, as
+    // every end does.
+    state.counts[lane] += usize::from(run.waiting);
     let bytes = if lane == 0 {
         retained(&outcome) + std::mem::size_of::<Completed>()
     } else {
@@ -1456,6 +1404,8 @@ use outcome::{
     bounded_outcome, build_number, check_headers, fetch_failure, fetch_request, retained, Deadline,
 };
 
+#[path = "executor_forget.rs"]
+mod forget;
 #[path = "executor_reach.rs"]
 mod reach;
 
@@ -1469,4 +1419,4 @@ mod body_to;
 mod idle_tests;
 #[cfg(test)]
 #[path = "executor_tests.rs"]
-mod tests;
+pub(super) mod tests;

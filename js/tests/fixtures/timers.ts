@@ -4,6 +4,8 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 const log: string[] = [];
 // A fetch one answer starts and another awaits too.
 let shared: Promise<string> | null = null;
+// A timeout signal one answer makes and the next carries too.
+let sharedSignal: AbortSignal | undefined;
 
 let atInit: string;
 try { setTimeout(() => {}, 0); atInit = "UNGUARDED"; }
@@ -48,6 +50,24 @@ async function answer(source: string, args: any[]): Promise<unknown> {
       } catch (e) {
         return e.name;
       }
+    // A POST bounded by a timeout signal, run to its end once its answer is let go (LLP 1146 D2): the signal
+    // carried as it is, through `AbortSignal.any`, beside an equal `exactTimeout`, shared with the next answer,
+    // or longer than a request waits.
+    case "postTimeout": {
+      const [n, how] = args as [string, string];
+      const ms = how === "long" ? 7200000 : 250;
+      const timeout = how === "shared" ? (sharedSignal ??= AbortSignal.timeout(ms)) : AbortSignal.timeout(ms);
+      const signal = how === "any" ? AbortSignal.any([timeout, new AbortController().signal]) : timeout;
+      const init: any = { method: "POST", signal };
+      if (how === "equal") init.exactTimeout = 250;
+      try {
+        await fetch("https://fixture.exact.test/post", init);
+        log.push("posted " + n);
+      } catch (e) {
+        log.push(n + " " + e.name + " " + signal.aborted);
+      }
+      return "done " + n;
+    }
     case "atInit": return atInit;
     case "interval":
       try { setInterval(() => {}, 10); return "UNGUARDED"; }

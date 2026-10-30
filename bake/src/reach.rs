@@ -53,7 +53,7 @@ pub(crate) fn derive(
     // §13 question 4).
     if compat.embedded["trust"] == "production" && devices.iter().any(|g| g.device.name == "calls")
     {
-        return Err("grant-device: `device.calls` stays out of production builds until exact2 has a call transport: a call is a test call until then (LLP 1133.033 §13 question 4); bake with EXACT_UPDATE_TRUST=development, or leave the line out".into());
+        return Err("grant-device: `device.calls` stays out of production builds until exact2 has a call transport: a call is a test call until then (LLP 1133.033 §13 question 4); begin the line in app.ts with `development` (`development device.calls purpose.calls`), which a production bake leaves out".into());
     }
     let strings = if devices.iter().all(|g| !g.device.purpose) {
         None
@@ -406,6 +406,23 @@ pub(crate) fn parsed(
         (grants, if typescript { "app.ts" } else { RUST }),
         (rust, RUST),
     ];
+    // A line marked a development build's only (`development <grant>`) is
+    // app.ts's, whose captured copy loses the word or the line before this
+    // (js/bake/src/typescript.mjs `developmentGrants`); a Rust data crate's
+    // `fn grants()` isn't rewritten, so its marked line is refused here,
+    // ahead of the grammar's own message.
+    let marked: Vec<String> = sources
+        .iter()
+        .filter_map(|(spec, source)| Some(((*spec)?, source)))
+        .flat_map(|(spec, source)| {
+            spec.lines()
+                .filter(|l| l.split_whitespace().next() == Some("development"))
+                .map(move |l| format!("grant-development: {source}: `{}`: only app.ts's grants mark a line a development build's only; a Rust data crate's `fn grants()` can't carry the marker in any build yet, so leave the line out or move it to app.ts", l.trim()))
+        })
+        .collect();
+    if !marked.is_empty() {
+        return Err(marked.join("\n"));
+    }
     let errors: Vec<String> = sources
         .iter()
         .filter_map(|(spec, source)| Some((exact_runner::grants::parse((*spec)?).err()?, source)))
@@ -416,6 +433,13 @@ pub(crate) fn parsed(
         })
         .chain(presence(app_dir, &sources))
         .chain(local_network(&sources, production))
+        // An auth.session line that is not an origin admits no sign-in (LLP 1146 D4), whichever source declares it.
+        .chain(sources.iter().filter_map(|(spec, source)| {
+            Some(format!(
+                "{source}: {}",
+                exact_runner::auth::session_grant_refusal((*spec)?)?
+            ))
+        }))
         .collect();
     if errors.is_empty() {
         Ok(())
@@ -770,6 +794,7 @@ mod tests {
             target: "t".into(),
             embedded: Value::Null,
             reach: Value::Null,
+            painter: None,
         }
     }
 
@@ -971,6 +996,28 @@ mod tests {
     }
 
     #[test]
+    fn a_line_still_marked_development_is_refused_naming_the_rust_source() {
+        // app.ts's captured copy has lost the word by now; only a Rust data crate's line keeps it.
+        let dir = app(&[("en", r#"{"mic": "Records."}"#)]);
+        for production in [false, true] {
+            for marked in [
+                "development fs.read app:/cache/take",
+                "development device.hid",
+            ] {
+                let rust = format!("device.microphone mic\n{marked}");
+                let refused = parsed(&dir.0, Some(""), Some(&rust), production).unwrap_err();
+                assert_eq!(refused, format!("grant-development: the Rust source: `{marked}`: only app.ts's grants mark a line a development build's only; a Rust data crate's `fn grants()` can't carry the marker in any build yet, so leave the line out or move it to app.ts"));
+            }
+        }
+        // The bake's own trailing modifier on a development build's local-network line is not the marker.
+        let lan = "device.local-network lan\nnet.fetch local-network development";
+        let dir = app(&[("en", r#"{"lan": "Finds lights."}"#)]);
+        assert!(
+            !parsed(&dir.0, Some(lan), None, false).is_err_and(|e| e.contains("grant-development"))
+        );
+    }
+
+    #[test]
     fn health_writes_both_keys_signs_on_ios_only_and_leaves_tvos_out() {
         // LLP 1069.008.000 D1, D2, D5.
         let dir = app(&[
@@ -1161,6 +1208,28 @@ mod tests {
         let mac = derive_for("macos");
         assert_eq!(mac["entitlements"], json!([]));
         assert!(mac.get("entitlementValues").is_none());
+    }
+
+    #[test]
+    fn an_auth_session_line_that_is_not_an_origin_is_refused_from_either_source() {
+        let dir = app(&[]);
+        let rust = parsed(
+            &dir.0,
+            None,
+            Some("auth.session https://idp.example/tenant"),
+            false,
+        )
+        .unwrap_err();
+        assert!(rust.starts_with("the Rust source: grants: `auth.session https://idp.example/tenant` is not an origin"), "{rust}");
+        let bare = parsed(&dir.0, Some("auth.session"), None, false).unwrap_err();
+        assert!(bare.contains("`auth.session` names no origin"), "{bare}");
+        parsed(
+            &dir.0,
+            Some("auth.session https://idp.example"),
+            Some("auth.session https://login.example"),
+            false,
+        )
+        .unwrap();
     }
 
     #[test]

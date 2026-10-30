@@ -56,6 +56,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("nfc"),
     recipe!("number-field"),
     recipe!("numeric-readout"),
+    recipe!("oauth"),
     recipe!("permissions"),
     recipe!("persisted-setting"),
     recipe!("porting-and-release"),
@@ -65,6 +66,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("random-rolls"),
     recipe!("responsive-columns"),
     recipe!("rest-backend"),
+    recipe!("properties"),
     recipe!("sequencer"),
     recipe!("sign-in"),
     recipe!("snapback"),
@@ -93,6 +95,9 @@ pub const PATTERNS: &[(&str, &str)] = &[
 /// Grammar words a recipe is the answer to, which builders looked up by the
 /// word (`sequence` for the sequencer, `keyframes` for motion; euxy port 19).
 const ALIASES: &[(&str, &str)] = &[
+    ("every", "timers"),
+    ("after", "timers"),
+    ("tolerance", "timers"),
     ("sequence", "sequencer"),
     ("keyframes", "motion"),
     ("@keyframes", "motion"),

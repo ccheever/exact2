@@ -211,6 +211,22 @@ impl Manifest {
             .unwrap_or_default()
     }
 
+    /// The painter explicitly selected for this platform (LLP 1149 D12).
+    pub fn painter(&self, platform: &str) -> Result<Option<&'static str>, String> {
+        match self.host(platform).get("painter") {
+            None => Ok(None),
+            Some(value)
+                if matches!(platform, "windows" | "linux" | "android")
+                    && value.as_str() == Some("ink") =>
+            {
+                Ok(Some("ink"))
+            }
+            Some(_) => Err(format!(
+                "host.{platform}.painter must be \"ink\" on Windows, Linux or Android"
+            )),
+        }
+    }
+
     /// `host.windows.window` as the Rust expression of the
     /// `exact_windows::Window` the app opens in: the fields it names, the
     /// host's defaults for the rest (no `..` when it names all four, which
@@ -597,6 +613,25 @@ mod windows_tests {
             id: "test.app".into(),
             name: "Test".into(),
             declared: true,
+        }
+    }
+
+    #[test]
+    fn the_painter_is_opted_into_on_one_platform() {
+        let mut named = manifest(serde_json::json!({"host": {"windows": {"painter": "ink"}}}));
+        assert_eq!(named.painter("windows").unwrap(), Some("ink"));
+        assert_eq!(named.painter("linux").unwrap(), None);
+        assert_eq!(named.painter("android").unwrap(), None);
+        for value in [
+            serde_json::json!("gpu"),
+            serde_json::json!(true),
+            serde_json::Value::Null,
+        ] {
+            named.json["host"]["windows"]["painter"] = value;
+            assert!(named
+                .painter("windows")
+                .unwrap_err()
+                .contains("host.windows.painter"));
         }
     }
 

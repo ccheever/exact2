@@ -73,9 +73,13 @@ impl Header {
         self.color == SVG
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "android", target_os = "macos"))]
     pub(super) fn oriented(mut self, orientation: u8) -> Self {
-        self.orientation = orientation;
+        // WIC turns the decode by it; Android's decoders turn it themselves.
+        #[cfg(windows)]
+        {
+            self.orientation = orientation;
+        }
         if orientation >= 5 {
             std::mem::swap(
                 &mut self.metadata.natural.width,
@@ -275,6 +279,18 @@ impl DecodePlan {
         let scratch = if header.color == JPEG {
             scratch
                 .checked_add(u64::from(natural.width) * u64::from(natural.height) * 4)
+                .ok_or(Refusal::Overflow)?
+        } else {
+            scratch
+        };
+        // ImageIO may retain a full source decode, a sampled thumbnail and
+        // CFData's copy of the encoded bytes alongside the crop's output.
+        #[cfg(target_os = "macos")]
+        let scratch = if header.color == JPEG {
+            scratch
+                .checked_add(u64::from(natural.width) * u64::from(natural.height) * 4)
+                .and_then(|n| n.checked_add(u64::from(pixels.0) * u64::from(pixels.1) * 4))
+                .and_then(|n| n.checked_add(header.metadata.encoded_bytes))
                 .ok_or(Refusal::Overflow)?
         } else {
             scratch

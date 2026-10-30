@@ -157,6 +157,8 @@ impl<D: DataSource> Runner<D> {
     /// [`Runner::apply_announced`] on its own. A source with no native
     /// handle announces nothing.
     pub fn listen(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        // An abort heard off this thread wakes the host to collect it.
+        self.data.abort_wake(wake.clone());
         let native = self.native_slot();
         let queue = self.announced.clone();
         native.on_changed(Some(std::sync::Arc::new(move |topic: &str| {
@@ -258,7 +260,8 @@ impl<D: DataSource> Runner<D> {
     pub fn changed(&mut self, topic: &str) -> Result<Option<CommitReceipt>, RunnerError> {
         let mut which = Vec::new();
         for i in 0..self.watching.len() {
-            if !self.watching[i].iter().any(|t| t == topic) {
+            // An upload is asked once for its arguments (LLP 1016.000 D10).
+            if !self.watching[i].iter().any(|t| t == topic) || self.upload_stands(i) {
                 continue;
             }
             // A stream keeps no reply to wait for, and a refused request

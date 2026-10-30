@@ -27,20 +27,7 @@ const CASES: [&str; 10] = [
 ];
 
 fn painters() -> Vec<PainterChoice> {
-    let mut choices = vec![PainterChoice::Cpu];
-    match exact_linux::gpu::Gpu::new() {
-        Ok(_) => choices.push(PainterChoice::Gpu),
-        Err(error) => {
-            // A missing GPU fails under EXACT_REQUIRED=1, which the async lane sets (scripts/coverage.mjs).
-            assert_ne!(
-                std::env::var("EXACT_REQUIRED").as_deref(),
-                Ok("1"),
-                "missing gpu: {error}"
-            );
-            eprintln!("GPU painter unavailable: {error}");
-        }
-    }
-    choices
+    crate::paint::painters()
 }
 
 #[test]
@@ -49,11 +36,12 @@ fn every_corner_and_mask_case_matches_chrome_light_then_dark() {
     for choice in painters() {
         let name = format!("{choice:?}");
         let mut p = boot(choice, "visual.contract");
-        failures.extend(held_to_chrome(&mut p, "visual.web.png", &name, &CASES));
+        let cases = &CASES[..];
+        failures.extend(held_to_chrome(&mut p, "visual.web.png", &name, cases));
         let id = view(&p, "dark");
         p.tap(id).unwrap();
         p.run_commands(<()>::default);
-        failures.extend(held_to_chrome(&mut p, "visual.web-dark.png", &name, &CASES));
+        failures.extend(held_to_chrome(&mut p, "visual.web-dark.png", &name, cases));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -343,21 +331,12 @@ fn every_layer_case_matches_chrome_light_then_dark() {
     for choice in painters() {
         let name = format!("{choice:?}");
         let mut p = boot(choice, "layers.contract");
-        failures.extend(held_to_chrome(
-            &mut p,
-            "layers.web.png",
-            &name,
-            &LAYER_CASES,
-        ));
+        let cases = LAYER_CASES;
+        failures.extend(held_to_chrome(&mut p, "layers.web.png", &name, &cases));
         let id = view(&p, "dark");
         p.tap(id).unwrap();
         p.run_commands(<()>::default);
-        failures.extend(held_to_chrome(
-            &mut p,
-            "layers.web-dark.png",
-            &name,
-            &LAYER_CASES,
-        ));
+        failures.extend(held_to_chrome(&mut p, "layers.web-dark.png", &name, &cases));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

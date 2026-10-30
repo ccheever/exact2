@@ -174,6 +174,7 @@ mod tests {
                 target: target.into(),
                 embedded: Value::Null,
                 reach: Value::Null,
+                painter: None,
             };
             crate::receipt::emit(
                 &mut compat,
@@ -241,6 +242,7 @@ mod tests {
                 target: String::new(),
                 embedded: Value::Null,
                 reach: Value::Null,
+                painter: None,
             };
             crate::receipt::emit(
                 &mut compat,

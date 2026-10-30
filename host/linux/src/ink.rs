@@ -1,0 +1,802 @@
+//! The instanced painter's adapter. @ref LLP 1149 D1.2, D2, D3.1.
+use crate::image::Bitmap;
+use crate::paint::border::BorderFill;
+use crate::paint::{Backend, FrameTarget, GradientPaint, Rect4, Shape, POINTER};
+use crate::raster::tiny_path as path;
+use crate::text::{Paragraph, RunPaint, TextEngine};
+use exact_ink::atlas::Atlas;
+use exact_ink::device::{Device, Error, Info, Result, Selected};
+use exact_ink::instance::{flags, Bindings, RoundedClip, TextureId};
+use exact_ink::{Brush, Encoder, Instance, Kind};
+use std::sync::Arc;
+use std::time::Instant;
+use tiny_skia::{FillRule, Path, PathBuilder, Pixmap, Transform};
+
+mod clips;
+mod effects;
+mod stats;
+pub use stats::{Statistics, StatisticsReader};
+mod gradient;
+mod images;
+mod rows;
+mod svg;
+#[cfg(test)]
+mod tests;
+mod text;
+
+/// Instanced painter with window presentation and premultiplied pixel readback.
+pub struct Ink {
+    device: Selected,
+    encoder: Encoder,
+    paths: Atlas,
+    glyphs: exact_ink::glyph::Glyphs,
+    text_sigma: f32,
+    ramps: Atlas,
+    images: images::Images,
+    pool: exact_ink::layer::Pool,
+    groups: Vec<clips::Group>,
+    clips: Vec<()>,
+    target: Option<TextureId>,
+    draw_target: Option<TextureId>,
+    draw_clear: Option<[f64; 4]>,
+    size: [u32; 2],
+    scale: f32,
+    page: [u8; 4],
+    clear: [f64; 4],
+    error: Option<String>,
+    device_lost: bool,
+    layer_ms: f64,
+    last_ms: (f64, f64),
+    statistics: StatisticsReader,
+    rows: rows::Rows,
+}
+
+impl Ink {
+    /// Open the selected native device and record its startup phases.
+    pub fn new() -> std::result::Result<Self, String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Selected::from_env()
+                .map(Self::from_device)
+                .map_err(|e| e.to_string())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Err("Ink's synchronous presenter requires a native device".into())
+        }
+    }
+
+    /// Adapt an already opened device, including one opened asynchronously.
+    pub fn from_device(device: impl Into<Selected>) -> Self {
+        Self {
+            device: device.into(),
+            encoder: Encoder::new(1, 1),
+            paths: Atlas::paths(),
+            glyphs: Default::default(),
+            text_sigma: 0.,
+            ramps: Atlas::ramps(),
+            images: images::Images::default(),
+            pool: exact_ink::layer::Pool::default(),
+            groups: Vec::new(),
+            clips: Vec::new(),
+            target: None,
+            draw_target: None,
+            draw_clear: Some([1.; 4]),
+            size: [1, 1],
+            scale: 1.,
+            page: [255; 4],
+            clear: [1.; 4],
+            error: None,
+            device_lost: false,
+            layer_ms: 0.,
+            last_ms: (0., 0.),
+            statistics: StatisticsReader::default(),
+            rows: rows::Rows::default(),
+        }
+    }
+
+    /// Device and shader timings reported by the presenter.
+    pub fn info(&self) -> &Info {
+        self.device.info()
+    }
+
+    fn accept<T>(&mut self, result: Result<T>) -> Option<T> {
+        match result {
+            Ok(value) => Some(value),
+            Err(e) => {
+                self.device_lost |= matches!(e, Error::DeviceLost(_));
+                self.error.get_or_insert_with(|| e.to_string());
+                None
+            }
+        }
+    }
+
+    fn device_transform(&self, ts: Transform) -> Transform {
+        Transform::from_scale(self.scale, self.scale).pre_concat(ts)
+    }
+
+    fn emit(&mut self, instance: Instance, bindings: Bindings) -> Result<()> {
+        if self.error.is_some() {
+            return Ok(());
+        }
+        if let Some(capture) = self.rows.capture.last_mut() {
+            capture
+                .drawing
+                .push(instance.translated(capture.offset(self.scale)), bindings);
+            return Ok(());
+        }
+        if self.encoder.push(instance, bindings).is_err() {
+            let clip = self.combined_clip(None)?;
+            self.encoder.push_combined_clip(clip);
+            let result = self.encoder.push(instance, bindings);
+            self.encoder.pop_clip();
+            result.map_err(|_| Error::Invalid("instance clips".into()))?;
+        }
+        Ok(())
+    }
+
+    fn shape_instance(
+        &mut self,
+        shape: &Shape,
+        ts: Transform,
+    ) -> Result<Option<rows::GeometryInstance>> {
+        if self.error.is_some() || shape.rect.2 <= 0. || shape.rect.3 <= 0. {
+            return Ok(None);
+        }
+        let dev = self.device_transform(ts);
+        if !dev.is_finite() || dev.invert().is_none() {
+            return Ok(None);
+        }
+        if circular(shape) {
+            let mut instance = Instance::new(Kind::RoundedRect, Brush::Solid, rect(shape.rect));
+            instance.radii = shape.radii.map(|r| r.0);
+            instance.xform = affine(dev);
+            Ok(Some((instance, Bindings::default(), None)))
+        } else {
+            let Some(path) = shape_path(shape) else {
+                return Ok(None);
+            };
+            self.path_instance(&path, FillRule::Winding, &[], ts)
+        }
+    }
+
+    fn path_instance(
+        &mut self,
+        path: &Path,
+        rule: FillRule,
+        clips: &[(&Path, FillRule)],
+        ts: Transform,
+    ) -> Result<Option<rows::GeometryInstance>> {
+        let dev = self.device_transform(ts);
+        if self.error.is_some() {
+            return Ok(None);
+        }
+        let oversized = path.clone().transform(dev).is_some_and(|p| {
+            let b = p.bounds();
+            let limit = self.paths.max_entry_dimension(&self.device) as f32;
+            b.right().ceil() - b.left().floor() > limit
+                || b.bottom().ceil() - b.top().floor() > limit
+        });
+        if !self.rows.capture.is_empty() && oversized {
+            let mut instance = Instance::new(Kind::Coverage, Brush::Solid, [0.; 4]);
+            instance.xform = affine(dev);
+            return Ok(Some((
+                instance,
+                Bindings::default(),
+                Some(rows::PathGeometry {
+                    path: path.clone(),
+                    rule,
+                    clips: clips.iter().map(|(p, r)| ((*p).clone(), *r)).collect(),
+                    transform: self.record_transform(ts),
+                }),
+            )));
+        }
+        let coverage = exact_ink::path::coverage(
+            &mut self.paths,
+            &mut self.device,
+            path,
+            rule,
+            clips,
+            dev,
+            self.rows.capture.is_empty().then_some(self.size),
+        )?;
+        Ok(coverage.map(|c| {
+            let mut instance = Instance::new(Kind::Coverage, Brush::Solid, c.rect);
+            instance.xform = affine(dev);
+            instance.uv = c.entry.uv;
+            (
+                instance,
+                Bindings {
+                    path: c.entry.texture,
+                    ..Default::default()
+                },
+                None,
+            )
+        }))
+    }
+
+    fn emit_geometry(
+        &mut self,
+        i: Instance,
+        b: Bindings,
+        path: Option<rows::PathGeometry>,
+    ) -> Result<()> {
+        if let Some(path) = path {
+            if self.error.is_none() {
+                let offset = self
+                    .rows
+                    .capture
+                    .last()
+                    .expect("recording geometry")
+                    .offset(self.scale);
+                self.record(rows::Marker::Path(i.translated(offset), b, path));
+            }
+            Ok(())
+        } else {
+            self.emit(i, b)
+        }
+    }
+
+    fn border(&mut self, part: &BorderFill, ts: Transform) -> Result<()> {
+        if let Some(((outer, outer_radii), (inner, inner_radii))) = part.ring {
+            if part.clip.is_none()
+                && part.ring_clip.is_none()
+                && outer_radii
+                    .iter()
+                    .chain(inner_radii.iter())
+                    .all(|r| r.0 == r.1)
+            {
+                let mut instance = Instance::new(Kind::Ring, Brush::Solid, rect(outer));
+                instance.radii = outer_radii.map(|r| r.0);
+                instance.uv = rect(inner);
+                instance.param = inner_radii.map(|r| r.0);
+                instance.xform = affine(self.device_transform(ts));
+                instance.color = color(part.color);
+                return self.emit(instance, Bindings::default());
+            }
+        }
+        let Some(region) = path(&part.region) else {
+            return Ok(());
+        };
+        let side = part.clip.as_deref().and_then(path);
+        let ring = part.ring_clip.as_deref().and_then(path);
+        let clips: Vec<_> = side
+            .as_ref()
+            .map(|p| (p, FillRule::Winding))
+            .into_iter()
+            .chain(ring.as_ref().map(|p| (p, FillRule::EvenOdd)))
+            .collect();
+        if let Some((mut instance, bindings, geometry)) =
+            self.path_instance(&region, FillRule::EvenOdd, &clips, ts)?
+        {
+            instance.color = color(part.color);
+            self.emit_geometry(instance, bindings, geometry)?;
+        }
+        Ok(())
+    }
+}
+
+impl Backend for Ink {
+    #[cfg(target_os = "macos")]
+    fn attach_apple_layer(
+        &mut self,
+        layer: exact_ink::device::apple::Layer,
+    ) -> std::result::Result<Info, String> {
+        self.device.attach_layer(layer).map_err(|e| e.to_string())?;
+        Ok(self.info().clone())
+    }
+    #[cfg(windows)]
+    fn displayed_process_ms(&self) -> std::result::Result<Option<f64>, String> {
+        if let Selected::D3d11(device) = &self.device {
+            return device
+                .presented_process_ms()
+                .map(Some)
+                .map_err(|e| e.to_string());
+        }
+        Ok(None)
+    }
+    #[cfg(windows)]
+    fn attach_window(
+        &mut self,
+        window: exact_ink::device::d3d11::Window,
+        size: [u32; 2],
+    ) -> std::result::Result<bool, String> {
+        if let Selected::D3d11(device) = &mut self.device {
+            device
+                .attach_window(window, size)
+                .map_err(|e| e.to_string())?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn lost_device_needs_cpu(&self) -> bool {
+        self.device_lost && matches!(self.device, Selected::Wgpu(_))
+    }
+    fn name(&self) -> &'static str {
+        "ink"
+    }
+    #[cfg(windows)]
+    fn device_lost(&self) -> bool {
+        self.device_lost
+    }
+    #[cfg(windows)]
+    fn collect_retired_devices(&mut self) -> usize {
+        match &mut self.device {
+            Selected::D3d11(d) => d.collect_presented_devices(),
+            _ => 0,
+        }
+    }
+    #[cfg(windows)]
+    fn presentation_retry_delay(&self) -> Option<std::time::Duration> {
+        match &self.device {
+            Selected::D3d11(d) => d.presentation_retry_delay(),
+            _ => None,
+        }
+    }
+    fn needs_geometry_paint(&self) -> bool {
+        true
+    }
+    fn trim(&mut self) {
+        let result = self.pool.trim(&mut self.device);
+        self.accept(result);
+    }
+    fn page(&mut self, color: [u8; 4]) {
+        self.page = color;
+        #[cfg(windows)]
+        if matches!(&self.device, Selected::D3d11(d) if d.has_window()) {
+            self.page = [0; 4];
+        }
+    }
+
+    fn begin(&mut self, width: f32, height: f32, scale: f32) {
+        self.layer_ms = 0.;
+        self.text_sigma = 0.;
+        self.error = None;
+        self.scale = scale;
+        self.size = [width, height].map(|n| (n * scale).round().max(1.) as u32);
+        self.encoder = Encoder::new(self.size[0], self.size[1]);
+        self.groups.clear();
+        self.clips.clear();
+        self.clear = color(self.page).map(f64::from);
+        let result = (|| {
+            if !scale.is_finite()
+                || scale <= 0.
+                || self
+                    .size
+                    .iter()
+                    .any(|s| *s > self.device.max_texture_dimension())
+            {
+                return Err(Error::Invalid("frame dimensions or scale".into()));
+            }
+            self.paths.begin(&mut self.device)?;
+            self.glyphs.begin(&mut self.device)?;
+            self.ramps.begin(&mut self.device)?;
+            self.images.begin(&mut self.device)?;
+            self.pool.begin(&mut self.device, self.size)?;
+            self.target = Some(match self.target {
+                Some(t) => self.device.resize_target(t, self.size[0], self.size[1])?,
+                None => self.device.create_target(self.size[0], self.size[1])?,
+            });
+            self.draw_target = self.target;
+            self.draw_clear = Some(self.clear);
+            Ok(())
+        })();
+        self.accept(result);
+    }
+
+    fn fill(&mut self, shape: &Shape, c: [u8; 4], ts: Transform) {
+        let dev = self.device_transform(ts);
+        if c[3] == 255
+            && self.rows.capture.is_empty()
+            && !shape.rounded()
+            && self.clips.is_empty()
+            && self.groups.is_empty()
+            && dev.kx == 0.
+            && dev.ky == 0.
+            && dev.sx > 0.
+            && dev.sy > 0.
+            && shape.rect.0 * dev.sx + dev.tx <= 0.
+            && shape.rect.1 * dev.sy + dev.ty <= 0.
+            && (shape.rect.0 + shape.rect.2) * dev.sx + dev.tx >= self.size[0] as f32
+            && (shape.rect.1 + shape.rect.3) * dev.sy + dev.ty >= self.size[1] as f32
+        {
+            self.encoder = Encoder::new(self.size[0], self.size[1]);
+            self.clear = color(c).map(f64::from);
+            self.draw_clear = Some(self.clear);
+            return;
+        }
+        let result = self.shape_instance(shape, ts);
+        if let Some(Some((mut i, b, geometry))) = self.accept(result) {
+            i.color = color(c);
+            let result = self.emit_geometry(i, b, geometry);
+            self.accept(result);
+        }
+    }
+
+    fn fill_gradient(&mut self, shape: &Shape, gradient: &GradientPaint, ts: Transform) {
+        let result = self.gradient(shape, gradient, ts);
+        self.accept(result);
+    }
+
+    fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
+        let result = self.border(part, ts);
+        self.accept(result);
+    }
+
+    fn blurred_shadow(
+        &mut self,
+        shape: &Shape,
+        c: [u8; 4],
+        sigma: f32,
+        outer: &Shape,
+        ts: Transform,
+    ) -> bool {
+        let dev = self.device_transform(ts);
+        if dev.kx != 0.
+            || dev.ky != 0.
+            || dev.sx <= 0.
+            || dev.sx != dev.sy
+            || !circular(shape)
+            || !circular(outer)
+            || crate::paint::border::reduced(shape.radii, shape.rect.2, shape.rect.3) != shape.radii
+        {
+            return false;
+        }
+        let reach = 3. * sigma.max(0.) + 1.;
+        let (x, y, w, h) = shape.rect;
+        let mut i = Instance::new(
+            Kind::Shadow,
+            Brush::Solid,
+            [x - reach, y - reach, w + 2. * reach, h + 2. * reach],
+        );
+        i.xform = affine(self.device_transform(ts));
+        i.uv = rect(shape.rect);
+        i.radii = crate::paint::border::reduced(shape.radii, w, h).map(|r| r.0);
+        i.param[0] = sigma;
+        i.color = color(c);
+        if i.set_clip(
+            1,
+            RoundedClip {
+                rect: [
+                    outer.rect.0 * dev.sx + dev.tx,
+                    outer.rect.1 * dev.sy + dev.ty,
+                    outer.rect.2 * dev.sx,
+                    outer.rect.3 * dev.sy,
+                ],
+                radii: crate::paint::border::reduced(outer.radii, outer.rect.2, outer.rect.3)
+                    .map(|r| r.0 * dev.sx),
+            },
+        )
+        .is_err()
+        {
+            return false;
+        }
+        let result = self.emit(i, Bindings::default());
+        self.accept(result);
+        true
+    }
+
+    fn image(
+        &mut self,
+        image: &Arc<Bitmap>,
+        dst: Rect4,
+        clips: &[Shape],
+        ts: Transform,
+        tint: Option<[u8; 4]>,
+    ) {
+        let size = images::sampling_size(
+            [image.width(), image.height()],
+            dst,
+            self.device_transform(ts),
+        );
+        let result = self.images.bitmap(&mut self.device, image, size);
+        if let Some(texture) = self.accept(result) {
+            self.picture(texture, dst, clips, ts, tint);
+        }
+    }
+
+    fn surface_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4) {
+        self.canvas(&pixels, dst, &[], Transform::identity());
+    }
+    fn island_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
+        let result = self.blended_image(&pixels, dst, ts, mode);
+        self.accept(result);
+    }
+    fn canvas(&mut self, pixels: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+        let result = self.images.pixmap(&mut self.device, pixels);
+        if let Some(texture) = self.accept(result) {
+            self.picture(texture, dst, clips, ts, None);
+        }
+    }
+
+    fn text_blur(&mut self, sigma: f32) {
+        self.text_sigma = sigma.max(0.);
+    }
+
+    fn text(
+        &mut self,
+        text: &mut TextEngine,
+        paragraph: &Paragraph,
+        palette: &[RunPaint],
+        origin: (f32, f32),
+        ts: Transform,
+    ) {
+        let result = self.glyph_runs(text, paragraph, palette, origin, ts);
+        self.accept(result);
+    }
+
+    fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
+        let result = self.svg(s, ts);
+        self.accept(result);
+    }
+    fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
+        let result = self.css_clip(path, ts);
+        self.accept(result).unwrap_or(false)
+    }
+    fn push_svg_clip(&mut self, clip: &exact_kernel::svg::scene::Clip, ts: Transform) -> usize {
+        let result = self.svg_clip(clip, ts);
+        self.accept(result).unwrap_or(0)
+    }
+    fn push_clip(&mut self, shape: &Shape, ts: Transform) {
+        let result = self.clip(shape, ts);
+        self.accept(result);
+    }
+    fn pop_clip(&mut self) {
+        if self.record(rows::Marker::PopClip) {
+            return;
+        }
+        if self.clips.pop().is_some() {
+            self.encoder.pop_clip();
+        }
+    }
+    fn push_opacity(&mut self, alpha: f32) {
+        if self.record(rows::Marker::Opacity(alpha)) {
+            return;
+        }
+        self.open_group(alpha.clamp(0., 1.));
+    }
+    fn pop_opacity(&mut self) {
+        if self.record(rows::Marker::PopOpacity) {
+            return;
+        }
+        let r = self.close_group();
+        self.accept(r);
+    }
+
+    fn push_mask(&mut self, _: &Shape, _: Transform) {
+        if self.record(rows::Marker::Opacity(1.)) {
+            return;
+        }
+        self.open_group(1.);
+    }
+    fn pop_mask(
+        &mut self,
+        shape: &Shape,
+        mask: &std::result::Result<GradientPaint, [u8; 4]>,
+        ts: Transform,
+    ) {
+        let ts = self.record_transform(ts);
+        if self.record(rows::Marker::Mask(*shape, mask.clone(), ts)) {
+            return;
+        }
+        let result = self.masked(shape, mask, ts);
+        self.accept(result);
+    }
+    fn backdrop_filter(
+        &mut self,
+        shape: &Shape,
+        filter: &exact_kernel::style::BackdropFilter,
+        ts: Transform,
+    ) {
+        let ts = self.record_transform(ts);
+        if self.record(rows::Marker::Backdrop(*shape, filter.clone(), ts)) {
+            return;
+        }
+        let result = self.backdrop(shape, filter, ts);
+        self.accept(result);
+    }
+
+    fn pointer(&mut self, x: f32, y: f32) {
+        let mut builder = PathBuilder::new();
+        for (i, &(x, y)) in POINTER.iter().enumerate() {
+            if i == 0 {
+                builder.move_to(x, y);
+            } else {
+                builder.line_to(x, y);
+            }
+        }
+        builder.close();
+        let Some(path) = builder.finish() else {
+            return;
+        };
+        let ts = Transform::from_translate(x, y);
+        let result = (|| {
+            if let Some((mut i, b, _)) = self.path_instance(&path, FillRule::Winding, &[], ts)? {
+                i.color = [1.; 4];
+                self.encoder
+                    .push_unclipped(i, b, self.size)
+                    .map_err(|_| Error::Invalid("pointer clip".into()))?;
+            }
+            if let Some(stroke) = path.stroke(
+                &tiny_skia::Stroke {
+                    width: 1.,
+                    ..Default::default()
+                },
+                self.scale,
+            ) {
+                if let Some((mut i, b, _)) =
+                    self.path_instance(&stroke, FillRule::Winding, &[], ts)?
+                {
+                    i.color = [0., 0., 0., 1.];
+                    self.encoder
+                        .push_unclipped(i, b, self.size)
+                        .map_err(|_| Error::Invalid("pointer clip".into()))?;
+                }
+            }
+            Ok(())
+        })();
+        self.accept(result);
+    }
+
+    fn finish(&mut self) -> std::result::Result<Pixmap, String> {
+        if let Some(e) = &self.error {
+            return Err(e.clone());
+        }
+        let mut readback = Instant::now();
+        let result = (|| {
+            while !self.groups.is_empty() {
+                self.close_group()?;
+            }
+            let target = self.flush()?;
+            readback = Instant::now();
+            self.device.readback(target)
+        })();
+        let bytes = self
+            .accept(result)
+            .ok_or_else(|| self.error.clone().unwrap())?;
+        let render_ms = self.layer_ms;
+        let pixels = Pixmap::from_vec(
+            bytes,
+            tiny_skia::IntSize::from_wh(self.size[0], self.size[1]).unwrap(),
+        )
+        .ok_or("invalid ink readback")?;
+        self.last_ms = (render_ms, readback.elapsed().as_secs_f64() * 1000.);
+        self.update_statistics();
+        Ok(pixels)
+    }
+    fn finish_for(&mut self, target: FrameTarget) -> std::result::Result<Option<Pixmap>, String> {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"ink finish");
+        if target == FrameTarget::Geometry {
+            Ok(None)
+        } else {
+            #[cfg(target_os = "macos")]
+            if target == FrameTarget::Window && self.device.has_layer() {
+                if let Some(e) = &self.error {
+                    return Err(e.clone());
+                }
+                let result = (|| {
+                    while !self.groups.is_empty() {
+                        self.close_group()?;
+                    }
+                    let texture = self.flush()?;
+                    self.last_ms = (self.layer_ms, self.device.present(texture)?);
+                    Ok(())
+                })();
+                if self.accept(result).is_none() {
+                    return Err(self.error.clone().unwrap());
+                }
+                self.update_statistics();
+                return Ok(None);
+            }
+            #[cfg(windows)]
+            if target == FrameTarget::Window
+                && matches!(&self.device, Selected::D3d11(d) if d.has_window())
+            {
+                if let Some(e) = &self.error {
+                    return Err(e.clone());
+                }
+                let result = (|| {
+                    while !self.groups.is_empty() {
+                        self.close_group()?;
+                    }
+                    let texture = self.flush()?;
+                    if let Selected::D3d11(device) = &mut self.device {
+                        self.last_ms = (self.layer_ms, device.present(texture)?);
+                    }
+                    Ok(())
+                })();
+                if self.accept(result).is_none() {
+                    return Err(self.error.clone().unwrap());
+                }
+                self.update_statistics();
+                return Ok(None);
+            }
+            self.finish().map(Some)
+        }
+    }
+    fn last_frame_ms(&self) -> Option<(f64, f64)> {
+        Some(self.last_ms)
+    }
+
+    fn rows(&self) -> bool {
+        true
+    }
+    fn row_local(&self) -> bool {
+        false
+    }
+    fn row_reusable(&self, id: u32, origin: (f32, f32)) -> bool {
+        self.reusable(id, origin)
+    }
+    fn row_begin(&mut self, id: u32, origin: (f32, f32), _: Option<u32>) {
+        self.record_row(id, origin);
+    }
+    fn row_end(&mut self, _: Rect4) -> u32 {
+        self.keep_row()
+    }
+    fn row_draw(&mut self, id: u32, origin: (f32, f32), _: Rect4) {
+        let r = self.draw_row(id, origin);
+        self.accept(r);
+    }
+    fn row_free(&mut self, id: u32) {
+        self.free_row(id);
+    }
+    fn row_culled(&self, bounds: Rect4) -> bool {
+        self.culled(bounds)
+    }
+    fn slot_begin(&mut self, id: exact_kernel::ViewId) {
+        self.record_slot(id);
+    }
+    fn slot_end(&mut self) {
+        self.keep_slot();
+    }
+    fn slot_again(&mut self, row: u32, id: exact_kernel::ViewId) -> bool {
+        #[cfg(target_os = "macos")]
+        exact_ink::device::apple::trace_mark(c"image slot again", || id as f64);
+        self.replace_slot(row, id)
+    }
+    fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {
+        // Transforming a rasterized group would move the stationary outer clips.
+        // @ref LLP 1149 D4: let the walk apply motion before clipping.
+        if base[0] != 0. || base[1] != 0. || base[2] != 1. || base[3] != 0. {
+            return false;
+        }
+        self.record_layer(key, ts, pivot, base);
+        true
+    }
+    fn layer_recolored(&mut self) { /* Each layer_begin records the current colour. */
+    }
+    fn layer_end(&mut self) {
+        let r = self.keep_layer();
+        self.accept(r);
+    }
+}
+
+fn color(c: [u8; 4]) -> [f32; 4] {
+    let a = c[3] as f32 / 255.;
+    [
+        c[0] as f32 / 255. * a,
+        c[1] as f32 / 255. * a,
+        c[2] as f32 / 255. * a,
+        a,
+    ]
+}
+fn rect((x, y, w, h): Rect4) -> [f32; 4] {
+    [x, y, w, h]
+}
+fn affine(t: Transform) -> [f32; 6] {
+    [t.sx, t.ky, t.kx, t.sy, t.tx, t.ty]
+}
+fn circular(shape: &Shape) -> bool {
+    shape.corners.is_none_or(|c| c.is_round())
+        && shape
+            .radii
+            .iter()
+            .all(|r| r.0 == r.1 && r.0.is_finite() && r.0 >= 0.)
+}
+fn shape_path(shape: &Shape) -> Option<Path> {
+    let mut ops = Vec::new();
+    crate::paint::border::shape_path(&mut ops, shape);
+    path(&ops)
+}

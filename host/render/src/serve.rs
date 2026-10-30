@@ -72,6 +72,22 @@ pub struct Server {
 #[derive(Clone)]
 pub struct Stopper(Arc<AtomicBool>, SocketAddr);
 
+/// Moves every armed render deadline to now, for the deadline thread to fire
+/// as it fires one that passes (LLP 1048.000 D10): the source call each
+/// render is running, or its next, is stopped, and the render ends as one
+/// stopped at its deadline does. For a test that ends a render once it has
+/// seen what it waits for, not on the wall clock (docs/testing.md); it
+/// reaches every render in the process.
+#[doc(hidden)]
+pub fn expire_renders() {
+    let deadlines = crate::Deadlines::get();
+    let now = std::time::Instant::now();
+    for armed in &mut deadlines.armed.lock().unwrap().1 {
+        armed.until = armed.until.min(now);
+    }
+    deadlines.changed.notify_one();
+}
+
 impl Stopper {
     /// Start draining: the flag, then a connection that wakes the blocking
     /// accept to read it.

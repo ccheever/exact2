@@ -39,6 +39,10 @@ component App
     send result = log()
   action wait(n: string)
     send waited = letGo(n)
+  action post(n: string, how: string)
+    send waited = postTimeout(n, how)
+  action postAlso(n: string, how: string)
+    send result = postTimeout(n, how)
   action starter
     send waited = starter()
   action racer
@@ -244,6 +248,64 @@ fn a_let_go_answer_never_runs_its_timer() {
     assert_eq!(result(&r, "result"), said("armed 1,armed 2,ran 2"));
 }
 
+/// A POST its answer let go runs to its end (LLP 1146 D2), and the
+/// `AbortSignal.timeout` it carries, dropped with that answer's other timers,
+/// still aborts at the deadline the host gave the request, as a browser's
+/// fires: carried as it is, through `AbortSignal.any`, or beside an
+/// `exactTimeout` as long. A later answer carrying the same signal has its
+/// deadline too. One longer than a request waits is not the request's
+/// deadline: the hour is, and the signal does not abort when it passes.
+#[test]
+fn an_adopted_fetch_s_timeout_still_aborts_its_signal() {
+    let timed_out = || Outcome::Failed {
+        kind: FailureKind::Timeout,
+        message: "the request timed out after 250 ms".into(),
+    };
+    let post = |r: &mut Runner<Module>, action: &str, n: &str, how: &str| {
+        r.act(action, vec![Value::str(n), Value::str(how)]).unwrap();
+        let mut fetches = pump(r);
+        assert_eq!(fetches.len(), 1, "{how}");
+        fetches.remove(0)
+    };
+    let log = |r: &mut Runner<Module>| {
+        r.act("readLog", vec![]).unwrap();
+        pump(r);
+        result(r, "result")
+    };
+    for how in ["direct", "any", "equal"] {
+        let mut r = runner();
+        let first = post(&mut r, "post", "1", how);
+        assert_eq!(first.request.timeout_ms, Some(250), "{how}");
+        let second = post(&mut r, "post", "2", how);
+        assert!(r.holds(first.ticket), "{how}: the let-go POST runs on");
+        r.fulfill(first.ticket, timed_out()).unwrap();
+        pump(&mut r);
+        r.fulfill(second.ticket, ok()).unwrap();
+        pump(&mut r);
+        assert_eq!(log(&mut r), said("1 TimeoutError true,posted 2"), "{how}");
+    }
+    let mut r = runner();
+    let first = post(&mut r, "post", "1", "long");
+    assert_eq!(first.request.timeout_ms, Some(3_600_000));
+    let second = post(&mut r, "post", "2", "direct");
+    r.fulfill(first.ticket, timed_out()).unwrap();
+    pump(&mut r);
+    r.fulfill(second.ticket, ok()).unwrap();
+    pump(&mut r);
+    assert_eq!(log(&mut r), said("1 FetchError false,posted 2"));
+    let mut r = runner();
+    let first = post(&mut r, "post", "1", "shared");
+    let second = post(&mut r, "post", "2", "direct");
+    let third = post(&mut r, "postAlso", "3", "shared");
+    assert_eq!(third.request.timeout_ms, Some(250), "the first's signal");
+    for (fetch, outcome) in [(first, ok()), (second, ok()), (third, timed_out())] {
+        r.fulfill(fetch.ticket, outcome).unwrap();
+        pump(&mut r);
+    }
+    assert_eq!(result(&r, "result"), said("done 3"));
+    assert_eq!(log(&mut r), said("posted 1,posted 2,3 TimeoutError true"));
+}
+
 #[test]
 fn a_timer_left_when_its_answer_gives_its_value_never_runs() {
     let mut r = runner();
@@ -381,4 +443,23 @@ fn a_reask_due_after_an_answers_timer_waits_for_it() {
     );
     seek(&mut r, 1000.);
     assert_eq!(result(&r, "result"), said("a after 450"));
+}
+
+#[test]
+fn takeover_releases_an_overdue_answer_timer_without_rewinding() {
+    use std::{cell::Cell, rc::Rc};
+    let mut r = runner();
+    let wall = Rc::new(Cell::new(0.0));
+    let sample = wall.clone();
+    r.set_live_clock(Some(Box::new(move || sample.get())));
+    r.act("sleep", vec![Value::str("takeover"), Value::Number(50.)])
+        .unwrap();
+    pump(&mut r);
+    assert_eq!(r.data_timer_due_ms(), Some(50.));
+    wall.set(100.);
+    r.set_live_clock(None);
+    assert_eq!(r.now_ms(), 100.);
+    seek(&mut r, 100.);
+    assert_eq!(r.now_ms(), 100.);
+    assert_ne!(result(&r, "result"), Value::NONE);
 }

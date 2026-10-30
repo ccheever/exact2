@@ -7,11 +7,12 @@
 //
 // usage: bun packages/local-auth/test/excord-sim.mjs --sim <udid>
 //   Builds nothing: build Excord first (host/apple/build.mjs excord-apple
-//   --ios --sim <udid>). Starts Excord's fixture server on 4790 and stops it.
+//   --ios --sim <udid>). Starts Excord's fixture server on the port this
+//   checkout's build bakes, and stops it.
 //   Leaves the token in the simulator's keychain; delete the app to wipe it.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { checker } from './fixture.mjs';
+import { checker, excordFixture } from './fixture.mjs';
 
 const root = resolve(import.meta.dir, '../../..');
 const argv = process.argv.slice(2), udid = argv[argv.indexOf('--sim') + 1];
@@ -24,11 +25,7 @@ const face = (result) => simctl('spawn', udid, 'notifyutil', '-p', `com.apple.Bi
 simctl('spawn', udid, 'notifyutil', '-s', 'com.apple.BiometricKit.enrollmentChanged', '1');
 simctl('spawn', udid, 'notifyutil', '-p', 'com.apple.BiometricKit.enrollmentChanged');
 
-const fixture = spawn('bun', [resolve(root, 'apps/excord/fixture/server.ts'), '--world', 'transcript', '--reset-on-identify'], { stdio: ['ignore', 'pipe', 'inherit'] });
-await new Promise((ok, fail) => {
-  fixture.stdout.once('data', ok);
-  fixture.once('exit', (code) => fail(new Error(`the fixture server exited (${code}); is 4790 taken?`)));
-});
+const fixture = await excordFixture();
 
 // A scratch store for the app's files (the gateway keeps its identify record there); the token stays the keychain's.
 const launch = () => open({ host: 'ios', app: 'excord', bind: 'local-auth', storage: 'local-auth-real', env: { EXACT_STORE: 'real' } });
@@ -94,7 +91,7 @@ try {
 } catch (e) {
   check('excord', 'ran', false, e.stack ?? e);
 } finally {
-  fixture.kill();
+  fixture.stop();
 }
 console.log(`${failed()} failed`);
 process.exit(failed() ? 1 : 0);

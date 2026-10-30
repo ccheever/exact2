@@ -152,6 +152,8 @@ pub struct Request {
     /// last one, never dropped. Unset, such a body is the stream's one
     /// answer. Set by TypeScript's `fetch(url, {exactStream})`.
     pub bytes: bool,
+    /// An HTTP stream that is an upload, which tells its bytes sent (`upload.rs`).
+    pub upload_progress: bool,
     /// An HTTP stream that is a long poll (LLP 1016.000 D8): the host asks
     /// the URL, delivers each reply as one [`Message`] (its `id` the new
     /// cursor), and asks again with the cursor taken from that reply, one
@@ -163,7 +165,7 @@ pub struct Request {
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
-    /// URLSession's 60-second idle timeout). A stream has no deadline.
+    /// URLSession's 60-second idle timeout). A stream takes none, except an upload.
     /// Set by TypeScript's `fetch(url, {exactTimeout})` and [`Request::timeout`].
     pub timeout_ms: Option<u32>,
     /// The body is this app file's bytes (`app:/…`), read by the host when it
@@ -209,6 +211,11 @@ pub struct Request {
     /// ([`super::Runner::release_work`]) when its clock reaches this time, in
     /// ms. Set by [`Request::wake`].
     pub wake_ms: Option<u64>,
+    /// The data module's own ticket for the fetch this request is, when the
+    /// module set it: an abort the app makes names the request by it
+    /// ([`super::DataSource::take_aborted`]), so it reaches this request and
+    /// no later one of the same target.
+    pub fetch: Option<u64>,
 }
 
 /// The event of a long poll's message that is a reply but no event (LLP
@@ -312,6 +319,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -322,6 +330,7 @@ impl Request {
             listen: None,
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 
@@ -353,6 +362,26 @@ impl Request {
             && self.surface.is_none()
     }
 
+    /// Whether the request may change something at its server: an `http:`
+    /// or `https:` request whose method is not safe (RFC 9110 §9.2.1), and
+    /// no stream, socket, long poll or held request. One its answer lets go
+    /// runs to its end (LLP 1146 D2): cancelling it would not undo it.
+    pub fn has_effects(&self) -> bool {
+        let url = self.url.get(..8).unwrap_or(&self.url).to_ascii_lowercase();
+        (url.starts_with("http://") || url.starts_with("https://"))
+            && !matches!(
+                self.method.to_ascii_uppercase().as_str(),
+                "GET" | "HEAD" | "OPTIONS" | "TRACE"
+            )
+            && self.continuation.is_none()
+            && self.storage.is_none()
+            && self.surface.is_none()
+            && !self.stream
+            && !self.socket
+            && self.long_poll.is_none()
+            && !self.held
+    }
+
     /// Native ordered lane is mandatory for storage and continuations, even
     /// when an invalid HTTP annotation will cause their admission to refuse.
     pub fn is_ordered(&self) -> bool {
@@ -376,6 +405,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -386,6 +416,7 @@ impl Request {
             listen: None,
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 
@@ -404,6 +435,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -414,6 +446,7 @@ impl Request {
             listen: None,
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 
@@ -697,12 +730,13 @@ impl Request {
     }
 
     /// Why this request's deadline is refused, if it is: zero, over
-    /// [`MAX_TIMEOUT_MS`], on a stream, or on work that is not HTTP.
+    /// [`MAX_TIMEOUT_MS`], on a stream that is not an upload, or on work
+    /// that is not HTTP.
     pub fn timeout_refusal(&self) -> Option<&'static str> {
         let ms = self.timeout_ms?;
         if ms == 0 || ms > MAX_TIMEOUT_MS {
             Some("a request timeout must be 1 to 3600000 ms")
-        } else if self.stream {
+        } else if self.stream && !self.upload_progress {
             Some("a stream has no timeout")
         } else if self.storage.is_some()
             || self.continuation.is_some()
@@ -1334,121 +1368,5 @@ mod scheduling_tests {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn surface_scope_must_be_admitted_and_name_the_operation() {
-        let admitted = "surface.read world\nsurface.write world\nsurface.read map";
-        assert!(Request::capture_surface("world")
-            .check_surface_grant(admitted)
-            .is_ok());
-        assert!(Request::restore_surface("world", vec![])
-            .check_surface_grant(admitted)
-            .is_ok());
-        let mut narrowed = Request::capture_surface("world");
-        narrowed.grants = Some("surface.read map".into());
-        assert!(narrowed.check_surface_grant(admitted).is_err());
-        narrowed.grants = Some("surface.read world\nsurface.write other".into());
-        assert!(narrowed.check_surface_grant(admitted).is_err());
-        let mut mixed = Request::capture_surface("world");
-        mixed.storage = Some(Vec::new());
-        assert!(mixed
-            .check_surface_grant(admitted)
-            .unwrap_err()
-            .contains("multiple host-work kinds"));
-        assert_eq!(
-            io_grants(
-                "fs.read app:/data\nsurface.read world\ndevice.microphone p\nruntime.allow-jit Helpers/node/bin/node\nsurface.write world\nauth.session https://x.test\nauth.callback a.b:/c"
-            ),
-            "fs.read app:/data"
-        );
-    }
-
-    #[test]
-    fn a_body_from_a_file_is_http_with_no_other_body() {
-        let post = |path: &str| Request::post_json("https://x.test", "").body_from(path);
-        assert_eq!(post("app:/tmp/a.jpg").body_from_refusal(), None);
-        assert_eq!(Request::get("https://x.test").body_from_refusal(), None);
-        assert!(post("/tmp/a.jpg")
-            .body_from_refusal()
-            .unwrap()
-            .contains("app:/"));
-        let mut both = post("app:/tmp/a.jpg");
-        both.body = b"x".to_vec();
-        assert!(both.body_from_refusal().unwrap().contains("one body"));
-        for method in ["GET", "head"] {
-            let mut read = post("app:/tmp/a.jpg");
-            read.method = method.into();
-            assert!(read.body_from_refusal().unwrap().contains("GET or HEAD"));
-        }
-        let socket = Answer::stream(post("app:/tmp/a.jpg"));
-        let Answer::Later(mut socket) = socket else {
-            unreachable!()
-        };
-        socket.url = "WSS://x.test/feed".into();
-        assert!(socket.body_from_refusal().unwrap().contains("WebSocket"));
-        let native = Request::native(Vec::new()).body_from("app:/tmp/a.jpg");
-        assert_eq!(
-            native.body_from_refusal(),
-            Some("only HTTP takes exactBodyFrom")
-        );
-        let mut storage = Request::storage(Vec::new()).body_from("app:/tmp/a.jpg");
-        storage.method = "POST".into();
-        assert_eq!(
-            storage.body_from_refusal(),
-            Some("only HTTP takes exactBodyFrom")
-        );
-    }
-
-    #[test]
-    fn a_body_to_a_file_is_an_http_reply_written_by_the_host() {
-        let get = |path: &str| Request::get("https://x.test").body_to(path);
-        assert_eq!(get("app:/cache/a.jpg").body_to_refusal(), None);
-        let mut post = Request::post_json("https://x.test", "{}").body_to("app:/cache/a.jpg");
-        assert_eq!(post.body_to_refusal(), None);
-        post.body_from = Some("app:/tmp/b".into());
-        post.body.clear();
-        assert_eq!(post.body_to_refusal(), None);
-        for (path, why) in [
-            ("/cache/a.jpg", "app:/"),
-            ("app:/cache/../a", ". or .."),
-            ("app:/cache/./a", ". or .."),
-            ("app:/cache/a\0", ". or .."),
-        ] {
-            assert!(get(path).body_to_refusal().unwrap().contains(why), "{path}");
-        }
-        let long = format!("app:/cache/{}", "a".repeat(4096));
-        assert!(get(&long).body_to_refusal().unwrap().contains("4096"));
-        let mut head = get("app:/cache/a");
-        head.method = "HEAD".into();
-        assert!(head.body_to_refusal().unwrap().contains("HEAD"));
-        let Answer::Later(stream) = Answer::stream(get("app:/cache/a")) else {
-            unreachable!()
-        };
-        assert!(stream.body_to_refusal().unwrap().contains("stream"));
-        assert_eq!(
-            Request::native(Vec::new())
-                .body_to("app:/cache/a")
-                .body_to_refusal(),
-            Some("only HTTP takes exactBodyTo")
-        );
-        // The ceiling: up to 1 GiB for a body written to a file, 64 MiB otherwise.
-        let big = get("app:/cache/a").independent_http(MAX_BODY_TO_BYTES);
-        assert_eq!(big.ceiling_refusal(), None);
-        assert!(get("app:/cache/a")
-            .independent_http(MAX_BODY_TO_BYTES + 1)
-            .ceiling_refusal()
-            .is_some());
-        assert!(Request::get("https://x.test")
-            .independent_http((64 << 20) + 1)
-            .ceiling_refusal()
-            .is_some());
-        let written = Response {
-            status: 200,
-            headers: vec![(BODY_WRITTEN.into(), "17".into())],
-            body: Vec::new(),
-        };
-        assert_eq!(written.body_written(), Some(17));
-    }
-}
+#[path = "request_tests.rs"]
+mod tests;

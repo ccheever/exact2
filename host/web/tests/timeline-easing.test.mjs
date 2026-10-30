@@ -23,7 +23,7 @@ const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target')
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const WEB_JS = resolve(WEB, '../web-js');
 const GLUE = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
-const commitSource = glueDeclarations(GLUE, ['apply', 'applyBatch', 'wakeLock', 'holdWake']);
+const commitSource = glueDeclarations(GLUE, ['apply', 'applyBatch', 'wakeLock', 'holdWake', 'orientationLock', 'holdOrientation']);
 // The wasm host's real operation switch and commit tail, with the unrelated
 // host pieces inert. Keeping both functions in this one closure matters:
 // the `timelines` operation sets the flag that the commit tail consumes.

@@ -53,7 +53,7 @@ const DRIVE_INTERNAL = ['--app <name>', '--session <label>', '--pid <pid>', '--o
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
-const APPLE = ['--watchos', '--watch-sim <udid>', '--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
+const APPLE = ['--painted-benchmark', '--watchos', '--watch-sim <udid>', '--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
   '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>', '--widget-gallery'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
@@ -243,6 +243,7 @@ Ports    none. Runs to completion (--run too); --prebuild returns at once, the b
       PREBUILD,
       RELEASE,
       ['--bundle', 'assemble the .app bundle (the macOS default)'],
+      ['--painted-benchmark', 'build the app’s <macos-crate>-painted bin with ink; benchmark carrier only (LLP 1149 S1.1)'],
       ['--url <url>', 'connect the app to that dev server (web\'s URL) for live reload'],
       OPTIMIZE,
     ],

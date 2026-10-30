@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 160 recipes are listed. Each row has a coloured category SF Symbol, a bold title, 'Category · time', a star rating and a chevron. The header row shows the count and the current sort."},
+      {"n": 2, "status": "pass", "note": "A horizontal chip row has All plus all nine categories. The .searchable field matches titles and ingredients and works together with the chip (Desserts + 'lemon' gave 9). Zero results show an empty state that names the category and query, with a 'Clear Search and Filter' button."},
+      {"n": 3, "status": "pass", "note": "A native pull-down menu offers Name A–Z, Time quickest first and Rating highest first, each with an icon and subtitle. All three sort correctly, and the sort persists."},
+      {"n": 4, "status": "pass", "note": "The detail screen has a category eyebrow, a large title, and Time/Serves/Rating tiles. A system Stepper scales quantities with proper fractions (⅔, 1⅔, 3⅓) and has a Reset button. Decrement is disabled at 1. Steps are numbered with orange circled numbers. Units are pluralised ('3 cups')."},
+      {"n": 5, "status": "pass", "note": "You can save or remove from a nav-bar heart and from a large 'Save to Favorites' button. The Favorites tab lists saved recipes, rows swipe to Remove, and the empty state has a heart, an explanation and a 'Browse Recipes' button."},
+      {"n": 6, "status": "pass", "note": "Two favourites survived a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The category filter is a row of hand-drawn capsule chips, not a system Picker or Menu (this is a common iOS pattern, though).",
+      "The detail nav bar is blank at the top and the title only appears after scrolling. The big-title header is custom, not a navigation large title.",
+      "At the largest text size the category chips grow huge, so only about two fit across the screen."
+    ],
+    "scroll": "Slow drags and flings were smooth with no blank or popping rows. Cell reuse looks native, and the search bar and count header stay pinned under the inline title as expected.",
+    "scores": {"features": 10, "platform": 8, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "An inset-grouped list shows title, 'Category · time', a grey star rating and a chevron, with a '160 Recipes' header."},
+      {"n": 2, "status": "pass", "note": "A Category pull-down menu in the nav bar has All Recipes plus nine categories. Search covers titles and ingredients and combines with the category (Desserts + 'lemon' gave 9). The empty state offers 'Show All Recipes'."},
+      {"n": 3, "status": "pass", "note": "A native sort menu offers Name, Time and Rating, and all three sort correctly."},
+      {"n": 4, "status": "pass", "note": "A Settings-style form shows Category, Time, Rating, and Servings with a system Stepper. Quantities scale with fractions (½, 1½) and a 'Scaled for 1 serving from 2' footer. Decrement is disabled at 1. Steps are numbered."},
+      {"n": 5, "status": "pass", "note": "The nav-bar heart toggles a favourite. The Favorites tab lists saved recipes with a 'Swipe a recipe to remove it' footer, and the swipe Delete action works. The empty state reads 'No Favorites Yet' and has a Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "The favourite survived a relaunch."}
+    ],
+    "bugs": [
+      "Units are not pluralised after scaling ('1 cloves milk')."
+    ],
+    "tells": [
+      "The empty-state titles ('No Recipes Found', 'No Favorites Yet') are regular weight rather than the bold ContentUnavailableView title.",
+      "The search keyboard turns Shift back on after typing a lowercase word, as if the field is being reset while you type.",
+      "The detail screen is a bare form with only a small inline title and no hero title, so it looks like a Settings page rather than a recipe.",
+      "At the largest text size the Rating row stays side by side while the Category and Time rows stack, which is inconsistent.",
+      "The swipe action is labelled 'Delete' (trash icon) even though it only removes the favourite."
+    ],
+    "scroll": "Smooth and native-feeling, with no blank rows, jumps or pop-in during slow drags or flings. Inset-grouped rows reuse cleanly.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet every requirement and both use native lists, menus, steppers, search and swipe actions. A is the more finished recipe app: a proper recipe header, discoverable category chips, pluralised and nicely fractioned quantities, a richer empty state and a Reset for servings. B is correct but plain: its detail screen looks like a Settings form, and it has small rough edges (unbolded empty-state titles, 'Delete' for unfavourite, '1 cloves')."
+}

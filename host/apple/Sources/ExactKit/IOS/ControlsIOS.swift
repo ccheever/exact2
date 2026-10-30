@@ -168,6 +168,9 @@ final class ControlHost: NSObject {
             kept.tag = Int(node.id)
             controls[node.id] = kept
             kinds[node.id] = kind
+            #if os(iOS)
+            presenter.menus.adoptNativeMenu(kept, of: node.id)
+            #endif
             return kept
         }
         controls.removeValue(forKey: node.id)?.removeFromSuperview()
@@ -201,16 +204,22 @@ final class ControlHost: NSObject {
     }
 
     /// Whether a native button parks with its row (NodePool) rather than
-    /// going as a heavy leaf: drawn in its node, not glass, opening no menu,
+    /// going as a heavy leaf: drawn in its node, not glass, showing no menu,
     /// and not under a touch. A `UIButton` holds no value, and its action
     /// reaches whichever node owns it, so nothing of one row reaches the
     /// next. A button leaving the window and a new one configured cost a
-    /// list's new row more than the rest of it.
+    /// list's new row more than the rest of it. A pull-down keeps its menu,
+    /// built again for the next row (`MenuHost.adoptNativeMenu`). One not
+    /// made yet (in a closed popover, `unshown`) parks as its bare node,
+    /// the shape the next row's create ops give it (`NodePool.take`).
     func parks(_ node: NodeView) -> Bool {
-        guard node.isNativeButton, let b = controls[node.id] as? NativeButtonIOS, b.owner === node, b.superview === node,
-              !b.isGlass, !b.isTracking, !b.isHighlighted else { return false }
+        guard node.isNativeButton else { return false }
+        guard let b = controls[node.id] as? NativeButtonIOS else {
+            return controls[node.id] == nil && !node.subviews.contains { $0 is UIControl }
+        }
+        guard b.owner === node, b.superview === node, !b.isGlass, !b.isTracking, !b.isHighlighted else { return false }
         #if os(iOS)
-        return b.menu == nil && b.popover == nil
+        return b.menuAtRest
         #else
         return true
         #endif
@@ -218,6 +227,9 @@ final class ControlHost: NSObject {
     /// `id`'s node parks: its button stays in it, out of every map, until the
     /// node's next id takes it back (`control(for:)`).
     func park(_ id: UInt32) {
+        #if os(iOS)
+        presenter.menus.parkNativeMenu(id)
+        #endif
         controls.removeValue(forKey: id)
         reported.removeValue(forKey: id); faces.removeValue(forKey: id); kinds.removeValue(forKey: id)
         menus.removeValue(forKey: id); lastRange.removeValue(forKey: id); appliedRange.removeValue(forKey: id)
@@ -256,6 +268,17 @@ final class ControlHost: NSObject {
     func faceChanged(_ id: UInt32) { faces.removeValue(forKey: id) }
     /// Asks for every face again at its next read.
     func facesChanged() { faces.removeAll() }
+
+    /// Configures again a control whose accent follows the tint
+    /// (`AccentColor`), which `sync` resolved by the tint its owner had then:
+    /// UIKit's default for one configured out of the window. Not while UIKit
+    /// dims the tint, which it shows unchanged after, nor for a control still
+    /// leaving after its owner went.
+    func tintChanged(_ owner: NodeView) {
+        guard owner.tintAdjustmentMode != .dimmed, presenter.views[owner.id] === owner,
+              owner.style["accent_color"]?.namesTint == true, let control = controls[owner.id] else { return }
+        configure(control, owner, on: nil)
+    }
 
     /// `contents`: a sync outside any batch, which reads every face again;
     /// a batch has already dropped the faces it changes (`Presenter.apply`).
@@ -296,30 +319,7 @@ final class ControlHost: NSObject {
             let mount = owner.controlMount
             if control.superview !== mount { mount.addSubview(control) }
             if control.isHidden != owner.cssVisibilityHidden { control.isHidden = owner.cssVisibilityHidden }
-            let on = owner.props["checked"].map { $0 == "true" }
-            let accent = owner.channels("accent_color").map { TextEngine.color($0) }
-            #if os(tvOS)
-            if let b = control as? NativeButtonIOS {
-                configureNative(b, owner, accent: accent)
-            } else if let c = control as? ExactCheckbox {
-                if let on { c.isOn = on }
-                assign(c, \.accent, accent)
-            } else {
-                configureValue(control, owner, accent: accent)
-            }
-            #else
-            if let b = control as? NativeButtonIOS {
-                configureNative(b, owner, accent: accent)
-            } else if let s = control as? UISwitch {
-                if let on, s.isOn != on { s.setOn(on, animated: s.window != nil) }
-                assign(s, \.onTintColor, accent)
-            } else if let c = control as? ExactCheckbox {
-                if let on { c.isOn = on }
-                assign(c, \.accent, accent)
-            } else {
-                configureValue(control, owner, accent: accent)
-            }
-            #endif
+            configure(control, owner, on: owner.props["checked"].map { $0 == "true" })
             if let c = control as? ExactCheckbox {
                 c.ariaUnavailable = owner.ariaUnavailable
             }
@@ -384,6 +384,34 @@ final class ControlHost: NSObject {
             }
         }
         syncProgress()
+    }
+
+    /// Configures `control` from its owner, its accent by the owner's tint
+    /// now; a nil `on` leaves a switch's or checkbox's checked state alone.
+    private func configure(_ control: UIControl, _ owner: NodeView, on: Bool?) {
+        let accent = owner.channels("accent_color").map { TextEngine.color($0) }
+        #if os(tvOS)
+        if let b = control as? NativeButtonIOS {
+            configureNative(b, owner, accent: accent)
+        } else if let c = control as? ExactCheckbox {
+            if let on { c.isOn = on }
+            assign(c, \.accent, accent)
+        } else {
+            configureValue(control, owner, accent: accent)
+        }
+        #else
+        if let b = control as? NativeButtonIOS {
+            configureNative(b, owner, accent: accent)
+        } else if let s = control as? UISwitch {
+            if let on, s.isOn != on { s.setOn(on, animated: s.window != nil) }
+            assign(s, \.onTintColor, accent)
+        } else if let c = control as? ExactCheckbox {
+            if let on { c.isOn = on }
+            assign(c, \.accent, accent)
+        } else {
+            configureValue(control, owner, accent: accent)
+        }
+        #endif
     }
 
     /// Whether a batch left `owner`'s control as it was: neither the owner

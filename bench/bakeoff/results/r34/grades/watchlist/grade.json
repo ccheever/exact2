@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed: bold symbol, grey name, price, and % change from open in green (+) or red (-)."},
+      {"n": 2, "status": "pass", "note": "A handful of rows change every second. Rows update in place and the list re-sorts live under Change sort, including mid-scroll, with no jumps."},
+      {"n": 3, "status": "pass", "note": "Native pull-down menu offers Symbol, Price, Change and an Ascending/Descending toggle. Search in the iOS 26-style bottom bar matches symbol ('zex') and name ('bank'). The no-results state has a 'Show All Tickers' button."},
+      {"n": 4, "status": "pass", "note": "Star on each row and in the detail nav bar. A native segmented control switches All / My List; My List filters correctly."},
+      {"n": 5, "status": "pass", "note": "Detail shows name, large price, % since open, open, volume and a live line chart with low/high. History starts at app launch, so the chart is short at first."},
+      {"n": 6, "status": "pass", "note": "My List, sort key and direction, and even the All/My List scope survive relaunch."}
+    ],
+    "bugs": [
+      "List footer reads 'Simulated prices · USD Change is measured from the opening price.' A separator between 'USD' and 'Change' is missing."
+    ],
+    "tells": [
+      "Row star is exposed to accessibility as a Switch, not a toggle button.",
+      "No large title on the main screen; it uses a small inline 'Watchlist' title.",
+      "No swipe actions on rows (e.g. swipe to add to or remove from My List).",
+      "Segmented control sits between hand-drawn hairline separators, so it looks like a list cell, not a header.",
+      "At the largest text size the segmented control labels don't grow, and the price/change column wraps under the name, ending up oddly indented."
+    ],
+    "scroll": "Smooth like a native list: slow drags, flings and the bounce past the top all look normal. Rows re-sort live without blank rows, and scroll position is kept when coming back from a ticker.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed: symbol, name, $price, and % change in a green or red pill badge."},
+      {"n": 2, "status": "pass", "note": "Prices tick every second and update in place. The list re-sorts live under Change sort while scrolling. The advancing/declining summary also updates."},
+      {"n": 3, "status": "pass", "note": "Sort menu with Symbol/Price/Change plus a separate Ascending/Descending section. Search field under the large title matches symbol and name, with an empty state."},
+      {"n": 4, "status": "pass", "note": "Star on each row (left side), in the detail nav bar and as a full-width 'Add to My List' button. Segmented All / My List works."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, % and $ change, open, volume and a live area chart with a price axis. History starts when the screen opens ('LIVE · 10s')."},
+      {"n": 6, "status": "pass", "note": "My List and sort (key and direction) survive relaunch. The scope resets to All, which the spec doesn't require."}
+    ],
+    "bugs": [
+      "After scrolling down and back to the top, the large 'Watchlist' title isn't drawn and an empty band sits where it should be.",
+      "While searching, the large title disappears but its space stays blank above the search field, instead of the bar collapsing. The market summary card stays too, so only about one result shows above the keyboard."
+    ],
+    "tells": [
+      "Hand-styled look: custom teal tint, pill-shaped change badges, a 'Market at a glance' card with a custom progress bar, and a 'Live' capsule in the nav bar. It feels more like a designed web or cross-platform app than stock UIKit.",
+      "Very tall rows (88 pt) with the star on the leading edge and inset separators, unlike a standard list cell.",
+      "At the largest text size the row star, sort arrow and segmented labels stay tiny while the text grows. The sticky 'ALL TICKERS / Change' header grows to cover about a quarter of the screen.",
+      "No swipe actions on rows.",
+      "The accessibility tree contains many off-screen row buttons stacked at a single point."
+    ],
+    "scroll": "Scrolling and flinging are smooth, with live updates and re-sorting while moving. The sticky section header works, but scrolling back to the top leaves the large title blank, which looks broken. Scroll position is kept when coming back from a ticker.",
+    "scores": {"features": 9, "platform": 6, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement, including live re-sorting and persistence. A looks and behaves like a stock iOS app (native bottom search, inset-grouped detail, standard menus) and has only a footer typo. B is more decorated, but its large title vanishes after scrolling and leaves a blank gap during search, and its custom styling and fixed-size icons give it away as not hand-built UIKit."
+}

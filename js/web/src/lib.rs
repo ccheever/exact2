@@ -108,6 +108,19 @@ fn string_pairs(json: &Json) -> Option<Vec<(String, String)>> {
         .collect()
 }
 
+/// The realm's answer to `has-overlay`: only an explicit `{has: false}` means
+/// none; an error or anything else fails, as the overlay call itself did.
+fn overlay_present(bytes: &[u8]) -> Result<bool, DataError> {
+    let reply = json::parse(bytes).map_err(|e| unavailable(e.to_string()))?;
+    match reply["has"].as_bool() {
+        Some(has) => Ok(has),
+        None => Err(unavailable(match reply["error"].as_str() {
+            Some(error) => format!("the overlay probe failed: {error}"),
+            None => "the overlay probe answered no `has`".to_string(),
+        })),
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn call(input: Json) -> Result<Vec<u8>, DataError> {
     #[link(wasm_import_module = "exact_js")]
@@ -156,6 +169,7 @@ pub struct Module {
     told_overlay: Vec<String>,
     overlay_notes: Vec<String>,
 }
+
 impl Module {
     /// Construct from binary-admitted identity/grants and baked HBC digest.
     /// No browser call or app code executes during construction.
@@ -406,6 +420,8 @@ impl Module {
             }
             // `exactHeld` (LLP 1016.000 D9): no clock waits on it.
             request.held = r["held"] == true;
+            // `exactUploadProgress`: the page sends it with XMLHttpRequest.
+            request.upload_progress = r["upload_progress"] == true;
             // `exactBodyFrom`: the page reads the file into the body.
             match &r["body_from"] {
                 Json::Null => {}
@@ -431,6 +447,8 @@ impl Module {
                 };
                 self.streams.insert(key, ());
             } else {
+                // What an app's abort names it by (`take_aborted`).
+                request.fetch = response["ticket"].as_u64();
                 self.waiting.insert(key, false);
             }
             Answer::Later(request)
@@ -547,6 +565,13 @@ impl DataSource for Module {
         let Some((params, result)) = self.signatures.get(source) else {
             return Err(DataError::UnknownSource(source.into()));
         };
+        // A module with no `exact.overlay` shows the answer: ask the realm
+        // first, so the answer and the writes are not encoded for nothing (as
+        // exact-js does on native).
+        let probe = object([("op", "has-overlay".into()), ("id", self.id.into())]);
+        if !overlay_present(&call(probe)?)? {
+            return Ok(None);
+        }
         let encode = |v: &Value, s: &Shape| json::encode(v, s).map_err(unavailable);
         let args = args
             .iter()
@@ -784,6 +809,20 @@ impl DataSource for Module {
             }
         }
         lines
+    }
+
+    fn take_aborted(&mut self) -> Vec<u64> {
+        // The realm holds them until asked, whichever turn made them (a
+        // worker's are posted to the page as each is made).
+        let said = match self.ready {
+            true => self.realm("aborted").ok(),
+            false => None,
+        };
+        let said = said.as_ref().and_then(|reply| reply["tickets"].as_array());
+        said.into_iter()
+            .flatten()
+            .filter_map(Json::as_u64)
+            .collect()
     }
 
     fn discard(&mut self, token: u64) {
@@ -1177,5 +1216,28 @@ mod tests {
             )
             .is_err());
         assert_eq!(store.get("token"), Some("before-error"));
+    }
+}
+
+#[cfg(test)]
+mod overlay_probe_tests {
+    use super::overlay_present;
+
+    /// Only an explicit answer decides: `{has: false}` is no overlay, `{has:
+    /// true}` (a page realm with one, or a worker realm, which can't say) is
+    /// one, and a probe that threw or answered nothing usable fails, as the
+    /// overlay call's own failure did.
+    #[test]
+    fn only_an_explicit_answer_decides_whether_a_realm_has_an_overlay() {
+        assert!(!overlay_present(br#"{"has":false}"#).unwrap());
+        assert!(overlay_present(br#"{"has":true}"#).unwrap());
+        let thrown = overlay_present(br#"{"error":"a getter threw"}"#).unwrap_err();
+        assert!(
+            format!("{thrown:?}").contains("a getter threw"),
+            "{thrown:?}"
+        );
+        assert!(overlay_present(b"{}").is_err());
+        assert!(overlay_present(br#"{"has":"no"}"#).is_err());
+        assert!(overlay_present(b"not json").is_err());
     }
 }

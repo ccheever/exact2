@@ -120,14 +120,16 @@ theme
   // A person's Follow button (FollowButton, Bluesky's FollowButtonInner):
   // each tone's fill and text, not following and following, from Bluesky's
   // Button.tsx over ALF's palette (dark is ALF's dim, as the package's other
-  // colours are). primary: primary_500 and white; following, secondary's
-  // contrast_50 and contrast_700 (inverted's following too). inverted:
-  // secondary_inverted's contrast_900 and text_inverted (contrast_0).
-  // subtle: primary_subtle's primary_50 and primary_600; following, the
-  // notification author's ghost secondary, the page (contrast_0) and
-  // contrast_600. overlay: secondary_inverted in the video feed's own dark
-  // theme (ALF's dark, black), contrast_900 and contrast_0, in both schemes
-  // and both states.
+  // colours are). primary: primary_500 and white, Bluesky's literals; an app
+  // (or, once its mapping lands, a theme importer) sets actions.follow-fill
+  // and actions.follow-ink by full name for its brand or accent. following,
+  // secondary's contrast_50 and contrast_700 (inverted's following too).
+  // inverted: secondary_inverted's contrast_900 and text_inverted
+  // (contrast_0). subtle: primary_subtle's primary_50 and primary_600;
+  // following, the notification author's ghost secondary, the page
+  // (contrast_0) and contrast_600. overlay: secondary_inverted in the video
+  // feed's own dark theme (ALF's dark, black), contrast_900 and contrast_0,
+  // in both schemes and both states.
   actions.follow-fill = light-dark(#006aff, #0f73ff)
   actions.follow-ink = #ffffff  scheme=fixed
   actions.follow-following-fill = light-dark(#eff2f6, #222e3f)

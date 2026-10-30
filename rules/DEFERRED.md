@@ -235,7 +235,14 @@ References row or app editing rules. Take: the Apple hosts' adoption of the
 crate's other hidden syntax (`QUEUE.md`, "Markdown editor") waits behind
 atoms. Still out: pill padding and radius, a second control inside a pill,
 atoms in the Linux, Windows and Android editors (they show the source), and
-inline math (a child RFC's). **Refined (Charlie, 2026-09-21:
+inline math (a child RFC's). **Expanded (Daehyeon Mun, 2026-10-29, waived;
+LLP 1045 D11):** the app gives each source line of the editor its base
+direction, `paragraphDirs` in HTML's `dir` words, drawn on the web and Apple.
+Unblocks T3 Code's composer, whose original gives each block the direction of
+most of its words. Take: waived (Daehyeon Mun, 2026-10-29): one attribute on
+the lines the editor already draws, no doing-list item in this area. Still
+out: the Linux, Windows and Android editors (they show the source) and the
+reader. **Refined (Charlie, 2026-09-21:
 "move forward with your plan"):** Native editing stays on TextKit 2;
 dependable source editing precedes further marker hiding, with Interview as
 the first consumer. **Refined again (Charlie, 2026-09-22: "let's remove
@@ -440,6 +447,12 @@ shortcut, Excord on Windows and macOS, Agents' New Conversation. Take:
 waived: no doing-list item is in this area, and the move retires the
 clone's Carbon registration. Still refused: helper daemons, jump lists
 (quick-actions'), Linux cells until a desktop host.
+**Expanded (Daehyeon Mun, 2026-10-28, waived; LLP 1021 §5.3.3; built
+2026-10-28):** File ▸ Close Window's chord, `-exact-menu-keys="close-window=…"`
+on the root, for the T3 Code clone, whose original leaves Close Window without
+⌘W. It amends the 2026-10-12 menubar lane ruling (the root's fixed removal
+ids) with a second root list, of one fixed id. Take: waived (Daehyeon Mun,
+2026-10-28): one fixed id for one consumer, a Mac-only hint other hosts ignore.
 
 ## Surfaces
 
@@ -1485,6 +1498,8 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   a reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
   component-scoped and action-started timers, computed intervals, a gate
   that reads `performanceNow()`, and cancelling a queued send.
+  **Expanded (user request, 2026-10-27/28; LLP 1147):** root timers accept `wait=frame|update|scrollend|idle` and bounded scroll or idle waits, or `tolerance=` for wake coalescing. The request explicitly includes all host platforms and deterministic coverage; the follow-up admits wake tolerance. Computed intervals, combined waits and per-node timer callbacks remain deferred.
+  **Qualification deferred (user request, 2026-10-28; LLP 1147):** actual energy-savings measurements, including iPhone battery and full-app Mac power measurements, and timer qualification with GPU rendering. Timer correctness, cancellation, admission instrumentation and `wait=update` performance remain in scope; Windows JavaScript qualification is not deferred.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none
@@ -1654,11 +1669,22 @@ node to its source. The take: no new Contract syntax until formatting and naviga
 have landed (1035.005 §1's order), and `contract` blocks as executable assertions
 (LLP 1006 §8) stay off the doing-list. The witness, dataflow and any general
 provenance explorer stay refused.
+**Read (LLP 1151, 2026-10-28; waiver approved by Charlie the same day, "approve waiver yes"):** formatting and navigation have landed; the authored-test grammar's `always`, `after` and `never refuses` blocks (test files, compiled to nothing an app runs) are read as outside this take; executable assertions in a component stay refused.
 **Widened (Charlie, 2026-10-14; LLP 1122 §9 Q2), development builds only:** the Tamber
 server may also read the map, to join a build's inspect report with its source for the
 design tool (LLP 1122 D5). It records each file's source digest and each winning row's
 attribute span. A host still never reads a map, and no map is in a bake. The tool shows
 one selected node's provenance; a general provenance explorer stays refused.
+
+**Expanded (user, 2026-10-28: "Implement", LLP 1079.000):** admit bounded local
+frame-health counters, native menus and cards, and human/agent readouts. The menu and
+card follow platform presentation and accessibility. The request "Let’s target 4KB"
+admits recent-hitch capture in fixed memory and explicit Share/Copy or agent reports
+capped at 4000 bytes, without automatic persistence or uploads. "Let’s do it all"
+also admits live-clock scheduling, cursor reads, the development-only passive
+native-scroll experiment and macOS card/inspector controls. Production default-on
+requires measured adapter qualification. No production inspection endpoint or
+remote telemetry is added.
 
 `clock` replaces a `wait` operation on purpose. If the motion graph is closed-form under
 a virtual clock, an agent advances time and reads the result; it never sleeps waiting for

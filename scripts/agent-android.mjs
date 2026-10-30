@@ -175,8 +175,9 @@ function readerDeploy(app, apk, env) {
     run(['reverse', `tcp:${port}`, `tcp:${port}`], `reverse tcp:${port}`);
   }
   // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
-  // seed, the fetch faults), a pushed plan and a dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
-  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || k === 'EXACT_DEV_PLAN' || k === 'EXACT_PLAN'));
+  // seed, the fetch faults), EXACT_STORE (`real`: the platform's stores, a conformance suite's), a pushed plan and a
+  // dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
+  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || ['EXACT_STORE', 'EXACT_DEV_PLAN', 'EXACT_PLAN'].includes(k)));
   return {
     serial, dir, shot,
     spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars)], { env, stdio: ['pipe', 'pipe', 'pipe'] }),
@@ -232,13 +233,27 @@ async function relay([serial, id, vars]) {
   socket.on('error', () => done(1));
   const answer = () => ready.length ? Promise.resolve(ready.shift()) : new Promise((r) => waiting.push(r));
   const say = (line) => process.stdout.write(line + '\n');
+  const pollsLanded = async () => {
+    for (const end = Date.now() + 2000; Date.now() < end;) {
+      socket.write('{"op":"polls"}\n');
+      if (!JSON.parse(await answer()).asking) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
   say(await answer()); // the app's `ready`
   let pending = '', turn = Promise.resolve();
   const one = async (line) => {
     let req = null;
     try { req = JSON.parse(line); } catch {}
     if (req?.op === 'quit') return done(0);
-    if (req?.op !== 'screenshot') { socket.write(line + '\n'); return say(await answer()); }
+    if (req?.op !== 'screenshot') {
+      socket.write(line + '\n');
+      const reply = await answer();
+      // A jump's asks of polled module sources land before its reply is given (LLP 1133.009 D10 item 7). The
+      // reader's extensions answer on its main thread, which takes their asks between requests, so the wait is here.
+      if (req?.op === 'clock' && !req.settle) await pollsLanded();
+      return say(reply);
+    }
     if (req.film) return say(JSON.stringify({ error: 'the reader carrier films nothing: its picture is a screencap of the device' }));
     await new Promise((r) => setTimeout(r, SHOT_SETTLE_MS));
     const shot = sh('shell', `screencap -p ${quote(req.path)}`);

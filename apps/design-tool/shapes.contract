@@ -635,6 +635,8 @@ shape Design
   ok: bool
   error: string
   file: string
+  // Whether the file read is the app's design, by "" or by its own path.
+  appDesign: bool
   answer: number
   groups: DialGroup[]
   columns: Column[]

@@ -4,7 +4,7 @@ import * as S from './discord/store.ts';
 import { snowflakeFromMs } from './discord/ids.ts';
 import { readyPayload, startFixture } from './fixture/server.ts';
 import { constants as zlibConstants, createDeflate } from 'node:zlib';
-import { applyEvent, call, clock, connect, createLive, digest, loadSession, pastedToken, recordIdentify, signIn, signOut } from './live.ts';
+import { applyEvent, call, clock, connect, createLive, digest, loadSession, page, pastedToken, recordIdentify, signIn, signOut, view } from './live.ts';
 import { unlockSession } from './lock.ts';
 import { createRenderer, windowOf, type Stored } from './render.ts';
 
@@ -773,6 +773,61 @@ test('19. a REST reply that lands after a sign-out leaves the next account\'s li
     await expect(first).rejects.toThrow('Signed out');
     lands[1](new Response('{}', { status: 200 }));
     expect(await second).toEqual({});
+  } finally { fetchSpy.mockRestore(); }
+});
+
+// F1 (x2-perf4's fling plan): the window names one older page per anchor, and keeps what lands, up to 300 rows.
+test('F1. with the anchor at the first row, one older page is named; re-anchored as each lands, the window grows to 300 rows', async () => {
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, history = rig.fixture.world.messages[channel], path = historyPath(channel);
+  expect(await app.ask('loadPage', [channel, 'latest', ''])).toEqual({ ok: true, error: '' });
+  const top = (await app.window(channel)).firstId;
+  // The view's lead (app.contract's leadOlder) moves the anchor to the first row again as each page lands; the
+  // window names one page per anchor, so the lead adds a page a step and stops within a page of 100 rows.
+  const edge = await app.window(channel, top);
+  // The cursor is the oldest cached message, the one that only supplies the first row's grouping.
+  expect(edge).toMatchObject({ need: 'before', cursor: history.at(-50)!.id });
+  expect(await app.ask('loadPage', [channel, edge.need, edge.cursor])).toEqual({ ok: true, error: '' });
+  const led = await app.window(channel, top);
+  expect(led.need).toBe('');
+  expect(ids(led.rows).indexOf(top)).toBe(50);
+  expect(rig.counts.get(path)).toBe(2);
+  // The window holds at most 300 rows, and the rows a page just brought are never shed from it.
+  let anchor = led.firstId, longest = 0;
+  for (let pages = 0; pages < 6; pages++) {
+    const edge = await app.window(channel, anchor);
+    if (edge.need !== 'before') break;
+    expect(await app.ask('loadPage', [channel, edge.need, edge.cursor])).toEqual({ ok: true, error: '' });
+    const grown = await app.window(channel, anchor);
+    expect(grown.rows.length).toBeLessThanOrEqual(300);
+    const at = history.findIndex(m => m.id === edge.cursor);
+    expect(ids(grown.rows).slice(0, 50)).toEqual(ids(history.slice(Math.max(0, at - 49), at + 1)));
+    anchor = grown.firstId; longest = Math.max(longest, grown.rows.length);
+  }
+  // 300 cached rows, the oldest supplying only the first row's grouping.
+  expect(longest).toBe(299);
+});
+
+test('a page whose body fails after its headers gives the route\'s slot back, so the next page goes out', async () => {
+  const live = createLive({ rest: 'https://discord.com', gateway: 'wss://gateway.discord.gg', cdn: 'https://cdn.discordapp.com', fixture: false });
+  live.token = 'a'.repeat(60);
+  let asked = 0;
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((() => {
+    asked++;
+    // The headers are in; the connection drops while the body arrives.
+    const body = new ReadableStream({ start(controller) { queueMicrotask(() => controller.error(new TypeError('connection reset'))); } });
+    // The second reply's headers say the route's bucket is spent for 5 s.
+    const spent = asked === 2 ? { 'X-RateLimit-Bucket': 'history', 'X-RateLimit-Limit': '5', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset-After': '5' } : {};
+    return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/json', ...spent } }));
+  }) as any);
+  try {
+    view(live, 'A');
+    await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('connection reset');
+    await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('connection reset');
+    expect(asked).toBe(2);
+    // What the failed reply's headers said still holds: the next page waits, without a request.
+    await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('Discord asks to wait 5 s');
+    expect(asked).toBe(2);
   } finally { fetchSpy.mockRestore(); }
 });
 

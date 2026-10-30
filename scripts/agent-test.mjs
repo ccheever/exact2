@@ -146,6 +146,10 @@ export function targetsIn(nodes, limit = 12) {
   return named.length ? `; targets here: ${named.slice(0, limit).join(', ')}${named.length > limit ? ', …' : ''}` : '';
 }
 
+/** The host as a test's `on` names it (LLP 1146 D7): `mac` is macOS's other name, and the sample host's
+ * sessions are the Mac's and the iPhone's. */
+export const testScope = (host) => ({ mac: 'macos', host: 'macos', 'host-ios': 'ios' })[host] ?? host;
+
 /** Where a native host keeps a drive's scratch stores (host/apple and host/linux `configure_storage`), or
  * null where the driver cannot reach them: an iOS simulator's are in its app container and go with the app. */
 export function storeBase(appId, host, env = process.env, home = homedir()) {
@@ -500,7 +504,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
       // request-shape refusals above and failing assertions below still get actionable notes.
       if (process.env.EXACT_AGENT_DEBUG) for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}`);
       const pending = (state?.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name);
-      if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so a drive that reads the app's data starts with "clock data"`);
+      if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply has surely landed only after a clock step, so a drive that reads the app's data starts with "clock data"`);
     } catch { /* advice only */ }
   };
 }
@@ -514,7 +518,8 @@ export async function serverRequest(base, st) {
   const url = whole ? st.path : `${base}${st.path}`, said = `request ${st.method} ${url}${st.as ? ` as ${st.as}` : ''}`;
   const headers = { ...(st.body != null ? { 'content-type': 'application/json' } : {}), ...(st.as ? { authorization: `Bearer ${st.as}` } : {}) };
   let res;
-  try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(10_000) }); }
+  // A bound only for a hanging server (docs/testing.md): a request that waits for the app, as an OAuth fixture's `await`, may take a loaded machine a while.
+  try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(60_000) }); }
   catch (e) { throw new Error(`${said}: nothing answered (${e.message}); test and verify start the app's server (server.ts, at the address app.ts calls) for a run; a server of its own that they leave alone must be running`); }
   const text = (await res.text().catch(() => '')).trim();
   const answered = `the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`;
@@ -523,6 +528,52 @@ export async function serverRequest(base, st) {
 
 /** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */
 const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed: 'seed' };
+
+/** Literal `always` predicates over the driver's JSON values (LLP 1151 D8). */
+export function propertyHolds(line, state, previous) {
+  const bag = { ...state.derives, ...state.slots };
+  if (!Object.hasOwn(bag, line.name)) return false;
+  const value = bag[line.name], before = { ...previous?.derives, ...previous?.slots }[line.name];
+  const literal = (got, v) => {
+    switch (v.kind) {
+      case 'none': return got === null;
+      case 'some': return got !== undefined && got !== null;
+      case 'empty-list': return Array.isArray(got) && got.length === 0;
+      default: return Object.is(got, v.value);
+    }
+  };
+  switch (line.test) {
+    case 'equal': return literal(value, line.value);
+    case 'in': return line.values.some(v => literal(value, v));
+    case 'at-least': return typeof value === 'number' && value >= line.number;
+    case 'at-most': return typeof value === 'number' && value <= line.number;
+    case 'whole': return Number.isInteger(value);
+    case 'stays': return !literal(before, line.value) || literal(value, line.value);
+    default: throw new Error(`unknown always predicate ${line.test}`);
+  }
+}
+
+async function propertyFailure(p, line, state, previous, s, file, test, step, index, host) {
+  const label = ['boot', 'reload'].includes(step.op) ? step.op : step.op === 'clock' ? `clock ${step.arg}` : `${step.op} ${JSON.stringify(step.target)}${step.op === 'type' ? ` ${JSON.stringify(step.text)}` : ''}`;
+  const location = at => `${at.file}:${at.line}:${at.col}`;
+  const out = [`PROPERTY ${JSON.stringify(p.name)} is false on ${host}`,
+    `  property line: ${file}:${line.line}`,
+    `  at step ${index + 1}: ${label} (${file}:${step.line}; test ${JSON.stringify(test)})`];
+  if (step.target) {
+    const at = (await s.layout(step.target).catch(() => null))?.node?.sourceMap;
+    if (at?.status === 'compatible') out.push(`  the element ${JSON.stringify(step.target)} is ${location(at)}`);
+  }
+  const at = await s.declaration(line.name, state);
+  if (at) out.push(`  ${line.name} is declared at ${location(at)}`);
+  const value = snapshot => {
+    const kind = Object.hasOwn(snapshot?.slots ?? {}, line.name) ? 'slot' : 'derive';
+    const got = snapshot?.[kind === 'slot' ? 'slots' : 'derives']?.[line.name];
+    return `${kind} ${line.name} ${got === undefined ? '<not printed>' : JSON.stringify(got)}`;
+  };
+  out.push(`  ${host}: ${value(state)}`);
+  if (line.test === 'stays') out.push(`  before ${host}: ${value(previous)}`);
+  return out.join('\n');
+}
 
 /**
  * Run a `test "…"` file against a host. Each test is a session of its own
@@ -563,7 +614,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Native runs use the origin their build selected (LLP 1142 D13), else the scaffold's declared one, when no web
   // admission file exists.
   const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? backendOrigin(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
-  const tests = backendFetchPrefixes(JSON.parse(c.stdout), granted.length ? granted : appOrigin ? [appOrigin] : []);
+  const authored = JSON.parse(c.stdout), properties = authored.properties.filter(p => p.kind === 'always');
+  const unchecked = authored.properties.filter(p => p.kind !== 'always').reduce((n, p) => n + Math.max(1, p.lines.length), 0);
+  console.error(`properties on ${host}: ${unchecked} lines not checked (after, its frames and commands, and never refuses); the driver exposes no commit trace`);
+  let propertyChecks = 0, propertyFalse = 0;
+  const tests = backendFetchPrefixes(authored.tests, granted.length ? granted : appOrigin ? [appOrigin] : []);
   const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
   if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
   const results = [];
@@ -581,15 +636,16 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const chosen = backendOrigin(selected.dir, launched);
   const server = chosen && onThisMachine(chosen) ? chosen.replace(/\/+$/, '') : serverUrl(selected.dir);
   let done = false;
-  // The host as a test's `on` names it (LLP 1146 D7): the sample host's sessions are the Mac's and the iPhone's.
-  const scope = { host: 'macos', 'host-ios': 'ios' }[host] ?? host, timing = launched.EXACT_AGENT_TIMING;
+  const scope = testScope(host), timing = launched.EXACT_AGENT_TIMING;
   for (const [n, t] of tests.entries()) {
     if (done) break;
     if (t.hosts && !t.hosts.includes(scope)) { results.push({ name: t.name, failures: [], notes: [], skipped: `on ${t.hosts.join(', ')}` }); continue; }
     const failures = [], expectedRefusals = [];
     const refusalCursors = new Map();
     let end = null;
-    const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
+    // The app's server is the auth fixture: a sign-in held for its origin shows its whole URL, for `authorize` (LLP 1146 D4).
+    const fixture = server ? { EXACT_AUTH_FIXTURE: new URL(server).origin } : {};
+    const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), ...fixture, EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
     const facts = { size, seed, locale, formatLocale, timeZone, epoch, failFetch };
@@ -677,15 +733,16 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       facts.epoch = await reached();
       if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; resetLogs(s); s.notes = notes; return; }
-      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env: { ...(env ?? {}), ...fixture }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
       for (const [name, value] of Object.entries(media)) {
         const r = await s.prefer({ [name]: value });
         if (r?.error) throw new Error(r.error);
       }
     };
-    // The clock stands still between steps: what an input started (a reply,
-    // a mutation's `then`, a timer, a transition) lands at a clock step. A
-    // failed expect after an input with none says so (kanban F19).
+    // The clock stands still between steps: a reply may land between them
+    // (host I/O, LLP 1012 §2), but what an input started (a reply, a
+    // mutation's `then`, a timer, a transition) has surely landed only after a
+    // clock step. A failed expect after an input with none says so (kanban F19).
     let input = null;
     // What the test typed since its last other input: fields it left holding a draft (verify's reload does not compare them); and all it typed.
     const typed = new Set(), touched = new Set();
@@ -715,11 +772,24 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const pending = (state.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name);
       failures.push(`${message}${failed}${pending.length ? ` (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : ''}${held}`);
     };
+    let previous;
+    const checkProperties = async (state, step, index) => {
+      for (const p of properties) for (const line of p.lines) {
+        propertyChecks++;
+        if (!propertyHolds(line, state, previous)) {
+          propertyFalse++;
+          failures.push(await propertyFailure(p, line, state, previous, s, file, t.name, step, index, host));
+        }
+      }
+      previous = state;
+    };
     try {
+      if (properties.length) await checkProperties(await s.state(), { op: 'boot', line: t.line }, -1);
       for (const st of preferences) {
         try { await prefer(st); } catch (e) { failures.push(`${t.name}: line ${st.line}: ${e.message}`); break; }
       }
       try { if (!failures.length) await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
+      if (properties.length && !beforeData && !failures.length) await checkProperties(await s.state(), { op: 'clock', arg: 'data', line: t.line }, -1);
       // A counted fault that matched no fetch fails the test at the line that armed it (LLP 1103 D3).
       // A table the host never made (no fetch consulted it) matched nothing either; an unreadable state is said so.
       const unfired = async (prefix) => {
@@ -733,7 +803,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       };
       // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
       // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
-      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize', 'back']);
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'authorize', 'clipboard', 'resize', 'back']);
       const settleFired = async () => {
         if (!armed.size) return;
         const faults = (await s.state()).faults ?? [];
@@ -766,6 +836,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           case 'tap': {
             const opts = st.form === 'into' ? { into: { key: st.key } }
               : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
+              : st.form === 'wheel' ? { wheel: st.wheel }
               : st.form === 'mediasession' ? { mediaSession: st.action, ...(st.seconds != null ? { seconds: st.seconds } : {}) }
               : st.form !== 'press' ? { [st.form]: true }
               : st.modifiers ? { modifiers: st.modifiers } : undefined;
@@ -797,6 +868,23 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             try { delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); }
             catch (error) { if (error.message.includes('held: none')) error.message += '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId'; throw error; }
             input = st.line; break;
+          }
+          // The held sign-in, completed against the app's own server (LLP 1146 D4): its authorization URL is
+          // requested with redirects not followed, and the redirect's Location answers the hold.
+          case 'authorize': {
+            const held = ((await s.state())?.pending ?? []).filter((p) => p.device?.capability === 'auth');
+            if (!held.length) throw new Error("authorize: no sign-in is held. Tap the button whose action calls openAuthSession first; if a step did, the sign-in failed before it opened, and the app's error text or `logs` says why");
+            if (held.length > 1) throw new Error(`authorize: ${held.length} sign-ins are held (${held.map((p) => `@${p.ticket}`).join(', ')}); authorize completes one, so start only one before it`);
+            const [{ ticket, device: { args } }] = held;
+            if (st.cancel) { delivered(await s.tap(`@${ticket}`, { choice: 'cancel' })); input = st.line; break; }
+            if (!args.url && server && args.origin === new URL(server).origin) throw new Error(`authorize: the held sign-in goes to the app's server, ${args.origin}, but the host shows its URL redacted: it was not told that server is the drive's auth fixture (EXACT_AUTH_FIXTURE natively, ?authFixture= on the web), which the driver passes to every host it launches; a carrier that does not is the driver's to fix`);
+            if (!args.url) throw new Error(`authorize: the held sign-in goes to ${args.origin}, not the app's server${server ? ` (${new URL(server).origin})` : ''}; authorize completes only a sign-in against the server test starts (docs/recipes/oauth.md)`);
+            let answer;
+            try { answer = await fetch(args.url, { redirect: 'manual', signal: AbortSignal.timeout(60_000) }); }
+            catch (e) { throw new Error(`authorize: ${args.origin}${args.path} did not answer: ${e.message}`); }
+            const location = answer.headers.get('location');
+            if (![302, 303].includes(answer.status) || !location) throw new Error(`authorize: ${args.origin}${args.path} answered ${answer.status}${location ? '' : ' with no Location'}, not a redirect to the app's callback: ${(await answer.text()).slice(0, 200)}`);
+            delivered(await s.type(`@${ticket}`, location)); input = st.line; break;
           }
           case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
           case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
@@ -938,7 +1026,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           }
           default: failures.push(`${at}: unknown step ${st.op}`);
         }
-        if (closedAt == null) await mutationClock.advance(s);
+        if (closedAt == null) await mutationClock.advance(s, properties.length ? async (state, delta) => {
+          if (delta || ['tap', 'type', 'clock', 'key', 'reload'].includes(st.op)) {
+            await checkProperties(state, delta ? { ...st, op: 'clock', arg: '+' + delta } : st, n);
+          } else previous = state;
+        } : undefined);
       };
       for (const [n, st] of (failures.length ? [] : t.steps).entries()) {
         const at = `${t.name}: line ${st.line}`;
@@ -986,6 +1078,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
   const failed = results.filter((r) => r.failures.length).length, skipped = results.filter((r) => r.skipped).length;
+  if (properties.length) console.error(`properties on ${host}: ${propertyChecks} always line checks at boot, after authored inputs, reloads and clocks; ${propertyFalse} false${propertyChecks ? '' : '; not exercised'}`);
   return { passed: results.length - failed - skipped, failed, skipped, results };
 }
 
@@ -1029,21 +1122,25 @@ export { driverCapabilities } from './help.mjs';
 /** One millisecond per source mutation request, counted once across data continuations.
  * Action arguments retain their atomic snapshot; the next action sees the advanced clock. */
 export function testMutationClock() {
-  let cursor=0;
+  let cursor=0, state;
   return {
-    reset() { cursor=0; },
-    async advance(s) {
-      let total=0;
-      for(let round=0;round<16;round++) {
-        const requests=(await s.state()).mutationRequests;
+    get state() { return state; },
+    reset() { cursor=0; state=undefined; },
+    async advance(s, observe) {
+      let total=0, delta=0;
+      for(let round=0;round<=16;round++) {
+        state=await s.state();
+        if (observe) await observe(state, delta);
+        const requests=state.mutationRequests;
         if (!Number.isSafeInteger(requests) || requests<cursor) throw new Error('test clock: driver did not return a monotonic mutation request count');
         const mutations=requests-cursor;
         cursor=requests;
         if (!mutations) return total;
+        if (round === 16) throw new Error('test clock: mutations kept issuing requests across 16 automatic clock steps');
         total+=mutations;
+        delta=mutations;
         await s.clock('+'+mutations);
       }
-      throw new Error('test clock: mutations kept issuing requests across 16 automatic clock steps');
     },
   };
 }

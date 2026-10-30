@@ -1,0 +1,11 @@
+{
+  "spec": "expenses",
+  "key": {
+    "A": "uikit",
+    "B": "exact"
+  },
+  "exit": 0,
+  "minutes": 14.02,
+  "shots": 67,
+  "graded": true
+}

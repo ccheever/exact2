@@ -65,11 +65,8 @@ test "a countdown ends at zero"
   expect text "status" == "Ready"
 ```
 
-- **The clock comes in through the task:** `performanceNow()` in a derive is not read again
-  as time passes, so the task's action writes it into state (`now`) and the view follows.
-  Tick often, compute from the end (`endsAt - now`): counting ticks drifts.
-- `key=x` re-arms a task when `x` changes (a debounce: `task save key=draft`, `after(500,
-  save)`); `task poll mount` runs for the app's life ([rest-backend](rest-backend.md)).
-  A test's `clock +N` fires the timers it passes.
-- `performanceNow()` restarts at 0 each launch: a timer that outlives a quit stores
-  `time.epochAtZero + performanceNow()` ([timer-that-survives-relaunch](timer-that-survives-relaunch.md)).
+- A task writes `performanceNow()` into state; a derive does not update as time passes. Compute from the end; counting ticks drifts.
+- `key=x` restarts a task when `x` changes. A test's `clock +N` fires the timers it passes.
+- `performanceNow()` restarts at launch. Store `time.epochAtZero + performanceNow()` for one that survives a quit ([recipe](timer-that-survives-relaunch.md)).
+
+For deferrable work, use `every(5000, tick, wait=scrollend, max=1000)` or `after(800, save, wait=idle)`. `wait=frame` joins the next frame; `wait=update` joins existing frame demand. For wake coalescing, use `tolerance=500` instead of `wait=`. See [options](../reference.md#timer-options).

@@ -9,6 +9,7 @@
 // call below runs there as one job while the caller waits.
 import CExact
 import Foundation
+import QuartzCore
 
 /// One batch from the library: the ops, and whether the presenter should keep
 /// the clock (timers) or the display link (motion) running.
@@ -40,6 +41,9 @@ public struct Batch {
     public var canvas = false
     /// A frame task wants every display frame (LLP 1073 D5).
     public var frames = false
+    public var nativeTimers: [NativeTimerWake]?
+    public var timerWaits: [Double] = []
+    public var waitContinue = false
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
     public var canvasOwed = false
     /// A control's viewless contents changed (LLP 1069.011 §9).
@@ -63,10 +67,14 @@ public struct Batch {
     public var orientation: OrientationRequest? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
+    /// When `ExactSession.applyInput` marked it as a person's input: on iOS
+    /// a glass it adds to a group in the window materializes.
+    public var input: Double? = nil
     /// Failure lines the session writes to the unified log, each once (LLP 1142 D4).
     public var alerts: [String] = []
     /// The journal's other lines, for the unified log at a lower level (LLP 1143).
     public var journal: [String] = []
+    package var frameWorkTiming: FrameWorkTiming?
     package init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false, busy: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
@@ -207,6 +215,9 @@ package final class Runtime {
     /// tests and the agent move (the timers RFC, D1); later boots take it too.
     package func setLiveClock(_ wall: (@convention(c) () -> Double)?) {
         on { () -> Void in _ = exact_set_live_clock(rt, wall) }
+    }
+    package func useNativeTimers(_ enabled: Bool) {
+        on { () -> Void in _ = exact_native_timers(rt, enabled ? 1 : 0) }
     }
     /// The wake for a request's reply (LLP 1016 D2), on the executor's thread.
     package func setWake(_ wake: ExactWakeFn?, ctx: UnsafeMutableRawPointer?) {
@@ -506,11 +517,16 @@ package final class Runtime {
             }
         }
     }
-    package func tickAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
+    package func tickAsync(now: Double, frame: Double? = nil, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (Batch) -> Void) {
         if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+        let queued = capture == 0 ? 0 : CACurrentMediaTime()
         Owner.shared.post { [self] in
             guard !destroyed else { return }
-            done(read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)))
+            let began = capture == 0 ? 0 : CACurrentMediaTime()
+            var batch = read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now))
+            if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
+                queued: queued, began: began, finished: capture == 0 ? 0 : CACurrentMediaTime()) }
+            done(batch)
         }
     }
     /// Actual viewport/row observations using the runner's versioned LE wire.
@@ -687,6 +703,26 @@ package final class Runtime {
             busy.withUnsafeBufferPointer { reply(ctx, $0.baseAddress, UInt32($0.count)) }
         }
     }
+    package func timerWaits(kinds: UInt32, cutoff: Double, mode: UInt32 = 1) -> Batch {
+        on { read(exact_timer_waits(rt, kinds, cutoff, mode)) }
+    }
+    package func timerWaitsAsync(kinds: UInt32, cutoff: Double, done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+        Owner.shared.post { [self] in
+            guard !destroyed else { return }
+            done(read(exact_timer_waits(rt, kinds, cutoff, 1)))
+        }
+    }
+    package func fireNativeTimer(_ timer: NativeTimerWake, now: Double) -> Batch {
+        on { read(exact_fire_native_timer(rt, timer.index, timer.generation, now)) }
+    }
+    package func fireNativeTimerAsync(_ timer: NativeTimerWake, now: Double, done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+        Owner.shared.post { [self] in
+            guard !destroyed else { return }
+            done(read(exact_fire_native_timer(rt, timer.index, timer.generation, now)))
+        }
+    }
     package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
     package func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
@@ -694,14 +730,19 @@ package final class Runtime {
     package func landThenFirst() -> Batch { on { read(exact_advance(rt, 0, 3)) } }
     /// A timer advance on the owner, not waited for (LLP 1072.000): what is
     /// due by `now`, or with `frame` that display frame's (`frame(now:wall:)`).
-    package func advanceAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
+    package func advanceAsync(now: Double, frame: Double? = nil, admitted: Bool = false, capture: UInt64 = 0, measureFrame: Bool = false, done: @escaping (Batch) -> Void) {
         if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+        let queued = capture == 0 ? 0 : CACurrentMediaTime()
         Owner.shared.post { [self] in
             guard !destroyed else { return }
-            done(read(frame.map { exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0)))
+            let began = capture == 0 ? 0 : CACurrentMediaTime()
+            var batch = read(frame.map { admitted ? exact_admitted_frame(rt, $0, now) : exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0))
+            if measureFrame || capture != 0 { batch.frameWorkTiming = FrameWorkTiming(capture: capture, frame: frame,
+                queued: queued, began: began, finished: capture == 0 ? 0 : CACurrentMediaTime()) }
+            done(batch)
         }
     }
-    package func frame(now: Double, wall: Double? = nil) -> Batch { on { read(wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }
+    package func frame(now: Double, wall: Double? = nil, admitted: Bool = false) -> Batch { on { read(admitted ? exact_admitted_frame(rt, now, wall ?? now) : wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }
     /// Whether motion a commit begins waits for the first presented frame
     /// (LLP 1003.001 D7); off, what waits starts at `at`.
     package func startOnFrame(_ yes: Bool, at: Double) -> Batch { on { read(exact_start_on_frame(rt, yes ? 1 : 0, at)) } }

@@ -12,12 +12,13 @@
 pub(crate) mod contact;
 mod held;
 mod sensors;
+mod stdio;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
 use exact_runner::instance::collection::Align;
 use exact_runner::DataSource;
-use std::io::{BufRead, Write};
+use std::io::Write;
 
 /// The host this agent runs on, as a refusal names it: the Windows host and
 /// the Android reader run this code too.
@@ -98,67 +99,24 @@ pub fn serve<D: DataSource + Default>(
     ready.push('}');
     let _ = writeln!(out, "{ready}");
     let _ = out.flush();
-    let stdin = std::io::stdin();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
+    p.agent = true;
+    stdio::each_request(p, |p, line| {
         if line.trim().is_empty() {
-            continue;
+            return true;
         }
-        if field_str(&line, "op").as_deref() == Some("quit") {
-            break;
+        if field_str(line, "op").as_deref() == Some("quit") {
+            return false;
         }
-        let reply = handle(p, &line);
-        let _ = writeln!(out, "{reply}");
+        let _ = writeln!(out, "{}", handle(p, line));
         let _ = out.flush();
-    }
+        true
+    });
     let _ = p.pointer_cancel(p.host().now());
     crate::teardown::finish(p, crate::teardown::EXIT_BOUND);
     0
 }
 
-/// Answer one request.
-pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> String {
-    p.agent = true;
-    p.poll_images();
-    // A reply that landed since the last operation commits before this one
-    // (the other hosts apply it as it lands; here nothing runs between) —
-    // a finished update check likewise, and the commands the last
-    // operation's commits asked for run before this one is answered.
-    if let Some(e) = p.pump(p.host().now()) {
-        eprintln!("exact: {e}");
-    }
-    p.poll_update();
-    p.poll_development(D::default);
-    p.run_commands(D::default);
-    p.sync_surfaces();
-    // A command is a turn of the loop for the hatches (LLP 1075.003.000.001
-    // §2.5): what they asked of elements during the last one runs before
-    // this one, a snapshot of it, and its caps start at nothing.
-    p.hatch_command();
-    p.hatch_turn();
-    let reply = answer(p, line);
-    p.sync_surfaces();
-    let reply = p.merge_surfaces(line, reply);
-    p.sync_surfaces();
-    let reply = p
-        .surfaces
-        .error
-        .take()
-        .map_or(reply, |e| refusal("gpu", &e).to_string());
-    p.run_commands(D::default);
-    let reply = p.settle_scroll_commands(line, reply);
-    // The moments this command's commits caused, after them and before its picture.
-    p.hatch_moments();
-    // In the headless carrier a completed paint is presentation. A command
-    // may activate a generation after the initial boot's frame was counted.
-    if p.dirty() {
-        let _ = p.frame();
-        // What that frame moved under the resting pointer is hovered (#139).
-        p.follow_pointer();
-    }
-    p.first_pixel();
-    tagged(p, line, reply)
-}
+pub use stdio::{handle, handle_for_window};
 
 /// Every reply carries the runner's `epoch`, `incarnation` and `clock`
 /// (LLP 1035.002 D3), read after the operation; a reply that already has a
@@ -248,12 +206,12 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         Some("perf") => p.hatch_sites(p.host().agent(line)),
         Some("state") => {
             p.boxes();
-            // The runner's state, then the sections a painter cannot observe
-            // (LLP 1035.002 D2): present as `unavailable`, never absent, so a
-            // reader can tell "no keyboard" from "no report".
+            // Host-only sections report `unavailable` instead of disappearing
+            // (LLP 1035.002 D2), distinguishing no keyboard from no report.
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
+                s.push_str(&format!(",\"painter\":{}", p.painter_state()));
                 let mut decorations: Vec<_> = p
                     .brush
                     .field_text
@@ -1311,15 +1269,15 @@ fn clock_stepped<D: DataSource>(
     p.clock(to)
 }
 
-/// Pump the executor until no polled module source's ask is in flight, or
-/// until the call's deadline.
+/// Pump the executor until no polled module source's ask is in flight, or the deadline. Not on
+/// Android's reader, whose extensions answer on its main thread: `agent-android.mjs` waits there.
 fn wait_for_polls<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) {
     let asking = |p: &Presenter<D>| {
         p.host()
             .agent("{\"op\":\"polls\"}")
             .contains("\"asking\":true")
     };
-    while asking(p) && std::time::Instant::now() < deadline {
+    while !crate::reader_driven() && asking(p) && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(5));
         if let Some(e) = p.pump(p.host().now()) {
             eprintln!("exact: {e}");

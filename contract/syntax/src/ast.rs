@@ -75,6 +75,8 @@ pub struct File {
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,
+    /// Properties checked against test observations, never compiled.
+    pub properties: Vec<PropertyDecl>,
     /// A test file's launch lines (`size`, `epoch`, `time-zone`, `locale`,
     /// `seed`, `before data`), which every test in the file opens with unless it names its
     /// own (habits F7, calendar F13).
@@ -167,6 +169,98 @@ pub struct FontFaceDecl {
     pub source: String,
     /// Where.
     pub span: Span,
+}
+/// A property in a test file (LLP 1148 D1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyDecl {
+    /// Declaration location.
+    pub span: Span,
+    /// When this property is checked.
+    pub kind: PropertyKind,
+    /// Authored name; for `never refuses`, the action's name.
+    pub name: String,
+    /// Predicates in source order.
+    pub lines: Vec<PropertyLine>,
+}
+/// The observations a property quantifies over.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PropertyKind {
+    /// Every printed configuration.
+    Always,
+    /// An input committing this handler, followed by its landing.
+    After(String),
+    /// A clock advance or an independent landing.
+    Clock,
+    /// Every attempted commit of the named action.
+    NeverRefuses,
+}
+/// One predicate and its authored location.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyLine {
+    /// Line location.
+    pub span: Span,
+    /// Parsed predicate.
+    pub form: PropertyForm,
+}
+/// A property line's parsed form.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PropertyForm {
+    /// A whole root state or derive value.
+    Hold {
+        /// Bare root name.
+        name: String,
+        /// Test of its observation.
+        test: PropertyTest,
+    },
+    /// Every changed root slot belongs to this set; empty means `writes none`.
+    OnlyWrites(Vec<String>),
+    /// A host command emitted by the step or pair.
+    Command {
+        /// Command name.
+        name: String,
+        /// Literal arguments in order.
+        args: Vec<PropertyValue>,
+    },
+}
+/// A literal in the property vocabulary.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PropertyValue {
+    /// A binary64 number.
+    Number(f64),
+    /// A string.
+    String(String),
+    /// A boolean.
+    Bool(bool),
+    /// An absent option.
+    None,
+    /// Any present option; admitted only in `in`.
+    Some,
+    /// An empty list.
+    EmptyList,
+}
+/// A test of one value, optionally against its previous observation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PropertyTest {
+    /// Exact printed value.
+    Equal(PropertyValue),
+    /// Exact previous printed value.
+    Old,
+    /// Previous number plus this number, in binary64.
+    Add(f64),
+    /// Previous number minus this number, in binary64.
+    Subtract(f64),
+    /// Negation of the previous boolean.
+    NotOld,
+    /// Membership by value or option kind.
+    In(Vec<PropertyValue>),
+    /// IEEE greater than or equal.
+    AtLeast(f64),
+    /// IEEE less than or equal.
+    AtMost(f64),
+    /// A finite integer.
+    Whole,
+    /// Once this value is seen, the next observation retains it.
+    Stays(PropertyValue),
 }
 /// `fn name(param: type, …): type = expr` — a pure function written in
 /// Contract: one expression over its parameters and the roster, expanded
@@ -659,6 +753,8 @@ pub struct Task {
     pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
     pub timer: (Expr, String, Span),
+    /// Named scheduling options, validated by lowering.
+    pub options: Vec<(String, Expr, Span)>,
     /// Where.
     pub span: Span,
 }

@@ -54,6 +54,8 @@ pub struct SiteWork {
 /// What is measured: a row per plan node, empty while nothing is.
 #[derive(Debug, Default)]
 pub struct Work {
+    /// Timer attempts by admission kind: precise, frame, update, scrollend, idle, cap, frame task.
+    pub timer_firings: [u64; 7],
     /// By node index.
     pub sites: Vec<SiteWork>,
     /// The host lays out and reports frames that moved ([`Runner::moved`]).
@@ -315,6 +317,27 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     let _ = write!(s, "],\"work\":{{\"scope\":\"session\",\"since\":{},\"timebase\":\"runner-clock-ms\",\"counts\":{{", num(ids.work.since));
     if let Some(count) = ids.work.kernel_layouts {
         let _ = write!(s, "\"kernelLayouts\":{count}");
+    }
+    for (i, name) in [
+        "timersPrecise",
+        "timersFrame",
+        "timersUpdate",
+        "timersScrollend",
+        "timersIdle",
+        "timersCap",
+        "frameTasks",
+    ]
+    .iter()
+    .enumerate()
+    {
+        if ids.work.timer_firings[i] != 0 {
+            if ids.work.kernel_layouts.is_some()
+                || ids.work.timer_firings[..i].iter().any(|n| *n != 0)
+            {
+                s.push(',');
+            }
+            let _ = write!(s, "\"{name}\":{}", ids.work.timer_firings[i]);
+        }
     }
     s.push_str("},\"coverage\":\"virtual row operations by collection site; kernelLayouts only when the host reports actual entries\"}");
     // Each resource the data source was asked for, and how often (LLP 1146 D3).

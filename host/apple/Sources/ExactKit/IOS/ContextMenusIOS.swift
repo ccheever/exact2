@@ -462,13 +462,22 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
         let radius = shown.layer.cornerRadius
         if radius > 0, parameters.visiblePath == nil { parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: radius) }
-        guard let parent = shown.superview else { return UITargetedPreview(view: shown, parameters: parameters) }
+        guard let window = shown.window, let parent = shown.superview else { return UITargetedPreview(view: shown, parameters: parameters) }
         if owner.lifted?.node !== shown, let picture = shown.snapshotView(afterScreenUpdates: false) {
             if let lifted = owner.lifted, lifted.node.alpha == 0 { lifted.node.alpha = lifted.alpha }
             owner.lifted = (picture, shown, shown.alpha)
         }
         guard let lifted = owner.lifted else { return UITargetedPreview(view: shown, parameters: parameters) }
-        return UITargetedPreview(view: lifted.picture, parameters: parameters, target: UIPreviewTarget(container: parent, center: shown.center))
+        // From the node's place but over the window, so an ancestor that scrolls sideways does not clip the picture as
+        // it grows; its transform is the node's with each ancestor's scale and rotation, and converting the centre takes
+        // the translations.
+        var transform = shown.transform
+        for ancestor in sequence(first: parent, next: { $0.superview }) where ancestor !== window {
+            let t = ancestor.transform
+            transform = transform.concatenating(CGAffineTransform(a: t.a, b: t.b, c: t.c, d: t.d, tx: 0, ty: 0))
+        }
+        let target = UIPreviewTarget(container: window, center: parent.convert(shown.center, to: window), transform: transform)
+        return UITargetedPreview(view: lifted.picture, parameters: parameters, target: target)
     }
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configuration: UIContextMenuConfiguration, highlightPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
         targeted(configuration)

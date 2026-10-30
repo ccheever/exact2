@@ -125,7 +125,9 @@ check("the module realm's prelude installs its guards under clock.install", asyn
         attempt(() => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', year: 'numeric' }).format(Date.UTC(2020, 5, 1))),
         attempt(() => new Date(86_400_000).toISOString().slice(0, 10)), attempt(() => new Date()), attempt(() => Date.now()),
         attempt(() => new Intl.DateTimeFormat('en-US').format()), attempt(() => new Intl.DateTimeFormat('en-US').formatToParts())];
-    }, readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8') + '\n' + readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8'));
+    }, // A door that answers the prelude's load-time ask for a local listener (LLP 1133.005): a page has none.
+    "globalThis.__exact_host = (op, name) => (op === 12 && name === 'listen' ? '' : undefined);\n"
+      + readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8') + '\n' + readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8'));
     expect(answers).toEqual(['loaded', '2020', '1970-01-02', 'new Date() refused', 'Date.now() refused',
       'Intl.DateTimeFormat.format() refused', 'Intl.DateTimeFormat.formatToParts() refused']);
   } finally { await context.close(); }

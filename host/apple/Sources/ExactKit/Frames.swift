@@ -28,6 +28,8 @@ package final class Frames: NSObject {
     var tasks = false
     /// A hatch's frame ticket is live (LLP 1075.003.000.001 §2.4): each tick calls it, after the frame's tasks.
     var hatches = false
+    /// Keep every existing app frame request when scheduling or resuming the session.
+    var hasWork: Bool { motion || canvas2d || timerSoon || session?.canvases.wantsFrames == true }
     private var canvasRequested = false
 
     /// Input and reads ask for one frame; an agent-owned clock never self-reschedules.
@@ -45,6 +47,11 @@ package final class Frames: NSObject {
     }
     @objc func tick(_ link: CADisplayLink) {
         guard let s = session else { return }
+        let generation = s.generation
+        let arrival = s.frameHealth.enabled && s.clock == nil ? CACurrentMediaTime() : 0
+        if arrival != 0 { s.frameHealth.expireCapture(at: arrival) }
+        let healthFlags = s.frameHealth.frameFlags(self, session: s)
+        s.timerAdmissions.check(frame: true)
         s.canvases.lifecycleFrame()
         // Motion (below) and canvas frames target presentation.
         let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
@@ -55,44 +62,55 @@ package final class Frames: NSObject {
         let previous = s.canvases.frameNow
         s.canvases.frameNow = frameNow
         defer { s.canvases.frameNow = previous }
-        // Frame-precise timers: the first frame at or past the deadline fires
-        // them. A frame before it would advance to no timer, and its commit
-        // and presenter pass cost a list in motion a report a frame.
+        // Explicit frame work advances here; ordinary task timers have independent native callbacks
         // A slice building on the owner holds this frame's timers and tick:
         // they run on the first frame after it lands (LLP 1072 §7.1).
         if !s.fillInFlight {
-            if timerSoon, !ExactEnv.agentMode, s.clock == nil {
+            if timerSoon, !ExactEnv.agentFreezes, s.clock == nil {
                 let now = s.now()
                 s.followOffset()
-                // A frame task or a timer whose commit shows nothing (a
-                // playhead that moves eight times a second, sampled sixty;
-                // a `sent` reader off screen) skips the presenter's pass.
+                // Frame work that changes nothing shown skips the presenter's pass.
                 // Posted where fills are (LLP 1072.000), one at a time: a
                 // frame with one in flight skips its own, never caught up.
                 let due = tasks || s.timerDue.map({ now >= $0 }) ?? true
                 if ExactSession.asyncFills { if due, !s.advanceInFlight { s.sendAdvance(now: now, frame: tasks ? frameNow : nil) } }
-                else if tasks { s.applyUnlessEmpty(s.runtime.frame(now: frameNow, wall: now)) }
-                else if due { s.applyUnlessEmpty(s.runtime.advance(now: now), timer: true) }
+                else if tasks { s.applyUnlessEmpty(s.runtime.frame(now: frameNow, wall: now, admitted: s.timerAdmissions.enabled)) }
+                else if due { s.applyUnlessEmpty(s.runtime.advance(now: now)) }
             }
             // Motion samples at the frame's target, and starts there what
             // waits for it (LLP 1003.001 D5); the agent's clock has no frames.
             if motion || canvas2d {
-                let frame = s.clock == nil ? frameNow : nil
-                if ExactSession.asyncFills {
-                    if !s.tickInFlight { s.sendTick(now: s.now(), frame: frame) }
-                } else {
-                    s.apply(s.runtime.tick(now: s.now(), frame: frame))
-                }
+                submitMotionTick(now: s.now(), frame: s.clock == nil ? frameNow : nil)
             }
         }
         if hatches, s.clock == nil { s.natives.hatchClock.presented(frameNow) }
         let more = s.canvases.tick(now: frameNow)
+        if arrival != 0, s.generation == generation, s.clock == nil {
+            s.frameHealth.record(arrival: arrival, target: link.targetTimestamp,
+                period: link.targetTimestamp - link.timestamp, finished: CACurrentMediaTime(), flags: healthFlags)
+        }
         run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycleNeedsRetry)
+    }
+
+    /// The motion handoff follows the app's owner policy independently of other frame work.
+    func submitMotionTick(now: Double, frame: Double?) {
+        guard let s = session else { return }
+        if ExactSession.asyncFills {
+            if !s.tickInFlight { s.sendTick(now: now, frame: frame) }
+        } else { s.apply(s.runtime.tick(now: now, frame: frame)) }
+    }
+
+    static func requestedRange(maximum: Int, full: Bool, paint: Bool) -> CAFrameRateRange {
+        let maximum = Float(maximum > 0 ? maximum : 60)
+        if full { return CAFrameRateRange(minimum: min(80, maximum), maximum: maximum, preferred: maximum) }
+        if paint { return CAFrameRateRange(minimum: min(30, maximum), maximum: min(60, maximum), preferred: min(60, maximum)) }
+        return .default
     }
 
     func run(_ wanted: Bool) {
         if wanted, session?.clock != nil { requestCanvas() }
         let on = (wanted || hatches) && session?.clock == nil
+        if !on { session?.frameHealth.stop() }
         #if canImport(UIKit)
         guard on else { FrameClock.shared.drop(self); return }
         // Motion that changes place or size asks for the panel's full
@@ -102,11 +120,11 @@ package final class Frames: NSObject {
         // that runs for minutes — asks no more. The app's clock runs
         // only while something wants frames, so an idle app gets no
         // callbacks at all (LLP 1061 D4).
-        let fullRate = (motion && spatial) || session?.canvases.wantsFrames == true
-        let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
-        let range = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate)
-            : motion ? CAFrameRateRange(minimum: min(30, rate), maximum: min(60, rate), preferred: min(60, rate)) : .default
+        let fullRate = (motion && spatial) || canvas2d || session?.canvases.wantsFrames == true
+        let range = Self.requestedRange(maximum: session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60,
+            full: fullRate, paint: motion)
         FrameClock.shared.want(self, .session, rate: range) { [weak self] in self?.tick($0) }
+        session?.frameHealth.requestedRate(range.preferred ?? range.maximum)
         #else
         if on, link == nil {
             guard let viewport = session?.presenter.viewport else { return }
@@ -116,6 +134,12 @@ package final class Frames: NSObject {
         } else if !on, let l = link {
             l.invalidate()
             link = nil
+        }
+        if on, let link {
+            let range = Self.requestedRange(maximum: session?.presenter.viewport.window?.screen?.maximumFramesPerSecond ?? 60,
+                full: (motion && spatial) || canvas2d || session?.canvases.wantsFrames == true, paint: motion)
+            if link.preferredFrameRateRange != range { link.preferredFrameRateRange = range }
+            session?.frameHealth.requestedRate(range.preferred ?? range.maximum)
         }
         #endif
     }

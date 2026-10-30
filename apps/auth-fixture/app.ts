@@ -38,6 +38,8 @@ export const grants = {
   'http://127.0.0.1:4331': ['net.fetch http://127.0.0.1:4331', 'auth.session http://127.0.0.1:4331',
     // The native callback: the client id's hostname reversed (AT Protocol).
     'auth.callback test.exact.auth-fixture:/oauth', 'auth.callback https://auth-fixture.exact.test/.exact/auth/callback',
+    // The desktop's loopback callback, at any port (LLP 1133.005 D9).
+    'auth.callback http://127.0.0.1/oauth/loopback',
     'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
     // The fixture's relying party, and the web drive's (the page is a loopback one).
     'auth.passkey auth-fixture.exact.test', 'auth.passkey localhost', 'device.attestation',
@@ -46,6 +48,8 @@ export const grants = {
   'https://exact-auth-fixture.expo.app': ['net.fetch http://127.0.0.1:4331', 'auth.session http://127.0.0.1:4331',
     'net.fetch https://exact-auth-fixture.expo.app',
     'auth.callback test.exact.auth-fixture:/oauth', 'auth.callback https://auth-fixture.exact.test/.exact/auth/callback',
+    // The desktop's loopback callback, at any port (LLP 1133.005 D9).
+    'auth.callback http://127.0.0.1/oauth/loopback',
     'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
     'auth.passkey exact-auth-fixture.expo.app', 'auth.passkey localhost', 'device.attestation',
     'auth.apple com.exact.authfixture.web', 'auth.google fixture-web.apps.googleusercontent.com', 'auth.google fixture-ios.apps.googleusercontent.com'],
@@ -122,14 +126,18 @@ const session = (store: Store) => {
   return { signedIn: true, handle: String(JSON.parse(kept).handle) };
 };
 
-async function prepareSignIn(store: Store, nowMs: number) {
+// A desktop's loopback callback on a port the client chose, as Codex's
+// ChatGPT sign-in uses 1455 (LLP 1133.005 D9).
+const LOOPBACK_CALLBACK = 'http://127.0.0.1:4332/oauth/loopback';
+
+async function prepareSignIn(store: Store, nowMs: number, loopback = false) {
   if (store.get('fixture.session')) return { ok: false, message: 'Already signed in' };
   const meta = await (await fetch(`${ISSUER}/.well-known/oauth-authorization-server`)).json();
   if (meta.issuer !== ISSUER) return { ok: false, message: 'The server names another issuer' };
   const pair = await crypto.subtle.generateKey(P256, false, ['sign', 'verify']) as CryptoKeyPair;
   await store.keepKey('fixture.dpop', pair);
   const state = random64(32), verifier = random64(32);
-  const callback = authCallback();
+  const callback = loopback ? LOOPBACK_CALLBACK : authCallback();
   const clientId = callback.endsWith('/.exact/auth/callback') && /^https?:\/\//.test(callback) ? CLIENT.web : CLIENT.native;
   const par = await dpopFetch(pair, meta.pushed_authorization_request_endpoint, {
     method: 'POST',
@@ -378,6 +386,7 @@ export const answer: Answer = (source, args, store) => {
   switch (source) {
     case 'currentSession': return session(store) as never;
     case 'prepareSignIn': return prepareSignIn(store, args[0] as number) as never;
+    case 'prepareLoopbackSignIn': return prepareSignIn(store, args[0] as number, true) as never;
     case 'signIn': return signIn(store, args[0] as number) as never;
     case 'createPasskey': return createPasskey(store, args[0] as string) as never;
     case 'signInWithPasskey': return passkeySignIn(store) as never;

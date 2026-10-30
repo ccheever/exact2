@@ -184,6 +184,11 @@ fn main() {
         "spin",
         "shared-load",
         "overlay",
+        "overlay-none",
+        "overlay-some",
+        "overlay-odd",
+        "overlay-throws",
+        "overlay-getter",
         "socket",
         "listen",
         "process",
@@ -193,6 +198,7 @@ fn main() {
         "walk",
         "presence",
         "timers",
+        "outlive",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());

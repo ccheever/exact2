@@ -425,16 +425,16 @@ describe('bounded windows', () => {
     expect(ids(windowBefore(s, cid, '5', 2))).toEqual(['3', '4']);
     expect(ids(windowAfter(s, cid, '5', 2))).toEqual(['6', '7']);
   });
-  test('latest and cursor windows clamp to 200 without returning the rest of history', () => {
+  test('latest and cursor windows clamp to 300 without returning the rest of history', () => {
     const s = createStore();
     applyHistoryPage(s, cid, { limit: 50 }, page(951, 1000));
     for (let end = 950; end >= 50; end -= 50) {
       applyHistoryPage(s, cid, { before: String(end + 1), limit: 50 }, page(end - 49, end));
     }
-    expect(ids(latestWindow(s, cid, 10000))).toEqual(Array.from({ length: 200 }, (_, i) => String(801 + i)));
-    expect(windowAround(s, cid, '500', 10000).rows).toHaveLength(200);
-    expect(windowBefore(s, cid, '500', 10000).rows).toHaveLength(200);
-    expect(windowAfter(s, cid, '500', 10000).rows).toHaveLength(200);
+    expect(ids(latestWindow(s, cid, 10000))).toEqual(Array.from({ length: 300 }, (_, i) => String(701 + i)));
+    expect(windowAround(s, cid, '500', 10000).rows).toHaveLength(300);
+    expect(windowBefore(s, cid, '500', 10000).rows).toHaveLength(300);
+    expect(windowAfter(s, cid, '500', 10000).rows).toHaveLength(300);
     expect(latestWindow(s, cid, 10000)).toMatchObject({ moreBefore: true, moreAfter: false });
     expect(() => latestWindow(s, cid, 0)).toThrow();
   });

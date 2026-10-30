@@ -10,7 +10,7 @@ extension NodeView {
     func scrollEndMoved(_ sv: UIScrollView) {
         // A collapse (`display: none`) clamps the offset and sends no
         // `scroll`: nothing to end, and not a position to compare with.
-        guard handlers.contains("scrollend"), hasScrollLayoutBox else { return }
+        guard (handlers.contains("scrollend") || presenter?.session?.timerAdmissions.enabled == true), hasScrollLayoutBox else { return }
         let end = scrollEnd ?? ScrollEnd()
         scrollEnd = end
         guard end.moved(to: [sv.contentOffset.x, sv.contentOffset.y, scrollTopInset(sv)]) else { return }
@@ -41,13 +41,14 @@ extension NodeView {
 
     /// The scroll is over: its last `scroll` first, then `scrollend`, once.
     func endScroll() {
-        guard handlers.contains("scrollend"), presenter?.views[id] === self, let end = scrollEnd, end.take(), hasScrollLayoutBox else { return }
+        guard (handlers.contains("scrollend") || presenter?.session?.timerAdmissions.enabled == true), presenter?.views[id] === self, let end = scrollEnd, end.take(), hasScrollLayoutBox else { return }
         // The last `scroll` may run its handler at once, and a batch it
         // commits may give this view to another node.
         let node = id, token = incarnation
         sendScrollEvent()
         guard id == node, incarnation == token, presenter?.views[node] === self else { return }
-        presenter?.scrollend(node)
+        if handlers.contains("scrollend") { presenter?.scrollend(node) }
+        presenter?.session?.timerAdmissions.check()
     }
 }
 #endif

@@ -1293,14 +1293,14 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   return { lines: out, problems, exit: failedTests || broken ? 1 : 0, full: grouped ? full : [] };
 }
 
-async function main(argv) {
+async function deviceMain(argv, emitJSON, declined) {
   const args = guardFlags('verify', argv);
   const value = (flag) => args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined;
   const json = args.includes('--json'), sim = value('--sim'), copyTo = value('--shots');
   const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1, args.indexOf('--shots') + 1].filter((i) => i > 0));
-  if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return 2; }
+  if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return declined(2); }
   const host = args.find((a, i) => !a.startsWith('-') && !flagged.has(i)) ?? 'web';
-  if (!['web', 'ios'].includes(host)) { console.error(`verify: web or ios, not ${host} (test ${host} runs the tests there)`); return 2; }
+  if (!['web', 'ios'].includes(host)) { console.error(`verify: web or ios, not ${host} (test ${host} runs the tests there)`); return declined(2); }
   if (sim) process.env.EXACT_SIM = sim; // as the driver names it (devices.mjs `simulator`)
   const started = Date.now();
   const { resolveApp } = await import('./app.mjs');
@@ -1311,7 +1311,7 @@ async function main(argv) {
   // answering there (the builder's dev server) is refused before the build: never stopped, never written to; so is
   // an entry that does not read DB (LLP 1116.008 D1), which could only be run on its own database.
   const server = appServer(app.dir), owned = server && !server.why;
-  const refuse = (line) => { if (json) console.log(JSON.stringify({ host, server: { error: line }, problems: 1, exit: 1 })); else console.error(`verify: ${line}`); return 1; };
+  const refuse = (line) => { if (json) emitJSON({ host, server: { error: line }, problems: 1, exit: 1 }); else console.error(`verify: ${line}`); return declined(1); };
   if (server?.refusal) return refuse(server.refusal);
   // (A test run that holds the port's turn is waited for when the server starts.)
   if (owned && await answering(server.url) && !(await holderOf(server.port))) return refuse(heldLine(server));
@@ -1323,7 +1323,7 @@ async function main(argv) {
   if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length && !/^compiler: \d+ warnings?[,;]/.test(line)); }
   if (built?.code) {
     const tail = host === 'web' ? built.output.split('\n').filter((l) => l.trim()).slice(-20) : built.said;
-    if (json) console.log(JSON.stringify({ host, built: { ms: built.ms, code: built.code, said: tail }, problems: 1, exit: built.code }));
+    if (json) emitJSON({ host, built: { ms: built.ms, code: built.code, said: tail }, problems: 1, exit: built.code });
     else say([...tail, `verify: the ${host} build failed (exit ${built.code}), so nothing ran`]);
     return built.code;
   }
@@ -1416,11 +1416,37 @@ async function main(argv) {
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, file, failures, end }) => ({ name, file, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
-    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+    emitJSON({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started });
   } else say(r.lines);
   // The run, against the build it used (LLP 1146 D2: `bun scripts/evidence.mjs`).
   (await import('./evidence.mjs')).recordRun(app.name, { host, what: 'verify', result: r.problems ? `${r.problems} problem${r.problems === 1 ? '' : 's'}${tested?.failed ? `, ${tested.failed} failed test${tested.failed === 1 ? '' : 's'}` : ''}` : 'clean', timing: 'agent', sim });
   return r.exit;
+}
+
+// Both runs contribute to the exit status, including when the device build or drive fails. A refusal (a bad flag,
+// a server verify will not start or write to) stops both: it is one line and nothing runs (LLP 1116.008 D1).
+async function main(argv) {
+  const args = guardFlags('verify', argv), json = args.includes('--json');
+  const { resolveApp } = await import('./app.mjs');
+  const app = resolveApp(args.includes('--app') ? args[args.indexOf('--app') + 1] : undefined);
+  let device = null, code, refused = false;
+  try { code = await deviceMain(args, result => { device = result; }, (exit) => { refused = true; return exit; }); }
+  catch (e) { code = 1; device = { error: e.message, exit: 1 }; if (!json) console.error(`verify: ${e.message}`); }
+  if (refused) { if (json && device) console.log(JSON.stringify(device)); return code; }
+  console.error('verify: checking properties and scripts with contract verify');
+  const semantics = await new Promise(resolveResult => {
+    let output = '';
+    const child = spawn('cargo', ['run', '-q', '-p', 'contract', '--', 'verify', resolve(app.dir, 'app.contract')], { cwd: ROOT, stdio: ['ignore', 'pipe', 'inherit'] });
+    const pass = signal => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+    for (const signal of signals) process.on(signal, pass);
+    child.stdout.on('data', data => { output += data; if (!json) process.stdout.write(data); });
+    const finish = exit => { for (const signal of signals) process.off(signal, pass); resolveResult({ exit, output }); };
+    child.on('error', e => { output += e.message; finish(1); });
+    child.on('exit', exit => finish(exit ?? 1));
+  });
+  const exit = code || semantics.exit;
+  if (json) console.log(JSON.stringify({ ...device, semantics, exit }));
+  return exit;
 }
 
 // The design tool, named here and not through its exact.mjs: on the checkout's own port (tool-drive.mjs).

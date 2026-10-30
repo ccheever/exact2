@@ -59,6 +59,7 @@ test "the member list opens from the channel, and a member opens their card"
 test "Escape closes the member sheet over a channel, and then a member's card"
   clock settle
   clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle

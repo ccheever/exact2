@@ -102,6 +102,15 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
             Ok(push(state, k).to_string())
         }
         5 => Ok(key(state, a)?.to_jwk().map_err(message)?.to_json()),
+        // No store here (a let-go chain, background work): refused, never
+        // read as "no key kept" (LLP 1146 D3).
+        6 | 7 if store_ptr.is_none() && state.between_answers => {
+            Err(super::door::no_store(if op == 6 {
+                "store.keepKey"
+            } else {
+                "store.key"
+            }))
+        }
         6 => {
             let v: serde_json::Value = serde_json::from_str(a).map_err(|e| e.to_string())?;
             let handle = |k: &str| v[k].as_u64().map(|n| n.to_string()).unwrap_or_default();

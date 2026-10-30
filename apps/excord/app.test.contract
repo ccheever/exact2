@@ -4,8 +4,9 @@
 // The world's newest message is five minutes before this epoch; #general holds
 // 10,000 messages with its last 37 unread, #help 1,200 with its last 260 unread.
 // A channel opens on one page of 50 messages (49 shown: the first waits for the
-// one before it), and the window grows a page at a time as the reader nears its
-// top (llp/0001 §2), so a test reads back by landing the reader there.
+// one before it), and the window grows a page at a time, each the moment the last
+// lands, while the reader is within 100 rows of its top (llp/0001 §2; x2-perf4's
+// fling plan, F1), so a test reads back by landing the reader there.
 // A test asserts what every host reports alike: the window (`anchor`, `win`), the
 // rows mounted, the reader's first visible row where nothing has just been
 // estimated. Where a property is a position on screen, a drive measures it.
@@ -17,7 +18,7 @@
 // armed a commit later (the directory, the channel list). The
 // picture viewer's tests are viewer.test.contract, the routing ones routing.test.contract,
 // Translate's translate.test.contract, the member list's and cards' members.test.contract,
-// the typing line's typing.test.contract.
+// the typing line's typing.test.contract, a failed history page's history.test.contract.
 epoch "2026-10-22T18:00:00Z"
 time-zone "America/Los_Angeles"
 
@@ -56,7 +57,7 @@ test "unread: the bar says how many since when, and lands on the New divider (§
   tap "unread-bar"
   clock settle
   expect tree has "new-divider"
-  expect state anchor == "1554504989743776684"
+  expect state anchor == "1552174792428225378"
   expect state target == ""
   expect tree missing "unread"
 
@@ -89,7 +90,7 @@ test "a channel reopens where its reader left it (§3.3)"
   tap "transcript" into "1562755578936174328"
   clock settle
   expect state away == true
-  expect state anchor == "1562740055536051951"
+  expect state anchor == "1562033782335219374"
   back
   clock settle
   tap "channel-random"
@@ -98,7 +99,7 @@ test "a channel reopens where its reader left it (§3.3)"
   clock settle
   tap "channel-general"
   clock settle
-  expect state anchor == "1562740055536051951"
+  expect state anchor == "1562033782335219374"
   expect state away == true
   expect tree has "message-1562755578936174328"
 
@@ -111,10 +112,30 @@ test "reading back moves the window a page ahead of the reader, who stays put (�
   tap "mark-read"
   tap "transcript" into "1562732896249194217"
   clock settle
-  expect state anchor == "1562618399954052832"
-  expect state win.firstId == "1562033782335219374"
-  expect state win.rows.0 .key == "1562033782335219374"
+  expect state anchor == "1562033782335219374"
+  expect state win.firstId == "1561797858988926588"
+  expect state win.rows.0 .key == "1561797858988926588"
   expect tree has "message-1562732896249194217"
+
+test "the lead pages on with no scroll by the reader and stops once 100 rows stand above them (F1)"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  // One scroll: the reader's row, 40 from the end, is 9 rows below the window's first. The first page
+  // brings 50 rows above it (59), so the lead (leadOlder) asks the next with no scroll by the reader;
+  // at 109 it stops. Without leadOlder the window stops after the first page.
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  expect state topKey == "1562732896249194217"
+  expect state win.firstId == "1561797858988926588"
+  expect state win.need == ""
+  clock +5000
+  clock settle
+  expect state win.firstId == "1561797858988926588"
+  expect state pageTries == 0
 
 test "changes above the viewport leave the reader's row where it is (§3.5)"
   clock settle
@@ -196,7 +217,7 @@ test "away from the end nothing moves, and a pill counts what arrived (§3.8)"
   tap "fixture"
   tap "inject-burst"
   clock settle
-  expect state anchor == "1562740055536051951"
+  expect state anchor == "1562033782335219374"
   expect tree has "message-1562755578936174328"
   expect text "jump-present" == "6 new messages"
   tap "jump-present"
@@ -576,7 +597,7 @@ test "a send from history returns to the live tail and lands at its end (review:
   tap "mark-read"
   tap "transcript" into "1562732896249194217"
   clock settle
-  expect state anchor == "1562618399954052832"
+  expect state anchor == "1562033782335219374"
   type "composer" "Back to the present"
   tap "send"
   clock settle
@@ -778,10 +799,10 @@ test "a reply to a deleted message does not jump (review: Grok 5)"
   clock settle
   tap "transcript" into "1562068155507943107"
   clock settle
-  expect state anchor == "1562618399954052832"
+  expect state anchor == "1561797858988926588"
   tap "reply-to-1562068155507943107"
   clock settle
-  expect state anchor == "1562618399954052832"
+  expect state anchor == "1561797858988926588"
   expect state highlight == ""
 
 test "what was read at the end is acknowledged (review: Grok 4)"
@@ -815,7 +836,13 @@ test "paging is not refused while another refresh is in flight (review: Grok 6)"
   tap "transcript" into "1562732896249194217"
   clock +400
   clock settle
-  expect state win.firstId == "1562033782335219374"
+  // The lead's pages go on until 100 rows stand above the reader (F1); slow pages land on the
+  // pump, so the clock runs on until the chain has ended and its end is what is checked.
+  clock +3000
+  clock settle
+  clock +3000
+  clock settle
+  expect state win.firstId == "1561797858988926588"
 
 test "a jump whose history arrives later still lands on its target (review: Sol 3)"
   clock settle
@@ -831,13 +858,24 @@ test "a jump whose history arrives later still lands on its target (review: Sol 
   clock data
   tap "reply-to-1562624645306263268"
   clock data
-  expect state win.anchor == "1562618399954052832"
+  expect state win.anchor == "1562033782335219374"
   expect state target == "1518635600276626020"
   clock +400
   clock settle
-  expect state win.anchor == "1518635600276626020"
+  // (landed: the window's anchor then follows the lead toward older pages, F1, so it isn't asserted)
   expect state target == ""
   expect state highlight == "1518635600276626020"
+  expect tree has "message-1518635600276626020"
+  expect state topKey == "1518631444790909538"
+  // The lead waits for the highlight to clear, then pages above the target; the reader's first
+  // visible row stays the same (macOS lost it when a page landed as the jump was placed).
+  clock +3000
+  clock settle
+  clock +3000
+  clock settle
+  expect state highlight == ""
+  expect state win.firstId == "1516268419677166056"
+  expect state topKey == "1518631444790909538"
   expect tree has "message-1518635600276626020"
 
 // The reviews' second round (Sol, Grok): one test a finding.
@@ -931,7 +969,9 @@ test "Mark As Read away from the end reads the channel (re-check: Sol 3)"
   clock settle
   expect state channels.1 .unread == 0
 
-test "a send while the list is still moving lands at the live end (re-check: Grok new 1)"
+test "a send while the list is still moving lands at the live end (re-check: Grok new 1)" on web, ios, tvos, android, linux, windows
+  // (A finger's fling, still moving at the send: a Mac's wheel lands at once, so its twin
+  // below is a send after a scroll away, not this.)
   clock settle
   clock until state gateway.state == "ready" within 10000
   clock settle
@@ -942,6 +982,25 @@ test "a send while the list is still moving lands at the live end (re-check: Gro
   clock settle
   type "composer" "sent mid-fling"
   tap "transcript" drag 0 500 over 60
+  tap "send"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect tree has "message-1562888267366400000"
+
+test "a send after a wheel scroll away lands at the live end (the Mac's twin; no fling)" on macos
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  type "composer" "sent after a scroll"
+  // (On a Mac a drag selects text, and a wheel lands at once, so this is a send after
+  // the reader scrolled away, not mid-fling: the moving case stays with the hosts above.)
+  tap "transcript" wheel 0 -500
   tap "send"
   clock settle
   expect state anchor == ""
@@ -973,7 +1032,13 @@ test "paging continues while the pin request is out (re-check: Grok new 3)"
   tap "transcript" into "1562624645306263268"
   clock +400
   clock settle
-  expect state win.firstId == "1562033782335219374"
+  // The lead's pages go on until 100 rows stand above the reader (F1); slow pages land on the
+  // pump, so the clock runs on until the chain has ended and its end is what is checked.
+  clock +3000
+  clock settle
+  clock +3000
+  clock settle
+  expect state win.firstId == "1561797858988926588"
 
 // The wiring's reviews (Sol, Grok): one test a finding the view shows.
 
@@ -1056,93 +1121,6 @@ test "image spoilers with and without dimensions wait for disclosure"
   clock settle
   expect state revealed.length == 2
   expect tree has "media-image-1557059859277414659-1557059859277516980"
-
-test "failed history can be retried without reopening the channel"
-  fail fetch "/api/v9/channels/1191168914235588608/messages"
-  clock settle
-  clock until state gateway.state == "ready" within 10000
-  clock settle
-  tap "channel-general"
-  clock settle
-  expect text "history-error" == "Couldn’t load messages."
-  expect tree has "retry-history"
-  expect tree missing "history-loading"
-  expect state pageTries == 3
-  type "composer" "Keep this draft"
-  pass fetch "/api/v9/channels/1191168914235588608/messages"
-  type "retry-history" key " "
-  clock settle
-  expect tree has "message-1562887009075210000"
-  expect tree missing "history-error"
-  expect text "composer" == "Keep this draft"
-
-test "a failed page leaves cached messages readable and another channel loads"
-  clock settle
-  clock until state gateway.state == "ready" within 10000
-  clock settle
-  tap "channel-general"
-  clock settle
-  tap "mark-read"
-  fail fetch "/api/v9/channels/1191168914235588608/messages"
-  tap "transcript" into "1562732896249194217"
-  clock settle
-  expect text "history-error" == "Couldn’t load more messages."
-  expect tree has "message-1562732896249194217"
-  expect state pageTries == 3
-  back
-  clock settle
-  tap "channel-help"
-  clock settle
-  expect tree missing "history-error"
-  expect state pageTries == 0
-  back
-  clock settle
-  pass fetch "/api/v9/channels/1191168914235588608/messages"
-  tap "channel-general"
-  clock settle
-  expect tree missing "history-error"
-  expect state pageTries == 0
-  expect tree has "message-1562732896249194217"
-
-test "a failed older page does not block a jump to a different history page"
-  clock settle
-  clock until state gateway.state == "ready" within 10000
-  clock settle
-  tap "channel-general"
-  clock settle
-  tap "mark-read"
-  fail fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
-  tap "transcript" into "1562624645306263268"
-  clock settle
-  expect text "history-error" == "Couldn’t load more messages."
-  expect state pageTries == 3
-  tap "reply-to-1562624645306263268"
-  clock settle
-  expect state anchor == "1518635600276626020"
-  expect tree has "message-1518635600276626020"
-  expect tree missing "history-error"
-  expect state pageTries == 0
-
-test "retrying older history at the exact top keeps the first visible message"
-  size 1100x760
-  clock settle
-  clock until state gateway.state == "ready" within 10000
-  clock settle
-  tap "channel-general"
-  clock settle
-  tap "mark-read"
-  fail fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
-  type "transcript" key "Home"
-  clock settle
-  expect state pageTries == 3
-  expect state historyStart == true
-  expect state topKey == "1562618399954052832"
-  pass fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
-  tap "retry-history"
-  clock settle
-  expect tree has "message-1562618399954052832"
-  expect state target == ""
-  expect state historyStart == false
 
 test "choosing Reply during an edit restores the draft and sends a reply"
   clock settle
@@ -1442,3 +1420,6 @@ test "a file that is not a picture goes up with the message, shown by its name"
   clock settle
   clock data
   expect state picked.length == 0
+
+always "ageGate is one of 3 values"
+  expect state ageGate in "" "asked" "confirmed"

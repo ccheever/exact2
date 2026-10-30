@@ -14,6 +14,10 @@ const checkpoint = () => new Promise(resolve => {
 });
 let context = null, storage = null, admitted = null, tail = Promise.resolve(), stream = null;
 const pending = new Map();
+// Each request's owning call's map, so a withdrawal (door 16) reaches it from any turn (module-glue.js does the same).
+const requestMaps = new Map();
+// A call that retires (answered, or let go) takes its unsent requests out of the index.
+const unindex = requests => { for (const t of requests?.keys() ?? []) requestMaps.delete(t); };
 // Calls the runner let go between storage steps. Delivered to the end, then
 // retired, as the page realm does.
 const owed = new Map();
@@ -40,6 +44,11 @@ const presenceRead = (store, op, name) => {
 self.__exact_host = (op, name, value) => {
   // The runner's clock as the turn was dispatched: when a timer armed now is due; none outside a turn.
   if (op === 21) return context?.clock === undefined ? undefined : String(context.clock);
+  // The prelude asks at load whether this host has a local listener (LLP 1133.005): a worker never does.
+  if (op === 12 && name === 'listen') return '';
+  // A fetch the app aborted: told to the page at once, in any turn, a let-go's included (module-glue.js keeps it).
+  if (op === 23) { self.postMessage({ op: 'aborted', ticket: Number(name) }); return; }
+  if (op === 16) { const t = Number(name), m = requestMaps.get(t); requestMaps.delete(t); m?.delete(t); return; }
   if (!context) throw new Error('host call outside an answer');
   if (op === 6) {
     // A page module answers `native.later` on the page; nothing here can answer at once.
@@ -49,7 +58,7 @@ self.__exact_host = (op, name, value) => {
     if (name === 'later') return admitted.native ? 'later' : '';
     throw new Error('the browser answers no native call at once; use native.later');
   }
-  if (op === 1) { context.requests.set(Number(name), JSON.parse(value)); return; }
+  if (op === 1) { context.requests.set(Number(name), JSON.parse(value)); requestMaps.set(Number(name), context.requests); return; }
   if (op === 2) { context.reads.push(name); return context.store.get(name); }
   if (op === 5) { context.externalRead = true; return; }
   // A draw of secure randomness: a device read the runner counts (LLP 1069.005 D2).
@@ -123,6 +132,7 @@ function begin(request) {
 
 function finish(answer, request) {
   const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,entropy:context.entropy,topics:context.topics};
+  if (answer.tag === 1) requestMaps.delete(answer.ticket);
   if (answer.tag === 1 && answer.timer !== undefined) pending.set(key(request), {call:answer.call, ticket:0, timer:true, requests:context.requests, owner:context.owner});
   else if (answer.tag === 1) {
     result.request = context.requests.get(answer.ticket);
@@ -130,7 +140,7 @@ function finish(answer, request) {
     context.requests.delete(answer.ticket);
     pending.set(key(request), {call:answer.call, ticket:answer.ticket, requests:context.requests, owner:context.owner});
   }
-  if (answer.tag !== 1) storage.retire(context.owner);
+  if (answer.tag !== 1) { unindex(context.requests); storage.retire(context.owner); }
   context = null;
   return result;
 }
@@ -141,13 +151,13 @@ async function forget(inFlight) {
   const staying = new Set(inFlight.map(key));
   for (const [parkedKey, parked] of pending) {
     if (JSON.parse(parkedKey)[0] === null || staying.has(parkedKey)) continue;
-    pending.delete(parkedKey); release(parked.owner, parked.call);
+    pending.delete(parkedKey); unindex(parked.requests); release(parked.owner, parked.call);
   }
   // An answer parked behind another's storage is let go too, its turn
   // refused, as the page realm does.
   parked = parked.filter(p => {
     if ((p.request.target ?? null) === null || staying.has(key(p.request))) return true;
-    release(p.context.owner, p.answer.call);
+    unindex(p.context.requests); release(p.context.owner, p.answer.call);
     p.done.reject(new Error('the runner let this answer go'));
     return false;
   });

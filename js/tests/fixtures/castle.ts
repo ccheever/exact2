@@ -152,6 +152,54 @@ async function parallel(): Promise<Session> {
   return {ok:true,username:"parallel",error:Array.from(new Uint8Array(await a.arrayBuffer())).join(",") + "/" + await b.text()};
 }
 
+// A fetch the app aborts from another answer (the abort runtime gap): its
+// controller kept by id; the aborted fetch rejects, and this answer goes on.
+const held = new Map<string, AbortController>();
+async function holding(id: string, method: string): Promise<Session> {
+  const controller = new AbortController();
+  // A call again replaces its last fetch: the source aborts it (the same key).
+  held.get(id)?.abort(new Error("replaced"));
+  held.set(id, controller);
+  try {
+    await fetch(`https://api.castle.xyz/held/${id}`, { method, body: method === "GET" ? undefined : id, signal: controller.signal });
+    return { ok: true, username: id, error: "fetched" };
+  } catch (e) {
+    // It rejects with its signal's reason, as Fetch does: that very value, or
+    // an AbortError for a bare abort().
+    if (e !== controller.signal.reason) return { ok: false, username: id, error: `not its reason: ${(e as Error).name}` };
+    if (e instanceof DOMException) return { ok: false, username: id, error: `aborted: ${e.name}` };
+    return { ok: false, username: id, error: `aborted: ${(e as Error).message}` };
+  }
+}
+function abortHeld(id: string, bare?: boolean): Session {
+  if (bare) held.get(id)?.abort();
+  else held.get(id)?.abort(new Error("by the app"));
+  return { ok: true, username: id, error: "aborting" };
+}
+// Aborted, it falls back to another fetch of its own: the abort, answered
+// after the first request's reply landed, must not reach the second.
+async function fallingBack(id: string): Promise<Session> {
+  const controller = new AbortController();
+  held.set(id, controller);
+  try {
+    await fetch(`https://api.castle.xyz/held/${id}`, { signal: controller.signal });
+    return { ok: true, username: id, error: "fetched" };
+  } catch {
+    const r = await fetch(`https://api.castle.xyz/fallback/${id}`);
+    return { ok: true, username: id, error: `fell back: ${await r.text()}` };
+  }
+}
+// Two fetches, the second aborted before its answer awaits it: withdrawn
+// unsent; the answer awaits the first.
+async function withdrawn(): Promise<Session> {
+  const controller = new AbortController();
+  const first = fetch("https://api.castle.xyz/first");
+  const second = fetch("https://api.castle.xyz/second", { signal: controller.signal });
+  controller.abort();
+  const why = await second.then(() => "sent", (e: Error) => e.name);
+  return { ok: true, username: await (await first).text(), error: why };
+}
+
 function answer(source: string, args: unknown[], store: Store): unknown {
   switch (source) {
     case "remember": return remember(store);
@@ -166,6 +214,11 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "item": case "thread": return item(text(args, 0));
     case "followup": return followup(text(args, 0));
     case "reused": return reused();
+    case "holding": return holding(text(args, 0), text(args, 1));
+    case "abortHeld": return abortHeld(text(args, 0));
+    case "abortBare": return abortHeld(text(args, 0), true);
+    case "withdrawn": return withdrawn();
+    case "fallingBack": return fallingBack(text(args, 0));
     case "saveQuietly": return saveQuietly(text(args, 0));
     // An answer that keeps coming (LLP 1016.000): each event, and the end.
     case "events": return fetch("https://api.castle.xyz/events?since=" + args[0], {
@@ -218,6 +271,22 @@ function answer(source: string, args: unknown[], store: Store): unknown {
         .then(r => r.text(), (e: { kind: string; message: string }) => { lastError = `${e.kind}: ${e.message}`; return "failed"; })
         .finally(() => { flushing = false; });
     case "flushing": return `${flushing} ${lastError}`;
+    // A read whose rejection, run with no store, reads the store (LLP 1146 D3).
+    case "peek":
+      return fetch("https://api.castle.xyz/peek").then(r => r.text(), () => {
+        try { return `kept ${store.get("castle.session")}`; } catch (e) { lastError = (e as Error).message; return "threw"; }
+      });
+    // Each store operation tried where there is no store, what each said kept for `flushing`.
+    case "peekAll":
+      return fetch("https://api.castle.xyz/peek").then(r => r.text(), async () => {
+        const s = store as unknown as Record<string, (...a: unknown[]) => unknown>;
+        const said: string[] = [];
+        for (const [op, ...a] of [["get", "castle.session"], ["has", "castle.session"], ["locked", "castle.session"], ["unlock", "castle.session"], ["protect", "castle.session"], ["unprotect", "castle.session"], ["set", "castle.session", "x"], ["forget", "castle.session"], ["keepKey", "castle.key", null], ["key", "castle.key"]]) {
+          try { await s[op](...a); said.push(`${op} answered`); } catch (e) { said.push((e as Error).message.split(". ")[0]); }
+        }
+        lastError = said.join(" | ");
+        return "threw";
+      });
     // A BufferSource body goes as its bytes (LLP 1069.002 D4): a view into
     // the middle of a buffer, the buffer itself, and a DataView, each once.
     case "upload": {

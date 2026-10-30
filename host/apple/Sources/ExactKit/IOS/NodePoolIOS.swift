@@ -145,7 +145,7 @@ final class NodePool {
             parked[shape] = kept.isEmpty ? nil : kept
         }
         // A reused view the batch gave no frame has a fresh view's.
-        for view in unframed.values { if view.frame != .zero { view.frame = .zero }; view.grid = nil }
+        for view in unframed.values { if view.frame != .zero { presenter.moveOrPlace(view) { view.frame = .zero } }; view.grid = nil }
         unframed.removeAll()
     }
     /// Reused views, until the batch frames them.
@@ -597,13 +597,14 @@ extension NodeView {
         translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutResize = .zero; endSurface(); scale = 1; rotate = 0; stopPressEase(); press = PressFeedback(); dropPressPaint()
         if !transform.isIdentity { transform = .identity }
         if !isUserInteractionEnabled { isUserInteractionEnabled = true }
+        // With assistive technology's runtime loaded every accessibility
+        // getter is UIKit's to answer, and costly. The label, identifier and
+        // hidden-elements are left to the create op's `applyProps`, which
+        // compares each with the new props and sets what differs.
         if isAccessibilityElement { isAccessibilityElement = false }
         if accessibilityTraits != [] { accessibilityTraits = [] }
-        if accessibilityLabel != nil { accessibilityLabel = nil }
         if accessibilityValue != nil { accessibilityValue = nil }
         if accessibilityHint != nil { accessibilityHint = nil }
-        if accessibilityIdentifier != nil { accessibilityIdentifier = nil }
-        if accessibilityElementsHidden { accessibilityElementsHidden = false }
         if accessibilityViewIsModal { accessibilityViewIsModal = false }
         props = [:]
         // The presenter's indexes for the new id (LLP 1068 §4.0): each is

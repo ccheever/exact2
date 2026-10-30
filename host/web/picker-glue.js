@@ -55,9 +55,68 @@ function made(path, blob, version) {
 }
 globalThis.exact.appURL = appURL;
 
+// A bundled page's given files (LLP 1020.001 D7): for a page of the app's origin
+// under its `assets/` or `deck/` (an .html or .htm file), read as the URL parser
+// reads it, each query value that begins `app:/`, decoded as URLSearchParams
+// decodes it; null for any other source. WebModule.swift `givenPaths` reads a
+// source the same way.
+export function pageFiles(src, base = document.baseURI) {
+  let url, root;
+  try { url = new URL(src, base); root = new URL('.', base); } catch { return null; }
+  const name = url.origin === root.origin && url.pathname.startsWith(root.pathname) ? url.pathname.slice(root.pathname.length) : '';
+  if (!/^(assets|deck)\/[^?#]*\.html?$/i.test(name) || !url.search) return null;
+  const pairs = url.search.slice(1).split('&').map(pair => {
+    const at = pair.indexOf('=');
+    let value = null;
+    try { value = at < 0 ? null : decodeURIComponent(pair.slice(at + 1).replace(/\+/g, ' ')); } catch { /* a malformed escape names nothing */ }
+    return { name: at < 0 ? pair : pair.slice(0, at), path: value?.startsWith('app:/') ? value : null, pair };
+  });
+  if (!pairs.some(p => p.path)) return null;
+  return { paths: [...new Set(pairs.filter(p => p.path).map(p => p.path))], rewrite: urlFor => {
+    const out = new URL(url);
+    // A value given nothing is emptied, so no app path reaches the page's server.
+    out.search = '?' + pairs.map(p => p.path ? `${p.name}=${urlFor(p.path) ? encodeURIComponent(urlFor(p.path)) : ''}` : p.pair).join('&');
+    return out.href;
+  } };
+}
+const GIVEN = /^app:\/(cache|tmp)(\/(?!\.\.?(\/|$))[^/\0]+)+$/;
+// The types a browser shows without running script in them; any other (HTML,
+// SVG, any XML) is given as application/octet-stream, which a frame downloads
+// rather than runs as the app's origin. FrameFiles.swift `shown` is the same.
+const SHOWN = /^(image\/(?!svg)[\w.+-]+|audio\/[\w.+-]+|video\/[\w.+-]+|text\/(plain|csv|tab-separated-values|markdown|css)|application\/(json|pdf))$/i;
+const shown = blob => { const type = blob.type.split(';', 1)[0].trim(); return SHOWN.test(type) && !/\+xml$/i.test(type) ? blob : blob.slice(0, blob.size, 'application/octet-stream'); };
+
+// Each value naming a file the page may be given becomes an object URL the
+// frame owns, made from the store as the source commits and revoked with it.
+// Any other is emptied, and the console says why.
+async function framePage(el, state, appId, given, committed, admit) {
+  const store = await fileStore(appId), blobs = new Map();
+  const notGiven = (path, why) => console.warn(`exact: iframe ${state.path}: ${path} is not given (${why})`);
+  for (const path of given.paths) {
+    if (!GIVEN.test(path)) { notGiven(path, 'a page is given app:/cache and app:/tmp files only'); continue; }
+    try { blobs.set(path, picked.get(path) ?? (await store.blob(path, typeFor(path))).blob); } catch { notGiven(path, store ? 'no such file' : 'this page has no app files'); }
+  }
+  if (!state.live) return;
+  const urls = new Map([...blobs].map(([path, blob]) => [path, URL.createObjectURL(shown(blob))])), dispose = state.dispose;
+  state.dispose = function () { dispose.call(this); for (const url of urls.values()) URL.revokeObjectURL(url); };
+  state.url = given.rewrite(path => urls.get(path));
+  admit(state.url);
+  committed();
+}
+
 // An iframe owns its URL: changing its source or ending its node releases
 // it without revoking another element's view of the same file (LLP 1020 §10).
-export async function appFrame(el, state, appId, committed = () => {}) {
+// `admit` writes a page's source through the host's own navigation policy
+// (rt.js `navigable`, glue.js `frameURL`), which an `app:/` file's object URL
+// does not need.
+export async function appFrame(el, state, appId, committed = () => {}, admit = () => el.setAttribute('src', 'about:blank')) {
+  if (!state.path.startsWith('app:/')) {
+    const given = pageFiles(state.path);
+    // The boot glue's test is looser: a source it sent here that gives no
+    // page a file (one outside assets/ and deck/, say) loads as written.
+    if (!given) { state.url = state.path; admit(state.path); return committed(); }
+    return framePage(el, state, appId, given, committed, admit).catch(error => console.warn(`exact: iframe ${state.path}: ${error?.message ?? error}`));
+  }
   try {
     const path = state.path.split(/[?#]/, 1)[0];
     const store = await fileStore(appId);
@@ -191,7 +250,7 @@ globalThis.exact.picker = function install(host) {
     change: (el, id) => el.files?.length ? deliver(id, [...el.files], since()).finally(() => { el.value = ''; }) : Promise.resolve(),
     cancel: (id) => since()(id, 27, ''),
     appURL: (path) => appURL(path, host.appId),
-    appFrame: (el, state, committed) => appFrame(el, state, host.appId, committed),
+    appFrame: (el, state, committed, admit) => appFrame(el, state, host.appId, committed, admit),
     /** The agent's answer (D9): `files` as the driver sent them, or null for `tap @t cancel`. */
     answer(id, files) {
       const dispatch = since();

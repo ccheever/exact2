@@ -86,6 +86,9 @@ fn step_json(step: &Step, s: &mut String) {
                         s.push_str(&format!(",\"at\":[{x},{y}]"));
                     }
                 }
+                TapForm::Wheel { dx, dy } => {
+                    s.push_str(&format!("\"wheel\",\"wheel\":[{dx},{dy}]"))
+                }
                 // @ref LLP 1098 D10 — the platform's action, never a press.
                 TapForm::MediaSession { action, seconds } => {
                     s.push_str("\"mediasession\",\"action\":");
@@ -269,6 +272,9 @@ fn step_json(step: &Step, s: &mut String) {
                 q(path, s);
             }
             s.push(']');
+        }
+        Step::Authorize { cancel, .. } => {
+            s.push_str(&format!("{{\"op\":\"authorize\",\"cancel\":{cancel}"));
         }
         Step::Clipboard {
             target, edit, text, ..
@@ -461,5 +467,121 @@ fn midi_step(step: &contract_syntax::MidiStep, s: &mut String) {
                 s.push_str(&format!(",\"at\":{at}"));
             }
         }
+    }
+}
+
+/// The test file's scripts and parsed property lines for the driver.
+pub fn authored_json(tests: &[TestDecl], properties: &[contract_syntax::PropertyDecl]) -> String {
+    use contract_syntax::{PropertyForm as F, PropertyKind as K, PropertyTest as T};
+    let mut s = format!("{{\"tests\":{},\"properties\":[", tests_json(tests));
+    for (i, p) in properties.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str("{\"name\":");
+        q(&p.name, &mut s);
+        s.push_str(",\"kind\":");
+        q(
+            match &p.kind {
+                K::Always => "always",
+                K::After(_) => "after",
+                K::Clock => "clock",
+                K::NeverRefuses => "never-refuses",
+            },
+            &mut s,
+        );
+        if let K::After(action) = &p.kind {
+            s.push_str(",\"action\":");
+            q(action, &mut s);
+        }
+        s.push_str(&format!(",\"line\":{},\"lines\":[", p.span.line));
+        for (j, line) in p.lines.iter().enumerate() {
+            if j > 0 {
+                s.push(',');
+            }
+            s.push_str(&format!("{{\"line\":{},", line.span.line));
+            match &line.form {
+                F::Hold { name, test } => {
+                    s.push_str("\"op\":\"expect-state\",\"name\":");
+                    q(name, &mut s);
+                    s.push_str(",\"test\":");
+                    q(
+                        match test {
+                            T::Equal(_) => "equal",
+                            T::Old => "old",
+                            T::Add(_) => "add",
+                            T::Subtract(_) => "subtract",
+                            T::NotOld => "not-old",
+                            T::In(_) => "in",
+                            T::AtLeast(_) => "at-least",
+                            T::AtMost(_) => "at-most",
+                            T::Whole => "whole",
+                            T::Stays(_) => "stays",
+                        },
+                        &mut s,
+                    );
+                    match test {
+                        T::Equal(v) | T::Stays(v) => {
+                            s.push_str(",\"value\":");
+                            property_value(v, &mut s);
+                        }
+                        T::Add(n) | T::Subtract(n) | T::AtLeast(n) | T::AtMost(n) => {
+                            s.push_str(&format!(",\"number\":{n}"))
+                        }
+                        T::In(values) => {
+                            s.push_str(",\"values\":");
+                            property_values(values, &mut s);
+                        }
+                        _ => {}
+                    }
+                }
+                F::OnlyWrites(names) => {
+                    s.push_str("\"op\":\"only-writes\",\"names\":[");
+                    for (k, name) in names.iter().enumerate() {
+                        if k > 0 {
+                            s.push(',');
+                        }
+                        q(name, &mut s);
+                    }
+                    s.push(']');
+                }
+                F::Command { name, args } => {
+                    s.push_str("\"op\":\"command\",\"name\":");
+                    q(name, &mut s);
+                    s.push_str(",\"args\":");
+                    property_values(args, &mut s);
+                }
+            }
+            s.push('}');
+        }
+        s.push_str("]}");
+    }
+    s.push_str("]}");
+    s
+}
+
+fn property_values(values: &[contract_syntax::PropertyValue], s: &mut String) {
+    s.push('[');
+    for (i, v) in values.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        property_value(v, s);
+    }
+    s.push(']');
+}
+fn property_value(v: &contract_syntax::PropertyValue, s: &mut String) {
+    use contract_syntax::PropertyValue as V;
+    match v {
+        V::Number(n) => s.push_str(&format!("{{\"kind\":\"number\",\"value\":{n}}}")),
+        V::String(t) => {
+            s.push_str("{\"kind\":\"string\",\"value\":");
+            q(t, s);
+            s.push('}');
+        }
+        V::Bool(b) => s.push_str(&format!("{{\"kind\":\"bool\",\"value\":{b}}}")),
+        V::None => s.push_str("{\"kind\":\"none\"}"),
+        V::Some => s.push_str("{\"kind\":\"some\"}"),
+        V::EmptyList => s.push_str("{\"kind\":\"empty-list\"}"),
     }
 }

@@ -12,6 +12,7 @@ import { answering, dropTimers, files as bodyFiles, SOCKET_AND_FETCH } from './t
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, drive, inflight, journal, Origin, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';
+import { ledger, requestKey } from './uploads.js';
 // Work an answer awaits that is no held fetch, counted on its answer (ts-fetch.js `answering.ordinary`, LLP 1016.000 D9).
 const ordinary = start => (answering.ordinary ?? (f => f()))(start);
 // What an answer's timers run on (ts-fetch.js `arm`).
@@ -374,7 +375,7 @@ export function install(data, mixed = false, modules = null) {
   // paint (rt.js `painted`), whether or not anything asks `later`.
   load = modules && (() => painted().then(modules));
   if (modules && typeof requestAnimationFrame === 'function') pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`));
-  let keys = null, asking = '', thrown = null;
+  let keys = null, asking = '', thrown = null, threwRead = false;
   // The answer an async function was called under, put back around each of
   // its steps by the bundle's async helper (js/bake/src/typescript.mjs
   // `asyncContextHelper`, LLP 1133.002 D14), as Hermes's prelude does with
@@ -408,6 +409,11 @@ export function install(data, mixed = false, modules = null) {
     const types = sourceTypes[name], [params, result] = types ?? [[], 'u'];
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
+    // A call that read the store and then threw read it too: its resource is a store reader (LLP 1146 §2.3).
+    threwRead = false;
+    try { return answerWith(name, args, target, mutation, types, params, result, seen); } catch (e) { threwRead = !!seen.read; throw e; }
+  };
+  const answerWith = (name, args, target, mutation, types, params, result, seen) => {
     // A kept key's work is counted on its answer as an ordinary fetch is (LLP 1016.000 D9).
     for (const name of ['key', 'keepKey']) { const op = seen[name]; seen[name] = (...a) => ordinary(() => op(...a)); }
     asking = target ?? name; watching = name;
@@ -433,9 +439,11 @@ export function install(data, mixed = false, modules = null) {
       throw new Error(SOCKET_AND_FETCH);
     }
     const effects = effectsOf(!mutation || !!(r && typeof r.then === 'function'));
-    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read, effects }; }
+    // An upload's request identity: the same request for newer arguments keeps it (rt.js, LLP 1016.000 D10).
+    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), upload: requestKey(call.stream), store: seen.read, effects }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
+      call.seen = seen; // a read after an `await` makes a store reader too: rt.js looks when the answer lands (LLP 1146 §2.3)
       // Once: an answer let go while its timers were armed never settles, and ends here (ts-fetch.js `dropTimers`).
       const settle = () => { if (call.settled) return; call.settled = true; dropTimers(call); answering.untraced.delete(call); pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
       call.abandon = settle;
@@ -447,6 +455,7 @@ export function install(data, mixed = false, modules = null) {
   // Beside a Rust source (LLP 1027.002): a source this module does not
   // answer is the Rust module's, not ready until it loads; rust-data.js
   // then asks it first and this module for what it calls unknown.
+  data.uploads = ledger; // the uploads a resource asks are asked once (LLP 1016.000 D10)
   data.answer = mixed ? (name, args, store, target, mutation) => { try { return ts(name, args, store, target, mutation); } catch { return null; } } : ts;
   // An overlay (`overlay.js`): what a resource shows while writes affect it, in overlay mode; `undefined` without one.
   overlaying.say = line => journal.push(`t=${clock.now} ${line}`);
@@ -477,5 +486,6 @@ export function install(data, mixed = false, modules = null) {
   };
   // A resource's source that sent and then threw: what it sent, which rt.js `ask` queues with the commit.
   data.thrown = () => { const t = thrown ?? []; thrown = null; return t; };
+  data.threwRead = () => { const read = threwRead; threwRead = false; return read; };
   for (const f of data.q.splice(0)) f();
 }

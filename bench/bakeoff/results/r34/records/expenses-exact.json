@@ -1,0 +1,26 @@
+{
+  "spec": "expenses",
+  "arm": "exact",
+  "model": "gpt",
+  "appId": "dev.bakeoff.expenses.b94e472",
+  "assignedId": "dev.bakeoff.expenses.b94e472",
+  "appName": "Expenses",
+  "sim": "EEFC0029-1010-45E4-8242-42CF67E16C96",
+  "pin": "f2cbe5de1c",
+  "minutes": 15.87,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 3572334,
+    "fresh": 88483,
+    "input": 3551395,
+    "cached": 3462912,
+    "output": 20939,
+    "cost": null,
+    "calls": 13,
+    "toolCalls": 51
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r34/built/expenses-exact.app",
+  "notes": true,
+  "finished": "2026-10-28T18:16:01.320Z"
+}

@@ -155,6 +155,8 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     private fun getUserMedia(args: JSONObject, reply: (JSONObject) -> Unit) {
         // No kind asked for is Media Capture's TypeError, before anything opens.
         if (!args.optBoolean("audio", false) && !args.has("audioConstraints")) return reply(error("TypeError"))
+        // A recognizer holding the microphone exclusively (LLP 1133.012 D8): nothing opens beside it.
+        if (context.tracks.held("audio")) return reply(error("NotReadableError"))
         val make = {
             next += 1
             val t = Track("track-${context.session}-$next", "stream-${context.session}-$next",
@@ -188,13 +190,16 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
                 consumer.live(if (context.agent) null else Capture)
                 if (t.muted) consumer.muted(t.muteReason ?: "idle")
             }
-            origin == "app" && t.enabled && (!t.used || start) -> activate(t)
+            // While a recognizer holds the microphone exclusively, a track stays idle (LLP 1133.012 D8).
+            origin == "app" && t.enabled && (!t.used || start) && !context.tracks.held("audio") -> activate(t)
             else -> consumer.muted(t.muteReason ?: "idle")
         }
         return {
             if (t.consumers.remove(consumer) != null && t.consumers.isEmpty() && t.active) deactivate(t)
         }
     }
+
+    override fun leased(id: String) = tracks[id]?.active == true
 
     private fun each(t: Track, f: (TrackConsumer) -> Unit) = t.consumers.keys.toList().forEach(f)
 

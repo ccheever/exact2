@@ -39,6 +39,7 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
         .or(request.body_from_refusal())
         .or(request.body_to_refusal())
         .or(request.long_poll_refusal())
+        .or(request.upload_progress_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
@@ -221,6 +222,12 @@ impl Batch {
     }
 
     /// A terminal admission refusal, delivered after the enclosing DOM batch.
+    /// A request the app aborted: the page cancels it, whatever its method.
+    pub(crate) fn abort(&mut self, ticket: u64) {
+        self.ops
+            .push(text!("{{\"op\":\"abort\",\"ticket\":{}}}", ticket));
+    }
+
     pub(crate) fn refuse(&mut self, ticket: u64, message: &str) {
         let mut out = text!("{{\"op\":\"refuse\",\"ticket\":{},\"message\":", ticket);
         quote(message, &mut out);
@@ -688,6 +695,11 @@ impl Batch {
         // body as events and delivers each as a message (kind 8).
         if r.request.stream {
             s.push_str(",\"stream\":true");
+        }
+        // An upload (LLP 1016.000 D10): the page sends it with XMLHttpRequest and
+        // delivers its bytes sent as messages, then its reply.
+        if r.request.upload_progress {
+            s.push_str(",\"upload\":true");
         }
         // A long poll (D8): the page asks again with each reply's cursor.
         if let Some(poll) = &r.request.long_poll {

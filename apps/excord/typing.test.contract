@@ -28,7 +28,8 @@ test "the typing line goes ten seconds after the typing, whatever else changes i
 // Each typer's ten seconds are their own, checked once a second.
 test "of two typers, the first goes at the end of their own ten seconds"
   clock settle
-  clock until state gateway.state == "ready" within 5000
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle
@@ -51,7 +52,8 @@ test "of two typers, the first goes at the end of their own ten seconds"
 // Typing in a channel left before it ended keeps its own ten seconds when the channel opens again.
 test "typing in a channel left ends on time when it opens again"
   clock settle
-  clock until state gateway.state == "ready" within 5000
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle

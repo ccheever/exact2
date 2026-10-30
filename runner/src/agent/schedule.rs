@@ -32,5 +32,20 @@ pub(super) fn tasks<D: DataSource>(runner: &Runner<D>, s: &mut String) {
             None => s.push_str("null"),
         }
     }
+    s.push_str("},\"taskTiming\":{");
+    for (i, task) in runner.task_timing().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(&task.name, s);
+        let due = task.due_ms.map_or("null".into(), |at| num(at).to_string());
+        let cap = task.cap_ms.map_or("null".into(), |at| num(at).to_string());
+        use std::fmt::Write as _;
+        let _ = write!(
+            s,
+            ":{{\"due\":{due},\"wait\":{},\"held\":{},\"cap\":{cap},\"tolerance\":{}}}",
+            task.wait, task.held, task.tolerance_ms
+        );
+    }
     s.push('}');
 }

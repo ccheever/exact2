@@ -1,0 +1,26 @@
+{
+  "spec": "settings",
+  "arm": "swiftui",
+  "model": "claude",
+  "appId": "dev.bakeoff.settings.bbd55f4",
+  "assignedId": "dev.bakeoff.settings.bbd55f4",
+  "appName": "Settings",
+  "sim": "CEDFB9C9-FF04-4617-B156-94C56B83CA86",
+  "pin": "f2cbe5de1c",
+  "minutes": 8.12,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 1495049,
+    "fresh": 80637,
+    "input": 1465931,
+    "cached": 1385294,
+    "output": 29118,
+    "cost": 1.5042107999999996,
+    "calls": 66,
+    "toolCalls": 39
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r34/built/settings-swiftui.app",
+  "notes": true,
+  "finished": "2026-10-28T18:59:22.738Z"
+}

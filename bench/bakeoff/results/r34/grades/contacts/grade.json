@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain inset list sorted by last name with sticky letter headers and a native blue A–Z section index; tapping a letter jumps to it. The index has no entry for Favorites."},
+      {"n": 2, "status": "pass", "note": "System search bar at the bottom (iOS 26 style) filters live by name, company, phone and email. Clear (x) and Cancel restore the full list. Native 'No Results' view with the query in it."},
+      {"n": 3, "status": "pass", "note": "Inset-grouped details: name, company, phone and email in tint colour as tappable rows (accessibility labels 'Call…', 'Email…'), and birthday."},
+      {"n": 4, "status": "pass", "note": "Add/Remove from Favorites row with a star; the Favorites section at the top updates straight away and persists."},
+      {"n": 5, "status": "pass", "note": "New Contact sheet with circular X and ✓ buttons; Done is disabled until a first or last name is entered, with a footer hint. Phone gets the number pad. Edit is pre-filled and saves."},
+      {"n": 6, "status": "pass", "note": "Native trailing swipe Delete in the list; Delete Contact on the details screen asks for confirmation in an alert."},
+      {"n": 7, "status": "pass", "note": "Add, edit, unfavourite and both deletes all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The section index has no ★ entry to jump back to Favorites.",
+      "The details screen uses a generic gray person glyph instead of a monogram avatar, and has no call/message quick actions as in Contacts (minor).",
+      "The form does not scroll a field above the keyboard when it is tapped (the Email field sits under the number pad)."
+    ],
+    "scroll": "A native list: sticky headers, the large title collapses into an inline title, a smooth fling with no blank or popping rows, and normal rubber-band at the top.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Sorted by last name with bold surnames, coloured monogram avatars, green sticky letter headers and an index with ★ plus A–Z that jumps correctly. Adds a '320 contacts' count line."},
+      {"n": 2, "status": "pass", "note": "A custom text field under the title filters live by name, company, phone and email, with an 'N contacts found' count. Its clear button and the 'Clear search' link restore the list. Results hide the Favorites section."},
+      {"n": 3, "status": "pass", "note": "Large avatar and name, Call/Email action tiles, tinted phone and email rows with ↗ arrows, company and birthday rows."},
+      {"n": 4, "status": "pass", "note": "A capsule Add/Remove Favorites button; Favorites appear as a horizontal card carousel at the top with a count, and persist."},
+      {"n": 5, "status": "pass", "note": "Sheet with Cancel/Save; Save is disabled without a name and shows a hint. The first field is focused automatically and Return moves to the next field. After saving it opens the new contact's details. Edit works."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete in the list (immediate); delete from details asks for confirmation."},
+      {"n": 7, "status": "pass", "note": "Add, edit, unfavourite and deletes survived relaunch."}
+    ],
+    "bugs": [
+      "The delete confirmation on the details screen is a popover anchored to the top of the screen, over the name, instead of the Delete button or the bottom of the screen."
+    ],
+    "tells": [
+      "Custom cream background with a green tint instead of system grouped backgrounds; looks like a themed or web app.",
+      "The search field is a hand-made rounded TextField, not a system search bar: no Cancel button, no scope or search behaviour, and a custom 'Done' keyboard accessory.",
+      "The large title and search field are pinned and never collapse into an inline title as the list scrolls.",
+      "The swipe-to-delete action is green, not destructive red.",
+      "The Favorites carousel cards are clipped against the section index on the right.",
+      "At the largest text size the search glass, avatar initials and some icons do not scale while the text does, so the proportions are off. Favorite cards become huge and only one fits; 'Add to Favorites' wraps inside a capsule with a tiny star.",
+      "Separators start under the avatar rather than lining up with the text, and the section headers have large uneven gaps above them."
+    ],
+    "scroll": "Smooth fling with sticky blurred letter headers and no blank rows, but the title and search area stay fixed and take about a quarter of the screen, so it never feels like a collapsing iOS large-title list.",
+    "scores": {"features": 9, "platform": 5, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and persist changes correctly. A reads as a stock iOS 26 SwiftUI app: system search bar, a collapsing large title, native swipe actions, inset-grouped details and the system empty state. B has richer touches (avatars, a favorites carousel, Return to the next field), but its custom theme, pinned header, hand-made search field, green delete action, mis-anchored confirmation and uneven Dynamic Type scaling make it feel less like an iPhone app."
+}

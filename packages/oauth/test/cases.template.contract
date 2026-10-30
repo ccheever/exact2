@@ -1,0 +1,199 @@
+// @exact/oauth's app cases (LLP 1146 D6), for an app that signs in to one
+// profile of the fixture server (`fixture.ts`). `cases.mjs` writes one test
+// file per profile from this template: `{{PROFILE}}` is the profile, and
+// `{{CHOOSE}}` the step that picks it in an app that offers several (empty
+// otherwise). A block between `#if <profiles>` and `#end` is kept only for
+// the profiles it names.
+//
+// The app's testIds: `sign-in` and `sign-out` (buttons), `status` ("Signed
+// in" or "Signed out"), `name` (the person's name from the profile's API),
+// `refresh` (a button that reads the person again) and `error` (shown with a
+// message when a sign-in failed or the session ended).
+
+test "{{PROFILE}}: signs in, shows the person, and is still signed in after a relaunch"
+  request POST "/control" {"action": "reset"}
+  {{CHOOSE}}
+  clock data
+  expect text "status" == "Signed out"
+  tap "sign-in"
+  authorize
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+  reload
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+
+test "{{PROFILE}}: a cancelled and then a declined sign-in leave the person signed out, with a message"
+  request POST "/control" {"action": "reset"}
+  {{CHOOSE}}
+  clock data
+  tap "sign-in"
+  authorize cancel
+  clock data
+  expect text "status" == "Signed out"
+  expect tree has "error"
+  request POST "/control" {"action": "deny-authorize", "profile": "{{PROFILE}}"}
+  tap "sign-in"
+  authorize
+  clock data
+  expect text "status" == "Signed out"
+  expect tree has "error"
+  tap "sign-in"
+  authorize
+  clock data
+  expect text "status" == "Signed in"
+
+test "{{PROFILE}}: an expired access token is renewed, twice in a row, and the read succeeds"
+  request POST "/control" {"action": "reset"}
+  {{CHOOSE}}
+  clock data
+  tap "sign-in"
+  authorize
+  clock data
+  request POST "/control" {"action": "mark", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "expire-access", "profile": "{{PROFILE}}"}
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "since": true, "least": {"refresh-ok": 1, "api-ok": 1}}
+  request POST "/control" {"action": "mark", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "expire-access", "profile": "{{PROFILE}}"}
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "since": true, "least": {"refresh-ok": 1, "api-ok": 1}}
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "most": {"reuse": 0}}
+
+test "{{PROFILE}}: a relaunch with an expired access token renews it"
+  request POST "/control" {"action": "reset"}
+  {{CHOOSE}}
+  clock data
+  tap "sign-in"
+  authorize
+  clock data
+  request POST "/control" {"action": "mark", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "expire-access", "profile": "{{PROFILE}}"}
+  reload
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "since": true, "least": {"refresh-ok": 1, "api-ok": 1}}
+
+test "{{PROFILE}}: a read asked again while its renewal is in flight keeps the renewed tokens"
+  request POST "/control" {"action": "reset"}
+  {{CHOOSE}}
+  clock data
+  tap "sign-in"
+  authorize
+  clock data
+  request POST "/control" {"action": "mark", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "expire-access", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "hold-token", "profile": "{{PROFILE}}"}
+  tap "refresh"
+  request POST "/control" {"action": "await", "profile": "{{PROFILE}}", "held": 1}
+  tap "refresh"
+  tap "refresh"
+  request POST "/control" {"action": "release-token"}
+  clock data
+  expect text "status" == "Signed in"
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "since": true, "most": {"reuse": 0, "refresh": 1}, "least": {"refresh-ok": 1, "api-ok": 1}}
+  request POST "/control" {"action": "mark", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "expire-access", "profile": "{{PROFILE}}"}
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "since": true, "most": {"reuse": 0, "refresh": 1}, "least": {"refresh-ok": 1, "api-ok": 1}}
+
+test "{{PROFILE}}: signing out while a renewal is in flight stays signed out"
+  request POST "/control" {"action": "reset"}
+  {{CHOOSE}}
+  clock data
+  tap "sign-in"
+  authorize
+  clock data
+  request POST "/control" {"action": "expire-access", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "hold-token", "profile": "{{PROFILE}}"}
+  tap "refresh"
+  request POST "/control" {"action": "await", "profile": "{{PROFILE}}", "held": 1}
+  tap "sign-out"
+  request POST "/control" {"action": "release-token"}
+  clock data
+  expect text "status" == "Signed out"
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "most": {"revoke-stale": 0, "revoke-unknown": 0}, "least": {"refresh-ok": 1}}
+#if spec google entra auth0 okta onelogin salesforce
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "least": {"revoke-current": 1}}
+#end
+  reload
+  clock data
+  expect text "status" == "Signed out"
+
+test "{{PROFILE}}: an unavailable or unreachable token endpoint keeps the session"
+  request POST "/control" {"action": "reset"}
+  {{CHOOSE}}
+  clock data
+  tap "sign-in"
+  authorize
+  clock data
+  request POST "/control" {"action": "expire-access", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "fail-token", "profile": "{{PROFILE}}", "status": 503}
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed in"
+  request POST "/control" {"action": "drop-token", "profile": "{{PROFILE}}", "count": 2}
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed in"
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+// Both dropped requests spent (a provider set to retry a lost refresh spends both on one), the next read recovers
+  request POST "/control" {"action": "mark", "profile": "{{PROFILE}}"}
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed in"
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "since": true, "least": {"api-ok": 1}}
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "least": {"refresh-ok": 1}}
+
+test "{{PROFILE}}: the provider ending the session signs the person out, with a message"
+  request POST "/control" {"action": "reset"}
+  {{CHOOSE}}
+  clock data
+  tap "sign-in"
+  authorize
+  clock data
+  request POST "/control" {"action": "revoke", "profile": "{{PROFILE}}"}
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed out"
+  expect tree has "error"
+  expect tree has "sign-in"
+
+#if okta
+test "{{PROFILE}}: a renewal whose reply is lost after the token was spent is retried within the grace period"
+  request POST "/control" {"action": "reset"}
+  {{CHOOSE}}
+  clock data
+  tap "sign-in"
+  authorize
+  clock data
+  request POST "/control" {"action": "mark", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "expire-access", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "drop-token-after", "profile": "{{PROFILE}}"}
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "since": true, "least": {"refresh-ok": 1, "api-ok": 1}}
+  request POST "/control" {"action": "mark", "profile": "{{PROFILE}}"}
+  request POST "/control" {"action": "expire-access", "profile": "{{PROFILE}}"}
+  tap "refresh"
+  clock data
+  expect text "status" == "Signed in"
+  request POST "/control" {"action": "expect", "profile": "{{PROFILE}}", "since": true, "least": {"refresh-ok": 1, "api-ok": 1}}
+#end

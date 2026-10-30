@@ -747,7 +747,7 @@ impl<D: DataSource> Runner<D> {
 
     /// `row`'s substitute with the permission a call with `args` asks.
     pub(in crate::runner) fn substitute_for(&self, row: &ModulesRow, args: &Json) -> Json {
-        let mut sub = self.substitute(row);
+        let mut sub = (*self.substitute(row)).clone();
         if sub["permissionBy"].is_object()
             || sub["permissionAny"].is_array()
             || sub["permissionValue"].is_array()
@@ -906,11 +906,20 @@ impl<D: DataSource> Runner<D> {
         }
         // A path option is the app's own file, within the calling source's
         // `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4); each of a
-        // list's (LLP 1133.024 D16).
+        // list's (LLP 1133.024 D16); a keyed shape's path keys (`keys`),
+        // each item's, an item being the option or each of its list (LLP
+        // 1133.006 D8 item 3).
         for (option, path) in sub["paths"].as_object().into_iter().flatten() {
-            let given: Vec<&str> = match &args[option] {
-                Json::String(one) => vec![one],
-                Json::Array(list) => list.iter().filter_map(Json::as_str).collect(),
+            let given: Vec<&str> = match (&args[option], path["keys"].as_array()) {
+                (Json::Array(items), Some(keys)) => (items.iter())
+                    .flat_map(|item| keys.iter().filter_map(|k| item[k.as_str()?].as_str()))
+                    .collect(),
+                (item, Some(keys)) => keys
+                    .iter()
+                    .filter_map(|k| item[k.as_str()?].as_str())
+                    .collect(),
+                (Json::String(one), None) => vec![one],
+                (Json::Array(list), None) => list.iter().filter_map(Json::as_str).collect(),
                 _ => continue,
             };
             let capability = format!("fs.{}", path["access"].as_str().unwrap_or("read"));

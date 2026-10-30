@@ -946,6 +946,12 @@ impl Host<Value> for Run<'_, '_> {
             env.geometry,
         )
         .map_err(|error| match error {
+            stdlib::CallError::TypeMismatch
+                if f == Stdlib::EncodeRouteSegment
+                    && call_args.first().is_some_and(Value::is_str) =>
+            {
+                Trap::PathParameter { pc }
+            }
             stdlib::CallError::TypeMismatch => Trap::TypeMismatch { pc, op },
             stdlib::CallError::StringTooLong => Trap::StringTooLong { pc },
         })

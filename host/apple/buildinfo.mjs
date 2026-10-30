@@ -73,6 +73,7 @@ export function buildInfo(app, { root, archive = false, production = false, sdk 
   return {
     ExactBuildTime: now.toISOString(),
     ExactBuildKind: archive ? 'archive' : production ? 'release' : 'debug',
+    ExactFrameHealthMode: app.manifest?.frame_health?.mode ?? (production || env.EXACT_UPDATE_TRUST === 'production' ? 'off' : 'core'),
     ExactBuildHost: hostname(),
     ...(tools ? { ExactBuildXcode: tools } : {}),
     ...(exact ? { ExactCommit: exact.sha, ExactCommitDirty: exact.dirty } : {}),

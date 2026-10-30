@@ -45,7 +45,7 @@ dependencies = [
  "accesskit_consumer",
  "hashbrown 0.17.1",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
 ]
 
@@ -967,6 +967,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -1414,6 +1415,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-apple-painted"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-ink",
+ "exact-linux",
+ "exact-runner",
+ "serde_json",
+ "winit",
+]
+
+[[package]]
 name = "exact-apple-update"
 version = "0.1.0"
 dependencies = [
@@ -1547,6 +1560,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-ink"
+version = "0.1.0"
+dependencies = [
+ "block2 0.6.2",
+ "bytemuck",
+ "libc",
+ "naga 30.0.1",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation 0.3.2",
+ "objc2-metal 0.3.2",
+ "objc2-quartz-core 0.3.2",
+ "raw-window-handle",
+ "swash",
+ "tiny-skia",
+ "wasm-bindgen-futures",
+ "web-time",
+ "wgpu 30.0.1",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "exact-js"
 version = "0.1.0"
 dependencies = [
@@ -1643,6 +1681,8 @@ dependencies = [
  "exact-color",
  "exact-data",
  "exact-grants",
+ "exact-ink",
+ "exact-js",
  "exact-kernel",
  "exact-linux",
  "exact-listen",
@@ -1665,6 +1705,7 @@ dependencies = [
  "libc",
  "libloading",
  "memmap2",
+ "messages-stress-data",
  "mimalloc",
  "parley",
  "png",
@@ -1704,6 +1745,7 @@ name = "exact-listen"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "socket2",
 ]
 
 [[package]]
@@ -2062,6 +2104,8 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",
+ "contract",
+ "exact-ink",
  "exact-kernel",
  "exact-linux",
  "exact-runner",
@@ -3971,6 +4015,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "oauth-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "oauth-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "objc-sys"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4009,6 +4084,18 @@ dependencies = [
  "objc2-core-image",
  "objc2-foundation 0.2.2",
  "objc2-quartz-core 0.2.2",
+]
+
+[[package]]
+name = "objc2-app-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
+dependencies = [
+ "bitflags 2.13.1",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
 ]
 
 [[package]]
@@ -4144,7 +4231,7 @@ checksum = "a1a1ae721c5e35be65f01a03b6d2ac13a54cb4fa70d8a5da293d7b0020261398"
 dependencies = [
  "block2 0.5.1",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
 ]
 
@@ -4489,6 +4576,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-bake",
+ "exact-data-host",
  "exact-linux",
  "photos-fixture-data",
 ]
@@ -4497,8 +4585,10 @@ dependencies = [
 name = "photos-fixture-data"
 version = "0.1.0"
 dependencies = [
+ "exact-data",
  "exact-plan",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]
@@ -7177,7 +7267,7 @@ dependencies = [
  "libc",
  "ndk",
  "objc2 0.5.2",
- "objc2-app-kit",
+ "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
  "objc2-ui-kit",
  "orbclient",

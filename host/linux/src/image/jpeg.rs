@@ -64,7 +64,7 @@ pub(super) fn inspect(
         .seek(SeekFrom::Start(2))
         .map_err(|_| Refusal::DecodeFailed)?;
     let mut at = 2u64;
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "android", target_os = "macos"))]
     let mut orientation = 1;
     loop {
         if at + 4 > MAX_HEADER_BYTES || at + 4 > encoded_bytes {
@@ -104,7 +104,7 @@ pub(super) fn inspect(
         if at + len > MAX_HEADER_BYTES || at + len > encoded_bytes {
             return Err(Refusal::HeaderLimit);
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "android", target_os = "macos"))]
         if m == 0xE1 {
             let mut data = vec![0; (len - 2) as usize];
             input
@@ -133,7 +133,9 @@ pub(super) fn inspect(
                 encoded_bytes,
                 header_bytes: at + len,
             });
-            #[cfg(windows)]
+            // The picture's size is the upright one: WIC is told to turn it, and Android's decoders
+            // turn it themselves, so a target size in the stored grid would squash a turned photo.
+            #[cfg(any(windows, target_os = "android", target_os = "macos"))]
             let header = header.oriented(orientation);
             return Ok(header);
         }
@@ -144,7 +146,7 @@ pub(super) fn inspect(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "android", target_os = "macos"))]
 fn exif_orientation(bytes: &[u8]) -> Option<u8> {
     let tiff = bytes.strip_prefix(b"Exif\0\0")?;
     let little = match tiff.get(..4)? {
@@ -188,7 +190,7 @@ fn exif_orientation(bytes: &[u8]) -> Option<u8> {
     None
 }
 
-#[cfg(all(test, windows))]
+#[cfg(all(test, any(windows, target_os = "android", target_os = "macos")))]
 #[test]
 fn exif_orientation_checks_endianness_types_offsets_and_truncation() {
     let little = b"Exif\0\0II\x2a\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0";
@@ -288,7 +290,7 @@ pub(crate) fn platform_decoder() -> bool {
 
 /// The whole file (it is bounded by `MAX_ENCODED_BYTES`): the platform
 /// decoder takes a buffer.
-#[cfg(any(target_os = "android", windows))]
+#[cfg(any(target_os = "android", windows, target_os = "macos"))]
 fn read_all<R: Read + Seek>(
     mut input: R,
     plan: &DecodePlan,
@@ -426,8 +428,35 @@ mod windows;
 #[cfg(windows)]
 pub(super) use windows::decode;
 
+/// ImageIO decodes and orients the thumbnail on the raster worker.
+#[cfg(target_os = "macos")]
+pub(super) fn decode<R: Read + Seek>(
+    input: R,
+    plan: &DecodePlan,
+    cancelled: impl Fn() -> bool,
+) -> Result<Pixmap, Refusal> {
+    let bytes = read_all(input, plan, &cancelled)?;
+    let full = plan.full();
+    let pixels = exact_ink::image::apple::decode(
+        &bytes,
+        [full.width, full.height],
+        [
+            plan.crop.x,
+            plan.crop.y,
+            plan.pixels.width,
+            plan.pixels.height,
+        ],
+    )
+    .ok_or(Refusal::DecodeFailed)?;
+    if cancelled() {
+        Err(Refusal::Stale)
+    } else {
+        Ok(pixels)
+    }
+}
+
 /// No platform decoder on this target.
-#[cfg(not(any(target_os = "android", windows)))]
+#[cfg(not(any(target_os = "android", windows, target_os = "macos")))]
 pub(super) fn decode<R: Read + Seek>(
     _input: R,
     _plan: &DecodePlan,

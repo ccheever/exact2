@@ -178,6 +178,8 @@ inductive TaskKind where
 
 structure TaskDecl where
   name : String
+  waitKind : Nat := 0
+  maxMs : Nat := 0
   kind : TaskKind
   ms : Expr
   action : String

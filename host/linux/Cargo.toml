@@ -20,6 +20,7 @@ name = "exact_linux"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-ink = { path = "../ink" }
 exact-grants = { path = "../../grants" }
 exact-canvas = { path = "../../canvas" }
 exact-data = { path = "../../data" }
@@ -111,6 +112,8 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 test-wait = []
 
 [dev-dependencies]
+exact-js = { path = "../../js" }
+messages-stress-data = { path = "../../apps/messages-stress/data" }
 exact-update = { path = "../../update" }
 exact-linux = { path = ".", features = ["test-wait"] }
 cc = "1"

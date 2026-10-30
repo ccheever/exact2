@@ -92,10 +92,13 @@ extension NodeView {
         return false
     }
     /// The first paragraph in the row, in the order it is written: where a
-    /// cell's separator begins.
+    /// cell's separator begins. What lies wholly beside the box is not in
+    /// the row (a `delete=` row's Delete parked past its trailing edge, which
+    /// a row mounted again as the list scrolls back can hold before its
+    /// content).
     fileprivate var firstText: NodeView? {
         if kind == "text" { return self }
-        for case let child as NodeView in container.subviews where !child.isHidden {
+        for case let child as NodeView in container.subviews where !child.isHidden && child.frame.maxX > 0 && child.frame.minX < bounds.width {
             if let found = child.firstText { return found }
         }
         return nil
@@ -216,7 +219,7 @@ final class RowCells {
         }
         // The selected row stays so under the screen it pushed, out of the
         // window, for its fade as that screen pops (`appearing`).
-        if let held = shown, presenter.views[held.row.id] !== held.row { drop() } else if let held = shown { held.ground.frame = held.row.frame }
+        if let held = shown, presenter.views[held.row.id] !== held.row { drop() } else if let held = shown { held.row.moveOrPlace { held.ground.frame = held.row.frame } }
         // The margins first, so a list's separators end at the one it now has.
         let moved = tell()
         for (id, list) in presenter.listViews where list.hasRowCells && (changed?.contains(id) != false || lines[id] == nil || moved.contains(id)) { draw(list) }

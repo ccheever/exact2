@@ -370,11 +370,28 @@ fn menu_hints_write_no_dom_attributes() {
     for (kind, prop, value) in [
         (NodeType::Pressable, PropId::MenuPlacement, "help"),
         (NodeType::View, PropId::MenuRemove, "close-all"),
+        (NodeType::View, PropId::MenuKeys, "close-window=none"),
     ] {
         let out = written(kind, prop, PropValue::Str(value.into()));
         assert!(out.get("data-menuplacement").is_none());
         assert!(out.get("data-menuremove").is_none());
     }
+}
+
+/// LLP 1045.000 D2: a Markdown node's faces go to the page with each
+/// face's paint as the CSS a pill takes, and one that is none empty.
+#[test]
+fn a_faces_paint_is_written_as_css() {
+    let faces = r##"[{"source":"@a","label":"","icon":"","title":"","color":"light-dark(#d52c36ff, #ff6762ff)","backgroundColor":"no colour"}]"##;
+    let out = written(
+        NodeType::TextInput,
+        PropId::AtomFaces,
+        PropValue::Str(faces.into()),
+    );
+    let written: serde_json::Value =
+        serde_json::from_str(out.get("data-atom-faces").unwrap()).unwrap();
+    assert_eq!(written[0]["color"], "light-dark(#d52c36ff, #ff6762ff)");
+    assert_eq!(written[0]["backgroundColor"], "");
 }
 
 #[test]

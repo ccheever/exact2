@@ -232,6 +232,7 @@ final class ShortcutMenu: NSMenu {
         // one, when an app command stands in for it, is the app's.
         if item.action == #selector(NSTextView.pasteAsPlainText(_:)) { return "paste-and-match-style" }
         switch item.action.map(NSStringFromSelector) {
+        case "performClose:": return "close-window"
         case "back:": return "back"
         case "showHelp:": return "app-help"
         case "actualSize:": return "actual-size"
@@ -306,6 +307,9 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     /// the chord to give back (studio diary R16).
     private var replaced: [NSMenuItem] = []
     private var unbound: [(NSMenuItem, String, NSEvent.ModifierFlags)] = []
+    /// The host's items the root gives another chord or none
+    /// (`-exact-menu-keys`, LLP 1021 §5.3.3), with the chord each was built with.
+    private var rekeyed: [(NSMenuItem, String, NSEvent.ModifierFlags)] = []
     /// The commands in the app menu or Help: the app's, not the window's
     /// (`enabled`).
     private var appWide: Set<UInt32> = []
@@ -315,6 +319,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         for item in Array(items.values) + [fileSeparator, settingsSeparator, editSeparator, viewSeparator] { item.menu?.removeItem(item) }
         replaced = []
         unbound = []
+        rekeyed = []
         fileMenu = file
         applicationMenu = application
         navigationMenu = navigation
@@ -447,11 +452,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         // command claims them (studio diary R16).
         let claimed = chords.compactMap { $0.1.map { ($0.keyEquivalent.lowercased(), $0.modifiers) } }
         let standing = chords.filter { !$0.0.isHidden }.compactMap { $0.1.map { ($0.keyEquivalent.lowercased(), $0.modifiers) } }
+        rekey(rootProps("menuKeys"))
         release(keeping: claimed)
         claim(claimed)
         stepAside(standing: standing)
-        let removals = Set((presenter?.root.subviews ?? []).compactMap { ($0 as? NodeView)?.props["menuRemove"] }
-            .flatMap { $0.split(whereSeparator: \.isWhitespace).map(String.init) })
+        let removals = Set(rootProps("menuRemove"))
         for (item, shortcut) in chords {
             item.keyEquivalent = shortcut?.keyEquivalent ?? ""
             item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
@@ -564,6 +569,43 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         guard !rest.isEmpty else { return }
         let start = after(#selector(EditMenuTarget.selectAll(_:))) ?? menu.numberOfItems
         for (offset, item) in ([editSeparator] + rest).enumerated() { menu.insertItem(item, at: start + offset) }
+    }
+    /// The words of a root's menu declaration.
+    private func rootProps(_ name: String) -> [String] {
+        (presenter?.root.subviews ?? []).compactMap { ($0 as? NodeView)?.props[name] }
+            .flatMap { $0.split(whereSeparator: \.isWhitespace).map(String.init) }
+    }
+    /// Sets the chord of each host item the root's `-exact-menu-keys` names
+    /// (`close-window=<chord>`, or `=none` for no chord), and gives an item
+    /// the root no longer names the chord it was built with. While a command
+    /// holds the item's chord (`claim`), the new chord is the one `release`
+    /// gives back.
+    private func rekey(_ pairs: [String]) {
+        var declared: [String: (String, NSEvent.ModifierFlags)] = [:]
+        for pair in pairs {
+            guard let split = pair.firstIndex(of: "=") else { continue }
+            let chord = pair[pair.index(after: split)...]
+            if chord == "none" { declared[String(pair[..<split])] = ("", []) }
+            else if let shortcut = Shortcut(chord) { declared[String(pair[..<split])] = (shortcut.keyEquivalent, shortcut.modifiers) }
+        }
+        guard !declared.isEmpty || !rekeyed.isEmpty, let bar = fileMenu?.supermenu else { return }
+        var menus = bar.items.compactMap(\.submenu)
+        while let menu = menus.popLast() {
+            for host in menu.items where !(host.target is ShortcutHost) {
+                if let sub = host.submenu { menus.append(sub) }
+                let held = rekeyed.firstIndex { $0.0 === host }
+                let wanted = ShortcutMenu.standardID(host).flatMap { declared[$0] }
+                guard held != nil || wanted != nil else { continue }
+                let claimed = unbound.firstIndex { $0.0 === host }
+                let built = held.map { (rekeyed[$0].1, rekeyed[$0].2) }
+                    ?? claimed.map { (unbound[$0].1, unbound[$0].2) } ?? (host.keyEquivalent, host.keyEquivalentModifierMask)
+                if held == nil { rekeyed.append((host, built.0, built.1)) } else if wanted == nil { rekeyed.remove(at: held!) }
+                let (key, mask) = wanted ?? built
+                if let claimed { unbound[claimed].1 = key; unbound[claimed].2 = mask; continue }
+                if host.keyEquivalent != key { host.keyEquivalent = key }
+                if host.keyEquivalentModifierMask != mask { host.keyEquivalentModifierMask = mask }
+            }
+        }
     }
     /// The host's items whose chord no command claims any longer get it
     /// back, and come back into view.

@@ -54,10 +54,11 @@ impl Collection {
             self.at_end = false;
         }
     }
-    /// The offset an opening list's anchor is taken at: its end.
-    pub(super) fn anchor_offset(&self, offset: f64) -> f64 {
+    /// The offset an opening list's anchor is taken at: its end, in a port of
+    /// `port`, and no overshoot past it.
+    pub(super) fn anchor_offset(&self, offset: f64, port: f64) -> f64 {
         if self.at_end {
-            self.index.scroll_extent()
+            self.index.max_offset(port)
         } else {
             offset
         }

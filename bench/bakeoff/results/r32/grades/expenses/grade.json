@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day in inset-grouped sections; each header reads e.g. 'Oct 25, 2026 · $222.02', and the day total updates after edits (Oct 25 went to $226.47 after an edit)."},
+      {"n": 2, "status": "pass", "note": "A 'This Month' card at the top shows $5,269.70 and 'October 2026 · 86 expenses'. It updated correctly after add, edit and delete."},
+      {"n": 3, "status": "pass", "note": "Sheet with amount (decimal pad), merchant, a category menu listing all 7 categories, a date picker defaulting to Oct 28, 2026 (today) and a note. The ✓ Save button stays disabled for -5, 0, non-numeric text or an empty merchant, with inline footer text ('Must be positive.', 'Enter a merchant.')."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens an Edit Expense sheet with every field filled in, and edits save. Swiping left shows a red Delete action, and tapping it removes the row and updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab: month total, then categories largest first, each with expense count, '% of total', amount and a progress bar. Tapping one pushes a list of that category's transactions for the month, grouped by day."},
+      {"n": 6, "status": "pass", "note": "All amounts show as $x,xxx.xx. The added expense, an edited amount and a deletion all survived relaunch."}
+    ],
+    "bugs": [
+      "No functional bugs found.",
+      "Minor: the 'Must be positive.' error shows on a fresh, empty Add form before the user has typed anything."
+    ],
+    "tells": [
+      "Category rows on the Categories screen are tappable and push a screen, but have no disclosure chevron.",
+      "While a row is swiped open for Delete, the whole row turns grey, as if it were selected.",
+      "Very stock and plain: transaction rows have no category icon or colour, and amounts are grey secondary text. Native, but a bit bare."
+    ],
+    "scroll": "Smooth native collection-view scrolling across ~26 pages: slow drags, flings and fling-back to the top showed no blank or popping rows, and the pull past the top rubber-bands with the large title. Scroll position was kept after opening and cancelling an edit and after switching tabs.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day with sticky headers ('Today' / 'Sun, Oct 25') and the day total right-aligned. Rows show a category icon, the note and a chevron."},
+      {"n": 2, "status": "pass", "note": "A green 'This month · October 2026' card shows $5,269.70, the expense count, a category colour strip and a 'View breakdown' link that switches to the Categories tab. Totals updated correctly after add, edit and delete."},
+      {"n": 3, "status": "pass", "note": "Sheet with a large $ amount field (decimal pad with a Done accessory), merchant, a category popup listing all 7 categories with icons, a date defaulting to today and an optional note. Save stays enabled; tapping it with an empty amount, -5 or a missing merchant brings up an alert ('Enter a positive amount', 'Add a merchant')."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens an Edit expense sheet with the fields filled in, and edits save. Swiping left shows a red Delete action that removes the row and updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab: month card, then 'Where it went', largest first, each with an icon, count, amount, '% of total' and a coloured bar. Tapping one pushes that category's transactions for the month, grouped by day."},
+      {"n": 6, "status": "pass", "note": "All amounts show as US currency. The added expense, an edited amount and a deletion all survived relaunch."}
+    ],
+    "bugs": [
+      "Editing an expense saved as 12.50 shows the amount as '12.5' in the field.",
+      "Share precision is inconsistent: '28.1% of total' and '14.4%' next to '14% of total'.",
+      "With the merchant keyboard up, the first tap on the Category row did nothing; it needed a second tap after dismissing the keyboard."
+    ],
+    "tells": [
+      "Validation uses blocking alerts after Save, where iOS apps usually disable Save or show the error inline.",
+      "Custom cream and dark-green palette with a filled green Save pill and a text 'Cancel' pill. Branded rather than system tinted, though the system controls underneath (tables, liquid-glass tab bar, date picker, menus) are native.",
+      "At the largest text size, the left edge of the 'View breakdown' link text is clipped inside the green card ('V' and 'd' are cut off)."
+    ],
+    "scroll": "Smooth native table scrolling across ~36 pages with sticky day headers: flings and fling-back to the top showed no blank rows or popping, and pulling past the top reveals a search field. Position was mostly kept after opening and cancelling an edit (it shifted about 10 pt) and after switching tabs.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and persist correctly, with clean native lists and good dark-mode and Dynamic Type support. A is the more stock-looking app and validates more idiomatically (Save disabled, inline errors), but it looks bare. B adds category icons, notes in the rows, a search field, sticky headers and a breakdown link with a cohesive design, so it is the one I would rather use and ship, despite its alert-based validation and a few small formatting slips."
+}

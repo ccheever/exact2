@@ -174,9 +174,54 @@ fn shapes(json: &Value, span: Span) -> Result<Vec<ShapeDecl>, String> {
     object(&json["shapes"])
         .iter()
         .map(|(name, fields_json)| {
+            let fields = match keyed(fields_json) {
+                Some(keys) => keyed_fields(name, keys, span)?,
+                None => fields(object(fields_json), span)?,
+            };
             Ok(ShapeDecl {
                 name: name.clone(),
-                fields: fields(object(fields_json), span)?,
+                fields,
+                span,
+            })
+        })
+        .collect()
+}
+
+/// A shape declared as a record keyed by string (LLP 1133.006 D8 item 1),
+/// `{"record": {key: type}}`: its keys and their types, as the Clipboard
+/// API's `ClipboardItem` maps a MIME type to its data. `None` for a shape of
+/// fields.
+fn keyed(shape: &Value) -> Option<&Map<String, Value>> {
+    shape
+        .as_object()
+        .filter(|s| s.len() == 1)?
+        .get("record")?
+        .as_object()
+}
+
+/// A keyed shape's keys as Contract's optional fields: an item gives any of
+/// them. A key that takes an `app:/` path or bytes (`{"type": "path", "or":
+/// "bytes"}`) is a string to Contract, which never calls a name that takes
+/// one (`"contract": false`); so is a string held to its UTF-8 bytes
+/// (`{"type": "string", "maxBytes": n}`).
+fn keyed_fields(shape: &str, keys: &Map<String, Value>, span: Span) -> Result<Vec<Field>, String> {
+    keys.iter()
+        .map(|(key, ty)| {
+            let ty = match ty {
+                Value::Object(_) if ty["type"] == "path" => {
+                    if !matches!(ty["or"].as_str(), None | Some("bytes")) {
+                        return Err(format!("`{shape}`'s key `{key}` is a path `or` bytes"));
+                    }
+                    "string"
+                }
+                Value::Object(_) if ty["type"] == "string" => "string",
+                ty => ty.as_str().ok_or_else(|| {
+                    format!("`{shape}`'s key `{key}` has a type, or is a path's object")
+                })?,
+            };
+            Ok(Field {
+                name: key.clone(),
+                ty: TypeExpr::Option(Box::new(type_expr(ty, span)?), span),
                 span,
             })
         })
@@ -658,6 +703,31 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         )?;
         paths.insert(option.clone(), ty.clone());
     }
+    // An option of a keyed shape (or a list of them) whose keys take a path:
+    // each item's string at those keys is one (LLP 1133.006 D8 item 3).
+    for (option, ty) in object(&entry["options"]) {
+        let Some(keys) = ty
+            .as_str()
+            .and_then(|t| keyed(&interface["shapes"][bare(t).0]))
+        else {
+            continue;
+        };
+        let at: Vec<(&String, &Value)> = keys.iter().filter(|(_, t)| t["type"] == "path").collect();
+        if let Some((key, first)) = at.first() {
+            check(
+                matches!(first["access"].as_str(), Some("read" | "write"))
+                    && at.iter().all(|(_, t)| t["access"] == first["access"]),
+                &format!(
+                    "path key `{key}` has an `access` of \"read\" or \"write\", one for every key"
+                ),
+            )?;
+            let keys: Vec<Value> = at.iter().map(|(k, _)| Value::from(k.as_str())).collect();
+            paths.insert(
+                option.clone(),
+                serde_json::json!({ "type": "path", "access": first["access"], "keys": keys }),
+            );
+        }
+    }
     if !paths.is_empty() {
         out.insert("paths".into(), Value::Object(paths));
     }
@@ -972,6 +1042,21 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
                 }),
                 "`methods` gives each method's `grant`, and lists its `data`, `modifier`, `targets` and `exclusive` keys",
             )?,
+            // A send's positional parameters, each one of its options in
+            // order, and the group of sends whose calls land in the order
+            // they were made (LLP 1133.006 D8 item 1, D2): the binding's.
+            "params" => {
+                check(
+                    (value.as_array()).is_some_and(|p| p.iter().all(option))
+                        && object(&entry["options"]).len() == value.as_array().map_or(0, Vec::len),
+                    "`params` lists every one of its options, in order",
+                )?;
+                continue;
+            }
+            "sequence" => {
+                check(value.is_string(), "`sequence` names the group its calls are ordered in")?;
+                continue;
+            }
             "handlersFrom" => check(
                 value.as_str().is_some_and(|o| {
                     (object(&entry["options"])[o].as_str())

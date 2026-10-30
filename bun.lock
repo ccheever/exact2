@@ -135,6 +135,10 @@
       "name": "@exact/child-process",
       "version": "1.0.0",
     },
+    "packages/clipboard": {
+      "name": "@exact/clipboard",
+      "version": "1.0.0",
+    },
     "packages/compose": {
       "name": "@exact/compose",
       "version": "1.0.0",
@@ -222,6 +226,10 @@
     "packages/notifications": {
       "name": "@exact/notifications",
       "version": "1.0.0",
+    },
+    "packages/oauth": {
+      "name": "@exact/oauth",
+      "version": "0.1.0",
     },
     "packages/passkeys": {
       "name": "@exact/passkeys",
@@ -347,6 +355,8 @@
 
     "@exact/child-process": ["@exact/child-process@workspace:packages/child-process"],
 
+    "@exact/clipboard": ["@exact/clipboard@workspace:packages/clipboard"],
+
     "@exact/compose": ["@exact/compose@workspace:packages/compose"],
 
     "@exact/contacts": ["@exact/contacts@workspace:packages/contacts"],
@@ -390,6 +400,8 @@
     "@exact/nfc": ["@exact/nfc@workspace:packages/nfc"],
 
     "@exact/notifications": ["@exact/notifications@workspace:packages/notifications"],
+
+    "@exact/oauth": ["@exact/oauth@workspace:packages/oauth"],
 
     "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
 

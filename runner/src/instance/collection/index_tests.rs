@@ -455,6 +455,70 @@ fn end_follow_only_when_requested_and_already_at_end() {
     assert_eq!(empty.restore_anchor(&anchor, 20.0).unwrap(), 0.0);
 }
 
+/// A port pulled past the end (a rubber band under a finger or a fling)
+/// keeps its overshoot: restored where it was, it owes no correction that
+/// would pull the band back, and a row before it that grows moves it by as
+/// much, from there. With no row to anchor (a list shorter than its port,
+/// padded or not, or a port in the padding after the rows, past the end or
+/// not) it stays where it was, though the rows below it grow.
+#[test]
+fn an_anchor_past_the_end_keeps_its_overshoot() {
+    let mut index = index(&[100.0, 100.0, 100.0, 100.0]);
+    let viewport = 150.0;
+    let max = index.max_offset(viewport);
+    let pulled = max + 19.0;
+    let anchor = index.capture_anchor(pulled, viewport, false).unwrap();
+    assert_eq!(index.restore_anchor(&anchor, viewport).unwrap(), pulled);
+    assert!(index.kept_row(&anchor, viewport));
+    let token = index.measurement_token("k0").unwrap();
+    assert!(index.set_measured_height("k0", token, 110.0).unwrap());
+    assert_eq!(
+        index.restore_anchor(&anchor, viewport).unwrap(),
+        pulled + 10.0
+    );
+    // An end it follows keeps it too, past the end the rows now have
+    let following = index.capture_anchor(pulled + 10.0, viewport, true).unwrap();
+    assert!(SizeIndex::follows_end(&following));
+    assert_eq!(
+        index.restore_anchor(&following, viewport).unwrap(),
+        pulled + 10.0
+    );
+    let token = index.measurement_token("k3").unwrap();
+    assert!(index.set_measured_height("k3", token, 125.0).unwrap());
+    assert_eq!(
+        index.restore_anchor(&following, viewport).unwrap(),
+        pulled + 35.0
+    );
+    let mut short = self::index(&[100.0]);
+    let mut padded = self::index(&[100.0; 5]);
+    padded.set_leading(92.0);
+    padded.set_trailing(83.0);
+    let mut after = self::index(&[100.0; 2]);
+    after.set_trailing(300.0);
+    for (list, port, at) in [
+        (&short, viewport, 19.0),
+        (&padded, 600.0, 0.0),
+        (&padded, 600.0, 19.0),
+        (&after, 100.0, 450.0),
+        (&after, 100.0, 300.0),
+    ] {
+        let anchor = list.capture_anchor(at, port, false).unwrap();
+        assert_eq!(
+            list.restore_anchor(&anchor, port).unwrap(),
+            at,
+            "{at} in {port}"
+        );
+    }
+    let anchor = short.capture_anchor(19.0, viewport, false).unwrap();
+    let token = short.measurement_token("k0").unwrap();
+    assert!(short.set_measured_height("k0", token, 400.0).unwrap());
+    assert_eq!(
+        short.restore_anchor(&anchor, viewport).unwrap(),
+        19.0,
+        "its row grew below the port's top"
+    );
+}
+
 #[test]
 fn end_follow_accepts_native_document_rounding() {
     let mut index = index(&[324_242.100_130_000_04]);
@@ -812,7 +876,12 @@ fn twenty_25k_traversals_with_zero_samples_keep_selection_and_metadata_bounded()
             // Work scales with selected rows and tree depth, never the zero run.
             assert!(index.tree.visits.get() <= (12 + 4 * selected.len()) * (depth + 1));
             let anchor = index.capture_anchor(offset, 100.0, false).unwrap();
-            assert_eq!(index.restore_anchor(&anchor, 100.0).unwrap(), window.offset);
+            // Past the end the port keeps its overshoot (a rubber band).
+            let beyond = (offset - index.max_offset(100.0)).max(0.0);
+            assert_eq!(
+                index.restore_anchor(&anchor, 100.0).unwrap(),
+                window.offset + beyond
+            );
             assert!(Rc::ptr_eq(&anchor.order, &order));
         }
     }

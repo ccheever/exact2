@@ -1,0 +1,18 @@
+# Code review: Excord F1, the fling's lead toward the top (x2/excord-f1), narrow re-check 4, 2026-10-28 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra via `codex exec`, reasoning effort max, `-s read-only`, a throwaway worktree at `7c4a085e20`.
+- **Method:** a narrow brief naming the earlier findings and their fixes; 2 rounds (app-only work in apps/excord, theme2's 08:32 confirmation of x2-perf4's approved fling plan), then narrow re-checks. The author (Claude, reload1) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+- **Note:** No change: both findings are on main too. Astra's (a same-channel restore can leave away false; main's openChannel also resets away and keeps topKey) and Grok's (settling never ends on a host without scrollend, so away stops updating after a send; F1 there falls back to main's 15-row rule) are raised with the lead as follow-ups.
+
+**One new P2 finding.** Reviewed only the specified diff and relevant app code; no builds or tests run.
+
+1. **P2 — A restore report can leave `away` incorrectly false.** Opening resets `away` ([app.contract:475](apps/excord/app.contract:475)), while the changed offset branch preserves the previous key and offset ([app.contract:682](apps/excord/app.contract:682)). Reopen the same channel, with no intermediate scroll report: if the placement reports the saved `(key, offset)`, `moved` is false, so `scrolled` never restores `away=true` ([app.contract:590](apps/excord/app.contract:590)). Leaving then saves `atEnd=true`, and the next reopening loses the history position ([app.contract:557](apps/excord/app.contract:557)). Previously, clearing `topKey` made that report count as movement. Preserve the position data, but reconcile restored `away` independently of `moved`.
+
+2. **(a) Clean for the ordinary live-end fling.** The scroll sets `away` and pins the window; `current` explicitly accepts that pin ([app.contract:598](apps/excord/app.contract:598), [app.contract:260](apps/excord/app.contract:260)). Below 100 rows, the lead starts through `after(1, older)`—one scheduled turn later than the old synchronous path, without requiring another scroll ([app.contract:366](apps/excord/app.contract:366)). **The existing no-`scrollend` limitation remains at the live tail after a send:** stuck `settling` prevents `away` becoming true, leaving the 15-row fallback until history supplies `hasAfter`.
+
+3. **(b) The successful-restore paging guard is clean.** `target` blocks the lead before placement, then `leadHeld` blocks it afterward. The missing-target branch does skip the hold ([app.contract:690](apps/excord/app.contract:690)). For ordinary reopening, the retained key is either that missing saved key or another channel’s key, so membership rejects it. A same-channel reselection with an older saved place can bypass this reasoning, but that branch already retained same-channel `topKey` in the base revision. No new stale-key paging bypass found.
+
+4. **(c) Acceptable pause, not a permanent block during scrolling.** Without a report, `leadHeld` can remain true indefinitely while idle. Every subsequent `scrolled` clears it unconditionally ([app.contract:612](apps/excord/app.contract:612)). This can leave fewer than 100 prefetched rows after a silent restore, but scrolling resumes the lead.
+
+5. **(d) No other new defect found.** The test now distinguishes chaining: the initial index 9 triggers the fallback; index 59 requires `leadOlder`; index 109 stops it ([app.test.contract:127](apps/excord/app.test.contract:127)). It does not cover finding 1 or initial lead activation between rows 15 and 99.

@@ -80,8 +80,8 @@ struct HeaderTitle: Equatable {
                     headingImages.append(child)
                     let tinted = child.ownColor("tint_color") != nil
                     titleGlyphs.append(TitleGlyph(name: name, before: before,
-                        light: tinted ? child.channels("tint_color", dark: false) : nil,
-                        dark: tinted ? child.channels("tint_color", dark: true) : nil))
+                        light: tinted ? child.undimmedChannels("tint_color", dark: false) : nil,
+                        dark: tinted ? child.undimmedChannels("tint_color", dark: true) : nil))
                 }
             }
         }

@@ -57,7 +57,7 @@ const content = `${authored}<div style="display:flex;flex-direction:column;align
 // Each runtime's painter, its module's other parts stood in for.
 const RUNTIMES = {
   'host/web/glue.js': ['const views = new Map([...document.querySelectorAll("#exact-root img")].entries()), log = () => {}, tintFit = () => {};', ['refreshSymbols'], 'refreshSymbols();'],
-  'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {};', ['inked', 'refresh'], 'refresh();'],
+  'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {}, Images = new Set(document.querySelectorAll("#exact-root img")), image = e => Images.add(e);', ['inked', 'refresh'], 'refresh();'],
 };
 
 for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: a bar item's symbol is the bar's size (${file})`, async () => {

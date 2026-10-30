@@ -5,6 +5,25 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    /// Deliver only the timer whose independent platform callback ran.
+    pub fn fire_native_timer(&mut self, index: u32, generation: u64, now: f64) -> String {
+        let a = self.runner.fire_native_timer(index, generation, now);
+        self.advanced(a)
+    }
+
+    /// A presented frame (LLP 1073 D2): the timers due by `now_ms`, then
+    /// every frame task once at it, in one batch as [`Host::advance`]'s.
+    pub fn frame(&mut self, now_ms: f64) -> String {
+        // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
+        self.runner.present_frames(true);
+        let a = if self.admitting_frame {
+            self.runner.complete_frame_tasks(now_ms)
+        } else {
+            self.runner.frame(now_ms)
+        };
+        self.advanced(a)
+    }
+
     /// A motion frame: seek the engine to `now_ms` and report every
     /// presentation value that changed. Nothing else moves.
     pub fn tick(&mut self, now_ms: f64) -> String {
@@ -62,6 +81,14 @@ impl<D: DataSource> Host<D> {
         self.presence.frame = Some(frame_ms / 1000.0);
         let out = self.frame(frame_ms);
         self.presence.frame = None;
+        out
+    }
+
+    /// Present frame tasks after the host has applied timer admission batches.
+    pub fn admitted_frame(&mut self, target_ms: f64, wall_ms: f64) -> String {
+        self.admitting_frame = true;
+        let out = self.frame_at(target_ms, wall_ms);
+        self.admitting_frame = false;
         out
     }
 

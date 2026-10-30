@@ -584,3 +584,38 @@ fn link_destinations_are_each_links_own_syntax() {
         assert_eq!(p.e.selection(), (b, b), "{at}");
     }
 }
+
+/// LLP 1045 D11: each undo step keeps the host's words for the state it
+/// returns to, however many keystrokes it holds; the app's new words forget
+/// them all.
+#[test]
+fn undo_steps_keep_the_hosts_words() {
+    let back = |p: &Page| p.e.words_back().map(|w| String::from_utf16(w).unwrap());
+    let mut p = Page::open("A\nB\nC");
+    p.e.set_words(&u("first"));
+    p.e.select(1, 5, None);
+    p.input(Input::Forward, "");
+    assert_eq!(p.source(), "A");
+    p.e.set_words(&u("second"));
+    p.caret(1);
+    p.type_(&"x".repeat(64));
+    p.e.set_words(&u("third"));
+    assert_eq!(back(&p), None, "an edit gives nothing back");
+    p.input(Input::Undo, "");
+    assert_eq!((p.source(), back(&p)), ("A".into(), Some("second".into())));
+    p.input(Input::Undo, "");
+    assert_eq!(
+        (p.source(), back(&p)),
+        ("A\nB\nC".into(), Some("first".into()))
+    );
+    p.input(Input::Redo, "");
+    assert_eq!(back(&p), Some("second".into()));
+    p.e.set_words(&u("again"));
+    assert_eq!(back(&p), None, "the host's own words since");
+    p.e.forget_words();
+    p.input(Input::Undo, "");
+    assert_eq!(
+        (p.source(), back(&p)),
+        ("A\nB\nC".into(), Some(String::new()))
+    );
+}

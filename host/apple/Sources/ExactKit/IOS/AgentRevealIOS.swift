@@ -121,13 +121,7 @@ extension Agent {
         if let top = keyboardTopInWindow() {
             covers.append(CGRect(x: window.bounds.minX, y: top, width: window.bounds.width, height: max(0, window.bounds.maxY - top)))
         }
-        for cover in covers {
-            let r = sv.convert(cover, from: nil).intersection(port)
-            guard !r.isNull, r.height > 0, r.width > 0 else { continue }
-            // One in the port's upper half starts it below; one lower ends it above.
-            if r.midY < port.midY { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
-            else { port.size.height = max(0, r.minY - port.minY) }
-        }
+        port = Self.port(port, clearOf: covers.map { sv.convert($0, from: nil) })
         // The target's covers: the sticky box at its middle, then each one at the middle of the band that leaves (a
         // header across from a dock), by the window's hit test, as the tap's.
         if let v {
@@ -141,6 +135,23 @@ extension Agent {
                 else { port.size.height = max(0, r.minY - port.minY) }
                 at = sv.convert(CGPoint(x: x, y: port.midY), to: nil)
             }
+        }
+        return port
+    }
+
+    /// `port` less what `covers`, in its space, hide of it: one down its whole
+    /// height (the iPhone Duo's strip of bar items) leaves the wider side of
+    /// it; one in its upper half starts it below, and one lower ends it above.
+    static func port(_ port: CGRect, clearOf covers: [CGRect]) -> CGRect {
+        var port = port
+        for cover in covers {
+            let r = cover.intersection(port)
+            guard !r.isNull, r.height > 0, r.width > 0 else { continue }
+            if r.height >= port.height - 0.5, r.width < port.width {
+                if r.midX < port.midX { port = CGRect(x: r.maxX, y: port.minY, width: max(0, port.maxX - r.maxX), height: port.height) }
+                else { port.size.width = max(0, r.minX - port.minX) }
+            } else if r.midY < port.midY { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
+            else { port.size.height = max(0, r.minY - port.minY) }
         }
         return port
     }

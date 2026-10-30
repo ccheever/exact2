@@ -981,3 +981,33 @@ test('a snapshot GPU build script reports its SDK watch independently of the inv
     }
   } finally {rmSync(root,{recursive:true,force:true});}
 });
+
+// host/web/dev.mjs bakes through a web crate's `<app>-dev` bin, else through the generic compiler, which has no game's
+// data (host/web red #7: Beacons' tiltAngles was an UnknownSource to the dev loop's first bake). A game with data of
+// its own gets that bin in its web shell; one without keeps the shell it had.
+test('a game with data of its own gets a web dev bin that bakes with it; one without keeps its shell', async () => {
+  const {gameDefaults, gameShells} = await import('./app/shells.mjs');
+  const parent = realpathSync(mkdtempSync(resolve(tmpdir(), 'game-dev-bin-'))), app = resolve(parent, 'my-game');
+  try {
+    createGame(app);
+    gameShells(app, gameDefaults(app).game, import.meta.dir);
+    const web = resolve(app, '.shells/web');
+    const plain = readFileSync(resolve(web, 'Cargo.toml'), 'utf8');
+    assert.equal(plain.includes('[[bin]]'), false);
+    assert.equal(existsSync(resolve(web, 'src/bin')), false);
+    // The same game with a data crate.
+    const manifest = gameDefaults(app), name = manifest.game.crate.slice(0, -'-logic'.length);
+    delete manifest._generated;
+    mkdirSync(resolve(app, 'data/src'), {recursive:true});
+    writeFileSync(resolve(app, 'data/Cargo.toml'), `[package]\nname = "${name}-data"\nversion = "0.1.0"\nedition = "2021"\nworkspace = "../.shells"\n`);
+    writeFileSync(resolve(app, 'data/src/lib.rs'), '#[derive(Default)]\npub struct Readings;\n');
+    manifest.game.data = { crate: `${name}-data`, type: 'Readings' };
+    writeFileSync(resolve(app, 'app.json'), JSON.stringify(manifest));
+    gameShells(app, manifest.game, import.meta.dir);
+    const withData = readFileSync(resolve(web, 'Cargo.toml'), 'utf8');
+    assert.match(withData, new RegExp(`\\[\\[bin\\]\\]\\nname = "${name}-dev"\\npath = "src/bin/${name}-dev.rs"`));
+    assert.match(readFileSync(resolve(web, `src/bin/${name}-dev.rs`), 'utf8'), /exact_web::dev::main::<app_data::Readings>\(\)/);
+    // The other shells have no such bin: only the web dev loop bakes through one.
+    for (const kind of ['apple', 'linux', 'android']) assert.equal(existsSync(resolve(app, '.shells', kind, 'src/bin')), false, kind);
+  } finally { rmSync(parent, {recursive:true, force:true}); }
+});

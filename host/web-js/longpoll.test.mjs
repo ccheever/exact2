@@ -65,9 +65,10 @@ export function answer(name: string, args: any[]): any {
       });
       const [status, stdout, stderr] = await Promise.all([built.exited, new Response(built.stdout).text(), new Response(built.stderr).text()]);
       expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-      server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
-        const path = new URL(req.url).pathname;
-        return new Response(Bun.file(resolve(dir, 'dist', path === '/' ? 'index.html' : path.slice(1))));
+      // A file the build did not write (`exact.json`, which only a bake has) is a 404.
+      server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+        const path = new URL(req.url).pathname, file = Bun.file(resolve(dir, 'dist', path === '/' ? 'index.html' : path.slice(1)));
+        return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
       } });
       browser = await open({ host: 'web', url: server.url.href, webDist: resolve(dir, 'dist') });
       const until = async (predicate, what) => {

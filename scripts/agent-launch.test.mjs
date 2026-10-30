@@ -4,9 +4,17 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil } from './agent-launch.mjs';
+import { Cdp, agentPage, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
 import { placeReporter } from '../host/web/navigation.js';
+
+// Every browser carrier opens the page with the same query (LLP 1146 D4): the drive's auth fixture among it.
+test('a web drive opens its page with the facts, its auth fixture, storage and hatches', () => {
+  const page = agentPage(new URL('http://127.0.0.1:9/'), { facts: { epoch: '0' }, storage: 'drive', env: { EXACT_AUTH_FIXTURE: 'http://127.0.0.1:4400', EXACT_HATCHES: 'off' } });
+  expect(Object.fromEntries(page.searchParams)).toEqual({ agent: '1', epoch: '0', authFixture: 'http://127.0.0.1:4400', storage: 'drive', hatches: 'off' });
+  const plain = agentPage(new URL('http://127.0.0.1:9/'), { facts: {}, storage: undefined, env: { EXACT_HATCHES: 'on' } });
+  expect(Object.fromEntries(plain.searchParams)).toEqual({ agent: '1' });
+});
 
 test('simulator drives reject --phone and preserve explicit --sim selection', () => {
   for (const host of ['ios', 'host-ios']) {
@@ -497,6 +505,45 @@ const other = 'http://127.0.0.1:4400';`;
   for (const value of ['file:///tmp/a', 'https://user:pw@backend.example', 'http://backend.example/path', ''])
     expect(() => backendOrigin('.', {EXACT_BACKEND_ORIGIN: value})).toThrow(/EXACT_BACKEND_ORIGIN/);
   expect(backendOrigin('.', {EXACT_BACKEND_ORIGIN: 'https://backend.example/'})).toBe('https://backend.example');
+});
+
+test('a grant line beginning with development is kept without the word in a development build and left out of a production one', async () => {
+  const {developmentGrants, injectBackendOrigin, staticFacts} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const plain = "const origin = 'http://127.0.0.1:4400';\nexport const grants = `net.fetch ${origin}\\ndevice.microphone purpose.microphone\\n  development device.calls purpose.calls \\r\\ndevelopment net.fetch ${origin}/media`;\nexport const seen = () => grants;";
+  const joined = "export const grants = ['net.fetch https://a.example', 'development\tdevice.hid'].join('\\n');";
+  const keyed = "export const origin = 'http://127.0.0.1:4790';\nexport const grants = { 'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'development device.hid'], 'https://b.example': 'development net.fetch https://b.example' } as const;";
+  const aliased = "const permissions = 'fs.read app:/data\\ndevelopment device.hid';\nexport { permissions as grants };";
+  // As configure runs them: the backend's selection, then the marker.
+  const lines = (code, env, origin = null) => staticFacts(developmentGrants(injectBackendOrigin(code, origin, parseSync, env), parseSync, env), parseSync).grants.split('\n');
+  for (const env of [{}, {EXACT_UPDATE_TRUST: 'development'}]) {
+    expect(lines(plain, env)).toEqual(['net.fetch http://127.0.0.1:4400', 'device.microphone purpose.microphone', '  device.calls purpose.calls \r', 'net.fetch http://127.0.0.1:4400/media']);
+    expect(lines(joined, env)).toEqual(['net.fetch https://a.example', 'device.hid']);
+    expect(lines(keyed, env)).toEqual(['net.fetch http://127.0.0.1:4790', 'device.hid']);
+    expect(lines(aliased, env)).toEqual(['fs.read app:/data', 'device.hid']);
+    // A kept line's origin moves with the backend's selection as any other's, and so does its neighbours'.
+    const selected = "const origin = 'http://127.0.0.1:4400';\nexport const grants = `net.fetch ${origin}/api\\ndevelopment net.fetch ${origin}\\ndevelopment device.hid`;";
+    expect(lines(selected, env, 'https://backend.example')).toEqual(['net.fetch https://backend.example/api', 'net.fetch https://backend.example', 'device.hid']);
+    expect(lines("const origin = 'http://127.0.0.1:4400';\nexport const grants = 'development net.fetch http://127.0.0.1:4400\\nfs.read app:/data';", env, 'https://backend.example')).toEqual(['net.fetch https://backend.example', 'fs.read app:/data']);
+  }
+  const production = {EXACT_UPDATE_TRUST: 'production'};
+  const selectedProduction = () => "const origin = 'http://127.0.0.1:4400';\nexport const grants = `net.fetch ${origin}/api\\ndevelopment net.fetch ${origin}\\ndevelopment device.hid`;";
+  expect(lines(plain, production)).toEqual(['net.fetch http://127.0.0.1:4400', 'device.microphone purpose.microphone']);
+  expect(lines(joined, production)).toEqual(['net.fetch https://a.example']);
+  expect(lines(keyed, production)).toEqual(['net.fetch http://127.0.0.1:4790']);
+  expect(lines(keyed, production, 'https://b.example')).toEqual(['']);
+  expect(lines(selectedProduction(), production, 'https://backend.example')).toEqual(['net.fetch https://backend.example/api']);
+  // Keyed grants are checked as written before the marker is read: a duplicate key is still refused.
+  expect(() => lines("export const origin = 'http://127.0.0.1:4790';\nexport const grants = { 'http://127.0.0.1:4790': 'development device.hid', 'http://127.0.0.1:4790': 'fs.read app:/data' };", production)).toThrow(/duplicate key/);
+  expect(lines(aliased, production)).toEqual(['fs.read app:/data']);
+  // Only the grants binding's value changes, so the module still reads its own, the build's.
+  const rewritten = developmentGrants(plain, parseSync, production);
+  expect(rewritten.slice(0, rewritten.indexOf('export const grants = '))).toBe(plain.slice(0, plain.indexOf('export const grants = ')));
+  expect(rewritten.endsWith(';\nexport const seen = () => grants;')).toBe(true);
+  expect(parseSync('app.ts', rewritten).errors).toEqual([]);
+  // A grant whose own argument is the word, the bake's trailing local-network modifier, and the word inside a line are not the marker.
+  const unmarked = "export const grants = 'secret.keep development\\ndevice.hid\\nnet.fetch local-network development\\nfs.read app:/development';";
+  expect(developmentGrants(unmarked, parseSync, production)).toBe(unmarked);
 });
 
 test('backend selection moves the socket at the origin\'s host in plain grants', async () => {

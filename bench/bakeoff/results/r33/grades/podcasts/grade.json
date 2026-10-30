@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first inset-grouped list showing show, title, date · length, and a Played/Unplayed label plus a filled or empty circle. It has a search field and a count line ('420 episodes · 295 unplayed')."},
+      {"n": 2, "status": "pass", "note": "An 'Unplayed only' switch in a row filters the list (293 → 292 when one is marked from the filtered list) and the count updates."},
+      {"n": 3, "status": "pass", "note": "Shows tab lists all 12 shows with 'N episodes · M unplayed'; tapping one pushes that show's episodes newest first. Every show has the same purple waveform icon."},
+      {"n": 4, "status": "pass", "note": "Detail screen shows show, title, date · length, summary, and a Play button that marks the episode played and changes to 'Playing' with a Pause button. Add to Up Next and Mark as Played/Unplayed rows sit below."},
+      {"n": 5, "status": "pass", "note": "Leading circle button on each row toggles played/unplayed in place. There are no swipe actions."},
+      {"n": 6, "status": "partial", "note": "The + button on each row adds to Up Next (turns into a check). Up Next reorders by dragging the grip in Edit mode or with Earlier/Later buttons, and Remove works. But the queue is a hand-made stack of rows with text buttons, not a list, and swipe-to-delete does not work."},
+      {"n": 7, "status": "pass", "note": "After a relaunch, played states and the Up Next contents and order (3 items, reordered) were kept."}
+    ],
+    "bugs": [
+      "A horizontal swipe on an episode row or Up Next row registers as a tap and opens the episode detail, instead of showing swipe actions or doing nothing.",
+      "Tapping a row during the dark-mode switch didn't respond at first, then pushed the detail screen later. The Episodes tab was then left sitting on a detail screen without my having opened one."
+    ],
+    "tells": [
+      "No swipe actions anywhere: no swipe to mark played or queue on episode rows, and no swipe-to-delete in Up Next.",
+      "Up Next is not a table: rows have no separators or cell background, with loose purple 'Mark Unplayed' and red 'Remove' text buttons under each item. In Edit mode it shows custom 'Earlier / Later / Remove' capsule buttons instead of the system delete and reorder controls.",
+      "The Up Next large title has a tiny '4 episodes · 198 min' subtitle jammed right under it, which is not a system navigation-bar layout.",
+      "Every show uses the same tinted waveform glyph, so there is no artwork to tell shows apart.",
+      "Episode rows in a show's list repeat the show name on every row.",
+      "At the largest text size the in-row buttons become big grey capsules ('Mark Unplayed', 'In Up Next'), the checkmark overlaps 'In Up Next', and 'Mark Unplayed' sits off-centre with no icon. Up Next's 'Mark Unplayed' / 'Remove' lose their alignment and 'Remove' slides under the tab bar.",
+      "The navigation title on a detail screen is the show name rather than the episode, while the show name is repeated again in the card."
+    ],
+    "scroll": "The 420-row list scrolls and flings smoothly with no blank or popping rows, and scroll position is kept when switching tabs (about a 19 pt shift). Pull-down and return to the top behave normally.",
+    "scores": {"features": 7, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first list: a 'Latest release' feature card, then 'Recent episodes (419)' rows with generated show artwork, show, title, date · length, and a Played/Unplayed dot label, plus an 'In Up Next' glyph when queued."},
+      {"n": 2, "status": "pass", "note": "An All episodes / Unplayed segmented control filters the list (featured card plus 291 more = 292 unplayed). The same control appears on each show's page."},
+      {"n": 3, "status": "pass", "note": "Shows tab lists the 12 shows A–Z with artwork, 'N episodes' and 'M unplayed'. Tapping one opens a show page with a header and that show's episodes."},
+      {"n": 4, "status": "pass", "note": "Detail screen has large artwork, a link to the show, title, date · length, played status, summary, and a Play episode button that marks it played, switches to Pause, and shows 'Playing · playback preview' plus a Now Playing bar. A Queued toggle and Mark as unplayed are there too."},
+      {"n": 5, "status": "pass", "note": "From the list: a leading swipe gives a 'Played' action, a trailing full swipe adds to Up Next, the ⋯ button opens a system menu (Play / Mark as played / Add to Up Next), and the featured card has its own Play button."},
+      {"n": 6, "status": "pass", "note": "Up Next uses the system Edit mode with red delete circles, a Delete confirmation and reorder handles; dragging a handle moved item 1 to 3. Swipe left to delete also works, and the tab shows a count badge."},
+      {"n": 7, "status": "pass", "note": "After a relaunch, played states, Up Next items and their order (3 items, reordered) were kept. The playing state resets, which is fine."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Heavily themed: a warm cream background, rust accent, and letter-spaced monospaced section headers ('LATEST RELEASE · NEWEST FIRST', 'P / 05' on the artwork) read as a designed brand look rather than stock iOS.",
+      "The Now Playing mini-player is a flat full-width bar above the tab bar, not the system tab-bar accessory, and it disappears on pushed screens.",
+      "Rows have both a ⋯ button and a disclosure chevron. In Up Next edit mode they also get the reorder handle, which is crowded and makes the date wrap ('Oct 26, 2026 · / 63 min').",
+      "Pinned section headers ('RECENT EPISODES 419 EPISODES', 'ALL EPISODES') float over half-visible row content while scrolling.",
+      "The segmented control's labels stay small at the largest text size while everything around them grows (system behaviour, but it stands out).",
+      "Extra decorative tagline headers ('A little curiosity goes a long way.', 'Find your familiar voices.', 'A listening list, made by you.') take up screen space."
+    ],
+    "scroll": "Smooth throughout: slow drags and flings showed no blank or late-appearing rows, artwork is there immediately, and scroll position was kept when switching tabs. Sticky headers blur over content the way a system list's would.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "B covers every requirement with real iOS list behaviour: leading and trailing swipe actions, system context menus, the system Edit mode with delete and reorder, swipe-to-delete, a tab badge and a Now Playing bar. It holds up in dark mode and at the largest text size. A works and looks closer to stock iOS on its main screens, but it has no swipe actions, its Up Next is a hand-built stack of rows with text buttons, and sideways swipes are treated as taps that open the episode."
+}

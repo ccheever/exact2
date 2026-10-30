@@ -18,7 +18,66 @@ impl<D: DataSource> Presenter<D> {
     pub fn poll_images(&mut self) -> bool {
         self.images.paint_with(self.brush.text.clone());
         let reports = self.images.poll();
+        // A picture's time to ask again for a failed download has come: the
+        // next paint's sync asks (`Images::sync_visible`).
+        if self.images.retry_due_in().is_some_and(|d| d.is_zero()) {
+            self.dirty = true;
+        }
         self.apply_reports(reports)
+    }
+
+    /// A source's first picture sends its `load`, and a failure for good its
+    /// `error` with the reason, to an image that hears it
+    /// (LLP 1011 §4) and is still that node showing that source, assigned
+    /// that time, as it is sent: since it landed, input, a timer or an
+    /// earlier load's action may have changed any of them. It is sent with
+    /// nothing run before its handler (`Host::dispatch_now`), so the handler
+    /// sees what was checked; what the clock owes runs after, at the loop's
+    /// next advance. A source changed and changed back between two of the
+    /// presenter's image syncs (commits of one advance) was never shown
+    /// changed, and counts as unchanged. Loads are taken one at a time, so a
+    /// source an earlier load's action changes drops the rest's
+    /// (`Images::sync_shown`), and at most as many as were waiting: a handler
+    /// that keeps changing sources can't hold the loop. Whether any was sent.
+    pub(crate) fn deliver_image_loads(&mut self) -> bool {
+        let mut loads = false;
+        for _ in 0..self.images.load_events.len() {
+            if self.images.load_events.is_empty() {
+                break;
+            }
+            let event = self.images.load_events.remove(0);
+            let same = self.host.kernel().node(event.id).is_some_and(|n| {
+                n.node_type == NodeType::Image
+                    && (u64::from(n.key.index) | (u64::from(n.key.generation) << 32)) == event.key
+                    && n.props.str(PropId::ImageSource) == Some(event.source.as_str())
+            }) && self.images.assignment(event.id) == Some(event.assignment);
+            // Its `load`, or its `error` with the reason (as Apple sends it).
+            let (kind, sent) = match event.error {
+                None => (EventKind::Load, Event::Load),
+                Some(message) => (EventKind::Error, Event::Media(EventKind::Error, message)),
+            };
+            if !same || !(self.host.runner().handlers_of(event.id)).contains(&kind) {
+                continue;
+            }
+            let sent = self.host.dispatch_now(event.id, sent);
+            let after = self.after_commit();
+            if let Some(error) = sent.or(after) {
+                self.host.log(error);
+            }
+            loads = true;
+        }
+        loads
+    }
+
+    /// Milliseconds until the pictures owe a turn: at once while a `load`
+    /// waits to be sent (a picture from the cache lands in a paint's sync,
+    /// with no decode to wake the loop), else when a picture on screen asks
+    /// again for a failed download.
+    pub(crate) fn image_turn_due_in_ms(&self) -> Option<f64> {
+        if !self.images.load_events.is_empty() {
+            return Some(0.0);
+        }
+        self.images.retry_due_in().map(|d| d.as_secs_f64() * 1000.0)
     }
 
     /// Wait for every load in flight (bounded).
@@ -43,7 +102,9 @@ impl<D: DataSource> Presenter<D> {
                 self.host.log(error);
             }
         }
-        any
+        // After the sizes.
+        let loads = self.deliver_image_loads();
+        any || loads
     }
 
     pub(super) fn sync_images(&mut self) -> Option<String> {
@@ -112,42 +173,49 @@ impl<D: DataSource> Presenter<D> {
             })
             .collect();
         let viewport = self.viewport;
+        self.images.screen = (viewport.0 * self.brush.scale, viewport.1 * self.brush.scale);
         self.images.paint_with(self.brush.text.clone());
-        let reports = self
-            .images
-            .sync_visible(host.kernel(), &live, self.brush.scale, |id| {
-                if host.route_visibility(id).0 {
-                    return false;
-                }
-                if *AT_MOUNT {
-                    return true;
-                }
-                let Some((i, b)) = boxes(&id) else {
-                    return true;
-                };
-                let (mut x, mut y, mut w, mut h) = b.rect;
-                let mut clip = b.clip;
-                if let Some((_, _, d, port)) =
-                    shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(&i))
-                {
-                    x += d.0;
-                    y += d.1;
-                    clip = *port;
-                }
-                // An auto-sized first load has no natural dimensions yet. Permit
-                // that point to load; its accepted backing will supply geometry.
-                w = w.max(1.);
-                h = h.max(1.);
-                if let Some((cx, cy, cw, ch)) = clip {
-                    let right = (x + w).min(cx + cw);
-                    let bottom = (y + h).min(cy + ch);
-                    x = x.max(cx);
-                    y = y.max(cy);
-                    w = right - x;
-                    h = bottom - y;
-                }
-                w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.
-            });
+        // Where its painted box is in the viewport: None for a picture with no
+        // painted box (not painted yet, or under `display: none`).
+        let placed = |id: ViewId| -> Option<bool> {
+            if host.route_visibility(id).0 {
+                return Some(false);
+            }
+            let (i, b) = boxes(&id)?;
+            let (mut x, mut y, mut w, mut h) = b.rect;
+            let mut clip = b.clip;
+            if let Some((_, _, d, port)) = shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(&i))
+            {
+                x += d.0;
+                y += d.1;
+                clip = *port;
+            }
+            // An auto-sized first load has no natural dimensions yet. Permit
+            // that point to load; its accepted backing will supply geometry.
+            w = w.max(1.);
+            h = h.max(1.);
+            if let Some((cx, cy, cw, ch)) = clip {
+                let right = (x + w).min(cx + cw);
+                let bottom = (y + h).min(cy + ch);
+                x = x.max(cx);
+                y = y.max(cy);
+                w = right - x;
+                h = bottom - y;
+            }
+            Some(w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.)
+        };
+        // In the viewport, its box painted there: what a retry and a download's urgency go by.
+        let on_screen = |id: ViewId| placed(id) == Some(true);
+        // Asked for: in the viewport or with no box yet (a first load), or
+        // mounted where pictures are asked at mount.
+        let visible = |id: ViewId| {
+            if *AT_MOUNT {
+                return !host.route_visibility(id).0;
+            }
+            placed(id).unwrap_or(true)
+        };
+        let reports =
+            (self.images).sync_shown(host.kernel(), &live, self.brush.scale, &visible, &on_screen);
         self.images.box_index = index
             .into_inner()
             .map(|index| (self.boxes_serial, order_epoch, index));
@@ -162,3 +230,7 @@ impl<D: DataSource> Presenter<D> {
         self.host.set_intrinsics(reports)
     }
 }
+
+#[cfg(test)]
+#[path = "images_tests.rs"]
+mod tests;

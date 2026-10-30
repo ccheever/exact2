@@ -5,6 +5,7 @@
 // atom run. No claim about a physical keyboard, VoiceOver itself or a phone's
 // gestures: the drive and the VoiceOver acceptance are separate.
 import XCTest
+import CoreText
 @testable import ExactKit
 @testable import ExactMarkdown
 import CExact
@@ -15,6 +16,67 @@ private let cite = "[Quote](t3-citation:1)"
 private let source = "Ask " + cite + " now"
 /// The atom's start and end.
 private let a = 4, b = 4 + (cite as NSString).length
+/// A face in Display P3's own red and green, which sRGB has neither of.
+private let wide = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"color(display-p3 1 0 0)","backgroundColor":"color(display-p3 0 1 0)"}]"##
+
+/// A face colour in Display P3 as a bound text colour's channels are
+/// (`textChannels`, LLP 1100 D2): the sRGB four, then the space (1) and
+/// `components`, which `TextEngine.color` draws in that space.
+private func assertDisplayP3(_ channels: [Double]?, _ components: [Double], file: StaticString = #filePath, line: UInt = #line) {
+    guard let c = channels else { return XCTFail("no colour", file: file, line: line) }
+    XCTAssertEqual(c.count, 9, "\(c)", file: file, line: line)
+    XCTAssertEqual(c.dropFirst(4).first, 1, "Display P3", file: file, line: line)
+    XCTAssertEqual(Array(c.dropFirst(5)), components, file: file, line: line)
+    XCTAssertEqual(TextEngine.color(c).cgColor.colorSpace?.name as String?, CGColorSpace.extendedDisplayP3 as String, file: file, line: line)
+}
+
+/// A pill's picture as `draw` paints it into a 40 by 20 Display P3 bitmap:
+/// a point of its fill left of the label, halfway up, is Display P3's own
+/// green, where its sRGB clip would read about (117, 251, 76).
+private func assertDisplayP3Green(file: StaticString = #filePath, line: UInt = #line, _ draw: (CGContext, CGRect) -> Void) throws {
+    let p3 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: p3, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    draw(context, CGRect(x: 0, y: 0, width: 40, height: 20))
+    let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+    let at = 10 * context.bytesPerRow + 2 * 4
+    let got = (0..<4).map { Int(pixels[at + $0]) }
+    for (channel, want) in zip(got, [0, 255, 0, 255]) { XCTAssertEqual(channel, want, accuracy: 2, "\(got)", file: file, line: line) }
+}
+
+/// A face whose pill draws only its icon, a black disc on white, with
+/// `direction`: where the picture's ink is says which end the icon is at.
+private func iconFace(_ direction: String) -> String {
+    ##"[{"source":"[Quote](t3-citation:1)","label":" ","icon":"symbol:sf/circle.fill","title":"","color":"#000000","backgroundColor":"#ffffff","direction":"\##(direction)"}]"##
+}
+
+/// The citation's face while an upload is `percent` done: its label follows
+/// the upload, as T3 Code's image chip does, and its source stays.
+private func upload(_ percent: Int) -> String {
+    #"[{"source":"[Quote](t3-citation:1)","label":"A quote \#(percent)%","icon":"","title":""}]"#
+}
+
+/// The pixels `draw` paints into a 160 by 20 picture, wide enough for a
+/// label and its percentage: a new label is new pixels.
+private func pixels(_ draw: (CGContext, CGRect) -> Void) throws -> [UInt8] {
+    let srgb = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 160, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    draw(context, CGRect(x: 0, y: 0, width: 160, height: 20))
+    let data = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+    return Array(UnsafeBufferPointer(start: data, count: context.bytesPerRow * context.height))
+}
+
+/// The mean x of the dark pixels `draw` paints into a 40 by 20 picture: the
+/// icon's middle, where nothing else is dark.
+private func inkMiddle(_ draw: (CGContext, CGRect) -> Void) throws -> Double {
+    let srgb = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    draw(context, CGRect(x: 0, y: 0, width: 40, height: 20))
+    let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+    var xs: [Int] = []
+    for y in 0..<20 { for x in 0..<40 where pixels[y * context.bytesPerRow + x * 4 + 3] > 200 && pixels[y * context.bytesPerRow + x * 4] < 100 { xs.append(x) } }
+    XCTAssertFalse(xs.isEmpty, "an icon is drawn")
+    return Double(xs.reduce(0, +)) / Double(max(xs.count, 1))
+}
 
 #if os(macOS)
 import AppKit
@@ -25,7 +87,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
     override func setUp() { super.setUp(); ExactMarkdown.install() }
     override func tearDown() { session?.destroy(); session = nil; super.tearDown() }
 
-    private func editor(_ text: String = source, selection: NSRange = NSRange(location: 0, length: 0)) -> (NodeView, TextArea, NSWindow) {
+    private func editor(_ text: String = source, selection: NSRange = NSRange(location: 0, length: 0), faces face: String = faces) -> (NodeView, TextArea, NSWindow) {
         _ = NSApplication.shared
         presenter = Presenter()
         session = ExactApp.shared.makeSession(label: "inline-atoms")
@@ -36,7 +98,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         node.props["markup"] = "markdown"
         node.props["value"] = text
         node.props["atoms"] = kinds
-        node.props["atomFaces"] = faces
+        node.props["atomFaces"] = face
         node.handlers = ["input", "atompress"]
         node.applyTextArea()
         node.layoutTextArea()
@@ -180,6 +242,137 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(attachments(f).first?.atom.dark == false)
     }
 
+    /// D2: a face that changes while its source stays, as an upload's
+    /// percentage does, draws its pill again with no keystroke, edit or
+    /// caret move. So does a new paint of its kind alone, and a kinds list
+    /// that no longer names its kind leaves no pill.
+    func testANewFaceAloneDrawsThePillAgain() throws {
+        let (node, f, window) = editor(faces: upload(0))
+        defer { window.close() }
+        let pill = { try XCTUnwrap(self.attachments(f).first, "a pill") }
+        let picture = { (pill: AtomAttachment) in
+            try pixels { context, rect in
+                guard let location = f.textLayoutManager?.documentRange.location,
+                      let image = pill.image(for: rect, attributes: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil) else { return }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                image.draw(in: rect)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+        let end = { f.firstRect(forCharacterRange: NSRange(location: b, length: 0), actualRange: nil).minX }
+        XCTAssertEqual(try pill().atom.label, "A quote 0%")
+        let drawn = try picture(pill()), narrow = end()
+        node.applyProps(set: ["atomFaces": upload(87)], clear: [])
+        XCTAssertEqual(try pill().atom.label, "A quote 87%", "the pill draws the new face")
+        XCTAssertTrue(try picture(pill()) != drawn, "its picture changes")
+        XCTAssertGreaterThan(end(), narrow, "its wider label moves the text after it")
+        drain()
+        XCTAssertEqual(f.atomElements.first?.accessibilityLabel(), "A quote 87%", "its element is named by the new label (D8)")
+        let kept = drawnAtom(f)
+        node.applyProps(set: ["accessibilityLabel": "Prompt"], clear: [])
+        XCTAssertTrue(drawnAtom(f) === kept, "a batch that changes none of them restyles nothing")
+        node.applyProps(set: ["atomStyles": ##"{"citation":[[47,"#040506"]]}"##], clear: [])
+        XCTAssertEqual(try pill().atom.background, [4, 5, 6, 255], "its kind's new paint")
+        node.applyProps(set: ["atoms": #"[{"name":"mention","prefix":"@"}]"#], clear: [])
+        XCTAssertTrue(attachments(f).isEmpty, "a source no kind names is no atom")
+        XCTAssertEqual(f.string, source, "the source never changes")
+    }
+
+    /// LLP 1045 D1 and D2: nothing is restyled while text is marked, so a
+    /// face that comes meanwhile is drawn when the composition ends:
+    /// committed as it stands, or cancelled, which AppKit does not report as
+    /// a change.
+    func testAFaceThatComesWhileTextIsMarkedIsDrawnWhenTheCompositionEnds() throws {
+        let (node, f, window) = editor(faces: upload(0))
+        defer { window.close() }
+        let label = { (self.attachments(f).first?.atom.label) ?? "" }
+        let none = NSRange(location: NSNotFound, length: 0)
+        f.setSelectedRange(NSRange(location: (source as NSString).length, length: 0))
+        f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: none)
+        // The app's echo of what it heard, and a new face.
+        node.applyProps(set: ["value": f.string, "atomFaces": upload(87)], clear: [])
+        XCTAssertTrue(f.hasMarkedText())
+        XCTAssertEqual(label(), "A quote 0%", "not while text is marked")
+        f.unmarkText()
+        XCTAssertEqual(label(), "A quote 87%", "committed as it stands")
+        f.setMarkedText("ほ", selectedRange: NSRange(location: 1, length: 0), replacementRange: none)
+        node.applyProps(set: ["value": f.string, "atomFaces": upload(100)], clear: [])
+        XCTAssertEqual(label(), "A quote 87%")
+        f.setMarkedText("", selectedRange: NSRange(location: 0, length: 0), replacementRange: none)
+        XCTAssertFalse(f.hasMarkedText())
+        XCTAssertEqual(label(), "A quote 100%", "cancelled")
+    }
+
+    /// A face's paint is its pill's, over the platform's token, for the appearance it draws in (D2, D4).
+    func testAFacesPaintIsItsPillsInEachAppearance() throws {
+        let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"#1a85d4"}]"##
+        let (_, f, window) = editor(faces: painted)
+        defer { window.close() }
+        window.appearance = NSAppearance(named: .aqua)
+        drain()
+        XCTAssertEqual(drawnAtom(f)?.ink, [213, 44, 54, 255])
+        XCTAssertEqual(drawnAtom(f)?.background, [26, 133, 212, 255])
+        XCTAssertEqual(attachments(f).first?.atom.ink, [213, 44, 54, 255], "the picture draws it")
+        window.appearance = NSAppearance(named: .darkAqua)
+        drain()
+        XCTAssertEqual(drawnAtom(f)?.ink, [255, 103, 98, 255], "dark, its dark half")
+        XCTAssertEqual(drawnAtom(f)?.background, [26, 133, 212, 255])
+    }
+
+    /// A face's colour in a wide space keeps it, as a bound text colour
+    /// does, in the pill's picture too.
+    func testAWideFaceColourKeepsItsSpaceInThePicture() throws {
+        let (_, f, window) = editor(faces: wide)
+        defer { window.close() }
+        drain()
+        let atom = try XCTUnwrap(drawnAtom(f))
+        assertDisplayP3(atom.ink, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
+        let pill = try XCTUnwrap(attachments(f).first)
+        let location = try XCTUnwrap(f.textLayoutManager?.documentRange.location)
+        let bounds = CGRect(x: 0, y: 0, width: 40, height: 20)
+        let image = try XCTUnwrap(pill.image(for: bounds, attributes: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil))
+        try assertDisplayP3Green { context, rect in
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            image.draw(in: rect)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
+    /// D4: in a right-to-left line the pill lays out from the right, its
+    /// icon first, as the line does; a face's `direction` pins its own.
+    func testAPillFollowsItsLinesDirectionUnlessItsFacePinsOne() throws {
+        for (direction, right) in [("", true), ("ltr", false), ("rtl", true)] {
+            let (node, f, window) = editor(faces: iconFace(direction))
+            defer { window.close() }
+            node.props["paragraphDirs"] = "rtl"
+            node.applyTextArea()
+            drain()
+            let manager = try XCTUnwrap(f.textLayoutManager)
+            var drawn: (AtomAttachment, [NSAttributedString.Key: Any])?
+            manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+                guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+                let text = paragraph.attributedString
+                text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, at, _ in
+                    if drawn == nil, let pill = value as? AtomAttachment { drawn = (pill, text.attributes(at: at.location, effectiveRange: nil)) }
+                }
+                return drawn == nil
+            }
+            let (pill, attributes) = try XCTUnwrap(drawn)
+            XCTAssertEqual((attributes[.paragraphStyle] as? NSParagraphStyle)?.baseWritingDirection, .rightToLeft, "the line is right to left")
+            let image = try XCTUnwrap(pill.image(for: CGRect(x: 0, y: 0, width: 40, height: 20), attributes: attributes, location: manager.documentRange.location, textContainer: nil))
+            let middle = try inkMiddle { context, rect in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                image.draw(in: rect)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            XCTAssertEqual(middle > 20, right, "direction \(direction.isEmpty ? "unset" : direction): the icon's middle at \(middle)")
+        }
+    }
+
     func testASelectedPillIsEmphasizedOnlyInTheKeyWindowAndKeyChangesRestyle() throws {
         let (_, f, window) = editor(selection: NSRange(location: a, length: b - a))
         defer { window.close() }
@@ -277,7 +470,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
     override func setUp() { super.setUp(); ExactMarkdown.install() }
     override func tearDown() { session?.destroy(); session = nil; super.tearDown() }
 
-    private func field(_ text: String = source) -> (Presenter, NodeView, TextArea) {
+    private func field(_ text: String = source, faces face: String = faces, dirs: String? = nil) -> (Presenter, NodeView, TextArea) {
         let made = ExactApp.shared.makeSession(label: "inline-atoms")
         session = made
         let p = made.presenter
@@ -287,7 +480,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         window.makeKeyAndVisible()
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
-            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": text, "markup": "markdown", "atoms": kinds, "atomFaces": faces], "handlers": ["input", "atompress"]],
+            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": text, "markup": "markdown", "atoms": kinds, "atomFaces": face].merging(dirs.map { ["paragraphDirs": $0] } ?? [:]) { a, _ in a }, "handlers": ["input", "atompress"]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 600.0, "h": 300.0],
@@ -326,6 +519,169 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertTrue(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first === element, "a restyle keeps the element VoiceOver may be on")
     }
 
+    /// The pills TextKit laid out: each attachment in the paragraphs it asked for.
+    private func attachments(_ f: TextArea) -> [AtomAttachment] {
+        guard let manager = f.textLayoutManager else { return [] }
+        manager.ensureLayout(for: manager.documentRange)
+        var out: [AtomAttachment] = []
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+            let text = paragraph.attributedString
+            text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                if let pill = value as? AtomAttachment { out.append(pill) }
+            }
+            return true
+        }
+        return out
+    }
+
+    /// D2 on UIKit: a face that changes while its source stays draws its pill
+    /// again with no other edit. So does a new paint of its kind alone, and a
+    /// kinds list that no longer names its kind leaves no pill.
+    func testANewFaceAloneDrawsThePillAgain() throws {
+        let (p, node, f) = field(faces: upload(0))
+        window.layoutIfNeeded()
+        let pill = { try XCTUnwrap(self.attachments(f).first, "a pill") }
+        let drawnAtom = { f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom }
+        let picture = { (pill: AtomAttachment) in
+            try pixels { context, rect in
+                guard let location = f.textLayoutManager?.documentRange.location else { return }
+                var image: UIImage?
+                // TextKit asks for the picture with the text view's traits current.
+                f.traitCollection.performAsCurrent {
+                    image = pill.image(for: rect, attributes: [.font: UIFont.systemFont(ofSize: 16)], location: location, textContainer: nil)
+                }
+                UIGraphicsPushContext(context)
+                image?.draw(in: rect)
+                UIGraphicsPopContext()
+            }
+        }
+        let end = { f.caretRect(for: f.position(from: f.beginningOfDocument, offset: b)!).minX }
+        XCTAssertEqual(try pill().atom.label, "A quote 0%")
+        let drawn = try picture(pill()), narrow = end()
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["atomFaces": upload(87)]]]))
+        XCTAssertEqual(try pill().atom.label, "A quote 87%", "the pill draws the new face")
+        XCTAssertTrue(try picture(pill()) != drawn, "its picture changes")
+        XCTAssertGreaterThan(end(), narrow, "its wider label moves the text after it")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        let element = node.accessibilityElements?.compactMap { $0 as? AtomElement }.first
+        XCTAssertEqual(element?.accessibilityLabel, "A quote 87%", "its element is named by the new label (D8)")
+        let kept = drawnAtom()
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityLabel": "Prompt"]]]))
+        XCTAssertTrue(drawnAtom() === kept, "a batch that changes none of them restyles nothing")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["atomStyles": ##"{"citation":[[47,"#040506"]]}"##]]]))
+        XCTAssertEqual(try pill().atom.background, [4, 5, 6, 255], "its kind's new paint")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["atoms": #"[{"name":"mention","prefix":"@"}]"#]]]))
+        XCTAssertTrue(attachments(f).isEmpty, "a source no kind names is no atom")
+        XCTAssertEqual(f.text, source, "the source never changes")
+    }
+
+    /// LLP 1045 D1 and D2 on UIKit: a face that comes while text is marked is
+    /// drawn when the composition ends, committed as it stands or cancelled.
+    func testAFaceThatComesWhileTextIsMarkedIsDrawnWhenTheCompositionEnds() throws {
+        let (p, _, f) = field(faces: upload(0))
+        window.layoutIfNeeded()
+        let label = { (self.attachments(f).first?.atom.label) ?? "" }
+        f.selectedRange = NSRange(location: (source as NSString).length, length: 0)
+        f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0))
+        // The app's echo of what it heard, and a new face.
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": f.text ?? "", "atomFaces": upload(87)]]]))
+        XCTAssertNotNil(f.markedTextRange)
+        XCTAssertEqual(label(), "A quote 0%", "not while text is marked")
+        f.unmarkText()
+        XCTAssertEqual(label(), "A quote 87%", "committed as it stands")
+        f.setMarkedText("ほ", selectedRange: NSRange(location: 1, length: 0))
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": f.text ?? "", "atomFaces": upload(100)]]]))
+        XCTAssertEqual(label(), "A quote 87%")
+        f.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+        XCTAssertNil(f.markedTextRange)
+        XCTAssertEqual(label(), "A quote 100%", "cancelled")
+    }
+
+    /// A face's paint is its pill's, over the platform's token, for the trait collection it draws in (D2, D4).
+    func testAFacesPaintIsItsPillsInEachAppearance() throws {
+        let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36ff, #ff6762ff)","backgroundColor":"#1a85d4ff"}]"##
+        let (_, _, f) = field(faces: painted)
+        let drawn = { f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom }
+        let settle = { self.window.layoutIfNeeded(); RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+        window.overrideUserInterfaceStyle = .light
+        settle()
+        XCTAssertEqual(drawn()?.ink, [213, 44, 54, 255])
+        XCTAssertEqual(drawn()?.background, [26, 133, 212, 255])
+        window.overrideUserInterfaceStyle = .dark
+        settle()
+        XCTAssertEqual(drawn()?.ink, [255, 103, 98, 255], "dark, its dark half")
+    }
+
+    /// A face's colour in a wide space keeps it on the pill, as a bound
+    /// text colour does (LLP 1100 D2), in the picture the renderer makes
+    /// for the text view's traits.
+    func testAWideFaceColourKeepsItsSpace() throws {
+        let (_, _, f) = field(faces: wide)
+        window.layoutIfNeeded()
+        let atom = try XCTUnwrap(f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)
+        assertDisplayP3(atom.ink, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
+        let manager = try XCTUnwrap(f.textLayoutManager)
+        manager.ensureLayout(for: manager.documentRange)
+        var pill: AtomAttachment?
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+            let text = paragraph.attributedString
+            text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                pill = pill ?? value as? AtomAttachment
+            }
+            return pill == nil
+        }
+        // TextKit asks for the picture with the text view's traits current.
+        let bounds = CGRect(x: 0, y: 0, width: 40, height: 20), location = manager.documentRange.location
+        var picture: UIImage?
+        f.traitCollection.performAsCurrent {
+            picture = pill?.image(for: bounds, attributes: [.font: UIFont.systemFont(ofSize: 16)], location: location, textContainer: nil)
+        }
+        let image = try XCTUnwrap(picture)
+        try assertDisplayP3Green { context, rect in
+            UIGraphicsPushContext(context)
+            image.draw(in: rect)
+            UIGraphicsPopContext()
+        }
+    }
+
+    /// D4: in a right-to-left line the pill lays out from the right, its
+    /// icon first, as the line does; a face's `direction` pins its own.
+    func testAPillFollowsItsLinesDirectionUnlessItsFacePinsOne() throws {
+        for (direction, right) in [("", true), ("ltr", false), ("rtl", true)] {
+            let (_, _, f) = field(faces: iconFace(direction), dirs: "rtl")
+            window.layoutIfNeeded()
+            let manager = try XCTUnwrap(f.textLayoutManager)
+            manager.ensureLayout(for: manager.documentRange)
+            var drawn: (AtomAttachment, [NSAttributedString.Key: Any])?
+            manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+                guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+                let text = paragraph.attributedString
+                text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, at, _ in
+                    if drawn == nil, let pill = value as? AtomAttachment { drawn = (pill, text.attributes(at: at.location, effectiveRange: nil)) }
+                }
+                return drawn == nil
+            }
+            let (pill, attributes) = try XCTUnwrap(drawn)
+            XCTAssertEqual((attributes[.paragraphStyle] as? NSParagraphStyle)?.baseWritingDirection, .rightToLeft, "the line is right to left")
+            var picture: UIImage?
+            let location = manager.documentRange.location
+            f.traitCollection.performAsCurrent {
+                picture = pill.image(for: CGRect(x: 0, y: 0, width: 40, height: 20), attributes: attributes, location: location, textContainer: nil)
+            }
+            let image = try XCTUnwrap(picture)
+            let middle = try inkMiddle { context, rect in
+                UIGraphicsPushContext(context)
+                image.draw(in: rect)
+                UIGraphicsPopContext()
+            }
+            XCTAssertEqual(middle > 20, right, "direction \(direction.isEmpty ? "unset" : direction): the icon's middle at \(middle)")
+            session?.destroy(); session = nil
+        }
+    }
+
     func testACaretInsideGoesToTheEndAndBackspaceRemovesItWhole() {
         let (_, _, f) = field()
         f.selectedRange = NSRange(location: b, length: 0)
@@ -350,14 +706,94 @@ final class InlineAtomReaderTests: XCTestCase {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
         let runs = MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: faces))
         let atom = try XCTUnwrap(runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
-        XCTAssertEqual(atom.text, "\u{202F}A\u{00A0}quote\u{202F}")
+        XCTAssertEqual(atom.text, "\u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F}", "one box in a left-to-right line")
         XCTAssertNotNil(atom.background)
         XCTAssertNotEqual(atom.backgroundBox, 0)
         XCTAssertEqual(atom.backgroundRadii.count, 4)
         XCTAssertFalse(atom.decoration.contains("underline"))
-        XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}A\u{00A0}quote\u{202F} now")
+        XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F} now")
         // Without atoms the same source is its link text, as before.
         XCTAssertEqual(MarkupRuns.expand(source, base: base, color: nil).map(\.text).joined(), "Ask Quote now")
+    }
+
+    /// A face's paint is drawn over its kind's, for the appearance drawn in;
+    /// an empty one keeps the kind's (D2, D4).
+    func testAFacesPaintWinsOverItsKinds() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        // The kind's `color` and `background-color` rows, by the kernel's style bits (75 and 47).
+        let styles = ##"{"citation":[[75,"#010203"],[47,"#040506"]]}"##
+        let painted = #"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":""}]"#
+        let atom = { (dark: Bool) in
+            MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: painted, styles: styles, dark: dark))
+                .first { $0.href.hasPrefix(MarkupRuns.atomScheme) }
+        }
+        let light = try XCTUnwrap(atom(false)), dark = try XCTUnwrap(atom(true))
+        XCTAssertEqual(light.color, [213, 44, 54, 255])
+        XCTAssertEqual(dark.color, [255, 103, 98, 255])
+        XCTAssertEqual(light.background, [4, 5, 6, 255], "an empty face colour keeps the kind's")
+    }
+
+    /// D4: the reader isolates a pill's label in the direction its face
+    /// pins, else in its lines' (its node's `direction`), as the web's box
+    /// takes its `dir` or its line's.
+    func testAReaderPillIsIsolatedInItsFacesDirectionElseItsLines() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let label = { (direction: String, rtl: Bool) -> String? in
+            let face = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"","backgroundColor":"","direction":"\##(direction)"}]"##
+            return MarkupRuns.expand(source, base: base, color: nil, atoms: MarkdownAtoms(kinds: kinds, faces: face, rtl: rtl))
+                .first { $0.href.hasPrefix(MarkupRuns.atomScheme) }?.text
+        }
+        let (lri, rli) = ("\u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F}", "\u{202F}\u{2067}A\u{00A0}quote\u{2069}\u{202F}")
+        XCTAssertEqual(label("", false), lri, "a left-to-right line's")
+        XCTAssertEqual(label("", true), rli, "a right-to-left line's")
+        XCTAssertEqual(label("ltr", true), lri, "pinned")
+        XCTAssertEqual(label("rtl", false), rli, "pinned")
+    }
+
+    /// D4: laid out in a right-to-left line, a reader's pill is one box,
+    /// as the web's and the Apple editor's are: beside text of the other
+    /// direction, `שלום hello @x כאן` draws `כאן [abc] hello שלום`, pinned or
+    /// not; and a neutral at its label's start and end reads in the pill's
+    /// direction, `.abc!` in the line's and `!abc.` pinned left to right.
+    func testAReaderPillIsOneBoxInItsLine() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let mention = #"[{"name":"mention","prefix":"@"}]"#
+        // Each of `marks`' left edge, `@x` labelled `label` in a right-to-left node.
+        let lefts = { (label: String, direction: String, marks: [Character]) -> [CGFloat] in
+            let face = ##"[{"source":"@x","label":"\##(label)","icon":"","title":"","color":"","backgroundColor":"","direction":"\##(direction)"}]"##
+            let text = MarkupRuns.expand("שלום hello @x כאן", base: base, color: nil, atoms: MarkdownAtoms(kinds: mention, faces: face, rtl: true))
+                .map(\.text).joined()
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.baseWritingDirection = .rightToLeft
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.paragraphStyle: paragraph]))
+            var left: [Int: CGFloat] = [:]
+            for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                let n = CTRunGetGlyphCount(run)
+                var indices = [CFIndex](repeating: 0, count: n), positions = [CGPoint](repeating: .zero, count: n)
+                CTRunGetStringIndices(run, CFRange(location: 0, length: n), &indices)
+                CTRunGetPositions(run, CFRange(location: 0, length: n), &positions)
+                for (i, p) in zip(indices, positions) { left[i] = p.x }
+            }
+            let utf16 = Array(text.utf16)
+            return marks.map { left[utf16.firstIndex(of: $0.utf16.first!)!] ?? .nan }
+        }
+        for direction in ["", "ltr"] {
+            let x = lefts("abc", direction, ["a", "h"])
+            XCTAssertLessThan(x[0], x[1], "\(direction.isEmpty ? "the line's" : direction): the pill left of `hello`")
+        }
+        let follows = lefts("!abc.", "", ["!", "a", "."]), pinned = lefts("!abc.", "ltr", ["!", "a", "."])
+        XCTAssertTrue(follows[2] < follows[1] && follows[1] < follows[0], "the line's: `.abc!`, \(follows)")
+        XCTAssertTrue(pinned[0] < pinned[1] && pinned[1] < pinned[2], "pinned: `!abc.`, \(pinned)")
+    }
+
+    /// A face's colour in a wide space keeps it on its run and box, as a
+    /// bound text colour does (LLP 1100 D2).
+    func testAWideFaceColourKeepsItsSpace() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let runs = MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: wide))
+        let atom = try XCTUnwrap(runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
+        assertDisplayP3(atom.color, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
     }
 }
 

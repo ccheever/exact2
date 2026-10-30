@@ -6,7 +6,6 @@
 //! tint, and a material wins over `backdrop-filter`.
 
 use crate::borders::{boot, held_to_chrome};
-use exact_linux::presenter::PainterChoice;
 
 const CASES: [&str; 8] = [
     "ultra-thin",
@@ -21,10 +20,7 @@ const CASES: [&str; 8] = [
 
 #[test]
 fn named_materials_match_chrome() {
-    let mut choices = vec![PainterChoice::Cpu];
-    if exact_linux::gpu::Gpu::new().is_ok() {
-        choices.push(PainterChoice::Gpu);
-    }
+    let choices = crate::paint::painters();
     let mut failures = Vec::new();
     for choice in choices {
         let name = format!("{choice:?}");

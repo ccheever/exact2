@@ -1,0 +1,18 @@
+shape Ack
+  ok: bool
+
+component App
+  state n = 0
+  mutation saved as shape Ack queue then landed
+  action save
+    send saved = ping(n)
+    send saved = ping(n + 1)
+  action landed
+    n = n + 1
+  view
+    button "save" testId="save" press=save
+
+test "queued sends and their continuations"
+  tap "save"
+  clock +0
+  expect state n == 2

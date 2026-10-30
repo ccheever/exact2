@@ -174,6 +174,7 @@ fn request_json(request: &Request) -> Json {
         "headers": request.headers,
         "body": base64(&request.body),
         "stream": request.stream,
+        "upload_progress": request.upload_progress.then_some(true),
         "long_poll": request.long_poll.as_ref().map(|p| json!({
             "cursor": p.cursor, "from": p.from, "same_cursor_event": p.same_cursor_event,
         })),
@@ -184,6 +185,7 @@ fn request_json(request: &Request) -> Json {
         "held": request.held.then_some(true),
         "due_ms": request.due_ms,
         "wake_ms": request.wake_ms,
+        "fetch": request.fetch,
     })
 }
 
@@ -242,6 +244,9 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         // stream: a body that is not events is its one answer.
         socket: false,
         bytes: false,
+        // An upload (LLP 1016.000 D10): its progress and reply are a
+        // stream's messages and end, which the main thread delivers as for any.
+        upload_progress: json["upload_progress"].as_bool().unwrap_or(false),
         // A long poll (LLP 1016.000 D8) a worker's source asked for: its
         // terms, checked as the prelude checks them.
         long_poll: match &json["long_poll"] {
@@ -288,9 +293,13 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         held: json["held"].as_bool().unwrap_or(false),
         due_ms: json["due_ms"].as_u64(),
         wake_ms: json["wake_ms"].as_u64(),
+        fetch: json["fetch"].as_u64(),
     };
-    // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
-    match request.long_poll_refusal() {
+    // A long poll's terms, checked as every host checks them (LLP 1016.000 D8), and an upload's.
+    match request
+        .long_poll_refusal()
+        .or(request.upload_progress_refusal())
+    {
         Some(why) => Err(unavailable(format!("turn reply: {why}"))),
         None => Ok(request),
     }
@@ -384,6 +393,19 @@ mod tests {
         let outcome = encode(Ok(Answer::Later(request)), &mut Store::default(), vec![]);
         match apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap() {
             Answer::Later(r) => assert!(r.stream && !r.socket && !r.bytes, "{r:?}"),
+            _ => panic!("a yield"),
+        }
+    }
+
+    #[test]
+    fn a_worker_fetch_keeps_the_module_ticket_an_abort_names_it_by() {
+        let request = Request {
+            fetch: Some(42),
+            ..Request::get("https://x.test/held")
+        };
+        let outcome = encode(Ok(Answer::Later(request)), &mut Store::default(), vec![]);
+        match apply(outcome, &mut Store::default(), &mut Vec::new()).unwrap() {
+            Answer::Later(r) => assert_eq!(r.fetch, Some(42)),
             _ => panic!("a yield"),
         }
     }

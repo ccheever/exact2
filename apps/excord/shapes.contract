@@ -190,7 +190,7 @@ shape Message
   poll: Poll[]
   reply: ReplyRef[]
 
-// One contiguous run of a channel's history, at most 200 rows. `hasBefore`
+// One contiguous run of a channel's history, at most 300 rows. `hasBefore`
 // and `hasAfter` say whether older or newer history exists outside it; a
 // window without `hasAfter` ends at the channel's newest message. `pin` is
 // the anchor that answers this same window while no message arrives.

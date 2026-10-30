@@ -419,6 +419,12 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             owner.setNeedsDisplay()
         }
         adopt(owner, tabs)
+        // A bar new under its owner is made and placed with no animation inside one UIKit has open; one that showed moves with its owner
+        owner.moveOrPlace(new: bars[owner.id]?.superview !== owner) { placeBar(owner, tabs, faces) }
+    }
+
+    /// `owner`'s tab bar, made if it has none, for `tabs` and their faces: its items and its place.
+    private func placeBar(_ owner: NodeView, _ tabs: [NodeView], _ faces: [TabBarFace]) {
         let bar = bars[owner.id] ?? {
             let value = ExactTabBar(ownerID: owner.id)
             value.delegate = self
@@ -528,60 +534,67 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             owner.accessibilityTraits.remove(.tabBar)
             decide(owner, "projected to UISegmentedControl (\(tabs.count) segments)")
             adopt(owner, tabs)
-            let control = controls[owner.id] ?? {
-                let value = ExactSegmentedControl(ownerID: owner.id)
-                value.addTarget(self, action: #selector(changed(_:)), for: .valueChanged)
-                let context = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
-                context.delegate = self
-                value.addGestureRecognizer(context)
-                value.autoresizingMask = [.flexibleWidth, .flexibleTopMargin, .flexibleBottomMargin]
-                // A path segment is drawn at the body size: again as the text size changes.
-                value.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (control: ExactSegmentedControl, _: UITraitCollection) in control.redrawPaths() }
-                owner.addSubview(value)
-                controls[owner.id] = value
-                return value
-            }()
-            if control.superview !== owner { owner.addSubview(control) }
-            assign(control, \.isEnabled, available(owner))
-            // The authored colour belongs to UIKit's control, within its native height and corners.
-            assign(control, \.backgroundColor, owner.channels("background_color").map { TextEngine.color($0) })
-            owner.applyBoxLayer()
-            owner.setNeedsDisplay()
-            control.accessibilityLabel = owner.props["accessibilityLabel"]
-            if control.numberOfSegments != tabs.count {
-                control.removeAllSegments()
-                control.icons.removeAll()
-                for index in tabs.indices { control.insertSegment(withTitle: "", at: index, animated: false) }
-            }
-            for (index, tab) in tabs.enumerated() {
-                content(tab, at: index, in: control)
-                control.setEnabled(!tab.disabled, forSegmentAt: index)
-            }
-            control.accessibilityIdentifier = owner.props["testId"]
-            control.segmentLabels = tabs.map(Self.segmentLabel)
-            control.segmentIDs = tabs.map { $0.props["testId"] }
-            control.segmentUnavailable = tabs.map { $0.disabled || $0.ariaUnavailable }
-            let selected = tabs.firstIndex(where: Self.chosen) ?? UISegmentedControl.noSegment
-            // A choice the finger made and the control has not reported yet
-            // stays; resetting it would make the report name the old segment.
-            let pending = control.isTracking || control.selectedSegmentIndex != control.settled
-            if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
-            if control.selectedSegmentIndex == selected { control.settled = selected }
-            // As wide as the content box and its own height, centred in it
-            // (LLP 1116.019 D1): a taller box (an authored height, a stretch)
-            // does not stretch UIKit's control, as a hand-built screen's
-            // never is.
-            let box = owner.contentBox()
-            let height = min(box.height, natural(owner.id, control).height)
-            let frame = CGRect(x: box.minX, y: box.midY - height / 2, width: box.width, height: height)
-            if control.frame != frame { control.frame = frame }
-            owner.bringSubviewToFront(control)
-            measure(owner, control)
-            // Equal segments where they fit; in a narrower box UIKit gives
-            // each segment its content's share, so "Temperature" keeps its
-            // letters beside "Length" (LLP 1116.004 D2).
-            assign(control, \.apportionsSegmentWidthsByContent, frame.width + 0.5 < natural(owner.id, control).width)
+            // A control new under its owner is made, titled, measured and placed with no animation inside one UIKit
+            // has open, as UIKit sizes it to fit while it is made and titled; one that showed moves with its owner
+            owner.moveOrPlace(new: controls[owner.id]?.superview !== owner) { segment(owner, tabs) }
         }
+    }
+
+    /// `owner`'s segmented control, made if it has none, for `tabs`: its segments, its state and its place.
+    private func segment(_ owner: NodeView, _ tabs: [NodeView]) {
+        let control = controls[owner.id] ?? {
+            let value = ExactSegmentedControl(ownerID: owner.id)
+            value.addTarget(self, action: #selector(changed(_:)), for: .valueChanged)
+            let context = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
+            context.delegate = self
+            value.addGestureRecognizer(context)
+            value.autoresizingMask = [.flexibleWidth, .flexibleTopMargin, .flexibleBottomMargin]
+            // A path segment is drawn at the body size: again as the text size changes.
+            value.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (control: ExactSegmentedControl, _: UITraitCollection) in control.redrawPaths() }
+            owner.addSubview(value)
+            controls[owner.id] = value
+            return value
+        }()
+        if control.superview !== owner { owner.addSubview(control) }
+        assign(control, \.isEnabled, available(owner))
+        // The authored colour belongs to UIKit's control, within its native height and corners.
+        assign(control, \.backgroundColor, owner.undimmedChannels("background_color", dark: owner.drawsDark).map { TextEngine.color($0) })
+        owner.applyBoxLayer()
+        owner.setNeedsDisplay()
+        control.accessibilityLabel = owner.props["accessibilityLabel"]
+        if control.numberOfSegments != tabs.count {
+            control.removeAllSegments()
+            control.icons.removeAll()
+            for index in tabs.indices { control.insertSegment(withTitle: "", at: index, animated: false) }
+        }
+        for (index, tab) in tabs.enumerated() {
+            content(tab, at: index, in: control)
+            control.setEnabled(!tab.disabled, forSegmentAt: index)
+        }
+        control.accessibilityIdentifier = owner.props["testId"]
+        control.segmentLabels = tabs.map(Self.segmentLabel)
+        control.segmentIDs = tabs.map { $0.props["testId"] }
+        control.segmentUnavailable = tabs.map { $0.disabled || $0.ariaUnavailable }
+        let selected = tabs.firstIndex(where: Self.chosen) ?? UISegmentedControl.noSegment
+        // A choice the finger made and the control has not reported yet
+        // stays; resetting it would make the report name the old segment.
+        let pending = control.isTracking || control.selectedSegmentIndex != control.settled
+        if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
+        if control.selectedSegmentIndex == selected { control.settled = selected }
+        // As wide as the content box and its own height, centred in it
+        // (LLP 1116.019 D1): a taller box (an authored height, a stretch)
+        // does not stretch UIKit's control, as a hand-built screen's
+        // never is.
+        let box = owner.contentBox()
+        let height = min(box.height, natural(owner.id, control).height)
+        let frame = CGRect(x: box.minX, y: box.midY - height / 2, width: box.width, height: height)
+        if control.frame != frame { control.frame = frame }
+        owner.bringSubviewToFront(control)
+        measure(owner, control)
+        // Equal segments where they fit; in a narrower box UIKit gives
+        // each segment its content's share, so "Temperature" keeps its
+        // letters beside "Length" (LLP 1116.004 D2).
+        assign(control, \.apportionsSegmentWidthsByContent, frame.width + 0.5 < natural(owner.id, control).width)
     }
 
     /// A title segment's accessibility label: its tab's name where that is

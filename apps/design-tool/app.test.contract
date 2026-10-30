@@ -1314,7 +1314,7 @@ test "the variant gallery: a toggle beside a local canvas frames the dev loop's 
   tap "canvas-gallery"
   expect state galleryOn == true
   expect tree has "canvas-frame"
-  expect text "gallery-note" == "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame."
+  expect text "gallery-note" == "The variant gallery: each library component the app uses, once per variant value, on the app's design. Each cell is a column's width, as a caller's column shows it. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame."
   // States: the copies hold the selection's own view, the app's.
   type "canvas-view" "states"
   expect tree missing "canvas-gallery"

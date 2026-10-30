@@ -1361,7 +1361,20 @@ impl<D: DataSource> Runner<D> {
         let mut args = Vec::new();
         for a in handler.args.iter() {
             let code = self.plan.arg(a).expr;
-            args.push(self.eval(code, &[], &frames)?);
+            let value = match self.eval(code, &[], &frames) {
+                Ok(value) => value,
+                Err(error) => {
+                    let name = self.plan.action(handler.action).name;
+                    let error = RunnerError::HandlerArguments {
+                        action: self.plan.str(name).to_string(),
+                        error: Box::new(error),
+                    };
+                    let result = Err(error);
+                    self.record_ran("handler", name, self.poisoned, &result);
+                    return result;
+                }
+            };
+            args.push(value);
         }
         if let Some(p) = payload {
             // A navigate action may deliberately ignore its location (D8).
@@ -1442,7 +1455,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         super::lines::ran(what, self.plan.str(self.plan.action(handler.action).name));
-        self.run_action(handler.action, args, &frames)
+        self.traced_action("handler", handler.action, args, &frames)
     }
 }
 

@@ -26,11 +26,11 @@ component App
 
 test "one then a reply, before the timer"
   tap "twice"
-  expect state order == ""
-  tap "twice"
   expect state order == "aa"
+  tap "twice"
+  expect state order == "aaaa"
   clock +5
   expect state order == "aaaat"
   tap "twice"
   clock +3
-  expect state order == "aaaataa"
+  expect state order == "aaaataat"

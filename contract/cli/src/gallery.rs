@@ -956,11 +956,18 @@ fn source(
                 let args =
                     args(p.component, file, shapes, compiler, inert, &c.values).unwrap_or_default();
                 let _ = writeln!(s, "          {}({})", c.component, args.join(", "));
+                // A slot's sample: a tinted block that says so, so a component whose slot is its
+                // whole content (a menu's group) shows something inside its frame (stage 15 D4
+                // batch 3 #1).
                 if p.component.slot {
                     let _ = writeln!(
                         s,
-                        "            box testId={} width=24 height=24",
+                        "            column testId={} min-width=24 min-height=24 background-color=\"-exact-fill\" align-items=\"center\" justify-content=\"center\"",
                         literal(&format!("{id}-slot"))
+                    );
+                    let _ = writeln!(
+                        s,
+                        "              text \"slot\" font=\"-exact-caption2\" color=\"-exact-secondary-label\""
                     );
                 }
             }
@@ -1020,6 +1027,18 @@ fn compiler_record(
     Ok(format!("{name}({})", fields.join(", ")))
 }
 
+/// The roles a component's colour props are shown with, in their declared
+/// order: two colours one draws over the other (VerifiedBadge's disc and
+/// its check, D4 batch 2 #5) never get the same one, and each is a colour
+/// text or a mark shows on the gallery's background (a second text colour
+/// must not vanish into it).
+const COLOUR_SAMPLES: [&str; 4] = [
+    "-exact-label",
+    "-exact-system-blue",
+    "-exact-system-red",
+    "-exact-secondary-label",
+];
+
 /// Each prop's argument: a variant's value in the cell, else a placeholder.
 fn args(
     c: &Component,
@@ -1029,51 +1048,81 @@ fn args(
     inert: &Inert,
     values: &[(String, String)],
 ) -> Result<Vec<String>, String> {
-    c.props
-        .iter()
-        .map(|p| {
-            let value = match values.iter().find(|(q, _)| *q == p.name) {
-                Some((_, v)) if matches!(&p.ty, Some(TypeExpr::Named(t, _)) if t == "bool") => {
-                    v.clone()
+    use exact_kernel::style::roles::role;
+    // The colour roles the cell already shows (its values', and a placeholder's, an enum's first literal), by the
+    // role each names however it is spelled: a colour sample is none of them. Colour props are sampled after the rest.
+    let mut taken: Vec<u8> = Vec::new();
+    let mut colours = Vec::new();
+    let mut out = Vec::new();
+    for p in &c.props {
+        let value = match values.iter().find(|(q, _)| *q == p.name) {
+            Some((_, v)) if matches!(&p.ty, Some(TypeExpr::Named(t, _)) if t == "bool") => {
+                v.clone()
+            }
+            Some((_, v)) => {
+                taken.extend(role(v));
+                literal(v)
+            }
+            // What the view says of the prop before its type: the
+            // action its handler calls, the role a symbol names.
+            None => match &p.ty {
+                Some(TypeExpr::Named(t, _)) if t == "action" => inert.action(c, file, &p.name),
+                Some(TypeExpr::Named(t, _)) if t == "string" && inert::names_symbol(c, &p.name) => {
+                    literal(inert::role(&p.name))
                 }
-                Some((_, v)) => literal(v),
-                // What the view says of the prop before its type: the
-                // action its handler calls, the role a symbol names.
-                None => match &p.ty {
-                    Some(TypeExpr::Named(t, _)) if t == "action" => inert.action(c, file, &p.name),
-                    Some(TypeExpr::Named(t, _))
-                        if t == "string" && inert::names_symbol(c, &p.name) =>
-                    {
-                        literal(inert::role(&p.name))
+                // A string shown as an image's source: a neutral picture, not its name, which
+                // no image loads (the browser's broken-image mark, design-tool pass 2, #8).
+                Some(TypeExpr::Named(t, _))
+                    if t == "string" && inert::shows_image(c, file, &p.name) =>
+                {
+                    literal(NEUTRAL_IMAGE)
+                }
+                // A string drawn as a path's data: a neutral square, not its name, which no path parses.
+                Some(TypeExpr::Named(t, _))
+                    if t == "string" && inert::draws_path(c, file, &p.name) =>
+                {
+                    literal(NEUTRAL_PATH)
+                }
+                // A string written as a style row's value: a colour or a
+                // length of that row's kind, not its name; a colour once the
+                // rest are known (below).
+                Some(TypeExpr::Named(t, _))
+                    if t == "string" && inert::style_sample(c, file, &p.name).is_some() =>
+                {
+                    match inert::style_sample(c, file, &p.name) {
+                        Some(s) if s == COLOUR_SAMPLES[0] => {
+                            colours.push((out.len(), p.name.clone()));
+                            String::new()
+                        }
+                        s => literal(s.unwrap_or_default()),
                     }
-                    // A string shown as an image's source: a neutral picture, not its name, which
-                    // no image loads (the browser's broken-image mark, design-tool pass 2, #8).
-                    Some(TypeExpr::Named(t, _))
-                        if t == "string" && inert::shows_image(c, file, &p.name) =>
-                    {
-                        literal(NEUTRAL_IMAGE)
-                    }
-                    // A string drawn as a path's data: a neutral square, not its name, which no path parses.
-                    Some(TypeExpr::Named(t, _))
-                        if t == "string" && inert::draws_path(c, file, &p.name) =>
-                    {
-                        literal(NEUTRAL_PATH)
-                    }
-                    // A string written as a style row's value: a colour or a
-                    // length of that row's kind, not its name.
-                    Some(TypeExpr::Named(t, _))
-                        if t == "string" && inert::style_sample(c, file, &p.name).is_some() =>
-                    {
-                        literal(inert::style_sample(c, file, &p.name).unwrap_or_default())
-                    }
-                    Some(ty) => placeholder(ty, &p.name, file, shapes, compiler, &mut Vec::new())
-                        .map_err(|why| format!("{} ({why})", p.name))?,
-                    None => return Err(format!("{} (no type written)", p.name)),
-                },
-            };
-            Ok(format!("{}={value}", p.name))
-        })
-        .collect()
+                }
+                Some(ty) => {
+                    let v = placeholder(ty, &p.name, file, shapes, compiler, &mut Vec::new())
+                        .map_err(|why| format!("{} ({why})", p.name))?;
+                    // (an enum's first literal as written, not its escaped source text)
+                    let raw = match ty {
+                        TypeExpr::Enum(options, _) => options.first().map(String::as_str),
+                        _ => Some(v.trim_matches('"')),
+                    };
+                    taken.extend(raw.and_then(role));
+                    v
+                }
+                None => return Err(format!("{} (no type written)", p.name)),
+            },
+        };
+        out.push(format!("{}={value}", p.name));
+    }
+    // Each colour prop, in declared order, the next sample no other colour in the cell names.
+    for (k, (at, name)) in colours.into_iter().enumerate() {
+        let pick = (COLOUR_SAMPLES.iter())
+            .find(|r| role(r).is_some_and(|id| !taken.contains(&id)))
+            .copied()
+            .unwrap_or(COLOUR_SAMPLES[k % COLOUR_SAMPLES.len()]);
+        taken.extend(role(pick));
+        out[at] = format!("{name}={}", literal(pick));
+    }
+    Ok(out)
 }
 
 /// A value of type `ty` for showing: a string its prop's name, a number 0,

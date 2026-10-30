@@ -15,6 +15,8 @@
 mod arity;
 mod calls;
 mod gates;
+mod properties;
+pub use properties::check_properties;
 mod rereads;
 mod sends;
 mod shortcuts;
@@ -189,12 +191,36 @@ pub fn check_routes_root(file: &File, root_file: bool) -> Result<(), AnalyzeErro
     Ok(())
 }
 
-/// `analyze-read-after-assign` (@ref LLP 1116.003 D6): each read of a state
-/// or mutation slot that its action assigned before it on a path to it,
-/// which sees the value from before the action. Lowering reports them as
-/// warnings; a read behind a call is [`check_all`]'s refusal instead.
+/// `analyze-read-after-assign` (@ref LLP 1116.003 D6, LLP 1089 D3, LLP
+/// 1035.005.002 C2): each read of a state or mutation slot that its action
+/// assigned before it on a path to it, in the action's own body or behind a
+/// call, which sees the value from before the action. Lowering reports them
+/// as warnings.
 pub fn read_after_assign(checked: &Checked<'_>) -> Vec<AnalyzeError> {
-    rereads::check(&checked.expanded.root)
+    let root = &checked.expanded.root;
+    let mut out = rereads::check(root);
+    for e in calls::check(root) {
+        if !out.iter().any(|x| x.span == e.span) {
+            out.push(e);
+        }
+    }
+    out
+}
+
+/// `analyze-send-assigned` (@ref LLP 1035.005.002 C1): each action that both
+/// sends a nonqueued mutation and assigns it on one path, in either order.
+/// Lowering reports them as warnings.
+pub fn send_assigned(checked: &Checked<'_>) -> Vec<AnalyzeError> {
+    sends::send_assigned(&checked.expanded.root)
+}
+
+/// The analyzer's warnings, which lowering reports beside its own: a read its
+/// action assigned, in its body or behind a call (C2), and a send and an
+/// assignment of one mutation (C1).
+pub fn warnings(checked: &Checked<'_>) -> Vec<AnalyzeError> {
+    let mut out = read_after_assign(checked);
+    out.extend(send_assigned(checked));
+    out
 }
 
 /// Analyze the authored file using its type-checked expansion.
@@ -244,7 +270,6 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         errors.extend(check_mutation_then(scoped));
         errors.extend(sends::check(scoped));
         if ci == 0 {
-            errors.extend(calls::check(scoped));
             errors.extend(gates::check(scoped, &file.fns));
         }
         let view = View {
