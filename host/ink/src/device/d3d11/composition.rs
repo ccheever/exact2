@@ -439,13 +439,23 @@ impl D3d11 {
     /// `present` consumes this reservation without polling the handle again.
     pub fn prepare_present(&mut self, size: [u32; 2]) -> Result<bool> {
         self.collect_presented_devices();
+        self.presentation_pending = true;
         let c = self
             .composition
             .as_mut()
             .ok_or(Error::Unsupported("no composition window"))?;
-        c.resize(size)?;
+        if let Err(error) = c.resize(size) {
+            c.occluded_checks = 0;
+            return Err(error);
+        }
         let timeout = c.refresh_period().as_nanos().div_ceil(1_000_000).min(100) as u32;
-        let ready = c.acquire(timeout)?;
+        let ready = match c.acquire(timeout) {
+            Ok(ready) => ready,
+            Err(error) => {
+                c.occluded_checks = 0;
+                return Err(error);
+            }
+        };
         self.presentation_pending = !ready;
         Ok(ready)
     }

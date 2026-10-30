@@ -290,6 +290,7 @@ pub(crate) struct DirectWindow {
     pub(crate) recovering: bool,
     retry: exact_ink::device::Retry,
     present_due: Option<std::time::Instant>,
+    reservation_error_reported: bool,
     ever_presented: bool,
     pub(crate) last_refusal: Option<String>,
     retire_due: Option<std::time::Instant>,
@@ -308,6 +309,7 @@ impl DirectWindow {
             recovering: false,
             retry: Default::default(),
             present_due: None,
+            reservation_error_reported: false,
             ever_presented: false,
             last_refusal: None,
             retire_due: None,
@@ -481,11 +483,7 @@ impl DirectWindow {
             }
         }
         if !self.recovering {
-            let ready = match p.brush.prepare_window_frame(size) {
-                Ok(ready) => ready,
-                Err(_) if p.brush.device_lost() => false,
-                Err(error) => return Err(error),
-            };
+            let ready = reserve_frame(p, size, &mut self.reservation_error_reported);
             let frame = if ready {
                 p.frame_for(FrameTarget::Window)
             } else {
@@ -495,6 +493,7 @@ impl DirectWindow {
             self.present_due = p
                 .brush
                 .presentation_retry_delay()
+                .or_else(|| (!ready).then_some(std::time::Duration::from_secs_f64(1. / 60.)))
                 .map(|delay| std::time::Instant::now() + delay);
             if self.present_due.is_some() {
                 p.repaint();
@@ -561,6 +560,24 @@ impl DirectWindow {
             self.retry.failed(std::time::Instant::now());
         }
         Ok(None)
+    }
+}
+
+fn reserve_frame<D: DataSource>(p: &mut Presenter<D>, size: [u32; 2], reported: &mut bool) -> bool {
+    match p.brush.prepare_window_frame(size) {
+        Ok(ready) => {
+            if ready {
+                *reported = false;
+            }
+            ready
+        }
+        Err(error) => {
+            if !p.brush.device_lost() && !*reported {
+                eprintln!("exact-ink: frame reservation: {error}; retrying");
+                *reported = true;
+            }
+            false
+        }
     }
 }
 
@@ -706,6 +723,9 @@ mod tests {
 
     struct Lost(bool);
     impl Backend for Lost {
+        fn prepare_window_frame(&mut self, _: [u32; 2]) -> Result<bool, String> {
+            Err("injected reservation refusal".into())
+        }
         fn attach_window(
             &mut self,
             _: exact_ink::device::d3d11::Window,
@@ -810,6 +830,27 @@ mod tests {
         )
         .unwrap()
         .0
+    }
+
+    #[test]
+    fn reservation_errors_refuse_without_painting_or_replacing_the_device() {
+        let mut p = cpu_presenter();
+        let mut reported = false;
+        for lost in [false, true] {
+            p.brush.replace_backend(Box::new(Lost(lost)));
+            reported = false;
+            for _ in 0..2 {
+                assert!(!reserve_frame(&mut p, [80, 60], &mut reported));
+                assert_eq!(reported, !lost);
+                assert_eq!(p.brush.device_lost(), lost);
+                assert_eq!(p.brush.backend(), "ink");
+                assert!(p.dirty());
+            }
+        }
+        p.brush
+            .replace_backend(Box::new(crate::raster::Raster::new()));
+        assert!(reserve_frame(&mut p, [80, 60], &mut reported));
+        assert!(!reported);
     }
 
     #[test]
